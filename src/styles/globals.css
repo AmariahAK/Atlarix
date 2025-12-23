@@ -1,0 +1,444 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+/* Load Geist Font */
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/node_modules/geist/dist/fonts/geist-mono/GeistMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/node_modules/geist/dist/fonts/geist-mono/GeistMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/node_modules/geist/dist/fonts/geist-sans/Geist-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/node_modules/geist/dist/fonts/geist-sans/Geist-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/node_modules/geist/dist/fonts/geist-sans/Geist-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+.app-region-drag {
+  app-region: drag;
+}
+
+.no-app-region-drag {
+  app-region: no-drag;
+}
+
+/* 
+ * Disable drag region when select is open.
+ * See: https://github.com/dyad-sh/dyad/issues/1717
+ *
+ * Radix select component sets this data attribute when the select is open
+ * to disable scrolling on the body and we use this as a signal to disable
+ * dragging (e.g. the title bar).
+ *
+ * Note: We match any value (not just "1") because react-remove-scroll-bar
+ * increments this counter for nested scroll locks (e.g., select inside dialog).
+ */
+body[data-scroll-locked] .app-region-drag {
+  app-region: no-drag;
+}
+
+.h-screenish {
+  height: calc(100vh - 64px);
+}
+
+:root {
+  --docs-bg: #F0F4F8;
+  --default-font-family: "Geist", sans-serif;
+  --default-mono-font-family: "Geist Mono", monospace;
+
+  /* ═══════════════════════════════════════════════════════════
+     EMERALD LIGHT THEME - Green + Amber
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Background Palette - Mint/Cool Green */
+  --background-lightest: #FFFFFF;
+  --background-lighter: #F0FDF4;
+  --background: #F0FDF4;
+  --background-darker: #DCFCE7;
+  --background-darkest: #BBF7D0;
+
+  /* Text Colors */
+  --foreground: #052E16;
+  --card: #FFFFFF;
+  --card-foreground: #052E16;
+  --popover: #FFFFFF;
+  --popover-foreground: #052E16;
+
+  /* Primary = Emerald */
+  --primary: #059669;
+  --primary-foreground: #FFFFFF;
+
+  /* Secondary = Golden */
+  --secondary: #D97706;
+  --secondary-foreground: #FFFFFF;
+
+  /* Muted */
+  --muted: #DCFCE7;
+  --muted-foreground: #16A34A;
+
+  /* Accent = Amber Gold */
+  --accent: #F59E0B;
+  --accent-foreground: #FFFFFF;
+
+  /* Destructive */
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+
+  /* Borders & Inputs */
+  --border: #BBF7D0;
+  --input: #DCFCE7;
+  --ring: #059669;
+
+  /* Charts */
+  --chart-1: #10B981;
+  --chart-2: #F59E0B;
+  --chart-3: #059669;
+  --chart-4: #D97706;
+  --chart-5: #F43F5E;
+
+  --radius: 0.625rem;
+
+  /* Sidebar */
+  --sidebar: #F0FDF4;
+  --sidebar-foreground: #052E16;
+  --sidebar-primary: #059669;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #DCFCE7;
+  --sidebar-accent-foreground: #052E16;
+  --sidebar-border: #BBF7D0;
+  --sidebar-ring: #059669;
+}
+
+.prose {
+  --tw-prose-pre-bg: var(--background);
+}
+
+.dark {
+  --docs-bg: #0D0D1A;
+
+  /* ═══════════════════════════════════════════════════════════
+     EMERALD DARK THEME - Forest Night + Emerald/Amber
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Background Palette - Forest Night */
+  --background-lightest: #1C3A28;
+  --background-lighter: #162419;
+  --background: #0F1A14;
+  --background-darker: #0A130E;
+  --background-darkest: #050A07;
+
+  /* Text Colors */
+  --foreground: #ECFDF5;
+  --card: #162419;
+  --card-foreground: #ECFDF5;
+  --popover: #1C3A28;
+  --popover-foreground: #ECFDF5;
+
+  /* Primary = Emerald */
+  --primary: #10B981;
+  --primary-foreground: #0F1A14;
+
+  /* Secondary = Amber Gold */
+  --secondary: #F59E0B;
+  --secondary-foreground: #0F1A14;
+
+  /* Muted */
+  --muted: #162419;
+  --muted-foreground: #6EE7B7;
+
+  /* Accent = Amber Gold */
+  --accent: #F59E0B;
+  --accent-foreground: #0F1A14;
+
+  /* Destructive */
+  --destructive: #F43F5E;
+  --destructive-foreground: #E2E8F0;
+
+  /* Borders & Inputs */
+  --border: #1C3A28;
+  --input: #162419;
+  --ring: #10B981;
+
+  /* Charts */
+  --chart-1: #10B981;
+  --chart-2: #F59E0B;
+  --chart-3: #059669;
+  --chart-4: #D97706;
+  --chart-5: #F43F5E;
+
+  /* Sidebar */
+  --sidebar: #0F1A14;
+  --sidebar-foreground: #ECFDF5;
+  --sidebar-primary: #10B981;
+  --sidebar-primary-foreground: #0F1A14;
+  --sidebar-accent: #162419;
+  --sidebar-accent-foreground: #ECFDF5;
+  --sidebar-border: #162419;
+  --sidebar-ring: #10B981;
+}
+
+@theme inline {
+  --container-6xs: 10rem;
+  --container-5xs: 12rem;
+  --container-4xs: 14rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Sidebar colors are now defined in the :root and .dark sections above with Atlarix theme */
+
+@media (pointer: fine) {
+  @supports not (selector(::-webkit-scrollbar)) {
+    * {
+      scrollbar-color: #dadce0 transparent;
+      scrollbar-gutter: auto;
+      scrollbar-width: thin;
+    }
+  }
+
+  ::-webkit-scrollbar,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+    height: 12px;
+    width: 12px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: content-box currentColor;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    color: #dadce0;
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  :hover::-webkit-scrollbar-thumb {
+    color: #80868b;
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    color: #5f6368;
+  }
+
+  ::-webkit-scrollbar-button {
+    height: 0;
+    width: 0;
+  }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-marquee {
+  animation: marquee 2s linear infinite;
+}
+
+/* Gradient animation for Atlarix branding */
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  animation: gradient-shift 3s ease-in-out infinite;
+}
+
+/* In-between text-xs and text-sm */
+.text-xs-sm {
+  font-size: 0.82rem;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ATLARIX SIGNATURE EFFECTS
+   ═══════════════════════════════════════════════════════════ */
+
+/* Axis Line Effect - Emerald → Amber Gradient (5-8% opacity) */
+@keyframes axis-line-pulse {
+
+  0%,
+  100% {
+    opacity: 0.05;
+    transform: scaleY(1);
+  }
+
+  50% {
+    opacity: 0.08;
+    transform: scaleY(1.02);
+  }
+}
+
+.axis-line {
+  position: relative;
+}
+
+.axis-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, #10B981 0%, #F59E0B 100%);
+  opacity: 0.06;
+  animation: axis-line-pulse 3s ease-in-out infinite;
+}
+
+/* Horizontal Axis Line (for reasoning/thinking states) */
+.axis-line-horizontal::before {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, #10B981 0%, #F59E0B 100%);
+}
+
+/* Emerald Thinking Indicator Animation */
+@keyframes atlarix-thinking {
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.atlarix-thinking {
+  background: linear-gradient(90deg,
+      #F59E0B 0%,
+      #10B981 50%,
+      #F59E0B 100%);
+  background-size: 200% 100%;
+  animation: atlarix-thinking 2s ease-in-out infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Emerald Glow Effect (for hover states) */
+.atlarix-glow {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+  transition: box-shadow 0.3s ease;
+}
+
+.atlarix-glow:hover {
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+}
+
+/* Emerald Code Block Accent */
+.atlarix-code-accent {
+  border-left: 3px solid #10B981;
+  background: #162419;
+  padding-left: 1rem;
+}

@@ -1,0 +1,610 @@
+import React, { useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+
+import { AtlarixWrite } from "./AtlarixWrite";
+import { AtlarixRename } from "./AtlarixRename";
+import { AtlarixDelete } from "./AtlarixDelete";
+import { AtlarixAddDependency } from "./AtlarixAddDependency";
+import { AtlarixExecuteSql } from "./AtlarixExecuteSql";
+import { AtlarixAddIntegration } from "./AtlarixAddIntegration";
+import { AtlarixEdit } from "./AtlarixEdit";
+import { AtlarixSearchReplace } from "./AtlarixSearchReplace";
+import { AtlarixCodebaseContext } from "./AtlarixCodebaseContext";
+import { AtlarixThink } from "./AtlarixThink";
+import { CodeHighlight } from "./CodeHighlight";
+import { useAtomValue } from "jotai";
+import { isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { CustomTagState } from "./stateTypes";
+import { AtlarixOutput } from "./AtlarixOutput";
+import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
+import { IpcClient } from "@/ipc/ipc_client";
+import { AtlarixMcpToolCall } from "./AtlarixMcpToolCall";
+import { AtlarixMcpToolResult } from "./AtlarixMcpToolResult";
+import { AtlarixWebSearchResult } from "./AtlarixWebSearchResult";
+import { AtlarixWebSearch } from "./AtlarixWebSearch";
+import { AtlarixWebCrawl } from "./AtlarixWebCrawl";
+import { AtlarixCodeSearchResult } from "./AtlarixCodeSearchResult";
+import { AtlarixCodeSearch } from "./AtlarixCodeSearch";
+import { AtlarixRead } from "./AtlarixRead";
+import { mapActionToButton } from "./ChatInput";
+import { SuggestedAction } from "@/lib/schemas";
+import { FixAllErrorsButton } from "./FixAllErrorsButton";
+
+interface AtlarixMarkdownParserProps {
+  content: string;
+}
+
+type CustomTagInfo = {
+  tag: string;
+  attributes: Record<string, string>;
+  content: string;
+  fullMatch: string;
+  inProgress?: boolean;
+};
+
+type ContentPiece =
+  | { type: "markdown"; content: string }
+  | { type: "custom-tag"; tagInfo: CustomTagInfo };
+
+const customLink = ({
+  node: _node,
+  ...props
+}: {
+  node?: any;
+  [key: string]: any;
+}) => (
+  <a
+    {...props}
+    onClick={(e) => {
+      const url = props.href;
+      if (url) {
+        e.preventDefault();
+        IpcClient.getInstance().openExternalUrl(url);
+      }
+    }}
+  />
+);
+
+export const VanillaMarkdownParser = ({ content }: { content: string }) => {
+  return (
+    <ReactMarkdown
+      components={{
+        code: CodeHighlight,
+        a: customLink,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+};
+
+/**
+ * Custom component to parse markdown content with Atlarix-specific tags
+ */
+export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
+  content,
+}) => {
+  const chatId = useAtomValue(selectedChatIdAtom);
+  const isStreaming = useAtomValue(isStreamingByIdAtom).get(chatId!) ?? false;
+  // Extract content pieces (markdown and custom tags)
+  const contentPieces = useMemo(() => {
+    return parseCustomTags(content);
+  }, [content]);
+
+  // Extract error messages and track positions
+  const { errorMessages, lastErrorIndex, errorCount } = useMemo(() => {
+    const errors: string[] = [];
+    let lastIndex = -1;
+    let count = 0;
+
+    contentPieces.forEach((piece, index) => {
+      if (
+        piece.type === "custom-tag" &&
+        piece.tagInfo.tag === "dyad-output" &&
+        piece.tagInfo.attributes.type === "error"
+      ) {
+        const errorMessage = piece.tagInfo.attributes.message;
+        if (errorMessage?.trim()) {
+          errors.push(errorMessage.trim());
+          count++;
+          lastIndex = index;
+        }
+      }
+    });
+
+    return {
+      errorMessages: errors,
+      lastErrorIndex: lastIndex,
+      errorCount: count,
+    };
+  }, [contentPieces]);
+
+  return (
+    <>
+      {contentPieces.map((piece, index) => (
+        <React.Fragment key={index}>
+          {piece.type === "markdown"
+            ? piece.content && (
+                <ReactMarkdown
+                  components={{
+                    code: CodeHighlight,
+                    a: customLink,
+                  }}
+                >
+                  {piece.content}
+                </ReactMarkdown>
+              )
+            : renderCustomTag(piece.tagInfo, { isStreaming })}
+          {index === lastErrorIndex &&
+            errorCount > 1 &&
+            !isStreaming &&
+            chatId && (
+              <div className="mt-3 w-full flex">
+                <FixAllErrorsButton
+                  errorMessages={errorMessages}
+                  chatId={chatId}
+                />
+              </div>
+            )}
+        </React.Fragment>
+      ))}
+    </>
+  );
+};
+
+/**
+ * Pre-process content to handle unclosed custom tags
+ * Adds closing tags at the end of the content for any unclosed custom tags
+ * Assumes the opening tags are complete and valid
+ * Returns the processed content and a map of in-progress tags
+ */
+function preprocessUnclosedTags(content: string): {
+  processedContent: string;
+  inProgressTags: Map<string, Set<number>>;
+} {
+  const customTagNames = [
+    "dyad-write",
+    "dyad-rename",
+    "dyad-delete",
+    "dyad-add-dependency",
+    "dyad-execute-sql",
+    "dyad-add-integration",
+    "dyad-output",
+    "dyad-problem-report",
+    "dyad-chat-summary",
+    "dyad-edit",
+    "dyad-search-replace",
+    "dyad-codebase-context",
+    "dyad-web-search-result",
+    "dyad-web-search",
+    "dyad-web-crawl",
+    "dyad-read",
+    "think",
+    "dyad-command",
+    "dyad-mcp-tool-call",
+    "dyad-mcp-tool-result",
+  ];
+
+  let processedContent = content;
+  // Map to track which tags are in progress and their positions
+  const inProgressTags = new Map<string, Set<number>>();
+
+  // For each tag type, check if there are unclosed tags
+  for (const tagName of customTagNames) {
+    // Count opening and closing tags
+    const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
+    const closeTagPattern = new RegExp(`</${tagName}>`, "g");
+
+    // Track the positions of opening tags
+    const openingMatches: RegExpExecArray[] = [];
+    let match;
+
+    // Reset regex lastIndex to start from the beginning
+    openTagPattern.lastIndex = 0;
+
+    while ((match = openTagPattern.exec(processedContent)) !== null) {
+      openingMatches.push({ ...match });
+    }
+
+    const openCount = openingMatches.length;
+    const closeCount = (processedContent.match(closeTagPattern) || []).length;
+
+    // If we have more opening than closing tags
+    const missingCloseTags = openCount - closeCount;
+    if (missingCloseTags > 0) {
+      // Add the required number of closing tags at the end
+      processedContent += Array(missingCloseTags)
+        .fill(`</${tagName}>`)
+        .join("");
+
+      // Mark the last N tags as in progress where N is the number of missing closing tags
+      const inProgressIndexes = new Set<number>();
+      const startIndex = openCount - missingCloseTags;
+      for (let i = startIndex; i < openCount; i++) {
+        inProgressIndexes.add(openingMatches[i].index);
+      }
+      inProgressTags.set(tagName, inProgressIndexes);
+    }
+  }
+
+  return { processedContent, inProgressTags };
+}
+
+/**
+ * Parse the content to extract custom tags and markdown sections into a unified array
+ */
+function parseCustomTags(content: string): ContentPiece[] {
+  const { processedContent, inProgressTags } = preprocessUnclosedTags(content);
+
+  const customTagNames = [
+    "dyad-write",
+    "dyad-rename",
+    "dyad-delete",
+    "dyad-add-dependency",
+    "dyad-execute-sql",
+    "dyad-add-integration",
+    "dyad-output",
+    "dyad-problem-report",
+    "dyad-chat-summary",
+    "dyad-edit",
+    "dyad-search-replace",
+    "dyad-codebase-context",
+    "dyad-web-search-result",
+    "dyad-web-search",
+    "dyad-web-crawl",
+    "dyad-code-search-result",
+    "dyad-code-search",
+    "dyad-read",
+    "think",
+    "dyad-command",
+    "dyad-mcp-tool-call",
+    "dyad-mcp-tool-result",
+  ];
+
+  const tagPattern = new RegExp(
+    `<(${customTagNames.join("|")})\\s*([^>]*)>(.*?)<\\/\\1>`,
+    "gs",
+  );
+
+  const contentPieces: ContentPiece[] = [];
+  let lastIndex = 0;
+  let match;
+
+  // Find all custom tags
+  while ((match = tagPattern.exec(processedContent)) !== null) {
+    const [fullMatch, tag, attributesStr, tagContent] = match;
+    const startIndex = match.index;
+
+    // Add the markdown content before this tag
+    if (startIndex > lastIndex) {
+      contentPieces.push({
+        type: "markdown",
+        content: processedContent.substring(lastIndex, startIndex),
+      });
+    }
+
+    // Parse attributes
+    const attributes: Record<string, string> = {};
+    const attrPattern = /(\w+)="([^"]*)"/g;
+    let attrMatch;
+    while ((attrMatch = attrPattern.exec(attributesStr)) !== null) {
+      attributes[attrMatch[1]] = attrMatch[2];
+    }
+
+    // Check if this tag was marked as in progress
+    const tagInProgressSet = inProgressTags.get(tag);
+    const isInProgress = tagInProgressSet?.has(startIndex);
+
+    // Add the tag info
+    contentPieces.push({
+      type: "custom-tag",
+      tagInfo: {
+        tag,
+        attributes,
+        content: tagContent,
+        fullMatch,
+        inProgress: isInProgress || false,
+      },
+    });
+
+    lastIndex = startIndex + fullMatch.length;
+  }
+
+  // Add the remaining markdown content
+  if (lastIndex < processedContent.length) {
+    contentPieces.push({
+      type: "markdown",
+      content: processedContent.substring(lastIndex),
+    });
+  }
+
+  return contentPieces;
+}
+
+function getState({
+  isStreaming,
+  inProgress,
+}: {
+  isStreaming?: boolean;
+  inProgress?: boolean;
+}): CustomTagState {
+  if (!inProgress) {
+    return "finished";
+  }
+  return isStreaming ? "pending" : "aborted";
+}
+
+/**
+ * Render a custom tag based on its type
+ */
+function renderCustomTag(
+  tagInfo: CustomTagInfo,
+  { isStreaming }: { isStreaming: boolean },
+): React.ReactNode {
+  const { tag, attributes, content, inProgress } = tagInfo;
+
+  switch (tag) {
+    case "dyad-read":
+      return (
+        <AtlarixRead
+          node={{
+            properties: {
+              path: attributes.path || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixRead>
+      );
+    case "dyad-web-search":
+      return (
+        <AtlarixWebSearch
+          node={{
+            properties: {},
+          }}
+        >
+          {content}
+        </AtlarixWebSearch>
+      );
+    case "dyad-web-crawl":
+      return (
+        <AtlarixWebCrawl
+          node={{
+            properties: {},
+          }}
+        >
+          {content}
+        </AtlarixWebCrawl>
+      );
+    case "dyad-code-search":
+      return (
+        <AtlarixCodeSearch
+          node={{
+            properties: {},
+          }}
+        >
+          {content}
+        </AtlarixCodeSearch>
+      );
+    case "dyad-code-search-result":
+      return (
+        <AtlarixCodeSearchResult
+          node={{
+            properties: {},
+          }}
+        >
+          {content}
+        </AtlarixCodeSearchResult>
+      );
+    case "dyad-web-search-result":
+      return (
+        <AtlarixWebSearchResult
+          node={{
+            properties: {
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixWebSearchResult>
+      );
+    case "think":
+      return (
+        <AtlarixThink
+          node={{
+            properties: {
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixThink>
+      );
+    case "dyad-write":
+      return (
+        <AtlarixWrite
+          node={{
+            properties: {
+              path: attributes.path || "",
+              description: attributes.description || "",
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixWrite>
+      );
+
+    case "dyad-rename":
+      return (
+        <AtlarixRename
+          node={{
+            properties: {
+              from: attributes.from || "",
+              to: attributes.to || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixRename>
+      );
+
+    case "dyad-delete":
+      return (
+        <AtlarixDelete
+          node={{
+            properties: {
+              path: attributes.path || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixDelete>
+      );
+
+    case "dyad-add-dependency":
+      return (
+        <AtlarixAddDependency
+          node={{
+            properties: {
+              packages: attributes.packages || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixAddDependency>
+      );
+
+    case "dyad-execute-sql":
+      return (
+        <AtlarixExecuteSql
+          node={{
+            properties: {
+              state: getState({ isStreaming, inProgress }),
+              description: attributes.description || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixExecuteSql>
+      );
+
+    case "dyad-add-integration":
+      return (
+        <AtlarixAddIntegration
+          node={{
+            properties: {
+              provider: attributes.provider || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixAddIntegration>
+      );
+
+    case "dyad-edit":
+      return (
+        <AtlarixEdit
+          node={{
+            properties: {
+              path: attributes.path || "",
+              description: attributes.description || "",
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixEdit>
+      );
+
+    case "dyad-search-replace":
+      return (
+        <AtlarixSearchReplace
+          node={{
+            properties: {
+              path: attributes.path || "",
+              description: attributes.description || "",
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixSearchReplace>
+      );
+
+    case "dyad-codebase-context":
+      return (
+        <AtlarixCodebaseContext
+          node={{
+            properties: {
+              files: attributes.files || "",
+              state: getState({ isStreaming, inProgress }),
+            },
+          }}
+        >
+          {content}
+        </AtlarixCodebaseContext>
+      );
+
+    case "dyad-mcp-tool-call":
+      return (
+        <AtlarixMcpToolCall
+          node={{
+            properties: {
+              serverName: attributes.server || "",
+              toolName: attributes.tool || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixMcpToolCall>
+      );
+
+    case "dyad-mcp-tool-result":
+      return (
+        <AtlarixMcpToolResult
+          node={{
+            properties: {
+              serverName: attributes.server || "",
+              toolName: attributes.tool || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixMcpToolResult>
+      );
+
+    case "dyad-output":
+      return (
+        <AtlarixOutput
+          type={attributes.type as "warning" | "error"}
+          message={attributes.message}
+        >
+          {content}
+        </AtlarixOutput>
+      );
+
+    case "dyad-problem-report":
+      return (
+        <AtlarixProblemSummary summary={attributes.summary}>
+          {content}
+        </AtlarixProblemSummary>
+      );
+
+    case "dyad-chat-summary":
+      // Don't render anything for dyad-chat-summary
+      return null;
+
+    case "dyad-command":
+      if (attributes.type) {
+        const action = {
+          id: attributes.type,
+        } as SuggestedAction;
+        return <>{mapActionToButton(action)}</>;
+      }
+      return null;
+
+    default:
+      return null;
+  }
+}
