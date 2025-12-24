@@ -84,6 +84,12 @@ export interface Message {
   createdAt?: Date | string;
   requestId?: string | null;
   totalTokens?: number | null;
+  sources?: Array<{
+    title: string;
+    url: string;
+    content?: string;
+    favicon?: string;
+  }>;
 }
 
 export interface Chat {

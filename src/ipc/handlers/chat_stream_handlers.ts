@@ -234,7 +234,15 @@ export function registerChatStreamHandlers() {
       const abortController = new AbortController();
       activeStreams.set(req.chatId, abortController);
 
-      // Get the chat to check for existing messages
+      // Check if this is an ephemeral (incognito) chat BEFORE querying database
+      const { isEphemeralChatId } = await import("./chat_only_handlers");
+
+      if (isEphemeralChatId(req.chatId)) {
+        logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
+        return await handleChatOnlyStream(event, req, abortController);
+      }
+
+      // Get the chat from database (for regular chats)
       const chat = await db.query.chats.findFirst({
         where: eq(chats.id, req.chatId),
         with: {
@@ -1524,22 +1532,23 @@ ${problemReport.problems
             }
           }
         }
-
-        // Return the chat ID for backwards compatibility
-        return req.chatId;
-      } catch (error) {
-        logger.error("Error calling LLM:", error);
-        safeSend(event.sender, "chat:response:error", {
-          chatId: req.chatId,
-          error: `Sorry, there was an error processing your request: ${error}`,
-        });
-        // Clean up the abort controller
-        activeStreams.delete(req.chatId);
-        // Clean up file uploads state on error
-        FileUploadsState.getInstance().clear(req.chatId);
-        return "error";
       }
-    });
+
+      // Return the chat ID for backwards compatibility
+      return req.chatId;
+    } catch (error) {
+      logger.error("Error calling LLM:", error);
+      safeSend(event.sender, "chat:response:error", {
+        chatId: req.chatId,
+        error: `Sorry, there was an error processing your request: ${error}`,
+      });
+      // Clean up the abort controller
+      activeStreams.delete(req.chatId);
+      // Clean up file uploads state on error
+      FileUploadsState.getInstance().clear(req.chatId);
+      return "error";
+    }
+  });
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {

@@ -75,8 +75,8 @@ ${debugInfo.logs.slice(-3_500) || "No logs available"}
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen p-6">
-      <div className="max-w-md w-full bg-background p-6 rounded-lg shadow-lg">
+    <div className="flex flex-col items-center justify-center min-h-screen w-full p-6 bg-background">
+      <div className="max-w-md w-full bg-card border border-border p-6 rounded-lg shadow-lg">
         <h2 className="text-xl font-bold mb-4">
           Sorry, that shouldn't have happened!
         </h2>

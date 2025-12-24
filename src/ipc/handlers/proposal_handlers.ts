@@ -286,20 +286,23 @@ const getProposalHandler = async (
         // Calculate total tokens from message history
         const messagesTokenCount = estimateMessagesTokens(chat.messages);
 
-        // Use cached token count or calculate new one
-        const codebaseTokenCount = await getCodebaseTokenCount(
-          chatId,
-          latestAssistantMessage.id,
-          latestAssistantMessage.content || "",
-          chat.app.path,
-          chat.app.chatContext,
-        );
+        // Only calculate codebase tokens if there's an app (workspace)
+        let codebaseTokenCount = 0;
+        if (chat.app?.path) {
+          // Use cached token count or calculate new one
+          codebaseTokenCount = await getCodebaseTokenCount(
+            chatId,
+            latestAssistantMessage.id,
+            latestAssistantMessage.content || "",
+            chat.app.path,
+            chat.app.chatContext,
+          );
+        }
 
         const totalTokens = messagesTokenCount + codebaseTokenCount;
         const contextWindow = Math.min(await getContextWindow(), 100_000);
         logger.log(
-          `Token usage: ${totalTokens}/${contextWindow} (${
-            (totalTokens / contextWindow) * 100
+          `Token usage: ${totalTokens}/${contextWindow} (${(totalTokens / contextWindow) * 100
           }%)`,
         );
 

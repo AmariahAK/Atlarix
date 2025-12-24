@@ -7,12 +7,18 @@ import {
   BookOpen,
   GitBranch,
   Wrench,
+  LogIn,
+  LogOut,
+  User,
+  Github,
+  Chrome,
 } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef } from "react";
 import { useAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
+import { useAuth } from "@/lib/auth/useAuth";
 
 import {
   Sidebar,
@@ -78,6 +84,10 @@ export function AppSidebar() {
   const expandedByHover = useRef(false);
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
+  const [showAuthMenu, setShowAuthMenu] = useState(false);
+
+  // Auth hook for OAuth login
+  const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
 
   useEffect(() => {
     if (hoverState.startsWith("start-hover") && state === "collapsed") {
@@ -156,6 +166,96 @@ export function AppSidebar() {
 
       <SidebarFooter>
         <SidebarMenu>
+          {/* OAuth Login/Account Button - Above Help */}
+          <SidebarMenuItem>
+            {isAuthenticated && user ? (
+              // Logged in - show user avatar/name
+              <div className="relative">
+                <SidebarMenuButton
+                  size="sm"
+                  className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+                  onClick={() => setShowAuthMenu(!showAuthMenu)}
+                >
+                  {user.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="h-5 w-5 rounded-full border border-primary"
+                    />
+                  ) : (
+                    <div className="h-5 w-5 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-[10px] font-bold text-white">
+                      {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                  <span className="text-xs truncate max-w-[50px]">
+                    {user.name?.split(' ')[0] || 'Account'}
+                  </span>
+                </SidebarMenuButton>
+
+                {/* Dropdown menu for sign out */}
+                {showAuthMenu && (
+                  <div className="absolute bottom-full left-0 mb-2 w-32 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
+                    <div className="text-xs text-muted-foreground mb-2 px-2">
+                      {status?.plan === 'free' ? 'Free Plan' : 'Pro Plan'}
+                    </div>
+                    <button
+                      onClick={() => {
+                        signOut();
+                        setShowAuthMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Logged out - show login button
+              <div className="relative">
+                <SidebarMenuButton
+                  size="sm"
+                  className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+                  onClick={() => setShowAuthMenu(!showAuthMenu)}
+                >
+                  <LogIn className="h-5 w-5" />
+                  <span className="text-xs">Login</span>
+                </SidebarMenuButton>
+
+                {/* Dropdown menu for login options */}
+                {showAuthMenu && (
+                  <div className="absolute bottom-full left-0 mb-2 w-40 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
+                    <div className="text-xs text-muted-foreground mb-2 px-2">
+                      Sign in to sync
+                    </div>
+                    <button
+                      onClick={() => {
+                        signInWithGoogle();
+                        setShowAuthMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
+                    >
+                      <Chrome className="h-4 w-4" />
+                      Google
+                    </button>
+                    <button
+                      onClick={() => {
+                        signInWithGitHub();
+                        setShowAuthMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
+                    >
+                      <Github className="h-4 w-4" />
+                      GitHub
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </SidebarMenuItem>
+
+          {/* Help Button */}
           <SidebarMenuItem>
             {/* Change button to open dialog instead of linking */}
             <SidebarMenuButton

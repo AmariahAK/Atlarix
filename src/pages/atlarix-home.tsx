@@ -29,6 +29,7 @@ import type { FileAttachment } from '@/ipc/ipc_types';
 import { NEON_TEMPLATE_IDS } from '@/shared/templates';
 import { neonTemplateHook } from '@/client_logic/template_hook';
 import { HomeChatInput } from '@/components/chat/HomeChatInput';
+import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 
 // Current datetime for AI context
 const getCurrentDateTime = () => {
@@ -57,6 +58,7 @@ export default function AtlarixHome() {
     const [isLoading, setIsLoading] = useState(false);
     const [forceCloseDialogOpen, setForceCloseDialogOpen] = useState(false);
     const [performanceData, setPerformanceData] = useState<any>(undefined);
+    const [activeChatId, setActiveChatId] = useState<number | null>(null); // For inline seamless chat
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const posthog = usePostHog();
     const { theme } = useTheme();
@@ -188,34 +190,41 @@ export default function AtlarixHome() {
         if (!inputValue.trim() && attachments.length === 0) return;
 
         try {
-            setIsLoading(true);
-
-            // Create chat-only session by default
-            // AI will call create_workspace tool if user wants to build something
+            // Create chat-only session
             const result = await IpcClient.getInstance().createChatOnly();
 
+            // Store input before clearing
+            const prompt = inputValue;
+            setInputValue('');
+            setIsPreviewOpen(false);
+            setSelectedAppId(null); // Chat-only, no app yet
+
+            // Set active chat - this hides templates and shows the chat inline
+            setActiveChatId(result.chatId);
+
+            // Start streaming - response appears in same page
             streamMessage({
-                prompt: inputValue,
+                prompt,
                 chatId: result.chatId,
                 attachments,
             });
 
-            // Wait for initial stream to start
-            await new Promise((resolve) =>
-                setTimeout(resolve, settings?.isTestMode ? 0 : 500),
-            );
-
-            setInputValue('');
-            setIsPreviewOpen(false);
-            setSelectedAppId(null); // Chat-only, no app yet
             posthog.capture('home:chat-submit');
-            // Stay on home page - unified layout (no navigation to /chat)
-            // navigate({ to: '/chat', search: { id: result.chatId } });
+            // NO NAVIGATION - same-page chat like ChatGPT
         } catch (error) {
             console.error('Failed to create chat:', error);
             showError('Failed to create chat. ' + (error as any).toString());
-            setIsLoading(false);
         }
+    };
+
+    // Handler for continuing chat conversation
+    const handleContinueChat = (prompt: string) => {
+        if (!activeChatId || !prompt.trim()) return;
+        streamMessage({
+            prompt,
+            chatId: activeChatId,
+            attachments: [],
+        });
     };
 
     // Loading state
@@ -238,10 +247,10 @@ export default function AtlarixHome() {
 
                     <div className="text-center space-y-2">
                         <h2 className="text-2xl font-semibold atlarix-thinking">
-                            Building your app
+                            Starting chat...
                         </h2>
                         <p className="text-muted-foreground max-w-md">
-                            We're setting up your app with AI magic.
+                            Connecting to Atlarix AI.
                             <br />
                             This might take a moment...
                         </p>
@@ -250,6 +259,35 @@ export default function AtlarixHome() {
                     {/* Axis line effect */}
                     <div className="axis-line-horizontal w-64 h-px" />
                 </div>
+            </div>
+        );
+    }
+
+    // Active Chat View - same-page chat like ChatGPT
+    // Templates hide, messages appear in the same space
+    if (activeChatId !== null) {
+        return (
+            <div className="flex-1 flex flex-col h-screen bg-background">
+                {/* Sticky header with back button - always visible */}
+                <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
+                    <button
+                        onClick={() => setActiveChatId(null)}
+                        className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors hover:bg-accent px-2 py-1 rounded-md"
+                    >
+                        ← New Chat
+                    </button>
+                    <div className="flex items-center gap-2">
+                        <img src="/logo/Atlarix.png" alt="Atlarix" className="w-6 h-6" />
+                        <span className="font-medium">Atlarix</span>
+                    </div>
+                    <div className="w-20" /> {/* Spacer for centering */}
+                </div>
+
+                {/* Chat messages and input */}
+                <SimpleInlineChat
+                    chatId={activeChatId}
+                    onSendMessage={handleContinueChat}
+                />
             </div>
         );
     }

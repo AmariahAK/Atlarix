@@ -11,16 +11,30 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 
 ## ✨ Features
 
-### 🎨 Premium Dark Cockpit UI
-- **Obsidian Graphite** backgrounds (#0E1116, #11151B)
-- **Deep Teal** accents (#4FD1C5) - the "Atlarix glow"
-- **Soft Violet** reasoning indicators (#A78BFA)
-- Signature **Axis Line** effect (teal→violet gradient)
+### 🎭 Incognito Chat Mode (NEW in v0.2.0!)
+- **Ephemeral Chats** - Ask anything without saving to database
+- **Privacy-First** - Chats disappear when you close/leave
+- **Perfect for Quick Questions** - No clutter in chat history
+- **In-Memory Only** - Lightning-fast, truly private
+
+### 🔐 OAuth Integration (NEW in v0.2.0!)
+- **Sign in with Google or GitHub** - One-click authentication
+- **Sidebar Login** - OAuth button just above Help
+- **User Avatar Display** - See your profile and plan status
+- **Sync Across Devices** - Your settings follow you
+
+### 🎨 Aurora Color Scheme (NEW in v0.3.0!)
+- **Emerald & Gold** - Vibrant teal (#10B981) and amber (#F59E0B) accents
+- **Rose Highlights** - For errors and warnings (#E11D48)
+- **Gradient Effects** - Teal→Gold gradients on interactive elements
+- **Light & Dark Modes** - Beautiful in both themes
+- **Premium Dark Cockpit** - Deep slate backgrounds with soft glows
 
 ### 🤖 Multi-Provider AI Support
 - **Ollama** - Free, local models (llama3.2, codellama, qwen2.5-coder)
 - **LMStudio** - Local models with beautiful GUI
 - **OpenRouter** - Cloud access to 100+ models
+- **Model Name Display** - See which model generated each response
 - **Bring Your Own Key** - Use your preferred AI provider
 
 ### 🛠️ 41 Intelligent Tools
@@ -36,10 +50,13 @@ Atlarix integrates the complete StackSense tool suite with enhanced UI/UX:
 - Architecture diagram generation
 - Code analysis and suggestions
 
-**Web & Research**
-- Deep web search with context
-- URL scraping and parsing
-- Research summarization
+**Web & Research** (Enhanced in v0.3.0!)
+- **`web_search`** - Multi-source parallel search (StackOverflow, GitHub, Reddit, MDN, DuckDuckGo)
+- **`deep_search`** - Comprehensive research: search → fetch URLs → aggregate content
+- **`read_url`** - Extract readable content from any webpage
+- **`get_current_time`** - Current date/time with timezone
+- **Source Cards** - Clickable source previews with favicons (Perplexica-style)
+- **1-Hour Caching** - Fast repeated searches
 
 **Development Tools**
 - Command execution with permission system

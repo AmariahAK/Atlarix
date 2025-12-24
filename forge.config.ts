@@ -61,7 +61,7 @@ const config: ForgeConfig = {
         schemes: ["atlarix"],
       },
     ],
-    icon: "./logo/Atlarix",
+    icon: "./assets/icon/logo",
 
     osxSign: isEndToEndTestBuild
       ? undefined

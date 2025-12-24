@@ -1,11 +1,13 @@
 /**
  * Sidebar Navigation Component
  * ============================
- * Modified sidebar with Help, Diagram, and Web sections
+ * Modified sidebar with Help, Diagram, Web sections and OAuth login
  */
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
+import { useAuth } from '@/lib/auth/useAuth';
+import { LogIn, LogOut, User, Github, Chrome } from 'lucide-react';
 
 type SidebarTab = 'help' | 'diagram' | 'web';
 
@@ -15,6 +17,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+    const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
+    const [showAuthMenu, setShowAuthMenu] = useState(false);
+
     const tabs: Array<{ id: SidebarTab; label: string; symbol: string }> = [
         { id: 'help', label: 'Help', symbol: '?' },
         { id: 'diagram', label: 'Diagram', symbol: '◈' },
@@ -31,10 +36,11 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
+                position: 'relative',
             }}
         >
             {/* Tab Navigation */}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                 {tabs.map(tab => (
                     <SidebarTab
                         key={tab.id}
@@ -44,6 +50,212 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                         onClick={() => onTabChange(tab.id)}
                     />
                 ))}
+            </div>
+
+            {/* OAuth Login Section */}
+            <div
+                style={{
+                    borderTop: '1px solid var(--graphite-border)',
+                    padding: '12px',
+                }}
+            >
+                {isAuthenticated && user ? (
+                    // Logged in state
+                    <div
+                        onClick={() => setShowAuthMenu(!showAuthMenu)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            background: showAuthMenu ? 'var(--graphite-hover)' : 'transparent',
+                            transition: 'background 0.2s ease',
+                        }}
+                        onMouseEnter={e => {
+                            if (!showAuthMenu) e.currentTarget.style.background = 'var(--graphite-hover)';
+                        }}
+                        onMouseLeave={e => {
+                            if (!showAuthMenu) e.currentTarget.style.background = 'transparent';
+                        }}
+                    >
+                        {user.avatar ? (
+                            <img
+                                src={user.avatar}
+                                alt={user.name}
+                                style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    border: '2px solid var(--teal-glow)',
+                                }}
+                            />
+                        ) : (
+                            <div
+                                style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, var(--teal-glow), var(--aurora-purple))',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'white',
+                                    fontWeight: 600,
+                                    fontSize: '14px',
+                                }}
+                            >
+                                {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                            </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                color: 'var(--primary-text)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                            }}>
+                                {user.name}
+                            </div>
+                            <div style={{
+                                fontSize: '11px',
+                                color: 'var(--secondary-text)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                            }}>
+                                <span style={{
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    background: status?.plan === 'free' ? 'var(--graphite-hover)' : 'var(--teal-glow)',
+                                    color: status?.plan === 'free' ? 'var(--secondary-text)' : 'white',
+                                    fontSize: '10px',
+                                    fontWeight: 500,
+                                }}>
+                                    {status?.plan === 'free' ? 'Free' : 'Pro'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    // Logged out state - show login buttons
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{
+                            fontSize: '12px',
+                            color: 'var(--secondary-text)',
+                            marginBottom: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                        }}>
+                            <LogIn size={14} />
+                            <span>Sign in to sync</span>
+                        </div>
+                        <button
+                            onClick={signInWithGoogle}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--graphite-border)',
+                                background: 'var(--graphite-hover)',
+                                color: 'var(--primary-text)',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                transition: 'all 0.2s ease',
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.borderColor = 'var(--teal-glow)';
+                                e.currentTarget.style.background = 'var(--slate-charcoal)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.borderColor = 'var(--graphite-border)';
+                                e.currentTarget.style.background = 'var(--graphite-hover)';
+                            }}
+                        >
+                            <Chrome size={16} />
+                            <span>Google</span>
+                        </button>
+                        <button
+                            onClick={signInWithGitHub}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--graphite-border)',
+                                background: 'var(--graphite-hover)',
+                                color: 'var(--primary-text)',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                transition: 'all 0.2s ease',
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.borderColor = 'var(--aurora-purple)';
+                                e.currentTarget.style.background = 'var(--slate-charcoal)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.borderColor = 'var(--graphite-border)';
+                                e.currentTarget.style.background = 'var(--graphite-hover)';
+                            }}
+                        >
+                            <Github size={16} />
+                            <span>GitHub</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Auth Menu Dropdown */}
+                {showAuthMenu && isAuthenticated && (
+                    <div
+                        style={{
+                            marginTop: '8px',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            background: 'var(--graphite-hover)',
+                            border: '1px solid var(--graphite-border)',
+                        }}
+                    >
+                        <button
+                            onClick={() => {
+                                signOut();
+                                setShowAuthMenu(false);
+                            }}
+                            style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 10px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--error-red, #ef4444)',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                transition: 'background 0.2s ease',
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.background = 'transparent';
+                            }}
+                        >
+                            <LogOut size={16} />
+                            <span>Sign Out</span>
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Resize Handle */}

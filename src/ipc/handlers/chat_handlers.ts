@@ -63,23 +63,34 @@ export function registerChatHandlers() {
     return chat.id;
   });
 
-  // Create chat-only session (no workspace/app)
+  // Create chat-only session (ephemeral/incognito - NOT saved to DB)
   handle("create-chat-only", async (): Promise<number> => {
-    const now = new Date();
-    const [chat] = await db
-      .insert(chats)
-      .values({
-        appId: null, // No workspace for chat-only
-        initialCommitHash: null,
-        title: null, // Will be set with keyword-based name on first message
-        lastUsedAt: now,
-      })
-      .returning();
-    logger.info("Created chat-only session:", chat.id);
-    return chat.id;
+    // Import ephemeral chat creator from chat_only_handlers
+    const { createEphemeralChat } = await import("./chat_only_handlers");
+    const chatId = createEphemeralChat();
+    logger.info("Created ephemeral (incognito) chat-only session:", chatId);
+    return chatId;
   });
 
   ipcMain.handle("get-chat", async (_, chatId: number) => {
+    // Check if this is an ephemeral (incognito) chat (negative ID)
+    const { getEphemeralChat, isEphemeralChatId } = await import("./chat_only_handlers");
+
+    if (isEphemeralChatId(chatId)) {
+      const ephemeralChat = getEphemeralChat(chatId);
+      if (!ephemeralChat) {
+        throw new Error("Ephemeral chat not found");
+      }
+      return {
+        id: ephemeralChat.id,
+        title: ephemeralChat.title,
+        messages: ephemeralChat.messages,
+        createdAt: ephemeralChat.createdAt,
+        appId: null,
+      };
+    }
+
+    // Regular database chat
     // Update last_used_at timestamp when chat is opened
     await db.update(chats).set({ lastUsedAt: new Date() }).where(eq(chats.id, chatId));
 
