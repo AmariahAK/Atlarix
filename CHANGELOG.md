@@ -2,6 +2,42 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.4.0] - 2025-12-25
+
+### 🎉 Major Features
+
+#### 3-Panel Layout (StackSense-style)
+- **Left Panel**: Sidebar & navigation
+- **Middle Panel**: Chat interface (Ask/Build modes)
+- **Right Panel**: Context-aware auxiliary view
+  - **Web Search**: Live search results with favicons & previews
+  - **File Diff**: Side-by-side code changes
+  - **Tasks**: Usage & credits tracking
+
+#### Live Code & Diagram Preview (PlantUML+StackSense)
+- **Code Preview**: Live iframe for HTML/JS/React components
+- **Diagrams**: Mermaid & PlantUML diagrams rendered instantly in Right Panel
+- **Interactive**: Zoom, pan, and click nodes (coming soon)
+
+#### Smart 3-Tier Web Search
+- **Tier 1 (Best)**: Self-hosted SearxNG (unlimited, no rate limits)
+- **Tier 2 (Good)**: Public SearxNG instances (fallback)
+- **Tier 3 (Reliable)**: DuckDuckGo Instant API (always works)
+- **Intelligent Selection**: AI prioritizes 'general' for news and 'stackoverflow/github' for code queries
+- **Settings Sync**: Configure SearxNG URL in Settings (syncs to main process)
+
+### ✨ Improvements
+
+#### Configuration Sync
+- **Bypass CORS**: Search requests now proxied through Main process to avoid CORS errors
+- **IPC Sync**: Search settings synced from Renderer (UI) to Main (Tools) via IPC
+- **Health Checks**: Automatic health validation for SearxNG instances
+
+### 🐛 Known Issues
+- **SearxNG Sync**: In some cases, config may revert to default on restart until manually saved. Fix in progress.
+
+---
+
 ## [v0.3.0] - 2025-12-24
 
 ### 🎉 Major Features

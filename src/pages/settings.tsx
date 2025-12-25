@@ -18,6 +18,7 @@ import { ReleaseChannelSelector } from "@/components/ReleaseChannelSelector";
 import { RuntimeModeSelector } from "@/components/RuntimeModeSelector";
 import { NodePathSelector } from "@/components/NodePathSelector";
 import { ZoomSelector } from "@/components/ZoomSelector";
+import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 
@@ -75,7 +76,16 @@ export default function SettingsPage() {
 
           {/* Provider Settings, Integrations, MCP, and Experiments sections removed */}
 
-
+          {/* Search Settings */}
+          <div
+            id="search"
+            className="bg-card rounded-xl shadow-sm p-6 border border-border"
+          >
+            <h2 className="text-lg font-medium text-foreground mb-4">
+              Search Settings
+            </h2>
+            <SearchSettings />
+          </div>
 
           {/* Danger Zone */}
           <div

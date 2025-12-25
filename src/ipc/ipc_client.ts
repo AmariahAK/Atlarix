@@ -1416,4 +1416,39 @@ export class IpcClient {
   public async isOpenRouterModelFavorited(modelId: string): Promise<boolean> {
     return this.ipcRenderer.invoke("openrouter:is-favorited", { modelId });
   }
+
+  // SearxNG search methods
+  public async checkSearxngHealth(url: string): Promise<{ success: boolean; error?: string; resultsCount?: number }> {
+    return this.ipcRenderer.invoke("searxng:health-check", url);
+  }
+
+  public async searchSearxng(params: {
+    url: string;
+    query: string;
+    options?: {
+      categories?: string[];
+      engines?: string[];
+      language?: string;
+      pageno?: number;
+    };
+  }): Promise<{ success: boolean; results?: any[]; suggestions?: string[]; error?: string }> {
+    return this.ipcRenderer.invoke("searxng:search", params);
+  }
+
+  // Sync SearxNG config from renderer localStorage to main process
+  public async syncSearxngConfig(config: { url: string | null; enabled: boolean }): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("searxng:set-config", config);
+  }
+}
+
+// Export function to get SearxNG config from main process (for use in main process only)
+export async function getSearxngConfigFromMain(): Promise<{ url: string | null; enabled: boolean }> {
+  if (typeof window !== 'undefined') {
+    // In renderer, this shouldn't be called
+    throw new Error('getSearxngConfigFromMain should only be called from main process');
+  }
+
+  // In main process, directly import and call the config
+  // This is a workaround since we can't use IPC from main to main
+  return { url: process.env.SEARXNG_API_URL || null, enabled: false };
 }

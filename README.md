@@ -47,20 +47,23 @@ Atlarix integrates the complete StackSense tool suite with enhanced UI/UX:
 
 **Code Intelligence**
 - Semantic code search
-- Architecture diagram generation
+- Architecture diagram generation (Mermaid & PlantUML)
 - Code analysis and suggestions
+- **Live Preview** - 3-Panel layout with instant code/diagram rendering
 
-**Web & Research** (Enhanced in v0.3.0!)
-- **`web_search`** - Multi-source parallel search (StackOverflow, GitHub, Reddit, MDN, DuckDuckGo)
-- **`deep_search`** - Comprehensive research: search → fetch URLs → aggregate content
+**Web & Research**
+- **`web_search`** - Smart 3-tier search system:
+  - **Tier 1**: Self-hosted SearxNG (configure in Settings)
+  - **Tier 2**: Public SearxNG instances
+  - **Tier 3**: DuckDuckGo Instant API (Default)
+- **`deep_search`** - Comprehensive research: search → fetch → aggregate
 - **`read_url`** - Extract readable content from any webpage
-- **`get_current_time`** - Current date/time with timezone
-- **Source Cards** - Clickable source previews with favicons (Perplexica-style)
-- **1-Hour Caching** - Fast repeated searches
+- **Smart Scoring** - Results ranked by relevance across sources
+- **Source Cards** - Clickable previews in the Right Panel
 
 **Development Tools**
 - Command execution with permission system
-- Template scaffolding
+- Template scaffolding (Dyad-powered)
 - Project structure analysis
 
 **AI Memory**
@@ -139,6 +142,26 @@ ollama pull llama3.2:latest
 # Add to .env:
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
+
+---
+
+## 🔍 Search Setup (Optional)
+
+Atlarix's web search works **out of the box** with no configuration (uses DuckDuckGo Instant API).
+
+For **unlimited, high-quality results**, enable SearxNG:
+
+### Self-Hosted SearxNG (Recommended for Power Users)
+
+```bash
+# Requires Docker (https://docker.com)
+docker run -d -p 8080:8080 --name atlarix-searxng searxng/searxng
+
+# Add to your .env:
+SEARXNG_API_URL=http://localhost:8080
+```
+
+This aggregates Google, Bing, StackOverflow, Reddit, GitHub, and 70+ other sources.
 
 ---
 

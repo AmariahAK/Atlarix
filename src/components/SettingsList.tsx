@@ -9,6 +9,7 @@ const settingsItems = [
   { id: "general", label: "General" },
   { id: "workflow", label: "Workflow" },
   { id: "ai", label: "AI" },
+  { id: "search", label: "Search" },
   // Model Providers removed - integrated into AI settings
   // Telemetry removed
   // Integrations, MCP, Experiments removed - keeping settings minimal

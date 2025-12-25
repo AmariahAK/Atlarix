@@ -1,12 +1,12 @@
 /**
  * Atlarix Home Page
  * Custom branded home page with Atlarix UI theming
- * Updated: 2025-12-20
+ * Updated: 2025-12-25 - Added 3-panel layout with RightPanel
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useAtom, useSetAtom } from 'jotai';
+import { useAtom, useSetAtom, useAtomValue } from 'jotai';
 import { homeChatInputValueAtom } from '../atoms/chatAtoms';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
@@ -30,6 +30,10 @@ import { NEON_TEMPLATE_IDS } from '@/shared/templates';
 import { neonTemplateHook } from '@/client_logic/template_hook';
 import { HomeChatInput } from '@/components/chat/HomeChatInput';
 import { SimpleInlineChat } from '@/components/SimpleInlineChat';
+import { RightPanel } from '@/components/RightPanel';
+import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { PanelRightOpen, PanelRightClose } from 'lucide-react';
 
 // Current datetime for AI context
 const getCurrentDateTime = () => {
@@ -64,6 +68,20 @@ export default function AtlarixHome() {
     const { theme } = useTheme();
     const queryClient = useQueryClient();
     const [currentTime, setCurrentTime] = useState(getCurrentDateTime());
+    const setSourceList = useSetAtom(sourceListAtom);
+    const setSelectedSource = useSetAtom(selectedSourceAtom);
+    const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+
+    // Clear sources when starting a new chat
+    const handleNewChat = useCallback(() => {
+        setActiveChatId(null);
+        setSourceList([]); // Clear stale sources
+        setSelectedSource(null); // Clear selected source
+        setRightPanelVisible(false); // Hide panel
+    }, [setSourceList, setSelectedSource, setRightPanelVisible]);
+
+    // Enable keyboard shortcuts (CMD+B toggle, ESC close, etc.)
+    useKeyboardShortcuts();
 
     // Template state - fetch from API
     const [allTemplates, setAllTemplates] = useState<Template[]>([]);
@@ -263,31 +281,59 @@ export default function AtlarixHome() {
         );
     }
 
-    // Active Chat View - same-page chat like ChatGPT
-    // Templates hide, messages appear in the same space
+    // Active Chat View - 3-Panel Layout like Gemini/Claude
+    // [Sidebar] | [Chat] | [RightPanel]
+    const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+    const sources = useAtomValue(sourceListAtom);
+
     if (activeChatId !== null) {
         return (
-            <div className="flex-1 flex flex-col h-screen bg-background">
-                {/* Sticky header with back button - always visible */}
-                <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
-                    <button
-                        onClick={() => setActiveChatId(null)}
-                        className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors hover:bg-accent px-2 py-1 rounded-md"
-                    >
-                        ← New Chat
-                    </button>
-                    <div className="flex items-center gap-2">
-                        <img src="/logo/Atlarix.png" alt="Atlarix" className="w-6 h-6" />
-                        <span className="font-medium">Atlarix</span>
+            <div className="flex-1 flex h-screen bg-background">
+                {/* Main Content Area (Chat) - no overflow here, child handles it */}
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                    {/* Sticky header with back button and panel toggle */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
+                        <button
+                            onClick={handleNewChat}
+                            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors hover:bg-accent px-2 py-1 rounded-md"
+                        >
+                            ← New Chat
+                        </button>
+                        <div className="flex items-center gap-2">
+                            <img src="/logo/Atlarix.png" alt="Atlarix" className="w-6 h-6" />
+                            <span className="font-medium">Atlarix</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {/* Source count badge */}
+                            {sources.length > 0 && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                    {sources.length} sources
+                                </span>
+                            )}
+                            {/* Panel toggle button */}
+                            <button
+                                onClick={() => setRightPanelVisible(!rightPanelVisible)}
+                                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                                title={rightPanelVisible ? "Hide panel" : "Show panel"}
+                            >
+                                {rightPanelVisible ? (
+                                    <PanelRightClose className="w-5 h-5" />
+                                ) : (
+                                    <PanelRightOpen className="w-5 h-5" />
+                                )}
+                            </button>
+                        </div>
                     </div>
-                    <div className="w-20" /> {/* Spacer for centering */}
+
+                    {/* Chat messages and input */}
+                    <SimpleInlineChat
+                        chatId={activeChatId}
+                        onSendMessage={handleContinueChat}
+                    />
                 </div>
 
-                {/* Chat messages and input */}
-                <SimpleInlineChat
-                    chatId={activeChatId}
-                    onSendMessage={handleContinueChat}
-                />
+                {/* Right Panel - Context-aware preview */}
+                {rightPanelVisible && <RightPanel />}
             </div>
         );
     }

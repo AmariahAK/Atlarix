@@ -36,6 +36,7 @@ import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerSecurityHandlers } from "./handlers/security_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
+import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 
 export function registerIpcHandlers() {
   // Register all IPC handlers by category
@@ -78,4 +79,5 @@ export function registerIpcHandlers() {
   registerVisualEditingHandlers();
   // Atlarix handlers
   registerFolderDialogHandler();
+  registerSearxngHandlers();
 }

@@ -25,6 +25,7 @@ import "./analysis-tools";
 import "./diagram-tools";
 import "./testing-tools";
 import "./refactoring-tools";
+import "./meta-tools"; // Phase 3: New meta-tools
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

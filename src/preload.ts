@@ -152,6 +152,11 @@ const validInvokeChannels = [
   "openrouter:is-favorited",
   // Dialog
   "dialog:openDirectory",
+  // SearxNG
+  "searxng:health-check",
+  "searxng:search",
+  "searxng:get-config",
+  "searxng:set-config",
   // Test-only channels
   // These should ALWAYS be guarded with IS_TEST_BUILD in the main process.
   // We can't detect with IS_TEST_BUILD in the preload script because

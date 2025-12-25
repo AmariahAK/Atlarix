@@ -442,3 +442,64 @@ body[data-scroll-locked] .app-region-drag {
   background: #162419;
   padding-left: 1rem;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PANEL ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+/* Panel slide-in from right */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s ease-out;
+}
+
+/* Panel fade-in */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Loading spinner for panel content */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 1.5s linear infinite;
+}
+
+/* Panel tab underline transition */
+.panel-tab {
+  transition: all 0.2s ease;
+}
+
+.panel-tab.active {
+  border-bottom: 2px solid var(--primary);
+  color: var(--primary);
+}

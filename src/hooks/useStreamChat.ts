@@ -12,6 +12,7 @@ import {
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
 } from "@/atoms/chatAtoms";
+import { sourceListAtom, rightPanelVisibleAtom, type SourceItem } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
@@ -28,6 +29,38 @@ import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
+
+/**
+ * Extract domain from URL
+ */
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace('www.', '');
+  } catch {
+    return 'web';
+  }
+}
+
+/**
+ * Extract actual domain from content (for GitHub Issues linking to external sites)
+ * Looks for markdown links or URLs in the snippet
+ */
+function extractActualDomain(snippet: string, fallbackUrl: string): string {
+  // Try markdown link format: [text](https://domain.com/...)
+  const markdownMatch = snippet.match(/\[([^\]]+)\]\((https?:\/\/([^\/\)]+))/);
+  if (markdownMatch && markdownMatch[3]) {
+    return markdownMatch[3].replace('www.', '');
+  }
+
+  // Try bare URL in content
+  const urlMatch = snippet.match(/https?:\/\/([^\/\s\)]+)/);
+  if (urlMatch && urlMatch[1]) {
+    return urlMatch[1].replace('www.', '');
+  }
+
+  // Fallback to source URL domain
+  return extractDomain(fallbackUrl);
+}
 
 export function getRandomNumberId() {
   return Math.floor(Math.random() * 1_000_000_000_000_000);
@@ -53,6 +86,8 @@ export function useStreamChat({
   const { checkProblems } = useCheckProblems(selectedAppId);
   const { settings } = useSettings();
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
+  const setSourceList = useSetAtom(sourceListAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -118,6 +153,51 @@ export function useStreamChat({
                 return next;
               });
               hasIncrementedStreamCount = true;
+            }
+
+            // Extract and enrich sources from messages
+            const allSources: SourceItem[] = [];
+            const seenUrls = new Set<string>();
+
+            for (const msg of updatedMessages) {
+              if (msg.sources && Array.isArray(msg.sources)) {
+                for (const source of msg.sources) {
+                  const src = source as any;
+                  const url = src.url || '';
+
+                  // Skip duplicates
+                  if (seenUrls.has(url)) continue;
+                  seenUrls.add(url);
+
+                  // Filter spam GitHub Issues (score ≤ 1.0)
+                  const isGitHubIssue = url.includes('github.com') && url.includes('/issues/');
+                  const score = src.score || 0;
+                  if (isGitHubIssue && score <= 1.0) continue;
+
+                  // Extract actual domain from content (for GitHub Issues linking to external sites)
+                  const actualDomain = extractActualDomain(src.snippet || '', url);
+
+                  allSources.push({
+                    id: src.id || `${url}-${allSources.length}`,
+                    title: src.title || 'Untitled',
+                    url: url,
+                    snippet: src.snippet || src.content || '',
+                    // Use Perplexica's favicon method (full URL, not just domain)
+                    favicon: `https://s2.googleusercontent.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`,
+                    source: src.source || 'web',
+                    score: score,
+                  });
+                }
+              }
+            }
+
+            // Sort by score descending (highest first)
+            allSources.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+            // Update sourceListAtom if we found sources
+            if (allSources.length > 0) {
+              setSourceList(allSources);
+              setRightPanelVisible(true); // Auto-show panel when sources arrive
             }
 
             setMessagesById((prev) => {

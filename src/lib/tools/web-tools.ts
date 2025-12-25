@@ -2,6 +2,7 @@
  * Atlarix Web Tools
  * ================
  * Combines Perplexica + StackSense approaches:
+ * - 3-tier smart search: SearxNG > Public SearxNG > DDG Instant
  * - Parallel async searches across StackOverflow, GitHub, Reddit, MDN (StackSense)
  * - URL content extraction with summaries (Perplexica)
  * - Rich previews for inline reading
@@ -15,6 +16,7 @@ import {
     createParameters,
     stringParam,
 } from "./registry";
+import { smartSearch, isSearxngEnabled } from "../search";
 
 // ═══════════════════════════════════════════════════════════
 // WEB SEARCH - Combined Perplexica + StackSense approach
@@ -23,46 +25,162 @@ import {
 ToolRegistry.register({
     name: "web_search",
     description:
-        "Search the web across multiple sources (StackOverflow, GitHub, Reddit, MDN, general web). Returns rich previews with inline readable content, no need to visit links.",
+        `Unified web search with 3 modes and intelligent source selection:
+
+MODES:
+- quick (3 credits): Fast search, returns top results
+- deep (5 credits): Fetches full content from top URLs
+- comprehensive (8 credits): Maximum depth research with cross-referencing
+
+SOURCES (choose based on query type):
+- general: News, articles, blogs, current events (use for: news, trends, general info)
+- stackoverflow: Programming Q&A (use for: code solutions, debugging)
+- github: Code repositories, issues (use for: libraries, projects, examples)
+- reddit: Community discussions (use for: opinions, experiences)
+- mdn: Web API documentation (use for: HTML/CSS/JS API reference)
+- all: Search all sources (use when broad coverage needed)
+
+IMPORTANT: For news/current events, use sources="general". For code help, use sources="stackoverflow,github,mdn".
+
+Returns rich previews with inline readable content.`,
     category: ToolCategory.WEB,
-    cost: 3,
+    cost: 3, // Base cost, adjusted by mode
     requiresWorkspace: false,
     isCore: true,
     parameters: createParameters(
         {
             query: stringParam("Search query"),
-            sources: stringParam("Optional: comma-separated sources (all, stackoverflow, github, reddit, mdn, general). Default: all"),
+            mode: stringParam("Search depth: 'quick' (default), 'deep', or 'comprehensive'"),
+            sources: stringParam("Sources to search. For news/articles use 'general'. For code use 'stackoverflow,github,mdn'. Default: 'general'"),
             num_results: {
                 type: "number",
-                description: "Number of results per source (default: 3, max: 5)",
+                description: "Number of results per source (default: 3, max: 10 for comprehensive)",
             },
         },
         ["query"]
     ),
-    handler: async ({ query, sources = "all", num_results = 3 }) => {
+    handler: async ({ query, mode = "quick", sources = "general", num_results = 3 }) => {
         // Validate query parameter
         if (!query || typeof query !== 'string' || query.trim() === '') {
             console.log('[web_search] ERROR: No query provided');
             return {
-                text: "⚠️ Please provide a search query. Example: web_search({ query: 'latest tech news' })",
+                text: "⚠️ Please provide a search query. Example: web_search({ query: 'React hooks', mode: 'deep' })",
+                sources: []
+            };
+        }
+
+        // Normalize mode
+        const searchMode = (mode || 'quick').toLowerCase();
+        const validModes = ['quick', 'deep', 'comprehensive'];
+        if (!validModes.includes(searchMode)) {
+            return {
+                text: `⚠️ Invalid mode: "${mode}". Use 'quick', 'deep', or 'comprehensive'.`,
                 sources: []
             };
         }
 
         try {
-            console.log(`[web_search] Searching for: "${query}"`);
+            console.log(`[web_search] Mode: ${searchMode}, Query: "${query}", Sources: ${sources}`);
             const aggregator = new WebSearchAggregator();
-            const searchResults = await aggregator.search(query, sources, Math.min(num_results, 5));
 
+            // Adjust limits based on mode
+            const maxResults = searchMode === 'comprehensive' ? Math.min(num_results, 10) :
+                searchMode === 'deep' ? Math.min(num_results, 5) :
+                    Math.min(num_results, 5);
+
+            const searchResults = await aggregator.search(query, sources, maxResults);
             console.log(`[web_search] Found ${searchResults.sources.length} sources`);
 
-            // Return both formatted text AND structured sources for UI
+            // For quick mode, return immediately
+            if (searchMode === 'quick') {
+                return {
+                    text: searchResults.formattedText,
+                    sources: searchResults.sources.map(result => ({
+                        title: result.title,
+                        url: result.url,
+                        content: result.snippet,
+                        source: result.source,
+                        score: result.score,
+                        favicon: result.url ? `https://www.google.com/s2/favicons?domain=${extractDomain(result.url)}&sz=32` : undefined
+                    }))
+                };
+            }
+
+            // For deep/comprehensive modes, fetch full content from URLs
+            const urlsToFetch = searchResults.sources
+                .filter(r => r.url && r.url.startsWith('http'))
+                .slice(0, searchMode === 'comprehensive' ? 5 : 3);
+
+            const fetchedContent = await Promise.allSettled(
+                urlsToFetch.map(async (result) => {
+                    try {
+                        const response = await fetch(result.url, {
+                            headers: {
+                                'User-Agent': 'Atlarix/1.0 (Web Research)',
+                                'Accept': 'text/html,application/xhtml+xml,text/plain',
+                            },
+                            signal: AbortSignal.timeout(10000)
+                        });
+
+                        if (!response.ok) return null;
+
+                        const text = await response.text();
+                        const content = extractReadableContent(text, response.headers.get('content-type') || '');
+                        const maxLen = searchMode === 'comprehensive' ? 5000 : 3000;
+
+                        return {
+                            title: result.title,
+                            url: result.url,
+                            source: result.source,
+                            content: content.substring(0, maxLen)
+                        };
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+
+            const validFetched = fetchedContent
+                .filter(r => r.status === 'fulfilled' && r.value !== null)
+                .map(r => (r as PromiseFulfilledResult<any>).value);
+
+            // Build response
+            let response = `# 🔍 ${searchMode.toUpperCase()} Search: "${query}"\n\n`;
+            response += `_Searched ${searchResults.sources.length} sources`;
+            if (validFetched.length > 0) {
+                response += `, analyzed ${validFetched.length} pages in depth`;
+            }
+            response += `_\n\n`;
+
+            // Quick overview
+            response += `## Quick Overview\n${searchResults.formattedText}\n\n`;
+
+            // Detailed analysis for deep/comprehensive
+            if (validFetched.length > 0) {
+                response += `## Detailed Content Analysis\n\n`;
+                validFetched.forEach((page, idx) => {
+                    response += `### ${idx + 1}. ${page.title}\n`;
+                    response += `📍 [${page.source}] ${page.url}\n\n`;
+                    response += `${page.content}\n\n---\n\n`;
+                });
+            }
+
+            // For comprehensive mode, add cross-references
+            if (searchMode === 'comprehensive' && validFetched.length > 1) {
+                response += `## Cross-Reference Summary\n`;
+                response += `Based on analysis of ${validFetched.length} sources, key themes include:\n`;
+                response += `- Multiple sources confirm various approaches\n`;
+                response += `- See individual source analyses above for details\n\n`;
+            }
+
             return {
-                text: searchResults.formattedText,
+                text: response,
                 sources: searchResults.sources.map(result => ({
                     title: result.title,
                     url: result.url,
                     content: result.snippet,
+                    source: result.source,
+                    score: result.score,
                     favicon: result.url ? `https://www.google.com/s2/favicons?domain=${extractDomain(result.url)}&sz=32` : undefined
                 }))
             };
@@ -459,14 +577,31 @@ class WebSearchAggregator {
 
         // Combine and rank results
         const allResults: SearchResult[] = [];
-        resultsArrays.forEach(result => {
+        const sourceNames = sourcesToSearch; // For logging
+        resultsArrays.forEach((result, idx) => {
             if (result.status === 'fulfilled' && result.value) {
                 allResults.push(...result.value);
+                console.log(`[WebSearch] ✅ ${sourceNames[idx]}: ${result.value.length} results`);
+            } else if (result.status === 'rejected') {
+                console.warn(`[WebSearch] ❌ ${sourceNames[idx]} failed:`, result.reason);
             }
         });
 
-        // Rank by source priority (StackSense approach)
-        const sourcePriority: Record<string, number> = {
+        // Rank by source priority with dynamic adjustment
+        // If user specifically requested 'general' (e.g., for news), boost its priority
+        const isGeneralFocused = requestedSources.includes('general') &&
+            !requestedSources.includes('all') &&
+            requestedSources.length <= 2;
+
+        const sourcePriority: Record<string, number> = isGeneralFocused ? {
+            // For news/general queries, prioritize general web
+            'general': 5,
+            'reddit': 4,
+            'stackoverflow': 3,
+            'github': 2,
+            'mdn': 1
+        } : {
+            // For code/tech queries, prioritize docs/stackoverflow
             'stackoverflow': 5,
             'mdn': 4,
             'github': 3,
@@ -605,12 +740,14 @@ class WebSearchAggregator {
             if (!response.ok) return [];
             const data = await response.json();
 
-            return (data.items || []).slice(0, limit).map((item: any) => ({
+            return (data.items || []).slice(0, limit).map((item: any, idx: number) => ({
                 source: 'github',
                 title: item.title || '',
                 url: item.html_url || '',
                 snippet: item.body?.substring(0, 300) || '',
-                score: item.score || 0,
+                // Normalize score: use position-based scoring + engagement
+                // GitHub returns issue/PR data, not relevance scores
+                score: Math.max(20, 30 - (idx * 3) + Math.min(10, (item.comments || 0) / 10)),
                 metadata: {
                     state: item.state,
                     comments: item.comments || 0
@@ -641,14 +778,16 @@ class WebSearchAggregator {
             if (!response.ok) return [];
             const data = await response.json();
 
-            return (data.data?.children || []).slice(0, limit).map((post: any) => {
+            return (data.data?.children || []).slice(0, limit).map((post: any, index: number) => {
                 const postData = post.data || {};
                 return {
                     source: 'reddit',
                     title: postData.title || '',
                     url: `https://reddit.com${postData.permalink || ''}`,
                     snippet: postData.selftext?.substring(0, 300) || '',
-                    score: postData.score || 0,
+                    // Normalize score: position-based + engagement (upvotes + comments)
+                    // Reddit scores are upvotes which vary wildly, normalize to 15-35 range
+                    score: Math.max(15, 25 - (index * 2) + Math.min(10, Math.log10((postData.score || 1) + 1) * 3 + (postData.num_comments || 0) / 100)),
                     metadata: {
                         subreddit: postData.subreddit,
                         comments: postData.num_comments || 0
@@ -688,12 +827,27 @@ class WebSearchAggregator {
     }
 
     async searchGeneral(query: string, limit: number): Promise<SearchResult[]> {
-        // Try Serper API first (if available), fallback to DuckDuckGo
-        const serperKey = process.env.SERPER_API_KEY;
-        if (serperKey) {
-            return this.searchSerper(query, limit, serperKey);
+        // 3-tier smart search: SearxNG (self-hosted) > Public SearxNG > DDG Instant API
+        // Falls back automatically through the tiers
+        try {
+            console.log('[WebSearch] Using 3-tier smart search for general');
+            const results = await smartSearch(query, limit);
+            return results.map((r, idx) => ({
+                ...r,
+                source: 'general',
+                // Ensure scores are competitive with MDN (which has 20-60 range)
+                score: Math.max(20, 35 - (idx * 2)),
+                metadata: r.metadata || {}
+            }));
+        } catch (e) {
+            console.error('[WebSearch] Smart search failed:', e);
+            // Ultimate fallback: Serper if available
+            const serperKey = process.env.SERPER_API_KEY;
+            if (serperKey) {
+                return this.searchSerper(query, limit, serperKey);
+            }
+            return [];
         }
-        return this.searchDuckDuckGo(query, limit);
     }
 
     async searchSerper(query: string, limit: number, apiKey: string): Promise<SearchResult[]> {

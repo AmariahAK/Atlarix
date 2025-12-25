@@ -91,6 +91,12 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 🐛 Known Issues
 
+### Major Issues
+- [ ] **SearxNG Config Sync**: Settings revert to default on app restart
+  - Root cause: Main process tool isolation
+  - Workaround: Manually save settings after restart
+  - Status: Fix in progress (v0.5.0)
+
 ### Minor Bugs
 - [ ] **Rate Limiting**: GitHub API rate limit errors in logs
   - Shows "403 rate limit exceeded" when fetching templates
@@ -115,61 +121,37 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 📋 Completed ✅
 
-### v0.3.0 (2025-12-24)
-- [x] Multi-source web search (StackOverflow, GitHub, Reddit, MDN, DuckDuckGo)
-- [x] `deep_search` tool - comprehensive research with URL fetching
-- [x] Structured sources array for UI display
-- [x] MessageSources component with favicon previews
-- [x] Source preview dialog with iframe
-- [x] Search result caching (1-hour TTL)
-- [x] Query validation to prevent undefined searches
-- [x] Tool execution timing and logging
-- [x] Line break preservation in messages
-- [x] Aurora color scheme implementation
-
-### v0.2.0
-- [x] Incognito chat mode (ephemeral/in-memory only)
-- [x] OAuth integration in sidebar
-- [x] Model name display on responses
-- [x] Sticky "New Chat" header
-- [x] Improved DuckDuckGo search
-- [x] Fixed proposal handler null error
-- [x] Fixed chat stream handler for ephemeral chats
+### v0.4.0 (2025-12-25)
+- [x] **3-Panel Layout**: Sidebar, Chat, and Context Panel
+- [x] **Live Preview**: Code iframe and Mermaid/PlantUML diagrams
+- [x] **Smart Search**: 3-tier search (SearxNG + Public + DDG)
+- [x] **Config Sync**: IPC-based settings sync
+- [x] **Context Awareness**: Right panel adapts to content (Search, Diff, Preview)
 
 ---
 
-## 🚀 Upcoming: 3-Panel Layout (v0.4.0)
+## 🚀 Roadmap: The Ultimate IDE (v0.5.0+)
 
-### Interactive Source Preview Panel
-A Gemini/Claude-style 3-panel layout for Ask mode:
+### 🧠 Intelligent Code Generation (Dyad + StackSense)
+Combining Dyad's template engine with StackSense's context awareness:
+- [ ] **Smart Scaffolding**: Generate entire project structures using Dyad templates
+- [ ] **Context-Aware Edits**: RAG-based understanding of project patterns
+- [ ] **Live Diffing**: Preview changes in right panel before applying (Aider/Cursor style)
+- [ ] **Atomic Batching**: Apply multi-file changes safely
 
-```
-┌────────┬─────────────────┬──────────────────┐
-│Sidebar │     Chat        │  Source Preview  │
-│        │                 │                  │
-│History │ Conversation    │ 📄 Selected URL  │
-│        │ [6 sources ▼]   │ [iframe preview] │
-│        │                 │                  │
-│        │ [Input]         │ ⏱ Tool Timeline  │
-└────────┴─────────────────┴──────────────────┘
-```
+### 📊 Advanced Diagrams (PlantUML + StackSense)
+Elevating diagrams from static images to interactive tools:
+- [ ] **Live Modification**: "Add a node here" -> Diagram updates instantly
+- [ ] **Interactive Nodes**: Click class -> Jump to code
+- [ ] **Architecture Analysis**: Auto-generate high-level views
+- [ ] **Full PlantUML**: Support for complex component/sequence diagrams
 
-**Features:**
-- [ ] `SourcePreviewPanel.tsx` - Right panel component
-- [ ] Click source → opens in right panel with iframe
-- [ ] Tool execution timeline with durations
-- [ ] Tab navigation: Sources | Tools | Preview
-- [ ] Resizable panels using `react-resizable-panels`
-- [ ] Atoms for selected source state
-
-**Files to Create/Modify:**
-- `[NEW]` `src/components/SourcePreviewPanel.tsx`
-- `[MODIFY]` `src/pages/atlarix-home.tsx` - 3-panel layout
-- `[MODIFY]` `src/components/MessageSources.tsx` - Click to open
-- `[NEW]` `src/atoms/sourceAtoms.ts` - State management
+### 🔍 Search Perfection
+- [ ] **Fix Config Sync**: Resolve main process isolation issue for SearxNG
+- [ ] **Citation Graph**: Visualizing connections between search results
 
 ---
 
-**Last Updated**: 2025-12-24  
-**Version**: v0.3.0
+**Last Updated**: 2025-12-25
+**Version**: v0.4.0 (Released)
 
