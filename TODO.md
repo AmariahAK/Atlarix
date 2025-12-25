@@ -92,10 +92,9 @@ This file tracks upcoming features, improvements, and known issues.
 ## 🐛 Known Issues
 
 ### Major Issues
-- [ ] **SearxNG Config Sync**: Settings revert to default on app restart
-  - Root cause: Main process tool isolation
-  - Workaround: Manually save settings after restart
-  - Status: Fix in progress (v0.5.0)
+- [x] ~~**SearxNG Config Sync**: Settings revert to default on app restart~~ ✅ Fixed in v0.4.0
+  - Solution: Database-backed storage + in-memory fallback
+  - One-click Docker setup added
 
 ### Minor Bugs
 - [ ] **Rate Limiting**: GitHub API rate limit errors in logs
@@ -125,30 +124,36 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **3-Panel Layout**: Sidebar, Chat, and Context Panel
 - [x] **Live Preview**: Code iframe and Mermaid/PlantUML diagrams
 - [x] **Smart Search**: 3-tier search (SearxNG + Public + DDG)
-- [x] **Config Sync**: IPC-based settings sync
+- [x] **Config Sync**: IPC-based settings sync  
+- [x] **One-Click SearxNG**: Docker auto-setup with embedded config
+- [x] **Auto-Stop on Quit**: Docker container cleanup when app closes
+- [x] **Database-Backed Settings**: SearxNG config persists in SQLite
 - [x] **Context Awareness**: Right panel adapts to content (Search, Diff, Preview)
 
 ---
 
-## 🚀 Roadmap: The Ultimate IDE (v0.5.0+)
+## 🚀 Roadmap: v0.5.0 - The Ultimate IDE
 
-### 🧠 Intelligent Code Generation (Dyad + StackSense)
+### 🧠 Intelligent Code Generation (Dyad + StackSense) 🔥 CURRENT PRIORITY
 Combining Dyad's template engine with StackSense's context awareness:
 - [ ] **Smart Scaffolding**: Generate entire project structures using Dyad templates
+- [ ] **AI-Powered Templates**: "Create a FastAPI app with auth" → Full project scaffold
 - [ ] **Context-Aware Edits**: RAG-based understanding of project patterns
 - [ ] **Live Diffing**: Preview changes in right panel before applying (Aider/Cursor style)
 - [ ] **Atomic Batching**: Apply multi-file changes safely
+- [ ] **Interactive Proposals**: View/edit/approve changes before commit
 
 ### 📊 Advanced Diagrams (PlantUML + StackSense)
 Elevating diagrams from static images to interactive tools:
-- [ ] **Live Modification**: "Add a node here" -> Diagram updates instantly
-- [ ] **Interactive Nodes**: Click class -> Jump to code
+- [ ] **Live Modification**: "Add a node here" → Diagram updates instantly
+- [ ] **Interactive Nodes**: Click class → Jump to code
 - [ ] **Architecture Analysis**: Auto-generate high-level views
 - [ ] **Full PlantUML**: Support for complex component/sequence diagrams
 
-### 🔍 Search Perfection
-- [ ] **Fix Config Sync**: Resolve main process isolation issue for SearxNG
+### 🔍 Search Enhancements
+- [x] ~~**Fix Config Sync**~~: Resolved with database-backed storage ✅
 - [ ] **Citation Graph**: Visualizing connections between search results
+- [ ] **Date Context**: Pass current date to AI for time-aware searches
 
 ---
 

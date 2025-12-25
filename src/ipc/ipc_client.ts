@@ -1439,6 +1439,16 @@ export class IpcClient {
   public async syncSearxngConfig(config: { url: string | null; enabled: boolean }): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("searxng:set-config", config);
   }
+
+  // Get SearxNG config from database (via main process)
+  public async getSearxngConfig(): Promise<{ url: string | null; enabled: boolean }> {
+    return this.ipcRenderer.invoke("searxng:get-config");
+  }
+
+  // Delete SearxNG config
+  public async deleteSearxngConfig(): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("searxng:delete-config");
+  }
 }
 
 // Export function to get SearxNG config from main process (for use in main process only)

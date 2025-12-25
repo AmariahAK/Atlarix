@@ -53,9 +53,10 @@ Atlarix integrates the complete StackSense tool suite with enhanced UI/UX:
 
 **Web & Research**
 - **`web_search`** - Smart 3-tier search system:
-  - **Tier 1**: Self-hosted SearxNG (configure in Settings)
+  - **Tier 1**: Self-hosted SearxNG (one-click Docker setup in Settings!)
   - **Tier 2**: Public SearxNG instances
   - **Tier 3**: DuckDuckGo Instant API (Default)
+- **One-Click SearxNG** - Click "Start SearxNG" in Settings → Docker handles the rest
 - **`deep_search`** - Comprehensive research: search → fetch → aggregate
 - **`read_url`** - Extract readable content from any webpage
 - **Smart Scoring** - Results ranked by relevance across sources

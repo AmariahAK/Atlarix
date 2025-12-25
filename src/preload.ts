@@ -154,9 +154,17 @@ const validInvokeChannels = [
   "dialog:openDirectory",
   // SearxNG
   "searxng:health-check",
+  "searxng:validate-url",
   "searxng:search",
   "searxng:get-config",
   "searxng:set-config",
+  "searxng:delete-config",
+  // SearxNG Auto-Setup
+  "searxng:check-docker",
+  "searxng:check-status",
+  "searxng:setup",
+  "searxng:stop",
+  "searxng:logs",
   // Test-only channels
   // These should ALWAYS be guarded with IS_TEST_BUILD in the main process.
   // We can't detect with IS_TEST_BUILD in the preload script because

@@ -37,6 +37,7 @@ import { registerSecurityHandlers } from "./handlers/security_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
+import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
 
 export function registerIpcHandlers() {
   // Register all IPC handlers by category
@@ -80,4 +81,6 @@ export function registerIpcHandlers() {
   // Atlarix handlers
   registerFolderDialogHandler();
   registerSearxngHandlers();
+  registerSearxngSetupHandlers();
+  registerSearxngAutoStop(); // Auto-stop Docker container when app quits
 }

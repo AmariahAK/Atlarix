@@ -282,3 +282,21 @@ export const mcpToolConsents = sqliteTable(
   },
   (table) => [unique("uniq_mcp_consent").on(table.serverId, table.toolName)],
 );
+
+// Search Providers - Store search provider configurations (SearxNG, etc.)
+export const searchProviders = sqliteTable("search_providers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  provider: text("provider").notNull().unique(), // 'searxng', 'tavily', 'serper', etc.
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(sql`0`),
+  config: text("config", { mode: "json" }).$type<{
+    url?: string;
+    apiKey?: string;
+  } | null>(), // JSON for flexibility
+  priority: integer("priority").notNull().default(0), // for fallback order
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});

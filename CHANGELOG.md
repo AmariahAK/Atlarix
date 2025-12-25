@@ -24,7 +24,13 @@ All notable changes to Atlarix will be documented in this file.
 - **Tier 2 (Good)**: Public SearxNG instances (fallback)
 - **Tier 3 (Reliable)**: DuckDuckGo Instant API (always works)
 - **Intelligent Selection**: AI prioritizes 'general' for news and 'stackoverflow/github' for code queries
-- **Settings Sync**: Configure SearxNG URL in Settings (syncs to main process)
+
+#### One-Click SearxNG Setup (NEW!)
+- **Auto-Setup via Docker**: Click "Start SearxNG" in Settings → no terminal commands needed
+- **Embedded Config**: Settings file bundled in app (no external files)
+- **Auto-Stop on Quit**: Docker container stops when you close Atlarix
+- **Database-Backed Settings**: SearxNG config now persists in SQLite (like API keys)
+- **Retry Logic**: Automatic retry with exponential backoff for failed requests
 
 ### ✨ Improvements
 
@@ -32,9 +38,10 @@ All notable changes to Atlarix will be documented in this file.
 - **Bypass CORS**: Search requests now proxied through Main process to avoid CORS errors
 - **IPC Sync**: Search settings synced from Renderer (UI) to Main (Tools) via IPC
 - **Health Checks**: Automatic health validation for SearxNG instances
+- **In-Memory Fallback**: Search works even before DB migration runs
 
 ### 🐛 Known Issues
-- **SearxNG Sync**: In some cases, config may revert to default on restart until manually saved. Fix in progress.
+- **Model Quality**: Some free models (Qwen 3) may not synthesize search results well. Use DeepSeek or Claude for best results.
 
 ---
 
