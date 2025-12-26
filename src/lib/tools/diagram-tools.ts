@@ -2,6 +2,10 @@
  * Diagram Visualization Tools
  * ==========================
  * Generate Mermaid diagrams from code structure
+ * 
+ * These tools create visual diagrams that are displayed in the Right Panel
+ * for the user to view. Use them when users ask about architecture, code flow,
+ * or want to visualize their project structure.
  */
 
 import { ToolRegistry, ToolCategory } from "./registry";
@@ -13,35 +17,56 @@ import path from "path";
 // ============================================
 
 /**
- * Get current project architecture diagram
+ * Generate project architecture diagram
+ * 
+ * Examples:
+ * - "Show me the architecture of this project" → architecture diagram
+ * - "Generate a class diagram for auth module" → class diagram
+ * - "Create a sequence diagram for login flow" → sequence diagram
+ * - "Visualize the data flow" → flowchart diagram
  */
 ToolRegistry.register({
     name: "get_diagram",
     category: ToolCategory.DIAGRAM,
-    description: "Generate Mermaid diagram of project architecture",
+    description: `Generate a Mermaid diagram of project architecture.
+
+Examples:
+- "Show me the architecture of this project" → type: architecture
+- "Generate a class diagram for auth module" → type: class
+- "Create a sequence diagram for login flow" → type: sequence
+- "Visualize the component structure" → type: flowchart
+
+The diagram will be displayed in the Right Panel for the user to view.`,
     cost: 10,
     requiresWorkspace: true,
     isCore: true,
     parameters: {
         workspace: {
             type: "string",
-            description: "Project directory",
+            description: "Project directory path",
             required: false,
         },
         diagram_type: {
             type: "string",
-            description: "Type: 'architecture', 'class', 'sequence'",
+            description: "Type of diagram: 'architecture', 'class', 'sequence', 'flowchart'",
             required: false,
             default: "architecture",
+        },
+        title: {
+            type: "string",
+            description: "Title for the diagram",
+            required: false,
         },
     },
     handler: async (params: {
         workspace?: string;
         diagram_type?: string;
+        title?: string;
     }) => {
         try {
             const workspace = params.workspace || process.cwd();
             const diagramType = params.diagram_type || "architecture";
+            const title = params.title || `${path.basename(workspace)} ${diagramType} diagram`;
 
             let mermaidCode = "";
 
@@ -55,6 +80,9 @@ ToolRegistry.register({
                 case "sequence":
                     mermaidCode = "sequenceDiagram\n    participant User\n    participant App\n    User->>App: Interact";
                     break;
+                case "flowchart":
+                    mermaidCode = await generateFlowchartDiagram(workspace);
+                    break;
                 default:
                     mermaidCode = await generateArchitectureDiagram(workspace);
             }
@@ -63,8 +91,11 @@ ToolRegistry.register({
                 success: true,
                 workspace,
                 diagram_type: diagramType,
+                title,
                 mermaid_code: mermaidCode,
-                preview_url: `https://mermaid.ink/img/${Buffer.from(mermaidCode).toString("base64")}`,
+                // Signal to show in Right Panel
+                _showInPanel: true,
+                _panelType: "diagram",
             };
         } catch (error) {
             return {
@@ -303,6 +334,42 @@ async function generateClassDiagram(
     }
 
     return mermaid || "classDiagram\n    class NoClassesFound";
+}
+
+/**
+ * Generate a flowchart diagram showing data/control flow
+ */
+async function generateFlowchartDiagram(workspace: string): Promise<string> {
+    const structure = await scanProjectStructure(workspace);
+
+    let mermaid = "flowchart TD\n";
+
+    // Create a flow diagram based on common patterns
+    mermaid += "    Start([User Request])\n";
+    mermaid += "    Start --> Router\n";
+
+    // Add components based on folder structure
+    if (structure.folders.some(f => f.includes("page") || f.includes("route"))) {
+        mermaid += "    Router --> Pages[Pages/Routes]\n";
+        mermaid += "    Pages --> Components[Components]\n";
+    }
+
+    if (structure.folders.some(f => f.includes("hook") || f.includes("lib"))) {
+        mermaid += "    Components --> Hooks[Hooks/Logic]\n";
+    }
+
+    if (structure.folders.some(f => f.includes("api") || f.includes("service"))) {
+        mermaid += "    Hooks --> API[API/Services]\n";
+        mermaid += "    API --> DB[(Database)]\n";
+    }
+
+    mermaid += "    DB --> Response([Response])\n";
+
+    // Add styling
+    mermaid += "\n    style Start fill:#10B981,stroke:#059669,color:#fff\n";
+    mermaid += "    style Response fill:#F59E0B,stroke:#D97706,color:#fff\n";
+
+    return mermaid;
 }
 
 interface ProjectStructure {

@@ -38,6 +38,7 @@ import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_e
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
+import "./handlers/diagram_handlers"; // Auto-registers on import
 
 export function registerIpcHandlers() {
   // Register all IPC handlers by category

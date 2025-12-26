@@ -1449,6 +1449,71 @@ export class IpcClient {
   public async deleteSearxngConfig(): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("searxng:delete-config");
   }
+
+  // ============================================
+  // DIAGRAM METHODS
+  // ============================================
+
+  public async generateDiagram(input: {
+    workspaceId?: number;
+    chatId?: number;
+    type: "mermaid" | "plantuml" | "architecture" | "sequence" | "class" | "flowchart";
+    title: string;
+    content: string;
+    metadata?: { files?: string[]; entities?: string[]; focus?: string };
+  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:generate", input);
+  }
+
+  public async listDiagrams(params: { workspaceId?: number }): Promise<{
+    success: boolean;
+    diagrams: any[];
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("diagram:list", params);
+  }
+
+  public async getDiagram(id: number): Promise<{
+    success: boolean;
+    diagram?: any;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("diagram:get", { id });
+  }
+
+  public async updateDiagram(params: {
+    id: number;
+    content: string;
+    changeDescription?: string;
+  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:update", params);
+  }
+
+  public async deleteDiagram(id: number): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:delete", { id });
+  }
+
+  public async getDiagramHistory(diagramId: number): Promise<{
+    success: boolean;
+    versions: any[];
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("diagram:history", { diagramId });
+  }
+
+  public async restoreDiagramVersion(params: {
+    diagramId: number;
+    versionId: number;
+  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:restore", params);
+  }
+
+  public async exportDiagram(params: {
+    id: number;
+    format: "svg" | "png" | "code";
+  }): Promise<{ success: boolean; data?: string; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:export", params);
+  }
 }
 
 // Export function to get SearxNG config from main process (for use in main process only)

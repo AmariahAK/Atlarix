@@ -6,6 +6,11 @@ import path from 'path';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import {
+  analyzeWorkspace,
+  generateArchitectureDiagram,
+  generateTextSummary,
+} from '../../lib/analysis';
 
 const execAsync = promisify(exec);
 const logger = log.scope("template_handlers");
@@ -63,9 +68,23 @@ export function registerTemplateHandlers() {
       sendProgress({ step: 'configuring', message: 'Initializing git...', progress: 90 });
       await initializeGit(projectPath);
 
+      // Step 6: Generate architecture diagram
+      sendProgress({ step: 'analyzing', message: 'Generating project overview...', progress: 95 });
+      let diagram: string | null = null;
+      let summary: string | null = null;
+      try {
+        const analysis = await analyzeWorkspace(projectPath);
+        diagram = generateArchitectureDiagram(analysis);
+        summary = generateTextSummary(analysis, 'medium');
+        logger.info(`Generated architecture diagram for template: ${projectName}`);
+      } catch (error) {
+        logger.warn('Failed to generate template diagram:', error);
+        // Continue without diagram
+      }
+
       sendProgress({ step: 'complete', message: 'Complete!', progress: 100 });
 
-      return { success: true, projectPath };
+      return { success: true, projectPath, diagram, summary };
     } catch (error: any) {
       logger.error('Template clone failed:', error);
       try {

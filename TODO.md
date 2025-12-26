@@ -97,10 +97,9 @@ This file tracks upcoming features, improvements, and known issues.
   - One-click Docker setup added
 
 ### Minor Bugs
-- [ ] **Rate Limiting**: GitHub API rate limit errors in logs
-  - Shows "403 rate limit exceeded" when fetching templates
-  - Doesn't block functionality but clutters logs
-  - Consider caching template metadata
+- [x] ~~**Rate Limiting**: GitHub API rate limit errors in logs~~ ✅ Fixed with disk cache
+  - Templates now cached to disk with midnight expiry
+  - Shuffle on load provides variety
 
 - [ ] **Build Script**: `npm run build` shows "Missing script: 'build'"
   - App runs fine with `npm start`
@@ -134,29 +133,36 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 🚀 Roadmap: v0.5.0 - The Ultimate IDE
 
-### 🧠 Intelligent Code Generation (Dyad + StackSense) 🔥 CURRENT PRIORITY
-Combining Dyad's template engine with StackSense's context awareness:
-- [ ] **Smart Scaffolding**: Generate entire project structures using Dyad templates
-- [ ] **AI-Powered Templates**: "Create a FastAPI app with auth" → Full project scaffold
-- [ ] **Context-Aware Edits**: RAG-based understanding of project patterns
-- [ ] **Live Diffing**: Preview changes in right panel before applying (Aider/Cursor style)
-- [ ] **Atomic Batching**: Apply multi-file changes safely
-- [ ] **Interactive Proposals**: View/edit/approve changes before commit
+### Phase 1: Template Rate Limiting ✅ DONE
+- [x] **Disk-Based Cache**: Templates cached with midnight expiry
+- [x] **Visual Variety**: Shuffle on load (top 3 preserved)
 
-### 📊 Advanced Diagrams (PlantUML + StackSense)
-Elevating diagrams from static images to interactive tools:
-- [ ] **Live Modification**: "Add a node here" → Diagram updates instantly
+### Phase 2: Diagram-First Analysis ✅ DONE (Dec 26)
+- [x] **Workspace Analyzer**: Regex-based parsing of code files
+- [x] **Diagram Generator**: Mermaid architecture diagrams
+- [x] **Hash-Based Cache**: Invalidation via file modification times
+- [x] **AI Context Injection**: Compact summary in system prompts
+- [x] **Collapsible Sidebar**: Workspace folders with nested chats
+- [x] **Template Diagrams**: Architecture diagram after clone
+
+### Phase 3: Hybrid-Light Context System 🔥 NEXT
+Fixing token overflow by adopting StackSense approach:
+- [ ] **Remove `extractCodebase()`**: Stop dumping full codebase (168K tokens!)
+- [ ] **File Exploration Tools**: `read_file`, `search_code`, `list_files`, `get_file_info`
+- [ ] **Lightweight File Tree**: Add depth-2 tree to context (~500 tokens)
+- [ ] **Let AI Decide**: AI uses tools to fetch files as needed
+
+### Phase 4: Advanced Diagrams (PlantUML + StackSense)
+- [ ] **Live Modification**: "Add a node here" → Diagram updates
 - [ ] **Interactive Nodes**: Click class → Jump to code
-- [ ] **Architecture Analysis**: Auto-generate high-level views
-- [ ] **Full PlantUML**: Support for complex component/sequence diagrams
+- [ ] **Full PlantUML**: Complex component/sequence diagrams
 
-### 🔍 Search Enhancements
-- [x] ~~**Fix Config Sync**~~: Resolved with database-backed storage ✅
-- [ ] **Citation Graph**: Visualizing connections between search results
-- [ ] **Date Context**: Pass current date to AI for time-aware searches
+### Phase 5: Code Generation (Dyad + StackSense)
+- [ ] **Smart Scaffolding**: AI-powered project generation
+- [ ] **Live Diffing**: Preview changes before applying
+- [ ] **Atomic Batching**: Safe multi-file edits
 
 ---
 
-**Last Updated**: 2025-12-25
-**Version**: v0.4.0 (Released)
-
+**Last Updated**: 2025-12-26
+**Version**: v0.5.0-alpha (In Development)

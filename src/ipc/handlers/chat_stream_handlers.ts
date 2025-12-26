@@ -94,6 +94,7 @@ import {
 } from "../../utils/chat_naming";
 import { ToolRegistry } from "../../lib/tools";
 import { handleChatOnlyStream } from "./chat_only_handlers";
+import { getWorkspaceContext } from "./chat_stream/workspace-context";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -694,6 +695,24 @@ ${componentSnippet}
             enableTurboEditsV2: isTurboEditsV2Enabled(settings),
           });
 
+          // Inject workspace analysis context (diagram-first analysis)
+          // This prevents AI hallucination by providing accurate structure info
+          try {
+            const workspaceContext = await getWorkspaceContext(appPath);
+            if (workspaceContext) {
+              systemPrompt += workspaceContext.systemPromptAddition;
+              logger.info(`Injected workspace context (fromCache: ${workspaceContext.fromCache})`);
+
+              // Send diagram to renderer for RightPanel display
+              safeSend(event.sender, "chat:workspace-diagram", {
+                chatId: req.chatId,
+                diagram: workspaceContext.diagram,
+                summary: workspaceContext.summary,
+              });
+            }
+          } catch (error) {
+            logger.warn("Failed to inject workspace context:", error);
+          }
           // Add information about mentioned apps if any
           if (otherAppsCodebaseInfo) {
             const mentionedAppsList = mentionedAppsCodebases

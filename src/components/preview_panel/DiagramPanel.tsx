@@ -2,17 +2,18 @@
  * DiagramPanel
  * ============
  * Right panel for architecture diagrams with:
- * - Mermaid/PlantUML code editor
- * - Live diagram preview
- * - Before/After/Side-by-Side compare modes
- * - Export buttons (SVG, PNG, Code)
- * - Interactive clickable nodes
+ * - REAL Mermaid rendering (via MermaidRenderer)
+ * - Version history dropdown
+ * - Before/After compare modes
+ * - Export buttons (SVG, Copy)
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAtom } from 'jotai';
 import { diagramStateAtom, type DiagramState } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
+import { MermaidRenderer } from '@/components/MermaidRenderer';
+import { IpcClient } from '@/ipc/ipc_client';
 import {
     GitCompare,
     Download,
@@ -22,7 +23,9 @@ import {
     Layout,
     ChevronLeft,
     ChevronRight,
-    Maximize2
+    History,
+    RotateCcw,
+    Check,
 } from 'lucide-react';
 
 interface DiagramPanelProps {
@@ -32,14 +35,35 @@ interface DiagramPanelProps {
 
 type CompareMode = 'current' | 'before' | 'after' | 'side-by-side';
 
+interface DiagramVersion {
+    id: number;
+    content: string;
+    changeDescription: string | null;
+    createdAt: Date;
+}
+
 export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
     const [compareMode, setCompareMode] = useState<CompareMode>('current');
-    const [isEditing, setIsEditing] = useState(false);
-    const [editCode, setEditCode] = useState('');
+    const [versions, setVersions] = useState<DiagramVersion[]>([]);
+    const [showHistory, setShowHistory] = useState(false);
 
     // Use data from props or atom
     const diagram = data || diagramState;
+
+    // Fetch version history if we have a diagram ID
+    useEffect(() => {
+        if (diagram && (diagram as any).id) {
+            IpcClient.getInstance()
+                .getDiagramHistory((diagram as any).id)
+                .then((result) => {
+                    if (result.success) {
+                        setVersions(result.versions);
+                    }
+                })
+                .catch(console.error);
+        }
+    }, [diagram]);
 
     if (!diagram) {
         return (
@@ -61,6 +85,9 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                     compareMode={compareMode}
                     setCompareMode={setCompareMode}
                     hasCompareData={hasCompareData}
+                    versions={versions}
+                    showHistory={showHistory}
+                    setShowHistory={setShowHistory}
                 />
             )}
             {activeTab === 'logs' && <DiagramLogs />}
@@ -69,20 +96,27 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
 }
 
 /**
- * Main Diagram Viewer with Compare Modes
+ * Main Diagram Viewer with Compare Modes and Version History
  */
 function DiagramViewer({
     diagram,
     compareMode,
     setCompareMode,
-    hasCompareData
+    hasCompareData,
+    versions,
+    showHistory,
+    setShowHistory,
 }: {
     diagram: DiagramState;
     compareMode: CompareMode;
     setCompareMode: (mode: CompareMode) => void;
     hasCompareData: boolean;
+    versions: DiagramVersion[];
+    showHistory: boolean;
+    setShowHistory: (show: boolean) => void;
 }) {
     const [copied, setCopied] = useState(false);
+    const [renderedSvg, setRenderedSvg] = useState<string | null>(null);
 
     // Get code to display based on compare mode
     const displayCode = useMemo(() => {
@@ -103,20 +137,32 @@ function DiagramViewer({
         setTimeout(() => setCopied(false), 2000);
     }, [displayCode]);
 
-    // Export as SVG (placeholder - would use actual Mermaid rendering)
+    // Export as SVG
     const handleExportSVG = useCallback(() => {
-        const svgElement = document.querySelector('.diagram-preview svg');
-        if (svgElement) {
-            const svgData = new XMLSerializer().serializeToString(svgElement);
-            const blob = new Blob([svgData], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'diagram.svg';
-            a.click();
-            URL.revokeObjectURL(url);
+        if (!renderedSvg) return;
+        const blob = new Blob([renderedSvg], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'diagram.svg';
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [renderedSvg]);
+
+    // Restore a previous version
+    const handleRestore = useCallback(async (version: DiagramVersion) => {
+        if (!(diagram as any).id) return;
+        try {
+            await IpcClient.getInstance().restoreDiagramVersion({
+                diagramId: (diagram as any).id,
+                versionId: version.id,
+            });
+            setShowHistory(false);
+            // TODO: Refresh diagram state
+        } catch (error) {
+            console.error('Failed to restore version:', error);
         }
-    }, []);
+    }, [diagram, setShowHistory]);
 
     return (
         <div className="flex flex-col h-full">
@@ -141,28 +187,47 @@ function DiagramViewer({
                 </div>
             )}
 
-            {/* Diagram Preview */}
+            {/* Diagram Preview - Now with REAL rendering! */}
             <div className="flex-1 overflow-auto p-4">
                 {compareMode === 'side-by-side' && hasCompareData ? (
                     <SideBySideView
                         beforeCode={diagram.beforeCode || ''}
                         afterCode={diagram.afterCode || ''}
-                        type={diagram.type}
+                    />
+                ) : diagram.type === 'mermaid' || diagram.type === 'architecture' ||
+                    diagram.type === 'flowchart' || diagram.type === 'sequence' ||
+                    diagram.type === 'class' ? (
+                    <MermaidRenderer
+                        code={displayCode}
+                        className="min-h-[300px]"
+                        onRender={setRenderedSvg}
                     />
                 ) : (
-                    <DiagramRender
-                        code={displayCode}
-                        type={diagram.type}
-                    />
+                    // PlantUML fallback - show code
+                    <PlantUMLPreview code={displayCode} />
                 )}
             </div>
 
             {/* Actions Bar */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/20">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-muted capitalize">
                         {diagram.type}
                     </span>
+                    {versions.length > 0 && (
+                        <button
+                            onClick={() => setShowHistory(!showHistory)}
+                            className={cn(
+                                "flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
+                                showHistory
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                            )}
+                        >
+                            <History className="w-3.5 h-3.5" />
+                            {versions.length} versions
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-1">
                     <button
@@ -170,12 +235,13 @@ function DiagramViewer({
                         className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
                         title="Copy code"
                     >
-                        <Copy className="w-3.5 h-3.5" />
+                        {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
                         {copied ? 'Copied!' : 'Copy'}
                     </button>
                     <button
                         onClick={handleExportSVG}
-                        className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                        disabled={!renderedSvg}
+                        className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Export SVG"
                     >
                         <Image className="w-3.5 h-3.5" />
@@ -183,68 +249,47 @@ function DiagramViewer({
                     </button>
                 </div>
             </div>
-        </div>
-    );
-}
 
-/**
- * Render a diagram from Mermaid/PlantUML code
- */
-function DiagramRender({ code, type }: { code: string; type: 'mermaid' | 'plantuml' }) {
-    // For now, show code block. In production, would use mermaid.js or PlantUML server
-    return (
-        <div className="diagram-preview">
-            {type === 'mermaid' ? (
-                <MermaidDiagram code={code} />
-            ) : (
-                <PlantUMLDiagram code={code} />
+            {/* Version History Dropdown */}
+            {showHistory && versions.length > 0 && (
+                <div className="absolute bottom-14 left-3 right-3 bg-background border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
+                    <div className="p-2 text-xs font-medium text-muted-foreground border-b border-border">
+                        Version History
+                    </div>
+                    {versions.map((version) => (
+                        <div
+                            key={version.id}
+                            className="flex items-center justify-between px-3 py-2 hover:bg-muted/50 border-b border-border last:border-0"
+                        >
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">
+                                    {version.changeDescription || 'Updated diagram'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    {new Date(version.createdAt).toLocaleString()}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => handleRestore(version)}
+                                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-primary hover:bg-primary/10"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Restore
+                            </button>
+                        </div>
+                    ))}
+                </div>
             )}
         </div>
     );
 }
 
 /**
- * Mermaid Diagram Renderer
+ * PlantUML Preview (code display for now)
  */
-function MermaidDiagram({ code }: { code: string }) {
-    // Placeholder - in production would use mermaid.js
-    // For now, show a styled code preview with diagram structure hints
+function PlantUMLPreview({ code }: { code: string }) {
     return (
         <div className="space-y-4">
-            {/* Visual representation (simplified) */}
-            <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-lg border border-border p-6 min-h-[200px] flex items-center justify-center">
-                <div className="text-center space-y-3">
-                    <Layout className="w-16 h-16 mx-auto text-primary/50" />
-                    <p className="text-sm text-muted-foreground">Mermaid Diagram</p>
-                    <p className="text-xs text-muted-foreground/70">
-                        {code.split('\n').length} lines
-                    </p>
-                </div>
-            </div>
-
-            {/* Code Preview */}
-            <div className="bg-muted/30 rounded-lg border border-border overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
-                    <span className="text-xs font-medium text-muted-foreground">Mermaid Code</span>
-                    <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
-                </div>
-                <pre className="p-3 text-xs font-mono text-foreground overflow-x-auto max-h-[300px]">
-                    {code}
-                </pre>
-            </div>
-        </div>
-    );
-}
-
-/**
- * PlantUML Diagram Renderer
- */
-function PlantUMLDiagram({ code }: { code: string }) {
-    // In production, would send to PlantUML server for rendering
-    // For now, show code preview
-    return (
-        <div className="space-y-4">
-            {/* Visual placeholder */}
             <div className="bg-gradient-to-br from-green-500/5 to-blue-500/5 rounded-lg border border-border p-6 min-h-[200px] flex items-center justify-center">
                 <div className="text-center space-y-3">
                     <Layout className="w-16 h-16 mx-auto text-green-500/50" />
@@ -254,8 +299,6 @@ function PlantUMLDiagram({ code }: { code: string }) {
                     </p>
                 </div>
             </div>
-
-            {/* Code Preview */}
             <div className="bg-muted/30 rounded-lg border border-border overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
                     <span className="text-xs font-medium text-muted-foreground">PlantUML Code</span>
@@ -275,11 +318,9 @@ function PlantUMLDiagram({ code }: { code: string }) {
 function SideBySideView({
     beforeCode,
     afterCode,
-    type
 }: {
     beforeCode: string;
     afterCode: string;
-    type: 'mermaid' | 'plantuml';
 }) {
     return (
         <div className="grid grid-cols-2 gap-4 h-full">
@@ -290,7 +331,7 @@ function SideBySideView({
                     <span className="text-xs font-medium text-red-500">Before</span>
                 </div>
                 <div className="flex-1 p-3 overflow-auto">
-                    <DiagramRender code={beforeCode} type={type} />
+                    <MermaidRenderer code={beforeCode} />
                 </div>
             </div>
 
@@ -301,7 +342,7 @@ function SideBySideView({
                     <span className="text-xs font-medium text-green-500">After</span>
                 </div>
                 <div className="flex-1 p-3 overflow-auto">
-                    <DiagramRender code={afterCode} type={type} />
+                    <MermaidRenderer code={afterCode} />
                 </div>
             </div>
         </div>

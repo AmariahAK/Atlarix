@@ -55,8 +55,8 @@ export interface HomeSubmitOptions {
 export default function AtlarixHome() {
     const [inputValue, setInputValue] = useAtom(homeChatInputValueAtom);
     const navigate = useNavigate();
-    const setSelectedAppId = useSetAtom(selectedAppIdAtom);
-    const { refreshApps } = useLoadApps();
+    const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
+    const { apps, refreshApps } = useLoadApps();
     const { settings, updateSettings } = useSettings();
     const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
     const [isLoading, setIsLoading] = useState(false);
@@ -208,26 +208,41 @@ export default function AtlarixHome() {
         if (!inputValue.trim() && attachments.length === 0) return;
 
         try {
-            // Create chat-only session
-            const result = await IpcClient.getInstance().createChatOnly();
+            let chatId: number;
+
+            // If an app/workspace is selected, create a workspace-bound chat
+            // Otherwise, create an ephemeral (incognito) chat
+            if (selectedAppId) {
+                // Workspace-bound chat - persisted to DB
+                chatId = await IpcClient.getInstance().createChat(selectedAppId);
+                console.log(`Created workspace chat ${chatId} for app ${selectedAppId}`);
+            } else {
+                // Ephemeral chat-only session (incognito)
+                const result = await IpcClient.getInstance().createChatOnly();
+                chatId = result.chatId;
+                console.log(`Created ephemeral chat ${chatId}`);
+            }
 
             // Store input before clearing
             const prompt = inputValue;
             setInputValue('');
             setIsPreviewOpen(false);
-            setSelectedAppId(null); // Chat-only, no app yet
+            // Don't clear selectedAppId - keep workspace context!
 
             // Set active chat - this hides templates and shows the chat inline
-            setActiveChatId(result.chatId);
+            setActiveChatId(chatId);
 
             // Start streaming - response appears in same page
             streamMessage({
                 prompt,
-                chatId: result.chatId,
+                chatId,
                 attachments,
             });
 
-            posthog.capture('home:chat-submit');
+            posthog.capture('home:chat-submit', {
+                hasWorkspace: !!selectedAppId,
+                workspaceId: selectedAppId
+            });
             // NO NAVIGATION - same-page chat like ChatGPT
         } catch (error) {
             console.error('Failed to create chat:', error);
@@ -289,8 +304,8 @@ export default function AtlarixHome() {
     if (activeChatId !== null) {
         return (
             <div className="flex-1 flex h-screen bg-background">
-                {/* Main Content Area (Chat) - no overflow here, child handles it */}
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Main Content Area (Chat) - single scroller in child */}
+                <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
                     {/* Sticky header with back button and panel toggle */}
                     <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
                         <button
@@ -381,6 +396,28 @@ export default function AtlarixHome() {
 
                 {/* Main Input Area - Centered and Focused */}
                 <div className="space-y-4 max-w-3xl mx-auto">{/* Added max-w and mx-auto for centering */}
+
+                    {/* Workspace Indicator Badge */}
+                    <div className="flex items-center justify-center gap-2">
+                        {selectedAppId ? (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20">
+                                <span className="text-xs text-primary font-medium">
+                                    Chatting in: {apps.find(a => a.id === selectedAppId)?.name || 'Workspace'}
+                                </span>
+                                <button
+                                    onClick={() => setSelectedAppId(null)}
+                                    className="text-primary/60 hover:text-primary text-xs"
+                                    title="Switch to incognito mode"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                                Incognito mode — select a workspace from sidebar to save chats
+                            </span>
+                        )}
+                    </div>
 
                     {/* HomeChatInput - with model validation, attachments, paperclip */}
                     <HomeChatInput onSubmit={handleSubmit} />

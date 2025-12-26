@@ -47,7 +47,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       };
     }
 
-    return () => {};
+    return () => { };
   }, [settings?.zoomLevel]);
   // Global keyboard listener for refresh events
   useEffect(() => {
@@ -84,7 +84,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <AppSidebar />
             <div
               id="layout-main-content-container"
-              className="flex h-screenish w-full overflow-x-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
+              className="flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
               {children}
             </div>

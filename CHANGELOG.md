@@ -2,6 +2,42 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.5.0-alpha] - 2025-12-26 (In Progress)
+
+### 🎉 New Features
+
+#### Workspace Analysis System (StackSense Integration)
+- **Diagram-First Analysis**: Automatic architecture diagram generation for workspaces
+- **Regex-Based Parsing**: Extracts imports, exports, functions, classes from code files
+- **Hash-Based Caching**: Analysis cached with file-modification-time invalidation
+- **AI Context Injection**: Compact workspace summary injected into AI prompts
+
+#### Collapsible Workspace Sidebar
+- **Folder-Style Organization**: Workspaces displayed as collapsible folders
+- **Nested Chats**: Up to 10 recent chats shown under each workspace
+- **Quick Actions**: New chat button per workspace
+- **Incognito Mode**: Chat-only mode at sidebar bottom
+
+#### Template System Improvements
+- **Disk Caching**: Templates cached to disk (expires at midnight)
+- **Visual Variety**: Templates shuffled on each load (top 3 preserved)
+- **Architecture Diagrams**: Diagram generated after template clone
+
+### 🔧 Technical Changes
+- Created `src/lib/analysis/` module with 5 new files
+- Updated `chat_stream_handlers.ts` with workspace context injection
+- Redesigned `AppList.tsx` with collapsible folder UI
+
+### ⚠️ Known Issues
+- Tree-sitter native bindings incompatible with Electron (using regex fallback)
+- Full codebase still being sent to AI (token overflow) - FIX PENDING
+
+### 🚧 Next: Hybrid-Light Context System
+- **File Exploration Tools**: `read_file`, `search_code`, `list_files`
+- **Tiered Context**: Diagram + tools (no full codebase dump)
+
+---
+
 ## [v0.4.0] - 2025-12-25
 
 ### 🎉 Major Features

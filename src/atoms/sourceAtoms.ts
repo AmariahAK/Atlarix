@@ -115,11 +115,13 @@ export const approvalStateAtom = atom<{
 // ═══════════════════════════════════════════════════════════
 
 export interface DiagramState {
+    id?: number;
     code: string;
-    type: 'mermaid' | 'plantuml';
+    type: 'mermaid' | 'plantuml' | 'architecture' | 'sequence' | 'class' | 'flowchart';
     compareMode: 'current' | 'before' | 'after' | 'side-by-side';
     beforeCode?: string;
     afterCode?: string;
+    title?: string;
 }
 
 /** Current diagram state */

@@ -163,6 +163,7 @@
     "lexical-beautiful-mentions": "^0.1.47",
     "lucide-react": "^0.487.0",
     "marked": "^17.0.1",
+    "mermaid": "^10.9.5",
     "monaco-editor": "^0.52.2",
     "node-cron": "^4.2.1",
     "openai": "^4.91.1",

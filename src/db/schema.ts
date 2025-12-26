@@ -300,3 +300,62 @@ export const searchProviders = sqliteTable("search_providers", {
     .notNull()
     .default(sql`(unixepoch())`),
 });
+
+// --- Diagrams tables ---
+
+// Diagrams - Store AI-generated architecture/class/sequence diagrams
+export const diagrams = sqliteTable("diagrams", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").references(() => apps.id, { onDelete: "cascade" }),
+  chatId: integer("chat_id").references(() => chats.id, { onDelete: "set null" }),
+  type: text("type", {
+    enum: ["mermaid", "plantuml", "architecture", "sequence", "class", "flowchart"],
+  }).notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(), // Mermaid/PlantUML code
+  metadata: text("metadata", { mode: "json" }).$type<{
+    files?: string[];
+    entities?: string[];
+    focus?: string;
+  } | null>(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// Diagram Versions - Track history of diagram modifications
+export const diagramVersions = sqliteTable("diagram_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  diagramId: integer("diagram_id")
+    .notNull()
+    .references(() => diagrams.id, { onDelete: "cascade" }),
+  content: text("content").notNull(), // Previous Mermaid/PlantUML code
+  changeDescription: text("change_description"), // AI: "Added authentication flow"
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// Diagram relations
+export const diagramsRelations = relations(diagrams, ({ one, many }) => ({
+  workspace: one(apps, {
+    fields: [diagrams.workspaceId],
+    references: [apps.id],
+  }),
+  chat: one(chats, {
+    fields: [diagrams.chatId],
+    references: [chats.id],
+  }),
+  versions: many(diagramVersions),
+}));
+
+export const diagramVersionsRelations = relations(diagramVersions, ({ one }) => ({
+  diagram: one(diagrams, {
+    fields: [diagramVersions.diagramId],
+    references: [diagrams.id],
+  }),
+}));
+

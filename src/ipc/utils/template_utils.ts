@@ -9,6 +9,26 @@ import { app } from "electron";
 import path from "path";
 import fs from "fs/promises";
 
+/**
+ * Fisher-Yates shuffle for array randomization
+ * Only shuffles within ranking tiers to maintain quality ordering
+ */
+function shuffleWithinTiers(templates: Template[]): Template[] {
+  if (templates.length === 0) return templates;
+
+  // Split into top 3 (keep order) and rest (shuffle)
+  const top = templates.slice(0, 3);
+  const rest = [...templates.slice(3)];
+
+  // Fisher-Yates shuffle for the rest
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j], rest[i]];
+  }
+
+  return [...top, ...rest];
+}
+
 const logger = log.scope("template_utils");
 
 // Cache file location (lazy-loaded to avoid calling app.getPath before app is ready)
@@ -162,6 +182,7 @@ function scheduleMidnightRefresh(): void {
  * - Loads from disk cache if valid
  * - Fetches fresh if cache expired
  * - Schedules midnight refresh
+ * - Shuffles cached results for visual variety (top 3 preserved)
  */
 export async function getAllTemplates(): Promise<Template[]> {
   try {
@@ -169,8 +190,9 @@ export async function getAllTemplates(): Promise<Template[]> {
     if (cache) {
       const expiresAt = new Date(cache.expiresAt);
       if (new Date() < expiresAt) {
-        logger.info("Using in-memory cache");
-        return cache.templates;
+        logger.info("Using in-memory cache (shuffled for variety)");
+        // Shuffle on each access for visual variety
+        return shuffleWithinTiers(cache.templates);
       }
     }
 
@@ -179,7 +201,9 @@ export async function getAllTemplates(): Promise<Template[]> {
     if (diskCache) {
       cache = diskCache;
       scheduleMidnightRefresh();
-      return diskCache.templates;
+      logger.info("Using disk cache (shuffled for variety)");
+      // Shuffle on each access for visual variety
+      return shuffleWithinTiers(diskCache.templates);
     }
 
     // No valid cache - fetch fresh
@@ -199,6 +223,7 @@ export async function getAllTemplates(): Promise<Template[]> {
     // Schedule midnight refresh
     scheduleMidnightRefresh();
 
+    // Return fresh (already sorted, no shuffle needed)
     return fresh;
   } catch (error) {
     logger.error("Error getting templates:", error);
