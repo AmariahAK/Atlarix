@@ -201,14 +201,54 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **Workspace Path Fix**: Tools now resolve paths relative to workspace correctly
 - [x] **Memory Tools**: `recall_memory` and `search_memory` for context retrieval
 
-### v0.8.0 (Next) - Collapsible Thinking Section
-- [ ] **ThinkingSection Component**: Group all thoughts + tools in one collapsed section
-- [ ] **Answer Prominence**: Main answer shown prominently below thinking
-- [ ] **Claude-style UI**: Collapsed by default, expandable on demand
+### v0.8.0 (2025-12-27) - ThinkingCard & Absolute Paths ✅
+- [x] **ThinkingCard Component**: Two separate cards (thinking + response)
+- [x] **Collapsed by Default**: Clean UI, click to expand thinking details
+- [x] **Absolute Path Storage**: Projects store full paths in database
+- [x] **resolveAppPath Helper**: Backward compatible path resolution
+- [x] **Fresh DB Setup**: Clean database for new project imports
+
+---
+
+## 🔥 Known Bugs (Minor)
+
+### UI Issues
+- [ ] **ThinkingCard Streaming**: Minor visual glitches during streaming
+- [ ] **Right Panel Toolbar**: Shows as "2" instead of proper Atlarix sidebar
+- [ ] **Preview Missing**: URL previews should show in workspace mode (Ask + Build)
+- [ ] **Toolbar Branding**: Toolbar should be Atlarix, not Dyad
+
+### Right Panel Enhancements Needed
+- [ ] **Code Preview**: Live code preview in right panel
+- [ ] **Diagram Preview**: Current architecture diagram view
+- [ ] **URL Preview**: Website/source previews from search results
+- [ ] **System Diagram**: Real-time project state visualization
+
+---
+
+## 🚀 Roadmap: v0.9.0 - Code Generation (Dyad + StackSense)
+
+### Phase 1: Right Panel Overhaul
+- [ ] **Unified Right Panel**: Code, Preview, Diagrams, Search Results
+- [ ] **Tab Navigation**: Switch between preview types
+- [ ] **System Diagram View**: Current architecture state (click for timeline)
+- [ ] **Atlarix Branding**: Remove Dyad references from toolbar
+
+### Phase 2: Code Generation
+- [ ] **Smart Scaffolding**: AI-powered project generation
+- [ ] **Live Diffing**: Preview changes before applying
+- [ ] **Atomic Batching**: Safe multi-file edits with rollback
+- [ ] **Template System**: Customizable code templates
+
+### Phase 3: Code Modification
+- [ ] **Semantic Edits**: "Add a button here" → AI modifies code
+- [ ] **Refactoring Tools**: Extract, rename, move with context
+- [ ] **Test Generation**: Auto-generate tests for modified code
 
 ---
 
 **Last Updated**: 2025-12-27
-**Version**: v0.7.0 (Ask Mode & Tool UI)
+**Version**: v0.8.0 (ThinkingCard & Absolute Paths)
+
 
 

@@ -36,7 +36,12 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Workspace Aware** - Tools automatically resolve paths relative to your project
 - **Memory Integration** - Recall previous context and search project history
 
-### 🤖 Multi-Provider AI Support
+### � ThinkingCard UI (NEW in v0.8.0!)
+- **Two Independent Cards** - Thinking (collapsed) and Response (always visible)
+- **Clean Layout** - No UI lag, answer always immediately visible
+- **Absolute Path Storage** - Projects work from any location on your filesystem
+
+### �🤖 Multi-Provider AI Support
 - **Ollama** - Free, local models (llama3.2, codellama, qwen2.5-coder)
 - **LMStudio** - Local models with beautiful GUI
 - **OpenRouter** - Cloud access to 100+ models

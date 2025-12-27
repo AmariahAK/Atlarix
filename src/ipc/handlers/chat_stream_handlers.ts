@@ -23,7 +23,7 @@ import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
   SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
 } from "../../prompts/supabase_prompt";
-import { getAtlarixAppPath } from "../../paths/paths";
+import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import {
@@ -442,7 +442,7 @@ export function registerChatStreamHandlers() {
           let componentSnippet = "[component snippet not available]";
           try {
             const componentFileContent = await readFile(
-              path.join(getAtlarixAppPath(chat.app.path), component.relativePath),
+              path.join(resolveAppPath(chat.app.path), component.relativePath),
               "utf8",
             );
             const lines = componentFileContent.split(/\r?\n/);
@@ -513,7 +513,7 @@ ${componentSnippet}
             content: "", // Start with empty content
             requestId: dyadRequestId,
             sourceCommitHash: await getCurrentCommitHash({
-              path: getAtlarixAppPath(chat.app.path),
+              path: resolveAppPath(chat.app.path),
             }),
           })
           .returning();
@@ -651,7 +651,7 @@ ${componentSnippet}
         let chatContext: any = { contextPaths: [], smartContextAutoIncludes: [] };
 
         if (hasWorkspace) {
-          appPath = getAtlarixAppPath(updatedChat.app.path);
+          appPath = resolveAppPath(updatedChat.app.path);
           // When we don't have smart context enabled, we
           // only include the selected components' files for codebase context.
           //
@@ -795,7 +795,7 @@ ${componentSnippet}
           }
 
           let systemPrompt = constructSystemPrompt({
-            aiRules: await readAiRules(getAtlarixAppPath(updatedChat.app.path)),
+            aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
             chatMode:
               settings.selectedChatMode === "agent"
                 ? "build"
@@ -835,7 +835,7 @@ ${componentSnippet}
           if (isSecurityReviewIntent) {
             systemPrompt = SECURITY_REVIEW_SYSTEM_PROMPT;
             try {
-              const appPath = getAtlarixAppPath(updatedChat.app.path);
+              const appPath = resolveAppPath(updatedChat.app.path);
               const rulesPath = path.join(appPath, "SECURITY_RULES.md");
               let securityRules = "";
 
@@ -1255,7 +1255,7 @@ This conversation includes one or more image attachments. When the user uploads 
               modelClient,
               tools,
               systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(getAtlarixAppPath(updatedChat.app.path)),
+                aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
                 chatMode: "agent",
                 enableTurboEditsV2: false,
               }),
@@ -1299,7 +1299,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     // Execute tool via registry
                     const execResult = await ToolRegistry.execute(tool.name, {
                       ...args,
-                      workspace: getAtlarixAppPath(updatedChat.app.path),
+                      workspace: resolveAppPath(updatedChat.app.path),
                     });
 
                     // Return formatted result for display
@@ -1340,7 +1340,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
               modelClient,
               tools: askTools,
               systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(getAtlarixAppPath(updatedChat.app.path)),
+                aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
                 chatMode: "ask",
                 enableTurboEditsV2: false,
               }) + askModePrompt,
@@ -1381,7 +1381,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
               ) {
                 let issues = await dryRunSearchReplace({
                   fullResponse,
-                  appPath: getAtlarixAppPath(updatedChat.app.path),
+                  appPath: resolveAppPath(updatedChat.app.path),
                 });
 
                 let searchReplaceFixAttempts = 0;
@@ -1451,7 +1451,7 @@ ${formattedSearchReplaceIssues}`,
                   // Re-check for issues after the fix attempt
                   issues = await dryRunSearchReplace({
                     fullResponse: result.incrementalResponse,
-                    appPath: getAtlarixAppPath(updatedChat.app.path),
+                    appPath: resolveAppPath(updatedChat.app.path),
                   });
                 }
               }
@@ -1510,7 +1510,7 @@ ${formattedSearchReplaceIssues}`,
                   // IF auto-fix is enabled
                   let problemReport = await generateProblemReport({
                     fullResponse,
-                    appPath: getAtlarixAppPath(updatedChat.app.path),
+                    appPath: resolveAppPath(updatedChat.app.path),
                   });
 
                   let autoFixAttempts = 0;
@@ -1537,7 +1537,7 @@ ${problemReport.problems
                     const problemFixPrompt = createProblemFixPrompt(problemReport);
 
                     const virtualFileSystem = new AsyncVirtualFileSystem(
-                      getAtlarixAppPath(updatedChat.app.path),
+                      resolveAppPath(updatedChat.app.path),
                       {
                         fileExists: (fileName: string) => fileExists(fileName),
                         readFile: (fileName: string) => readFileWithCache(fileName),
@@ -1608,7 +1608,7 @@ ${problemReport.problems
 
                     problemReport = await generateProblemReport({
                       fullResponse,
-                      appPath: getAtlarixAppPath(updatedChat.app.path),
+                      appPath: resolveAppPath(updatedChat.app.path),
                     });
                   }
                 } catch (error) {

@@ -124,85 +124,93 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     };
   }, [contentPieces]);
 
-  // Group consecutive tool calls into summaries for compact display
-  const groupedPieces = useMemo(() => {
-    const result: { type: 'normal' | 'tool-group'; items: any[] }[] = [];
-    let currentToolGroup: ToolSummaryCall[] = [];
+  // Separate thinking content (thoughts + tools) from answer content
+  const { thoughts, toolCalls, answerPieces } = useMemo(() => {
+    const thoughts: string[] = [];
+    const toolCalls: Array<{ id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string }> = [];
+    const answer: Array<{ piece: ContentPiece; index: number }> = [];
     let toolGroupId = 0;
 
     contentPieces.forEach((piece, index) => {
-      // Include both native tool calls AND MCP tool calls
-      const isToolTag = piece.type === 'custom-tag' &&
-        (piece.tagInfo.tag === 'atlarix-tool-call' ||
-          piece.tagInfo.tag === 'atlarix-tool-result' ||
-          piece.tagInfo.tag === 'atlarix-mcp-tool-call' ||
-          piece.tagInfo.tag === 'atlarix-mcp-tool-result');
+      if (piece.type === 'custom-tag') {
+        const tag = piece.tagInfo.tag;
 
-      if (isToolTag) {
-        const attrs = piece.tagInfo.attributes;
-        // Handle both native (tool/name) and MCP (server/tool) attribute formats
-        const toolName = attrs.tool || attrs.name || attrs.server || 'unknown';
-        currentToolGroup.push({
-          id: `tool-${toolGroupId++}`,
-          toolName,
-          status: attrs.status === 'error' ? 'error' : attrs.status === 'running' ? 'running' : 'success',
-          args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
-          error: attrs.error,
-        });
-      } else {
-        // Flush any pending tool group
-        if (currentToolGroup.length > 0) {
-          result.push({ type: 'tool-group', items: [...currentToolGroup] });
-          currentToolGroup = [];
+        // Thoughts go to thinking card
+        if (tag === 'think') {
+          const content = piece.tagInfo.content?.trim();
+          if (content) thoughts.push(content);
         }
-        result.push({ type: 'normal', items: [{ piece, index }] });
+        // Tools go to thinking card
+        else if (
+          tag === 'atlarix-tool-call' ||
+          tag === 'atlarix-tool-result' ||
+          tag === 'atlarix-mcp-tool-call' ||
+          tag === 'atlarix-mcp-tool-result'
+        ) {
+          const attrs = piece.tagInfo.attributes;
+          const toolName = attrs.tool || attrs.name || attrs.server || 'unknown';
+          toolCalls.push({
+            id: `tool-${toolGroupId++}`,
+            toolName,
+            status: attrs.status === 'error' ? 'error' : attrs.status === 'running' ? 'running' : 'success',
+            args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
+            error: attrs.error,
+          });
+        }
+        // Other custom tags go to answer
+        else {
+          answer.push({ piece, index });
+        }
+      } else if (piece.type === 'markdown') {
+        // Only add markdown with actual content to answer
+        if (piece.content && piece.content.trim()) {
+          answer.push({ piece, index });
+        }
       }
     });
 
-    // Flush remaining tool group
-    if (currentToolGroup.length > 0) {
-      result.push({ type: 'tool-group', items: [...currentToolGroup] });
-    }
-
-    return result;
+    return { thoughts, toolCalls, answerPieces: answer };
   }, [contentPieces]);
+
+  // Import ThinkingCard
+  const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
 
   return (
     <>
-      {groupedPieces.map((group, groupIndex) => (
-        <React.Fragment key={groupIndex}>
-          {group.type === 'tool-group' ? (
-            <ToolSummary toolCalls={group.items as ToolSummaryCall[]} />
-          ) : (
-            group.items.map(({ piece, index }: any) => (
-              <React.Fragment key={index}>
-                {piece.type === "markdown"
-                  ? piece.content && (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code: CodeHighlight,
-                        a: customLink,
-                      }}
-                    >
-                      {piece.content}
-                    </ReactMarkdown>
-                  )
-                  : renderCustomTag(piece.tagInfo, { isStreaming })}
-                {index === lastErrorIndex &&
-                  errorCount > 1 &&
-                  !isStreaming &&
-                  chatId && (
-                    <div className="mt-3 w-full flex">
-                      <FixAllErrorsButton
-                        errorMessages={errorMessages}
-                        chatId={chatId}
-                      />
-                    </div>
-                  )}
-              </React.Fragment>
-            ))
-          )}
+      {/* CARD 1: Thinking (thoughts + tools) - Collapsed, independent */}
+      {(thoughts.length > 0 || toolCalls.length > 0) && (
+        <React.Suspense fallback={<div className="h-10 bg-slate-900/50 rounded-lg animate-pulse" />}>
+          <ThinkingCard thoughts={thoughts} toolCalls={toolCalls} />
+        </React.Suspense>
+      )}
+
+      {/* CARD 2: Response - The actual answer, completely separate */}
+      {answerPieces.map(({ piece, index }) => (
+        <React.Fragment key={index}>
+          {piece.type === "markdown"
+            ? piece.content && (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: CodeHighlight,
+                  a: customLink,
+                }}
+              >
+                {piece.content}
+              </ReactMarkdown>
+            )
+            : renderCustomTag(piece.tagInfo, { isStreaming })}
+          {index === lastErrorIndex &&
+            errorCount > 1 &&
+            !isStreaming &&
+            chatId && (
+              <div className="mt-3 w-full flex">
+                <FixAllErrorsButton
+                  errorMessages={errorMessages}
+                  chatId={chatId}
+                />
+              </div>
+            )}
         </React.Fragment>
       ))}
     </>

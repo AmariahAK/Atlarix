@@ -123,8 +123,9 @@ export function registerImportHandlers() {
         .insert(apps)
         .values({
           name: appName,
-          // Use the name as the path for now
-          path: appName,
+          // Store the ORIGINAL source path (absolute path) so tools can find files
+          // This allows projects from anywhere on the filesystem to work correctly
+          path: sourcePath,
           installCommand: installCommand ?? null,
           startCommand: startCommand ?? null,
         })

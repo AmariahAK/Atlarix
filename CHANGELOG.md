@@ -43,6 +43,31 @@ All notable changes to Atlarix will be documented in this file.
 
 ---
 
+## [v0.8.0] - 2025-12-27
+
+### 🎉 Major Features
+
+#### ThinkingCard UI (Claude-style)
+- **Two Independent Cards**: Thinking and Response as separate, non-connected cards
+- **Collapsed by Default**: ThinkingCard shows summary, click to expand details
+- **No Streaming Lag**: Cards are independent, streaming doesn't cause UI bugs
+- **Clean Layout**: Answer always visible, thinking tucked away
+
+#### Absolute Path Storage
+- **Full Path Support**: Projects now store absolute paths in database
+- **Backward Compatible**: `resolveAppPath()` helper handles both old relative and new absolute paths
+- **Fresh Import**: New projects correctly point to their original location
+
+### 🔧 Technical Changes
+
+#### Files Created/Modified
+- `src/components/chat/ThinkingSection.tsx` - New ThinkingCard component
+- `src/paths/paths.ts` - Added `resolveAppPath()` helper
+- `src/ipc/handlers/import_handlers.ts` - Store `sourcePath` instead of `appName`
+- `src/ipc/handlers/chat_stream_handlers.ts` - Use `resolveAppPath()` for file operations
+
+---
+
 ## [v0.5.0-alpha] - 2025-12-26 (In Progress)
 
 ### 🎉 New Features

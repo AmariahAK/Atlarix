@@ -10,6 +10,23 @@ export function getAtlarixAppPath(appPath: string): string {
   return path.join(os.homedir(), "atlarix-apps", appPath);
 }
 
+/**
+ * Resolves an app path from the database.
+ * Handles both:
+ * - ABSOLUTE paths (new imports after v0.7.0) - returns as-is
+ * - RELATIVE paths (legacy imports) - resolves via getAtlarixAppPath
+ * 
+ * This provides backward compatibility for existing imports.
+ */
+export function resolveAppPath(storedPath: string): string {
+  // If it's an absolute path, use it directly
+  if (path.isAbsolute(storedPath)) {
+    return storedPath;
+  }
+  // Otherwise, it's a legacy relative path - resolve via atlarix-apps folder
+  return getAtlarixAppPath(storedPath);
+}
+
 export function getTypeScriptCachePath(): string {
   const electron = getElectron();
   return path.join(electron!.app.getPath("sessionData"), "typescript-cache");
