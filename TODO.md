@@ -192,9 +192,23 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] Compare mode: Side-by-side diagram comparison
 - [ ] Rewind mode: View past state
 
+### v0.7.0 (2025-12-27) - Ask Mode & Tool UI ✅
+- [x] **Ask Mode Tools**: 21 read-only tools for workspace exploration
+- [x] **Tool Filtering**: `isReadOnly` flag on tools, `getToolsForAskMode()` registry method
+- [x] **ToolSummary Component**: Claude-style grouped badges (e.g., `read_file×3`)
+- [x] **Native Tool Tags**: Ask mode uses `atlarix-tool-call` instead of MCP format
+- [x] **Parameter Aliases**: `path`/`file_path`, `query`/`pattern`, `path`/`directory`
+- [x] **Workspace Path Fix**: Tools now resolve paths relative to workspace correctly
+- [x] **Memory Tools**: `recall_memory` and `search_memory` for context retrieval
+
+### v0.8.0 (Next) - Collapsible Thinking Section
+- [ ] **ThinkingSection Component**: Group all thoughts + tools in one collapsed section
+- [ ] **Answer Prominence**: Main answer shown prominently below thinking
+- [ ] **Claude-style UI**: Collapsed by default, expandable on demand
+
 ---
 
 **Last Updated**: 2025-12-27
-**Version**: v0.5.0-alpha (In Development)
+**Version**: v0.7.0 (Ask Mode & Tool UI)
 
 

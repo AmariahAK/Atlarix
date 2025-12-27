@@ -18,6 +18,7 @@ export type PanelType =
     | 'file-diff'       // File changes + approval
     | 'files'           // File explorer (default)
     | 'timeline'        // Diagram timeline (project evolution)
+    | 'tools'           // Tool execution activity (Ask mode)
     | 'empty';          // No content
 
 export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline';

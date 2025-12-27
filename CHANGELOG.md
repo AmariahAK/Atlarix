@@ -2,6 +2,47 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.7.0] - 2025-12-27
+
+### 🎉 Major Features
+
+#### Ask Mode with Read-Only Tools
+- **Smart Tool Filtering**: `isReadOnly` flag on all tools enables safe Ask mode exploration
+- **21 Read-Only Tools**: `read_file`, `list_files`, `search_code`, `find_file`, `get_diagram`, etc.
+- **Workspace Aware**: Tools automatically resolve paths relative to workspace
+- **Memory Integration**: `recall_memory` and `search_memory` tools for context retrieval
+
+#### Compact Tool Summary UI (Claude-style)
+- **Grouped Badges**: Consecutive tool calls grouped into one compact bar (e.g., `read_file×3 • list_files×2`)
+- **Expandable Details**: Click to see individual tool calls and results
+- **Status Indicators**: Visual feedback for success/error/running states
+- **Native Tool Tags**: Ask mode now uses `atlarix-tool-call` tags (not MCP format)
+
+#### Tool Parameter Flexibility
+- **Multi-Name Support**: Tools accept multiple parameter names for AI compatibility:
+  - `read_file`: accepts `path` OR `file_path`
+  - `list_files`: accepts `path` OR `directory`
+  - `search_code`: accepts `query` OR `pattern`
+- **Better Ignore Patterns**: Added `venv/**` and `__pycache__/**` for Python projects
+
+### 🔧 Technical Changes
+
+#### Files Created
+- `src/components/ToolSummary.tsx` - Claude-style compact tool display
+- `src/lib/tools/memory-tools.ts` - Memory recall and search tools
+
+#### Files Modified
+- `src/lib/tools/file-tools.ts` - Parameter aliases and workspace path fix
+- `src/lib/tools/registry.ts` - `isReadOnly` field and `getToolsForAskMode()`
+- `src/ipc/handlers/chat_stream_handlers.ts` - Native tool tags for Ask mode
+- `src/components/chat/AtlarixMarkdownParser.tsx` - Tool grouping logic
+
+### 🐛 Bug Fixes
+- **Fixed**: Tools reading from wrong directory (CWD instead of workspace)
+- **Fixed**: AI using different parameter names causing undefined errors
+
+---
+
 ## [v0.5.0-alpha] - 2025-12-26 (In Progress)
 
 ### 🎉 New Features

@@ -35,6 +35,8 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'terminal': ['terminal'],
     'file-diff': ['files', 'diff', 'approve'],
     'files': ['files'],
+    'tools': ['tools'],  // Tool execution panel
+    'timeline': ['timeline'],
     'empty': [],
 };
 
@@ -87,7 +89,12 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'web-search';
         }
 
-        // Priority 6: Check for any diagram
+        // Priority 6: Tool activity (for Ask mode)
+        if (toolTimeline.length > 0) {
+            return 'tools';
+        }
+
+        // Priority 7: Check for any diagram
         if (diagramState) {
             return 'diagram';
         }
@@ -149,6 +156,8 @@ function getDataForType(
             return state.diagramState;
         case 'terminal':
             return state.terminalOutput;
+        case 'tools':
+            return { timeline: state.toolTimeline };
         default:
             return null;
     }

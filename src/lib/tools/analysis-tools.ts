@@ -32,6 +32,9 @@ ToolRegistry.register({
         },
     },
     cost: 5,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only analyzes code
     handler: async (params: { filepath: string }) => {
         try {
             const content = await fs.readFile(params.filepath, "utf-8");
@@ -167,6 +170,9 @@ ToolRegistry.register({
         },
     },
     cost: 8,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only analyzes impact
     handler: async (params: { filepath: string; workspace?: string }) => {
         try {
             const workspace = params.workspace || process.cwd();
@@ -225,6 +231,9 @@ ToolRegistry.register({
         },
     },
     cost: 5,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only runs diagnostics
     handler: async (params: { filepath: string }) => {
         try {
             const issues: Array<{ type: string; message: string; line?: number }> = [];
@@ -313,6 +322,9 @@ ToolRegistry.register({
         },
     },
     cost: 10,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only checks project health
     handler: async (params: { workspace?: string }) => {
         try {
             const workspace = params.workspace || process.cwd();

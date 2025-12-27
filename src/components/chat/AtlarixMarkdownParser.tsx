@@ -27,6 +27,9 @@ import { AtlarixWebCrawl } from "./AtlarixWebCrawl";
 import { AtlarixCodeSearchResult } from "./AtlarixCodeSearchResult";
 import { AtlarixCodeSearch } from "./AtlarixCodeSearch";
 import { AtlarixRead } from "./AtlarixRead";
+import { AtlarixToolCall } from "./AtlarixToolCall";
+import { AtlarixToolResult } from "./AtlarixToolResult";
+import { ToolSummary, ToolCall as ToolSummaryCall } from "../ToolSummary";
 import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
@@ -121,39 +124,99 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     };
   }, [contentPieces]);
 
+  // Group consecutive tool calls into summaries for compact display
+  const groupedPieces = useMemo(() => {
+    const result: { type: 'normal' | 'tool-group'; items: any[] }[] = [];
+    let currentToolGroup: ToolSummaryCall[] = [];
+    let toolGroupId = 0;
+
+    contentPieces.forEach((piece, index) => {
+      // Include both native tool calls AND MCP tool calls
+      const isToolTag = piece.type === 'custom-tag' &&
+        (piece.tagInfo.tag === 'atlarix-tool-call' ||
+          piece.tagInfo.tag === 'atlarix-tool-result' ||
+          piece.tagInfo.tag === 'atlarix-mcp-tool-call' ||
+          piece.tagInfo.tag === 'atlarix-mcp-tool-result');
+
+      if (isToolTag) {
+        const attrs = piece.tagInfo.attributes;
+        // Handle both native (tool/name) and MCP (server/tool) attribute formats
+        const toolName = attrs.tool || attrs.name || attrs.server || 'unknown';
+        currentToolGroup.push({
+          id: `tool-${toolGroupId++}`,
+          toolName,
+          status: attrs.status === 'error' ? 'error' : attrs.status === 'running' ? 'running' : 'success',
+          args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
+          error: attrs.error,
+        });
+      } else {
+        // Flush any pending tool group
+        if (currentToolGroup.length > 0) {
+          result.push({ type: 'tool-group', items: [...currentToolGroup] });
+          currentToolGroup = [];
+        }
+        result.push({ type: 'normal', items: [{ piece, index }] });
+      }
+    });
+
+    // Flush remaining tool group
+    if (currentToolGroup.length > 0) {
+      result.push({ type: 'tool-group', items: [...currentToolGroup] });
+    }
+
+    return result;
+  }, [contentPieces]);
+
   return (
     <>
-      {contentPieces.map((piece, index) => (
-        <React.Fragment key={index}>
-          {piece.type === "markdown"
-            ? piece.content && (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code: CodeHighlight,
-                  a: customLink,
-                }}
-              >
-                {piece.content}
-              </ReactMarkdown>
-            )
-            : renderCustomTag(piece.tagInfo, { isStreaming })}
-          {index === lastErrorIndex &&
-            errorCount > 1 &&
-            !isStreaming &&
-            chatId && (
-              <div className="mt-3 w-full flex">
-                <FixAllErrorsButton
-                  errorMessages={errorMessages}
-                  chatId={chatId}
-                />
-              </div>
-            )}
+      {groupedPieces.map((group, groupIndex) => (
+        <React.Fragment key={groupIndex}>
+          {group.type === 'tool-group' ? (
+            <ToolSummary toolCalls={group.items as ToolSummaryCall[]} />
+          ) : (
+            group.items.map(({ piece, index }: any) => (
+              <React.Fragment key={index}>
+                {piece.type === "markdown"
+                  ? piece.content && (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code: CodeHighlight,
+                        a: customLink,
+                      }}
+                    >
+                      {piece.content}
+                    </ReactMarkdown>
+                  )
+                  : renderCustomTag(piece.tagInfo, { isStreaming })}
+                {index === lastErrorIndex &&
+                  errorCount > 1 &&
+                  !isStreaming &&
+                  chatId && (
+                    <div className="mt-3 w-full flex">
+                      <FixAllErrorsButton
+                        errorMessages={errorMessages}
+                        chatId={chatId}
+                      />
+                    </div>
+                  )}
+              </React.Fragment>
+            ))
+          )}
         </React.Fragment>
       ))}
     </>
   );
 };
+
+// Helper to parse JSON safely
+function tryParseJSON(str: string): any {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return str ? { raw: str } : undefined;
+  }
+}
 
 /**
  * Pre-process content to handle unclosed custom tags
@@ -186,6 +249,8 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-command",
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
+    "atlarix-tool-call",
+    "atlarix-tool-result",
   ];
 
   let processedContent = content;
@@ -262,6 +327,8 @@ function parseCustomTags(content: string): ContentPiece[] {
     "atlarix-command",
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
+    "atlarix-tool-call",
+    "atlarix-tool-result",
   ];
 
   const tagPattern = new RegExp(
@@ -606,6 +673,35 @@ function renderCustomTag(
         return <>{mapActionToButton(action)}</>;
       }
       return null;
+
+    case "atlarix-tool-call":
+      return (
+        <AtlarixToolCall
+          node={{
+            properties: {
+              tool: attributes.tool || attributes.name || "",
+              status: attributes.status || "running",
+            },
+          }}
+        >
+          {content}
+        </AtlarixToolCall>
+      );
+
+    case "atlarix-tool-result":
+      return (
+        <AtlarixToolResult
+          node={{
+            properties: {
+              tool: attributes.tool || attributes.name || "",
+              status: attributes.status || "success",
+              error: attributes.error || "",
+            },
+          }}
+        >
+          {content}
+        </AtlarixToolResult>
+      );
 
     default:
       return null;

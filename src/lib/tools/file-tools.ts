@@ -28,9 +28,11 @@ ToolRegistry.register({
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
             path: stringParam("Path to the file to read (relative to workspace)"),
+            file_path: stringParam("Alternative: Path to the file (alias for path)"),
             start_line: {
                 type: "number",
                 description: "Optional: Starting line number (1-indexed)",
@@ -40,11 +42,25 @@ ToolRegistry.register({
                 description: "Optional: Ending line number (1-indexed)",
             },
         },
-        ["path"]
+        ["path"] // path is required, but we'll also check file_path in handler
     ),
-    handler: async ({ path: filePath, start_line, end_line }) => {
+    handler: async ({ path: pathArg, file_path, start_line, end_line, workspace }) => {
         try {
-            const fullPath = path.resolve(filePath);
+            // Accept both "path" and "file_path" parameter names
+            const filePath = pathArg || file_path;
+
+            if (!filePath) {
+                throw new Error("Missing required parameter: path or file_path");
+            }
+
+            // Resolve path relative to workspace if provided, otherwise relative to cwd
+            const fullPath = workspace
+                ? path.join(workspace, filePath)
+                : path.resolve(filePath);
+
+            // Debug logging
+            console.log(`[read_file] workspace: ${workspace}, filePath: ${filePath}, fullPath: ${fullPath}`);
+
             const content = await fs.promises.readFile(fullPath, "utf-8");
             const lines = content.split("\n");
 
@@ -60,6 +76,7 @@ ToolRegistry.register({
 
             return `File: ${filePath}\nLines: ${startIdx + 1}-${endIdx}\n\n${numberedLines}`;
         } catch (error) {
+            console.error(`[read_file] Error:`, error);
             throw new Error(`Failed to read file: ${error}`);
         }
     },
@@ -77,6 +94,7 @@ ToolRegistry.register({
     cost: 5,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: false, // Build mode only - modifies files
     parameters: createParameters(
         {
             path: stringParam("Path to the file to write (relative to workspace)"),
@@ -104,6 +122,7 @@ ToolRegistry.register({
     cost: 5,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: false, // Build mode only - modifies files
     parameters: createParameters(
         {
             files: {
@@ -146,9 +165,11 @@ ToolRegistry.register({
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
             path: stringParam("Path to scan (default: workspace root)"),
+            directory: stringParam("Alternative: Directory to scan (alias for path)"),
             max_depth: {
                 type: "number",
                 description: "Maximum depth to scan (default: 3)",
@@ -156,14 +177,20 @@ ToolRegistry.register({
         },
         []
     ),
-    handler: async ({ path: scanPath = ".", max_depth = 3 }) => {
+    handler: async ({ path: pathArg, directory, max_depth = 3, workspace }) => {
         try {
-            const fullPath = path.resolve(scanPath);
+            // Accept both "path" and "directory" parameter names
+            const scanPath = pathArg || directory || ".";
+
+            // Resolve path relative to workspace if provided
+            const fullPath = workspace
+                ? path.join(workspace, scanPath)
+                : path.resolve(scanPath);
 
             // Use glob to get all files
             const files = await glob("**/*", {
                 cwd: fullPath,
-                ignore: ["node_modules/**", ".git/**", "dist/**", "build/**"],
+                ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
                 dot: false,
                 maxDepth: max_depth,
             });
@@ -186,6 +213,9 @@ ToolRegistry.register({
     description: "Find files by name pattern (supports wildcards like *.ts)",
     category: ToolCategory.FILE,
     cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
             pattern: stringParam("File name pattern (e.g., '*.tsx', 'component*')"),
@@ -193,9 +223,12 @@ ToolRegistry.register({
         },
         ["pattern"]
     ),
-    handler: async ({ pattern, path: searchPath = "." }) => {
+    handler: async ({ pattern, path: searchPath = ".", workspace }) => {
         try {
-            const fullPath = path.resolve(searchPath);
+            // Resolve path relative to workspace if provided
+            const fullPath = workspace
+                ? path.join(workspace, searchPath)
+                : path.resolve(searchPath);
             const files = await glob(pattern, {
                 cwd: fullPath,
                 ignore: ["node_modules/**", ".git/**", "dist/**"],
@@ -224,21 +257,32 @@ ToolRegistry.register({
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
             query: stringParam("Text or code to search for"),
+            pattern: stringParam("Alternative: Search pattern (alias for query)"),
             file_pattern: stringParam(
                 "Optional: File pattern to search in (e.g., '*.ts')"
             ),
             case_sensitive: booleanParam("Case-sensitive search (default: false)"),
         },
-        ["query"]
+        ["query"] // query is required, but we'll also check pattern in handler
     ),
-    handler: async ({ query, file_pattern = "**/*", case_sensitive = false }) => {
+    handler: async ({ query: queryArg, pattern, file_pattern = "**/*", case_sensitive = false, workspace }) => {
         try {
-            // Get all files matching pattern
+            // Accept both "query" and "pattern" parameter names
+            const query = queryArg || pattern;
+
+            if (!query) {
+                throw new Error("Missing required parameter: query or pattern");
+            }
+
+            // Get all files matching pattern in workspace
+            const searchCwd = workspace || process.cwd();
             const files = await glob(file_pattern, {
-                ignore: ["node_modules/**", ".git/**", "dist/**", "build/**"],
+                cwd: searchCwd,
+                ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
             });
 
             const matches: string[] = [];
@@ -249,7 +293,8 @@ ToolRegistry.register({
 
             for (const file of files) {
                 try {
-                    const content = await fs.promises.readFile(file, "utf-8");
+                    const fullFilePath = path.join(searchCwd, file);
+                    const content = await fs.promises.readFile(fullFilePath, "utf-8");
                     const lines = content.split("\n");
 
                     lines.forEach((line, idx) => {

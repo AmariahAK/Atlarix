@@ -26,6 +26,9 @@ ToolRegistry.register({
         "Execute a shell command in the workspace. Shows permission dialog before running.",
     category: ToolCategory.EXECUTION,
     cost: 3,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: false, // Build mode only - executes commands
     parameters: createParameters(
         {
             command: stringParam("Shell command to execute"),
@@ -50,6 +53,9 @@ ToolRegistry.register({
         "Run the project's test suite. Detects test framework automatically (npm test, pytest, etc.)",
     category: ToolCategory.EXECUTION,
     cost: 3,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: false, // Build mode only - executes test commands
     parameters: createParameters(
         {
             test_path: stringParam("Optional: Specific test file or pattern to run"),
@@ -93,6 +99,9 @@ ToolRegistry.register({
         "Ask the user a question and wait for their response. Use for clarifications or choices.",
     category: ToolCategory.EXECUTION,
     cost: 0,
+    requiresWorkspace: false,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - just asks questions
     parameters: createParameters(
         {
             question: stringParam("Question to ask the user"),

@@ -40,6 +40,7 @@ The diagram will be displayed in the Right Panel for the user to view.`,
     cost: 10,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only generates diagrams from existing code
     parameters: {
         workspace: {
             type: "string",
@@ -130,6 +131,9 @@ ToolRegistry.register({
         },
     },
     cost: 8,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     handler: async (params: {
         workspace?: string;
         changes?: string[];
@@ -181,6 +185,9 @@ ToolRegistry.register({
         },
     },
     cost: 12,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     handler: async (params: {
         workspace?: string;
         include_methods?: boolean;
@@ -231,6 +238,9 @@ ToolRegistry.register({
         },
     },
     cost: 15,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode
     handler: async (params: {
         entry_point: string;
         max_depth?: number;

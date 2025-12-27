@@ -1,221 +1,278 @@
 /**
- * Tool Call Card Component
- * ========================
- * Visual representation of tool execution
+ * Tool Call Card Component (Enhanced)
+ * ====================================
+ * Hybrid UI: Dyad clarity + StackSense status + Aurora colors
+ * - Collapsible by default
+ * - Status indicators with animated states
+ * - Auto-expand on errors
+ * - Aurora color scheme
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+    ChevronDown,
+    ChevronUp,
+    Loader2,
+    CheckCircle2,
+    XCircle,
+    FileText,
+    Search,
+    Globe,
+    FolderOpen,
+    Terminal,
+    GitBranch,
+    Database,
+    Wrench,
+    MessageSquare,
+    BarChart3
+} from 'lucide-react';
 
-interface ToolCall {
-    id: string;
+// Tool call status
+export type ToolStatus = 'pending' | 'running' | 'complete' | 'error';
+
+// Tool call data
+export interface ToolCallData {
+    id?: string;
     name: string;
-    status: 'running' | 'complete' | 'error';
-    params: Record<string, any>;
+    status: ToolStatus;
+    params?: Record<string, any>;
     result?: any;
+    error?: string;
+    duration?: number; // milliseconds
 }
 
 interface ToolCallCardProps {
-    tool: ToolCall;
+    tool: ToolCallData;
+    defaultExpanded?: boolean;
 }
 
-export function ToolCallCard({ tool }: ToolCallCardProps) {
-    const [isExpanded, setIsExpanded] = useState(false);
+// Tool icons mapping
+const toolIcons: Record<string, React.FC<{ size?: number; className?: string }>> = {
+    read_file: FileText,
+    list_files: FolderOpen,
+    find_file: Search,
+    search_code: Search,
+    web_search: Globe,
+    deep_search: Globe,
+    read_url: Globe,
+    get_diagram: BarChart3,
+    git_status: GitBranch,
+    git_diff: GitBranch,
+    recall_memory: Database,
+    search_memory: Database,
+    run_command: Terminal,
+    run_tests: Terminal,
+    ask_user: MessageSquare,
+    parse_code_structure: FileText,
+    health_check: BarChart3,
+};
 
-    const toolSymbols: Record<string, string> = {
-        web_search: '⊕',
-        generate_from_template: '◈',
-        write_file: '▣',
-        read_file: '▢',
-        run_command: '▸',
-        get_diagram: '◊',
-        git_status: '◐',
-        semantic_search: '◉',
-        analyze_context: '◬',
-        test_changes: '◆',
+// Status dot component with animation
+function StatusDot({ status }: { status: ToolStatus }) {
+    const baseClasses = "w-2 h-2 rounded-full";
+
+    switch (status) {
+        case 'pending':
+            return (
+                <span className={`${baseClasses} bg-yellow-400 animate-pulse`} />
+            );
+        case 'running':
+            return (
+                <Loader2 size={14} className="text-purple-400 animate-spin" />
+            );
+        case 'complete':
+            return (
+                <CheckCircle2 size={14} className="text-emerald-400" />
+            );
+        case 'error':
+            return (
+                <XCircle size={14} className="text-red-400" />
+            );
+    }
+}
+
+// Status label
+function StatusLabel({ status, duration }: { status: ToolStatus; duration?: number }) {
+    const labels: Record<ToolStatus, { text: string; color: string }> = {
+        pending: { text: 'Pending', color: 'text-yellow-400' },
+        running: { text: 'Running', color: 'text-purple-400' },
+        complete: { text: duration ? `${(duration / 1000).toFixed(1)}s` : 'Done', color: 'text-emerald-400' },
+        error: { text: 'Failed', color: 'text-red-400' },
     };
 
-    const symbol = toolSymbols[tool.name] || '●';
+    const { text, color } = labels[status];
+
+    return (
+        <span className={`text-xs font-mono ${color}`}>{text}</span>
+    );
+}
+
+export function ToolCallCard({ tool, defaultExpanded = false }: ToolCallCardProps) {
+    // Auto-expand on error
+    const [isExpanded, setIsExpanded] = useState(
+        defaultExpanded || tool.status === 'error'
+    );
+
+    // Update expansion state if status changes to error
+    useEffect(() => {
+        if (tool.status === 'error') {
+            setIsExpanded(true);
+        }
+    }, [tool.status]);
+
+    // Get icon component
+    const IconComponent = toolIcons[tool.name] || Wrench;
+
+    // Format tool name for display
+    const displayName = tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+    // Get first param preview
+    const paramPreview = tool.params
+        ? Object.entries(tool.params)
+            .filter(([k]) => !['workspace', 'workspaceId'].includes(k))
+            .slice(0, 1)
+            .map(([k, v]) => `${k}: ${String(v).substring(0, 40)}${String(v).length > 40 ? '...' : ''}`)
+            .join(', ')
+        : '';
 
     return (
         <div
-            style={{
-                background: 'var(--slate-charcoal)',
-                border: '1px solid var(--graphite-border)',
-                borderRadius: '8px',
-                padding: '12px',
-                position: 'relative',
-                overflow: 'hidden',
-            }}
+            className={`
+                relative overflow-hidden rounded-lg border my-2 transition-all duration-200
+                ${tool.status === 'error'
+                    ? 'border-red-500/30 bg-red-950/20'
+                    : tool.status === 'running'
+                        ? 'border-purple-500/30 bg-purple-950/10'
+                        : 'border-zinc-700/50 bg-zinc-900/50 hover:bg-zinc-800/50'
+                }
+            `}
         >
-            {/* Tool Header */}
-            <div
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    marginBottom: '8px',
-                    cursor: 'pointer',
-                }}
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                {/* Symbol */}
-                <span style={{ fontSize: '18px', color: 'var(--teal-glow)' }}>
-                    {symbol}
-                </span>
-
-                {/* Tool Name */}
-                <span
-                    style={{
-                        color: 'var(--teal-glow)',
-                        fontWeight: 600,
-                        fontSize: '14px',
-                        fontFamily: 'JetBrains Mono, monospace',
-                    }}
-                >
-                    {tool.name}
-                </span>
-
-                {/* Status Badge */}
-                <StatusBadge status={tool.status} />
-
-                {/* Expand Arrow */}
-                <span
-                    style={{
-                        marginLeft: 'auto',
-                        color: 'var(--secondary-text)',
-                        fontSize: '12px',
-                        transition: 'transform 0.2s',
-                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                    }}
-                >
-                    ▼
-                </span>
-            </div>
-
-            {/* Tool Parameters (Collapsed) */}
-            {!isExpanded && (
-                <div
-                    style={{
-                        color: 'var(--secondary-text)',
-                        fontSize: '13px',
-                        fontFamily: 'JetBrains Mono, monospace',
-                    }}
-                >
-                    {Object.keys(tool.params).length > 0 && (
-                        <span>
-                            {Object.keys(tool.params)[0]}: {String(Object.values(tool.params)[0]).substring(0, 50)}
-                            {String(Object.values(tool.params)[0]).length > 50 ? '...' : ''}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            {/* Tool Parameters (Expanded) */}
-            {isExpanded && (
-                <div
-                    style={{
-                        color: 'var(--secondary-text)',
-                        fontSize: '13px',
-                        fontFamily: 'JetBrains Mono, monospace',
-                        lineHeight: '1.6',
-                        marginTop: '8px',
-                    }}
-                >
-                    {Object.entries(tool.params).map(([key, value]) => (
-                        <div key={key} style={{ marginBottom: '4px' }}>
-                            <span style={{ color: 'var(--purple-accent)' }}>{key}:</span>{' '}
-                            <span style={{ color: 'var(--primary-text)' }}>
-                                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Progress Bar for Running Tools */}
+            {/* Running animation bar */}
             {tool.status === 'running' && (
                 <div
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-teal-400 via-purple-500 to-teal-400 animate-shimmer"
                     style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: '3px',
-                        background: 'linear-gradient(90deg, var(--teal-glow), var(--purple-accent))',
-                        animation: 'shimmer 2s infinite',
+                        backgroundSize: '200% 100%',
+                        animation: 'shimmer 2s linear infinite',
                     }}
                 />
             )}
 
-            {/* View Result Button */}
-            {tool.status === 'complete' && tool.result && isExpanded && (
-                <button
-                    style={{
-                        marginTop: '12px',
-                        padding: '8px 12px',
-                        background: 'transparent',
-                        border: '1px solid var(--teal-glow)',
-                        borderRadius: '4px',
-                        color: 'var(--teal-glow)',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        fontWeight: 500,
-                    }}
-                    onClick={() => {
-                        // Show result modal or panel
-                        console.log('Result:', tool.result);
-                    }}
-                >
-                    View Results ↗
-                </button>
-            )}
+            {/* Header - always visible */}
+            <div
+                className="flex items-center gap-3 px-3 py-2 cursor-pointer select-none"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                {/* Status indicator */}
+                <StatusDot status={tool.status} />
 
-            {/* Error Message */}
-            {tool.status === 'error' && isExpanded && tool.result?.error && (
-                <div
-                    style={{
-                        marginTop: '12px',
-                        padding: '8px 12px',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.3)',
-                        borderRadius: '4px',
-                        color: '#EF4444',
-                        fontSize: '12px',
-                    }}
-                >
-                    ⚠ {tool.result.error}
+                {/* Icon */}
+                <IconComponent
+                    size={16}
+                    className={`
+                        ${tool.status === 'error' ? 'text-red-400' : ''}
+                        ${tool.status === 'running' ? 'text-purple-400' : ''}
+                        ${tool.status === 'complete' ? 'text-teal-400' : ''}
+                        ${tool.status === 'pending' ? 'text-yellow-400' : ''}
+                    `}
+                />
+
+                {/* Tool name */}
+                <span className="font-mono text-sm font-medium text-zinc-200">
+                    {displayName}
+                </span>
+
+                {/* Param preview (collapsed only) */}
+                {!isExpanded && paramPreview && (
+                    <span className="text-xs text-zinc-500 truncate max-w-[200px]">
+                        {paramPreview}
+                    </span>
+                )}
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* Status label */}
+                <StatusLabel status={tool.status} duration={tool.duration} />
+
+                {/* Expand/collapse chevron */}
+                {isExpanded
+                    ? <ChevronUp size={16} className="text-zinc-500" />
+                    : <ChevronDown size={16} className="text-zinc-500" />
+                }
+            </div>
+
+            {/* Expanded content */}
+            {isExpanded && (
+                <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50">
+                    {/* Parameters */}
+                    {tool.params && Object.keys(tool.params).length > 0 && (
+                        <div className="mb-2">
+                            <div className="text-xs text-zinc-500 mb-1">Parameters</div>
+                            <div className="bg-zinc-950/50 rounded p-2 text-xs font-mono">
+                                {Object.entries(tool.params)
+                                    .filter(([k]) => !['workspace', 'workspaceId'].includes(k))
+                                    .map(([key, value]) => (
+                                        <div key={key} className="flex gap-2 mb-1 last:mb-0">
+                                            <span className="text-purple-400">{key}:</span>
+                                            <span className="text-zinc-300 break-all">
+                                                {typeof value === 'object'
+                                                    ? JSON.stringify(value)
+                                                    : String(value)
+                                                }
+                                            </span>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Result */}
+                    {tool.status === 'complete' && tool.result && (
+                        <div>
+                            <div className="text-xs text-zinc-500 mb-1">Result</div>
+                            <div className="bg-zinc-950/50 rounded p-2 text-xs font-mono text-zinc-300 max-h-40 overflow-y-auto">
+                                {typeof tool.result === 'string'
+                                    ? tool.result.substring(0, 500) + (tool.result.length > 500 ? '...' : '')
+                                    : JSON.stringify(tool.result, null, 2).substring(0, 500)
+                                }
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Error */}
+                    {tool.status === 'error' && (
+                        <div className="bg-red-950/30 border border-red-500/30 rounded p-2">
+                            <div className="text-xs text-red-400 font-medium mb-1">Error</div>
+                            <div className="text-xs text-red-300 font-mono">
+                                {tool.error || tool.result?.error || 'Unknown error'}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
     );
 }
 
-function StatusBadge({ status }: { status: 'running' | 'complete' | 'error' }) {
-    const styles = {
-        running: { bg: 'rgba(167, 139, 250, 0.2)', color: 'var(--purple-accent)', symbol: '⏳' },
-        complete: { bg: 'rgba(34, 197, 94, 0.2)', color: '#22C55E', symbol: '✓' },
-        error: { bg: 'rgba(239, 68, 68, 0.2)', color: '#EF4444', symbol: '✕' },
-    };
-
-    const s = styles[status];
-
-    return (
-        <span
-            style={{
-                background: s.bg,
-                color: s.color,
-                padding: '2px 8px',
-                borderRadius: '12px',
-                fontSize: '12px',
-                fontWeight: 500,
-                marginLeft: 'auto',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-            }}
-        >
-            <span>{s.symbol}</span>
-            <span style={{ textTransform: 'capitalize' }}>{status}</span>
-        </span>
-    );
+// Add shimmer animation to globals.css or inline
+const shimmerKeyframes = `
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
 }
+`;
+
+// Inject keyframes if not already present
+if (typeof document !== 'undefined') {
+    const styleId = 'tool-call-card-styles';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = shimmerKeyframes;
+        document.head.appendChild(style);
+    }
+}
+
+export default ToolCallCard;

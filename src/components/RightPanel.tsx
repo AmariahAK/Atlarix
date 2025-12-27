@@ -21,7 +21,8 @@ import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { TimelineView } from './DiagramTimeline';
 import { cn } from '@/lib/utils';
-import { Pin, PinOff, X, Maximize2, Minimize2, Terminal } from 'lucide-react';
+import { Pin, PinOff, X, Maximize2, Minimize2, Terminal, Wrench } from 'lucide-react';
+import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
 
 export function RightPanel() {
     const { context, isPinned, pin, unpin, setActiveTab } = useRightPanelContext();
@@ -121,6 +122,10 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
             // Timeline panel for workspace diagram snapshots
             return <TimelineView appId={context.data?.appId || 0} />;
 
+        case 'tools':
+            // Tool execution activity panel
+            return <ToolsPanel data={context.data} />;
+
         default:
             return (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -163,4 +168,60 @@ function TerminalPanel({ data }: { data: any }) {
 }
 
 export default RightPanel;
+
+/**
+ * Tools Panel - Display tool execution activity
+ * Used primarily for Ask mode to show tool calls and results
+ */
+function ToolsPanel({ data }: { data: any }) {
+    const timeline = data?.timeline || [];
+
+    if (timeline.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+                <Wrench className="w-12 h-12 mb-3 opacity-50" />
+                <p className="text-sm font-medium">No Tool Activity</p>
+                <p className="text-xs text-center mt-1">
+                    Tool calls and results will appear here
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-background">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                <Wrench className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-medium">Tool Activity</span>
+                <span className="ml-auto text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                    {timeline.length} tool{timeline.length !== 1 ? 's' : ''}
+                </span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {timeline.map((tool: any, index: number) => {
+                    // Map ToolExecution status to ToolCallCard status
+                    const mappedStatus: ToolStatus =
+                        tool.status === 'completed' ? 'complete' :
+                            tool.status === 'running' ? 'running' :
+                                tool.status === 'error' ? 'error' : 'pending';
+
+                    return (
+                        <ToolCallCard
+                            key={tool.id || index}
+                            tool={{
+                                id: tool.id,
+                                name: tool.name,
+                                status: mappedStatus,
+                                params: tool.params,
+                                result: tool.result,
+                                error: tool.error,
+                                duration: tool.duration,
+                            }}
+                        />
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
 

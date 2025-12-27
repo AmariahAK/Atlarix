@@ -10,7 +10,7 @@ import log from "electron-log";
 import { db } from "../../db";
 import { workspaceDiagrams, apps } from "../../db/schema";
 import { eq, desc } from "drizzle-orm";
-import { generateWorkspaceDiagram } from "../workspace/workspace-analyzer";
+import { analyzeWorkspace, generateArchitectureDiagram } from "../analysis";
 
 const logger = log.scope("diagram-timeline-capture");
 
@@ -118,8 +118,14 @@ export async function captureSnapshot(
             return { snapshotId: null, skipped: true, reason: "App not found" };
         }
 
-        // Generate architecture diagram
-        const diagram = await generateWorkspaceDiagram(app.path);
+        // Generate architecture diagram (two-step: analyze then generate)
+        const analysis = await analyzeWorkspace(app.path);
+        if (!analysis || analysis.files.length === 0) {
+            logger.warn(`No analysis generated for app ${req.appId}`);
+            return { snapshotId: null, skipped: true, reason: "No workspace analysis" };
+        }
+
+        const diagram = generateArchitectureDiagram(analysis);
         if (!diagram) {
             logger.warn(`No diagram generated for app ${req.appId}`);
             return { snapshotId: null, skipped: true, reason: "No diagram generated" };

@@ -25,6 +25,7 @@ ToolRegistry.register({
     cost: 2,
     requiresWorkspace: true,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only reads git state
     parameters: {
         workspace: {
             type: "string",
@@ -154,6 +155,9 @@ ToolRegistry.register({
         },
     },
     cost: 3,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only reads git diffs
     handler: async (params: {
         workspace?: string;
         target?: string;

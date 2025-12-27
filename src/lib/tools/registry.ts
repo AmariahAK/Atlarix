@@ -43,6 +43,7 @@ export interface ToolMetadata {
     handler: (args: any) => Promise<any>;
     requiresWorkspace?: boolean; // True if tool needs a workspace to function
     isCore?: boolean; // True if tool should be shown by default (with workspace)
+    isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -101,6 +102,18 @@ export class ToolRegistry {
                     (!tool.requiresWorkspace && tool.isCore)    // Chat-only tools (available everywhere)
             );
         }
+    }
+
+    /**
+     * Get tools for Ask mode (read-only tools only)
+     * Includes: read_file, list_files, search_code, web_search, get_diagram, git_log, etc.
+     * Excludes: write_file, delete_file, run_command, code generation tools
+     * @returns Read-only tools safe for Ask mode
+     */
+    static getToolsForAskMode(): ToolMetadata[] {
+        return this.getAll().filter(
+            (tool) => tool.isReadOnly === true
+        );
     }
 
     /**

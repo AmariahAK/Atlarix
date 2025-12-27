@@ -1,79 +1,148 @@
 /**
- * Atlarix Memory Tools
- * ===================
- * Tools for AI memory and learning
+ * Atlarix Memory Tools - Database-Backed
+ * =======================================
+ * Tools for recalling workspace activity and history
+ * Uses dailyLogs and diagramVersions tables
+ * 
+ * MIGRATED from file-based storage to SQLite database
+ * Aligns with Diagram-First Context System
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import {
     ToolRegistry,
     ToolCategory,
     createParameters,
     stringParam,
 } from "./registry";
-
-// Memory storage path
-const MEMORY_DIR = path.join(process.env.HOME || "~", ".atlarix", "memory");
+import { db } from "../../db";
+import { dailyLogs, diagramVersions, diagrams } from "../../db/schema";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
 
 // ═══════════════════════════════════════════════════════════
-// MEMORY RECALL
+// MEMORY RECALL - Query dailyLogs + diagramVersions
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
     name: "recall_memory",
     description:
-        "Recall what you've learned about the codebase. Returns saved insights and patterns.",
+        "Recall recent workspace activity, changes, and architectural evolution. Queries the database for daily activity logs and diagram version history.",
     category: ToolCategory.MEMORY,
     cost: 1,
     requiresWorkspace: true,
     isCore: false,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
-            topic: stringParam(
-                "Optional: Specific topic to recall (e.g., 'authentication', 'database schema')"
+            workspaceId: {
+                type: "number",
+                description: "Workspace ID to recall activity for",
+            },
+            timeRange: stringParam(
+                "Time range: 'today', 'week', 'month', or 'all' (default: 'week')"
             ),
+            limit: {
+                type: "number",
+                description: "Maximum number of results (default: 10)",
+            },
         },
-        []
+        ["workspaceId"]
     ),
-    handler: async ({ topic }) => {
+    handler: async ({ workspaceId, timeRange = "week", limit = 10 }) => {
         try {
-            // Ensure memory directory exists
-            await fs.promises.mkdir(MEMORY_DIR, { recursive: true });
+            // Calculate date threshold
+            const now = new Date();
+            const thresholds: Record<string, Date> = {
+                today: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+                week: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+                month: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+                all: new Date(0),
+            };
+            const threshold = thresholds[timeRange] || thresholds.week;
 
-            const memoryFile = path.join(MEMORY_DIR, "learnings.json");
+            // Query daily logs
+            const logs = await db
+                .select({
+                    date: dailyLogs.date,
+                    microChanges: dailyLogs.microChanges,
+                    significantActions: dailyLogs.significantActions,
+                    filesTouched: dailyLogs.filesTouched,
+                    diagramChanged: dailyLogs.diagramChanged,
+                })
+                .from(dailyLogs)
+                .where(
+                    and(
+                        eq(dailyLogs.workspaceId, workspaceId),
+                        gte(dailyLogs.date, threshold)
+                    )
+                )
+                .orderBy(desc(dailyLogs.date))
+                .limit(limit);
 
-            // Check if memory file exists
-            if (!fs.existsSync(memoryFile)) {
-                return "No previous learnings found. Use save_learning() to remember insights about the codebase.";
+            // Query diagram versions (architectural changes) via join
+            const diagramChanges = await db
+                .select({
+                    timestamp: diagramVersions.createdAt,
+                    summary: diagramVersions.summary,
+                    trigger: diagramVersions.trigger,
+                    changeDescription: diagramVersions.changeDescription,
+                })
+                .from(diagramVersions)
+                .innerJoin(diagrams, eq(diagramVersions.diagramId, diagrams.id))
+                .where(
+                    and(
+                        eq(diagrams.workspaceId, workspaceId),
+                        gte(diagramVersions.createdAt, threshold)
+                    )
+                )
+                .orderBy(desc(diagramVersions.createdAt))
+                .limit(limit);
+
+            // Format response
+            if (logs.length === 0 && diagramChanges.length === 0) {
+                return `📚 No activity found for workspace ${workspaceId} in the last ${timeRange}.\n\nThis workspace may be new or hasn't had any tracked changes yet.`;
             }
 
-            const memoryData = JSON.parse(
-                await fs.promises.readFile(memoryFile, "utf-8")
-            );
+            let result = `📚 **Workspace Activity (${timeRange})**\n\n`;
+            result += `Found ${logs.length} day(s) of activity and ${diagramChanges.length} architectural change(s).\n\n`;
 
-            // If topic specified, filter to that topic
-            if (topic) {
-                const learning = memoryData.learnings?.[topic];
-                if (!learning) {
-                    return `No learnings found for topic: "${topic}"\n\nAvailable topics: ${Object.keys(memoryData.learnings || {}).join(", ")}`;
-                }
+            // Recent activity
+            if (logs.length > 0) {
+                result += `## Daily Activity\n`;
+                logs.forEach((log) => {
+                    const dateStr = log.date ? new Date(log.date).toISOString().split("T")[0] : "Unknown";
+                    result += `\n### ${dateStr}\n`;
 
-                return `📚 Recalled: ${topic}\n\n${learning.summary}\n\nRelated files: ${learning.files?.join(", ") || "none"}`;
+                    if (log.microChanges && log.microChanges.length > 0) {
+                        result += `**Changes:**\n`;
+                        log.microChanges.forEach((change: string) => {
+                            result += `- ${change}\n`;
+                        });
+                    }
+
+                    if (log.filesTouched && log.filesTouched.length > 0) {
+                        result += `**Files:** ${log.filesTouched.slice(0, 5).join(", ")}`;
+                        if (log.filesTouched.length > 5) {
+                            result += ` (+${log.filesTouched.length - 5} more)`;
+                        }
+                        result += `\n`;
+                    }
+
+                    if (log.diagramChanged) {
+                        result += `🔄 Architecture diagram was updated\n`;
+                    }
+                });
             }
 
-            // Return all learnings
-            const learnings = memoryData.learnings || {};
-            const topics = Object.keys(learnings);
-
-            if (topics.length === 0) {
-                return "No learnings saved yet.";
+            // Architectural evolution
+            if (diagramChanges.length > 0) {
+                result += `\n## Architectural Evolution\n`;
+                diagramChanges.forEach((change) => {
+                    const timeStr = change.timestamp ? new Date(change.timestamp).toLocaleDateString() : "Unknown";
+                    result += `\n- **${timeStr}** (${change.trigger || "manual"}): `;
+                    result += change.summary || change.changeDescription || "Diagram updated";
+                    result += `\n`;
+                });
             }
-
-            let result = `📚 Recalled ${topics.length} topic(s):\n\n`;
-            topics.forEach((t) => {
-                result += `**${t}**: ${learnings[t].summary}\n`;
-            });
 
             return result;
         } catch (error) {
@@ -83,117 +152,139 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// SAVE LEARNING
-// ═══════════════════════════════════════════════════════════
-
-ToolRegistry.register({
-    name: "save_learning",
-    description:
-        "Save an insight or learning about the codebase for future reference. Replaces existing learning with same topic.",
-    category: ToolCategory.MEMORY,
-    cost: 2,
-    requiresWorkspace: true,
-    isCore: false,
-    parameters: createParameters(
-        {
-            topic: stringParam("Topic name (e.g., 'authentication flow')"),
-            summary: stringParam("Summary of what you learned"),
-            files: {
-                type: "array",
-                items: { type: "string" },
-                description: "Related file paths",
-            },
-        },
-        ["topic", "summary"]
-    ),
-    handler: async ({ topic, summary, files = [] }) => {
-        try {
-            // Ensure memory directory exists
-            await fs.promises.mkdir(MEMORY_DIR, { recursive: true });
-
-            const memoryFile = path.join(MEMORY_DIR, "learnings.json");
-
-            // Load existing memory or create new
-            let memoryData: any = { learnings: {}, patterns: {} };
-            if (fs.existsSync(memoryFile)) {
-                memoryData = JSON.parse(
-                    await fs.promises.readFile(memoryFile, "utf-8")
-                );
-            }
-
-            // Save learning
-            memoryData.learnings[topic] = {
-                summary,
-                files,
-                timestamp: new Date().toISOString(),
-            };
-
-            // Write back to file
-            await fs.promises.writeFile(
-                memoryFile,
-                JSON.stringify(memoryData, null, 2)
-            );
-
-            return `💾 Saved learning: "${topic}"\n\n${summary}`;
-        } catch (error) {
-            throw new Error(`Failed to save learning: ${error}`);
-        }
-    },
-});
-
-// ═══════════════════════════════════════════════════════════
-// SEARCH MEMORY
+// SEARCH MEMORY - Search database tables
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
     name: "search_memory",
     description:
-        "Search through saved learnings for specific keywords or patterns.",
+        "Search workspace history for specific topics, files, or changes. Searches through daily logs and diagram summaries.",
     category: ToolCategory.MEMORY,
     cost: 1,
     requiresWorkspace: true,
     isCore: false,
+    isReadOnly: true, // Safe for Ask mode
     parameters: createParameters(
         {
-            query: stringParam("Search query (keywords to find in learnings)"),
+            workspaceId: {
+                type: "number",
+                description: "Workspace ID to search",
+            },
+            query: stringParam("Search query (topic, file name, or keyword)"),
+            limit: {
+                type: "number",
+                description: "Maximum number of results (default: 20)",
+            },
         },
-        ["query"]
+        ["workspaceId", "query"]
     ),
-    handler: async ({ query }) => {
+    handler: async ({ workspaceId, query, limit = 20 }) => {
         try {
-            const memoryFile = path.join(MEMORY_DIR, "learnings.json");
+            const searchTerm = `%${query.toLowerCase()}%`;
+            const results: {
+                type: string;
+                date: string;
+                content: string;
+                files?: string[];
+            }[] = [];
 
-            if (!fs.existsSync(memoryFile)) {
-                return "No learnings saved yet.";
-            }
+            // Search in daily logs - microChanges (check if any change contains the query)
+            const logs = await db
+                .select({
+                    date: dailyLogs.date,
+                    microChanges: dailyLogs.microChanges,
+                    filesTouched: dailyLogs.filesTouched,
+                })
+                .from(dailyLogs)
+                .where(eq(dailyLogs.workspaceId, workspaceId))
+                .orderBy(desc(dailyLogs.date))
+                .limit(100); // Get more, filter in-memory
 
-            const memoryData = JSON.parse(
-                await fs.promises.readFile(memoryFile, "utf-8")
-            );
+            // Filter logs that match the query
+            logs.forEach((log) => {
+                const changes = log.microChanges || [];
+                const matchingChanges = changes.filter((c: string) =>
+                    c.toLowerCase().includes(query.toLowerCase())
+                );
 
-            const learnings = memoryData.learnings || {};
-            const matches: string[] = [];
+                const files = log.filesTouched || [];
+                const matchingFiles = files.filter((f: string) =>
+                    f.toLowerCase().includes(query.toLowerCase())
+                );
 
-            // Search in topic names and summaries
-            Object.keys(learnings).forEach((topic) => {
-                const learning = learnings[topic];
-                const searchText =
-                    `${topic} ${learning.summary}`.toLowerCase();
-
-                if (searchText.includes(query.toLowerCase())) {
-                    matches.push(
-                        `**${topic}**: ${learning.summary}\n  Files: ${learning.files?.join(", ") || "none"}`
-                    );
+                if (matchingChanges.length > 0 || matchingFiles.length > 0) {
+                    const dateStr = log.date ? new Date(log.date).toISOString().split("T")[0] : "Unknown";
+                    results.push({
+                        type: "activity",
+                        date: dateStr,
+                        content: matchingChanges.length > 0
+                            ? matchingChanges.join("; ")
+                            : `Files: ${matchingFiles.join(", ")}`,
+                        files: matchingFiles.length > 0 ? matchingFiles : files,
+                    });
                 }
             });
 
-            if (matches.length === 0) {
-                return `No learnings found matching: "${query}"`;
+            // Search in diagram versions - summary
+            const diagramResults = await db
+                .select({
+                    timestamp: diagramVersions.createdAt,
+                    summary: diagramVersions.summary,
+                    changeDescription: diagramVersions.changeDescription,
+                    trigger: diagramVersions.trigger,
+                })
+                .from(diagramVersions)
+                .innerJoin(diagrams, eq(diagramVersions.diagramId, diagrams.id))
+                .where(eq(diagrams.workspaceId, workspaceId))
+                .orderBy(desc(diagramVersions.createdAt))
+                .limit(50);
+
+            // Filter diagram results that match
+            diagramResults.forEach((d) => {
+                const searchText = `${d.summary || ""} ${d.changeDescription || ""}`.toLowerCase();
+                if (searchText.includes(query.toLowerCase())) {
+                    const dateStr = d.timestamp ? new Date(d.timestamp).toLocaleDateString() : "Unknown";
+                    results.push({
+                        type: "architecture",
+                        date: dateStr,
+                        content: d.summary || d.changeDescription || "Diagram change",
+                    });
+                }
+            });
+
+            // Format response
+            if (results.length === 0) {
+                return `🔍 No results found for: "${query}"\n\nTry different keywords or check if the workspace has tracked activity.`;
             }
 
-            return `🔍 Found ${matches.length} matching learning(s):\n\n${matches.join("\n\n")}`;
+            let response = `🔍 **Search Results for "${query}"**\n\n`;
+            response += `Found ${results.length} match(es)\n\n`;
+
+            // Group by type
+            const activityResults = results.filter((r) => r.type === "activity").slice(0, limit);
+            const archResults = results.filter((r) => r.type === "architecture").slice(0, limit);
+
+            if (activityResults.length > 0) {
+                response += `## Daily Activity Matches\n`;
+                activityResults.forEach((r) => {
+                    response += `- **${r.date}**: ${r.content}\n`;
+                });
+            }
+
+            if (archResults.length > 0) {
+                response += `\n## Architecture Change Matches\n`;
+                archResults.forEach((r) => {
+                    response += `- **${r.date}**: ${r.content}\n`;
+                });
+            }
+
+            return response;
         } catch (error) {
             throw new Error(`Failed to search memory: ${error}`);
         }
     },
 });
+
+// NOTE: save_learning tool has been REMOVED
+// AI now auto-generates dailyLogs entries via the Diagram-First Context System
+// Manual memory saving is no longer needed

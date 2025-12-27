@@ -30,6 +30,12 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Light & Dark Modes** - Beautiful in both themes
 - **Premium Dark Cockpit** - Deep slate backgrounds with soft glows
 
+### 🔍 Ask Mode with Smart Tools (NEW in v0.7.0!)
+- **Read-Only Exploration** - 21 safe tools for exploring any workspace
+- **Claude-Style Tool Display** - Grouped tool badges (e.g., `read_file×3 • list_files×2`)
+- **Workspace Aware** - Tools automatically resolve paths relative to your project
+- **Memory Integration** - Recall previous context and search project history
+
 ### 🤖 Multi-Provider AI Support
 - **Ollama** - Free, local models (llama3.2, codellama, qwen2.5-coder)
 - **LMStudio** - Local models with beautiful GUI

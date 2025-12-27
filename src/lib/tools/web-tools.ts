@@ -47,6 +47,7 @@ Returns rich previews with inline readable content.`,
     cost: 3, // Base cost, adjusted by mode
     requiresWorkspace: false,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - research only
     parameters: createParameters(
         {
             query: stringParam("Search query"),
@@ -207,6 +208,7 @@ ToolRegistry.register({
     cost: 5,
     requiresWorkspace: false,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - research only
     parameters: createParameters(
         {
             query: stringParam("Search query for deep research"),
@@ -301,6 +303,7 @@ ToolRegistry.register({
     cost: 2,
     requiresWorkspace: false,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - only reads URL content
     parameters: createParameters(
         {
             url: stringParam("URL to fetch"),
@@ -356,6 +359,7 @@ ToolRegistry.register({
     cost: 0,
     requiresWorkspace: false,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - no side effects
     parameters: createParameters(
         {
             timezone: stringParam(
@@ -408,6 +412,7 @@ ToolRegistry.register({
     cost: 0,
     requiresWorkspace: false,
     isCore: true,
+    isReadOnly: true, // Safe for Ask mode - just parses URLs
     parameters: createParameters(
         {
             url: stringParam("URL to parse"),
