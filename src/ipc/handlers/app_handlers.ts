@@ -1,6 +1,6 @@
 import { ipcMain, app } from "electron";
 import { db, getDatabasePath } from "../../db";
-import { apps, chats, messages } from "../../db/schema";
+import { apps, chats, messages, diagrams, diagramVersions } from "../../db/schema";
 import { desc, eq, like } from "drizzle-orm";
 import type {
   App,
@@ -332,7 +332,7 @@ async function executeAppInDocker({
   installCommand?: string | null;
   startCommand?: string | null;
 }): Promise<void> {
-  const containerName = `dyad-app-${appId}`;
+  const containerName = `atlarix-app-${appId}`;
 
   // First, check if Docker is available
   try {
@@ -396,7 +396,7 @@ RUN npm install -g pnpm
   // Build the Docker image
   const buildProcess = spawn(
     "docker",
-    ["build", "-f", "Dockerfile.dyad", "-t", `dyad-app-${appId}`, "."],
+    ["build", "-f", "Dockerfile.dyad", "-t", `atlarix-app-${appId}`, "."],
     {
       cwd: appPath,
       stdio: "pipe",
@@ -440,7 +440,7 @@ RUN npm install -g pnpm
       "PNPM_STORE_PATH=/app/.pnpm-store",
       "-w",
       "/app",
-      `dyad-app-${appId}`,
+      `atlarix-app-${appId}`,
       "sh",
       "-c",
       getCommand({ appId, installCommand, startCommand }),
@@ -1140,8 +1140,22 @@ export function registerAppHandlers() {
 
         // Delete app from database
         try {
+          // First, delete all diagram versions for diagrams associated with this app
+          const appDiagrams = await db
+            .select({ id: diagrams.id })
+            .from(diagrams)
+            .where(eq(diagrams.workspaceId, appId));
+
+          for (const diagram of appDiagrams) {
+            await db.delete(diagramVersions).where(eq(diagramVersions.diagramId, diagram.id));
+          }
+
+          // Then delete all diagrams associated with this app
+          await db.delete(diagrams).where(eq(diagrams.workspaceId, appId));
+          logger.info(`Deleted ${appDiagrams.length} diagrams for app ${appId}`);
+
+          // Finally delete the app (chats cascade delete)
           await db.delete(apps).where(eq(apps.id, appId));
-          // Note: Associated chats will cascade delete
         } catch (error: any) {
           logger.error(`Error deleting app ${appId} from database:`, error);
           throw new Error(

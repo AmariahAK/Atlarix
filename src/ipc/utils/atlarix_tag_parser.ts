@@ -2,14 +2,14 @@ import { normalizePath } from "../../../shared/normalizePath";
 import log from "electron-log";
 import { SqlQuery } from "../../lib/schemas";
 
-const logger = log.scope("dyad_tag_parser");
+const logger = log.scope("atlarix_tag_parser");
 
 export function getAtlarixWriteTags(fullResponse: string): {
   path: string;
   content: string;
   description?: string;
 }[] {
-  const dyadWriteRegex = /<dyad-write([^>]*)>([\s\S]*?)<\/dyad-write>/gi;
+  const dyadWriteRegex = /<atlarix-write([^>]*)>([\s\S]*?)<\/atlarix-write>/gi;
   const pathRegex = /path="([^"]+)"/;
   const descriptionRegex = /description="([^"]+)"/;
 
@@ -39,7 +39,7 @@ export function getAtlarixWriteTags(fullResponse: string): {
       tags.push({ path: normalizePath(path), content, description });
     } else {
       logger.warn(
-        "Found <dyad-write> tag without a valid 'path' attribute:",
+        "Found <atlarix-write> tag without a valid 'path' attribute:",
         match[0],
       );
     }
@@ -52,7 +52,7 @@ export function getAtlarixRenameTags(fullResponse: string): {
   to: string;
 }[] {
   const dyadRenameRegex =
-    /<dyad-rename from="([^"]+)" to="([^"]+)"[^>]*>([\s\S]*?)<\/dyad-rename>/g;
+    /<atlarix-rename from="([^"]+)" to="([^"]+)"[^>]*>([\s\S]*?)<\/atlarix-rename>/g;
   let match;
   const tags: { from: string; to: string }[] = [];
   while ((match = dyadRenameRegex.exec(fullResponse)) !== null) {
@@ -66,7 +66,7 @@ export function getAtlarixRenameTags(fullResponse: string): {
 
 export function getAtlarixDeleteTags(fullResponse: string): string[] {
   const dyadDeleteRegex =
-    /<dyad-delete path="([^"]+)"[^>]*>([\s\S]*?)<\/dyad-delete>/g;
+    /<atlarix-delete path="([^"]+)"[^>]*>([\s\S]*?)<\/atlarix-delete>/g;
   let match;
   const paths: string[] = [];
   while ((match = dyadDeleteRegex.exec(fullResponse)) !== null) {
@@ -77,7 +77,7 @@ export function getAtlarixDeleteTags(fullResponse: string): string[] {
 
 export function getAtlarixAddDependencyTags(fullResponse: string): string[] {
   const dyadAddDependencyRegex =
-    /<dyad-add-dependency packages="([^"]+)">[^<]*<\/dyad-add-dependency>/g;
+    /<atlarix-add-dependency packages="([^"]+)">[^<]*<\/atlarix-add-dependency>/g;
   let match;
   const packages: string[] = [];
   while ((match = dyadAddDependencyRegex.exec(fullResponse)) !== null) {
@@ -88,7 +88,7 @@ export function getAtlarixAddDependencyTags(fullResponse: string): string[] {
 
 export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
   const dyadChatSummaryRegex =
-    /<dyad-chat-summary>([\s\S]*?)<\/dyad-chat-summary>/g;
+    /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/g;
   const match = dyadChatSummaryRegex.exec(fullResponse);
   if (match && match[1]) {
     return match[1].trim();
@@ -98,7 +98,7 @@ export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
 
 export function getAtlarixExecuteSqlTags(fullResponse: string): SqlQuery[] {
   const dyadExecuteSqlRegex =
-    /<dyad-execute-sql([^>]*)>([\s\S]*?)<\/dyad-execute-sql>/g;
+    /<atlarix-execute-sql([^>]*)>([\s\S]*?)<\/atlarix-execute-sql>/g;
   const descriptionRegex = /description="([^"]+)"/;
   let match;
   const queries: { content: string; description?: string }[] = [];
@@ -127,7 +127,7 @@ export function getAtlarixExecuteSqlTags(fullResponse: string): SqlQuery[] {
 
 export function getAtlarixCommandTags(fullResponse: string): string[] {
   const dyadCommandRegex =
-    /<dyad-command type="([^"]+)"[^>]*><\/dyad-command>/g;
+    /<atlarix-command type="([^"]+)"[^>]*><\/atlarix-command>/g;
   let match;
   const commands: string[] = [];
 
@@ -144,7 +144,7 @@ export function getAtlarixSearchReplaceTags(fullResponse: string): {
   description?: string;
 }[] {
   const dyadSearchReplaceRegex =
-    /<dyad-search-replace([^>]*)>([\s\S]*?)<\/dyad-search-replace>/gi;
+    /<atlarix-search-replace([^>]*)>([\s\S]*?)<\/atlarix-search-replace>/gi;
   const pathRegex = /path="([^"]+)"/;
   const descriptionRegex = /description="([^"]+)"/;
 
@@ -175,7 +175,7 @@ export function getAtlarixSearchReplaceTags(fullResponse: string): {
       tags.push({ path: normalizePath(path), content, description });
     } else {
       logger.warn(
-        "Found <dyad-search-replace> tag without a valid 'path' attribute:",
+        "Found <atlarix-search-replace> tag without a valid 'path' attribute:",
         match[0],
       );
     }

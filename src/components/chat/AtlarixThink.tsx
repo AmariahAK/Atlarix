@@ -19,7 +19,7 @@ export const AtlarixThink: React.FC<AtlarixThinkProps> = ({ children, node }) =>
   const tokenSavingsMatch =
     typeof children === "string"
       ? children.match(
-        /^dyad-token-savings\?original-tokens=([0-9.]+)&smart-context-tokens=([0-9.]+)$/,
+        /^atlarix-token-savings\?original-tokens=([0-9.]+)&smart-context-tokens=([0-9.]+)$/,
       )
       : null;
 

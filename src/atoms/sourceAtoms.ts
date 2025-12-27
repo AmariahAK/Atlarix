@@ -17,9 +17,10 @@ export type PanelType =
     | 'terminal'        // Command output
     | 'file-diff'       // File changes + approval
     | 'files'           // File explorer (default)
+    | 'timeline'        // Diagram timeline (project evolution)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline';
 
 export interface PanelContext {
     type: PanelType;

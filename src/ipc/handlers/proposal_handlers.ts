@@ -19,7 +19,7 @@ import {
   getAtlarixChatSummaryTag,
   getAtlarixCommandTags,
   getAtlarixSearchReplaceTags,
-} from "../utils/dyad_tag_parser";
+} from "../utils/atlarix_tag_parser";
 import log from "electron-log";
 import { isServerFunction } from "../../supabase_admin/supabase_utils";
 import {
@@ -73,12 +73,13 @@ function cleanupExpiredCacheEntries() {
 }
 
 // Function to get cached token count or calculate and cache it
+// DIAGRAM-FIRST: Now returns estimated diagram context tokens (~3-4K) instead of full codebase (168K)
 async function getCodebaseTokenCount(
   chatId: number,
-  messageId: number,
-  messageContent: string,
-  appPath: string,
-  chatContext: unknown,
+  _messageId: number,
+  _messageContent: string,
+  _appPath: string,
+  _chatContext: unknown,
 ): Promise<number> {
   // Clean up expired cache entries first
   cleanupExpiredCacheEntries();
@@ -86,39 +87,35 @@ async function getCodebaseTokenCount(
   const cacheEntry = codebaseTokenCache.get(chatId);
   const now = Date.now();
 
-  // Check if cache is valid - same chat, message and content, and not expired
-  if (
-    cacheEntry &&
-    cacheEntry.messageId === messageId &&
-    cacheEntry.messageContent === messageContent &&
-    cacheEntry.chatContext === JSON.stringify(chatContext) &&
-    now - cacheEntry.timestamp < CACHE_EXPIRATION_MS
-  ) {
-    logger.log(`Using cached codebase token count for chatId: ${chatId}`);
+  // Check if cache is valid
+  if (cacheEntry && now - cacheEntry.timestamp < CACHE_EXPIRATION_MS) {
+    logger.log(`Using cached context token count for chatId: ${chatId}`);
     return cacheEntry.tokenCount;
   }
 
-  // Calculate and cache the token count
-  logger.log(`Calculating codebase token count for chatId: ${chatId}`);
-  const codebase = (
-    await extractCodebase({
-      appPath: getAtlarixAppPath(appPath),
-      chatContext: validateChatContext(chatContext),
-    })
-  ).formattedOutput;
-  const tokenCount = estimateTokens(codebase);
+  // DIAGRAM-FIRST CONTEXT SYSTEM:
+  // We no longer dump the full codebase (168K tokens)
+  // Instead, we use:
+  // - Diagram context: ~2-3K tokens
+  // - Tool instructions: ~500 tokens
+  // - Daily logs: ~200 tokens
+  // Total: ~3-4K tokens
+
+  const DIAGRAM_CONTEXT_TOKENS = 3500; // Estimated diagram-first context size
+
+  logger.log(`Using diagram-first context estimation for chatId: ${chatId}: ~${DIAGRAM_CONTEXT_TOKENS} tokens`);
 
   // Store in cache
   codebaseTokenCache.set(chatId, {
     chatId,
-    messageId,
-    messageContent,
-    tokenCount,
+    messageId: 0,
+    messageContent: "",
+    tokenCount: DIAGRAM_CONTEXT_TOKENS,
     timestamp: now,
-    chatContext: JSON.stringify(chatContext),
+    chatContext: "",
   });
 
-  return tokenCount;
+  return DIAGRAM_CONTEXT_TOKENS;
 }
 
 const getProposalHandler = async (

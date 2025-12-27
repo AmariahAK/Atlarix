@@ -102,18 +102,21 @@ export const CodeHighlight = memo(
       [&_pre]:rounded-lg [&_pre]:px-6 [&_pre]:py-7"
       >
         {language ? (
-          <div className="absolute top-2 left-2 right-2 text-xs flex justify-between">
+          <div className="absolute top-2 left-2 right-2 text-xs flex justify-between items-center z-10">
             <span className="tracking-tighter text-muted-foreground/85">
               {language}
             </span>
             {code && (
               <button
-                className="mr-2 flex items-center text-xs cursor-pointer"
+                className="flex items-center gap-1 px-2 py-1 text-xs cursor-pointer 
+                  hover:bg-muted/80 rounded transition-colors
+                  text-muted-foreground hover:text-foreground"
                 onClick={handleCopy}
                 type="button"
+                title="Copy code"
               >
                 {copied ? <Check size={14} /> : <Copy size={14} />}
-                <span className="ml-1">{copied ? "Copied" : "Copy"}</span>
+                <span>{copied ? "Copied!" : "Copy"}</span>
               </button>
             )}
           </div>

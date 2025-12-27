@@ -2,19 +2,19 @@ import { useState, useRef, useEffect } from "react";
 import { getLanguage } from "@/utils/get_language";
 
 const CUSTOM_TAG_NAMES = [
-  "dyad-write",
-  "dyad-rename",
-  "dyad-delete",
-  "dyad-add-dependency",
-  "dyad-execute-sql",
-  "dyad-add-integration",
-  "dyad-output",
-  "dyad-problem-report",
-  "dyad-chat-summary",
-  "dyad-edit",
-  "dyad-codebase-context",
+  "atlarix-write",
+  "atlarix-rename",
+  "atlarix-delete",
+  "atlarix-add-dependency",
+  "atlarix-execute-sql",
+  "atlarix-add-integration",
+  "atlarix-output",
+  "atlarix-problem-report",
+  "atlarix-chat-summary",
+  "atlarix-edit",
+  "atlarix-codebase-context",
   "think",
-  "dyad-command",
+  "atlarix-command",
 ];
 export const useCopyToClipboard = () => {
   const [copied, setCopied] = useState(false);
@@ -84,7 +84,7 @@ export const useCopyToClipboard = () => {
       case "think":
         return `### Thinking\n\n${content}\n\n`;
 
-      case "dyad-write": {
+      case "atlarix-write": {
         const writePath = attributes.path || "file";
         const writeDesc = attributes.description || "";
         const language = getLanguage(writePath);
@@ -97,7 +97,7 @@ export const useCopyToClipboard = () => {
         return writeResult;
       }
 
-      case "dyad-edit": {
+      case "atlarix-edit": {
         const editPath = attributes.path || "file";
         const editDesc = attributes.description || "";
         const editLang = getLanguage(editPath);
@@ -110,23 +110,23 @@ export const useCopyToClipboard = () => {
         return editResult;
       }
 
-      case "dyad-rename": {
+      case "atlarix-rename": {
         const from = attributes.from || "";
         const to = attributes.to || "";
         return `### Rename: ${from} → ${to}\n\n`;
       }
 
-      case "dyad-delete": {
+      case "atlarix-delete": {
         const deletePath = attributes.path || "";
         return `### Delete: ${deletePath}\n\n`;
       }
 
-      case "dyad-add-dependency": {
+      case "atlarix-add-dependency": {
         const packages = attributes.packages || "";
         return `### Add Dependencies\n\n\`\`\`bash\n${packages}\n\`\`\`\n\n`;
       }
 
-      case "dyad-execute-sql": {
+      case "atlarix-execute-sql": {
         const sqlDesc = attributes.description || "";
         let sqlResult = `### Execute SQL\n\n`;
         if (sqlDesc) {
@@ -136,12 +136,12 @@ export const useCopyToClipboard = () => {
         return sqlResult;
       }
 
-      case "dyad-add-integration": {
+      case "atlarix-add-integration": {
         const provider = attributes.provider || "";
         return `### Add Integration: ${provider}\n\n`;
       }
 
-      case "dyad-codebase-context": {
+      case "atlarix-codebase-context": {
         const files = attributes.files || "";
         let contextResult = `### Codebase Context\n\n`;
         if (files) {
@@ -151,7 +151,7 @@ export const useCopyToClipboard = () => {
         return contextResult;
       }
 
-      case "dyad-output": {
+      case "atlarix-output": {
         const outputType = attributes.type || "info";
         const message = attributes.message || "";
         const emoji =
@@ -171,7 +171,7 @@ export const useCopyToClipboard = () => {
         return outputResult + "\n\n";
       }
 
-      case "dyad-problem-report": {
+      case "atlarix-problem-report": {
         const summary = attributes.summary || "";
         let problemResult = `### Problem Report\n\n`;
         if (summary) {
@@ -183,8 +183,8 @@ export const useCopyToClipboard = () => {
         return problemResult + "\n\n";
       }
 
-      case "dyad-chat-summary":
-      case "dyad-command":
+      case "atlarix-chat-summary":
+      case "atlarix-command":
         // Don't include these in copy
         return "";
 

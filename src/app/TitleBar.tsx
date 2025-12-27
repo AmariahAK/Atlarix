@@ -52,7 +52,7 @@ export const TitleBar = () => {
   const { lastDeepLink, clearLastDeepLink } = useDeepLink();
   useEffect(() => {
     const handleDeepLink = async () => {
-      if (lastDeepLink?.type === "dyad-pro-return") {
+      if (lastDeepLink?.type === "atlarix-pro-return") {
         await refreshSettings();
         showAtlarixProSuccessDialog();
         clearLastDeepLink();

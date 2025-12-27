@@ -72,7 +72,14 @@ Atlarix integrates the complete StackSense tool suite with enhanced UI/UX:
 - Project memory persistence
 - Learning from your codebase
 
-### 🔐 Unified Permission System
+### �️ Diagram Timeline System (NEW in v0.6.0!)
+- **Project Evolution** - Visualize architecture changes over time
+- **Smart Triggers** - Automatic snapshots when code changes significantly
+- **Diff Indicators** - See exactly when architecture (🔵) or dependencies (🟢) changed
+- **Time Drill-Down** - Navigate from "All Time" down to hourly changes
+- **Efficiency** - Deduplicated storage + old snapshot compression
+
+### �🔐 Unified Permission System
 - Preview all changes before applying
 - Syntax-highlighted code diffs  
 - Single approve/reject for batched operations

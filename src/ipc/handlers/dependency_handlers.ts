@@ -43,7 +43,7 @@ export function registerDependencyHandlers() {
         .reverse()
         .find((m) =>
           m.content.includes(
-            `<dyad-add-dependency packages="${packages.join(" ")}">`,
+            `<atlarix-add-dependency packages="${packages.join(" ")}">`,
           ),
         );
 

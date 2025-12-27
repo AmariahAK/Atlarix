@@ -36,6 +36,31 @@ All notable changes to Atlarix will be documented in this file.
 - **File Exploration Tools**: `read_file`, `search_code`, `list_files`
 - **Tiered Context**: Diagram + tools (no full codebase dump)
 
+## [v0.6.0] - 2025-12-27
+
+### 🎉 Major Features
+
+#### Diagram Timeline System (Git for Architecture)
+- **Project Evolution**: Visualize your workspace's architectural changes over time
+- **Smart Snapshots**:
+  - **Auto-Capture**: Intelligent triggers on file changes (debounced)
+  - **Instant Capture**: Critical changes (package.json) trigger immediate snapshot
+  - **Deduplication**: SHA-256 hasing prevents storing duplicate diagrams
+- **Time Granularity**:
+  - **Simple Views**: Today, Week, Month, All Time ranges
+  - **Drill-Down**: Click high-level segments to see detailed intervals (1H, 1D, 1W)
+- **Visual Intelligence**:
+  - **Diff Indicators**: Color-coded dots show what changed (🔵 Architecture, 🟢 Dependencies)
+  - **Protected Snapshots**: Annotate snapshots to preserve them forever
+  - **Auto-Compression**: Old history compressed (1/week >30 days) while preserving monthly milestones
+
+### ✨ Improvements
+
+#### Data Management
+- **Efficient Storage**: Diagrams stored with deduplication and compression
+- **Performance**: Indexed database queries for instant timeline loading
+- **Flush on Close**: Ensures no partial state is lost when quitting
+
 ---
 
 ## [v0.4.0] - 2025-12-25

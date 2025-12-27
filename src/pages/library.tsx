@@ -16,10 +16,10 @@ export default function LibraryPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [prefillData, setPrefillData] = useState<
     | {
-        title: string;
-        description: string;
-        content: string;
-      }
+      title: string;
+      description: string;
+      content: string;
+    }
     | undefined
   >(undefined);
 
@@ -50,8 +50,8 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="min-h-screen px-8 py-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="flex-1 bg-background overflow-auto">
+      <div className="max-w-6xl mx-auto px-8 py-6 pb-20">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold mr-4">Library: Prompts</h1>
           <CreatePromptDialog

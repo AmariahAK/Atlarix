@@ -36,7 +36,7 @@ import {
   getAtlarixAddDependencyTags,
   getAtlarixExecuteSqlTags,
   getAtlarixSearchReplaceTags,
-} from "../utils/dyad_tag_parser";
+} from "../utils/atlarix_tag_parser";
 import { applySearchReplace } from "../../pro/main/ipc/processors/search_replace_processor";
 import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils";
 
@@ -369,14 +369,14 @@ export async function processFullResponseActions(
 
       try {
         if (!fs.existsSync(fullFilePath)) {
-          // Do not show warning to user because we already attempt to do a <dyad-write> tag to fix it.
+          // Do not show warning to user because we already attempt to do a <atlarix-write> tag to fix it.
           logger.warn(`Search-replace target file does not exist: ${filePath}`);
           continue;
         }
         const original = await readFile(fullFilePath, "utf8");
         const result = applySearchReplace(original, tag.content);
         if (!result.success || typeof result.content !== "string") {
-          // Do not show warning to user because we already attempt to do a <dyad-write> and/or a subsequent <dyad-search-replace> tag to fix it.
+          // Do not show warning to user because we already attempt to do a <atlarix-write> and/or a subsequent <atlarix-search-replace> tag to fix it.
           logger.warn(
             `Failed to apply search-replace to ${filePath}: ${result.error ?? "unknown"}`,
           );
@@ -599,13 +599,13 @@ export async function processFullResponseActions(
     ${warnings
       .map(
         (warning) =>
-          `<dyad-output type="warning" message="${warning.message}">${warning.error}</dyad-output>`,
+          `<atlarix-output type="warning" message="${warning.message}">${warning.error}</atlarix-output>`,
       )
       .join("\n")}
     ${errors
       .map(
         (error) =>
-          `<dyad-output type="error" message="${error.message}">${error.error}</dyad-output>`,
+          `<atlarix-output type="error" message="${error.message}">${error.error}</atlarix-output>`,
       )
       .join("\n")}
     `;

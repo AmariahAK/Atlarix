@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef } from "react";
-import { SendIcon, Paperclip, Loader2 } from "lucide-react";
+import { SendIcon, Paperclip, StopCircle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
 import { isStreamingByIdAtom } from "@/atoms/chatAtoms";
@@ -95,16 +95,22 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         <Paperclip className="h-4 w-4" />
                     </Button>
 
-                    {/* Send button */}
+                    {/* Send/Stop button */}
                     {isStreaming ? (
                         <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="mx-1"
-                            disabled
+                            className="mx-1 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => {
+                                // Stop the chat stream
+                                import("@/ipc/ipc_client").then(({ IpcClient }) => {
+                                    IpcClient.getInstance().cancelChatStream(chatId);
+                                });
+                            }}
+                            title="Stop generation"
                         >
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <StopCircle className="h-4 w-4" />
                         </Button>
                     ) : (
                         <Button

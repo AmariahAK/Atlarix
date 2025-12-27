@@ -23,7 +23,7 @@ export function ChatErrorBox({
         {error}
         <span className="ml-1">
           <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=dyad-app&utm_medium=app&utm_campaign=free-quota-error"
+            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=free-quota-error"
             variant="primary"
           >
             Access with Atlarix Pro
@@ -51,7 +51,7 @@ export function ChatErrorBox({
         {error}
         <div className="mt-2 space-y-2 space-x-2">
           <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=dyad-app&utm_medium=app&utm_campaign=rate-limit-error"
+            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=rate-limit-error"
             variant="primary"
           >
             Upgrade to Atlarix Pro
@@ -71,7 +71,7 @@ export function ChatErrorBox({
         <span>
           Looks like you don't have a valid Atlarix Pro key.{" "}
           <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=dyad-app&utm_medium=app&utm_campaign=invalid-pro-key-error"
+            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=invalid-pro-key-error"
             variant="primary"
           >
             Upgrade to Atlarix Pro
@@ -87,7 +87,7 @@ export function ChatErrorBox({
         <span>
           You have used all of your Atlarix AI credits this month.{" "}
           <ExternalLink
-            href="https://atlarix.dev/subscription?utm_source=dyad-app&utm_medium=app&utm_campaign=exceeded-budget-error"
+            href="https://atlarix.dev/subscription?utm_source=atlarix-app&utm_medium=app&utm_campaign=exceeded-budget-error"
             variant="primary"
           >
             Reload or upgrade your subscription
@@ -114,7 +114,7 @@ export function ChatErrorBox({
           error.includes(AI_STREAMING_ERROR_MESSAGE_PREFIX) &&
           !error.includes("TypeError: terminated") && (
             <ExternalLink
-              href="https://atlarix.dev/pro?utm_source=dyad-app&utm_medium=app&utm_campaign=general-error"
+              href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=general-error"
               variant="primary"
             >
               Upgrade to Atlarix Pro

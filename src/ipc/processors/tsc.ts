@@ -9,7 +9,7 @@ import {
   getAtlarixDeleteTags,
   getAtlarixRenameTags,
   getAtlarixWriteTags,
-} from "../utils/dyad_tag_parser";
+} from "../utils/atlarix_tag_parser";
 import { getTypeScriptCachePath } from "@/paths/paths";
 
 const logger = log.scope("tsc");

@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { AtlarixWrite } from "./AtlarixWrite";
 import { AtlarixRename } from "./AtlarixRename";
@@ -68,6 +69,7 @@ const customLink = ({
 export const VanillaMarkdownParser = ({ content }: { content: string }) => {
   return (
     <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
       components={{
         code: CodeHighlight,
         a: customLink,
@@ -100,7 +102,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     contentPieces.forEach((piece, index) => {
       if (
         piece.type === "custom-tag" &&
-        piece.tagInfo.tag === "dyad-output" &&
+        piece.tagInfo.tag === "atlarix-output" &&
         piece.tagInfo.attributes.type === "error"
       ) {
         const errorMessage = piece.tagInfo.attributes.message;
@@ -125,15 +127,16 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
         <React.Fragment key={index}>
           {piece.type === "markdown"
             ? piece.content && (
-                <ReactMarkdown
-                  components={{
-                    code: CodeHighlight,
-                    a: customLink,
-                  }}
-                >
-                  {piece.content}
-                </ReactMarkdown>
-              )
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: CodeHighlight,
+                  a: customLink,
+                }}
+              >
+                {piece.content}
+              </ReactMarkdown>
+            )
             : renderCustomTag(piece.tagInfo, { isStreaming })}
           {index === lastErrorIndex &&
             errorCount > 1 &&
@@ -163,26 +166,26 @@ function preprocessUnclosedTags(content: string): {
   inProgressTags: Map<string, Set<number>>;
 } {
   const customTagNames = [
-    "dyad-write",
-    "dyad-rename",
-    "dyad-delete",
-    "dyad-add-dependency",
-    "dyad-execute-sql",
-    "dyad-add-integration",
-    "dyad-output",
-    "dyad-problem-report",
-    "dyad-chat-summary",
-    "dyad-edit",
-    "dyad-search-replace",
-    "dyad-codebase-context",
-    "dyad-web-search-result",
-    "dyad-web-search",
-    "dyad-web-crawl",
-    "dyad-read",
+    "atlarix-write",
+    "atlarix-rename",
+    "atlarix-delete",
+    "atlarix-add-dependency",
+    "atlarix-execute-sql",
+    "atlarix-add-integration",
+    "atlarix-output",
+    "atlarix-problem-report",
+    "atlarix-chat-summary",
+    "atlarix-edit",
+    "atlarix-search-replace",
+    "atlarix-codebase-context",
+    "atlarix-web-search-result",
+    "atlarix-web-search",
+    "atlarix-web-crawl",
+    "atlarix-read",
     "think",
-    "dyad-command",
-    "dyad-mcp-tool-call",
-    "dyad-mcp-tool-result",
+    "atlarix-command",
+    "atlarix-mcp-tool-call",
+    "atlarix-mcp-tool-result",
   ];
 
   let processedContent = content;
@@ -237,28 +240,28 @@ function parseCustomTags(content: string): ContentPiece[] {
   const { processedContent, inProgressTags } = preprocessUnclosedTags(content);
 
   const customTagNames = [
-    "dyad-write",
-    "dyad-rename",
-    "dyad-delete",
-    "dyad-add-dependency",
-    "dyad-execute-sql",
-    "dyad-add-integration",
-    "dyad-output",
-    "dyad-problem-report",
-    "dyad-chat-summary",
-    "dyad-edit",
-    "dyad-search-replace",
-    "dyad-codebase-context",
-    "dyad-web-search-result",
-    "dyad-web-search",
-    "dyad-web-crawl",
-    "dyad-code-search-result",
-    "dyad-code-search",
-    "dyad-read",
+    "atlarix-write",
+    "atlarix-rename",
+    "atlarix-delete",
+    "atlarix-add-dependency",
+    "atlarix-execute-sql",
+    "atlarix-add-integration",
+    "atlarix-output",
+    "atlarix-problem-report",
+    "atlarix-chat-summary",
+    "atlarix-edit",
+    "atlarix-search-replace",
+    "atlarix-codebase-context",
+    "atlarix-web-search-result",
+    "atlarix-web-search",
+    "atlarix-web-crawl",
+    "atlarix-code-search-result",
+    "atlarix-code-search",
+    "atlarix-read",
     "think",
-    "dyad-command",
-    "dyad-mcp-tool-call",
-    "dyad-mcp-tool-result",
+    "atlarix-command",
+    "atlarix-mcp-tool-call",
+    "atlarix-mcp-tool-result",
   ];
 
   const tagPattern = new RegExp(
@@ -344,7 +347,7 @@ function renderCustomTag(
   const { tag, attributes, content, inProgress } = tagInfo;
 
   switch (tag) {
-    case "dyad-read":
+    case "atlarix-read":
       return (
         <AtlarixRead
           node={{
@@ -356,7 +359,7 @@ function renderCustomTag(
           {content}
         </AtlarixRead>
       );
-    case "dyad-web-search":
+    case "atlarix-web-search":
       return (
         <AtlarixWebSearch
           node={{
@@ -366,7 +369,7 @@ function renderCustomTag(
           {content}
         </AtlarixWebSearch>
       );
-    case "dyad-web-crawl":
+    case "atlarix-web-crawl":
       return (
         <AtlarixWebCrawl
           node={{
@@ -376,7 +379,7 @@ function renderCustomTag(
           {content}
         </AtlarixWebCrawl>
       );
-    case "dyad-code-search":
+    case "atlarix-code-search":
       return (
         <AtlarixCodeSearch
           node={{
@@ -386,7 +389,7 @@ function renderCustomTag(
           {content}
         </AtlarixCodeSearch>
       );
-    case "dyad-code-search-result":
+    case "atlarix-code-search-result":
       return (
         <AtlarixCodeSearchResult
           node={{
@@ -396,7 +399,7 @@ function renderCustomTag(
           {content}
         </AtlarixCodeSearchResult>
       );
-    case "dyad-web-search-result":
+    case "atlarix-web-search-result":
       return (
         <AtlarixWebSearchResult
           node={{
@@ -420,7 +423,7 @@ function renderCustomTag(
           {content}
         </AtlarixThink>
       );
-    case "dyad-write":
+    case "atlarix-write":
       return (
         <AtlarixWrite
           node={{
@@ -435,7 +438,7 @@ function renderCustomTag(
         </AtlarixWrite>
       );
 
-    case "dyad-rename":
+    case "atlarix-rename":
       return (
         <AtlarixRename
           node={{
@@ -449,7 +452,7 @@ function renderCustomTag(
         </AtlarixRename>
       );
 
-    case "dyad-delete":
+    case "atlarix-delete":
       return (
         <AtlarixDelete
           node={{
@@ -462,7 +465,7 @@ function renderCustomTag(
         </AtlarixDelete>
       );
 
-    case "dyad-add-dependency":
+    case "atlarix-add-dependency":
       return (
         <AtlarixAddDependency
           node={{
@@ -475,7 +478,7 @@ function renderCustomTag(
         </AtlarixAddDependency>
       );
 
-    case "dyad-execute-sql":
+    case "atlarix-execute-sql":
       return (
         <AtlarixExecuteSql
           node={{
@@ -489,7 +492,7 @@ function renderCustomTag(
         </AtlarixExecuteSql>
       );
 
-    case "dyad-add-integration":
+    case "atlarix-add-integration":
       return (
         <AtlarixAddIntegration
           node={{
@@ -502,7 +505,7 @@ function renderCustomTag(
         </AtlarixAddIntegration>
       );
 
-    case "dyad-edit":
+    case "atlarix-edit":
       return (
         <AtlarixEdit
           node={{
@@ -517,7 +520,7 @@ function renderCustomTag(
         </AtlarixEdit>
       );
 
-    case "dyad-search-replace":
+    case "atlarix-search-replace":
       return (
         <AtlarixSearchReplace
           node={{
@@ -532,7 +535,7 @@ function renderCustomTag(
         </AtlarixSearchReplace>
       );
 
-    case "dyad-codebase-context":
+    case "atlarix-codebase-context":
       return (
         <AtlarixCodebaseContext
           node={{
@@ -546,7 +549,7 @@ function renderCustomTag(
         </AtlarixCodebaseContext>
       );
 
-    case "dyad-mcp-tool-call":
+    case "atlarix-mcp-tool-call":
       return (
         <AtlarixMcpToolCall
           node={{
@@ -560,7 +563,7 @@ function renderCustomTag(
         </AtlarixMcpToolCall>
       );
 
-    case "dyad-mcp-tool-result":
+    case "atlarix-mcp-tool-result":
       return (
         <AtlarixMcpToolResult
           node={{
@@ -574,7 +577,7 @@ function renderCustomTag(
         </AtlarixMcpToolResult>
       );
 
-    case "dyad-output":
+    case "atlarix-output":
       return (
         <AtlarixOutput
           type={attributes.type as "warning" | "error"}
@@ -584,18 +587,18 @@ function renderCustomTag(
         </AtlarixOutput>
       );
 
-    case "dyad-problem-report":
+    case "atlarix-problem-report":
       return (
         <AtlarixProblemSummary summary={attributes.summary}>
           {content}
         </AtlarixProblemSummary>
       );
 
-    case "dyad-chat-summary":
-      // Don't render anything for dyad-chat-summary
+    case "atlarix-chat-summary":
+      // Don't render anything for atlarix-chat-summary
       return null;
 
-    case "dyad-command":
+    case "atlarix-command":
       if (attributes.type) {
         const action = {
           id: attributes.type,

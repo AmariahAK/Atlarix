@@ -117,7 +117,7 @@ export function SetupBanner() {
   const handleAtlarixProSetupClick = () => {
     posthog.capture("setup-flow:ai-provider-setup:dyad:click");
     IpcClient.getInstance().openExternalUrl(
-      "https://www.atlarix.dev/pro?utm_source=dyad-app&utm_medium=app&utm_campaign=setup-banner",
+      "https://www.atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=setup-banner",
     );
   };
 

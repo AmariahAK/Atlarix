@@ -12,7 +12,7 @@ import {
 } from "ai";
 
 import { db } from "../../db";
-import { chats, messages } from "../../db/schema";
+import { apps, chats, messages } from "../../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import type { SmartContextMode } from "../../lib/schemas";
 import {
@@ -69,7 +69,7 @@ import {
   getAtlarixWriteTags,
   getAtlarixDeleteTags,
   getAtlarixRenameTags,
-} from "../utils/dyad_tag_parser";
+} from "../utils/atlarix_tag_parser";
 import { fileExists } from "../utils/file_utils";
 import { FileUploadsState } from "../utils/file_uploads_state";
 import { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
@@ -198,11 +198,11 @@ async function processStreamChunks({
     } else if (part.type === "tool-call") {
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(JSON.stringify(part.input));
-      chunk = `<dyad-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</dyad-mcp-tool-call>\n`;
+      chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
     } else if (part.type === "tool-result") {
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(part.output);
-      chunk = `<dyad-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</dyad-mcp-tool-result>\n`;
+      chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
     }
 
     if (!chunk) {
@@ -236,32 +236,76 @@ export function registerChatStreamHandlers() {
       activeStreams.set(req.chatId, abortController);
 
       // Check if this is an ephemeral (incognito) chat BEFORE querying database
-      const { isEphemeralChatId } = await import("./chat_only_handlers");
+      const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
 
       if (isEphemeralChatId(req.chatId)) {
-        logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
-        return await handleChatOnlyStream(event, req, abortController);
+        // Check if this ephemeral chat is associated with a workspace
+        const ephemeralAppId = getEphemeralChatAppId(req.chatId);
+
+        if (ephemeralAppId) {
+          // This is an ephemeral WORKSPACE chat - has workspace context
+          logger.log(`Chat ${req.chatId} is ephemeral workspace chat for app: ${ephemeralAppId}`);
+          // Continue below to use workspace-aware handler with the ephemeral appId
+        } else {
+          // This is a pure chat-only (no workspace) - use simplified handler
+          logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
+          return await handleChatOnlyStream(event, req, abortController);
+        }
       }
 
-      // Get the chat from database (for regular chats)
-      const chat = await db.query.chats.findFirst({
-        where: eq(chats.id, req.chatId),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+      // Get app for ephemeral workspace chats or regular DB chats
+      let chat: any;
+      let appData: any;
+
+      if (isEphemeralChatId(req.chatId)) {
+        // Ephemeral workspace chat - get app from DB using the stored appId
+        const ephemeralAppId = getEphemeralChatAppId(req.chatId);
+        const { getEphemeralChat } = await import("./chat_only_handlers");
+        const ephemeralChat = getEphemeralChat(req.chatId);
+
+        appData = await db.query.apps.findFirst({
+          where: eq(apps.id, ephemeralAppId!),
+        });
+
+        if (!appData) {
+          throw new Error(`App not found for ephemeral workspace chat: ${ephemeralAppId}`);
+        }
+
+        // Create a chat-like object for compatibility
+        chat = {
+          id: req.chatId,
+          appId: ephemeralAppId,
+          title: ephemeralChat?.title || "New Chat",
+          messages: ephemeralChat?.messages || [],
+          app: appData,
+          initialCommitHash: null,
+          lastUsedAt: new Date(),
+        };
+
+        logger.log(`Ephemeral workspace chat loaded for app: ${appData.name} (${appData.path})`);
+      } else {
+        // Get the chat from database (for regular chats)
+        chat = await db.query.chats.findFirst({
+          where: eq(chats.id, req.chatId),
+          with: {
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+            },
+            app: true, // Include app information
           },
-          app: true, // Include app information
-        },
-      });
+        });
 
-      if (!chat) {
-        throw new Error(`Chat not found: ${req.chatId}`);
-      }
+        if (!chat) {
+          throw new Error(`Chat not found: ${req.chatId}`);
+        }
 
-      // Chat-only mode: route to simplified handler (no workspace/codebase)
-      if (!chat.app) {
-        logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
-        return await handleChatOnlyStream(event, req, abortController);
+        // Chat-only mode: route to simplified handler (no workspace/codebase)
+        if (!chat.app) {
+          logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
+          return await handleChatOnlyStream(event, req, abortController);
+        }
+
+        appData = chat.app;
       }
 
       // Handle redo option: remove the most recent messages if needed
@@ -333,7 +377,7 @@ export function registerChatStreamHandlers() {
               },
             );
 
-            // Add instruction for AI to use dyad-write tag
+            // Add instruction for AI to use atlarix-write tag
             attachmentInfo += `\n\nFile to upload to codebase: ${attachment.name} (file id: ${fileId})\n`;
           } else {
             // For chat-context, use the existing logic
@@ -341,8 +385,8 @@ export function registerChatStreamHandlers() {
             // If it's a text-based file, try to include the content
             if (await isTextFile(filePath)) {
               try {
-                attachmentInfo += `<dyad-text-attachment filename="${attachment.name}" type="${attachment.type}" path="${filePath}">
-                </dyad-text-attachment>
+                attachmentInfo += `<atlarix-text-attachment filename="${attachment.name}" type="${attachment.type}" path="${filePath}">
+                </atlarix-text-attachment>
                 \n\n`;
               } catch (err) {
                 logger.error(`Error reading file content: ${err}`);
@@ -419,14 +463,20 @@ ${componentSnippet}
         }
       }
 
-      await db
-        .insert(messages)
-        .values({
-          chatId: req.chatId,
-          role: "user",
-          content: userPrompt,
-        })
-        .returning();
+      // Check if this is an ephemeral workspace chat (skip DB writes)
+      const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
+
+      // Only save to database for non-ephemeral chats
+      if (!isEphemeralWorkspace) {
+        await db
+          .insert(messages)
+          .values({
+            chatId: req.chatId,
+            role: "user",
+            content: userPrompt,
+          })
+          .returning();
+      }
       const settings = readSettings();
       // Only Atlarix Pro requests have request ids.
       if (settings.enableAtlarixPro) {
@@ -435,80 +485,109 @@ ${componentSnippet}
       }
 
       // Add a placeholder assistant message immediately
-      const [placeholderAssistantMessage] = await db
-        .insert(messages)
-        .values({
-          chatId: req.chatId,
-          role: "assistant",
-          content: "", // Start with empty content
-          requestId: dyadRequestId,
-          sourceCommitHash: await getCurrentCommitHash({
-            path: getAtlarixAppPath(chat.app.path),
-          }),
-        })
-        .returning();
+      // For ephemeral chats, we'll use a placeholder ID
+      let placeholderAssistantMessage: any = { id: Date.now() }; // Default for ephemeral
+      let updatedChat: any = chat; // Use the existing chat object for ephemeral
 
-      // Fetch updated chat data after possible deletions and additions
-      const updatedChat = await db.query.chats.findFirst({
-        where: eq(chats.id, req.chatId),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+      if (!isEphemeralWorkspace) {
+        // Regular DB chat - save to database
+        const [dbPlaceholder] = await db
+          .insert(messages)
+          .values({
+            chatId: req.chatId,
+            role: "assistant",
+            content: "", // Start with empty content
+            requestId: dyadRequestId,
+            sourceCommitHash: await getCurrentCommitHash({
+              path: getAtlarixAppPath(chat.app.path),
+            }),
+          })
+          .returning();
+        placeholderAssistantMessage = dbPlaceholder;
+
+        // Fetch updated chat data after possible deletions and additions
+        const fetchedChat = await db.query.chats.findFirst({
+          where: eq(chats.id, req.chatId),
+          with: {
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+            },
+            app: true, // Include app information
           },
-          app: true, // Include app information
-        },
-      });
+        });
 
-      if (!updatedChat) {
-        throw new Error(`Chat not found: ${req.chatId}`);
-      }
-
-      // Update lastUsedAt timestamp for chat activity
-      await db
-        .update(chats)
-        .set({ lastUsedAt: new Date() })
-        .where(eq(chats.id, req.chatId));
-
-      // Hybrid Chat Naming Logic
-      const messageCount = updatedChat.messages.length;
-
-      // On first user message (2 messages total: user + assistant placeholder)
-      // Generate simple keyword-based name
-      if (messageCount === 2 && !chat.title) {
-        const firstUserMessage = updatedChat.messages.find((m) => m.role === "user");
-        if (firstUserMessage) {
-          const simpleName = generateSimpleChatName(firstUserMessage.content);
-          await db
-            .update(chats)
-            .set({ title: simpleName })
-            .where(eq(chats.id, req.chatId));
-          logger.info(`Generated simple chat name: "${simpleName}" for chat ${req.chatId}`);
+        if (!fetchedChat) {
+          throw new Error(`Chat not found: ${req.chatId}`);
         }
-      }
+        updatedChat = fetchedChat;
 
-      // After 2 user-assistant exchanges (4+ messages), trigger AI naming
-      // This will replace the simple keyword-based name with an AI-generated one
-      if (shouldTriggerAINaming(messageCount)) {
-        try {
-          const currentTitle = chat.title || "New Chat";
-          const conversationMessages = updatedChat.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          }));
+        // Update lastUsedAt timestamp for chat activity
+        await db
+          .update(chats)
+          .set({ lastUsedAt: new Date() })
+          .where(eq(chats.id, req.chatId));
 
-          const aiName = await generateAIChatName(conversationMessages, currentTitle);
+        // Hybrid Chat Naming Logic
+        const messageCount = updatedChat.messages.length;
 
-          if (aiName !== currentTitle) {
+        // On first user message (2 messages total: user + assistant placeholder)
+        // Generate simple keyword-based name
+        if (messageCount === 2 && !chat.title) {
+          const firstUserMessage = updatedChat.messages.find((m: any) => m.role === "user");
+          if (firstUserMessage) {
+            const simpleName = generateSimpleChatName(firstUserMessage.content);
             await db
               .update(chats)
-              .set({ title: aiName })
+              .set({ title: simpleName })
               .where(eq(chats.id, req.chatId));
-            logger.info(`Updated chat ${req.chatId} with AI name: "${aiName}"`);
+            logger.info(`Generated simple chat name: "${simpleName}" for chat ${req.chatId}`);
           }
-        } catch (error) {
-          logger.error(`Failed to generate AI chat name: ${error}`);
-          // Fallback to keeping the simple keyword-based name
         }
+
+        // After 2 user-assistant exchanges (4+ messages), trigger AI naming
+        // This will replace the simple keyword-based name with an AI-generated one
+        if (shouldTriggerAINaming(messageCount)) {
+          try {
+            const currentTitle = chat.title || "New Chat";
+            const conversationMessages = updatedChat.messages.map((m: any) => ({
+              role: m.role,
+              content: m.content,
+            }));
+
+            const aiName = await generateAIChatName(conversationMessages, currentTitle);
+
+            if (aiName !== currentTitle) {
+              await db
+                .update(chats)
+                .set({ title: aiName })
+                .where(eq(chats.id, req.chatId));
+              logger.info(`Updated chat ${req.chatId} with AI name: "${aiName}"`);
+            }
+          } catch (error) {
+            logger.error(`Failed to generate AI chat name: ${error}`);
+            // Fallback to keeping the simple keyword-based name
+          }
+        }
+      } else {
+        // Ephemeral workspace chat - no DB operations
+        logger.log(`Ephemeral workspace chat ${req.chatId} - skipping DB operations`);
+        // For ephemeral chats, add message to in-memory store
+        const { addEphemeralMessage, getEphemeralChat } = await import("./chat_only_handlers");
+        addEphemeralMessage(req.chatId, { role: "user", content: userPrompt });
+
+        // Also update the local updatedChat.messages for the LLM call
+        // Create a minimal message structure for the user message
+        updatedChat.messages = [
+          {
+            id: Date.now(),
+            chatId: req.chatId,
+            role: "user",
+            content: userPrompt,
+            createdAt: new Date(),
+            sourceCommitHash: null,
+            commitHash: null,
+          }
+        ];
       }
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -564,17 +643,20 @@ ${componentSnippet}
               }
               : validateChatContext(updatedChat.app.chatContext);
 
-          // Extract codebase for current app
-          const extracted = await extractCodebase({
-            appPath,
-            chatContext,
-          });
-          codebaseInfo = extracted.formattedOutput;
-          files = extracted.files;
+          // --- DIAGRAM-FIRST CONTEXT SYSTEM ---
+          // Instead of extracting full codebase (168K+ tokens), we:
+          // 1. Inject diagram context via getWorkspaceContext() (below at line ~700)
+          // 2. Let AI use file tools (read_file, search_code, list_files) on demand
+          // This reduces context from ~168K to ~3-4K tokens (97% reduction)
+
+          // Note: files array kept for backward compatibility with selected components
+          // but no longer used for full codebase dump
+          files = [];
+          codebaseInfo = ""; // Diagram context injected via systemPrompt instead
 
           // For smart context and selected components, we will mark the selected components' files as focused.
           // This means that we don't do the regular smart context handling, but we'll allow fetching
-          // additional files through <dyad-read> as needed.
+          // additional files through <atlarix-read> as needed.
           if (
             isSmartContextEnabled &&
             req.selectedComponents &&
@@ -784,7 +866,7 @@ ${componentSnippet}
             );
           // If there's mixed attachments (e.g. some upload to codebase attachments and some upload images as chat context attachemnts)
           // we will just include the file upload system prompt, otherwise the AI gets confused and doesn't reliably
-          // print out the dyad-write tags.
+          // print out the atlarix-write tags.
           // Usually, AI models will want to use the image as reference to generate code (e.g. UI mockups) anyways, so
           // it's not that critical to include the image analysis instructions.
           if (hasUploadedAttachments) {
@@ -792,14 +874,14 @@ ${componentSnippet}
   
 When files are attached to this conversation, upload them to the codebase using this exact format:
 
-<dyad-write path="path/to/destination/filename.ext" description="Upload file to codebase">
+<atlarix-write path="path/to/destination/filename.ext" description="Upload file to codebase">
 DYAD_ATTACHMENT_X
-</dyad-write>
+</atlarix-write>
 
 Example for file with id of DYAD_ATTACHMENT_0:
-<dyad-write path="src/components/Button.jsx" description="Upload file to codebase">
+<atlarix-write path="src/components/Button.jsx" description="Upload file to codebase">
 DYAD_ATTACHMENT_0
-</dyad-write>
+</atlarix-write>
 
   `;
           } else if (hasImageAttachments) {
@@ -815,17 +897,21 @@ This conversation includes one or more image attachments. When the user uploads 
 `;
           }
 
+          // --- DIAGRAM-FIRST CONTEXT SYSTEM ---
+          // Instead of dumping full codebase, we provide:
+          // 1. Diagram context (already in systemPrompt via getWorkspaceContext)
+          // 2. Instructions to use file exploration tools on demand
           const codebasePrefix = isEngineEnabled
             ? // No codebase prefix if engine is set, we will take of it there.
             []
             : ([
               {
                 role: "user",
-                content: createCodebasePrompt(codebaseInfo),
+                content: createDiagramFirstPrompt(),
               },
               {
                 role: "assistant",
-                content: "OK, got it. I'm ready to help",
+                content: "Got it! I can see the workspace structure from the diagram. I'll use read_file, search_code, and list_files tools to access specific code when needed.",
               },
             ] as const);
 
@@ -1011,16 +1097,19 @@ This conversation includes one or more image attachments. When the user uploads 
                   maxTokensUsed = Math.max(maxTokensUsed ?? 0, totalTokens);
 
                   // Persist the aggregated token usage on the placeholder assistant message
-                  void db
-                    .update(messages)
-                    .set({ maxTokensUsed: maxTokensUsed })
-                    .where(eq(messages.id, placeholderAssistantMessage.id))
-                    .catch((error) => {
-                      logger.error(
-                        "Failed to save total tokens for assistant message",
-                        error,
-                      );
-                    });
+                  // Only for non-ephemeral chats
+                  if (!isEphemeralWorkspace) {
+                    void db
+                      .update(messages)
+                      .set({ maxTokensUsed: maxTokensUsed })
+                      .where(eq(messages.id, placeholderAssistantMessage.id))
+                      .catch((error) => {
+                        logger.error(
+                          "Failed to save total tokens for assistant message",
+                          error,
+                        );
+                      });
+                  }
 
                   logger.log(
                     `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${maxTokensUsed}`,
@@ -1080,8 +1169,9 @@ This conversation includes one or more image attachments. When the user uploads 
             // Store the current partial response
             partialResponses.set(req.chatId, fullResponse);
             // Save to DB (in case user is switching chats during the stream)
+            // Only for non-ephemeral chats
             const now = Date.now();
-            if (now - lastDbSaveAt >= 150) {
+            if (now - lastDbSaveAt >= 150 && !isEphemeralWorkspace) {
               await db
                 .update(messages)
                 .set({ content: fullResponse })
@@ -1209,7 +1299,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   })
                   .join("\n\n");
 
-                fullResponse += `<dyad-output type="warning" message="Could not apply Turbo Edits properly for some of the files; re-generating code...">${formattedSearchReplaceIssues}</dyad-output>`;
+                fullResponse += `<atlarix-output type="warning" message="Could not apply Turbo Edits properly for some of the files; re-generating code...">${formattedSearchReplaceIssues}</atlarix-output>`;
                 await processResponseChunkUpdate({
                   fullResponse,
                 });
@@ -1220,8 +1310,8 @@ This conversation includes one or more image attachments. When the user uploads 
 
                 const fixSearchReplacePrompt =
                   searchReplaceFixAttempts === 0
-                    ? `There was an issue with the following \`dyad-search-replace\` tags. Make sure you use \`dyad-read\` to read the latest version of the file and then trying to do search & replace again.`
-                    : `There was an issue with the following \`dyad-search-replace\` tags. Please fix the errors by generating the code changes using \`dyad-write\` tags instead.`;
+                    ? `There was an issue with the following \`atlarix-search-replace\` tags. Make sure you use \`atlarix-read\` to read the latest version of the file and then trying to do search & replace again.`
+                    : `There was an issue with the following \`atlarix-search-replace\` tags. Please fix the errors by generating the code changes using \`atlarix-write\` tags instead.`;
                 searchReplaceFixAttempts++;
                 const userPrompt = {
                   role: "user",
@@ -1276,7 +1366,7 @@ ${formattedSearchReplaceIssues}`,
                 !abortController.signal.aborted
               ) {
                 logger.warn(
-                  `Received unclosed dyad-write tag, attempting to continue, attempt #${continuationAttempts + 1}`,
+                  `Received unclosed atlarix-write tag, attempting to continue, attempt #${continuationAttempts + 1}`,
                 );
                 continuationAttempts++;
 
@@ -1329,14 +1419,14 @@ ${formattedSearchReplaceIssues}`,
                   autoFixAttempts < 2 &&
                   !abortController.signal.aborted
                 ) {
-                  fullResponse += `<dyad-problem-report summary="${problemReport.problems.length} problems">
+                  fullResponse += `<atlarix-problem-report summary="${problemReport.problems.length} problems">
 ${problemReport.problems
                       .map(
                         (problem) =>
                           `<problem file="${escapeXml(problem.file)}" line="${problem.line}" column="${problem.column}" code="${problem.code}">${escapeXml(problem.message)}</problem>`,
                       )
                       .join("\n")}
-</dyad-problem-report>`;
+</atlarix-problem-report>`;
 
                   logger.info(
                     `Attempting to auto-fix problems, attempt #${autoFixAttempts + 1}`,
@@ -1436,18 +1526,21 @@ ${problemReport.problems
               if (partialResponse) {
                 try {
                   // Update the placeholder assistant message with the partial content and cancellation note
-                  await db
-                    .update(messages)
-                    .set({
-                      content: `${partialResponse}
+                  // Only for non-ephemeral chats
+                  if (!isEphemeralWorkspace) {
+                    await db
+                      .update(messages)
+                      .set({
+                        content: `${partialResponse}
 
 [Response cancelled by user]`,
-                    })
-                    .where(eq(messages.id, placeholderAssistantMessage.id));
+                      })
+                      .where(eq(messages.id, placeholderAssistantMessage.id));
 
-                  logger.log(
-                    `Updated cancelled response for placeholder message ${placeholderAssistantMessage.id} in chat ${chatId}`,
-                  );
+                    logger.log(
+                      `Updated cancelled response for placeholder message ${placeholderAssistantMessage.id} in chat ${chatId}`,
+                    );
+                  }
                   partialResponses.delete(req.chatId);
                 } catch (error) {
                   logger.error(
@@ -1464,9 +1557,9 @@ ${problemReport.problems
 
         // Only save the response and process it if we weren't aborted
         if (!abortController.signal.aborted && fullResponse) {
-          // Scrape from: <dyad-chat-summary>Renaming profile file</dyad-chat-title>
+          // Scrape from: <atlarix-chat-summary>Renaming profile file</dyad-chat-title>
           const chatTitle = fullResponse.match(
-            /<dyad-chat-summary>(.*?)<\/dyad-chat-summary>/,
+            /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
           );
           if (chatTitle) {
             await db
@@ -1477,10 +1570,13 @@ ${problemReport.problems
           const chatSummary = chatTitle?.[1];
 
           // Update the placeholder assistant message with the full response
-          await db
-            .update(messages)
-            .set({ content: fullResponse })
-            .where(eq(messages.id, placeholderAssistantMessage.id));
+          // Only for non-ephemeral chats
+          if (!isEphemeralWorkspace) {
+            await db
+              .update(messages)
+              .set({ content: fullResponse })
+              .where(eq(messages.id, placeholderAssistantMessage.id));
+          }
           const settings = readSettings();
           if (
             settings.autoApproveChanges &&
@@ -1640,7 +1736,7 @@ async function replaceTextAttachmentWithContent(
       // Replace the placeholder tag with the full content
       const escapedPath = filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const tagPattern = new RegExp(
-        `<dyad-text-attachment filename="[^"]*" type="[^"]*" path="${escapedPath}">\\s*<\\/dyad-text-attachment>`,
+        `<atlarix-text-attachment filename="[^"]*" type="[^"]*" path="${escapedPath}">\\s*<\\/atlarix-text-attachment>`,
         "g",
       );
 
@@ -1733,7 +1829,7 @@ function removeThinkingTags(text: string): string {
 
 export function removeProblemReportTags(text: string): string {
   const problemReportRegex =
-    /<dyad-problem-report[^>]*>[\s\S]*?<\/dyad-problem-report>/g;
+    /<atlarix-problem-report[^>]*>[\s\S]*?<\/atlarix-problem-report>/g;
   return text.replace(problemReportRegex, "").trim();
 }
 
@@ -1743,8 +1839,8 @@ export function removeAtlarixTags(text: string): string {
 }
 
 export function hasUnclosedAtlarixWrite(text: string): boolean {
-  // Find the last opening dyad-write tag
-  const openRegex = /<dyad-write[^>]*>/g;
+  // Find the last opening atlarix-write tag
+  const openRegex = /<atlarix-write[^>]*>/g;
   let lastOpenIndex = -1;
   let match;
 
@@ -1759,7 +1855,7 @@ export function hasUnclosedAtlarixWrite(text: string): boolean {
 
   // Look for a closing tag after the last opening tag
   const textAfterLastOpen = text.substring(lastOpenIndex);
-  const hasClosingTag = /<\/dyad-write>/.test(textAfterLastOpen);
+  const hasClosingTag = /<\/atlarix-write>/.test(textAfterLastOpen);
 
   return !hasClosingTag;
 }
@@ -1775,8 +1871,36 @@ function escapeAtlarixTags(text: string): string {
 }
 
 const CODEBASE_PROMPT_PREFIX = "This is my codebase.";
+/** @deprecated Use createDiagramFirstPrompt instead - this dumps full codebase */
 function createCodebasePrompt(codebaseInfo: string): string {
   return `${CODEBASE_PROMPT_PREFIX} ${codebaseInfo}`;
+}
+
+/**
+ * Diagram-First Context Prompt
+ * Instead of dumping 168K tokens of codebase, instruct AI to use tools
+ */
+function createDiagramFirstPrompt(): string {
+  return `# Workspace Context
+
+I've provided you with an architecture diagram of my codebase in the system prompt. This diagram shows:
+- The main components, services, and modules
+- Dependencies and relationships between files
+- Entry points and hub files
+
+## How to Access Code
+When you need to see specific file contents, use these tools:
+- **read_file**: Read contents of a specific file (use the paths from the diagram)
+- **search_code**: Search for text/patterns across the codebase
+- **list_files**: List files in a directory
+- **find_file**: Find files matching a pattern
+
+## Important
+- DON'T ask me to paste code - use the tools to fetch it yourself
+- The diagram shows you WHERE things are - use tools to see WHAT they contain
+- For multi-file changes, fetch each file as needed before editing
+
+I'm ready to help with my codebase!`;
 }
 
 function createOtherAppsCodebasePrompt(otherAppsCodebaseInfo: string): string {

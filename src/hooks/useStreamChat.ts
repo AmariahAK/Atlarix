@@ -29,6 +29,7 @@ import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
+import { playNotify } from "@/lib/sounds";
 
 /**
  * Extract domain from URL
@@ -235,6 +236,10 @@ export function useStreamChat({
             refreshApp();
             refreshVersions();
             invalidateTokenCount();
+
+            // Play notification sound when AI response completes
+            playNotify();
+
             onSettled?.();
           },
           onError: (errorMessage: string) => {

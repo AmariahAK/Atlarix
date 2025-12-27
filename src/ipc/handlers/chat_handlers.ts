@@ -14,8 +14,10 @@ const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
 
 export function registerChatHandlers() {
+  // Create workspace chat - now uses EPHEMERAL storage (like incognito mode)
+  // Chats are associated with workspace for context but NOT saved to database
   handle("create-chat", async (_, appId: number): Promise<number> => {
-    // Get the app's path first
+    // Verify the app exists
     const app = await db.query.apps.findFirst({
       where: eq(apps.id, appId),
       columns: {
@@ -28,39 +30,19 @@ export function registerChatHandlers() {
       throw new Error("App not found");
     }
 
-    let initialCommitHash = null;
-    try {
-      // Get the current git revision of main branch
-      initialCommitHash = await getCurrentCommitHash({
-        path: getAtlarixAppPath(app.path),
-        ref: "main",
-      });
-    } catch (error) {
-      logger.error("Error getting git revision:", error);
-      // Continue without the git revision
-    }
+    // Create ephemeral workspace chat - NOT saved to database
+    // This makes workspace chats "incognito" while maintaining workspace context
+    const { createEphemeralWorkspaceChat } = await import("./chat_only_handlers");
+    const chatId = createEphemeralWorkspaceChat(appId);
 
-    // Create a new chat with null title (will be named on first message)
-    // and lastUsedAt timestamp
-    const now = new Date();
-    const [chat] = await db
-      .insert(chats)
-      .values({
-        appId,
-        initialCommitHash,
-        title: null, // Will be set with keyword-based name on first message
-        lastUsedAt: now,
-      })
-      .returning();
     logger.info(
-      "Created chat:",
-      chat.id,
+      "Created ephemeral workspace chat:",
+      chatId,
       "for app:",
       appId,
-      "with initial commit hash:",
-      initialCommitHash,
+      "(workspace chats are now incognito)"
     );
-    return chat.id;
+    return chatId;
   });
 
   // Create chat-only session (ephemeral/incognito - NOT saved to DB)

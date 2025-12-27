@@ -118,7 +118,7 @@ export async function stopAppByInfo(
   appInfo: RunningAppInfo,
 ): Promise<void> {
   if (appInfo.isDocker) {
-    const containerName = appInfo.containerName || `dyad-app-${appId}`;
+    const containerName = appInfo.containerName || `atlarix-app-${appId}`;
     await stopDockerContainer(containerName);
   } else {
     await killProcess(appInfo.process);

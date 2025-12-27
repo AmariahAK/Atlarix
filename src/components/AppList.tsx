@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -28,6 +28,7 @@ interface WorkspaceWithChats {
 export function AppList({ show }: { show?: boolean }) {
   const navigate = useNavigate();
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
+  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const { apps, loading, error, refetch } = useLoadApps();
 
@@ -117,6 +118,7 @@ export function AppList({ show }: { show?: boolean }) {
 
     if (existingApp) {
       setSelectedAppId(existingApp.id);
+      setSelectedWorkspaceInfo({ id: existingApp.id, name: existingApp.name });
       // Expand the workspace
       setWorkspaces(prev => prev.map(w =>
         w.id === existingApp.id ? { ...w, isExpanded: true } : w
@@ -126,6 +128,7 @@ export function AppList({ show }: { show?: boolean }) {
         const appName = path.split('/').pop() || 'Workspace';
         const result = await IpcClient.getInstance().importApp({ path, appName });
         setSelectedAppId(result.appId);
+        setSelectedWorkspaceInfo({ id: result.appId, name: appName });
         refetch?.();
       } catch (error) {
         console.error('Failed to create workspace:', error);
@@ -135,6 +138,7 @@ export function AppList({ show }: { show?: boolean }) {
 
   const handleIncognitoMode = async () => {
     setSelectedAppId(null);
+    setSelectedWorkspaceInfo(null);
     setSelectedChatId(null);
     navigate({ to: "/" });
   };
@@ -209,6 +213,7 @@ export function AppList({ show }: { show?: boolean }) {
                         className="flex-1 text-sm font-medium truncate cursor-pointer"
                         onClick={() => {
                           setSelectedAppId(ws.id);
+                          setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
                           setWorkspaces(prev => prev.map(w =>
                             w.id === ws.id ? { ...w, isExpanded: true } : w
                           ));

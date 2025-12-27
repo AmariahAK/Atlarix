@@ -4,6 +4,8 @@ import type { UserSettings } from "@/lib/schemas";
 
 export const currentAppAtom = atom<App | null>(null);
 export const selectedAppIdAtom = atom<number | null>(null);
+// Store workspace info (id + name) for reliable display when apps list is stale
+export const selectedWorkspaceInfoAtom = atom<{ id: number; name: string } | null>(null);
 export const appsListAtom = atom<App[]>([]);
 export const appBasePathAtom = atom<string>("");
 export const versionsListAtom = atom<Version[]>([]);
@@ -24,5 +26,5 @@ export const envVarsAtom = atom<Record<string, string | undefined>>({});
 export const previewPanelKeyAtom = atom<number>(0);
 
 export const previewErrorMessageAtom = atom<
-  { message: string; source: "preview-app" | "dyad-app" } | undefined
+  { message: string; source: "preview-app" | "atlarix-app" } | undefined
 >(undefined);

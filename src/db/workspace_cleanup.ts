@@ -109,7 +109,16 @@ export function registerCleanupHandlers(): void {
     });
 
     // Handle app before-quit (for macOS)
-    app.on("before-quit", () => {
+    app.on("before-quit", async () => {
         logger.info("App preparing to quit");
+
+        // Flush any pending diagram captures
+        try {
+            const { flushPendingCaptures } = await import("../lib/diagram-timeline/capture");
+            await flushPendingCaptures();
+            logger.info("Flushed pending diagram captures");
+        } catch (error) {
+            logger.error(`Failed to flush pending captures: ${error}`);
+        }
     });
 }

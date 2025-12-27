@@ -11,14 +11,12 @@ import {
 } from "../../prompts/supabase_prompt";
 import { getAtlarixAppPath } from "../../paths/paths";
 import log from "electron-log";
-import { extractCodebase } from "../../utils/codebase";
-// Removed: supabase_context import (integration deleted)
+// extractCodebase removed - using diagram-first context system
 
 import { TokenCountParams } from "../ipc_types";
 import { TokenCountResult } from "../ipc_types";
 import { estimateTokens, getContextWindow } from "../utils/token_utils";
 import { createLoggedHandler } from "./safe_handle";
-import { validateChatContext } from "../utils/context_paths_utils";
 import { readSettings } from "@/main/settings";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
@@ -81,31 +79,20 @@ export function registerTokenCountHandlers() {
 
       const systemPromptTokens = estimateTokens(systemPrompt + supabaseContext);
 
-      // Extract codebase information if app is associated with the chat
-      let codebaseInfo = "";
+      // DIAGRAM-FIRST CONTEXT SYSTEM:
+      // We no longer use extractCodebase() which dumped 168K+ tokens
+      // Instead, we estimate the diagram-first context size
       let codebaseTokens = 0;
 
       if (chat.app) {
-        const appPath = getAtlarixAppPath(chat.app.path);
-        const { formattedOutput, files } = await extractCodebase({
-          appPath,
-          chatContext: validateChatContext(chat.app.chatContext),
-        });
-        codebaseInfo = formattedOutput;
-        if (settings.enableAtlarixPro && settings.enableProSmartFilesContextMode) {
-          codebaseTokens = estimateTokens(
-            files
-              // It doesn't need to be the exact format but it's just to get a token estimate
-              .map(
-                (file) => `<dyad-file=${file.path}>${file.content}</dyad-file>`,
-              )
-              .join("\n\n"),
-          );
-        } else {
-          codebaseTokens = estimateTokens(codebaseInfo);
-        }
+        // Diagram context: ~2-3K tokens
+        // Tool instructions: ~500 tokens  
+        // Daily logs: ~200 tokens
+        // Total: ~3-4K tokens
+        const DIAGRAM_CONTEXT_TOKENS = 3500;
+        codebaseTokens = DIAGRAM_CONTEXT_TOKENS;
         logger.log(
-          `Extracted codebase information from ${appPath}, tokens: ${codebaseTokens}`,
+          `Using diagram-first context estimation: ~${DIAGRAM_CONTEXT_TOKENS} tokens`,
         );
       }
 

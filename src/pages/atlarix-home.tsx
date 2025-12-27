@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAtom, useSetAtom, useAtomValue } from 'jotai';
 import { homeChatInputValueAtom } from '../atoms/chatAtoms';
-import { selectedAppIdAtom } from '@/atoms/appAtoms';
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { generateCuteAppName } from '@/lib/utils';
 import { useLoadApps } from '@/hooks/useLoadApps';
@@ -56,6 +56,7 @@ export default function AtlarixHome() {
     const [inputValue, setInputValue] = useAtom(homeChatInputValueAtom);
     const navigate = useNavigate();
     const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
+    const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
     const { apps, refreshApps } = useLoadApps();
     const { settings, updateSettings } = useSettings();
     const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
@@ -402,7 +403,7 @@ export default function AtlarixHome() {
                         {selectedAppId ? (
                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20">
                                 <span className="text-xs text-primary font-medium">
-                                    Chatting in: {apps.find(a => a.id === selectedAppId)?.name || 'Workspace'}
+                                    Chatting in: {selectedWorkspaceInfo?.name || apps.find(a => a.id === selectedAppId)?.name || 'Workspace'}
                                 </span>
                                 <button
                                     onClick={() => setSelectedAppId(null)}

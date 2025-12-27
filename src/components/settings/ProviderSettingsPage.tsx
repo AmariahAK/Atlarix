@@ -272,8 +272,8 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   }
 
   return (
-    <div className="min-h-screen px-8 py-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="flex-1 bg-background overflow-auto">
+      <div className="max-w-4xl mx-auto px-8 py-4 pb-20">
         <ProviderSettingsHeader
           providerDisplayName={providerDisplayName}
           isConfigured={isConfigured}

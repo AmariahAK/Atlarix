@@ -71,7 +71,7 @@ import { Annotator } from "@/pro/ui/components/Annotator/Annotator";
 import { VisualEditingToolbar } from "./VisualEditingToolbar";
 
 interface ErrorBannerProps {
-  error: { message: string; source: "preview-app" | "dyad-app" } | undefined;
+  error: { message: string; source: "preview-app" | "atlarix-app" } | undefined;
   onDismiss: () => void;
   onAIFix: () => void;
 }
@@ -104,8 +104,8 @@ const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
         <X size={14} className="text-red-500 dark:text-red-400" />
       </button>
 
-      {/* Add a little chip that says "Internal error" if source is "dyad-app" */}
-      {error.source === "dyad-app" && (
+      {/* Add a little chip that says "Internal error" if source is "atlarix-app" */}
+      {error.source === "atlarix-app" && (
         <div className="absolute top-1 right-1 p-1 bg-red-100 dark:bg-red-900 rounded-md text-xs font-medium text-red-700 dark:text-red-300">
           Internal Atlarix error
         </div>
@@ -115,7 +115,7 @@ const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
       <div
         className={cn(
           "px-6 py-1 text-sm",
-          error.source === "dyad-app" && "pt-6",
+          error.source === "atlarix-app" && "pt-6",
         )}
       >
         <div
@@ -142,7 +142,7 @@ const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
             <span className="font-medium">Tip: </span>
             {isDockerError
               ? "Make sure Docker Desktop is running and try restarting the app."
-              : error.source === "dyad-app"
+              : error.source === "atlarix-app"
                 ? "Try restarting the Atlarix app or restarting your computer to see if that fixes the error."
                 : "Check if restarting the app fixes the error."}
           </span>
@@ -241,7 +241,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       if (result.hasStaticText && iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
           {
-            type: "enable-dyad-text-editing",
+            type: "enable-atlarix-text-editing",
             data: {
               componentId: componentId,
               runtimeId: visualEditingSelectedComponent?.runtimeId,
@@ -298,7 +298,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       // Send message to iframe to get current styles
       iframeRef.current.contentWindow.postMessage(
         {
-          type: "get-dyad-component-styles",
+          type: "get-atlarix-component-styles",
           data: {
             elementId: visualEditingSelectedComponent.id,
             runtimeId: visualEditingSelectedComponent.runtimeId,
@@ -332,7 +332,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   useEffect(() => {
     if (iframeRef.current?.contentWindow && isComponentSelectorInitialized) {
       iframeRef.current.contentWindow.postMessage(
-        { type: "dyad-pro-mode", enabled: isProMode },
+        { type: "atlarix-pro-mode", enabled: isProMode },
         "*",
       );
     }
@@ -346,26 +346,26 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
         return;
       }
 
-      if (event.data?.type === "dyad-component-selector-initialized") {
+      if (event.data?.type === "atlarix-component-selector-initialized") {
         setIsComponentSelectorInitialized(true);
         iframeRef.current?.contentWindow?.postMessage(
-          { type: "dyad-pro-mode", enabled: isProMode },
+          { type: "atlarix-pro-mode", enabled: isProMode },
           "*",
         );
         return;
       }
 
-      if (event.data?.type === "dyad-text-updated") {
+      if (event.data?.type === "atlarix-text-updated") {
         handleTextUpdated(event.data);
         return;
       }
 
-      if (event.data?.type === "dyad-text-finalized") {
+      if (event.data?.type === "atlarix-text-finalized") {
         handleTextUpdated(event.data);
         return;
       }
 
-      if (event.data?.type === "dyad-component-selected") {
+      if (event.data?.type === "atlarix-component-selected") {
         console.log("Component picked:", event.data);
 
         const component = parseComponentSelection(event.data);
@@ -403,14 +403,14 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
         return;
       }
 
-      if (event.data?.type === "dyad-component-deselected") {
+      if (event.data?.type === "atlarix-component-deselected") {
         const componentId = event.data.componentId;
         if (componentId) {
           // Disable text editing for the deselected component
           if (iframeRef.current?.contentWindow) {
             iframeRef.current.contentWindow.postMessage(
               {
-                type: "disable-dyad-text-editing",
+                type: "disable-atlarix-text-editing",
                 data: { componentId },
               },
               "*",
@@ -431,14 +431,14 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
         return;
       }
 
-      if (event.data?.type === "dyad-component-coordinates-updated") {
+      if (event.data?.type === "atlarix-component-coordinates-updated") {
         if (event.data.coordinates) {
           setCurrentComponentCoordinates(event.data.coordinates);
         }
         return;
       }
 
-      if (event.data?.type === "dyad-screenshot-response") {
+      if (event.data?.type === "atlarix-screenshot-response") {
         if (event.data.success && event.data.dataUrl) {
           setScreenshotDataUrl(event.data.dataUrl);
           setAnnotatorMode(true);
@@ -575,8 +575,8 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       iframeRef.current.contentWindow.postMessage(
         {
           type: newIsPicking
-            ? "activate-dyad-component-selector"
-            : "deactivate-dyad-component-selector",
+            ? "activate-atlarix-component-selector"
+            : "deactivate-atlarix-component-selector",
         },
         "*",
       );
@@ -592,7 +592,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
-          type: "dyad-take-screenshot",
+          type: "atlarix-take-screenshot",
         },
         "*",
       );
@@ -1038,7 +1038,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
 };
 
 function parseComponentSelection(data: any): ComponentSelection | null {
-  if (!data || data.type !== "dyad-component-selected") {
+  if (!data || data.type !== "atlarix-component-selected") {
     return null;
   }
 

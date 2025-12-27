@@ -23,7 +23,7 @@ export const AtlarixMcpToolCall: React.FC<AtlarixMcpToolCallProps> = ({
       const parsed = JSON.parse(raw);
       return JSON.stringify(parsed, null, 2);
     } catch (e) {
-      console.error("Error parsing JSON for dyad-mcp-tool-call", e);
+      console.error("Error parsing JSON for atlarix-mcp-tool-call", e);
       return raw;
     }
   }, [expanded, raw]);

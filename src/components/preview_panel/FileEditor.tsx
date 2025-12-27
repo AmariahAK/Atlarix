@@ -125,7 +125,7 @@ export const FileEditor = ({ appId, filePath }: FileEditorProps) => {
     theme === "dark" ||
     (theme === "system" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const editorTheme = isDarkMode ? "dyad-dark" : "dyad-light";
+  const editorTheme = isDarkMode ? "atlarix-dark" : "atlarix-light";
 
   // Handle editor mount
   const handleEditorDidMount: OnMount = (editor) => {

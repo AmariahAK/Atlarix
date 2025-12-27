@@ -145,12 +145,27 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **Collapsible Sidebar**: Workspace folders with nested chats
 - [x] **Template Diagrams**: Architecture diagram after clone
 
-### Phase 3: Hybrid-Light Context System 🔥 NEXT
-Fixing token overflow by adopting StackSense approach:
-- [ ] **Remove `extractCodebase()`**: Stop dumping full codebase (168K tokens!)
-- [ ] **File Exploration Tools**: `read_file`, `search_code`, `list_files`, `get_file_info`
-- [ ] **Lightweight File Tree**: Add depth-2 tree to context (~500 tokens)
-- [ ] **Let AI Decide**: AI uses tools to fetch files as needed
+### Phase 3: Diagram-First Context System ✅ DONE (Dec 27)
+**Core Insight**: The diagram IS the learned understanding - no separate "memory" system needed!
+
+#### Phase 3A: Remove Token Overflow ✅
+- [x] Removed `extractCodebase()` call in `chat_stream_handlers.ts:568`
+- [x] Added `createDiagramFirstPrompt()` - instructs AI to use file tools
+- [x] File tools verified: `read_file`, `search_code`, `list_files`, `find_file`
+- [x] **97% token reduction**: 218K → ~4K tokens
+
+#### Phase 3B: Schema Changes ✅
+- [x] Added `dailyLogs` table with AI-generated micro-changelog
+- [x] Enhanced `diagramVersions` with `trigger`, `summary` fields
+
+#### Phase 3C: AI-Powered Logging ✅
+- [x] Created `src/lib/context/daily-logs.ts` - selective tool logging
+- [x] Session action buffer for state-changing tools
+- [x] Daily log storage and retrieval functions
+
+#### Phase 3D: Full Context System ✅
+- [x] Created `src/lib/context/context-builder.ts` - assembles diagram + logs + actions
+- [x] `buildDiagramContext()` function for lightweight AI context
 
 ### Phase 4: Advanced Diagrams (PlantUML + StackSense)
 - [ ] **Live Modification**: "Add a node here" → Diagram updates
@@ -162,7 +177,24 @@ Fixing token overflow by adopting StackSense approach:
 - [ ] **Live Diffing**: Preview changes before applying
 - [ ] **Atomic Batching**: Safe multi-file edits
 
+### v0.6.0 (2025-12-27) - Diagram Timeline System ✅
+- [x] **Workspace Diagrams**: Persist diagrams while chats remain ephemeral
+- [x] **Time Granularity**: Hybrid view (simple range + detailed drill-down)
+- [x] **Diff Indicators**: Visualization of architecture/dependency changes (🔵🟢⚪)
+- [x] **Smart Capture**: Debounced auto-capture triggers on file changes
+- [x] **Deduplication**: SHA-256 hash comparison to prevent duplicates 
+- [x] **Compression**: Automatic cleanup of old snapshots (30-day retention)
+- [x] **Protected Snapshots**: Annotated snapshots never deleted
+- [x] **Integration**: Initial capture on import, flush on app close
+
+#### 6G: v2.0 Features (Later)
+- [ ] Export timeline as animated GIF
+- [ ] Compare mode: Side-by-side diagram comparison
+- [ ] Rewind mode: View past state
+
 ---
 
-**Last Updated**: 2025-12-26
+**Last Updated**: 2025-12-27
 **Version**: v0.5.0-alpha (In Development)
+
+

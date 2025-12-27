@@ -249,27 +249,7 @@ export const ActionHeader = () => {
             "Code",
             "code-mode-button",
           )}
-          {renderButton(
-            "configure",
-            configureRef,
-            <Wrench size={iconSize} />,
-            "Configure",
-            "configure-mode-button",
-          )}
-          {renderButton(
-            "security",
-            securityRef,
-            <Shield size={iconSize} />,
-            "Security",
-            "security-mode-button",
-          )}
-          {renderButton(
-            "publish",
-            publishRef,
-            <Globe size={iconSize} />,
-            "Publish",
-            "publish-mode-button",
-          )}
+          {/* Configure, Security, Publish - Hidden for now (TBD) */}
         </div>
         {/* Chat activity bell */}
         <div className="flex items-center gap-1">

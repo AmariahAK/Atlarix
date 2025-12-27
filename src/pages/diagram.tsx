@@ -236,37 +236,49 @@ export default function DiagramPage() {
                     ) : (
                         <ScrollArea className="flex-1">
                             <div className="space-y-1">
-                                {diagrams.map((diagram) => (
-                                    <div
-                                        key={diagram.id}
-                                        className={cn(
-                                            "group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors",
-                                            selectedDiagram?.id === diagram.id
-                                                ? "bg-primary/10 text-primary"
-                                                : "hover:bg-muted"
-                                        )}
-                                        onClick={() => setSelectedDiagram(diagram)}
-                                    >
-                                        <Layout className="h-4 w-4 flex-shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium truncate">
-                                                {diagram.title}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground capitalize">
-                                                {diagram.type}
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteDiagram(diagram.id);
-                                            }}
-                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/10 rounded text-red-500"
+                                {diagrams.map((diagram) => {
+                                    // Format date for display
+                                    const date = new Date(diagram.updatedAt);
+                                    const dateStr = date.toLocaleDateString(undefined, {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+                                    });
+
+                                    return (
+                                        <div
+                                            key={diagram.id}
+                                            className={cn(
+                                                "group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors",
+                                                selectedDiagram?.id === diagram.id
+                                                    ? "bg-primary/10 text-primary"
+                                                    : "hover:bg-muted"
+                                            )}
+                                            onClick={() => setSelectedDiagram(diagram)}
                                         >
-                                            <Trash2 className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                ))}
+                                            <Layout className="h-4 w-4 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium truncate">
+                                                    {diagram.title}
+                                                </p>
+                                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                                    <span className="capitalize">{diagram.type}</span>
+                                                    <span>•</span>
+                                                    <span>{dateStr}</span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteDiagram(diagram.id);
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/10 rounded text-red-500"
+                                            >
+                                                <Trash2 className="h-3 w-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </ScrollArea>
                     )}

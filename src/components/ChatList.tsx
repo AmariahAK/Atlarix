@@ -201,11 +201,10 @@ export function ChatList({ show }: { show?: boolean }) {
                             appId: chat.appId,
                           })
                         }
-                        className={`justify-start w-full text-left py-3 pr-1 hover:bg-sidebar-accent/80 ${
-                          selectedChatId === chat.id
+                        className={`justify-start w-full text-left py-3 pr-1 hover:bg-sidebar-accent/80 ${selectedChatId === chat.id
                             ? "bg-sidebar-accent text-sidebar-accent-foreground"
                             : ""
-                        }`}
+                          }`}
                       >
                         <div className="flex flex-col w-full">
                           <span className="truncate">

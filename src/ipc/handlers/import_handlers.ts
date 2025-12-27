@@ -137,6 +137,17 @@ export function registerImportHandlers() {
           appId: app.id,
         })
         .returning();
+
+      // Capture initial diagram snapshot for the new workspace
+      try {
+        const { captureInitialSnapshot } = await import("../../lib/diagram-timeline/capture");
+        await captureInitialSnapshot(app.id);
+        logger.info(`Captured initial diagram snapshot for app ${app.id}`);
+      } catch (error) {
+        logger.error(`Failed to capture initial snapshot: ${error}`);
+        // Don't fail the import if snapshot fails
+      }
+
       return { appId: app.id, chatId: chat.id };
     },
   );

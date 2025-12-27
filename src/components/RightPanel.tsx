@@ -19,6 +19,7 @@ import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
+import { TimelineView } from './DiagramTimeline';
 import { cn } from '@/lib/utils';
 import { Pin, PinOff, X, Maximize2, Minimize2, Terminal } from 'lucide-react';
 
@@ -115,6 +116,10 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
 
         case 'terminal':
             return <TerminalPanel data={context.data} />;
+
+        case 'timeline':
+            // Timeline panel for workspace diagram snapshots
+            return <TimelineView appId={context.data?.appId || 0} />;
 
         default:
             return (

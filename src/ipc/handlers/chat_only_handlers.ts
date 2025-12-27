@@ -33,6 +33,7 @@ const ephemeralChats = new Map<number, {
     title: string;
     messages: Message[];
     createdAt: Date;
+    appId?: number; // Optional: workspace association for ephemeral workspace chats
 }>();
 
 // Counter for ephemeral chat IDs (negative to distinguish from DB IDs)
@@ -51,6 +52,30 @@ export function createEphemeralChat(): number {
     });
     logger.log(`Created ephemeral chat: ${id}`);
     return id;
+}
+
+/**
+ * Create a new ephemeral workspace chat (not saved to database, but associated with workspace)
+ * This allows workspace context while keeping chats ephemeral (incognito)
+ */
+export function createEphemeralWorkspaceChat(appId: number): number {
+    const id = ephemeralChatCounter--;
+    ephemeralChats.set(id, {
+        id,
+        title: "New Chat",
+        messages: [],
+        createdAt: new Date(),
+        appId, // Associate with workspace for context
+    });
+    logger.log(`Created ephemeral workspace chat: ${id} for app: ${appId}`);
+    return id;
+}
+
+/**
+ * Get the appId for an ephemeral chat (if it's a workspace chat)
+ */
+export function getEphemeralChatAppId(chatId: number): number | undefined {
+    return ephemeralChats.get(chatId)?.appId;
 }
 
 /**
@@ -74,6 +99,22 @@ export function clearEphemeralChats(): void {
     ephemeralChats.clear();
     ephemeralChatCounter = -1;
     logger.log("Cleared all ephemeral chats");
+}
+
+/**
+ * Add a message to an ephemeral chat
+ */
+export function addEphemeralMessage(chatId: number, message: { role: string; content: string }): void {
+    const chat = ephemeralChats.get(chatId);
+    if (chat) {
+        chat.messages.push({
+            ...message,
+            id: Date.now(),
+            chatId,
+            createdAt: new Date(),
+        } as any);
+        logger.log(`Added message to ephemeral chat ${chatId}: "${message.content.substring(0, 50)}..."`);
+    }
 }
 
 // System prompt for chat-only mode

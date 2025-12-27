@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 export const prompts = sqliteTable("prompts", {
@@ -48,6 +48,9 @@ export const apps = sqliteTable("apps", {
   isFavorite: integer("is_favorite", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
+  preferredDiagramType: text("preferred_diagram_type", {
+    enum: ["architecture", "dependencies", "flows"],
+  }).default("architecture"),
 });
 
 export const chats = sqliteTable("chats", {
@@ -112,6 +115,7 @@ export const versions = sqliteTable(
 export const appsRelations = relations(apps, ({ many }) => ({
   chats: many(chats),
   versions: many(versions),
+  workspaceDiagrams: many(workspaceDiagrams),
 }));
 
 export const chatsRelations = relations(chats, ({ many, one }) => ({
@@ -327,6 +331,7 @@ export const diagrams = sqliteTable("diagrams", {
 });
 
 // Diagram Versions - Track history of diagram modifications
+// Enhanced for Diagram-First Context System
 export const diagramVersions = sqliteTable("diagram_versions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   diagramId: integer("diagram_id")
@@ -334,6 +339,45 @@ export const diagramVersions = sqliteTable("diagram_versions", {
     .references(() => diagrams.id, { onDelete: "cascade" }),
   content: text("content").notNull(), // Previous Mermaid/PlantUML code
   changeDescription: text("change_description"), // AI: "Added authentication flow"
+  // New fields for Diagram-First Context System
+  trigger: text("trigger", {
+    enum: ["user_request", "auto_sync", "template_clone", "file_change"],
+  }),
+  summary: text("summary"), // AI-generated: "Refactored auth to use JWT"
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// --- Daily Logs (Diagram-First Context System) ---
+// AI-generated micro-changelog for workspace activity
+// Replaces chat history as context source
+
+export const dailyLogs = sqliteTable("daily_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  date: integer("date", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+
+  // AI-generated summary bullets (3-5 items)
+  microChanges: text("micro_changes", { mode: "json" }).$type<string[] | null>(),
+
+  // SELECTIVE logging - only state-changing tools
+  significantActions: text("significant_actions", { mode: "json" }).$type<{
+    tool: string;
+    target?: string;
+    summary: string;
+    timestamp: string; // ISO string
+  }[] | null>(),
+
+  filesTouched: text("files_touched", { mode: "json" }).$type<string[] | null>(),
+  diagramChanged: integer("diagram_changed", { mode: "boolean" })
+    .notNull()
+    .default(sql`0`),
+
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -356,6 +400,75 @@ export const diagramVersionsRelations = relations(diagramVersions, ({ one }) => 
   diagram: one(diagrams, {
     fields: [diagramVersions.diagramId],
     references: [diagrams.id],
+  }),
+}));
+
+export const dailyLogsRelations = relations(dailyLogs, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [dailyLogs.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+// --- Workspace Diagrams (Diagram Timeline System) ---
+// Save timestamped diagram snapshots to show project evolution
+// Like financial charts, but for code architecture
+
+export const workspaceDiagrams = sqliteTable(
+  "workspace_diagrams",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    appId: integer("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+
+    // Diagram content (multiple types per snapshot)
+    architecture: text("architecture").notNull(), // Always present
+    dependencies: text("dependencies"), // Optional - captured on package.json change
+    flows: text("flows", { mode: "json" }).$type<Record<string, string> | null>(), // User-created
+
+    // Capture trigger
+    trigger: text("trigger", {
+      enum: ["auto", "ai_change", "user_request", "structural"],
+    }).notNull(),
+
+    // Metadata
+    summary: text("summary"), // AI-generated: "Added AuthModule, refactored DB"
+    annotation: text("annotation"), // User-provided: "Before v2.0 refactor"
+    filesChanged: text("files_changed", { mode: "json" }).$type<string[] | null>(),
+
+    // Deduplication
+    hash: text("hash").notNull(), // For duplicate detection
+
+    // Protection (annotated snapshots never auto-deleted)
+    protected: integer("protected", { mode: "boolean" })
+      .notNull()
+      .default(sql`0`),
+
+    // Compression flag (old snapshots marked as compressed)
+    compressed: integer("compressed", { mode: "boolean" })
+      .notNull()
+      .default(sql`0`),
+
+    // Timestamps
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    // Index for fast timeline queries
+    index("workspace_diagrams_app_id_created_at_idx").on(
+      table.appId,
+      table.createdAt
+    ),
+  ]
+);
+
+// Workspace Diagrams relations
+export const workspaceDiagramsRelations = relations(workspaceDiagrams, ({ one }) => ({
+  app: one(apps, {
+    fields: [workspaceDiagrams.appId],
+    references: [apps.id],
   }),
 }));
 

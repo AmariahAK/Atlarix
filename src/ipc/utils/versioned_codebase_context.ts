@@ -26,7 +26,7 @@ interface AtlarixEngineProviderOptions {
 
 /**
  * Parse file paths from assistant message content.
- * Extracts files from <dyad-read> and <dyad-code-search-result> tags.
+ * Extracts files from <atlarix-read> and <atlarix-code-search-result> tags.
  */
 export function parseFilesFromMessage(content: string): string[] {
   const filePaths: string[] = [];
@@ -39,8 +39,8 @@ export function parseFilesFromMessage(content: string): string[] {
   }
   const matches: TagMatch[] = [];
 
-  // Parse <dyad-read path="$filePath"></dyad-read>
-  const dyadReadRegex = /<dyad-read\s+path="([^"]+)"\s*><\/dyad-read>/gs;
+  // Parse <atlarix-read path="$filePath"></atlarix-read>
+  const dyadReadRegex = /<atlarix-read\s+path="([^"]+)"\s*><\/atlarix-read>/gs;
   let match: RegExpExecArray | null;
   while ((match = dyadReadRegex.exec(content)) !== null) {
     const filePath = normalizePath(match[1].trim());
@@ -52,9 +52,9 @@ export function parseFilesFromMessage(content: string): string[] {
     }
   }
 
-  // Parse <dyad-code-search-result>...</dyad-code-search-result>
+  // Parse <atlarix-code-search-result>...</atlarix-code-search-result>
   const codeSearchRegex =
-    /<dyad-code-search-result>(.*?)<\/dyad-code-search-result>/gs;
+    /<atlarix-code-search-result>(.*?)<\/atlarix-code-search-result>/gs;
   while ((match = codeSearchRegex.exec(content)) !== null) {
     const innerContent = match[1];
     const paths: string[] = [];

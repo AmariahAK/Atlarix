@@ -52,8 +52,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen px-8 py-4">
-      <div className="max-w-5xl mx-auto">
+    <div className="flex-1 bg-background overflow-auto">
+      <div className="max-w-5xl mx-auto px-8 py-4 pb-20">
         <Button
           onClick={() => router.history.back()}
           variant="outline"
@@ -73,8 +73,6 @@ export default function SettingsPage() {
           <GeneralSettings appVersion={appVersion} />
           <WorkflowSettings />
           <AISettings />
-
-          {/* Provider Settings, Integrations, MCP, and Experiments sections removed */}
 
           {/* Search Settings */}
           <div
@@ -118,17 +116,17 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      </div>
 
-      <ConfirmationDialog
-        isOpen={isResetDialogOpen}
-        title="Reset Everything"
-        message="Are you sure you want to reset everything? This will delete all your apps, chats, and settings. This action cannot be undone."
-        confirmText="Reset Everything"
-        cancelText="Cancel"
-        onConfirm={handleResetEverything}
-        onCancel={() => setIsResetDialogOpen(false)}
-      />
+        <ConfirmationDialog
+          isOpen={isResetDialogOpen}
+          title="Reset Everything"
+          message="Are you sure you want to reset everything? This will delete all your apps, chats, and settings. This action cannot be undone."
+          confirmText="Reset Everything"
+          cancelText="Cancel"
+          onConfirm={handleResetEverything}
+          onCancel={() => setIsResetDialogOpen(false)}
+        />
+      </div>
     </div>
   );
 }

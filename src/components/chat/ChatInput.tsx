@@ -180,7 +180,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     // Clear overlays in the preview iframe
     if (previewIframeRef?.contentWindow) {
       previewIframeRef.contentWindow.postMessage(
-        { type: "clear-dyad-component-overlays" },
+        { type: "clear-atlarix-component-overlays" },
         "*",
       );
     }
@@ -340,7 +340,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
                 // Deactivate component selector in iframe
                 if (previewIframeRef?.contentWindow) {
                   previewIframeRef.contentWindow.postMessage(
-                    { type: "deactivate-dyad-component-selector" },
+                    { type: "deactivate-atlarix-component-selector" },
                     "*",
                   );
                 }
@@ -532,7 +532,7 @@ function WriteCodeProperlyButton() {
       return;
     }
     streamMessage({
-      prompt: `Write the code in the previous message in the correct format using \`<dyad-write>\` tags!`,
+      prompt: `Write the code in the previous message in the correct format using \`<atlarix-write>\` tags!`,
       chatId,
       redo: false,
     });
