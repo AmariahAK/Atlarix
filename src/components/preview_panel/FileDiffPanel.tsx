@@ -7,8 +7,8 @@
  * - Batch approval controls
  */
 
-import { useState, useMemo } from 'react';
-import { useAtom } from 'jotai';
+import { useState, useMemo, useCallback } from 'react';
+import { useAtom, useSetAtom } from 'jotai';
 import {
     pendingProposalsAtom,
     selectedProposalAtom,
@@ -16,6 +16,8 @@ import {
     type FileProposal
 } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
+import { IpcClient } from '@/ipc/ipc_client';
+import { useSearch } from '@tanstack/react-router';
 import {
     File,
     FilePlus,
@@ -26,7 +28,8 @@ import {
     ChevronRight,
     CheckCircle2,
     XCircle,
-    FolderOpen
+    FolderOpen,
+    Loader2
 } from 'lucide-react';
 
 interface FileDiffPanelProps {
@@ -40,6 +43,17 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     const proposals = data?.proposals || [];
     const [selectedProposal, setSelectedProposal] = useAtom(selectedProposalAtom);
     const [approvalState, setApprovalState] = useAtom(approvalStateAtom);
+    const setPendingProposals = useSetAtom(pendingProposalsAtom);
+    const [isExecuting, setIsExecuting] = useState(false);
+
+    // Get chatId from search params
+    let chatId: number | undefined;
+    try {
+        const search = useSearch({ from: "/chat" });
+        chatId = search?.id;
+    } catch {
+        // Not on chat route, chatId will be undefined
+    }
 
     // Group proposals by directory
     const groupedProposals = useMemo(() => {
@@ -53,19 +67,57 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     }, [proposals]);
 
     // Approval handlers
-    const handleApproveAll = () => {
-        setApprovalState({
-            approved: proposals.map(p => p.id),
-            rejected: []
-        });
-    };
+    const handleApproveAll = useCallback(async () => {
+        if (!chatId) {
+            console.warn('No chatId available for permission execution');
+            return;
+        }
 
-    const handleRejectAll = () => {
-        setApprovalState({
-            approved: [],
-            rejected: proposals.map(p => p.id)
-        });
-    };
+        setIsExecuting(true);
+        try {
+            // Call IPC to execute all permissions
+            await IpcClient.getInstance().executeAllPermissions({ chatId });
+
+            // Update local state
+            setApprovalState({
+                approved: proposals.map(p => p.id),
+                rejected: []
+            });
+
+            // Clear pending proposals
+            setPendingProposals([]);
+        } catch (error) {
+            console.error('Failed to execute permissions:', error);
+        } finally {
+            setIsExecuting(false);
+        }
+    }, [chatId, proposals, setApprovalState, setPendingProposals]);
+
+    const handleRejectAll = useCallback(async () => {
+        if (!chatId) {
+            console.warn('No chatId available for permission rejection');
+            return;
+        }
+
+        setIsExecuting(true);
+        try {
+            // Call IPC to reject all permissions
+            await IpcClient.getInstance().rejectAllPermissions({ chatId });
+
+            // Update local state
+            setApprovalState({
+                approved: [],
+                rejected: proposals.map(p => p.id)
+            });
+
+            // Clear pending proposals
+            setPendingProposals([]);
+        } catch (error) {
+            console.error('Failed to reject permissions:', error);
+        } finally {
+            setIsExecuting(false);
+        }
+    }, [chatId, proposals, setApprovalState, setPendingProposals]);
 
     const handleToggleApproval = (proposalId: string) => {
         setApprovalState(prev => {
@@ -113,6 +165,7 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
                     approvalState={approvalState}
                     onApproveAll={handleApproveAll}
                     onRejectAll={handleRejectAll}
+                    isExecuting={isExecuting}
                 />
             )}
         </div>
@@ -321,12 +374,14 @@ function ApproveTab({
     proposals,
     approvalState,
     onApproveAll,
-    onRejectAll
+    onRejectAll,
+    isExecuting = false
 }: {
     proposals: FileProposal[];
     approvalState: { approved: string[]; rejected: string[] };
     onApproveAll: () => void;
     onRejectAll: () => void;
+    isExecuting?: boolean;
 }) {
     const approvedCount = approvalState.approved.length;
     const rejectedCount = approvalState.rejected.length;
@@ -354,16 +409,26 @@ function ApproveTab({
             <div className="flex gap-3">
                 <button
                     onClick={onApproveAll}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
+                    disabled={isExecuting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <Check className="w-5 h-5" />
+                    {isExecuting ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                        <Check className="w-5 h-5" />
+                    )}
                     Approve All
                 </button>
                 <button
                     onClick={onRejectAll}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
+                    disabled={isExecuting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <X className="w-5 h-5" />
+                    {isExecuting ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                        <X className="w-5 h-5" />
+                    )}
                     Reject All
                 </button>
             </div>

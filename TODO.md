@@ -4,6 +4,26 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 🔥 High Priority
 
+### 🐛 Critical Bugs (v0.9.0)
+- [ ] **Permission Not Triggered**: AI hallucinates write_file but no approval prompt shown
+  - Tools return JSON permission but UI never receives/displays it
+  - Check `permission-request` event emission and frontend handling
+- [ ] **Text Box Cuts Off**: After first prompt, input loses lower half
+  - Build/Model/Attach buttons hidden
+  - Likely CSS overflow or height calculation issue
+- [ ] **Chat History Truncated**: Can't scroll to earlier messages
+  - First message gets cut off
+  - Check message container scrolling and virtualization
+- [ ] **ThinkingCard Glitchy**: Flickers in/out during streaming
+  - Need stable keys and React.memo
+  - File: `src/components/chat/ThinkingSection.tsx`
+- [ ] **RightPanel Empty**: Shows "No content to display" after update
+  - Need to verify atom population and panel routing
+  - Check `useRightPanelContext.ts` detection logic
+- [ ] **Diagrams Timeline**: Past/present diagrams not showing
+  - Time filter not working correctly
+  - File: `src/components/DiagramTimeline.tsx`
+
 ### Critical Fixes
 - [ ] **Token Count Handler**: Update `token_count_handlers.ts` to support ephemeral chats
   - Currently throws "Chat not found" for negative IDs

@@ -126,33 +126,44 @@ export class IpcClient {
     }
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
+  private permissionHandlers: Map<number, (payload: any) => void>;
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
     this.appStreams = new Map();
     this.helpStreams = new Map();
     this.mcpConsentHandlers = new Map();
+    this.permissionHandlers = new Map();
     // Set up listeners for stream events
     this.ipcRenderer.on("chat:response:chunk", (data) => {
       if (
         data &&
         typeof data === "object" &&
-        "chatId" in data &&
-        "messages" in data
+        "chatId" in data
       ) {
-        const { chatId, messages } = data as {
-          chatId: number;
-          messages: Message[];
-        };
+        const { chatId } = data as { chatId: number };
 
-        const callbacks = this.chatStreams.get(chatId);
-        if (callbacks) {
-          callbacks.onUpdate(messages);
-        } else {
-          console.warn(
-            `[IPC] No callbacks found for chat ${chatId}`,
-            this.chatStreams,
-          );
+        // Handle permission-request type
+        if ("type" in data && (data as any).type === "permission-request") {
+          const handler = this.permissionHandlers.get(chatId);
+          if (handler) {
+            handler(data);
+          }
+          return;
+        }
+
+        // Handle normal message updates
+        if ("messages" in data) {
+          const { messages } = data as { chatId: number; messages: Message[] };
+          const callbacks = this.chatStreams.get(chatId);
+          if (callbacks) {
+            callbacks.onUpdate(messages);
+          } else {
+            console.warn(
+              `[IPC] No callbacks found for chat ${chatId}`,
+              this.chatStreams,
+            );
+          }
         }
       } else {
         showError(new Error(`[IPC] Invalid chunk data received: ${data}`));
@@ -961,6 +972,83 @@ export class IpcClient {
     });
   }
   // --- End Proposal Management ---
+
+  // --- Permission Management (New Tool-based Permissions) ---
+  public async executePermission({
+    chatId,
+    operationId,
+  }: {
+    chatId: number;
+    operationId: string;
+  }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
+    return this.ipcRenderer.invoke("execute-permission", {
+      chatId,
+      operationId,
+    });
+  }
+
+  public async rejectPermission({
+    chatId,
+    operationId,
+  }: {
+    chatId: number;
+    operationId: string;
+  }): Promise<{ operationId: string; approved: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("reject-permission", {
+      chatId,
+      operationId,
+    });
+  }
+
+  public async executeAllPermissions({
+    chatId,
+  }: {
+    chatId: number;
+  }): Promise<Array<{ operationId: string; approved: boolean; executedAt?: number; error?: string }>> {
+    return this.ipcRenderer.invoke("execute-all-permissions", {
+      chatId,
+    });
+  }
+
+  public async rejectAllPermissions({
+    chatId,
+  }: {
+    chatId: number;
+  }): Promise<Array<{ operationId: string; approved: boolean; error?: string }>> {
+    return this.ipcRenderer.invoke("reject-all-permissions", {
+      chatId,
+    });
+  }
+
+  public async getPendingPermissions({
+    chatId,
+  }: {
+    chatId: number;
+  }): Promise<Array<{ id: string; request: any }>> {
+    return this.ipcRenderer.invoke("get-pending-permissions", {
+      chatId,
+    });
+  }
+
+  /**
+   * Register a handler for permission request events for a specific chat
+   * Returns unsubscribe function
+   */
+  public onPermissionRequest(
+    chatId: number,
+    handler: (payload: {
+      chatId: number;
+      type: "permission-request";
+      operationId: string;
+      request: any;
+    }) => void
+  ): () => void {
+    this.permissionHandlers.set(chatId, handler);
+    return () => {
+      this.permissionHandlers.delete(chatId);
+    };
+  }
+  // --- End Permission Management ---
 
   // --- Supabase Management ---
   public async listSupabaseProjects(): Promise<any[]> {

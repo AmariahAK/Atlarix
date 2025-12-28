@@ -356,7 +356,7 @@ export default function AtlarixHome() {
 
     // Main Home Page
     return (
-        <div className="flex-1 flex items-start justify-center min-h-screen">
+        <div className="flex-1 flex items-start justify-center overflow-y-auto">
             <ForceCloseDialog
                 isOpen={forceCloseDialogOpen}
                 onClose={() => setForceCloseDialogOpen(false)}

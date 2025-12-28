@@ -12,7 +12,15 @@ import {
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
 } from "@/atoms/chatAtoms";
-import { sourceListAtom, rightPanelVisibleAtom, type SourceItem } from "@/atoms/sourceAtoms";
+import {
+  sourceListAtom,
+  rightPanelVisibleAtom,
+  pendingProposalsAtom,
+  diagramStateAtom,
+  type SourceItem,
+  type FileProposal,
+  type DiagramState,
+} from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
@@ -89,6 +97,8 @@ export function useStreamChat({
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setPendingProposals = useSetAtom(pendingProposalsAtom);
+  const setDiagramState = useSetAtom(diagramStateAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -141,6 +151,35 @@ export function useStreamChat({
 
       let hasIncrementedStreamCount = false;
       try {
+        // Register permission handler for this chat
+        const unsubscribePermission = IpcClient.getInstance().onPermissionRequest(
+          chatId,
+          (payload) => {
+            // Convert permission request to FileProposal format
+            const request = payload.request;
+            const previews = Array.isArray(request.preview)
+              ? request.preview
+              : [request.preview];
+
+            const proposals: FileProposal[] = previews
+              .filter((p: any) => p.path) // Only file operations
+              .map((p: any) => ({
+                id: payload.operationId,
+                path: p.path,
+                operation: p.type === 'delete' ? 'delete' :
+                  p.type === 'rename' ? 'rename' :
+                    p.type === 'update' ? 'modify' : 'create',
+                newContent: p.content,
+                description: p.description,
+                approved: false,
+              }));
+
+            // Add to pending proposals
+            setPendingProposals((prev) => [...prev, ...proposals]);
+            setRightPanelVisible(true); // Show panel for approval
+          }
+        );
+
         IpcClient.getInstance().streamMessage(prompt, {
           selectedComponents: selectedComponents ?? [],
           chatId,
@@ -199,6 +238,28 @@ export function useStreamChat({
             if (allSources.length > 0) {
               setSourceList(allSources);
               setRightPanelVisible(true); // Auto-show panel when sources arrive
+            }
+
+            // Detect diagram results from tool calls
+            for (const msg of updatedMessages) {
+              if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
+                for (const toolCall of msg.toolCalls) {
+                  const tc = toolCall as any;
+                  // Check if this is a diagram tool result
+                  if (tc.result && (tc.result.mermaid_code || tc.result._panelType === 'diagram')) {
+                    const diagramData = tc.result;
+                    setDiagramState({
+                      code: diagramData.mermaid_code || '',
+                      type: diagramData.diagram_type === 'class' ? 'class' :
+                        diagramData.diagram_type === 'sequence' ? 'sequence' :
+                          diagramData.diagram_type === 'flowchart' ? 'flowchart' : 'mermaid',
+                      compareMode: 'current',
+                      title: diagramData.title,
+                    });
+                    setRightPanelVisible(true); // Show panel for diagram
+                  }
+                }
+              }
             }
 
             setMessagesById((prev) => {
@@ -263,6 +324,10 @@ export function useStreamChat({
             onSettled?.();
           },
         });
+
+        // Cleanup permission handler when this stream callback scope exits
+        // Note: This happens in onEnd/onError callbacks, but we also need to handle
+        // the case where the stream setup fails
       } catch (error) {
         console.error("[CHAT] Exception during streaming setup:", error);
         setIsStreamingById((prev) => {

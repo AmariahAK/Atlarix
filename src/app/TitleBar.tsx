@@ -20,7 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ActionHeader } from "@/components/preview_panel/ActionHeader";
+
 
 export const TitleBar = () => {
   const [selectedAppId] = useAtom(selectedAppIdAtom);
@@ -84,14 +84,7 @@ export const TitleBar = () => {
         {/* Logo and app name removed for clean minimal design */}
         {isAtlarixPro && <AtlarixProButton isAtlarixProEnabled={isAtlarixProEnabled} />}
 
-        {/* Action Header - Shows after first message/app selection */}
-        {
-          (location.pathname === "/chat" || (location.pathname === "/" && selectedApp)) && (
-            <div className="flex-1 flex justify-end">
-              <ActionHeader />
-            </div>
-          )
-        }
+        {/* Action Header moved to RightPanel toolbar */}
 
         {showWindowControls && <WindowsControls />}
       </div >

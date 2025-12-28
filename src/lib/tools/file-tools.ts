@@ -15,6 +15,11 @@ import {
     stringParam,
     booleanParam,
 } from "./registry";
+import {
+    createFilePermissionRequest,
+    createBatchPermissionRequest,
+    type FileOperationPreview,
+} from "./permissions/schema";
 
 // ═══════════════════════════════════════════════════════════
 // FILE READING
@@ -47,11 +52,18 @@ ToolRegistry.register({
     handler: async ({ path: pathArg, file_path, start_line, end_line, workspace }) => {
         try {
             // Accept both "path" and "file_path" parameter names
-            const filePath = pathArg || file_path;
+            let filePath = pathArg || file_path;
 
             if (!filePath) {
                 throw new Error("Missing required parameter: path or file_path");
             }
+
+            // Normalize path: strip common AI-generated prefixes
+            // Many AI models are trained to use /workspace/ paths like Claude Sonnet
+            filePath = filePath
+                .replace(/^\/workspace\//, '')  // Strip /workspace/ prefix
+                .replace(/^workspace\//, '')    // Strip workspace/ prefix (no leading slash)
+                .replace(/^\/+/, '');           // Strip any remaining leading slashes
 
             // Resolve path relative to workspace if provided, otherwise relative to cwd
             const fullPath = workspace
@@ -104,9 +116,21 @@ ToolRegistry.register({
         ["path", "content", "description"]
     ),
     handler: async ({ path: filePath, content, description }) => {
-        // Return permission request signal
-        // The UI will show a dialog with the file preview
-        return `__PERMISSION_REQUIRED__\n📝 Create/Modify File: ${filePath}\n${description}\n\nContent (${content.split("\n").length} lines):\n${content}\n\n[Approve] [Reject]`;
+        // Return structured JSON permission request
+        const permissionRequest = createFilePermissionRequest(
+            "write_file",
+            {
+                path: filePath,
+                content: content,
+                description: description,
+                type: "create",
+                lines: content.split("\n").length,
+            },
+            {
+                reasoning: `Creating/modifying ${filePath}: ${description}`,
+            }
+        );
+        return JSON.stringify(permissionRequest);
     },
 });
 
@@ -142,14 +166,24 @@ ToolRegistry.register({
         ["files"]
     ),
     handler: async ({ files }) => {
-        const fileList = files
-            .map(
-                (f: any, idx: number) =>
-                    `${idx + 1}. ${f.path} (${f.content.split("\n").length} lines)\n   ${f.description}`
-            )
-            .join("\n");
+        // Convert to FileOperationPreview array
+        const previews: FileOperationPreview[] = files.map((f: any) => ({
+            path: f.path,
+            content: f.content,
+            description: f.description,
+            type: "create" as const,
+            lines: f.content.split("\n").length,
+        }));
 
-        return `__PERMISSION_REQUIRED__\n📝 Create/Modify ${files.length} File(s):\n\n${fileList}\n\n[Approve All] [Reject]`;
+        // Return structured JSON batch permission request
+        const permissionRequest = createBatchPermissionRequest(
+            previews,
+            {
+                reasoning: `Batch operation: ${files.length} file(s)`,
+                affectedFiles: files.map((f: any) => f.path),
+            }
+        );
+        return JSON.stringify(permissionRequest);
     },
 });
 
@@ -180,7 +214,13 @@ ToolRegistry.register({
     handler: async ({ path: pathArg, directory, max_depth = 3, workspace }) => {
         try {
             // Accept both "path" and "directory" parameter names
-            const scanPath = pathArg || directory || ".";
+            let scanPath = pathArg || directory || ".";
+
+            // Normalize path: strip common AI-generated prefixes
+            scanPath = scanPath
+                .replace(/^\/workspace\//, '')
+                .replace(/^workspace\//, '')
+                .replace(/^\/+/, '') || ".";
 
             // Resolve path relative to workspace if provided
             const fullPath = workspace
@@ -225,10 +265,16 @@ ToolRegistry.register({
     ),
     handler: async ({ pattern, path: searchPath = ".", workspace }) => {
         try {
+            // Normalize path: strip common AI-generated prefixes
+            let normalizedPath = searchPath
+                .replace(/^\/workspace\//, '')
+                .replace(/^workspace\//, '')
+                .replace(/^\/+/, '') || ".";
+
             // Resolve path relative to workspace if provided
             const fullPath = workspace
-                ? path.join(workspace, searchPath)
-                : path.resolve(searchPath);
+                ? path.join(workspace, normalizedPath)
+                : path.resolve(normalizedPath);
             const files = await glob(pattern, {
                 cwd: fullPath,
                 ignore: ["node_modules/**", ".git/**", "dist/**"],

@@ -95,6 +95,7 @@ import {
 import { ToolRegistry } from "../../lib/tools";
 import { handleChatOnlyStream } from "./chat_only_handlers";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
+import { PermissionInterceptor } from "./permissions/interceptor";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -1357,14 +1358,71 @@ If the user requests modifications, politely explain that Ask mode is for explor
             });
             fullResponse = askResult.fullResponse;
           } else {
-            // When calling streamText, the messages need to be properly formatted for mixed content
+            // BUILD MODE - Native tool calling (like Agent mode)
+            // AI has access to all workspace tools via function calling
+            // Permission interceptor buffers write operations for user approval
+            logger.log("Build mode with native tool calling + permission system");
+
+            const hasWorkspace = !!updatedChat.app;
+            const workspacePath = updatedChat.app?.path ? resolveAppPath(updatedChat.app.path) : "";
+            const buildModeTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
+
+            // Create permission interceptor for this session
+            const permissionInterceptor = new PermissionInterceptor(workspacePath);
+
+            // Convert to tool set format expected by AI SDK
+            const tools: ToolSet = {};
+            for (const tool of buildModeTools) {
+              tools[tool.function.name] = {
+                description: tool.function.description,
+                parameters: tool.function.parameters,
+                execute: async (args: any) => {
+                  // Execute tool via registry, inject workspace path
+                  const result = await ToolRegistry.execute(tool.function.name, {
+                    ...args,
+                    workspace: workspacePath || undefined,
+                  });
+                  const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+
+                  // Check if this is a permission request
+                  if (permissionInterceptor.isPermissionRequest(resultStr)) {
+                    const permRequest = permissionInterceptor.parsePermissionRequest(resultStr);
+                    if (permRequest) {
+                      const operationId = permissionInterceptor.generateOperationId();
+                      permissionInterceptor.bufferOperation(operationId, permRequest);
+
+                      // Emit permission request to frontend
+                      safeSend(event, "chat-response-chunk", {
+                        chatId: req.chatId,
+                        type: "permission-request",
+                        operationId,
+                        request: permRequest,
+                      });
+
+                      // Tell AI the operation is pending approval
+                      return JSON.stringify({
+                        status: "pending_approval",
+                        operationId,
+                        message: `Operation pending user approval. I will write to ${Array.isArray(permRequest.preview) ? permRequest.preview.map((p: any) => p.path).join(', ') : (permRequest.preview as any).path} after you approve.`,
+                      });
+                    }
+                  }
+
+                  return resultStr;
+                },
+              };
+            }
+
+            logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
+
             const { fullStream } = await simpleStreamText({
               chatMessages,
               modelClient,
+              tools,
               files: files,
             });
 
-            // Process the stream as before
+            // Process the stream
             try {
               const result = await processStreamChunks({
                 fullStream,
@@ -1374,251 +1432,6 @@ If the user requests modifications, politely explain that Ask mode is for explor
                 processResponseChunkUpdate,
               });
               fullResponse = result.fullResponse;
-
-              if (
-                settings.selectedChatMode !== "ask" &&
-                isTurboEditsV2Enabled(settings)
-              ) {
-                let issues = await dryRunSearchReplace({
-                  fullResponse,
-                  appPath: resolveAppPath(updatedChat.app.path),
-                });
-
-                let searchReplaceFixAttempts = 0;
-                const originalFullResponse = fullResponse;
-                const previousAttempts: ModelMessage[] = [];
-                while (
-                  issues.length > 0 &&
-                  searchReplaceFixAttempts < 2 &&
-                  !abortController.signal.aborted
-                ) {
-                  logger.warn(
-                    `Detected search-replace issues (attempt #${searchReplaceFixAttempts + 1}): ${issues.map((i) => i.error).join(", ")}`,
-                  );
-                  const formattedSearchReplaceIssues = issues
-                    .map(({ filePath, error }) => {
-                      return `File path: ${filePath}\nError: ${error}`;
-                    })
-                    .join("\n\n");
-
-                  fullResponse += `<atlarix-output type="warning" message="Could not apply Turbo Edits properly for some of the files; re-generating code...">${formattedSearchReplaceIssues}</atlarix-output>`;
-                  await processResponseChunkUpdate({
-                    fullResponse,
-                  });
-
-                  logger.info(
-                    `Attempting to fix search-replace issues, attempt #${searchReplaceFixAttempts + 1}`,
-                  );
-
-                  const fixSearchReplacePrompt =
-                    searchReplaceFixAttempts === 0
-                      ? `There was an issue with the following \`atlarix-search-replace\` tags. Make sure you use \`atlarix-read\` to read the latest version of the file and then trying to do search & replace again.`
-                      : `There was an issue with the following \`atlarix-search-replace\` tags. Please fix the errors by generating the code changes using \`atlarix-write\` tags instead.`;
-                  searchReplaceFixAttempts++;
-                  const userPrompt = {
-                    role: "user",
-                    content: `${fixSearchReplacePrompt}
-                
-${formattedSearchReplaceIssues}`,
-                  } as const;
-
-                  const { fullStream: fixSearchReplaceStream } =
-                    await simpleStreamText({
-                      // Build messages: reuse chat history and original full response, then ask to fix search-replace issues.
-                      chatMessages: [
-                        ...chatMessages,
-                        { role: "assistant", content: originalFullResponse },
-                        ...previousAttempts,
-                        userPrompt,
-                      ],
-                      modelClient,
-                      files: files,
-                    });
-                  previousAttempts.push(userPrompt);
-                  const result = await processStreamChunks({
-                    fullStream: fixSearchReplaceStream,
-                    fullResponse,
-                    abortController,
-                    chatId: req.chatId,
-                    processResponseChunkUpdate,
-                  });
-                  fullResponse = result.fullResponse;
-                  previousAttempts.push({
-                    role: "assistant",
-                    content: removeNonEssentialTags(result.incrementalResponse),
-                  });
-
-                  // Re-check for issues after the fix attempt
-                  issues = await dryRunSearchReplace({
-                    fullResponse: result.incrementalResponse,
-                    appPath: resolveAppPath(updatedChat.app.path),
-                  });
-                }
-              }
-
-              if (
-                !abortController.signal.aborted &&
-                settings.selectedChatMode !== "ask" &&
-                hasUnclosedAtlarixWrite(fullResponse)
-              ) {
-                let continuationAttempts = 0;
-                while (
-                  hasUnclosedAtlarixWrite(fullResponse) &&
-                  continuationAttempts < 2 &&
-                  !abortController.signal.aborted
-                ) {
-                  logger.warn(
-                    `Received unclosed atlarix-write tag, attempting to continue, attempt #${continuationAttempts + 1}`,
-                  );
-                  continuationAttempts++;
-
-                  const { fullStream: contStream } = await simpleStreamText({
-                    // Build messages: replay history then pre-fill assistant with current partial.
-                    chatMessages: [
-                      ...chatMessages,
-                      { role: "assistant", content: fullResponse },
-                    ],
-                    modelClient,
-                    files: files,
-                  });
-                  for await (const part of contStream) {
-                    // If the stream was aborted, exit early
-                    if (abortController.signal.aborted) {
-                      logger.log(`Stream for chat ${req.chatId} was aborted`);
-                      break;
-                    }
-                    if (part.type !== "text-delta") continue; // ignore reasoning for continuation
-                    fullResponse += part.text;
-                    fullResponse = cleanFullResponse(fullResponse);
-                    fullResponse = await processResponseChunkUpdate({
-                      fullResponse,
-                    });
-                  }
-                }
-              }
-              const addDependencies = getAtlarixAddDependencyTags(fullResponse);
-              if (
-                !abortController.signal.aborted &&
-                // If there are dependencies, we don't want to auto-fix problems
-                // because there's going to be type errors since the packages aren't
-                // installed yet.
-                addDependencies.length === 0 &&
-                settings.enableAutoFixProblems &&
-                settings.selectedChatMode !== "ask"
-              ) {
-                try {
-                  // IF auto-fix is enabled
-                  let problemReport = await generateProblemReport({
-                    fullResponse,
-                    appPath: resolveAppPath(updatedChat.app.path),
-                  });
-
-                  let autoFixAttempts = 0;
-                  const originalFullResponse = fullResponse;
-                  const previousAttempts: ModelMessage[] = [];
-                  while (
-                    problemReport.problems.length > 0 &&
-                    autoFixAttempts < 2 &&
-                    !abortController.signal.aborted
-                  ) {
-                    fullResponse += `<atlarix-problem-report summary="${problemReport.problems.length} problems">
-${problemReport.problems
-                        .map(
-                          (problem) =>
-                            `<problem file="${escapeXml(problem.file)}" line="${problem.line}" column="${problem.column}" code="${problem.code}">${escapeXml(problem.message)}</problem>`,
-                        )
-                        .join("\n")}
-</atlarix-problem-report>`;
-
-                    logger.info(
-                      `Attempting to auto-fix problems, attempt #${autoFixAttempts + 1}`,
-                    );
-                    autoFixAttempts++;
-                    const problemFixPrompt = createProblemFixPrompt(problemReport);
-
-                    const virtualFileSystem = new AsyncVirtualFileSystem(
-                      resolveAppPath(updatedChat.app.path),
-                      {
-                        fileExists: (fileName: string) => fileExists(fileName),
-                        readFile: (fileName: string) => readFileWithCache(fileName),
-                      },
-                    );
-                    const writeTags = getAtlarixWriteTags(fullResponse);
-                    const renameTags = getAtlarixRenameTags(fullResponse);
-                    const deletePaths = getAtlarixDeleteTags(fullResponse);
-                    virtualFileSystem.applyResponseChanges({
-                      deletePaths,
-                      renameTags,
-                      writeTags,
-                    });
-
-                    const { formattedOutput: codebaseInfo, files } =
-                      await extractCodebase({
-                        appPath,
-                        chatContext,
-                        virtualFileSystem,
-                      });
-                    const { modelClient } = await getModelClient(
-                      settings.selectedModel,
-                      settings,
-                    );
-
-                    const { fullStream } = await simpleStreamText({
-                      modelClient,
-                      files: files,
-                      chatMessages: [
-                        ...chatMessages.map((msg, index) => {
-                          if (
-                            index === 0 &&
-                            msg.role === "user" &&
-                            typeof msg.content === "string" &&
-                            msg.content.startsWith(CODEBASE_PROMPT_PREFIX)
-                          ) {
-                            return {
-                              role: "user",
-                              content: createCodebasePrompt(codebaseInfo),
-                            } as const;
-                          }
-                          return msg;
-                        }),
-                        {
-                          role: "assistant",
-                          content: removeNonEssentialTags(originalFullResponse),
-                        },
-                        ...previousAttempts,
-                        { role: "user", content: problemFixPrompt },
-                      ],
-                    });
-                    previousAttempts.push({
-                      role: "user",
-                      content: problemFixPrompt,
-                    });
-                    const result = await processStreamChunks({
-                      fullStream,
-                      fullResponse,
-                      abortController,
-                      chatId: req.chatId,
-                      processResponseChunkUpdate,
-                    });
-                    fullResponse = result.fullResponse;
-                    previousAttempts.push({
-                      role: "assistant",
-                      content: removeNonEssentialTags(result.incrementalResponse),
-                    });
-
-                    problemReport = await generateProblemReport({
-                      fullResponse,
-                      appPath: resolveAppPath(updatedChat.app.path),
-                    });
-                  }
-                } catch (error) {
-                  logger.error(
-                    "Error generating problem report or auto-fixing:",
-                    settings.enableAutoFixProblems,
-                    error,
-                  );
-                }
-              }
             } catch (streamError) {
               // Check if this was an abort error
               if (abortController.signal.aborted) {
@@ -1655,7 +1468,7 @@ ${problemReport.problems
               }
               throw streamError;
             }
-          } // End of else block (non-Ask mode stream processing)
+          } // End of Build mode block
         }
 
         // Only save the response and process it if we weren't aborted

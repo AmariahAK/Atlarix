@@ -12,43 +12,217 @@
  * - empty: No content
  */
 
+import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
-import { useAtom } from 'jotai';
-import { rightPanelVisibleAtom, rightPanelWidthAtom } from '@/atoms/sourceAtoms';
+import { useAtom, useAtomValue } from 'jotai';
+import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { TimelineView } from './DiagramTimeline';
 import { cn } from '@/lib/utils';
-import { Pin, PinOff, X, Maximize2, Minimize2, Terminal, Wrench } from 'lucide-react';
+import {
+    Pin, PinOff, X, Maximize2, Minimize2, Terminal, Wrench,
+    Search, Code, Workflow, Eye, MoreVertical
+} from 'lucide-react';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
+import { motion } from 'framer-motion';
+import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { type PanelType } from '@/atoms/sourceAtoms';
+
+// Primary mode categories for the toolbar
+type PrimaryMode = 'search' | 'code' | 'diagrams' | 'preview' | 'tools';
+
+// Map panel types to primary modes
+const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
+    'web-search': 'search',
+    'code-preview': 'preview',
+    'diagram': 'diagrams',
+    'terminal': 'code',
+    'file-diff': 'code',
+    'files': 'code',
+    'tools': 'tools',
+    'timeline': 'diagrams',
+    'empty': 'search',
+};
 
 export function RightPanel() {
     const { context, isPinned, pin, unpin, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
+    const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
 
-    // Don't render if not visible or no content
-    if (!isVisible || context.type === 'empty') {
+    // Track which primary mode is selected
+    const currentMode = PANEL_TYPE_TO_MODE[context.type] || 'search';
+
+    // Refs for animated indicator
+    const searchRef = useRef<HTMLButtonElement>(null);
+    const codeRef = useRef<HTMLButtonElement>(null);
+    const diagramsRef = useRef<HTMLButtonElement>(null);
+    const previewRef = useRef<HTMLButtonElement>(null);
+    const toolsRef = useRef<HTMLButtonElement>(null);
+    const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+    // Handle primary mode click - pins to appropriate panel type
+    const handleModeClick = useCallback((mode: PrimaryMode) => {
+        // Map mode back to panel type
+        const modeToPanel: Record<PrimaryMode, PanelType> = {
+            'search': 'web-search',
+            'code': 'file-diff',
+            'diagrams': 'diagram',
+            'preview': 'code-preview',
+            'tools': 'tools',
+        };
+        setPinnedPanel(modeToPanel[mode]);
+    }, [setPinnedPanel]);
+
+    // Update indicator position when mode changes
+    useEffect(() => {
+        const refs: Record<PrimaryMode, React.RefObject<HTMLButtonElement | null>> = {
+            'search': searchRef,
+            'code': codeRef,
+            'diagrams': diagramsRef,
+            'preview': previewRef,
+            'tools': toolsRef,
+        };
+
+        const targetRef = refs[currentMode];
+        if (targetRef.current) {
+            const button = targetRef.current;
+            const container = button.parentElement;
+            if (container) {
+                const containerRect = container.getBoundingClientRect();
+                const buttonRect = button.getBoundingClientRect();
+                setIndicatorStyle({
+                    left: buttonRect.left - containerRect.left,
+                    width: buttonRect.width,
+                });
+            }
+        }
+    }, [currentMode]);
+
+    // Don't render if not visible
+    if (!isVisible) {
         return null;
     }
+
+    const iconSize = 16;
 
     return (
         <div
             className="flex flex-col h-full border-l border-border bg-background animate-slide-in-right"
             style={{ width: `${width}px`, minWidth: '300px', maxWidth: '600px' }}
         >
-            {/* Panel Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/30">
-                {/* Tabs */}
-                <div className="flex items-center gap-1">
+            {/* Primary Toolbar - ActionHeader style */}
+            <TooltipProvider>
+                <div className="flex items-center justify-between px-2 py-2 border-b border-border">
+                    {/* Mode Buttons with animated indicator */}
+                    <div className="relative flex rounded-md p-0.5 gap-0.5">
+                        <motion.div
+                            className="absolute top-0.5 bottom-0.5 bg-primary/10 shadow rounded-md"
+                            animate={{
+                                left: indicatorStyle.left,
+                                width: indicatorStyle.width,
+                            }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 600,
+                                damping: 35,
+                                mass: 0.6,
+                            }}
+                        />
+
+                        <ModeButton
+                            ref={searchRef}
+                            icon={<Search size={iconSize} />}
+                            label="Search"
+                            isActive={currentMode === 'search'}
+                            onClick={() => handleModeClick('search')}
+                        />
+                        <ModeButton
+                            ref={codeRef}
+                            icon={<Code size={iconSize} />}
+                            label="Code"
+                            isActive={currentMode === 'code'}
+                            onClick={() => handleModeClick('code')}
+                        />
+                        <ModeButton
+                            ref={diagramsRef}
+                            icon={<Workflow size={iconSize} />}
+                            label="Diagrams"
+                            isActive={currentMode === 'diagrams'}
+                            onClick={() => handleModeClick('diagrams')}
+                        />
+                        <ModeButton
+                            ref={previewRef}
+                            icon={<Eye size={iconSize} />}
+                            label="Preview"
+                            isActive={currentMode === 'preview'}
+                            onClick={() => handleModeClick('preview')}
+                        />
+                        {/* Tools button removed - ThinkingCard shows tool activity */}
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex items-center gap-0.5">
+                        {/* Pin/Unpin */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={isPinned ? unpin : pin}
+                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                >
+                                    {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{isPinned ? "Unpin panel" : "Pin panel"}</TooltipContent>
+                        </Tooltip>
+
+                        {/* Resize toggle */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={() => setWidth(width === 400 ? 550 : 400)}
+                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                >
+                                    {width === 400 ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{width === 400 ? "Expand panel" : "Collapse panel"}</TooltipContent>
+                        </Tooltip>
+
+                        {/* Close */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={() => setIsVisible(false)}
+                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Close panel</TooltipContent>
+                        </Tooltip>
+                    </div>
+                </div>
+            </TooltipProvider>
+
+            {/* Secondary Tabs (context-specific) */}
+            {context.tabs.length > 1 && (
+                <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/50 bg-muted/20">
                     {context.tabs.map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={cn(
-                                "px-3 py-1.5 text-sm rounded-md transition-colors capitalize",
+                                "px-2 py-1 text-xs rounded transition-colors capitalize",
                                 context.activeTab === tab
                                     ? "bg-primary/10 text-primary font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -58,37 +232,7 @@ export function RightPanel() {
                         </button>
                     ))}
                 </div>
-
-                {/* Controls */}
-                <div className="flex items-center gap-1">
-                    {/* Pin/Unpin */}
-                    <button
-                        onClick={isPinned ? unpin : pin}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                        title={isPinned ? "Unpin panel" : "Pin panel"}
-                    >
-                        {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-                    </button>
-
-                    {/* Resize toggle */}
-                    <button
-                        onClick={() => setWidth(width === 400 ? 550 : 400)}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                        title={width === 400 ? "Expand panel" : "Collapse panel"}
-                    >
-                        {width === 400 ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-                    </button>
-
-                    {/* Close */}
-                    <button
-                        onClick={() => setIsVisible(false)}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                        title="Close panel"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
+            )}
 
             {/* Panel Content */}
             <div className="flex-1 overflow-hidden">
@@ -97,6 +241,40 @@ export function RightPanel() {
         </div>
     );
 }
+
+/**
+ * Mode button component for primary toolbar
+ */
+interface ModeButtonProps {
+    icon: React.ReactNode;
+    label: string;
+    isActive: boolean;
+    onClick: () => void;
+}
+
+const ModeButton = React.forwardRef<HTMLButtonElement, ModeButtonProps>(
+    ({ icon, label, isActive, onClick }, ref) => (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <button
+                    ref={ref}
+                    onClick={onClick}
+                    className={cn(
+                        "relative flex flex-col items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium z-10 transition-colors",
+                        isActive
+                            ? "text-primary"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                >
+                    {icon}
+                    <span className="hidden sm:block">{label}</span>
+                </button>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">{label}</TooltipContent>
+        </Tooltip>
+    )
+);
+ModeButton.displayName = 'ModeButton';
 
 /**
  * Renders the appropriate panel content based on context type

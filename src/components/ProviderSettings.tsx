@@ -53,9 +53,9 @@ export function ProviderSettingsGrid() {
   const { deleteProvider, isDeleting } = useCustomLanguageModelProvider();
 
   const handleProviderClick = (providerId: string) => {
+    console.log(`[ProviderSettings] Navigating to provider: ${providerId}`);
     navigate({
-      to: providerSettingsRoute.id,
-      params: { provider: providerId },
+      to: `/settings/providers/${providerId}`,
     });
   };
 
@@ -117,12 +117,10 @@ export function ProviderSettingsGrid() {
             return (
               <Card
                 key={provider.id}
-                className="relative transition-all hover:shadow-md border-border"
+                className="relative transition-all hover:shadow-md border-border cursor-pointer"
+                onClick={() => handleProviderClick(provider.id)}
               >
-                <CardHeader
-                  className="p-4 cursor-pointer"
-                  onClick={() => handleProviderClick(provider.id)}
-                >
+                <CardHeader className="p-4">
                   {isCustom && (
                     <div
                       className="flex items-center justify-end"

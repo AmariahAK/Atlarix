@@ -14,9 +14,18 @@ import { useSettings } from "@/hooks/useSettings";
 import type { ChatMode } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 import { detectIsMac } from "@/hooks/useChatModeToggle";
+import { useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 
 export function ChatModeSelector() {
   const { settings, updateSettings } = useSettings();
+  const appId = useAtomValue(selectedAppIdAtom);
+
+  // Hide the selector entirely when no workspace is selected
+  // Build mode is useless without a workspace
+  if (!appId) {
+    return null;
+  }
 
   const selectedMode = settings?.selectedChatMode || "build";
 

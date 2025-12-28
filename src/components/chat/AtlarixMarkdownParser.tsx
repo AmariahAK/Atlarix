@@ -129,7 +129,9 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     const thoughts: string[] = [];
     const toolCalls: Array<{ id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string }> = [];
     const answer: Array<{ piece: ContentPiece; index: number }> = [];
-    let toolGroupId = 0;
+    // Use Map to deduplicate tools - key is "toolName_sequenceNum" to maintain order for same tool
+    const toolMap = new Map<string, { id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string; seqIndex: number }>();
+    const toolNameCounts: Record<string, number> = {};
 
     contentPieces.forEach((piece, index) => {
       if (piece.type === 'custom-tag') {
@@ -149,13 +151,57 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
         ) {
           const attrs = piece.tagInfo.attributes;
           const toolName = attrs.tool || attrs.name || attrs.server || 'unknown';
-          toolCalls.push({
-            id: `tool-${toolGroupId++}`,
-            toolName,
-            status: attrs.status === 'error' ? 'error' : attrs.status === 'running' ? 'running' : 'success',
-            args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
-            error: attrs.error,
-          });
+
+          // Determine status: explicit status > inProgress check > default to success
+          const isInProgress = piece.tagInfo.inProgress === true;
+          let status: 'success' | 'error' | 'running' = 'success';
+          if (attrs.status === 'error') {
+            status = 'error';
+          } else if (attrs.status === 'running' || isInProgress) {
+            status = 'running';
+          } else if (attrs.status === 'success') {
+            status = 'success';
+          }
+
+          // Track sequence for same tool names
+          const seqNum = toolNameCounts[toolName] || 0;
+          const mapKey = `${toolName}_${seqNum}`;
+
+          // Only increment counter if this is a new tool call (not a result update)
+          if (tag.includes('tool-call') && !toolMap.has(mapKey)) {
+            toolNameCounts[toolName] = seqNum + 1;
+          }
+
+          // Get the correct key - for results, find the running tool call with same name
+          let targetKey = mapKey;
+          if (tag.includes('tool-result')) {
+            // Find the most recent running tool with this name
+            for (let i = seqNum; i >= 0; i--) {
+              const checkKey = `${toolName}_${i}`;
+              if (toolMap.has(checkKey) && toolMap.get(checkKey)!.status === 'running') {
+                targetKey = checkKey;
+                break;
+              }
+            }
+          }
+
+          // Update or add tool entry - results update running calls to success/error
+          const existing = toolMap.get(targetKey);
+          if (existing) {
+            // Only update if new status is more "final" (running < success/error)
+            if (existing.status === 'running' && status !== 'running') {
+              toolMap.set(targetKey, { ...existing, status, error: attrs.error });
+            }
+          } else {
+            toolMap.set(targetKey, {
+              id: `tool-${index}`,
+              toolName,
+              status,
+              args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
+              error: attrs.error,
+              seqIndex: index,
+            });
+          }
         }
         // Other custom tags go to answer
         else {
@@ -169,7 +215,12 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       }
     });
 
-    return { thoughts, toolCalls, answerPieces: answer };
+    // Convert Map to array, sorted by sequence index
+    const deduplicatedTools = Array.from(toolMap.values())
+      .sort((a, b) => a.seqIndex - b.seqIndex)
+      .map(({ id, toolName, status, args, error }) => ({ id, toolName, status, args, error }));
+
+    return { thoughts, toolCalls: deduplicatedTools, answerPieces: answer };
   }, [contentPieces]);
 
   // Import ThinkingCard
@@ -688,7 +739,7 @@ function renderCustomTag(
           node={{
             properties: {
               tool: attributes.tool || attributes.name || "",
-              status: attributes.status || "running",
+              status: attributes.status || "success",
             },
           }}
         >

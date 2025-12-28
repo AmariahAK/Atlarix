@@ -29,13 +29,13 @@ import {
 
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
-    'web-search': ['sources', 'tools', 'debug'],
+    'web-search': ['sources', 'debug'],
     'code-preview': ['preview', 'code', 'terminal'],
     'diagram': ['diagram', 'logs'],
     'terminal': ['terminal'],
     'file-diff': ['files', 'diff', 'approve'],
     'files': ['files'],
-    'tools': ['tools'],  // Tool execution panel
+    'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
     'empty': [],
 };
@@ -89,17 +89,13 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'web-search';
         }
 
-        // Priority 6: Tool activity (for Ask mode)
-        if (toolTimeline.length > 0) {
-            return 'tools';
-        }
-
-        // Priority 7: Check for any diagram
+        // Priority 6: Check for any diagram
         if (diagramState) {
             return 'diagram';
         }
 
         // Default: empty
+        // Note: Tool activity removed - ThinkingCard shows tool calls
         return 'empty';
     }, [sources, proposals, lastToolCall, diagramState, terminalOutput]);
 

@@ -2,6 +2,49 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.0] - 2025-12-28
+
+### 🎉 Major Features
+
+#### Structured JSON Permission System
+- **Zod-Validated Requests**: Tools return structured JSON instead of XML tags
+- **PermissionInterceptor**: Buffers operations, validates with schemas, executes on approval
+- **IPC Integration**: 5 new IPC methods for permission management
+- **FileDiffPanel Wiring**: Approve All / Reject All buttons call backend
+
+#### Diagram Tool Integration
+- **diagramStateAtom**: Diagram tools now populate the atom correctly
+- **Auto-Panel Switch**: RightPanel auto-shows DiagramPanel when diagram generated
+
+#### UI Cleanup
+- **Removed Tools Tab**: ThinkingCard now handles all tool display
+- **Removed Tool Activity Panel**: Deprecated from useRightPanelContext
+
+### 📁 Files Created
+- `src/lib/tools/permissions/schema.ts` - Zod schemas for permissions
+- `src/ipc/handlers/permissions/interceptor.ts` - Buffer & execute logic
+- `src/ipc/handlers/permissions/handlers.ts` - IPC handlers
+- `src/ipc/handlers/permissions/index.ts` - Module exports
+
+### 📝 Files Modified
+- `src/lib/tools/file-tools.ts` - Return JSON permission requests
+- `src/ipc/handlers/chat_stream_handlers.ts` - Intercept & emit events
+- `src/ipc/ipc_client.ts` - Permission IPC methods + event handler
+- `src/hooks/useStreamChat.ts` - Wire atoms for permissions & diagrams
+- `src/hooks/useRightPanelContext.ts` - Remove tools panel
+- `src/components/RightPanel.tsx` - Remove Tools button
+- `src/components/preview_panel/FileDiffPanel.tsx` - Wire approve/reject to IPC
+
+### 🐛 Known Bugs (To Fix)
+1. **Permission Not Actually Triggered**: AI hallucinates tool calls without actual yes/no prompt
+2. **Text Box Cuts Off**: After first prompt, lower half of input hides (can't see Build/Model/Attach)
+3. **Chat History Truncated**: Can't scroll up to see earlier messages
+4. **ThinkingCard Glitchy**: Glitches in/out until response complete
+5. **RightPanel Broken**: Shows "No content to display" after update
+6. **Diagrams Timeline**: Past/present diagrams not showing with time-based filter
+
+---
+
 ## [v0.7.0] - 2025-12-27
 
 ### 🎉 Major Features
