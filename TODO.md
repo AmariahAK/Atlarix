@@ -2,273 +2,99 @@
 
 This file tracks upcoming features, improvements, and known issues.
 
-## 🔥 High Priority
+## 🔥 Critical Bugs (v0.9.1 Fixes)
 
-### 🐛 Critical Bugs (v0.9.0)
-- [ ] **Permission Not Triggered**: AI hallucinates write_file but no approval prompt shown
-  - Tools return JSON permission but UI never receives/displays it
-  - Check `permission-request` event emission and frontend handling
-- [ ] **Text Box Cuts Off**: After first prompt, input loses lower half
-  - Build/Model/Attach buttons hidden
-  - Likely CSS overflow or height calculation issue
-- [ ] **Chat History Truncated**: Can't scroll to earlier messages
-  - First message gets cut off
-  - Check message container scrolling and virtualization
-- [ ] **ThinkingCard Glitchy**: Flickers in/out during streaming
-  - Need stable keys and React.memo
-  - File: `src/components/chat/ThinkingSection.tsx`
-- [ ] **RightPanel Empty**: Shows "No content to display" after update
-  - Need to verify atom population and panel routing
-  - Check `useRightPanelContext.ts` detection logic
-- [ ] **Diagrams Timeline**: Past/present diagrams not showing
-  - Time filter not working correctly
-  - File: `src/components/DiagramTimeline.tsx`
+### Must Fix Immediately
+- [ ] **Permission Not Triggering**: AI hallucinates tool calls instead of actual execution
+  - Permission system wired but tools not actually being called
+  - Need to verify Build mode tool execution flow
 
-### Critical Fixes
-- [ ] **Token Count Handler**: Update `token_count_handlers.ts` to support ephemeral chats
-  - Currently throws "Chat not found" for negative IDs
-  - Need to check `isEphemeralChatId()` before querying database
-  - File: `src/ipc/handlers/token_count_handlers.ts:46`
+- [ ] **Input Box Clipping**: Text input hides bottom half after first prompt
+  - Cannot see/press Build/Model/Attach buttons
+  - UI layout issue in ChatInput component
 
-### Performance
-- [ ] **Ephemeral Chat Cleanup**: Add memory management for long-running sessions
-  - Currently ephemeral chats stay in memory until app closes
-  - Consider TTL (time-to-live) for inactive chats
-  - Add manual cleanup option in settings
+- [ ] **Chat Scroll**: Cannot scroll up to see previous messages
+  - First prompt gets cut off after second prompt
+  - MessagesList or ChatPanel scroll container issue
 
-## 🎯 Medium Priority
+- [ ] **ThinkingCard Glitch**: Flickers in/out until response completes
+  - Needs stable keys + React.memo
+  - Component in `src/components/chat/ThinkingSection.tsx`
+
+- [ ] **Right Panel Empty**: Shows "No content to display"
+  - File code should show like web search results
+  - Need to wire file content to CodePreviewPanel
+
+- [ ] **Diagrams Not Showing**: Timeline filter not displaying diagrams
+  - Past/present diagrams not appearing
+  - Check diagramStateAtom population
+
+### Enhancements for v0.9.1
+- [ ] **Chat Memory Cache**: Cache last 5 chats for AI context continuity
+  - AI hallucinates on previous context without memory
+  - Store in-memory or localStorage
+
+---
+
+## 🎯 Medium Priority (v1.0)
 
 ### Features
-- [ ] **Chat History Export**: Allow users to save ephemeral chats before closing
-  - Add "Save Chat" button in header
-  - Export as markdown or JSON
-  - Optional: Convert ephemeral chat to workspace chat
-
 - [ ] **Model Switching Mid-Chat**: Switch models during a conversation
-  - Add model selector in chat header
-  - Preserve conversation history
-  - Show which model was used for each response (already done!)
-
-- [ ] **Search in Chat**: Add search functionality for chat messages
-  - Ctrl/Cmd + F to search
-  - Highlight matches
-  - Navigate between results
-
-### UI/UX Improvements
+- [ ] **Search in Chat**: Ctrl/Cmd + F to search messages
 - [ ] **Chat Templates**: Pre-filled prompts for common tasks
-  - "Explain this code"
-  - "Find bugs"
-  - "Write tests"
-  - "Optimize performance"
 
-- [ ] **Keyboard Shortcuts**: Add more keyboard shortcuts
-  - `Ctrl/Cmd + N` - New chat
-  - `Ctrl/Cmd + K` - Clear chat
-  - `Ctrl/Cmd + /` - Toggle help
-  - `Esc` - Close modals
-
-- [ ] **Loading States**: Better loading indicators
-  - Skeleton screens while loading templates
-  - Progress bars for file operations
-  - Animated transitions
+### UI/UX
+- [ ] **Keyboard Shortcuts**: Ctrl+N, Ctrl+K, Esc
+- [ ] **Loading States**: Skeleton screens, progress bars
 
 ### Documentation
-- [ ] **User Guide**: Create comprehensive user documentation
-  - Getting started guide
-  - Tool reference
-  - Best practices
-  - Troubleshooting
+- [ ] **User Guide**: Getting started, tool reference
+- [ ] **API Documentation**: IPC handler signatures
 
-- [ ] **API Documentation**: Document IPC handlers for contributors
-  - Handler signatures
-  - Request/response types
-  - Error handling patterns
-
-## 🌟 Low Priority
-
-### Enhancements
-- [ ] **Chat Themes**: Allow users to customize chat appearance
-  - Light/Dark/Auto
-  - Custom colors
-  - Font size options
-
-- [ ] **Voice Input**: Add speech-to-text for prompts
-  - Click-to-speak button
-  - Continuous listening mode
-  - Multiple language support
-
-- [ ] **Code Playground**: Interactive code testing
-  - Run code snippets inline
-  - Support multiple languages
-  - Show output in chat
-
-### Analytics
-- [ ] **Usage Stats**: Show user statistics
-  - Prompts used today
-  - Most used tools
-  - Model preferences
-  - Token consumption
-
-## 🐛 Known Issues
-
-### Major Issues
-- [x] ~~**SearxNG Config Sync**: Settings revert to default on app restart~~ ✅ Fixed in v0.4.0
-  - Solution: Database-backed storage + in-memory fallback
-  - One-click Docker setup added
-
-### Minor Bugs
-- [x] ~~**Rate Limiting**: GitHub API rate limit errors in logs~~ ✅ Fixed with disk cache
-  - Templates now cached to disk with midnight expiry
-  - Shuffle on load provides variety
-
-- [ ] **Build Script**: `npm run build` shows "Missing script: 'build'"
-  - App runs fine with `npm start`
-  - May need to add build script to package.json
-  - Or update documentation to use `npm run package`
-
-### Edge Cases
-- [ ] **Long Messages**: Very long AI responses may cause scroll issues
-  - Test with responses >10,000 characters
-  - Ensure smooth scrolling
-  - Consider pagination or "Show more" button
-
-- [ ] **Network Errors**: Better handling of network failures
-  - Retry logic for transient errors
-  - Offline mode detection
-  - Clear error messages
+---
 
 ## 📋 Completed ✅
 
+### v0.9.0 (2025-12-28)
+- [x] **Permission System**: JSON-based tool permissions with FileDiffPanel
+- [x] **PermissionInterceptor**: Buffer, validate, execute approved operations
+- [x] **IPC Client Methods**: executePermission, rejectPermission, etc.
+- [x] **Right Panel Cleanup**: Removed Tools tab (ThinkingCard handles it)
+- [x] **Diagram Wiring**: Tool results populate diagramStateAtom
+
+### v0.8.0 (2025-12-27)
+- [x] **ThinkingCard**: Two independent cards, collapsed by default
+- [x] **Absolute Paths**: Projects store full paths
+
+### v0.7.0 (2025-12-27)
+- [x] **Ask Mode Tools**: 21 read-only tools
+- [x] **Tool Summary UI**: Claude-style grouped badges
+
+### v0.6.0 (2025-12-27)
+- [x] **Diagram Timeline**: Architecture evolution visualization
+
 ### v0.4.0 (2025-12-25)
-- [x] **3-Panel Layout**: Sidebar, Chat, and Context Panel
-- [x] **Live Preview**: Code iframe and Mermaid/PlantUML diagrams
-- [x] **Smart Search**: 3-tier search (SearxNG + Public + DDG)
-- [x] **Config Sync**: IPC-based settings sync  
-- [x] **One-Click SearxNG**: Docker auto-setup with embedded config
-- [x] **Auto-Stop on Quit**: Docker container cleanup when app closes
-- [x] **Database-Backed Settings**: SearxNG config persists in SQLite
-- [x] **Context Awareness**: Right panel adapts to content (Search, Diff, Preview)
+- [x] **3-Panel Layout**: Left, Middle, Right panels
+- [x] **SearxNG Setup**: One-click Docker
 
 ---
 
-## 🚀 Roadmap: v0.5.0 - The Ultimate IDE
+## 🚀 Roadmap: Future Versions
 
-### Phase 1: Template Rate Limiting ✅ DONE
-- [x] **Disk-Based Cache**: Templates cached with midnight expiry
-- [x] **Visual Variety**: Shuffle on load (top 3 preserved)
+### v2.0 - Premium Features
+- [ ] **Chat Themes**: Light/Dark/Auto, custom colors, font sizes
+- [ ] **Voice Input**: Speech-to-text for prompts
+- [ ] **Code Playground**: Run code snippets inline
+- [ ] **Usage Stats**: Prompts used, most used tools, token consumption
+- [ ] **Timeline Export**: Animated GIF of architecture evolution
+- [ ] **Compare Mode**: Side-by-side diagram comparison
 
-### Phase 2: Diagram-First Analysis ✅ DONE (Dec 26)
-- [x] **Workspace Analyzer**: Regex-based parsing of code files
-- [x] **Diagram Generator**: Mermaid architecture diagrams
-- [x] **Hash-Based Cache**: Invalidation via file modification times
-- [x] **AI Context Injection**: Compact summary in system prompts
-- [x] **Collapsible Sidebar**: Workspace folders with nested chats
-- [x] **Template Diagrams**: Architecture diagram after clone
-
-### Phase 3: Diagram-First Context System ✅ DONE (Dec 27)
-**Core Insight**: The diagram IS the learned understanding - no separate "memory" system needed!
-
-#### Phase 3A: Remove Token Overflow ✅
-- [x] Removed `extractCodebase()` call in `chat_stream_handlers.ts:568`
-- [x] Added `createDiagramFirstPrompt()` - instructs AI to use file tools
-- [x] File tools verified: `read_file`, `search_code`, `list_files`, `find_file`
-- [x] **97% token reduction**: 218K → ~4K tokens
-
-#### Phase 3B: Schema Changes ✅
-- [x] Added `dailyLogs` table with AI-generated micro-changelog
-- [x] Enhanced `diagramVersions` with `trigger`, `summary` fields
-
-#### Phase 3C: AI-Powered Logging ✅
-- [x] Created `src/lib/context/daily-logs.ts` - selective tool logging
-- [x] Session action buffer for state-changing tools
-- [x] Daily log storage and retrieval functions
-
-#### Phase 3D: Full Context System ✅
-- [x] Created `src/lib/context/context-builder.ts` - assembles diagram + logs + actions
-- [x] `buildDiagramContext()` function for lightweight AI context
-
-### Phase 4: Advanced Diagrams (PlantUML + StackSense)
-- [ ] **Live Modification**: "Add a node here" → Diagram updates
-- [ ] **Interactive Nodes**: Click class → Jump to code
-- [ ] **Full PlantUML**: Complex component/sequence diagrams
-
-### Phase 5: Code Generation (Dyad + StackSense)
-- [ ] **Smart Scaffolding**: AI-powered project generation
-- [ ] **Live Diffing**: Preview changes before applying
-- [ ] **Atomic Batching**: Safe multi-file edits
-
-### v0.6.0 (2025-12-27) - Diagram Timeline System ✅
-- [x] **Workspace Diagrams**: Persist diagrams while chats remain ephemeral
-- [x] **Time Granularity**: Hybrid view (simple range + detailed drill-down)
-- [x] **Diff Indicators**: Visualization of architecture/dependency changes (🔵🟢⚪)
-- [x] **Smart Capture**: Debounced auto-capture triggers on file changes
-- [x] **Deduplication**: SHA-256 hash comparison to prevent duplicates 
-- [x] **Compression**: Automatic cleanup of old snapshots (30-day retention)
-- [x] **Protected Snapshots**: Annotated snapshots never deleted
-- [x] **Integration**: Initial capture on import, flush on app close
-
-#### 6G: v2.0 Features (Later)
-- [ ] Export timeline as animated GIF
-- [ ] Compare mode: Side-by-side diagram comparison
-- [ ] Rewind mode: View past state
-
-### v0.7.0 (2025-12-27) - Ask Mode & Tool UI ✅
-- [x] **Ask Mode Tools**: 21 read-only tools for workspace exploration
-- [x] **Tool Filtering**: `isReadOnly` flag on tools, `getToolsForAskMode()` registry method
-- [x] **ToolSummary Component**: Claude-style grouped badges (e.g., `read_file×3`)
-- [x] **Native Tool Tags**: Ask mode uses `atlarix-tool-call` instead of MCP format
-- [x] **Parameter Aliases**: `path`/`file_path`, `query`/`pattern`, `path`/`directory`
-- [x] **Workspace Path Fix**: Tools now resolve paths relative to workspace correctly
-- [x] **Memory Tools**: `recall_memory` and `search_memory` for context retrieval
-
-### v0.8.0 (2025-12-27) - ThinkingCard & Absolute Paths ✅
-- [x] **ThinkingCard Component**: Two separate cards (thinking + response)
-- [x] **Collapsed by Default**: Clean UI, click to expand thinking details
-- [x] **Absolute Path Storage**: Projects store full paths in database
-- [x] **resolveAppPath Helper**: Backward compatible path resolution
-- [x] **Fresh DB Setup**: Clean database for new project imports
+### v3.0 - Advanced AI
+- [ ] **Multi-Agent**: Parallel AI queries for complex tasks
+- [ ] **Custom Agents**: User-defined tool sets and personas
+- [ ] **Team Collaboration**: Shared workspaces and permissions
 
 ---
 
-## 🔥 Known Bugs (Minor)
-
-### UI Issues
-- [ ] **ThinkingCard Streaming**: Minor visual glitches during streaming
-- [ ] **Right Panel Toolbar**: Shows as "2" instead of proper Atlarix sidebar
-- [ ] **Preview Missing**: URL previews should show in workspace mode (Ask + Build)
-- [ ] **Toolbar Branding**: Toolbar should be Atlarix, not Dyad
-
-### Right Panel Enhancements Needed
-- [ ] **Code Preview**: Live code preview in right panel
-- [ ] **Diagram Preview**: Current architecture diagram view
-- [ ] **URL Preview**: Website/source previews from search results
-- [ ] **System Diagram**: Real-time project state visualization
-
----
-
-## 🚀 Roadmap: v0.9.0 - Code Generation (Dyad + StackSense)
-
-### Phase 1: Right Panel Overhaul
-- [ ] **Unified Right Panel**: Code, Preview, Diagrams, Search Results
-- [ ] **Tab Navigation**: Switch between preview types
-- [ ] **System Diagram View**: Current architecture state (click for timeline)
-- [ ] **Atlarix Branding**: Remove Dyad references from toolbar
-
-### Phase 2: Code Generation
-- [ ] **Smart Scaffolding**: AI-powered project generation
-- [ ] **Live Diffing**: Preview changes before applying
-- [ ] **Atomic Batching**: Safe multi-file edits with rollback
-- [ ] **Template System**: Customizable code templates
-
-### Phase 3: Code Modification
-- [ ] **Semantic Edits**: "Add a button here" → AI modifies code
-- [ ] **Refactoring Tools**: Extract, rename, move with context
-- [ ] **Test Generation**: Auto-generate tests for modified code
-
----
-
-**Last Updated**: 2025-12-27
-**Version**: v0.8.0 (ThinkingCard & Absolute Paths)
-
-
-
+**Last Updated**: 2025-12-28
+**Version**: v0.9.0
