@@ -64,7 +64,8 @@ export function useRightPanelContext(): RightPanelContextResult {
     // Determine panel type based on priority
     const detectedType = useMemo((): PanelType => {
         // Priority 1: Active file diff (unapproved proposals)
-        const pendingApproval = proposals.filter(p => p.approved === undefined);
+        // Check for !approved to catch both undefined and false
+        const pendingApproval = proposals.filter(p => !p.approved);
         if (pendingApproval.length > 0) {
             return 'file-diff';
         }

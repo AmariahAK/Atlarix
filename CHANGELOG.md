@@ -2,6 +2,25 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.1] - 2025-12-29
+
+### ✅ Bug Fixes
+- **Input Box Clipping**: Fixed - Added `min-h-0` to flex containers + `flex-shrink-0` to input
+- **Chat Scroll**: Fixed - Added `min-h-0` to enable proper overflow
+- **ThinkingCard in Ask Mode**: Fixed - Added `<think>` tag instructions to chat-only prompt
+- **Permission System**: All 4 phases complete - AI tools properly block for user approval
+
+### 🚀 Enhancements
+- **Session Memory**: In-memory buffer of last 5 exchanges for conversation continuity
+- **Session Cleanup**: Memory cleared on new chat creation and app quit
+- **Right Panel Empty State**: Improved empty state with mode explanations
+
+### 🐛 Known Issues (v1.0)
+- **Right Panel Toggle**: Keyboard shortcuts not fully working (Cmd+B system conflict)
+- **Diagrams Page Empty**: Diagrams not persisting to sidebar page
+
+---
+
 ## [v0.9.0] - 2025-12-28
 
 ### 🎉 Major Features
@@ -16,16 +35,6 @@ All notable changes to Atlarix will be documented in this file.
 - **Context-Aware Display**: Auto-switches based on content (file-diff, diagram, web-search)
 - **Removed Tools Tab**: ThinkingCard now handles tool display
 - **Diagram Wiring**: Diagram tools now populate diagramStateAtom automatically
-
-### 🐛 Known Issues (To Fix in v0.9.1)
-
-#### Critical Bugs
-- [ ] **Permission Not Triggering**: AI hallucinates tool calls instead of actual execution
-- [ ] **Input Box Clipping**: Text input hides bottom half after first prompt
-- [ ] **Chat Scroll**: Cannot scroll up to see previous messages
-- [ ] **ThinkingCard Glitch**: Flickers in/out until response completes
-- [ ] **Right Panel Empty**: Shows "No content to display" instead of file code
-- [ ] **Diagrams Not Showing**: Timeline filter not displaying past/present diagrams
 
 #### Planned Fixes
 - [ ] **Chat Memory Cache**: Cache last 5 chats for AI context continuity

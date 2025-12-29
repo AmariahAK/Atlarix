@@ -168,6 +168,8 @@ export class ToolRegistry {
 
     /**
      * Execute a tool
+     * NOTE: Permission requests are returned directly (not wrapped)
+     * so they can be detected by the interceptor
      */
     static async execute(name: string, args: any): Promise<any> {
         const tool = this.get(name);
@@ -177,6 +179,14 @@ export class ToolRegistry {
 
         try {
             const result = await tool.handler(args);
+
+            // If this is a permission request, return it directly (unwrapped)
+            // so the interceptor can detect __permission_required flag
+            if (result && typeof result === 'object' && result.__permission_required) {
+                return result;
+            }
+
+            // Normal results get wrapped for consistency
             return {
                 success: true,
                 result,

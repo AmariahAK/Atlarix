@@ -4,35 +4,24 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 🔥 Critical Bugs (v0.9.1 Fixes)
 
-### Must Fix Immediately
-- [ ] **Permission Not Triggering**: AI hallucinates tool calls instead of actual execution
-  - Permission system wired but tools not actually being called
-  - Need to verify Build mode tool execution flow
+### ✅ COMPLETED: Permission System (Option B Hybrid)
+- [x] **Permission Not Triggering**: Fixed - AI now uses native tool calls that block for approval
+  
+  **Fix completed (4 phases)**:
+  1. [x] **Backend Foundation** - `file-tools.ts` returns `{__permission_required: true}`, `interceptor.ts` has `waitForApproval()` blocking
+  2. [x] **Chat Stream Integration** - `chat_stream_handlers.ts` detects permissions, blocks, sends to UI
+  3. [x] **Frontend Wiring** - `pendingProposalsAtom`, `ipc_client.ts` permission methods, `FileDiffPanel.tsx` approve/reject
+  4. [x] **Testing** - Verified with MiniMax on OpenRouter, blocking works, UI displays
 
-- [ ] **Input Box Clipping**: Text input hides bottom half after first prompt
-  - Cannot see/press Build/Model/Attach buttons
-  - UI layout issue in ChatInput component
-
-- [ ] **Chat Scroll**: Cannot scroll up to see previous messages
-  - First prompt gets cut off after second prompt
-  - MessagesList or ChatPanel scroll container issue
-
-- [ ] **ThinkingCard Glitch**: Flickers in/out until response completes
-  - Needs stable keys + React.memo
-  - Component in `src/components/chat/ThinkingSection.tsx`
-
-- [ ] **Right Panel Empty**: Shows "No content to display"
-  - File code should show like web search results
-  - Need to wire file content to CodePreviewPanel
-
-- [ ] **Diagrams Not Showing**: Timeline filter not displaying diagrams
-  - Past/present diagrams not appearing
-  - Check diagramStateAtom population
+### Other Bugs (Lower Priority)
+- [x] **Input Box Clipping**: Fixed - Added `min-h-0` to flex containers + `flex-shrink-0` to input
+- [x] **Chat Scroll**: Fixed - Added `min-h-0` to enable proper overflow
+- [x] **ThinkingCard in Ask Mode**: Fixed - Added `<think>` tag instructions to chat-only prompt
+- [ ] **Right Panel Toggle**: TBD - Keyboard shortcuts not working (Cmd+B conflict with system)
+- [ ] **Diagrams Page Empty**: TBD - Diagrams not showing in sidebar page (cache/fresh analysis issue)
 
 ### Enhancements for v0.9.1
-- [ ] **Chat Memory Cache**: Cache last 5 chats for AI context continuity
-  - AI hallucinates on previous context without memory
-  - Store in-memory or localStorage
+- [x] **Session Memory**: In-memory buffer of last 5 exchanges for conversation continuity
 
 ---
 
@@ -44,7 +33,7 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] **Chat Templates**: Pre-filled prompts for common tasks
 
 ### UI/UX
-- [ ] **Keyboard Shortcuts**: Ctrl+N, Ctrl+K, Esc
+- [ ] **Keyboard Shortcuts**: Cmd+B (right panel), Cmd+/ (sidebar), Cmd+[ ] (resize), Esc (close)
 - [ ] **Loading States**: Skeleton screens, progress bars
 
 ### Documentation
@@ -82,6 +71,10 @@ This file tracks upcoming features, improvements, and known issues.
 ## 🚀 Roadmap: Future Versions
 
 ### v2.0 - Premium Features
+- [ ] **Persistent Memory (MEMORY.md)**: Claude Code-style file-based memory that persists across sessions
+  - `.atlarix/MEMORY.md` - AI-summarized session memory
+  - `.atlarix/PROJECT.md` - User-defined project context
+  - Auto-updated on session end
 - [ ] **Chat Themes**: Light/Dark/Auto, custom colors, font sizes
 - [ ] **Voice Input**: Speech-to-text for prompts
 - [ ] **Code Playground**: Run code snippets inline
@@ -96,5 +89,5 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-**Last Updated**: 2025-12-28
-**Version**: v0.9.0
+**Last Updated**: 2025-12-29
+**Version**: v0.9.1

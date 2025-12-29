@@ -293,7 +293,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           Error loading proposal: {proposalError}
         </div>
       )}
-      <div className="p-4" data-testid="chat-input-container">
+      <div className="p-4 flex-shrink-0" data-testid="chat-input-container">
         <div
           className={`relative flex flex-col border border-border rounded-lg bg-(--background-lighter) shadow-sm ${isDraggingOver ? "ring-2 ring-blue-500 border-blue-500" : ""
             }`}

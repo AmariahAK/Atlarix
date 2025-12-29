@@ -127,6 +127,7 @@ export class IpcClient {
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
   private permissionHandlers: Map<number, (payload: any) => void>;
+  private diagramHandlers: Map<number, (payload: any) => void>;
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -134,6 +135,7 @@ export class IpcClient {
     this.helpStreams = new Map();
     this.mcpConsentHandlers = new Map();
     this.permissionHandlers = new Map();
+    this.diagramHandlers = new Map();
     // Set up listeners for stream events
     this.ipcRenderer.on("chat:response:chunk", (data) => {
       if (
@@ -274,6 +276,30 @@ export class IpcClient {
     this.ipcRenderer.on("mcp:tool-consent-request", (payload) => {
       const handler = this.mcpConsentHandlers.get("consent");
       if (handler) handler(payload);
+    });
+
+    // Permission request from main (Build mode tools needing approval)
+    this.ipcRenderer.on("permission-request", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload;
+        const handler = this.permissionHandlers.get(chatId);
+        if (handler) {
+          handler(payload);
+        } else {
+          console.warn(`[IPC] No permission handler for chat ${chatId}`);
+        }
+      }
+    });
+
+    // Workspace diagram from main (diagram tool results)
+    this.ipcRenderer.on("chat:workspace-diagram", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload;
+        const handler = this.diagramHandlers.get(chatId);
+        if (handler) {
+          handler(payload);
+        }
+      }
     });
   }
 
@@ -1046,6 +1072,26 @@ export class IpcClient {
     this.permissionHandlers.set(chatId, handler);
     return () => {
       this.permissionHandlers.delete(chatId);
+    };
+  }
+
+  /**
+   * Register a handler for workspace diagram events for a specific chat
+   * Returns unsubscribe function
+   */
+  public onWorkspaceDiagram(
+    chatId: number,
+    handler: (payload: {
+      chatId: number;
+      type: string;
+      title: string;
+      mermaidCode: string;
+      snapshotId: number;
+    }) => void
+  ): () => void {
+    this.diagramHandlers.set(chatId, handler);
+    return () => {
+      this.diagramHandlers.delete(chatId);
     };
   }
   // --- End Permission Management ---

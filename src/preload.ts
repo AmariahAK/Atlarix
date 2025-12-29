@@ -170,6 +170,12 @@ const validInvokeChannels = [
   // We can't detect with IS_TEST_BUILD in the preload script because
   // it's a separate process from the main process.
   "supabase:fake-connect-and-set-project",
+  // Permission system (Build mode)
+  "execute-permission",
+  "reject-permission",
+  "execute-all-permissions",
+  "reject-all-permissions",
+  "get-pending-permissions",
 ];
 
 // Add valid receive channels
@@ -189,6 +195,9 @@ const validReceiveChannels = [
   "help:chat:response:error",
   // MCP consent request from main to renderer
   "mcp:tool-consent-request",
+  // Permission system (Build mode)
+  "permission-request",
+  "chat:workspace-diagram",
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

@@ -9,6 +9,7 @@ import log from "electron-log";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { UpdateChatParams } from "../ipc_types";
 import { getCurrentCommitHash } from "../utils/git_utils";
+import { clearAllSessionMemories } from "../../lib/session-memory";
 
 const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
@@ -17,6 +18,9 @@ export function registerChatHandlers() {
   // Create workspace chat - now uses EPHEMERAL storage (like incognito mode)
   // Chats are associated with workspace for context but NOT saved to database
   handle("create-chat", async (_, appId: number): Promise<number> => {
+    // Clear previous session memory when starting a new chat
+    clearAllSessionMemories();
+
     // Verify the app exists
     const app = await db.query.apps.findFirst({
       where: eq(apps.id, appId),
@@ -45,8 +49,10 @@ export function registerChatHandlers() {
     return chatId;
   });
 
-  // Create chat-only session (ephemeral/incognito - NOT saved to DB)
   handle("create-chat-only", async (): Promise<number> => {
+    // Clear previous session memory when starting a new chat
+    clearAllSessionMemories();
+
     // Import ephemeral chat creator from chat_only_handlers
     const { createEphemeralChat } = await import("./chat_only_handlers");
     const chatId = createEphemeralChat();

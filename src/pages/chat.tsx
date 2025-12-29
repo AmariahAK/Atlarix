@@ -44,7 +44,7 @@ export default function ChatPage() {
   return (
     <PanelGroup autoSaveId="persistence" direction="horizontal">
       <Panel id="chat-panel" minSize={30}>
-        <div className="h-full w-full">
+        <div className="h-full w-full min-h-0">
           <ChatPanel
             chatId={chatId}
             isPreviewOpen={isPreviewOpen}

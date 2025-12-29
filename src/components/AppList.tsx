@@ -193,11 +193,29 @@ export function AppList({ show }: { show?: boolean }) {
                   <div key={ws.id} className="border-b border-border/50">
                     {/* Workspace Header */}
                     <div
-                      className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 ${selectedAppId === ws.id ? 'bg-accent' : ''
+                      className={`group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors ${selectedAppId === ws.id ? 'bg-accent' : ''
                         }`}
+                      onClick={() => {
+                        // Select workspace and start new chat
+                        setSelectedAppId(ws.id);
+                        setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
+                        setWorkspaces(prev => prev.map(w =>
+                          w.id === ws.id ? { ...w, isExpanded: true } : w
+                        ));
+                        // If workspace has chats, navigate to most recent
+                        if (ws.chats.length > 0) {
+                          handleChatClick(ws.id, ws.chats[0].id);
+                        } else {
+                          // Create new chat for this workspace
+                          handleNewChatInWorkspace(ws.id);
+                        }
+                      }}
                     >
                       <button
-                        onClick={() => toggleWorkspace(ws.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleWorkspace(ws.id);
+                        }}
                         className="p-0.5 hover:bg-accent rounded"
                       >
                         {ws.isExpanded ? (
@@ -209,16 +227,7 @@ export function AppList({ show }: { show?: boolean }) {
 
                       <Folder className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
 
-                      <span
-                        className="flex-1 text-sm font-medium truncate cursor-pointer"
-                        onClick={() => {
-                          setSelectedAppId(ws.id);
-                          setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
-                          setWorkspaces(prev => prev.map(w =>
-                            w.id === ws.id ? { ...w, isExpanded: true } : w
-                          ));
-                        }}
-                      >
+                      <span className="flex-1 text-sm font-medium truncate">
                         {ws.name}
                       </span>
 

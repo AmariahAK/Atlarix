@@ -102,7 +102,7 @@ ToolRegistry.register({
     name: "write_file",
     category: ToolCategory.FILE,
     description:
-        "Create or overwrite a file in the workspace. Use this to create new files or replace entire file contents.",
+        "Create or overwrite a file in the workspace. ALWAYS use this tool to create or modify files - never describe what you would write.",
     cost: 5,
     requiresWorkspace: true,
     isCore: true,
@@ -115,22 +115,53 @@ ToolRegistry.register({
         },
         ["path", "content", "description"]
     ),
-    handler: async ({ path: filePath, content, description }) => {
-        // Return structured JSON permission request
-        const permissionRequest = createFilePermissionRequest(
-            "write_file",
-            {
-                path: filePath,
+    handler: async ({ path: filePath, content, description, workspace, chatMode }) => {
+        // Validate chatMode
+        if (!chatMode) {
+            console.error('[write_file] chatMode is undefined - using default "build"');
+            // Default to build mode behavior
+        }
+
+        // In Ask mode, deny write operations
+        if (chatMode === "ask") {
+            return {
+                error: "Write operations not allowed in Ask mode. Switch to Build mode to make changes.",
+                operation: "write_file",
+                denied: true,
+            };
+        }
+
+        // Normalize path
+        let normalizedPath = filePath
+            .replace(/^\/workspace\//, '')
+            .replace(/^workspace\//, '')
+            .replace(/^\/+/, '');
+
+        // Check if file exists (to set type as update vs create)
+        let fileType: "create" | "update" = "create";
+        if (workspace) {
+            try {
+                await fs.promises.access(path.join(workspace, normalizedPath));
+                fileType = "update";
+            } catch {
+                fileType = "create";
+            }
+        }
+
+        // Return permission request OBJECT (not JSON string!)
+        // This will be detected by the chat stream handler's isPermissionRequest
+        return {
+            __permission_required: true,
+            operation: "write_file",
+            preview: {
+                path: normalizedPath,
                 content: content,
                 description: description,
-                type: "create",
+                type: fileType,
                 lines: content.split("\n").length,
             },
-            {
-                reasoning: `Creating/modifying ${filePath}: ${description}`,
-            }
-        );
-        return JSON.stringify(permissionRequest);
+            reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description}`,
+        };
     },
 });
 
@@ -141,7 +172,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "write_multiple_files",
     description:
-        "Create or modify multiple files at once. Shows permission dialog for all files.",
+        "Create or modify multiple files at once. ALWAYS use this tool for batch file operations.",
     category: ToolCategory.FILE,
     cost: 5,
     requiresWorkspace: true,
@@ -165,25 +196,40 @@ ToolRegistry.register({
         },
         ["files"]
     ),
-    handler: async ({ files }) => {
-        // Convert to FileOperationPreview array
-        const previews: FileOperationPreview[] = files.map((f: any) => ({
-            path: f.path,
-            content: f.content,
-            description: f.description,
-            type: "create" as const,
-            lines: f.content.split("\n").length,
-        }));
+    handler: async ({ files, workspace, chatMode }) => {
+        // Validate chatMode
+        if (chatMode === "ask") {
+            return {
+                error: "Write operations not allowed in Ask mode. Switch to Build mode.",
+                operation: "write_multiple_files",
+                denied: true,
+            };
+        }
 
-        // Return structured JSON batch permission request
-        const permissionRequest = createBatchPermissionRequest(
-            previews,
-            {
-                reasoning: `Batch operation: ${files.length} file(s)`,
-                affectedFiles: files.map((f: any) => f.path),
-            }
-        );
-        return JSON.stringify(permissionRequest);
+        // Convert to FileOperationPreview array with normalized paths
+        const previews: FileOperationPreview[] = files.map((f: any) => {
+            const normalizedPath = f.path
+                .replace(/^\/workspace\//, '')
+                .replace(/^workspace\//, '')
+                .replace(/^\/+/, '');
+
+            return {
+                path: normalizedPath,
+                content: f.content,
+                description: f.description,
+                type: "create" as const,
+                lines: f.content.split("\n").length,
+            };
+        });
+
+        // Return permission request OBJECT directly
+        return {
+            __permission_required: true,
+            operation: "write_multiple_files",
+            preview: previews,
+            reasoning: `Batch operation: ${files.length} file(s)`,
+            affectedFiles: previews.map(p => p.path),
+        };
     },
 });
 

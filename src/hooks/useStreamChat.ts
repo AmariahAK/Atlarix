@@ -165,6 +165,7 @@ export function useStreamChat({
               .filter((p: any) => p.path) // Only file operations
               .map((p: any) => ({
                 id: payload.operationId,
+                chatId,  // Include the chat session ID for approval
                 path: p.path,
                 operation: p.type === 'delete' ? 'delete' :
                   p.type === 'rename' ? 'rename' :
@@ -177,6 +178,23 @@ export function useStreamChat({
             // Add to pending proposals
             setPendingProposals((prev) => [...prev, ...proposals]);
             setRightPanelVisible(true); // Show panel for approval
+          }
+        );
+
+        // Register diagram handler for this chat
+        const unsubscribeDiagram = IpcClient.getInstance().onWorkspaceDiagram(
+          chatId,
+          (payload) => {
+            // Set diagram state from workspace context
+            setDiagramState({
+              code: payload.mermaidCode || '',
+              type: payload.type === 'class' ? 'class' :
+                payload.type === 'sequence' ? 'sequence' :
+                  payload.type === 'flowchart' ? 'flowchart' : 'mermaid',
+              compareMode: 'current',
+              title: payload.title,
+            });
+            setRightPanelVisible(true); // Show panel for diagram
           }
         );
 

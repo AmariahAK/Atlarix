@@ -92,6 +92,7 @@ export const panelContextAtom = atom<PanelContext>({
 
 export interface FileProposal {
     id: string;
+    chatId: number;  // Track which chat session this proposal belongs to
     path: string;
     operation: 'create' | 'modify' | 'delete' | 'rename';
     oldContent?: string;

@@ -306,8 +306,23 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
 
         default:
             return (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <p className="text-sm">No content to display</p>
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6 text-center">
+                    <div className="w-16 h-16 mb-4 rounded-full bg-muted/50 flex items-center justify-center">
+                        <Search className="w-8 h-8 opacity-50" />
+                    </div>
+                    <h3 className="text-sm font-medium mb-2 text-foreground">No content yet</h3>
+                    <p className="text-xs max-w-[200px]">
+                        Use the toolbar above to switch between modes:
+                    </p>
+                    <ul className="text-xs mt-3 space-y-1 text-left">
+                        <li><strong>Search</strong> - Web search results</li>
+                        <li><strong>Code</strong> - File changes & diffs</li>
+                        <li><strong>Diagrams</strong> - Architecture views</li>
+                        <li><strong>Preview</strong> - Live preview</li>
+                    </ul>
+                    <p className="text-xs mt-4 opacity-60">
+                        Content will appear here as you chat
+                    </p>
                 </div>
             );
     }

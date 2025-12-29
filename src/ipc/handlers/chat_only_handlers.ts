@@ -21,6 +21,7 @@ import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
 import { ToolRegistry } from "../../lib/tools";
 import { getMaxTokens, getTemperature } from "../utils/token_utils";
 import { getExtraProviderOptions } from "../utils/thinking_utils";
+import { getSessionMemory } from "../../lib/session-memory";
 
 const logger = log.scope("chat_only_handlers");
 
@@ -137,6 +138,12 @@ If the user asks to create an app, website, or project, you should:
 
 After creating a workspace, you'll gain access to file tools (read_file, write_file, git, etc.)
 
+## Formatting Rules
+- When you need to think through something, wrap it in <think>...</think> tags - this will be shown in a collapsible card
+- DO NOT say things like "Let me search for that" or "I'll fetch that information" in your main response
+- Keep your visible response clean and focused on the actual answer
+- Tool calls happen automatically - you don't need to announce them
+
 ## Important
 - Be helpful and conversational
 - Use web_search for current events, news, documentation
@@ -233,11 +240,20 @@ export async function handleChatOnlyStream(
             content: msg.content,
         }));
 
+        // Get session memory for conversation continuity
+        const sessionMemory = getSessionMemory(req.chatId);
+        const sessionContext = sessionMemory.getContextForPrompt();
+        let systemPrompt = CHAT_ONLY_SYSTEM_PROMPT;
+        if (sessionContext) {
+            systemPrompt += `\n\n${sessionContext}`;
+            logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
+        }
+
         // Stream response from AI
         let fullResponse = "";
         const result = streamText({
             model: modelClient.model,
-            system: CHAT_ONLY_SYSTEM_PROMPT,
+            system: systemPrompt,
             messages: messageHistory,
             tools,
             temperature: 0.7, // Default conversational temperature
@@ -286,6 +302,18 @@ export async function handleChatOnlyStream(
             createdAt: new Date(),
         };
         chat.messages.push(assistantMessage);
+
+        // Record exchange in session memory for conversation continuity
+        try {
+            const cleanResponse = fullResponse
+                .replace(/<[^>]*>/g, '')
+                .replace(/```[\s\S]*?```/g, '[code]')
+                .trim();
+            sessionMemory.addExchange(req.prompt, cleanResponse);
+            logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
+        } catch (error) {
+            logger.warn("Failed to record session memory exchange:", error);
+        }
 
         // Send final chunk with sources included so UI receives them
         safeSend(event.sender, "chat:response:chunk", {

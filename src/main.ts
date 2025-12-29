@@ -452,6 +452,10 @@ app.on("will-quit", () => {
   // Stop performance monitoring and capture final metrics
   stopPerformanceMonitoring();
 
+  // Clear all session memories
+  const { clearAllSessionMemories } = require("./lib/session-memory");
+  clearAllSessionMemories();
+
   writeSettings({ isRunning: false });
 });
 

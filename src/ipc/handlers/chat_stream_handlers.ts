@@ -12,7 +12,7 @@ import {
 } from "ai";
 
 import { db } from "../../db";
-import { apps, chats, messages } from "../../db/schema";
+import { apps, chats, messages, diagrams } from "../../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import type { SmartContextMode } from "../../lib/schemas";
 import {
@@ -96,6 +96,9 @@ import { ToolRegistry } from "../../lib/tools";
 import { handleChatOnlyStream } from "./chat_only_handlers";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { PermissionInterceptor } from "./permissions/interceptor";
+import { registerInterceptor } from "./permissions/handlers";
+import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
+
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -818,9 +821,40 @@ ${componentSnippet}
                 diagram: workspaceContext.diagram,
                 summary: workspaceContext.summary,
               });
+
+              // Save diagram to database for Diagrams page (only if not from cache to avoid duplicates)
+              if (!workspaceContext.fromCache && workspaceContext.diagram) {
+                try {
+                  // For ephemeral chats (negative IDs), don't save chatId (FK constraint would fail)
+                  const isEphemeralChat = req.chatId < 0;
+                  await db.insert(diagrams).values({
+                    workspaceId: req.appId,
+                    chatId: isEphemeralChat ? null : req.chatId,
+                    type: "architecture",
+                    title: `Architecture - ${workspaceContext.summary}`,
+                    content: workspaceContext.diagram,
+                    metadata: { summary: workspaceContext.summary },
+                  });
+                  logger.info(`Saved workspace diagram to database for appId: ${req.appId}`);
+                } catch (dbError) {
+                  logger.warn("Failed to save diagram to database:", dbError);
+                }
+              }
             }
           } catch (error) {
             logger.warn("Failed to inject workspace context:", error);
+          }
+
+          // Inject session memory (last 5 exchanges for conversation continuity)
+          try {
+            const sessionMemory = getSessionMemory(req.chatId);
+            const sessionContext = sessionMemory.getContextForPrompt();
+            if (sessionContext) {
+              systemPrompt += `\n\n${sessionContext}`;
+              logger.info(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
+            }
+          } catch (error) {
+            logger.warn("Failed to inject session memory:", error);
           }
           // Add information about mentioned apps if any
           if (otherAppsCodebaseInfo) {
@@ -1370,6 +1404,9 @@ If the user requests modifications, politely explain that Ask mode is for explor
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(workspacePath);
 
+            // Register interceptor for IPC handlers (so UI can approve/reject)
+            registerInterceptor(req.chatId, permissionInterceptor);
+
             // Convert to tool set format expected by AI SDK
             const tools: ToolSet = {};
             for (const tool of buildModeTools) {
@@ -1377,38 +1414,65 @@ If the user requests modifications, politely explain that Ask mode is for explor
                 description: tool.function.description,
                 parameters: tool.function.parameters,
                 execute: async (args: any) => {
-                  // Execute tool via registry, inject workspace path
+                  // Execute tool via registry, inject workspace path AND chatMode
                   const result = await ToolRegistry.execute(tool.function.name, {
                     ...args,
                     workspace: workspacePath || undefined,
+                    chatMode: "build", // Pass chatMode so handlers can check permissions
                   });
-                  const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
 
-                  // Check if this is a permission request
-                  if (permissionInterceptor.isPermissionRequest(resultStr)) {
-                    const permRequest = permissionInterceptor.parsePermissionRequest(resultStr);
+                  // Check if this is a permission request (object or string)
+                  if (permissionInterceptor.isPermissionRequest(result)) {
+                    const permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
                       const operationId = permissionInterceptor.generateOperationId();
                       permissionInterceptor.bufferOperation(operationId, permRequest);
 
-                      // Emit permission request to frontend
-                      safeSend(event, "chat-response-chunk", {
+                      // Send permission request to frontend for display
+                      safeSend(event.sender, "permission-request", {
                         chatId: req.chatId,
-                        type: "permission-request",
                         operationId,
                         request: permRequest,
                       });
 
-                      // Tell AI the operation is pending approval
-                      return JSON.stringify({
-                        status: "pending_approval",
-                        operationId,
-                        message: `Operation pending user approval. I will write to ${Array.isArray(permRequest.preview) ? permRequest.preview.map((p: any) => p.path).join(', ') : (permRequest.preview as any).path} after you approve.`,
-                      });
+                      logger.log(`[Build Mode] Permission request buffered: ${operationId}`);
+
+                      try {
+                        // BLOCKING: Wait for user to approve or reject
+                        const approved = await permissionInterceptor.waitForApproval(operationId);
+
+                        if (approved) {
+                          // User approved - return success to AI
+                          const execResult = permissionInterceptor.getExecutionResult(operationId);
+                          logger.log(`[Build Mode] Permission approved: ${operationId}`);
+                          return JSON.stringify({
+                            success: true,
+                            message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as any).path || "operation"}`,
+                            path: execResult.path,
+                          });
+                        } else {
+                          // User rejected or timeout
+                          logger.log(`[Build Mode] Permission denied: ${operationId}`);
+                          return JSON.stringify({
+                            success: false,
+                            error: "Permission denied by user",
+                            operation: permRequest.operation,
+                            path: (permRequest.preview as any).path,
+                          });
+                        }
+                      } catch (error) {
+                        logger.error(`[Build Mode] Permission error: ${operationId}`, error);
+                        return JSON.stringify({
+                          success: false,
+                          error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
+                          timedOut: true,
+                        });
+                      }
                     }
                   }
 
-                  return resultStr;
+                  // Not a permission request - return result directly
+                  return typeof result === 'string' ? result : JSON.stringify(result);
                 },
               };
             }
@@ -1496,6 +1560,20 @@ If the user requests modifications, politely explain that Ask mode is for explor
             // For ephemeral workspace chats, save to in-memory store
             const { addEphemeralMessage } = await import("./chat_only_handlers");
             addEphemeralMessage(req.chatId, { role: "assistant", content: fullResponse });
+          }
+
+          // Record exchange in session memory for conversation continuity
+          try {
+            const sessionMemory = getSessionMemory(req.chatId);
+            // Strip XML tags and code blocks for the summary
+            const cleanResponse = fullResponse
+              .replace(/<[^>]*>/g, '')
+              .replace(/```[\s\S]*?```/g, '[code]')
+              .trim();
+            sessionMemory.addExchange(userPrompt, cleanResponse);
+            logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
+          } catch (error) {
+            logger.warn("Failed to record session memory exchange:", error);
           }
           const settings = readSettings();
           if (

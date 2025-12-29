@@ -5,8 +5,10 @@
  * 
  * Shortcuts:
  * - CMD/CTRL + B: Toggle right panel visibility
- * - CMD/CTRL + Shift + P: Open panel switcher (future)
- * - ESC: Close panel if open
+ * - CMD/CTRL + /: Toggle left sidebar (handled by SidebarProvider)
+ * - CMD/CTRL + [: Narrow right panel
+ * - CMD/CTRL + ]: Widen right panel
+ * - ESC: Close right panel if open
  */
 
 import { useEffect } from 'react';

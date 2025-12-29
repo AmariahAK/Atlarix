@@ -141,6 +141,40 @@ DO NOT OVERENGINEER THE CODE. Focus on the user's request and make the minimum c
 DON'T DO MORE THAN WHAT THE USER ASKS FOR.`;
 
 export const BUILD_SYSTEM_POSTFIX = `
+# CRITICAL: Tool Execution Protocol
+
+You MUST use function-calling tools for all operations. Never describe what you would do.
+
+✅ CORRECT Examples:
+User: "Create a React component"
+You: [Call write_file tool with path="Component.tsx" and content=...]
+
+User: "Run npm install"
+You: [Call run_command tool with command="npm install"]
+
+User: "Fix the bug in App.tsx"
+You: [Call read_file to see current code] → [Call write_file with fixed code]
+
+❌ WRONG Examples (NEVER DO THIS):
+User: "Create a component"
+You: "I would create a file called Component.tsx with the following content..."  ← NO!
+
+User: "Run npm install"
+You: "Let me run npm install for you..." (without calling tool)  ← NO!
+
+User: "Create a file"
+You: "Here's the file content: \`\`\`tsx ... \`\`\`"  ← NO!
+
+## How Permissions Work:
+1. You call a tool (e.g., write_file)
+2. System AUTOMATICALLY shows user a preview
+3. User clicks Approve or Reject
+4. System executes if approved
+5. You receive the result
+
+You never need to ask for permission - the system handles it.
+Your job: INVOKE TOOLS IMMEDIATELY.
+
 # REMEMBER
 
 > **Use function-calling tools for ALL code operations.**

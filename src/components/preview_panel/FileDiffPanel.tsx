@@ -17,7 +17,6 @@ import {
 } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
 import { IpcClient } from '@/ipc/ipc_client';
-import { useSearch } from '@tanstack/react-router';
 import {
     File,
     FilePlus,
@@ -46,14 +45,9 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     const setPendingProposals = useSetAtom(pendingProposalsAtom);
     const [isExecuting, setIsExecuting] = useState(false);
 
-    // Get chatId from search params
-    let chatId: number | undefined;
-    try {
-        const search = useSearch({ from: "/chat" });
-        chatId = search?.id;
-    } catch {
-        // Not on chat route, chatId will be undefined
-    }
+    // Get chatId from proposals (stored when permission request was received)
+    // Use the first proposal's chatId since all proposals in a batch share the same chat
+    const chatId = proposals[0]?.chatId;
 
     // Group proposals by directory
     const groupedProposals = useMemo(() => {
