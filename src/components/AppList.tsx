@@ -30,7 +30,7 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
-  const { apps, loading, error, refetch } = useLoadApps();
+  const { apps, loading, error, refreshApps } = useLoadApps();
 
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
@@ -105,7 +105,7 @@ export function AppList({ show }: { show?: boolean }) {
       setSelectedChatId(chatId);
       navigate({ to: `/chat/${chatId}` });
       // Refresh workspaces to show new chat
-      refetch?.();
+      refreshApps?.();
     } catch (error) {
       console.error('Failed to create chat:', error);
     }
@@ -129,7 +129,7 @@ export function AppList({ show }: { show?: boolean }) {
         const result = await IpcClient.getInstance().importApp({ path, appName });
         setSelectedAppId(result.appId);
         setSelectedWorkspaceInfo({ id: result.appId, name: appName });
-        refetch?.();
+        refreshApps?.();
       } catch (error) {
         console.error('Failed to create workspace:', error);
       }
@@ -196,19 +196,19 @@ export function AppList({ show }: { show?: boolean }) {
                       className={`group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors ${selectedAppId === ws.id ? 'bg-accent' : ''
                         }`}
                       onClick={() => {
-                        // Select workspace and start new chat
+                        // Just select and expand the workspace - don't auto-navigate to chat
                         setSelectedAppId(ws.id);
                         setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
+                        // Collapse other workspaces for cleaner UI
                         setWorkspaces(prev => prev.map(w =>
-                          w.id === ws.id ? { ...w, isExpanded: true } : w
+                          w.id === ws.id
+                            ? { ...w, isExpanded: true }
+                            : { ...w, isExpanded: false }
                         ));
-                        // If workspace has chats, navigate to most recent
-                        if (ws.chats.length > 0) {
-                          handleChatClick(ws.id, ws.chats[0].id);
-                        } else {
-                          // Create new chat for this workspace
-                          handleNewChatInWorkspace(ws.id);
-                        }
+                      }}
+                      onDoubleClick={() => {
+                        // Double-click to start a new chat in this workspace
+                        handleNewChatInWorkspace(ws.id);
                       }}
                     >
                       <button
@@ -237,15 +237,17 @@ export function AppList({ show }: { show?: boolean }) {
                         </Badge>
                       )}
 
+                      {/* New chat button - always visible when selected, hover otherwise */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleNewChatInWorkspace(ws.id);
                         }}
-                        className="p-0.5 hover:bg-emerald-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="New chat"
+                        className={`p-1 hover:bg-emerald-500/20 rounded transition-opacity ${selectedAppId === ws.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        title="New chat in workspace"
                       >
-                        <Plus className="h-3 w-3 text-emerald-500" />
+                        <Plus className="h-3.5 w-3.5 text-emerald-500" />
                       </button>
                     </div>
 

@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-query";
 import { showError, showMcpConsentToast } from "./lib/toast";
 import { IpcClient } from "./ipc/ipc_client";
+import { DevServerProvider } from "./components/DevServerProvider";
 
 // @ts-ignore
 console.log("Running in mode:", import.meta.env.MODE);
@@ -131,7 +132,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <PostHogProvider client={posthogClient}>
-        <App />
+        <DevServerProvider>
+          <App />
+        </DevServerProvider>
       </PostHogProvider>
     </QueryClientProvider>
   </StrictMode>,

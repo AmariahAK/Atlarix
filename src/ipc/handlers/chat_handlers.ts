@@ -18,8 +18,9 @@ export function registerChatHandlers() {
   // Create workspace chat - now uses EPHEMERAL storage (like incognito mode)
   // Chats are associated with workspace for context but NOT saved to database
   handle("create-chat", async (_, appId: number): Promise<number> => {
-    // Clear previous session memory when starting a new chat
-    clearAllSessionMemories();
+    // NOTE: Don't clear session memories here!
+    // Session memory should persist across mode switches (Ask -> Build) within the same workspace
+    // Memory is only cleared when explicitly switching to a different workspace
 
     // Verify the app exists
     const app = await db.query.apps.findFirst({
@@ -50,7 +51,8 @@ export function registerChatHandlers() {
   });
 
   handle("create-chat-only", async (): Promise<number> => {
-    // Clear previous session memory when starting a new chat
+    // NOTE: For chat-only (no workspace), we CAN clear previous session memory
+    // since there's no workspace context to preserve
     clearAllSessionMemories();
 
     // Import ephemeral chat creator from chat_only_handlers

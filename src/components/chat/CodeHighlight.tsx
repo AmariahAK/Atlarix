@@ -101,26 +101,31 @@ export const CodeHighlight = memo(
         className="shiki not-prose relative [&_pre]:overflow-auto 
       [&_pre]:rounded-lg [&_pre]:px-6 [&_pre]:py-7"
       >
-        {language ? (
-          <div className="absolute top-2 left-2 right-2 text-xs flex justify-between items-center z-10">
+        {/* Always show header with copy button for code blocks */}
+        <div className="absolute top-2 left-2 right-2 text-xs flex justify-between items-center z-10">
+          {language ? (
             <span className="tracking-tighter text-muted-foreground/85">
               {language}
             </span>
-            {code && (
-              <button
-                className="flex items-center gap-1 px-2 py-1 text-xs cursor-pointer 
-                  hover:bg-muted/80 rounded transition-colors
-                  text-muted-foreground hover:text-foreground"
-                onClick={handleCopy}
-                type="button"
-                title="Copy code"
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copied ? "Copied!" : "Copy"}</span>
-              </button>
-            )}
-          </div>
-        ) : null}
+          ) : (
+            <span className="tracking-tighter text-muted-foreground/50">
+              code
+            </span>
+          )}
+          {code && (
+            <button
+              className="flex items-center gap-1 px-2 py-1 text-xs cursor-pointer 
+                hover:bg-muted/80 rounded transition-colors
+                text-muted-foreground hover:text-foreground"
+              onClick={handleCopy}
+              type="button"
+              title="Copy code"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              <span>{copied ? "Copied!" : "Copy"}</span>
+            </button>
+          )}
+        </div>
         {highlighter ? (
           <ShikiHighlighter
             highlighter={highlighter}

@@ -8,6 +8,7 @@ import { rankTemplates, deduplicateTemplates } from "../../lib/templates/scoring
 import { app } from "electron";
 import path from "path";
 import fs from "fs/promises";
+import { searchSearxng, isSearxngEnabled } from "../../lib/search/searxng";
 
 /**
  * Fisher-Yates shuffle for array randomization
@@ -102,42 +103,105 @@ async function saveCacheToDisk(templates: Template[]): Promise<void> {
 }
 
 /**
+ * Search for templates via SearxNG (fallback when GitHub API fails)
+ */
+async function searchTemplatesViaSearxng(): Promise<Template[]> {
+  if (!isSearxngEnabled()) {
+    logger.info("SearxNG not enabled, skipping template search fallback");
+    return [];
+  }
+
+  logger.info("Attempting SearxNG fallback for templates...");
+
+  const templates: Template[] = [];
+  const queries = [
+    "react starter template github",
+    "nextjs boilerplate github",
+    "vite react typescript template",
+    "vue starter template github",
+    "express api template github",
+  ];
+
+  try {
+    for (const query of queries) {
+      const results = await searchSearxng(query, { engines: ['github'] }, 5);
+
+      for (const result of results) {
+        // Parse GitHub repo URL
+        const match = result.url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        if (match) {
+          const [, owner, repo] = match;
+          const repoName = repo.replace(/[#?].*$/, ''); // Clean URL params
+
+          templates.push({
+            id: `${owner}/${repoName}`,
+            title: result.title || repoName,
+            description: result.snippet || `${owner}/${repoName}`,
+            imageUrl: '', // SearxNG results don't have images
+            repoOwner: owner,
+            repoName: repoName,
+            isOfficial: false, // These are community templates
+          } as Template);
+        }
+      }
+    }
+
+    logger.info(`SearxNG found ${templates.length} template candidates`);
+    return templates;
+  } catch (error) {
+    logger.error("SearxNG template search failed:", error);
+    return [];
+  }
+}
+
+/**
  * Fetch fresh templates from all sources
  */
 async function fetchFreshTemplates(): Promise<Template[]> {
   logger.info("Fetching fresh templates from all sources...");
 
+  let githubTemplates: Template[] = [];
+  let vercelExamples: Template[] = [];
+  let searxngTemplates: Template[] = [];
+
   try {
     // Fetch from all sources in parallel
-    const [githubTemplates, vercelExamples] = await Promise.all([
+    [githubTemplates, vercelExamples] = await Promise.all([
       fetchGitHubTemplates(),
       fetchVercelExamples(),
     ]);
-
-    // Combine all sources
-    const allTemplates = [
-      ...localTemplatesData, // Official templates first
-      ...vercelExamples,
-      ...githubTemplates,
-    ];
-
-    // Deduplicate by GitHub URL
-    const unique = deduplicateTemplates(allTemplates);
-
-    // Score and rank
-    const ranked = rankTemplates(unique);
-
-    logger.info(
-      `Fetched ${ranked.length} templates total (${localTemplatesData.length} local, ` +
-      `${vercelExamples.length} Vercel, ${githubTemplates.length} GitHub)`
-    );
-
-    return ranked;
   } catch (error) {
-    logger.error("Error fetching fresh templates:", error);
-    // Fallback to local templates only
-    return localTemplatesData;
+    logger.warn("GitHub/Vercel API failed, trying SearxNG fallback:", error);
+    // If GitHub fails (rate limiting), try SearxNG as fallback
+    searxngTemplates = await searchTemplatesViaSearxng();
   }
+
+  // If we got very few templates from primary sources, supplement with SearxNG
+  if (githubTemplates.length < 5 && isSearxngEnabled()) {
+    logger.info("Few GitHub templates found, supplementing with SearxNG...");
+    searxngTemplates = await searchTemplatesViaSearxng();
+  }
+
+  // Combine all sources
+  const allTemplates = [
+    ...localTemplatesData, // Official templates first
+    ...vercelExamples,
+    ...githubTemplates,
+    ...searxngTemplates,
+  ];
+
+  // Deduplicate by GitHub URL
+  const unique = deduplicateTemplates(allTemplates);
+
+  // Score and rank
+  const ranked = rankTemplates(unique);
+
+  logger.info(
+    `Fetched ${ranked.length} templates total (${localTemplatesData.length} local, ` +
+    `${vercelExamples.length} Vercel, ${githubTemplates.length} GitHub, ${searxngTemplates.length} SearxNG)`
+  );
+
+  return ranked;
 }
 
 /**

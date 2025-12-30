@@ -11,11 +11,16 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 
 ## ✨ Features
 
-### 🔐 Permission System (NEW in v0.9.0!)
+### 🚀 Smart Scaffolding (NEW in v0.9.2!)
+- **CLI-First Approach** - AI uses `npx create-vite`, `npx create-next-app` etc. instead of writing files manually
+- **25+ Framework Support** - React, Next.js, Vue, Svelte, Astro, Express, NestJS, Electron, and more
+- **Template Fallback** - Falls back to SearxNG template search when GitHub API is rate-limited
+
+### 🔐 Permission System (v0.9.0+)
 - **Tool Approval Flow** - AI proposes changes, you approve before execution
 - **FileDiffPanel** - Preview file changes with syntax highlighting
-- **Batch Approval** - Approve All / Reject All buttons
-- **JSON-Based** - Zod-validated structured permission requests
+- **Batch Approval** - Approve All / Reject All / Execute Selected buttons
+- **Sound Notifications** - Hear when new proposals arrive after batch approval
 
 ### 🎭 Incognito Chat Mode
 - **Ephemeral Chats** - Ask anything without saving to database
@@ -34,15 +39,19 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Model Name Display** - See which model generated each response
 
 ### 🛠️ 41 Intelligent Tools
-**File Operations** - Read, write, search, modify files
-**Code Intelligence** - Semantic search, architecture diagrams
-**Web & Research** - web_search, deep_search, read_url
+**File Operations** - Read, write, search, modify files  
+**Code Intelligence** - Semantic search, architecture diagrams  
+**Web & Research** - web_search, deep_search, read_url  
 **Development** - Command execution, template scaffolding
 
 ### 📊 Diagram Timeline System
 - **Project Evolution** - Visualize architecture changes over time
 - **Smart Snapshots** - Auto-capture when code changes
 - **Time Drill-Down** - Navigate from "All Time" to hourly
+
+### ⚠️ Known Issues (v0.9.2)
+- **Command Approval** - `run_command` permissions not showing in right panel
+- **AI Repetition** - Model occasionally repeats previous messages
 
 ---
 

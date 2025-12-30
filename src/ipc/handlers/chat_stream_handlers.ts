@@ -846,8 +846,9 @@ ${componentSnippet}
           }
 
           // Inject session memory (last 5 exchanges for conversation continuity)
+          // NOTE: Use appId (workspace ID) as key so memory persists across mode switches (Ask → Build)
           try {
-            const sessionMemory = getSessionMemory(req.chatId);
+            const sessionMemory = getSessionMemory(chat.appId);
             const sessionContext = sessionMemory.getContextForPrompt();
             if (sessionContext) {
               systemPrompt += `\n\n${sessionContext}`;
@@ -1563,8 +1564,9 @@ If the user requests modifications, politely explain that Ask mode is for explor
           }
 
           // Record exchange in session memory for conversation continuity
+          // NOTE: Use appId (workspace ID) as key so memory persists across mode switches (Ask → Build)
           try {
-            const sessionMemory = getSessionMemory(req.chatId);
+            const sessionMemory = getSessionMemory(chat.appId);
             // Strip XML tags and code blocks for the summary
             const cleanResponse = fullResponse
               .replace(/<[^>]*>/g, '')

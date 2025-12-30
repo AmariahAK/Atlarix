@@ -2,28 +2,25 @@
 
 This file tracks upcoming features, improvements, and known issues.
 
-## 🔥 Critical Bugs (v0.9.1 Fixes)
+## 🔥 Critical Bugs (v0.9.3 Fixes)
 
-### ✅ COMPLETED: Permission System (Option B Hybrid)
-- [x] **Permission Not Triggering**: Fixed - AI now uses native tool calls that block for approval
-  
-  **Fix completed (4 phases)**:
-  1. [x] **Backend Foundation** - `file-tools.ts` returns `{__permission_required: true}`, `interceptor.ts` has `waitForApproval()` blocking
-  2. [x] **Chat Stream Integration** - `chat_stream_handlers.ts` detects permissions, blocks, sends to UI
-  3. [x] **Frontend Wiring** - `pendingProposalsAtom`, `ipc_client.ts` permission methods, `FileDiffPanel.tsx` approve/reject
-  4. [x] **Testing** - Verified with MiniMax on OpenRouter, blocking works, UI displays
-
-### Other Bugs (Lower Priority)
-- [x] **Input Box Clipping**: Fixed - Added `min-h-0` to flex containers + `flex-shrink-0` to input
-- [x] **Chat Scroll**: Fixed - Added `min-h-0` to enable proper overflow
-- [x] **ThinkingCard in Ask Mode**: Fixed - Added `<think>` tag instructions to chat-only prompt
+### Known Issues
+- [ ] **Command Approval Not Showing**: `run_command` permissions not appearing in right panel (needs IPC debugging)
+- [ ] **AI Message Repetition**: Model sometimes repeats previous messages (model behavior issue)
 - [ ] **Right Panel Toggle**: TBD - Keyboard shortcuts not working (Cmd+B conflict with system)
-- [ ] **Diagrams Page Empty**: TBD - Diagrams not showing in sidebar page (cache/fresh analysis issue)
+- [ ] **Diagram Persistence**: TBD - Diagrams need proper database saving/retrieval
 
-### Enhancements for v0.9.1
-- [x] **Session Memory**: In-memory buffer of last 5 exchanges for conversation continuity
+### ✅ COMPLETED: v0.9.2 Enhancements
+- [x] **Smart Project Scaffolding**: AI now uses CLI commands first (npx create-vite, etc.)
+- [x] **Session Memory Persistence**: Memory persists across Ask → Build mode switches
+- [x] **Permission Sound Notification**: Plays `remaining.mp3` when new proposals arrive
+- [x] **SearxNG Template Fallback**: Templates fetched via SearxNG when GitHub rate-limited
+- [x] **Code Copy Button**: Fixed - Copy button now visible on ALL code blocks
+- [x] **Diagram Page Reset**: Fixed - Selected diagram resets when switching workspaces
+- [x] **Sidebar Workspace Selection**: Fixed - Click to select, double-click for new chat
+- [x] **Individual File Approval**: Added "Execute Selected" button for granular file acceptance
+- [x] **Command Safety Wrapper**: Added dangerous pattern blocklist (rm -rf, sudo, curl|bash)
 
----
 
 ## 🎯 Medium Priority (v1.0)
 

@@ -49,11 +49,14 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     // Use the first proposal's chatId since all proposals in a batch share the same chat
     const chatId = proposals[0]?.chatId;
 
-    // Group proposals by directory
+    // Group proposals by directory (commands go in a special 'Commands' group)
     const groupedProposals = useMemo(() => {
         const groups: Record<string, FileProposal[]> = {};
         proposals.forEach(p => {
-            const dir = p.path.split('/').slice(0, -1).join('/') || '/';
+            // Commands go in a special '⚡ Commands' group
+            const dir = p.operation === 'command'
+                ? '⚡ Commands'
+                : (p.path.split('/').slice(0, -1).join('/') || '/');
             if (!groups[dir]) groups[dir] = [];
             groups[dir].push(p);
         });
@@ -129,6 +132,40 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
         });
     };
 
+    // Execute only individually selected (approved) files
+    const handleExecuteSelected = useCallback(async () => {
+        if (!chatId) {
+            console.warn('No chatId available for permission execution');
+            return;
+        }
+
+        if (approvalState.approved.length === 0) {
+            console.warn('No files selected for execution');
+            return;
+        }
+
+        setIsExecuting(true);
+        try {
+            // Execute each approved file individually
+            for (const operationId of approvalState.approved) {
+                await IpcClient.getInstance().executePermission({ chatId, operationId });
+            }
+
+            // Reject the rest (not selected)
+            for (const operationId of approvalState.rejected) {
+                await IpcClient.getInstance().rejectPermission({ chatId, operationId });
+            }
+
+            // Clear pending proposals
+            setPendingProposals([]);
+            console.log(`✅ Executed ${approvalState.approved.length} files, rejected ${approvalState.rejected.length}`);
+        } catch (error) {
+            console.error('Failed to execute selected permissions:', error);
+        } finally {
+            setIsExecuting(false);
+        }
+    }, [chatId, approvalState, setPendingProposals]);
+
     if (proposals.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
@@ -159,6 +196,7 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
                     approvalState={approvalState}
                     onApproveAll={handleApproveAll}
                     onRejectAll={handleRejectAll}
+                    onExecuteSelected={handleExecuteSelected}
                     isExecuting={isExecuting}
                 />
             )}
@@ -199,6 +237,7 @@ function FilesTab({
         modify: { icon: FileEdit, color: 'text-yellow-500', label: '📝' },
         delete: { icon: Trash2, color: 'text-red-500', label: '🗑️' },
         rename: { icon: FileEdit, color: 'text-blue-500', label: '📝' },
+        command: { icon: ChevronRight, color: 'text-purple-500', label: '⚡' },
     };
 
     return (
@@ -227,11 +266,14 @@ function FilesTab({
                     {expandedDirs.has(dir) && (
                         <div className="ml-4 mt-1 space-y-0.5">
                             {files.map((proposal) => {
-                                const opInfo = opIcons[proposal.operation];
+                                const opInfo = opIcons[proposal.operation] || opIcons.create;
                                 const isApproved = approvalState.approved.includes(proposal.id);
                                 const isRejected = approvalState.rejected.includes(proposal.id);
                                 const isSelected = selectedProposal?.id === proposal.id;
-                                const fileName = proposal.path.split('/').pop();
+                                // For commands, show the command text; for files, show the filename
+                                const displayName = proposal.operation === 'command'
+                                    ? (proposal.command?.split(' ').slice(0, 3).join(' ') + '...' || 'Command')
+                                    : proposal.path.split('/').pop();
 
                                 return (
                                     <div
@@ -252,7 +294,7 @@ function FilesTab({
 
                                         {/* File Name */}
                                         <span className="flex-1 text-sm truncate">
-                                            {fileName}
+                                            {displayName}
                                         </span>
 
                                         {/* Approval Status */}
@@ -369,12 +411,14 @@ function ApproveTab({
     approvalState,
     onApproveAll,
     onRejectAll,
+    onExecuteSelected,
     isExecuting = false
 }: {
     proposals: FileProposal[];
     approvalState: { approved: string[]; rejected: string[] };
     onApproveAll: () => void;
     onRejectAll: () => void;
+    onExecuteSelected: () => void;
     isExecuting?: boolean;
 }) {
     const approvedCount = approvalState.approved.length;
@@ -384,14 +428,14 @@ function ApproveTab({
     return (
         <div className="flex flex-col h-full p-4">
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="flex flex-col items-center p-3 rounded-lg bg-muted/30 border border-border">
                     <span className="text-2xl font-bold text-foreground">{pendingCount}</span>
                     <span className="text-xs text-muted-foreground">Pending</span>
                 </div>
                 <div className="flex flex-col items-center p-3 rounded-lg bg-green-500/10 border border-green-500/30">
                     <span className="text-2xl font-bold text-green-500">{approvedCount}</span>
-                    <span className="text-xs text-green-500">Approved</span>
+                    <span className="text-xs text-green-500">Selected</span>
                 </div>
                 <div className="flex flex-col items-center p-3 rounded-lg bg-red-500/10 border border-red-500/30">
                     <span className="text-2xl font-bold text-red-500">{rejectedCount}</span>
@@ -399,29 +443,50 @@ function ApproveTab({
                 </div>
             </div>
 
-            {/* Batch Actions */}
-            <div className="flex gap-3">
+            {/* Instructions */}
+            <p className="text-xs text-muted-foreground mb-4">
+                Toggle files in the Files tab, then execute selected or use batch actions below.
+            </p>
+
+            {/* Primary: Execute Selected */}
+            {approvedCount > 0 && (
                 <button
-                    onClick={onApproveAll}
+                    onClick={onExecuteSelected}
                     disabled={isExecuting}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 mb-4 rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 text-white font-medium hover:from-green-600 hover:to-emerald-600 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isExecuting ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
                         <Check className="w-5 h-5" />
                     )}
+                    Execute Selected ({approvedCount})
+                </button>
+            )}
+
+            {/* Batch Actions */}
+            <div className="flex gap-3">
+                <button
+                    onClick={onApproveAll}
+                    disabled={isExecuting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-green-500/20 text-green-600 border border-green-500/30 font-medium hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isExecuting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                    )}
                     Approve All
                 </button>
                 <button
                     onClick={onRejectAll}
                     disabled={isExecuting}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/20 text-red-600 border border-red-500/30 font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isExecuting ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                        <X className="w-5 h-5" />
+                        <XCircle className="w-4 h-4" />
                     )}
                     Reject All
                 </button>
@@ -434,7 +499,9 @@ function ApproveTab({
                     {proposals.map(p => {
                         const isApproved = approvalState.approved.includes(p.id);
                         const isRejected = approvalState.rejected.includes(p.id);
-                        const fileName = p.path.split('/').pop();
+                        const displayName = p.operation === 'command'
+                            ? (p.command?.split(' ').slice(0, 3).join(' ') + '...' || 'Command')
+                            : p.path.split('/').pop();
 
                         return (
                             <li key={p.id} className="flex items-center gap-2">
@@ -442,7 +509,7 @@ function ApproveTab({
                                 {isRejected && <XCircle className="w-3 h-3 text-red-500" />}
                                 {!isApproved && !isRejected && <div className="w-3 h-3 rounded-full border border-muted-foreground" />}
                                 <span className={cn(isRejected && "line-through")}>
-                                    {p.operation} {fileName}
+                                    {p.operation} {displayName}
                                 </span>
                             </li>
                         );

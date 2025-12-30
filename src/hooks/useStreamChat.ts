@@ -17,6 +17,7 @@ import {
   rightPanelVisibleAtom,
   pendingProposalsAtom,
   diagramStateAtom,
+  previewTabAtom,
   type SourceItem,
   type FileProposal,
   type DiagramState,
@@ -37,7 +38,7 @@ import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
-import { playNotify } from "@/lib/sounds";
+import { playNotify, playRemaining } from "@/lib/sounds";
 
 /**
  * Extract domain from URL
@@ -99,6 +100,7 @@ export function useStreamChat({
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
+  const setPreviewTab = useSetAtom(previewTabAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -161,8 +163,9 @@ export function useStreamChat({
               ? request.preview
               : [request.preview];
 
-            const proposals: FileProposal[] = previews
-              .filter((p: any) => p.path) // Only file operations
+            // Handle file operations
+            const fileProposals: FileProposal[] = previews
+              .filter((p: any) => p.path) // File operations have a path
               .map((p: any) => ({
                 id: payload.operationId,
                 chatId,  // Include the chat session ID for approval
@@ -175,9 +178,37 @@ export function useStreamChat({
                 approved: false,
               }));
 
+            // Handle command operations
+            const commandProposals: FileProposal[] = previews
+              .filter((p: any) => p.command || p.type === 'command') // Command operations
+              .map((p: any) => ({
+                id: payload.operationId,
+                chatId,
+                path: '',  // Commands don't have a path
+                operation: 'command' as const,
+                command: p.command || p.content,
+                workingDir: p.workingDir || p.cwd || '.',
+                description: p.description || `Run: ${p.command || p.content}`,
+                approved: false,
+              }));
+
+            const allProposals = [...fileProposals, ...commandProposals];
+
             // Add to pending proposals
-            setPendingProposals((prev) => [...prev, ...proposals]);
-            setRightPanelVisible(true); // Show panel for approval
+            setPendingProposals((prev) => {
+              const newProposals = [...prev, ...allProposals];
+
+              // If we had proposals before and got more, play sound to alert user
+              if (prev.length > 0 && allProposals.length > 0) {
+                playRemaining();
+              }
+
+              return newProposals;
+            });
+
+            // Show panel and force Code tab so user sees new files/commands
+            setRightPanelVisible(true);
+            setPreviewTab('code');
           }
         );
 

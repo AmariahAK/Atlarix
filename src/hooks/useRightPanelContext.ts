@@ -25,6 +25,7 @@ import {
     diagramStateAtom,
     pinnedPanelAtom,
     previewTabAtom,
+    devServerUrlAtom,
 } from '@/atoms/sourceAtoms';
 
 // Tab configurations for each panel type
@@ -55,6 +56,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     const toolTimeline = useAtomValue(toolTimelineAtom);
     const terminalOutput = useAtomValue(terminalOutputAtom);
     const diagramState = useAtomValue(diagramStateAtom);
+    const devServerUrl = useAtomValue(devServerUrlAtom);  // Lovable-style live preview
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
 
@@ -85,12 +87,17 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'terminal';
         }
 
-        // Priority 5: Check for any recent sources (might have been from earlier)
+        // Priority 5: Live preview (dev server running)
+        if (devServerUrl) {
+            return 'code-preview';
+        }
+
+        // Priority 6: Check for any recent sources (might have been from earlier)
         if (sources.length > 0) {
             return 'web-search';
         }
 
-        // Priority 6: Check for any diagram
+        // Priority 7: Check for any diagram
         if (diagramState) {
             return 'diagram';
         }
@@ -98,7 +105,7 @@ export function useRightPanelContext(): RightPanelContextResult {
         // Default: empty
         // Note: Tool activity removed - ThinkingCard shows tool calls
         return 'empty';
-    }, [sources, proposals, lastToolCall, diagramState, terminalOutput]);
+    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl]);
 
     // Use pinned panel if set, otherwise use detected type
     const effectiveType = pinnedPanel ?? detectedType;
@@ -120,6 +127,7 @@ export function useRightPanelContext(): RightPanelContextResult {
                 diagramState,
                 terminalOutput,
                 toolTimeline,
+                devServerUrl,
             }),
         };
     }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline]);
@@ -142,6 +150,7 @@ function getDataForType(
         diagramState: any;
         terminalOutput: any;
         toolTimeline: any[];
+        devServerUrl: string | null;
     }
 ) {
     switch (type) {
@@ -155,6 +164,8 @@ function getDataForType(
             return state.terminalOutput;
         case 'tools':
             return { timeline: state.toolTimeline };
+        case 'code-preview':
+            return { url: state.devServerUrl };  // Live preview URL
         default:
             return null;
     }

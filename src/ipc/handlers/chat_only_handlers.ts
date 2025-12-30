@@ -241,7 +241,10 @@ export async function handleChatOnlyStream(
         }));
 
         // Get session memory for conversation continuity
-        const sessionMemory = getSessionMemory(req.chatId);
+        // For ephemeral workspace chats, use appId so memory persists across mode switches
+        // For pure chat-only, use chatId
+        const memoryKey = chat.appId ?? req.chatId;
+        const sessionMemory = getSessionMemory(memoryKey);
         const sessionContext = sessionMemory.getContextForPrompt();
         let systemPrompt = CHAT_ONLY_SYSTEM_PROMPT;
         if (sessionContext) {

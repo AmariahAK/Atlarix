@@ -54,22 +54,33 @@ export default function DiagramPage() {
     // Load diagrams when workspace changes
     useEffect(() => {
         if (selectedWorkspace) {
+            // Reset selected diagram when switching workspaces
+            setSelectedDiagram(null);
             loadDiagrams(selectedWorkspace.id);
         }
     }, [selectedWorkspace]);
 
     const loadDiagrams = async (workspaceId: number) => {
+        console.log(`📊 [DiagramPage] Loading diagrams for workspace ${workspaceId}`);
         setLoadingDiagrams(true);
         try {
             const result = await IpcClient.getInstance().listDiagrams({ workspaceId });
+            console.log(`📊 [DiagramPage] Result:`, result);
+
             if (result.success) {
                 setDiagrams(result.diagrams);
-                if (result.diagrams.length > 0 && !selectedDiagram) {
+                // Auto-select first diagram
+                if (result.diagrams.length > 0) {
                     setSelectedDiagram(result.diagrams[0]);
                 }
+                console.log(`📊 [DiagramPage] Loaded ${result.diagrams.length} diagrams`);
+            } else {
+                console.error(`📊 [DiagramPage] Error:`, result.error);
+                setDiagrams([]);
             }
         } catch (error) {
-            console.error("Failed to load diagrams:", error);
+            console.error("📊 [DiagramPage] Failed to load diagrams:", error);
+            setDiagrams([]);
         } finally {
             setLoadingDiagrams(false);
         }

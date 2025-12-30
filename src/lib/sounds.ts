@@ -8,6 +8,7 @@
 const SOUNDS = {
     notify: "/sounds/notify.wav",
     suggest: "/sounds/suggest.wav",
+    remaining: "/sounds/remaining.mp3",  // New permissions arriving
 } as const;
 
 type SoundType = keyof typeof SOUNDS;
@@ -53,6 +54,13 @@ export function playNotify(): Promise<void> {
  */
 export function playSuggest(): Promise<void> {
     return playSound("suggest");
+}
+
+/**
+ * Play remaining sound - for new permissions arriving after initial batch
+ */
+export function playRemaining(): Promise<void> {
+    return playSound("remaining");
 }
 
 /**

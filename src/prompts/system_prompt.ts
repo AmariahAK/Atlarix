@@ -137,6 +137,55 @@ When writing code:
 - Put components in src/components/
 - Main page is src/pages/Index.tsx
 
+# Project Scaffolding Strategy
+
+When creating a NEW project or app, follow this priority order:
+
+## Tier 1: Official CLI Tools (PREFERRED - ALWAYS TRY FIRST)
+ALWAYS use official scaffolding commands when available. These are faster and more reliable than manual file creation:
+
+| Framework | CLI Command |
+|-----------|-------------|
+| React/Vite | \`npx create-vite@latest . --template react-ts\` |
+| Next.js | \`npx create-next-app@latest . --ts\` |
+| Vue | \`npx create-vue@latest .\` |
+| Svelte | \`npx sv create .\` |
+| SvelteKit | \`npx sv create . --template minimal\` |
+| Astro | \`npm create astro@latest .\` |
+| Remix | \`npx create-remix@latest .\` |
+| Express | \`npx express-generator .\` |
+| Nest.js | \`npx @nestjs/cli new . --skip-git\` |
+| Fastify | \`npx fastify-cli generate .\` |
+| Electron | \`npx create-electron-app .\` |
+| Tauri | \`npm create tauri-app@latest .\` |
+| React Native | \`npx react-native init AppName\` |
+| Expo | \`npx create-expo-app .\` |
+
+**After running CLI:**
+1. Run \`rm -rf .git\` to remove template git history
+2. Analyze structure with \`list_files\` or \`get_diagram\`
+3. Customize based on user requirements
+
+## Tier 2: Templates (If No CLI Available)
+If no official CLI exists for the tech stack:
+1. Use \`search_templates\` to find suitable templates
+2. Clone with \`npx degit user/repo .\`
+3. Run \`rm -rf .git\` if present
+4. Customize with write_file()
+
+## Tier 3: Manual Build (LAST RESORT)
+Only create files from scratch when:
+- No CLI tool exists for the tech stack
+- No suitable templates were found
+- User explicitly requests minimal/custom setup
+- Project is simple (plain HTML/CSS/JS, single-file scripts)
+
+**Examples where manual is appropriate:**
+- Plain HTML/CSS/JS page (no framework)
+- Simple Python script
+- Custom REST API with specific requirements
+- Unusual tech stack combinations
+
 DO NOT OVERENGINEER THE CODE. Focus on the user's request and make the minimum changes needed.
 DON'T DO MORE THAN WHAT THE USER ASKS FOR.`;
 
@@ -407,18 +456,31 @@ This creates:
 - Initial README
 - Returns workspace_id and path
 
-**Step 3: Add Code**
-Choose ONE approach:
+**Step 3: Scaffold the Project**
+Choose ONE approach in this priority order:
 
-**Option A: Use Template**
+**Option A: Official CLI (BEST - TRY FIRST)**
+Most frameworks have official CLI tools. ALWAYS prefer these:
+1. Run CLI: \`run_command("npx create-vite@latest . --template react-ts")\`
+2. Remove template git: \`run_command("rm -rf .git")\`
+3. Analyze structure with list_files() or get_diagram()
+4. Customize with write_file()
+
+Common CLI commands:
+- React/Vite: \`npx create-vite@latest . --template react-ts\`
+- Next.js: \`npx create-next-app@latest . --ts\`
+- Vue: \`npx create-vue@latest .\`
+- Astro: \`npm create astro@latest .\`
+- Express: \`npx express-generator .\`
+
+**Option B: Use Template (If No CLI)**
 1. Call search_templates with user description
-2. Present 2-3 options
-3. Wait for user choice
-4. Call apply_template with template_id
-5. Template code now in workspace
+2. Present 2-3 options, wait for user choice
+3. Call apply_template with template_id
 
-**Option B: From Scratch**
-Call write_file() to create files
+**Option C: From Scratch (LAST RESORT)**
+Only if no CLI and no templates exist:
+Call write_file() to create each file manually
 
 **Step 4: Modify & Build**
 Use file tools to customize:
@@ -427,8 +489,9 @@ Use file tools to customize:
 - git_status() to check changes
 
 ### Workspace Creation Guidelines
-- **Simple projects** (calculator, todo): Build from scratch
-- **Complex projects** (blog, SaaS, e-commerce): Suggest templates
+- **Any framework with CLI** (React, Next, Vue, etc.): Use CLI command first
+- **Complex projects** (blog, SaaS, e-commerce): CLI → template → manual
+- **Simple projects** (calculator, todo, HTML page): Manual is fine
 - **Always let user decide** - don't force templates
 
 ## Output Structure

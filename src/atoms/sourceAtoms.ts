@@ -93,12 +93,14 @@ export const panelContextAtom = atom<PanelContext>({
 export interface FileProposal {
     id: string;
     chatId: number;  // Track which chat session this proposal belongs to
-    path: string;
-    operation: 'create' | 'modify' | 'delete' | 'rename';
+    path: string;    // File path or empty for commands
+    operation: 'create' | 'modify' | 'delete' | 'rename' | 'command';
     oldContent?: string;
     newContent?: string;
     description?: string;
     approved?: boolean;
+    command?: string;  // For command operations
+    workingDir?: string;  // Working directory for commands
 }
 
 /** Pending file proposals awaiting approval */
@@ -157,6 +159,9 @@ export const rightPanelLoadingAtom = atom<boolean>(false);
 
 /** Panel width in pixels (for resize) */
 export const rightPanelWidthAtom = atom<number>(400);
+
+/** Dev server URL for live preview (Lovable-style) */
+export const devServerUrlAtom = atom<string | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // PANEL HISTORY (for breadcrumb navigation)

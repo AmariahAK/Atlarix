@@ -40,6 +40,7 @@ import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
 import { registerDiagramTimelineHandlers } from "./handlers/diagram_timeline_handlers";
 import "./handlers/diagram_handlers"; // Auto-registers on import
+import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
 export function registerIpcHandlers() {
   // Register all IPC handlers by category

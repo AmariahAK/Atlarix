@@ -1648,6 +1648,63 @@ export class IpcClient {
   }): Promise<{ success: boolean; data?: string; error?: string }> {
     return this.ipcRenderer.invoke("diagram:export", params);
   }
+
+  // ============================================
+  // DEV SERVER METHODS (Lovable-style Live Preview)
+  // ============================================
+
+  /**
+   * Check if a workspace is a frontend project
+   */
+  public async isFrontendProject(workspaceId: number): Promise<{
+    isFrontend: boolean;
+    framework?: string | null;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("dev-server:is-frontend", { workspaceId });
+  }
+
+  /**
+   * Start the dev server for a workspace
+   */
+  public async startDevServer(workspaceId: number): Promise<{
+    success: boolean;
+    url?: string;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("dev-server:start", { workspaceId });
+  }
+
+  /**
+   * Stop the dev server for a workspace
+   */
+  public async stopDevServer(workspaceId: number): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("dev-server:stop", { workspaceId });
+  }
+
+  /**
+   * Get the status of a dev server
+   */
+  public async getDevServerStatus(workspaceId: number): Promise<{
+    success: boolean;
+    isRunning: boolean;
+    url: string | null;
+  }> {
+    return this.ipcRenderer.invoke("dev-server:status", { workspaceId });
+  }
+
+  /**
+   * Get all running dev servers
+   */
+  public async listRunningDevServers(): Promise<{
+    success: boolean;
+    servers: Array<{ workspaceId: number; url: string | null; framework: string }>;
+  }> {
+    return this.ipcRenderer.invoke("dev-server:list-running");
+  }
 }
 
 // Export function to get SearxNG config from main process (for use in main process only)

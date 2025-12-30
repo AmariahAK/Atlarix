@@ -2,6 +2,25 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.2] - 2025-12-30
+
+### 🚀 New Features
+- **Smart Project Scaffolding**: AI now uses CLI commands first (`npx create-vite`, `npx create-next-app`, etc.) instead of writing files from scratch
+- **Session Memory Persistence**: Memory now persists across Ask → Build mode switches (keyed by appId instead of chatId)
+- **Permission Sound Notification**: Plays `remaining.mp3` when new file proposals arrive after initial batch approved
+- **SearxNG Template Fallback**: When GitHub API is rate-limited, templates are fetched via SearxNG search
+
+### 🔧 Technical Improvements
+- **scaffold_commands.ts**: New library with 25+ framework CLI mappings
+- **Command Approval UI**: Extended `FileProposal` type to support `command` operations
+- **FileDiffPanel**: Commands now grouped under "⚡ Commands" with purple icon
+
+### 🐛 Known Issues
+- **Command Approval Not Showing**: `run_command` permissions not appearing in right panel (needs deeper investigation)
+- **AI Repetition**: Model sometimes repeats previous messages (model behavior, not code issue)
+
+---
+
 ## [v0.9.1] - 2025-12-29
 
 ### ✅ Bug Fixes
