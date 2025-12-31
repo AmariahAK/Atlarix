@@ -1408,6 +1408,19 @@ If the user requests modifications, politely explain that Ask mode is for explor
             // Register interceptor for IPC handlers (so UI can approve/reject)
             registerInterceptor(req.chatId, permissionInterceptor);
 
+            // Listen for terminal output events and forward to frontend
+            permissionInterceptor.on('terminal-output', (payload: any) => {
+              safeSend(event.sender, "terminal-output", {
+                chatId: req.chatId,
+                commandId: payload.operationId,
+                command: payload.command,
+                output: payload.output,
+                status: payload.status,
+                exitCode: payload.exitCode,
+              });
+              logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
+            });
+
             // Convert to tool set format expected by AI SDK
             const tools: ToolSet = {};
             for (const tool of buildModeTools) {
@@ -1480,23 +1493,184 @@ If the user requests modifications, politely explain that Ask mode is for explor
 
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
 
-            const { fullStream } = await simpleStreamText({
-              chatMessages,
-              modelClient,
-              tools,
-              files: files,
-            });
+            // ═══════════════════════════════════════════════════════════════
+            // AGENTIC TOOL LOOP
+            // For models that use text-based tool calls (MiniMax, etc.),
+            // we need to loop: execute tools → feed results back → let AI continue
+            // ═══════════════════════════════════════════════════════════════
+            const MAX_AGENTIC_ITERATIONS = 5;
+            let agenticIteration = 0;
+            let agenticMessages = [...chatMessages]; // Copy current messages
+            let allToolResults: { tool: string; result: string }[] = [];
 
-            // Process the stream
+            const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
+
             try {
-              const result = await processStreamChunks({
-                fullStream,
-                fullResponse,
-                abortController,
-                chatId: req.chatId,
-                processResponseChunkUpdate,
-              });
-              fullResponse = result.fullResponse;
+              while (agenticIteration < MAX_AGENTIC_ITERATIONS) {
+                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1}/${MAX_AGENTIC_ITERATIONS}`);
+
+                const { fullStream } = await simpleStreamText({
+                  chatMessages: agenticMessages,
+                  modelClient,
+                  tools,
+                  files: files,
+                });
+
+                // Process the stream
+                const result = await processStreamChunks({
+                  fullStream,
+                  fullResponse,
+                  abortController,
+                  chatId: req.chatId,
+                  processResponseChunkUpdate,
+                });
+                fullResponse = result.fullResponse;
+
+                // Check for text-based tool calls (MiniMax, Claude XML, etc.)
+                if (!containsTextToolCall(fullResponse)) {
+                  logger.log("[Agentic Loop] No text-based tool calls detected, ending loop");
+                  break;
+                }
+
+                logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
+                const textToolCalls = parseTextToolCalls(fullResponse);
+
+                if (textToolCalls.length === 0) {
+                  logger.log("[Agentic Loop] No parseable tool calls found, ending loop");
+                  break;
+                }
+
+                // Execute all text-based tools
+                const iterationResults: { tool: string; result: string }[] = [];
+                let hasPermissionRequest = false;
+
+                for (const toolCall of textToolCalls) {
+                  try {
+                    if (!tools[toolCall.toolName]) {
+                      logger.warn(`[Agentic Loop] Unknown tool: ${toolCall.toolName}`);
+                      iterationResults.push({
+                        tool: toolCall.toolName,
+                        result: `Error: Unknown tool "${toolCall.toolName}"`,
+                      });
+                      continue;
+                    }
+
+                    logger.log(`[Agentic Loop] Executing: ${toolCall.toolName}`, toolCall.args);
+
+                    // Add workspace path to args
+                    const argsWithWorkspace = {
+                      ...toolCall.args,
+                      workspace: workspacePath || undefined,
+                      chatMode: "build",
+                    };
+
+                    // Execute tool
+                    const toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);
+
+                    // Check if this is a permission request
+                    if (permissionInterceptor.isPermissionRequest(toolResult)) {
+                      const permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
+                      if (permRequest) {
+                        const operationId = permissionInterceptor.generateOperationId();
+                        permissionInterceptor.bufferOperation(operationId, permRequest);
+
+                        // Send permission request to frontend
+                        safeSend(event.sender, "permission-request", {
+                          chatId: req.chatId,
+                          operationId,
+                          request: permRequest,
+                        });
+
+                        logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
+                        hasPermissionRequest = true;
+
+                        // Wait for approval
+                        try {
+                          const approved = await permissionInterceptor.waitForApproval(operationId);
+                          if (approved) {
+                            const execResult = permissionInterceptor.getExecutionResult(operationId);
+                            iterationResults.push({
+                              tool: toolCall.toolName,
+                              result: JSON.stringify({
+                                success: true,
+                                message: `Operation completed`,
+                                path: execResult.path,
+                              }),
+                            });
+                          } else {
+                            iterationResults.push({
+                              tool: toolCall.toolName,
+                              result: JSON.stringify({
+                                success: false,
+                                error: "Permission denied by user",
+                              }),
+                            });
+                          }
+                        } catch (error) {
+                          iterationResults.push({
+                            tool: toolCall.toolName,
+                            result: JSON.stringify({
+                              success: false,
+                              error: `Permission timeout: ${error instanceof Error ? error.message : String(error)}`,
+                            }),
+                          });
+                        }
+                      }
+                    } else {
+                      // Tool executed directly
+                      const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+                      iterationResults.push({
+                        tool: toolCall.toolName,
+                        result: resultStr,
+                      });
+                      logger.log(`[Agentic Loop] Tool executed: ${toolCall.toolName} ✓`);
+                    }
+                  } catch (toolError) {
+                    logger.error(`[Agentic Loop] Tool error: ${toolCall.toolName}`, toolError);
+                    iterationResults.push({
+                      tool: toolCall.toolName,
+                      result: `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`,
+                    });
+                  }
+                }
+
+                // Store all tool results
+                allToolResults.push(...iterationResults);
+
+                // Format tool results to feed back to AI
+                const toolResultsMessage = iterationResults.map(r =>
+                  `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`
+                ).join('\n\n');
+
+                // Add assistant's response (with tool calls) to message history
+                agenticMessages.push({
+                  role: 'assistant' as const,
+                  content: fullResponse,
+                });
+
+                // Add tool results as a user message so AI can continue
+                agenticMessages.push({
+                  role: 'user' as const,
+                  content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
+                });
+
+                // Reset fullResponse for next iteration (AI will generate new response)
+                fullResponse = '';
+                agenticIteration++;
+
+                // If we hit permission requests, the AI should continue after approval
+                if (hasPermissionRequest) {
+                  logger.log("[Agentic Loop] Had permission requests, continuing loop...");
+                }
+              }
+
+              if (agenticIteration >= MAX_AGENTIC_ITERATIONS) {
+                logger.warn(`[Agentic Loop] Hit max iterations (${MAX_AGENTIC_ITERATIONS})`);
+              }
+
+              logger.log(`[Agentic Loop] Completed after ${agenticIteration + 1} iteration(s), ${allToolResults.length} tools executed`);
+              // ═══════════════════════════════════════════════════════════════
+
             } catch (streamError) {
               // Check if this was an abort error
               if (abortController.signal.aborted) {

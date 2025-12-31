@@ -11,10 +11,16 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 
 ## ✨ Features
 
-### 🚀 Smart Scaffolding (NEW in v0.9.2!)
+### 🚀 Smart Scaffolding (v0.9.2+)
 - **CLI-First Approach** - AI uses `npx create-vite`, `npx create-next-app` etc. instead of writing files manually
 - **25+ Framework Support** - React, Next.js, Vue, Svelte, Astro, Express, NestJS, Electron, and more
 - **Template Fallback** - Falls back to SearxNG template search when GitHub API is rate-limited
+
+### 📊 AI Diagram System (NEW in v0.9.4!)
+- **Real AI Generation** - Diagrams created by analyzing your actual codebase
+- **Pan/Zoom Controls** - Drag to pan, scroll to zoom, control buttons (+, -, Reset, Center)
+- **Version History** - Browse and restore previous diagram versions
+- **Professional UX** - Like Figma/Excalidraw for architecture diagrams
 
 ### 🔐 Permission System (v0.9.0+)
 - **Tool Approval Flow** - AI proposes changes, you approve before execution
@@ -49,7 +55,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Smart Snapshots** - Auto-capture when code changes
 - **Time Drill-Down** - Navigate from "All Time" to hourly
 
-### ⚠️ Known Issues (v0.9.2)
+### ⚠️ Known Issues (v0.9.4)
 - **Command Approval** - `run_command` permissions not showing in right panel
 - **AI Repetition** - Model occasionally repeats previous messages
 
@@ -73,14 +79,10 @@ npm start
 
 ---
 
-## ⚠️ Known Issues (v0.9.0)
+## ⚠️ Known Issues (v0.9.4)
 
-- **Permission Not Triggering** - AI may hallucinate tool calls
-- **Input Box Clipping** - Bottom half hidden after first prompt
-- **Chat Scroll** - Cannot scroll to previous messages
-- **ThinkingCard Glitch** - Flickers during streaming
-- **Right Panel Empty** - May show "No content" instead of code
-- **Diagrams** - Timeline filter needs fixes
+- **Command Approval** - AI tool calls for `run_command` may not appear in right panel
+- **AI Repetition** - Model sometimes repeats previous messages (model behavior, not code issue)
 
 See [TODO.md](./TODO.md) for full list and roadmap.
 

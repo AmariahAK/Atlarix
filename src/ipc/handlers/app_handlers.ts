@@ -1164,24 +1164,44 @@ export function registerAppHandlers() {
         }
 
         // Delete app files
-        const appPath = getAtlarixAppPath(app.path);
+        // IMPORT FIX: Imported apps store absolute path in DB, but files are copied to ~/.atlarix-apps/<appName>
+        // getAtlarixAppPath(absolutePath) allows invalid paths like ~/.atlarix-apps/Users/...
+        // We must ensure we delete the ACTUAL internal folder.
+
+        // 1. Always try to delete the internal folder based on the app name
+        const internalPath = getAtlarixAppPath(app.name);
         try {
-          await fsPromises.rm(appPath, { recursive: true, force: true });
-          logger.log(`Deleted app files for app ${appId} at ${appPath}`);
+          if (fs.existsSync(internalPath)) {
+            await fsPromises.rm(internalPath, { recursive: true, force: true });
+            logger.log(`Deleted internal app files for ${app.name} at ${internalPath}`);
+          }
         } catch (error: any) {
-          logger.error(`Error deleting app files for app ${appId}:`, error);
-          throw new Error(
-            `App deleted from database, but failed to delete app files. Please delete app files from ${appPath} manually.\n\nError: ${error.message}`,
-          );
+          logger.error(`Error deleting internal app files for ${app.name}:`, error);
+          // Don't throw yet, try to clean up legacy path if needed
+        }
+
+        // 2. Check the stored path. If it's different from internal path and NOT absolute (legacy created apps), delete it.
+        // If it's absolute, it's an imported app source (or garbage), so we DO NOT delete it for safety.
+        // (Atlarix works on the copy, so touching source is dangerous unless we are sure)
+        if (!path.isAbsolute(app.path) && app.path !== app.name) {
+          const legacyPath = getAtlarixAppPath(app.path);
+          if (legacyPath !== internalPath && fs.existsSync(legacyPath)) {
+            try {
+              await fsPromises.rm(legacyPath, { recursive: true, force: true });
+              logger.log(`Deleted legacy app files at ${legacyPath}`);
+            } catch (e) {
+              logger.warn(`Failed to delete legacy path ${legacyPath}: ${e}`);
+            }
+          }
         }
 
         // Clean up workspace data (.atlarix folder and modifications)
         try {
-          await onWorkspaceRemoved(appPath);
-          logger.info(`Workspace cleanup completed for: ${appPath}`);
+          await onWorkspaceRemoved(internalPath);
+          logger.info(`Workspace cleanup completed for: ${internalPath}`);
         } catch (error: any) {
           // Log error but don't fail the deletion since main app is already deleted
-          logger.error(`Error during workspace cleanup for ${appPath}:`, error);
+          logger.error(`Error during workspace cleanup for ${internalPath}:`, error);
         }
       });
     },

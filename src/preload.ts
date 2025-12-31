@@ -176,6 +176,15 @@ const validInvokeChannels = [
   "execute-all-permissions",
   "reject-all-permissions",
   "get-pending-permissions",
+  // Diagram system
+  "diagram:list",
+  "diagram:get",
+  "diagram:generate",
+  "diagram:generate-ai",
+  "diagram:update",
+  "diagram:delete",
+  "diagram:history",
+  "diagram:restore",
 ];
 
 // Add valid receive channels
@@ -197,6 +206,7 @@ const validReceiveChannels = [
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
+  "terminal-output",
   "chat:workspace-diagram",
 ] as const;
 

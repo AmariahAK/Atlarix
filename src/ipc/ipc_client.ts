@@ -128,6 +128,7 @@ export class IpcClient {
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
   private permissionHandlers: Map<number, (payload: any) => void>;
   private diagramHandlers: Map<number, (payload: any) => void>;
+  private terminalHandlers: Map<number, (payload: any) => void>;
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -136,6 +137,7 @@ export class IpcClient {
     this.mcpConsentHandlers = new Map();
     this.permissionHandlers = new Map();
     this.diagramHandlers = new Map();
+    this.terminalHandlers = new Map();
     // Set up listeners for stream events
     this.ipcRenderer.on("chat:response:chunk", (data) => {
       if (
@@ -298,6 +300,19 @@ export class IpcClient {
         const handler = this.diagramHandlers.get(chatId);
         if (handler) {
           handler(payload);
+        }
+      }
+    });
+
+    // Terminal output from main (command execution)
+    this.ipcRenderer.on("terminal-output", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload;
+        const handler = this.terminalHandlers.get(chatId);
+        if (handler) {
+          handler(payload);
+        } else {
+          console.log("[IPC] Terminal output received:", payload);
         }
       }
     });
@@ -1094,6 +1109,27 @@ export class IpcClient {
       this.diagramHandlers.delete(chatId);
     };
   }
+
+  /**
+   * Register a handler for terminal output events for a specific chat
+   * Returns unsubscribe function
+   */
+  public onTerminalOutput(
+    chatId: number,
+    handler: (payload: {
+      chatId: number;
+      commandId: string;
+      command: string;
+      output: string;
+      status: 'running' | 'completed' | 'error';
+      exitCode?: number;
+    }) => void
+  ): () => void {
+    this.terminalHandlers.set(chatId, handler);
+    return () => {
+      this.terminalHandlers.delete(chatId);
+    };
+  }
   // --- End Permission Management ---
 
   // --- Supabase Management ---
@@ -1597,6 +1633,13 @@ export class IpcClient {
     metadata?: { files?: string[]; entities?: string[]; focus?: string };
   }): Promise<{ success: boolean; diagram?: any; error?: string }> {
     return this.ipcRenderer.invoke("diagram:generate", input);
+  }
+
+  public async generateAiDiagram(input: {
+    workspaceId: number;
+    title?: string;
+  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
+    return this.ipcRenderer.invoke("diagram:generate-ai", input);
   }
 
   public async listDiagrams(params: { workspaceId?: number }): Promise<{

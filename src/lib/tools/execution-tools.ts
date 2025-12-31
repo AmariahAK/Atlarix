@@ -38,8 +38,27 @@ ToolRegistry.register({
         ["command", "description"]
     ),
     handler: async ({ command, cwd = ".", description }) => {
-        // Return permission request
-        return `__PERMISSION_REQUIRED__\n⚡ Run Command: ${description}\n\nCommand: \`${command}\`\nDirectory: ${cwd}\n\n⚠️  This will execute on your system.\n\n[Approve] [Reject]`;
+        // Check for dangerous patterns
+        const dangerousPatterns = [
+            /rm\s+-rf/,
+            /sudo/,
+            /curl.*\|.*bash/,
+            /wget.*\|.*sh/,
+            /chmod\s+777/,
+        ];
+        const isDangerous = dangerousPatterns.some(pattern => pattern.test(command));
+
+        // Return structured permission request (JSON format)
+        return {
+            __permission_required: true,
+            operation: "run_command",
+            preview: {
+                command,
+                workingDirectory: cwd,
+                description,
+                isDangerous,
+            },
+        };
     },
 });
 
@@ -124,5 +143,71 @@ ToolRegistry.register({
         }
 
         return `__PERMISSION_REQUIRED__\n${prompt}\n\n[Your response]`;
+    },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROJECT ENVIRONMENT INFO
+// ═══════════════════════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+    name: "get_project_info",
+    description:
+        "Get information about the current project (framework, available npm scripts, dependencies). ALWAYS call this BEFORE running any npm/yarn commands to get the correct command syntax for this project.",
+    category: ToolCategory.EXECUTION,
+    cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Safe - only reads package.json
+    parameters: createParameters(
+        {
+            info_type: stringParam(
+                "What info to get: 'scripts' (npm scripts), 'dev' (how to start dev server), 'build' (how to build), 'framework' (what framework), 'all' (everything)"
+            ),
+            workspace: stringParam("Workspace path (automatically provided)"),
+        },
+        ["info_type"]
+    ),
+    handler: async (params: { info_type?: string; workspace?: string }) => {
+        // Import dynamically to avoid circular dependencies
+        const { detectProjectEnvironment, getProjectSummary } = await import("../project_environment");
+
+        const workspace = params.workspace || process.cwd();
+        const env = await detectProjectEnvironment(workspace);
+
+        if (!env.hasPackageJson) {
+            return "No package.json found in this workspace. This might not be a Node.js project.";
+        }
+
+        const info_type = params.info_type;
+
+        switch (info_type?.toLowerCase()) {
+            case 'dev':
+            case 'start':
+                if (env.devCommand) {
+                    return `To start the development server, run: ${env.devCommand}\n\nAvailable scripts: ${env.scripts.dev ? 'npm run dev' : ''} ${env.scripts.start ? 'npm start' : ''}`.trim();
+                }
+                return "No dev/start script found in package.json.";
+
+            case 'build':
+                if (env.buildCommand) {
+                    return `To build the project, run: ${env.buildCommand}`;
+                }
+                return "No build script found in package.json.";
+
+            case 'scripts':
+                const scriptLines = Object.entries(env.scripts)
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => `  npm run ${k} → ${v}`)
+                    .join('\n');
+                return scriptLines || "No scripts defined in package.json.";
+
+            case 'framework':
+                return `Framework: ${env.framework}${env.name ? `\nProject: ${env.name}` : ''}`;
+
+            case 'all':
+            default:
+                return getProjectSummary(env);
+        }
     },
 });

@@ -11,12 +11,14 @@
  * - Auto-starts when workspace is selected
  * - Provides live preview URL
  * - Stops server on workspace switch
+ * - Syncs URL to devServerUrlAtom for right panel
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { IpcClient } from '@/ipc/ipc_client';
-import { useAtomValue } from 'jotai';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
+import { devServerUrlAtom, rightPanelVisibleAtom, previewTabAtom } from '@/atoms/sourceAtoms';
 
 interface DevServerState {
     url: string | null;
@@ -45,6 +47,11 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
 
     const previousWorkspaceId = useRef<number | null>(null);
 
+    // Sync to global atoms for right panel access
+    const setDevServerUrl = useSetAtom(devServerUrlAtom);
+    const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+    const setPreviewTab = useSetAtom(previewTabAtom);
+
     // Check if frontend and get status on mount/workspace change
     useEffect(() => {
         if (!workspaceId) {
@@ -56,6 +63,7 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                 framework: null,
                 error: null,
             });
+            setDevServerUrl(null);
             return;
         }
 
@@ -80,6 +88,7 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                         framework: null,
                         error: null,
                     });
+                    setDevServerUrl(null);
                     return;
                 }
 
@@ -95,6 +104,11 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                         framework: frontendCheck.framework || null,
                         error: null,
                     });
+                    // Sync to global atom and show preview
+                    setDevServerUrl(status.url);
+                    setRightPanelVisible(true);
+                    setPreviewTab('preview');
+                    console.log(`🌐 Dev server running at ${status.url}`);
                 } else {
                     // Auto-start the dev server
                     console.log(`🚀 Auto-starting dev server for workspace ${workspaceId}`);
@@ -111,12 +125,20 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                             framework: frontendCheck.framework || null,
                             error: null,
                         });
+                        // Sync to global atom and show preview
+                        if (result.url) {
+                            setDevServerUrl(result.url);
+                            setRightPanelVisible(true);
+                            setPreviewTab('preview');
+                            console.log(`🌐 Dev server started at ${result.url}`);
+                        }
                     } else {
                         setState(s => ({
                             ...s,
                             isStarting: false,
                             error: result.error || 'Failed to start dev server',
                         }));
+                        setDevServerUrl(null);
                     }
                 }
             } catch (error) {
@@ -126,11 +148,12 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                     error: String(error),
                     isStarting: false,
                 }));
+                setDevServerUrl(null);
             }
         };
 
         checkAndStart();
-    }, [workspaceId]);
+    }, [workspaceId, setDevServerUrl, setRightPanelVisible, setPreviewTab]);
 
     // Manual start
     const start = useCallback(async () => {
@@ -147,12 +170,19 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                     isRunning: true,
                     isStarting: false,
                 }));
+                // Sync to global atom
+                if (result.url) {
+                    setDevServerUrl(result.url);
+                    setRightPanelVisible(true);
+                    setPreviewTab('preview');
+                }
             } else {
                 setState(s => ({
                     ...s,
                     isStarting: false,
                     error: result.error || 'Failed to start',
                 }));
+                setDevServerUrl(null);
             }
         } catch (error) {
             setState(s => ({
@@ -160,8 +190,9 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                 isStarting: false,
                 error: String(error),
             }));
+            setDevServerUrl(null);
         }
-    }, [workspaceId]);
+    }, [workspaceId, setDevServerUrl, setRightPanelVisible, setPreviewTab]);
 
     // Manual stop
     const stop = useCallback(async () => {
@@ -174,10 +205,12 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                 url: null,
                 isRunning: false,
             }));
+            // Clear global atom
+            setDevServerUrl(null);
         } catch (error) {
             console.error('Failed to stop dev server:', error);
         }
-    }, [workspaceId]);
+    }, [workspaceId, setDevServerUrl]);
 
     // Refresh status
     const refresh = useCallback(async () => {

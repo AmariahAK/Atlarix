@@ -290,6 +290,61 @@ export async function handleChatOnlyStream(
             });
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // TEXT-BASED TOOL CALL DETECTION (for models like MiniMax)
+        // Some models output tool calls as XML text instead of using
+        // native function calling. Detect and execute them here.
+        // ═══════════════════════════════════════════════════════════════
+        const { containsTextToolCall, parseTextToolCalls } = await import("../utils/text_tool_parser");
+
+        if (containsTextToolCall(fullResponse)) {
+            logger.log("[Chat-Only] Detected text-based tool calls, parsing and executing...");
+            const textToolCalls = parseTextToolCalls(fullResponse);
+
+            for (const toolCall of textToolCalls) {
+                try {
+                    // Check if this tool exists in our tools object
+                    if (tools[toolCall.toolName]) {
+                        logger.log(`[Chat-Only] Executing text-based tool: ${toolCall.toolName}`, toolCall.args);
+
+                        // Execute the tool
+                        const toolResult = await tools[toolCall.toolName].execute({ ...toolCall.args, chatId: req.chatId });
+
+                        // Append result to response
+                        const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+                        fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="complete">\n${resultStr}\n</atlarix-tool-result>\n`;
+                        logger.log(`[Chat-Only] Text-tool executed: ${toolCall.toolName} ✓`);
+
+                        // Collect sources if present
+                        if (toolResult && typeof toolResult === 'object' && toolResult.sources) {
+                            collectedSources.push(...toolResult.sources);
+                        }
+                    } else {
+                        logger.warn(`[Chat-Only] Unknown text-tool: ${toolCall.toolName}`);
+                    }
+                } catch (toolError) {
+                    logger.error(`[Chat-Only] Text-tool error: ${toolCall.toolName}`, toolError);
+                    fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="error">\nError: ${toolError instanceof Error ? toolError.message : String(toolError)}\n</atlarix-tool-result>\n`;
+                }
+            }
+
+            // Update UI with tool results
+            safeSend(event.sender, "chat:response:chunk", {
+                chatId: req.chatId,
+                messages: [
+                    ...chat.messages,
+                    {
+                        id: -1,
+                        chatId: req.chatId,
+                        role: "assistant",
+                        content: fullResponse,
+                        createdAt: new Date(),
+                    },
+                ],
+            });
+        }
+        // ═══════════════════════════════════════════════════════════════
+
         // Create assistant message (in-memory only) WITH SOURCES
         logger.log(`📊 Collected ${collectedSources.length} sources from tool calls`);
         if (collectedSources.length > 0) {

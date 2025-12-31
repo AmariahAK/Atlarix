@@ -18,6 +18,7 @@ import {
   pendingProposalsAtom,
   diagramStateAtom,
   previewTabAtom,
+  terminalOutputAtom,
   type SourceItem,
   type FileProposal,
   type DiagramState,
@@ -101,6 +102,7 @@ export function useStreamChat({
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
+  const setTerminalOutput = useSetAtom(terminalOutputAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -178,19 +180,19 @@ export function useStreamChat({
                 approved: false,
               }));
 
-            // Handle command operations
-            const commandProposals: FileProposal[] = previews
-              .filter((p: any) => p.command || p.type === 'command') // Command operations
-              .map((p: any) => ({
+            // Handle command operations (check operation type, not preview fields)
+            const commandProposals: FileProposal[] = request.operation === 'run_command'
+              ? [{
                 id: payload.operationId,
                 chatId,
                 path: '',  // Commands don't have a path
                 operation: 'command' as const,
-                command: p.command || p.content,
-                workingDir: p.workingDir || p.cwd || '.',
-                description: p.description || `Run: ${p.command || p.content}`,
+                command: (request.preview as any).command,
+                workingDir: (request.preview as any).workingDirectory || '.',
+                description: (request.preview as any).description || `Run: ${(request.preview as any).command}`,
                 approved: false,
-              }));
+              }]
+              : [];
 
             const allProposals = [...fileProposals, ...commandProposals];
 
@@ -226,6 +228,26 @@ export function useStreamChat({
               title: payload.title,
             });
             setRightPanelVisible(true); // Show panel for diagram
+          }
+        );
+
+        // Register terminal output handler for this chat
+        const unsubscribeTerminal = IpcClient.getInstance().onTerminalOutput(
+          chatId,
+          (payload) => {
+            // Update terminal output atom for right panel display
+            setTerminalOutput({
+              commandId: payload.commandId,
+              command: payload.command,
+              output: payload.output ? [payload.output] : [],
+              status: payload.status,
+              exitCode: payload.exitCode,
+            });
+            // Show terminal panel when commands are running
+            if (payload.status === 'running') {
+              setRightPanelVisible(true);
+              setPreviewTab('terminal');
+            }
           }
         );
 

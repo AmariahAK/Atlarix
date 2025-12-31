@@ -15,8 +15,10 @@ import {
     PermissionRequest,
     PermissionResult,
     FileOperationPreview,
+    CommandOperationPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
+import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
 
 const logger = log.scope("permission-interceptor");
 
@@ -53,6 +55,9 @@ export class PermissionInterceptor extends EventEmitter {
 
     /** Map of operation ID to pending approval promise */
     private pendingApprovals: Map<string, PendingApproval> = new Map();
+
+    /** Map of operation ID to command execution results */
+    private commandOutputs: Map<string, CommandResult> = new Map();
 
     /** Workspace path for resolving file paths */
     private workspacePath: string;
@@ -336,7 +341,7 @@ export class PermissionInterceptor extends EventEmitter {
                     await this.executeRenameFile(request);
                     break;
                 case "run_command":
-                    // Commands are handled separately via terminal
+                    await this.executeRunCommand(operationId, request);
                     break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
@@ -385,14 +390,67 @@ export class PermissionInterceptor extends EventEmitter {
 
     /**
      * Execute all pending operations (batch approval)
+     * File operations run sequentially, but commands run in parallel (non-blocking)
      */
     async executeAllOperations(): Promise<PermissionResult[]> {
         const results: PermissionResult[] = [];
+        const commandPromises: Promise<PermissionResult>[] = [];
+        const operationsToExecute: [string, BufferedOperation][] = [];
 
-        for (const [operationId] of this.pendingOperations) {
-            const result = await this.executeOperation(operationId);
-            results.push(result);
+        // Filter to only pending operations (not already executed/rejected)
+        for (const [operationId, operation] of this.pendingOperations) {
+            if (operation.status === 'pending') {
+                operationsToExecute.push([operationId, operation]);
+            }
         }
+
+        if (operationsToExecute.length === 0) {
+            logger.log('[executeAllOperations] No pending operations to execute');
+            return results;
+        }
+
+        logger.log(`[executeAllOperations] Processing ${operationsToExecute.length} pending operations`);
+
+        for (const [operationId, operation] of operationsToExecute) {
+            const request = operation.request;
+
+            if (request.operation === 'run_command') {
+                // Commands run in parallel (fire-and-forget for batch mode)
+                // This allows multiple commands to be approved and run without blocking
+                commandPromises.push(this.executeOperation(operationId));
+
+                // Add a placeholder result immediately (approved, will update when command finishes)
+                results.push({
+                    operationId,
+                    approved: true,
+                });
+            } else {
+                // File operations run sequentially
+                const result = await this.executeOperation(operationId);
+                results.push(result);
+            }
+        }
+
+        // Wait for all commands to complete in parallel
+        if (commandPromises.length > 0) {
+            logger.log(`[executeAllOperations] Waiting for ${commandPromises.length} commands to complete in parallel...`);
+            const commandResults = await Promise.all(commandPromises);
+
+            // Update results with actual command results
+            for (const cmdResult of commandResults) {
+                const idx = results.findIndex(r => r.operationId === cmdResult.operationId);
+                if (idx >= 0) {
+                    results[idx] = cmdResult;
+                }
+            }
+        }
+
+        // Clear executed operations from pending map
+        for (const [operationId] of operationsToExecute) {
+            this.pendingOperations.delete(operationId);
+        }
+
+        logger.log(`[executeAllOperations] Completed, cleared ${operationsToExecute.length} operations`);
 
         return results;
     }
@@ -487,7 +545,58 @@ export class PermissionInterceptor extends EventEmitter {
         logger.log(`Renamed file: ${fromFullPath} → ${toFullPath}`);
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
+    /**
+     * Execute a shell command and store output.
+     * Emits 'terminal-output' event for UI updates.
+     */
+    private async executeRunCommand(operationId: string, request: PermissionRequest): Promise<void> {
+        const preview = request.preview as CommandOperationPreview;
+        const workingDir = preview.workingDirectory
+            ? path.isAbsolute(preview.workingDirectory)
+                ? preview.workingDirectory
+                : path.join(this.workspacePath, preview.workingDirectory)
+            : this.workspacePath;
+
+        logger.log(`[executeRunCommand] Running: ${preview.command} in ${workingDir}`);
+
+        // Emit that command is starting
+        this.emit('terminal-output', {
+            operationId,
+            command: preview.command,
+            output: '',
+            status: 'running' as const,
+        });
+
+        const result = await runShellCommand(preview.command, workingDir);
+
+        // Store output for UI display and AI feedback
+        this.commandOutputs.set(operationId, result);
+
+        // Emit final output
+        this.emit('terminal-output', {
+            operationId,
+            command: preview.command,
+            output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+            status: result.success ? 'completed' as const : 'error' as const,
+            exitCode: result.exitCode,
+        });
+
+        if (result.success) {
+            logger.log(`[executeRunCommand] Success: ${preview.command}`);
+        } else {
+            logger.error(`[executeRunCommand] Failed: ${preview.command} (exit ${result.exitCode})`);
+            if (result.stderr) {
+                logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
+            }
+        }
+    }
+
+    /**
+     * Get command output for an operation (for returning to AI or UI)
+     */
+    getCommandOutput(operationId: string): CommandResult | null {
+        return this.commandOutputs.get(operationId) || null;
+    }
     // CONVERSION TO PROPOSAL FORMAT
     // ════════════════════════════════════════════════════════════════════════════
 
@@ -513,10 +622,10 @@ export class PermissionInterceptor extends EventEmitter {
             content?: string;
         }> = [];
 
-        for (const [, request] of this.pendingOperations) {
-            const previews = Array.isArray(request.preview)
-                ? request.preview
-                : [request.preview];
+        for (const [, operation] of this.pendingOperations) {
+            const previews = Array.isArray(operation.request.preview)
+                ? operation.request.preview
+                : [operation.request.preview];
 
             for (const preview of previews) {
                 if ("path" in preview) {

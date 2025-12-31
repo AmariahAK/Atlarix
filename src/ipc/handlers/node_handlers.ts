@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import { platform, arch } from "os";
 import { NodeSystemInfo } from "../ipc_types";
 import fixPath from "fix-path";
-import { runShellCommand } from "../utils/runShellCommand";
+import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
 import log from "electron-log";
 import { existsSync } from "fs";
 import { join } from "path";

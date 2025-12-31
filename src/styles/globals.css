@@ -503,3 +503,48 @@ body[data-scroll-locked] .app-region-drag {
   border-bottom: 2px solid var(--primary);
   color: var(--primary);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MERMAID DIAGRAM STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+.mermaid-container {
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+  width: 100%;
+}
+
+.mermaid-container svg {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100%;
+  min-height: 200px;
+  display: block !important;
+}
+
+/* Ensure mermaid text is visible on dark backgrounds */
+.dark .mermaid-container svg text,
+.dark .mermaid-container svg .nodeLabel,
+.dark .mermaid-container svg .label {
+  fill: #ECFDF5 !important;
+}
+
+.dark .mermaid-container svg .node rect,
+.dark .mermaid-container svg .node circle,
+.dark .mermaid-container svg .node polygon {
+  stroke: #10B981 !important;
+}
+
+.dark .mermaid-container svg .edgePath path {
+  stroke: #6EE7B7 !important;
+}
+
+/* Diagram preview area specifics */
+.diagram-preview {
+  min-height: 400px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}

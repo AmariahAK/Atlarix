@@ -6,7 +6,7 @@ import { readSettings } from "../../main/settings";
 import log from "electron-log";
 import path from "path";
 import fs from "fs";
-import { runShellCommand } from "../utils/runShellCommand";
+import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
 import { extractCodebase } from "../../utils/codebase";
 import { db } from "../../db";
 import { chats, apps } from "../../db/schema";

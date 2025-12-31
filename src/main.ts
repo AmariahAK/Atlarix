@@ -28,6 +28,7 @@ import {
 } from "./utils/performance_monitor";
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
+import { clearAllSessionMemories } from "./lib/session-memory";
 import fs from "fs";
 
 log.errorHandler.startCatching();
@@ -453,7 +454,6 @@ app.on("will-quit", () => {
   stopPerformanceMonitoring();
 
   // Clear all session memories
-  const { clearAllSessionMemories } = require("./lib/session-memory");
   clearAllSessionMemories();
 
   writeSettings({ isRunning: false });

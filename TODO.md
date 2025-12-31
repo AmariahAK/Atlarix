@@ -2,15 +2,89 @@
 
 This file tracks upcoming features, improvements, and known issues.
 
-## 🔥 Critical Bugs (v0.9.3 Fixes)
+---
 
-### Known Issues
-- [ ] **Command Approval Not Showing**: `run_command` permissions not appearing in right panel (needs IPC debugging)
+## 🔥 v0.9.4 - Diagram System Overhaul ✅
+
+### AI-Powered Diagram Generation ✅
+- [x] **Real AI Diagrams**: Replaced hardcoded placeholders with actual AI analysis
+- [x] **Codebase Analysis**: `diagram:generate-ai` extracts and analyzes project structure
+- [x] **Path Bug Fix**: Correctly handles imported apps with absolute paths
+
+### Pan/Zoom Controls ✅
+- [x] **react-zoom-pan-pinch**: Installed and integrated
+- [x] **Drag to Pan**: Click and drag to navigate large diagrams
+- [x] **Scroll to Zoom**: Mouse wheel zooms in/out
+- [x] **Zoom Controls**: +, -, Reset, Center buttons in top-right
+
+### Version History Sidebar ✅
+- [x] **History Toggle**: "History" button in diagram header
+- [x] **Collapsible Sidebar**: Shows all past versions with timestamps
+- [x] **Restore Functionality**: Click "Restore" to revert to any version
+- [x] **Smart Dates**: Shows "Today at 2:30 PM" vs "Dec 31, 2:30 PM"
+
+---
+
+## 📋 v0.9.3 Implementation Plan (Completed)
+
+### Phase 1: Core Command Execution Fix ✅
+- [x] **Fix interceptor.ts**: Add `executeRunCommand()` method to actually execute commands
+  - Import `runShellCommand` utility
+  - Store command output for UI display
+  - Handle exit codes and errors
+- [x] **Fix execution-tools.ts**: Return JSON permission request instead of legacy string
+  - Use structured `{ __permission_required: true, operation: "run_command", preview: {...} }`
+- [x] **Fix useStreamChat.ts**: Parse command proposals by checking `request.operation`
+  - Check `request.operation === 'run_command'` instead of `p.command`
+
+### Phase 2: Collapsed Terminal Output Card ✅
+- [x] **New: CommandOutputCard.tsx**: Collapsed card showing terminal output (like ThinkingCard)
+  - Auto-collapse on success, auto-expand on error
+  - Show spinner while running, checkmark/error on complete
+  - Click to expand full terminal output
+  - Display: `⚡ npx create-vite my-app → ✓ Completed in 8.3s [View ▼]`
+
+### Phase 3: Project Environment Detection ✅
+- [x] **New: project_environment.ts**: Read package.json to detect project context
+  - Detect framework (vite, next, cra, nuxt, astro)
+  - Extract available scripts (dev, start, build, test)
+  - Determine correct dev command (`npm run dev` vs `npm start`)
+- [x] **New: get_project_info tool**: Read-only tool for AI to query project details
+  - Prevents hallucination (AI calls this BEFORE running npm commands)
+
+### Phase 4: TensorFlow + Heuristics Smart Slicing (StackSense Approach) ✅
+- [x] **New: SliceExtractorAgent.ts**: Port from StackSense's slice_extractor_agent.py
+  - Language-specific parsing (Python, JavaScript/TypeScript, generic)
+  - Heuristic scoring: keyword density + function/class name matching
+  - TensorFlow semantic scoring (optional, using @tensorflow/tfjs-node)
+  - Combined score: 60% heuristic + 40% TensorFlow
+  - Context budget management (select within token limit)
+  - Context integrity (don't cut mid-function, merge adjacent slices)
+- [x] **New: TerminalOutputSlicer.ts**: Real-time terminal output slicing
+  - Categorize lines: errors, warnings, normal
+  - Priority: Errors > Warnings > Last 5 lines > First 5 lines
+  - Prevents AI context overflow from long command output
+
+### Phase 5: Wire Everything Together
+- [x] **Text-Based Tool Parser**: Added `text_tool_parser.ts` to handle models that output tool calls as XML text (MiniMax, etc.)
+- [x] **Integrated into chat_stream_handlers.ts**: Parses and executes text-based tool calls after stream completes
+- [x] **Integrated into chat_only_handlers.ts**: Same for ephemeral chats
+- [x] **Agentic Tool Loop**: Feeds tool results back to AI so it can continue (up to 5 iterations)
+- [ ] **Modify chat_stream_handlers.ts**: Use SliceExtractorAgent for file context
+- [ ] **Emit terminal output**: Send to frontend for CommandOutputCard
+- [ ] **Test end-to-end**: Create project → Approve command → See collapsed output
+
+
+---
+
+## ⏳ Known Issues (Ongoing)
 - [ ] **AI Message Repetition**: Model sometimes repeats previous messages (model behavior issue)
 - [ ] **Right Panel Toggle**: TBD - Keyboard shortcuts not working (Cmd+B conflict with system)
-- [ ] **Diagram Persistence**: TBD - Diagrams need proper database saving/retrieval
+- [x] **Diagram Persistence**: ✅ FIXED - Diagrams now persist and display correctly
 
-### ✅ COMPLETED: v0.9.2 Enhancements
+---
+
+## ✅ COMPLETED: v0.9.2 Enhancements
 - [x] **Smart Project Scaffolding**: AI now uses CLI commands first (npx create-vite, etc.)
 - [x] **Session Memory Persistence**: Memory persists across Ask → Build mode switches
 - [x] **Permission Sound Notification**: Plays `remaining.mp3` when new proposals arrive
@@ -68,6 +142,17 @@ This file tracks upcoming features, improvements, and known issues.
 ## 🚀 Roadmap: Future Versions
 
 ### v2.0 - Premium Features
+- [ ] **Command Chaining UI**: Group related commands (e.g., create-vite → cd → npm install)
+  - Show dependency graph
+  - Partial approval (approve some, reject others)
+  - Handle middle command failures
+- [ ] **Token Budget System**: Adaptive token allocation based on provider
+  - Ollama (8K), LMStudio (16K), OpenRouter (128K+)
+  - Dynamic adjustment based on real-world user feedback
+- [ ] **Dangerous Command UX**: Enhanced security for risky commands
+  - Require "I understand" checkbox for rm -rf, sudo, etc.
+  - Show command explanation in plain English
+  - Log all dangerous command approvals
 - [ ] **Persistent Memory (MEMORY.md)**: Claude Code-style file-based memory that persists across sessions
   - `.atlarix/MEMORY.md` - AI-summarized session memory
   - `.atlarix/PROJECT.md` - User-defined project context
@@ -78,6 +163,9 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] **Usage Stats**: Prompts used, most used tools, token consumption
 - [ ] **Timeline Export**: Animated GIF of architecture evolution
 - [ ] **Compare Mode**: Side-by-side diagram comparison
+- [ ] **Multiple Diagram Types**: Class diagrams, Function maps, Sequence diagrams, ER diagrams
+  - AI generates different views of the same codebase
+  - Type selector dropdown in diagram header
 
 ### v3.0 - Advanced AI
 - [ ] **Multi-Agent**: Parallel AI queries for complex tasks
@@ -86,5 +174,5 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-**Last Updated**: 2025-12-29
-**Version**: v0.9.1
+**Last Updated**: 2025-12-31
+**Version**: v0.9.4 (Diagram System Overhaul)

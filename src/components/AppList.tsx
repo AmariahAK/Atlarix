@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import {
@@ -149,16 +150,40 @@ export function AppList({ show }: { show?: boolean }) {
         className="overflow-y-auto h-[calc(100vh-112px)]"
         data-testid="app-list-container"
       >
-        <SidebarGroupLabel className="flex items-center justify-between">
+        <SidebarGroupLabel className="flex items-center justify-between group/header">
           <span>Workspaces</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={() => setShowWorkspacePicker(true)}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity hover:text-destructive"
+              title="Delete ALL Workspaces"
+              onClick={async () => {
+                if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
+                  try {
+                    for (const app of apps) {
+                      await IpcClient.getInstance().deleteApp(app.id);
+                    }
+                    refreshApps?.();
+                    setSelectedAppId(null);
+                    setSelectedWorkspaceInfo(null);
+                  } catch (e) {
+                    console.error("Failed to delete all:", e);
+                  }
+                }
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setShowWorkspacePicker(true)}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </SidebarGroupLabel>
         <SidebarGroupContent>
           <div className="flex flex-col">
@@ -238,17 +263,41 @@ export function AppList({ show }: { show?: boolean }) {
                       )}
 
                       {/* New chat button - always visible when selected, hover otherwise */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleNewChatInWorkspace(ws.id);
-                        }}
-                        className={`p-1 hover:bg-emerald-500/20 rounded transition-opacity ${selectedAppId === ws.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                          }`}
-                        title="New chat in workspace"
-                      >
-                        <Plus className="h-3.5 w-3.5 text-emerald-500" />
-                      </button>
+                      <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? 'opacity-100' : ''}`}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleNewChatInWorkspace(ws.id);
+                          }}
+                          className="p-1 hover:bg-emerald-500/20 rounded text-muted-foreground hover:text-emerald-500"
+                          title="New chat in workspace"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete workspace "${ws.name}"? This will remove it from Atlarix.`)) {
+                              try {
+                                await IpcClient.getInstance().deleteApp(ws.id);
+                                refreshApps?.();
+                                if (selectedAppId === ws.id) {
+                                  setSelectedAppId(null);
+                                  setSelectedWorkspaceInfo(null);
+                                }
+                              } catch (err) {
+                                console.error("Failed to delete workspace:", err);
+                                alert("Failed to delete workspace. See console.");
+                              }
+                            }
+                          }}
+                          className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
+                          title="Delete workspace"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Chats List (Collapsible) */}

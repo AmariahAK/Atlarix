@@ -8,6 +8,13 @@ import { ipcMain } from "electron";
 import { db } from "@/db";
 import { diagrams, diagramVersions } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { generateText } from "ai";
+import { getModelClient } from "../utils/get_model_client";
+import { extractCodebase } from "../../utils/codebase";
+import { getAtlarixAppPath } from "../../paths/paths";
+import { readSettings } from "../../main/settings";
+import { AppChatContext } from "../../lib/schemas";
+import { apps } from "@/db/schema";
 
 // ============================================
 // TYPES
@@ -54,6 +61,104 @@ ipcMain.handle(
             };
         } catch (error) {
             console.error("[diagram:generate] Error:", error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            };
+        }
+    }
+);
+
+// ============================================
+// DIAGRAM:GENERATE-AI - Create new diagram using AI
+// ============================================
+
+ipcMain.handle(
+    "diagram:generate-ai",
+    async (_, { workspaceId, title }: { workspaceId: number; title?: string }) => {
+        try {
+            console.log(`📊 [diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
+
+            // 1. Get Workspace Path
+            const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
+            if (!app) throw new Error("Workspace not found");
+
+            // Use app.name for path construction - app.path may be absolute for imported apps
+            const appPath = getAtlarixAppPath(app.name);
+            const settings = readSettings();
+
+            // 2. Extract Codebase Context
+            // Use default context settings (empty paths = include all non-ignored)
+            const chatContext: AppChatContext = {
+                contextPaths: [],
+                smartContextAutoIncludes: [],
+                excludePaths: []
+            };
+
+            console.log(`📊 [diagram:generate-ai] Extracting codebase from ${appPath}`);
+            const { formattedOutput } = await extractCodebase({
+                appPath,
+                chatContext
+            });
+
+            // 3. Prepare AI Client
+            // Use the currently selected model from settings
+            const modelConfig = settings.selectedModel;
+            const { modelClient } = await getModelClient(modelConfig, settings);
+
+            // 4. Generate Diagram
+            const systemPrompt = `You are an expert software architect.
+Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
+Focus on:
+- Major components/modules
+- Data flow
+- relationships between files
+- External dependencies (if obvious)
+
+Requirements:
+- Return ONLY the mermaid code block.
+- Use 'graph TB' or 'graph LR'.
+- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
+- Keep the diagram clean and readable (avoid too many nodes).
+- Group related components in subgraphs.`;
+
+            const userPrompt = `Generate an architecture diagram for this project:
+
+${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid huge costs/errors if project is massive`;
+
+            console.log(`📊 [diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
+            const result = await generateText({
+                model: modelClient.model,
+                system: systemPrompt,
+                messages: [{ role: 'user', content: userPrompt }],
+            });
+
+            // 5. Parse Output
+            let content = result.text;
+            // distinct mermaid block
+            const match = content.match(/```mermaid\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
+            if (match) {
+                content = match[1];
+            }
+            content = content.trim();
+
+            // 6. Save to DB
+            const [diagram] = await db
+                .insert(diagrams)
+                .values({
+                    workspaceId,
+                    type: "mermaid",
+                    title: title || `${app.name} Architecture (AI)`,
+                    content,
+                    metadata: { focus: "ai-generated" },
+                })
+                .returning();
+
+            console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
+            return { success: true, diagram };
+
+        } catch (error) {
+            console.error("[diagram:generate-ai] Error:", error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error",
