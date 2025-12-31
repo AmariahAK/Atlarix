@@ -3,14 +3,11 @@ import fs from "fs/promises";
 import path from "path";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
-import { getAtlarixAppPath } from "../../paths/paths";
-import { apps } from "@/db/schema";
+import { apps, chats } from "@/db/schema";
 import { db } from "@/db";
-import { chats } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 import { ImportAppParams, ImportAppResult } from "../ipc_types";
-import { copyDirectoryRecursive } from "../utils/file_utils";
 import { gitCommit, gitAdd, gitInit } from "../utils/git_utils";
 
 const logger = log.scope("import-handlers");
@@ -45,21 +42,11 @@ export function registerImportHandlers() {
   });
 
   // Handler for checking if an app name is already taken
+  // Since we no longer copy to atlarix-apps, just check database
   handle("check-app-name", async (_, { appName }: { appName: string }) => {
-    // Check filesystem
-    const appPath = getAtlarixAppPath(appName);
-    try {
-      await fs.access(appPath);
-      return { exists: true };
-    } catch {
-      // Path doesn't exist, continue checking database
-    }
-
-    // Check database
     const existingApp = await db.query.apps.findFirst({
       where: eq(apps.name, appName),
     });
-
     return { exists: !!existingApp };
   });
 
@@ -82,49 +69,62 @@ export function registerImportHandlers() {
         throw new Error("Source folder does not exist");
       }
 
-      const destPath = getAtlarixAppPath(appName);
-
-      // Check if the app already exists
-      const errorMessage = "An app with this name already exists";
-      try {
-        await fs.access(destPath);
-        throw new Error(errorMessage);
-      } catch (error: any) {
-        if (error.message === errorMessage) {
-          throw error;
+      // Check if an app with this PATH already exists (return existing if so)
+      const existingByPath = await db.query.apps.findFirst({
+        where: eq(apps.path, sourcePath),
+      });
+      if (existingByPath) {
+        // This workspace is already registered - return existing IDs
+        const existingChat = await db.query.chats.findFirst({
+          where: eq(chats.appId, existingByPath.id),
+        });
+        if (existingChat) {
+          return { appId: existingByPath.id, chatId: existingChat.id };
         }
+        // No chat exists, create one
+        const [newChat] = await db
+          .insert(chats)
+          .values({ appId: existingByPath.id })
+          .returning();
+        return { appId: existingByPath.id, chatId: newChat.id };
       }
-      // Copy the app folder to the Atlarix apps directory.
-      // Why not use fs.cp? Because we want stable ordering for
-      // tests.
-      await copyDirectoryRecursive(sourcePath, destPath);
 
+      // Check if an app with this NAME already exists (different path)
+      const existingByName = await db.query.apps.findFirst({
+        where: eq(apps.name, appName),
+      });
+      if (existingByName) {
+        throw new Error("An app with this name already exists");
+      }
+
+      // NO COPYING - We use the source folder directly
+      // This is the key change: workspaces are registered by their original location
+
+      // Initialize git if not already a repo (in the SOURCE folder)
       const isGitRepo = await fs
-        .access(path.join(destPath, ".git"))
+        .access(path.join(sourcePath, ".git"))
         .then(() => true)
         .catch(() => false);
       if (!isGitRepo) {
         // Initialize git repo and create first commit
-        await gitInit({ path: destPath, ref: "main" });
+        await gitInit({ path: sourcePath, ref: "main" });
 
         // Stage all files
-
-        await gitAdd({ path: destPath, filepath: "." });
+        await gitAdd({ path: sourcePath, filepath: "." });
 
         // Create initial commit
         await gitCommit({
-          path: destPath,
+          path: sourcePath,
           message: "Init Atlarix app",
         });
       }
 
-      // Create a new app
+      // Create a new app - store the ORIGINAL source path (absolute path)
+      // so tools can find files directly without any copying
       const [app] = await db
         .insert(apps)
         .values({
           name: appName,
-          // Store the ORIGINAL source path (absolute path) so tools can find files
-          // This allows projects from anywhere on the filesystem to work correctly
           path: sourcePath,
           installCommand: installCommand ?? null,
           startCommand: startCommand ?? null,

@@ -55,8 +55,13 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Smart Snapshots** - Auto-capture when code changes
 - **Time Drill-Down** - Navigate from "All Time" to hourly
 
-### ⚠️ Known Issues (v0.9.4)
-- **Command Approval** - `run_command` permissions not showing in right panel
+### 🎯 AI-Controlled Right Panel (NEW in v0.9.5!)
+- **Explicit AI Intent** - AI tells the panel what to show (no more heuristic guessing)
+- **Permission Panel** - Dedicated view for showing pending tool approvals
+- **Priority System** - AI state → User pinned → Heuristic fallback
+
+### ⚠️ Known Issues (v0.9.5)
+- ~~**Prompt Box Clipping** - Mode/model controls hidden after first message~~ **FIXED**
 - **AI Repetition** - Model occasionally repeats previous messages
 
 ---

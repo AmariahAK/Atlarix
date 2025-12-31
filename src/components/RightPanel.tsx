@@ -50,11 +50,12 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'files': 'code',
     'tools': 'tools',
     'timeline': 'diagrams',
+    'permission': 'code',  // Permission requests appear in Code mode
     'empty': 'search',
 };
 
 export function RightPanel() {
-    const { context, isPinned, pin, unpin, setActiveTab } = useRightPanelContext();
+    const { context, isPinned, isAIControlled, pin, unpin, setActiveTab, clearAIPanel } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
@@ -304,6 +305,10 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
             // Tool execution activity panel
             return <ToolsPanel data={context.data} />;
 
+        case 'permission':
+            // Permission approval panel (AI-controlled)
+            return <PermissionPanel data={context.data} />;
+
         default:
             return (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6 text-center">
@@ -418,3 +423,48 @@ function ToolsPanel({ data }: { data: any }) {
     );
 }
 
+/**
+ * Permission Panel - Display pending permission requests
+ * Shows tool operations awaiting user approval
+ */
+function PermissionPanel({ data }: { data: any }) {
+    const operationId = data?.operationId;
+    const message = data?.message;
+
+    // If no specific operation, show empty state
+    if (!operationId && !message) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+                <div className="w-16 h-16 mb-4 rounded-full bg-muted/50 flex items-center justify-center">
+                    <Wrench className="w-8 h-8 opacity-50" />
+                </div>
+                <p className="text-sm font-medium mb-2">No Pending Permissions</p>
+                <p className="text-xs text-center">
+                    Permission requests will appear here when the AI needs approval
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-background">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                <Wrench className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-medium">Permission Required</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                {message && (
+                    <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <p className="text-sm text-amber-700 dark:text-amber-300">{message}</p>
+                    </div>
+                )}
+                <div className="text-xs text-muted-foreground">
+                    <p>Operation ID: {operationId || 'N/A'}</p>
+                    <p className="mt-2">
+                        Use the permission panel in the chat input area to approve or reject this operation.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}

@@ -200,10 +200,9 @@ export class IpcClient {
         console.debug("chat:response:end");
         this.chatStreams.delete(chatId);
       } else {
-        console.error(
-          new Error(
-            `[IPC] No callbacks found for chat ${chatId} on stream end`,
-          ),
+        // This is expected when canceling streams or for ephemeral chats (-1)
+        console.debug(
+          `[IPC] Stream ended without callbacks for chat ${chatId} (expected after cancel)`,
         );
       }
     });

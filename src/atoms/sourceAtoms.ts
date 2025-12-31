@@ -19,9 +19,10 @@ export type PanelType =
     | 'files'           // File explorer (default)
     | 'timeline'        // Diagram timeline (project evolution)
     | 'tools'           // Tool execution activity (Ask mode)
+    | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission';
 
 export interface PanelContext {
     type: PanelType;
@@ -29,6 +30,28 @@ export interface PanelContext {
     activeTab: PanelTab;
     data?: any;
 }
+
+// ═══════════════════════════════════════════════════════════
+// AI-CONTROLLED PANEL STATE
+// ═══════════════════════════════════════════════════════════
+// The AI explicitly sets what the right panel should show.
+// This replaces brittle heuristics with explicit AI intent.
+
+export interface AIPanelState {
+    view: PanelType;
+    context?: {
+        operationId?: string;    // For file-diff or permission
+        searchId?: string;       // For web-search
+        diagramId?: string;      // For diagram
+        commandId?: string;      // For terminal
+        message?: string;        // User-facing explanation
+    };
+    timestamp: number;
+    source: 'ai' | 'user' | 'system';  // Who triggered the change
+}
+
+/** AI-controlled panel state - takes priority over heuristics when set */
+export const aiControlledPanelAtom = atom<AIPanelState | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // SOURCE ATOMS (Web Search)

@@ -2,6 +2,44 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.5] - 2025-12-31
+
+### 🎉 Major Features
+
+#### AI-Controlled Right Panel
+- **Explicit AI Intent**: AI now explicitly sets what the right panel shows instead of heuristic guessing
+- **aiControlledPanelAtom**: New Jotai atom that takes priority over pinned/heuristic panel detection
+- **Permission Panel**: New dedicated panel type (`'permission'`) for showing pending approval requests
+- **IPC Integration**: Backend emits `right-panel:set-view` events when permissions are buffered
+- **useAIPanelListener Hook**: Frontend hook that receives and applies AI panel updates
+
+### 🐛 Bug Fixes
+
+#### Prompt Box Clipping (Critical)
+- **FIXED**: Mode switcher (Build/Ask) and model picker were hidden after first message
+- **Root Cause**: ChatInput area was being compressed due to missing flex-shrink-0
+- **Solution**: Wrapped ChatInput in flex-shrink-0 container in ChatPanel.tsx
+
+#### Stream Cancel Error
+- **FIXED**: "No callbacks found for chat -1" error when stopping generation
+- **Changed**: console.error → console.debug (expected behavior when cancelling)
+
+### 🔧 Technical Changes
+
+#### Files Created
+- `src/hooks/useAIPanelListener.ts` - Listens for AI panel updates from main process
+
+#### Files Modified
+- `src/atoms/sourceAtoms.ts` - Added AIPanelState interface and aiControlledPanelAtom
+- `src/hooks/useRightPanelContext.ts` - Prioritizes AI state over heuristics
+- `src/components/RightPanel.tsx` - Added PermissionPanel component
+- `src/components/ChatPanel.tsx` - Fixed prompt box clipping with flex-shrink-0
+- `src/ipc/handlers/permissions/handlers.ts` - Sends panel updates via IPC
+- `src/preload.ts` - Whitelisted 'right-panel:set-view' channel
+- `src/ipc/ipc_client.ts` - Silenced expected stream-end debug message
+
+---
+
 ## [v0.9.4] - 2025-12-31
 
 ### 🎉 Major Features

@@ -4,7 +4,7 @@
  * IPC handlers for executing/rejecting buffered permission requests.
  */
 
-import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
 import log from "electron-log";
 import { PermissionInterceptor } from "./interceptor";
 import {
@@ -18,11 +18,37 @@ const logger = log.scope("permission-handlers");
 const activeInterceptors = new Map<number, PermissionInterceptor>();
 
 /**
+ * Send a panel update to the renderer process
+ * This allows the main process to control what the right panel shows
+ */
+function sendPanelUpdate(view: string, context: any): void {
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+        win.webContents.send('right-panel:set-view', {
+            view,
+            context,
+            timestamp: Date.now(),
+            source: 'system',
+        });
+    }
+}
+
+/**
  * Register an interceptor for a chat session
  */
 export function registerInterceptor(chatId: number, interceptor: PermissionInterceptor): void {
     activeInterceptors.set(chatId, interceptor);
     logger.log(`Registered permission interceptor for chat ${chatId}`);
+
+    // Wire up permission-request event to update the right panel
+    interceptor.on('permission-request', (data: { operationId: string; request: PermissionRequest }) => {
+        logger.log(`[Panel Update] Showing permission panel for ${data.operationId}`);
+        sendPanelUpdate('permission', {
+            operationId: data.operationId,
+            operation: data.request.operation,
+            message: `AI wants to: ${data.request.operation}`,
+        });
+    });
 }
 
 /**

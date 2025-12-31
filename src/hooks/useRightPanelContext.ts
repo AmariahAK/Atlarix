@@ -1,23 +1,21 @@
 /**
  * useRightPanelContext Hook
  * =========================
- * Priority-based context detection for the right panel
+ * AI-first context detection for the right panel
  * 
- * Determines what content to show based on:
- * 1. Active file diff (highest priority) - write_files pending
- * 2. Web search results - web_search tool call
- * 3. Diagram generation - generate_diagram tool call
- * 4. Terminal output - run_command tool call
- * 5. Live preview - dev server running
- * 6. Default - file explorer
+ * Priority order:
+ * 1. AI-controlled panel state (explicit tool calls)
+ * 2. User-pinned panel
+ * 3. Fallback heuristics (for when AI doesn't call set_right_panel)
  */
 
-import { useAtom, useAtomValue } from 'jotai';
-import { useMemo } from 'react';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useMemo, useCallback } from 'react';
 import {
     type PanelContext,
     type PanelType,
     type PanelTab,
+    type AIPanelState,
     sourceListAtom,
     pendingProposalsAtom,
     toolTimelineAtom,
@@ -26,6 +24,7 @@ import {
     pinnedPanelAtom,
     previewTabAtom,
     devServerUrlAtom,
+    aiControlledPanelAtom,
 } from '@/atoms/sourceAtoms';
 
 // Tab configurations for each panel type
@@ -38,15 +37,19 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
+    'permission': ['permission'],  // Permission approval panel
     'empty': [],
 };
 
 export interface RightPanelContextResult {
     context: PanelContext;
     isPinned: boolean;
+    isAIControlled: boolean;
     pin: () => void;
     unpin: () => void;
     setActiveTab: (tab: PanelTab) => void;
+    setAIPanel: (state: Omit<AIPanelState, 'timestamp'>) => void;
+    clearAIPanel: () => void;
 }
 
 export function useRightPanelContext(): RightPanelContextResult {
@@ -56,17 +59,17 @@ export function useRightPanelContext(): RightPanelContextResult {
     const toolTimeline = useAtomValue(toolTimelineAtom);
     const terminalOutput = useAtomValue(terminalOutputAtom);
     const diagramState = useAtomValue(diagramStateAtom);
-    const devServerUrl = useAtomValue(devServerUrlAtom);  // Lovable-style live preview
+    const devServerUrl = useAtomValue(devServerUrlAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
+    const [aiPanel, setAIPanelState] = useAtom(aiControlledPanelAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
 
-    // Determine panel type based on priority
-    const detectedType = useMemo((): PanelType => {
+    // Fallback heuristics (used when AI doesn't explicitly set panel)
+    const heuristicType = useMemo((): PanelType => {
         // Priority 1: Active file diff (unapproved proposals)
-        // Check for !approved to catch both undefined and false
         const pendingApproval = proposals.filter(p => !p.approved);
         if (pendingApproval.length > 0) {
             return 'file-diff';
@@ -92,7 +95,7 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'code-preview';
         }
 
-        // Priority 6: Check for any recent sources (might have been from earlier)
+        // Priority 6: Check for any recent sources
         if (sources.length > 0) {
             return 'web-search';
         }
@@ -102,19 +105,26 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'diagram';
         }
 
-        // Default: empty
-        // Note: Tool activity removed - ThinkingCard shows tool calls
         return 'empty';
     }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl]);
 
-    // Use pinned panel if set, otherwise use detected type
-    const effectiveType = pinnedPanel ?? detectedType;
+    // Determine effective panel type:
+    // 1. AI-controlled state (highest priority)
+    // 2. User-pinned panel
+    // 3. Heuristic detection (fallback)
+    const effectiveType = useMemo((): PanelType => {
+        if (aiPanel) {
+            return aiPanel.view;
+        }
+        if (pinnedPanel) {
+            return pinnedPanel;
+        }
+        return heuristicType;
+    }, [aiPanel, pinnedPanel, heuristicType]);
 
     // Build context object
     const context = useMemo((): PanelContext => {
-        const tabs = PANEL_TABS[effectiveType];
-
-        // Ensure active tab is valid for current panel type
+        const tabs = PANEL_TABS[effectiveType] || [];
         const validTab = tabs.includes(activeTab) ? activeTab : tabs[0];
 
         return {
@@ -128,16 +138,36 @@ export function useRightPanelContext(): RightPanelContextResult {
                 terminalOutput,
                 toolTimeline,
                 devServerUrl,
+                aiContext: aiPanel?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, aiPanel]);
+
+    // Helper to set AI panel state
+    const setAIPanel = useCallback((state: Omit<AIPanelState, 'timestamp'>) => {
+        setAIPanelState({
+            ...state,
+            timestamp: Date.now(),
+        });
+    }, [setAIPanelState]);
+
+    // Clear AI panel state (return to heuristics)
+    const clearAIPanel = useCallback(() => {
+        setAIPanelState(null);
+    }, [setAIPanelState]);
 
     return {
         context,
         isPinned: pinnedPanel !== null,
+        isAIControlled: aiPanel !== null,
         pin: () => setPinnedPanel(effectiveType),
-        unpin: () => setPinnedPanel(null),
+        unpin: () => {
+            setPinnedPanel(null);
+            setAIPanelState(null);  // Also clear AI state when unpinning
+        },
         setActiveTab,
+        setAIPanel,
+        clearAIPanel,
     };
 }
 
@@ -151,23 +181,26 @@ function getDataForType(
         terminalOutput: any;
         toolTimeline: any[];
         devServerUrl: string | null;
+        aiContext?: AIPanelState['context'];
     }
 ) {
     switch (type) {
         case 'web-search':
-            return { sources: state.sources, timeline: state.toolTimeline };
+            return { sources: state.sources, timeline: state.toolTimeline, ...state.aiContext };
         case 'file-diff':
-            return { proposals: state.proposals };
+            return { proposals: state.proposals, ...state.aiContext };
         case 'diagram':
-            return state.diagramState;
+            return { ...state.diagramState, ...state.aiContext };
         case 'terminal':
-            return state.terminalOutput;
+            return { ...state.terminalOutput, ...state.aiContext };
         case 'tools':
-            return { timeline: state.toolTimeline };
+            return { timeline: state.toolTimeline, ...state.aiContext };
         case 'code-preview':
-            return { url: state.devServerUrl };  // Live preview URL
+            return { url: state.devServerUrl, ...state.aiContext };
+        case 'permission':
+            return { ...state.aiContext };  // Permission context from AI
         default:
-            return null;
+            return state.aiContext || null;
     }
 }
 

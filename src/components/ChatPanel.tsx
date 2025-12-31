@@ -191,7 +191,10 @@ export function ChatPanel({
             </div>
 
             <ChatError error={error} onDismiss={() => setError(null)} />
-            <ChatInput chatId={chatId} />
+            {/* flex-shrink-0 ensures input controls are never clipped */}
+            <div className="flex-shrink-0">
+              <ChatInput chatId={chatId} />
+            </div>
           </div>
         )}
         <VersionPane

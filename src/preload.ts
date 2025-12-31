@@ -208,6 +208,8 @@ const validReceiveChannels = [
   "permission-request",
   "terminal-output",
   "chat:workspace-diagram",
+  // AI-controlled right panel
+  "right-panel:set-view",
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

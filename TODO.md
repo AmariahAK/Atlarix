@@ -4,6 +4,26 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 🔥 v0.9.5 - AI-Controlled Right Panel ✅
+
+### AI-Controlled Panel System ✅
+- [x] **Explicit AI Intent**: AI now explicitly sets what right panel shows via `aiControlledPanelAtom`
+- [x] **Priority Order**: AI state → Pinned → Heuristics (replaces brittle detection logic)
+- [x] **Permission Panel**: New panel type for showing pending permission requests
+- [x] **IPC Integration**: Backend sends `right-panel:set-view` events when permissions buffered
+
+### UI Fixes ✅
+- [x] **Prompt Box Clipping**: Fixed - Mode/model controls no longer hidden after first message
+- [x] **flex-shrink-0 Wrapper**: ChatInput wrapped to prevent compression
+- [x] **Stream Cancel Error**: Silenced non-critical "no callbacks" error for cancelled streams
+
+### Workspace Registration ✅
+- [x] **Direct Path Storage**: Workspaces registered by original path (no copying to ~/atlarix-apps)
+- [x] **Duplicate Detection**: Smart check for existing path OR name duplicates
+- [x] **Safe Delete**: Only removes database records, never deletes user source files
+
+---
+
 ## 🔥 v0.9.4 - Diagram System Overhaul ✅
 
 ### AI-Powered Diagram Generation ✅
@@ -79,8 +99,9 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## ⏳ Known Issues (Ongoing)
 - [ ] **AI Message Repetition**: Model sometimes repeats previous messages (model behavior issue)
-- [ ] **Right Panel Toggle**: TBD - Keyboard shortcuts not working (Cmd+B conflict with system)
+- [x] **Prompt Box Clipping**: ✅ FIXED in v0.9.5 - Mode/model controls now always visible
 - [x] **Diagram Persistence**: ✅ FIXED - Diagrams now persist and display correctly
+- [x] **Right Panel Heuristics**: ✅ FIXED in v0.9.5 - AI now explicitly controls panel state
 
 ---
 

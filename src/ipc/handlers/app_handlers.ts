@@ -1,6 +1,6 @@
 import { ipcMain, app } from "electron";
 import { db, getDatabasePath } from "../../db";
-import { apps, chats, messages, diagrams, diagramVersions } from "../../db/schema";
+import { apps, chats, messages, diagrams, diagramVersions, workspaceDiagrams, dailyLogs } from "../../db/schema";
 import { desc, eq, like } from "drizzle-orm";
 import type {
   App,
@@ -1123,22 +1123,22 @@ export function registerAppHandlers() {
         });
 
         if (!app) {
-          throw new Error("App not found");
+          throw new Error(`Workspace not found (ID: ${appId}). It may have already been deleted.`);
         }
 
         // Stop the app if it's running
         if (runningApps.has(appId)) {
           const appInfo = runningApps.get(appId)!;
           try {
-            logger.log(`Stopping app ${appId} before deletion.`); // Adjusted log
+            logger.log(`Stopping app ${appId} before deletion.`);
             await stopAppByInfo(appId, appInfo);
           } catch (error: any) {
-            logger.error(`Error stopping app ${appId} before deletion:`, error); // Adjusted log
+            logger.error(`Error stopping app ${appId} before deletion:`, error);
             // Continue with deletion even if stopping fails
           }
         }
 
-        // Delete app from database
+        // Delete app from database (including related records)
         try {
           // First, delete all diagram versions for diagrams associated with this app
           const appDiagrams = await db
@@ -1154,54 +1154,48 @@ export function registerAppHandlers() {
           await db.delete(diagrams).where(eq(diagrams.workspaceId, appId));
           logger.info(`Deleted ${appDiagrams.length} diagrams for app ${appId}`);
 
-          // Finally delete the app (chats cascade delete)
+          // Delete workspace diagrams (timeline snapshots)
+          await db.delete(workspaceDiagrams).where(eq(workspaceDiagrams.appId, appId));
+
+          // Delete daily logs
+          await db.delete(dailyLogs).where(eq(dailyLogs.workspaceId, appId));
+
+          // Finally delete the app (chats cascade delete automatically)
           await db.delete(apps).where(eq(apps.id, appId));
+          logger.info(`Deleted workspace "${app.name}" (ID: ${appId}) from database`);
         } catch (error: any) {
           logger.error(`Error deleting app ${appId} from database:`, error);
           throw new Error(
-            `Failed to delete app from database: ${error.message}`,
+            `Failed to delete workspace from database: ${error.message}`,
           );
         }
 
-        // Delete app files
-        // IMPORT FIX: Imported apps store absolute path in DB, but files are copied to ~/.atlarix-apps/<appName>
-        // getAtlarixAppPath(absolutePath) allows invalid paths like ~/.atlarix-apps/Users/...
-        // We must ensure we delete the ACTUAL internal folder.
+        // NOTE: We do NOT delete the source files because:
+        // 1. We now store absolute paths to the ORIGINAL project location
+        // 2. Deleting the user's source code would be destructive and unexpected
+        // 3. This handler only removes the workspace REGISTRATION from Atlarix
 
-        // 1. Always try to delete the internal folder based on the app name
-        const internalPath = getAtlarixAppPath(app.name);
+        // Clean up any legacy copied files in atlarix-apps folder (if they exist)
+        // This handles workspaces created before the direct-path change
+        const legacyInternalPath = getAtlarixAppPath(app.name);
         try {
-          if (fs.existsSync(internalPath)) {
-            await fsPromises.rm(internalPath, { recursive: true, force: true });
-            logger.log(`Deleted internal app files for ${app.name} at ${internalPath}`);
+          if (fs.existsSync(legacyInternalPath)) {
+            await fsPromises.rm(legacyInternalPath, { recursive: true, force: true });
+            logger.log(`Deleted legacy copied files at ${legacyInternalPath}`);
           }
         } catch (error: any) {
-          logger.error(`Error deleting internal app files for ${app.name}:`, error);
-          // Don't throw yet, try to clean up legacy path if needed
+          logger.warn(`Could not delete legacy path ${legacyInternalPath}: ${error.message}`);
+          // Don't throw - this is just cleanup
         }
 
-        // 2. Check the stored path. If it's different from internal path and NOT absolute (legacy created apps), delete it.
-        // If it's absolute, it's an imported app source (or garbage), so we DO NOT delete it for safety.
-        // (Atlarix works on the copy, so touching source is dangerous unless we are sure)
-        if (!path.isAbsolute(app.path) && app.path !== app.name) {
-          const legacyPath = getAtlarixAppPath(app.path);
-          if (legacyPath !== internalPath && fs.existsSync(legacyPath)) {
-            try {
-              await fsPromises.rm(legacyPath, { recursive: true, force: true });
-              logger.log(`Deleted legacy app files at ${legacyPath}`);
-            } catch (e) {
-              logger.warn(`Failed to delete legacy path ${legacyPath}: ${e}`);
-            }
-          }
-        }
-
-        // Clean up workspace data (.atlarix folder and modifications)
+        // Clean up any remaining database records (workspaceModifications by path)
+        const workspacePath = path.isAbsolute(app.path) ? app.path : legacyInternalPath;
         try {
-          await onWorkspaceRemoved(internalPath);
-          logger.info(`Workspace cleanup completed for: ${internalPath}`);
+          await onWorkspaceRemoved(workspacePath);
+          logger.info(`Database cleanup completed for: ${workspacePath}`);
         } catch (error: any) {
-          // Log error but don't fail the deletion since main app is already deleted
-          logger.error(`Error during workspace cleanup for ${internalPath}:`, error);
+          logger.error(`Error during workspace cleanup for ${workspacePath}:`, error);
+          // Don't fail - main deletion already succeeded
         }
       });
     },

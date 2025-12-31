@@ -2,7 +2,20 @@ import path from "node:path";
 import os from "node:os";
 import { IS_TEST_BUILD } from "../ipc/utils/test_utils";
 
+/**
+ * Gets the full path for an app.
+ * - If appPath is ABSOLUTE (starts with /), returns it as-is (new behavior for direct path registration)
+ * - If appPath is RELATIVE (legacy), resolves via ~/atlarix-apps/{appPath}
+ * 
+ * This allows workspaces to be registered by their original location without copying.
+ */
 export function getAtlarixAppPath(appPath: string): string {
+  // NEW: If path is absolute, use it directly (no copying to atlarix-apps)
+  if (path.isAbsolute(appPath)) {
+    return appPath;
+  }
+
+  // LEGACY: Relative paths resolve to the atlarix-apps folder
   if (IS_TEST_BUILD) {
     const electron = getElectron();
     return path.join(electron!.app.getPath("userData"), "atlarix-apps", appPath);

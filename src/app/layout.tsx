@@ -12,10 +12,13 @@ import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
 import { chatInputValueAtom } from "@/atoms/chatAtoms";
+import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 
 const DEFAULT_ZOOM_LEVEL: ZoomLevel = "100";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // Listen for AI-controlled panel updates from main process
+  useAIPanelListener();
   const { refreshAppIframe } = useRunApp();
   const previewMode = useAtomValue(previewModeAtom);
   const { settings } = useSettings();
