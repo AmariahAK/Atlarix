@@ -1,12 +1,17 @@
 /**
  * useRightPanelContext Hook
  * =========================
- * AI-first context detection for the right panel
+ * Hybrid AI Intent + Heuristic Mapping System
  * 
  * Priority order:
- * 1. AI-controlled panel state (explicit tool calls)
+ * 1. AI intent (semantic) → mapped to correct UI component
  * 2. User-pinned panel
- * 3. Fallback heuristics (for when AI doesn't call set_right_panel)
+ * 3. Fallback heuristics (v0.9.4 logic - when AI doesn't set intent)
+ * 
+ * This two-layer system ensures:
+ * - AI stays in control (accuracy)
+ * - Correct UI always renders (reliability)
+ * - Backwards compatible (heuristics catch forgotten intents)
  */
 
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
@@ -15,7 +20,8 @@ import {
     type PanelContext,
     type PanelType,
     type PanelTab,
-    type AIPanelState,
+    type AIPanelIntent,
+    type AIPanelIntentState,
     sourceListAtom,
     pendingProposalsAtom,
     toolTimelineAtom,
@@ -24,7 +30,8 @@ import {
     pinnedPanelAtom,
     previewTabAtom,
     devServerUrlAtom,
-    aiControlledPanelAtom,
+    aiPanelIntentAtom,
+    mapIntentToView,
 } from '@/atoms/sourceAtoms';
 
 // Tab configurations for each panel type
@@ -37,7 +44,7 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['permission'],  // Permission approval panel
+    'permission': ['permission'],  // Legacy - now handled by file-diff
     'empty': [],
 };
 
@@ -45,11 +52,12 @@ export interface RightPanelContextResult {
     context: PanelContext;
     isPinned: boolean;
     isAIControlled: boolean;
+    aiIntent: AIPanelIntent | null;
     pin: () => void;
     unpin: () => void;
     setActiveTab: (tab: PanelTab) => void;
-    setAIPanel: (state: Omit<AIPanelState, 'timestamp'>) => void;
-    clearAIPanel: () => void;
+    setAIIntent: (intent: AIPanelIntent, context?: AIPanelIntentState['context']) => void;
+    clearAIIntent: () => void;
 }
 
 export function useRightPanelContext(): RightPanelContextResult {
@@ -62,17 +70,20 @@ export function useRightPanelContext(): RightPanelContextResult {
     const devServerUrl = useAtomValue(devServerUrlAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
-    const [aiPanel, setAIPanelState] = useAtom(aiControlledPanelAtom);
+    const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
 
-    // Fallback heuristics (used when AI doesn't explicitly set panel)
+    // ═══════════════════════════════════════════════════════════
+    // LAYER 2: Heuristic Fallback (v0.9.4 Logic)
+    // Used when AI doesn't explicitly set intent
+    // ═══════════════════════════════════════════════════════════
     const heuristicType = useMemo((): PanelType => {
-        // Priority 1: Active file diff (unapproved proposals)
+        // Priority 1: Active file diff / permissions (unapproved proposals)
         const pendingApproval = proposals.filter(p => !p.approved);
         if (pendingApproval.length > 0) {
-            return 'file-diff';
+            return 'file-diff';  // FileDiffPanel handles both files AND permissions
         }
 
         // Priority 2: Web search results
@@ -108,19 +119,29 @@ export function useRightPanelContext(): RightPanelContextResult {
         return 'empty';
     }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl]);
 
-    // Determine effective panel type:
-    // 1. AI-controlled state (highest priority)
-    // 2. User-pinned panel
-    // 3. Heuristic detection (fallback)
+    // ═══════════════════════════════════════════════════════════
+    // LAYER 1: AI Intent Mapping
+    // AI specifies semantic intent, we map to correct UI component
+    // ═══════════════════════════════════════════════════════════
     const effectiveType = useMemo((): PanelType => {
-        if (aiPanel) {
-            return aiPanel.view;
+        // Priority 1: AI intent (mapped to correct view)
+        if (aiPanelIntent) {
+            const mappedView = mapIntentToView(aiPanelIntent.intent);
+            if (mappedView) {
+                console.log(`[RightPanel] AI intent '${aiPanelIntent.intent}' → UI '${mappedView}'`);
+                return mappedView;
+            }
+            // Unknown intent - fall through to heuristics
         }
+
+        // Priority 2: User-pinned panel
         if (pinnedPanel) {
             return pinnedPanel;
         }
+
+        // Priority 3: Heuristic detection (fallback)
         return heuristicType;
-    }, [aiPanel, pinnedPanel, heuristicType]);
+    }, [aiPanelIntent, pinnedPanel, heuristicType]);
 
     // Build context object
     const context = useMemo((): PanelContext => {
@@ -138,36 +159,41 @@ export function useRightPanelContext(): RightPanelContextResult {
                 terminalOutput,
                 toolTimeline,
                 devServerUrl,
-                aiContext: aiPanel?.context,
+                aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, aiPanel]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, aiPanelIntent]);
 
-    // Helper to set AI panel state
-    const setAIPanel = useCallback((state: Omit<AIPanelState, 'timestamp'>) => {
-        setAIPanelState({
-            ...state,
+    // Helper to set AI intent
+    const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
+        console.log(`[RightPanel] Setting AI intent: ${intent}`);
+        setAIPanelIntentState({
+            intent,
+            context,
             timestamp: Date.now(),
+            source: 'ai',
         });
-    }, [setAIPanelState]);
+    }, [setAIPanelIntentState]);
 
-    // Clear AI panel state (return to heuristics)
-    const clearAIPanel = useCallback(() => {
-        setAIPanelState(null);
-    }, [setAIPanelState]);
+    // Clear AI intent (return to heuristics)
+    const clearAIIntent = useCallback(() => {
+        console.log('[RightPanel] Clearing AI intent, returning to heuristics');
+        setAIPanelIntentState(null);
+    }, [setAIPanelIntentState]);
 
     return {
         context,
         isPinned: pinnedPanel !== null,
-        isAIControlled: aiPanel !== null,
+        isAIControlled: aiPanelIntent !== null,
+        aiIntent: aiPanelIntent?.intent ?? null,
         pin: () => setPinnedPanel(effectiveType),
         unpin: () => {
             setPinnedPanel(null);
-            setAIPanelState(null);  // Also clear AI state when unpinning
+            setAIPanelIntentState(null);  // Also clear AI intent when unpinning
         },
         setActiveTab,
-        setAIPanel,
-        clearAIPanel,
+        setAIIntent,
+        clearAIIntent,
     };
 }
 
@@ -181,13 +207,14 @@ function getDataForType(
         terminalOutput: any;
         toolTimeline: any[];
         devServerUrl: string | null;
-        aiContext?: AIPanelState['context'];
+        aiContext?: AIPanelIntentState['context'];
     }
 ) {
     switch (type) {
         case 'web-search':
             return { sources: state.sources, timeline: state.toolTimeline, ...state.aiContext };
         case 'file-diff':
+            // FileDiffPanel handles both file changes AND permission approvals
             return { proposals: state.proposals, ...state.aiContext };
         case 'diagram':
             return { ...state.diagramState, ...state.aiContext };
@@ -198,7 +225,8 @@ function getDataForType(
         case 'code-preview':
             return { url: state.devServerUrl, ...state.aiContext };
         case 'permission':
-            return { ...state.aiContext };  // Permission context from AI
+            // Legacy - permission panel now maps to file-diff
+            return { proposals: state.proposals, ...state.aiContext };
         default:
             return state.aiContext || null;
     }

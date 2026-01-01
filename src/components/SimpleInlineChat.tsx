@@ -6,16 +6,18 @@
  * Receives all state as props or from atoms directly.
  */
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
     chatMessagesByIdAtom,
     chatStreamCountByIdAtom,
     isStreamingByIdAtom,
+    activeChatIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
+import { Plus } from "lucide-react";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -27,6 +29,8 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
+    const setActiveChatId = useSetAtom(activeChatIdAtom);
+    const [isHoveringTop, setIsHoveringTop] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -63,12 +67,37 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
     const messages = messagesById.get(chatId) ?? [];
     const isStreaming = isStreamingById.get(chatId) ?? false;
 
+    // Handle new chat - reset to home state
+    const handleNewChat = useCallback(() => {
+        setActiveChatId(null);
+    }, [setActiveChatId]);
+
     return (
-        <div className="flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden">
+        <div className="flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden relative">
+            {/* Hover-reveal New Chat button at top-left */}
+            <div
+                className="absolute top-0 left-0 right-0 h-16 z-10"
+                onMouseEnter={() => setIsHoveringTop(true)}
+                onMouseLeave={() => setIsHoveringTop(false)}
+            >
+                <div
+                    className={`absolute top-3 left-4 transition-all duration-200 ${isHoveringTop ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
+                        }`}
+                >
+                    <button
+                        onClick={handleNewChat}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 rounded-lg hover:bg-accent transition-colors"
+                    >
+                        <Plus size={14} />
+                        <span>New Chat</span>
+                    </button>
+                </div>
+            </div>
+
             {/* Messages area - ONLY this should scroll */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+                className="flex-1 overflow-y-auto px-4 py-6 space-y-4 pt-10"
             >
                 {messages.length === 0 && !isStreaming ? (
                     <div className="flex items-center justify-center h-32 text-muted-foreground">

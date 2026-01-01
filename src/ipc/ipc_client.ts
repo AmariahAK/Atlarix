@@ -20,6 +20,7 @@ import type {
   Version,
   SystemDebugInfo,
   LocalModel,
+  LocalModelListResponse,
   TokenCountParams,
   TokenCountResult,
   ChatLogsData,
@@ -1219,11 +1220,11 @@ export class IpcClient {
     return response?.models || [];
   }
 
-  public async listLocalLMStudioModels(): Promise<LocalModel[]> {
+  public async listLocalLMStudioModels(): Promise<LocalModelListResponse> {
     const response = await this.ipcRenderer.invoke(
       "local-models:list-lmstudio",
     );
-    return response?.models || [];
+    return response;
   }
 
   // Listen for deep link events
@@ -1485,21 +1486,115 @@ export class IpcClient {
     return this.ipcRenderer.invoke("list-templates");
   }
 
-  // --- Prompts Library ---
-  public async listPrompts(): Promise<PromptDto[]> {
+  // ═══════════════════════════════════════════════════════════
+  // PROMPTS - Global + Workspace System
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Get the global prompt (or null if none exists)
+   */
+  public async getGlobalPrompt(): Promise<{
+    id: number;
+    type: "global" | "workspace";
+    workspaceId: number | null;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null> {
+    return this.ipcRenderer.invoke("prompts:get-global");
+  }
+
+  /**
+   * Set/update the global prompt (replaces existing)
+   */
+  public async setGlobalPrompt(content: string): Promise<{
+    id: number;
+    type: "global" | "workspace";
+    workspaceId: number | null;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
+    return this.ipcRenderer.invoke("prompts:set-global", { content });
+  }
+
+  /**
+   * Delete the global prompt
+   */
+  public async deleteGlobalPrompt(): Promise<void> {
+    await this.ipcRenderer.invoke("prompts:delete-global");
+  }
+
+  /**
+   * Get workspace prompt (or null if none exists)
+   */
+  public async getWorkspacePrompt(workspaceId: number): Promise<{
+    id: number;
+    type: "global" | "workspace";
+    workspaceId: number | null;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null> {
+    return this.ipcRenderer.invoke("prompts:get-workspace", workspaceId);
+  }
+
+  /**
+   * Set/update workspace prompt (replaces existing)
+   */
+  public async setWorkspacePrompt(workspaceId: number, content: string): Promise<{
+    id: number;
+    type: "global" | "workspace";
+    workspaceId: number | null;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
+    return this.ipcRenderer.invoke("prompts:set-workspace", { workspaceId, content });
+  }
+
+  /**
+   * Delete workspace prompt
+   */
+  public async deleteWorkspacePrompt(workspaceId: number): Promise<void> {
+    await this.ipcRenderer.invoke("prompts:delete-workspace", workspaceId);
+  }
+
+  /**
+   * Delete any prompt by ID
+   */
+  public async deletePrompt(id: number): Promise<void> {
+    await this.ipcRenderer.invoke("prompts:delete", id);
+  }
+
+  /**
+   * List all workspaces with their prompt status
+   * Used by Library page
+   */
+  public async listWorkspacesWithPromptStatus(): Promise<{
+    id: number;
+    name: string;
+    path: string;
+    hasPrompt: boolean;
+    promptContent?: string;
+  }[]> {
+    return this.ipcRenderer.invoke("prompts:list-workspaces-with-status");
+  }
+
+  // Legacy methods (deprecated)
+  public async listPrompts(): Promise<any[]> {
+    console.warn("listPrompts is deprecated, use getGlobalPrompt or getWorkspacePrompt");
     return this.ipcRenderer.invoke("prompts:list");
   }
 
-  public async createPrompt(params: CreatePromptParamsDto): Promise<PromptDto> {
+  public async createPrompt(params: CreatePromptParamsDto): Promise<any> {
+    console.warn("createPrompt is deprecated, use setGlobalPrompt or setWorkspacePrompt");
     return this.ipcRenderer.invoke("prompts:create", params);
   }
 
   public async updatePrompt(params: UpdatePromptParamsDto): Promise<void> {
+    console.warn("updatePrompt is deprecated, use setGlobalPrompt or setWorkspacePrompt");
     await this.ipcRenderer.invoke("prompts:update", params);
-  }
-
-  public async deletePrompt(id: number): Promise<void> {
-    await this.ipcRenderer.invoke("prompts:delete", id);
   }
   public async cloneRepoFromUrl(
     params: CloneRepoParams,

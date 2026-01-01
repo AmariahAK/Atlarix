@@ -32,13 +32,27 @@ export interface PanelContext {
 }
 
 // ═══════════════════════════════════════════════════════════
-// AI-CONTROLLED PANEL STATE
+// AI PANEL INTENT SYSTEM (Hybrid Approach)
 // ═══════════════════════════════════════════════════════════
-// The AI explicitly sets what the right panel should show.
-// This replaces brittle heuristics with explicit AI intent.
+// Two-layer system:
+// Layer 1: AI specifies semantic intent (e.g., 'show-permissions')
+// Layer 2: Frontend maps intent to correct UI component (e.g., 'file-diff')
+// This preserves AI control while ensuring correct UI rendering.
 
-export interface AIPanelState {
-    view: PanelType;
+/** Valid AI panel intents - semantic descriptions of what to show */
+export type AIPanelIntent =
+    | 'show-permissions'    // Show file/command approval UI → maps to 'file-diff'
+    | 'show-file-changes'   // Show file diff viewer → maps to 'file-diff'
+    | 'show-web-search'     // Show web search results → maps to 'web-search'
+    | 'show-diagram'        // Show architecture diagram → maps to 'diagram'
+    | 'show-terminal'       // Show command output → maps to 'terminal'
+    | 'show-timeline'       // Show diagram history → maps to 'timeline'
+    | 'show-files'          // Show file explorer → maps to 'files'
+    | 'hide'                // Clear/hide panel → maps to 'empty'
+    | 'empty';              // No specific content → maps to 'empty'
+
+export interface AIPanelIntentState {
+    intent: AIPanelIntent;
     context?: {
         operationId?: string;    // For file-diff or permission
         searchId?: string;       // For web-search
@@ -50,7 +64,63 @@ export interface AIPanelState {
     source: 'ai' | 'user' | 'system';  // Who triggered the change
 }
 
-/** AI-controlled panel state - takes priority over heuristics when set */
+/** AI panel intent state - specifies WHAT to show, frontend maps to HOW */
+export const aiPanelIntentAtom = atom<AIPanelIntentState | null>(null);
+
+/**
+ * Map AI semantic intent to actual panel type (UI component).
+ * This is the key function that bridges AI intent to correct UI.
+ */
+export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null {
+    if (!intent) return null;
+
+    switch (intent) {
+        case 'show-permissions':
+        case 'show-file-changes':
+            // Both map to FileDiffPanel (handles file changes AND permission approvals)
+            return 'file-diff';
+
+        case 'show-web-search':
+            return 'web-search';
+
+        case 'show-diagram':
+            return 'diagram';
+
+        case 'show-terminal':
+            return 'terminal';
+
+        case 'show-timeline':
+            return 'timeline';
+
+        case 'show-files':
+            return 'files';
+
+        case 'hide':
+        case 'empty':
+            return 'empty';
+
+        default:
+            // Unknown intent - let heuristics handle it
+            console.warn(`[mapIntentToView] Unknown AI intent: ${intent}, falling back to heuristics`);
+            return null;
+    }
+}
+
+// Legacy: Keep for backwards compatibility during transition
+export interface AIPanelState {
+    view: PanelType;
+    context?: {
+        operationId?: string;
+        searchId?: string;
+        diagramId?: string;
+        commandId?: string;
+        message?: string;
+    };
+    timestamp: number;
+    source: 'ai' | 'user' | 'system';
+}
+
+/** @deprecated Use aiPanelIntentAtom instead */
 export const aiControlledPanelAtom = atom<AIPanelState | null>(null);
 
 // ═══════════════════════════════════════════════════════════

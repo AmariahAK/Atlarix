@@ -187,8 +187,32 @@ Returns rich previews with inline readable content.`,
             };
         } catch (error) {
             console.error('[web_search] Error:', error);
+
+            // Check for 403 rate limit errors and provide helpful message
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const is403Error = errorMessage.includes('403') ||
+                errorMessage.toLowerCase().includes('rate limit') ||
+                errorMessage.toLowerCase().includes('forbidden');
+
+            if (is403Error) {
+                return {
+                    text: `⚠️ **API Rate Limit Reached**
+
+You've hit the daily search limit for the public API.
+
+**Solution:** Enable SearxNG for unlimited searches!
+
+1. Go to **Settings** → **Search**
+2. Click "Auto-Setup SearxNG" (uses Docker)
+3. Enjoy unlimited web searches!
+
+_SearxNG is a privacy-respecting meta-search engine that aggregates results from multiple sources without rate limits._`,
+                    sources: []
+                };
+            }
+
             return {
-                text: `❌ Web search error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                text: `❌ Web search error: ${errorMessage}`,
                 sources: []
             };
         }

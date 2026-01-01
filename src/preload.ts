@@ -130,11 +130,19 @@ const validInvokeChannels = [
   // Help bot
   "help:chat:start",
   "help:chat:cancel",
-  // Prompts
+  // Prompts (Global + Workspace system)
+  "prompts:get-global",
+  "prompts:set-global",
+  "prompts:delete-global",
+  "prompts:get-workspace",
+  "prompts:set-workspace",
+  "prompts:delete-workspace",
+  "prompts:delete",
+  "prompts:list-workspaces-with-status",
+  // Legacy (deprecated)
   "prompts:list",
   "prompts:create",
   "prompts:update",
-  "prompts:delete",
   // adding app to favorite
   "add-to-favorite",
   "github:clone-repo-from-url",
@@ -187,7 +195,6 @@ const validInvokeChannels = [
   "diagram:restore",
 ];
 
-// Add valid receive channels
 const validReceiveChannels = [
   "chat:response:chunk",
   "chat:response:end",
@@ -208,8 +215,9 @@ const validReceiveChannels = [
   "permission-request",
   "terminal-output",
   "chat:workspace-diagram",
-  // AI-controlled right panel
-  "right-panel:set-view",
+  // AI-controlled right panel (Hybrid Intent System)
+  "right-panel:set-intent",  // New: semantic intent-based
+  "right-panel:set-view",    // Legacy: kept for backwards compatibility
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

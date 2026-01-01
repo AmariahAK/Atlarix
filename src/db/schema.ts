@@ -2,18 +2,39 @@ import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
+/**
+ * Prompts Table - Global + Workspace Prompts
+ * ==========================================
+ * - Global (1 max): Used in incognito chats
+ * - Workspace (1 per workspace): Used when chatting with workspace
+ * 
+ * 750 character limit enforced in app logic.
+ */
 export const prompts = sqliteTable("prompts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  title: text("title").notNull(),
-  description: text("description"),
+
+  // Type discriminator: 'global' or 'workspace'
+  type: text("type", {
+    enum: ["global", "workspace"]
+  }).notNull(),
+
+  // FK to apps (workspace) - only for workspace prompts
+  // Cascade delete: prompt deleted when workspace deleted
+  workspaceId: integer("workspace_id"),
+
+  // Content: 750 char limit (enforced in handlers)
   content: text("content").notNull(),
+
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
+}, (table) => [
+  // Unique: only 1 prompt per workspace (null workspaceId = global)
+  unique("prompts_workspace_unique").on(table.workspaceId),
+]);
 
 export const apps = sqliteTable("apps", {
   id: integer("id").primaryKey({ autoIncrement: true }),

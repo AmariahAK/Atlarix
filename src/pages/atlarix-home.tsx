@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAtom, useSetAtom, useAtomValue } from 'jotai';
-import { homeChatInputValueAtom } from '../atoms/chatAtoms';
+import { homeChatInputValueAtom, activeChatIdAtom } from '../atoms/chatAtoms';
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { generateCuteAppName } from '@/lib/utils';
@@ -52,6 +52,31 @@ export interface HomeSubmitOptions {
     attachments?: FileAttachment[];
 }
 
+/**
+ * IncognitoIndicator - Shows incognito status and global prompt indicator
+ */
+function IncognitoIndicator() {
+    const [hasGlobalPrompt, setHasGlobalPrompt] = useState(false);
+
+    useEffect(() => {
+        const checkGlobalPrompt = async () => {
+            try {
+                const prompt = await IpcClient.getInstance().getGlobalPrompt();
+                setHasGlobalPrompt(!!prompt);
+            } catch (error) {
+                console.error('Failed to check global prompt:', error);
+            }
+        };
+        checkGlobalPrompt();
+    }, []);
+
+    return (
+        <span className="text-xs text-muted-foreground italic">
+            Incognito chats{hasGlobalPrompt && ' • Using global prompt'}
+        </span>
+    );
+}
+
 export default function AtlarixHome() {
     const [inputValue, setInputValue] = useAtom(homeChatInputValueAtom);
     const navigate = useNavigate();
@@ -63,7 +88,7 @@ export default function AtlarixHome() {
     const [isLoading, setIsLoading] = useState(false);
     const [forceCloseDialogOpen, setForceCloseDialogOpen] = useState(false);
     const [performanceData, setPerformanceData] = useState<any>(undefined);
-    const [activeChatId, setActiveChatId] = useState<number | null>(null); // For inline seamless chat
+    const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom); // Persists across navigation
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const posthog = usePostHog();
     const { theme } = useTheme();
@@ -305,13 +330,13 @@ export default function AtlarixHome() {
     if (activeChatId !== null) {
         return (
             <div className="flex-1 flex h-screen bg-background">
-                {/* Main Content Area (Chat) - single scroller in child */}
-                <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+                {/* Main Content Area (Chat) */}
+                <div className="flex-1 flex flex-col min-w-0 h-full">
                     {/* Sticky header with back button and panel toggle */}
-                    <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
+                    <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
                         <button
                             onClick={handleNewChat}
-                            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors hover:bg-accent px-2 py-1 rounded-md"
+                            className="text-xs text-muted-foreground/70 hover:text-foreground flex items-center gap-1 transition-colors"
                         >
                             ← New Chat
                         </button>
@@ -414,9 +439,7 @@ export default function AtlarixHome() {
                                 </button>
                             </div>
                         ) : (
-                            <span className="text-xs text-muted-foreground italic">
-                                Incognito mode — select a workspace from sidebar to save chats
-                            </span>
+                            <IncognitoIndicator />
                         )}
                     </div>
 

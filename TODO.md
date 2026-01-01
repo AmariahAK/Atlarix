@@ -4,6 +4,32 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 🔥 v0.9.6 - Prompts, Persistence & Polish ✅
+
+### Global & Workspace Prompts ✅
+- [x] **Global Prompt**: Custom AI instructions for all incognito chats
+- [x] **Workspace Prompts**: Per-project AI instructions with workspace binding
+- [x] **Library Page Redesign**: Two sections - Global (single) + Workspace (paginated list)
+- [x] **Character Limit**: 2000 chars with visual counter
+- [x] **DB Schema Update**: New prompts table with type/workspaceId fields
+
+### Session Persistence ✅
+- [x] **activeChatIdAtom**: Chat sessions persist across navigation (Settings → Home)
+- [x] **New Chat Button**: Subtle "← New Chat" in header resets session
+- [x] **Jotai State**: Replaced useState with atom for global persistence
+
+### Error Handling ✅
+- [x] **LM Studio Errors**: Friendly "LM Studio not running" message instead of stack traces
+- [x] **MiniMax Deduplication**: Fixed content repeating twice with reasoning models
+- [x] **Ephemeral History**: Full chat history displayed, not just current exchange
+
+### Bug Fixes ✅
+- [x] **Permission Requests**: Sequential requests now display correctly (timestamp fix)
+- [x] **Auto-scroll**: Only scrolls after streaming starts, preserves scroll position
+- [x] **Chat History Clipping**: Fixed by waiting for DOM render with requestAnimationFrame
+
+---
+
 ## 🔥 v0.9.5 - AI-Controlled Right Panel ✅
 
 ### AI-Controlled Panel System ✅
@@ -98,10 +124,11 @@ This file tracks upcoming features, improvements, and known issues.
 ---
 
 ## ⏳ Known Issues (Ongoing)
-- [ ] **AI Message Repetition**: Model sometimes repeats previous messages (model behavior issue)
+- [x] **AI Message Repetition (MiniMax)**: ✅ FIXED in v0.9.6 - Deduplication logic added
 - [x] **Prompt Box Clipping**: ✅ FIXED in v0.9.5 - Mode/model controls now always visible
 - [x] **Diagram Persistence**: ✅ FIXED - Diagrams now persist and display correctly
 - [x] **Right Panel Heuristics**: ✅ FIXED in v0.9.5 - AI now explicitly controls panel state
+- [x] **LM Studio Errors**: ✅ FIXED in v0.9.6 - User-friendly error messages
 
 ---
 
@@ -195,5 +222,5 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-**Last Updated**: 2025-12-31
-**Version**: v0.9.4 (Diagram System Overhaul)
+**Last Updated**: 2026-01-01
+**Version**: v0.9.6 (Prompts, Persistence & Polish)

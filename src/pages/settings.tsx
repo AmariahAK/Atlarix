@@ -6,7 +6,7 @@ import { showSuccess, showError } from "@/lib/toast";
 import { AutoApproveSwitch } from "@/components/AutoApproveSwitch";
 import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 import { MaxChatTurnsSelector } from "@/components/MaxChatTurnsSelector";
-import { ThinkingBudgetSelector } from "@/components/ThinkingBudgetSelector";
+// Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,6 @@ import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { AutoUpdateSwitch } from "@/components/AutoUpdateSwitch";
-import { ReleaseChannelSelector } from "@/components/ReleaseChannelSelector";
-import { RuntimeModeSelector } from "@/components/RuntimeModeSelector";
-import { NodePathSelector } from "@/components/NodePathSelector";
 import { ZoomSelector } from "@/components/ZoomSelector";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useSetAtom } from "jotai";
@@ -182,16 +179,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
         </div>
       </div>
 
-      <div className="mt-4">
-        <ReleaseChannelSelector />
-      </div>
-
-      <div className="mt-4">
-        <RuntimeModeSelector />
-      </div>
-      <div className="mt-4">
-        <NodePathSelector />
-      </div>
+      {/* Hidden for cleaner UI: ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector */}
 
       <div className="flex items-center text-sm text-muted-foreground mt-4">
         <span className="mr-2 font-medium">App Version:</span>
@@ -239,9 +227,7 @@ export function AISettings() {
         AI Settings
       </h2>
 
-      <div className="mt-4">
-        <ThinkingBudgetSelector />
-      </div>
+      {/* Hidden for cleaner UI: ThinkingBudgetSelector */}
 
       <div className="mt-4">
         <MaxChatTurnsSelector />

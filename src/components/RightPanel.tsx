@@ -55,7 +55,7 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
 };
 
 export function RightPanel() {
-    const { context, isPinned, isAIControlled, pin, unpin, setActiveTab, clearAIPanel } = useRightPanelContext();
+    const { context, isPinned, isAIControlled, aiIntent, pin, unpin, setActiveTab, clearAIIntent } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
@@ -306,8 +306,9 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
             return <ToolsPanel data={context.data} />;
 
         case 'permission':
-            // Permission approval panel (AI-controlled)
-            return <PermissionPanel data={context.data} />;
+            // Legacy: permission panel now redirects to FileDiffPanel
+            // (AI intent 'show-permissions' maps to 'file-diff' in the hybrid system)
+            return <FileDiffPanel data={{ proposals: context.data?.proposals || [] }} activeTab="approve" />;
 
         default:
             return (

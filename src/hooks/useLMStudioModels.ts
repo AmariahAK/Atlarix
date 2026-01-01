@@ -15,16 +15,24 @@ export function useLocalLMSModels() {
   const ipcClient = IpcClient.getInstance();
 
   /**
-   * Load local models from Ollama
+   * Load local models from LM Studio
    */
   const loadModels = useCallback(async () => {
     setLoading(true);
     try {
-      const modelList = await ipcClient.listLocalLMStudioModels();
-      setModels(modelList);
+      const response = await ipcClient.listLocalLMStudioModels();
+
+      // Check if the response contains an error (LM Studio not running, etc.)
+      if (response.error) {
+        setModels([]);
+        setError(new Error(response.error));
+        return [];
+      }
+
+      setModels(response.models);
       setError(null);
 
-      return modelList;
+      return response.models;
     } catch (error) {
       console.error("Error loading local LMStudio models:", error);
       setError(error instanceof Error ? error : new Error(String(error)));

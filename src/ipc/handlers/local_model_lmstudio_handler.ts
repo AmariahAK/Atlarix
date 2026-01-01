@@ -43,7 +43,24 @@ export function registerLMStudioHandlers() {
   ipcMain.handle(
     "local-models:list-lmstudio",
     async (): Promise<LocalModelListResponse> => {
-      return fetchLMStudioModels();
+      try {
+        return await fetchLMStudioModels();
+      } catch (error: any) {
+        // Check if it's a connection error (LM Studio not running)
+        if (error.cause?.code === 'ECONNREFUSED' || error.code === 'ECONNREFUSED') {
+          logger.info('LM Studio is not running or not accessible');
+          return {
+            models: [],
+            error: 'LM Studio not running. Please start LM Studio and load a model.'
+          };
+        }
+        // Other errors
+        logger.error('Error fetching LM Studio models:', error);
+        return {
+          models: [],
+          error: 'Failed to connect to LM Studio'
+        };
+      }
     },
   );
 }

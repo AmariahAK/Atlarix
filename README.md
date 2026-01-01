@@ -22,6 +22,12 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Version History** - Browse and restore previous diagram versions
 - **Professional UX** - Like Figma/Excalidraw for architecture diagrams
 
+### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
+- **Custom AI Instructions** - Define behavior rules that persist across chats
+- **Global Prompts** - Apply to all incognito/general chats
+- **Workspace Prompts** - Project-specific AI context and guidelines
+- **Library Page** - Easy management with character counter
+
 ### 🔐 Permission System (v0.9.0+)
 - **Tool Approval Flow** - AI proposes changes, you approve before execution
 - **FileDiffPanel** - Preview file changes with syntax highlighting
@@ -32,6 +38,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Ephemeral Chats** - Ask anything without saving to database
 - **Privacy-First** - Chats disappear when you close/leave
 - **In-Memory Only** - Lightning-fast, truly private
+- **Session Persistence** - Chats survive navigation to Settings and back
 
 ### 🔍 Ask Mode with Smart Tools
 - **Read-Only Exploration** - 21 safe tools for exploring any workspace
@@ -40,8 +47,8 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 
 ### 🤖 Multi-Provider AI Support
 - **Ollama** - Free, local models (llama3.2, codellama)
-- **LMStudio** - Local models with GUI
-- **OpenRouter** - Cloud access to 100+ models
+- **LMStudio** - Local models with friendly error messages
+- **OpenRouter** - Cloud access to 100+ models (including MiniMax 2.1)
 - **Model Name Display** - See which model generated each response
 
 ### 🛠️ 41 Intelligent Tools
@@ -60,9 +67,10 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Permission Panel** - Dedicated view for showing pending tool approvals
 - **Priority System** - AI state → User pinned → Heuristic fallback
 
-### ⚠️ Known Issues (v0.9.5)
+### ⚠️ Known Issues (v0.9.6)
 - ~~**Prompt Box Clipping** - Mode/model controls hidden after first message~~ **FIXED**
-- **AI Repetition** - Model occasionally repeats previous messages
+- ~~**MiniMax Duplication** - Content appeared twice with reasoning models~~ **FIXED**
+- ~~**LM Studio Errors** - Technical stack traces shown to users~~ **FIXED**
 
 ---
 
@@ -83,11 +91,6 @@ npm start
 ```
 
 ---
-
-## ⚠️ Known Issues (v0.9.4)
-
-- **Command Approval** - AI tool calls for `run_command` may not appear in right panel
-- **AI Repetition** - Model sometimes repeats previous messages (model behavior, not code issue)
 
 See [TODO.md](./TODO.md) for full list and roadmap.
 

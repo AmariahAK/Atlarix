@@ -2,6 +2,59 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.6] - 2026-01-01
+
+### 🎉 New Features
+
+#### Global & Workspace Prompts System
+- **Global AI Behavior**: Define custom instructions that apply to all incognito chats
+- **Workspace Prompts**: Per-project AI instructions for workspace-specific context
+- **Library Page Redesign**: Clean UI with Global prompt editor + paginated workspace prompts
+- **Character Limit**: 2000 characters with visual counter
+
+#### New Chat Button
+- **Hover-Reveal Header**: Subtle "← New Chat" button appears at top of active chats
+- **Session Persistence**: Chat sessions now persist across navigation (Settings → Home)
+- **Jotai Atom**: `activeChatIdAtom` ensures chat state survives component unmounts
+
+### 🐛 Bug Fixes
+
+#### LM Studio Error Handling
+- **FIXED**: Technical stack traces replaced with user-friendly messages
+- **New Message**: "LM Studio not running. Please start LM Studio and load a model."
+- **Graceful Degradation**: Connection errors no longer crash the model picker
+
+#### MiniMax Content Duplication
+- **FIXED**: MiniMax 2.1 "Interleaved Thinking" caused responses to appear twice
+- **Deduplication Logic**: `cleanFullResponse.ts` now detects and removes exact content repeats
+- **Reasoning Support**: Works with both `<think>` block responses and plain text
+
+#### Chat History Display
+- **FIXED**: Ephemeral chat history now shows all previous messages, not just current exchange
+- **Scroll Preservation**: Auto-scroll only triggers after streaming starts, not on initial load
+
+#### Permission Request Flow
+- **FIXED**: Sequential AI permission requests now display correctly
+- **Timestamp Fix**: Unique timestamps force frontend to re-process intents
+
+### 🔧 Technical Changes
+
+#### Files Created
+- None
+
+#### Files Modified
+- `src/atoms/chatAtoms.ts` - Added `activeChatIdAtom` for session persistence
+- `src/pages/atlarix-home.tsx` - New Chat button, session persistence via Jotai
+- `src/pages/library.tsx` - Complete redesign for Global + Workspace prompts
+- `src/ipc/handlers/prompt_handlers.ts` - New prompt system IPC handlers
+- `src/ipc/handlers/local_model_lmstudio_handler.ts` - Friendly error handling
+- `src/ipc/ipc_types.ts` - Added `error` field to `LocalModelListResponse`
+- `src/ipc/utils/cleanFullResponse.ts` - Content deduplication for reasoning models
+- `src/hooks/useLMStudioModels.ts` - Parse error field from response
+- `src/db/schema.ts` - New prompts table with type/workspaceId fields
+
+---
+
 ## [v0.9.5] - 2025-12-31
 
 ### 🎉 Major Features

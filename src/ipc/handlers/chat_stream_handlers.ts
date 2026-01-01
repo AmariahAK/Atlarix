@@ -593,31 +593,39 @@ ${componentSnippet}
         const { addEphemeralMessage, getEphemeralChat } = await import("./chat_only_handlers");
         addEphemeralMessage(req.chatId, { role: "user", content: userPrompt });
 
-        // Also update the local updatedChat.messages for the LLM call
-        // Create a minimal message structure for the user message + placeholder assistant
-        // IMPORTANT: We need the assistant placeholder so processResponseChunkUpdate can update it
-        updatedChat.messages = [
-          {
-            id: Date.now(),
-            chatId: req.chatId,
-            role: "user",
-            content: userPrompt,
-            createdAt: new Date(),
-            sourceCommitHash: null,
-            commitHash: null,
-          },
-          {
-            id: Date.now() + 1, // Placeholder assistant message
-            chatId: req.chatId,
-            role: "assistant",
-            content: "", // Empty - will be filled by streaming
-            createdAt: new Date(),
-            sourceCommitHash: null,
-            commitHash: null,
-          }
-        ];
+        // Get existing messages from ephemeral store to include full history
+        const ephemeralChat = getEphemeralChat(req.chatId);
+        const existingMessages = ephemeralChat?.messages || [];
+
+        // Create the new user message and placeholder assistant
+        const newUserMessage = {
+          id: Date.now(),
+          chatId: req.chatId,
+          role: "user",
+          content: userPrompt,
+          createdAt: new Date(),
+          sourceCommitHash: null,
+          commitHash: null,
+        };
+        const placeholderMessage = {
+          id: Date.now() + 1,
+          chatId: req.chatId,
+          role: "assistant",
+          content: "", // Empty - will be filled by streaming
+          createdAt: new Date(),
+          sourceCommitHash: null,
+          commitHash: null,
+        };
+
+        // Include ALL previous messages plus the new exchange
+        // Filter out the current user message if already added to avoid duplication
+        const previousMessages = existingMessages.filter(
+          (m: any) => m.id !== newUserMessage.id
+        );
+        updatedChat.messages = [...previousMessages, newUserMessage, placeholderMessage];
+
         // Update placeholderAssistantMessage so token logging uses correct ID
-        placeholderAssistantMessage = updatedChat.messages[1];
+        placeholderAssistantMessage = placeholderMessage;
       }
 
       // Send the messages right away so that the loading state is shown for the message.

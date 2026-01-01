@@ -103,11 +103,63 @@ Examples:
             });
 
             // Sort by score and take top results
-            const topMatches = scored
+            let topMatches = scored
                 .filter((item) => item.score > 0)
                 .sort((a, b) => b.score - a.score)
                 .slice(0, maxResults)
                 .map((item) => item.template);
+
+            // ═══════════════════════════════════════════════════════════
+            // SEARXNG INTEGRATION: Fetch fresh templates when local results sparse
+            // ═══════════════════════════════════════════════════════════
+            if (topMatches.length < maxResults) {
+                try {
+                    const { smartSearch, isSearxngEnabled } = await import("../search");
+
+                    // Only use SearxNG if enabled
+                    if (isSearxngEnabled()) {
+                        console.log('[search_templates] Local results sparse, searching SearxNG for fresh templates...');
+
+                        // Search for GitHub templates
+                        const searchQuery = `${params.query} github template starter kit site:github.com`;
+                        const searxngResults = await smartSearch(searchQuery, 5);
+
+                        // Parse GitHub URLs and create template entries
+                        const freshTemplates = searxngResults
+                            .filter(r => r.url.includes('github.com'))
+                            .map(r => {
+                                // Extract repo name from URL
+                                const urlParts = r.url.split('/');
+                                const repoName = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
+                                const owner = urlParts[urlParts.length - 2] || urlParts[urlParts.length - 3];
+
+                                return {
+                                    id: `${owner}/${repoName}`,
+                                    title: r.title.replace(' - GitHub', '').replace(' · GitHub', ''),
+                                    description: r.snippet.slice(0, 200),
+                                    techStack: [],
+                                    category: params.category || 'fullstack',
+                                    githubUrl: r.url,
+                                    stars: 0,
+                                    isOfficial: false,
+                                    source: 'searxng', // Mark as SearxNG-discovered
+                                };
+                            });
+
+                        // Merge with local results (avoid duplicates)
+                        const existingIds = new Set(topMatches.map(t => t.id));
+                        for (const fresh of freshTemplates) {
+                            if (!existingIds.has(fresh.id) && topMatches.length < maxResults) {
+                                topMatches.push(fresh as Template);
+                            }
+                        }
+
+                        console.log(`[search_templates] Added ${freshTemplates.length} templates from SearxNG`);
+                    }
+                } catch (searxError) {
+                    console.warn('[search_templates] SearxNG search failed, using local results only:', searxError);
+                }
+            }
 
             if (topMatches.length === 0) {
                 return {
@@ -130,6 +182,7 @@ Examples:
                     demo_url: t.demoUrl,
                     stars: t.stars,
                     is_official: t.isOfficial,
+                    source: (t as any).source || 'local', // Indicate source
                 })),
                 total_found: topMatches.length,
                 message: `Found ${topMatches.length} matching template(s). Present these options to the user.`,

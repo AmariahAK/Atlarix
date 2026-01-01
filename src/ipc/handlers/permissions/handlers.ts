@@ -18,19 +18,29 @@ const logger = log.scope("permission-handlers");
 const activeInterceptors = new Map<number, PermissionInterceptor>();
 
 /**
- * Send a panel update to the renderer process
+ * Send a panel intent update to the renderer process
  * This allows the main process to control what the right panel shows
+ * using semantic intents that get mapped to correct UI components.
+ * 
+ * Intent values:
+ * - 'show-permissions': Show file/command approval UI → maps to FileDiffPanel
+ * - 'show-file-changes': Show file diff viewer → maps to FileDiffPanel
+ * - 'show-web-search': Show web search results → maps to WebSearchPanel
+ * - 'show-diagram': Show architecture diagram → maps to DiagramPanel
+ * - 'show-terminal': Show command output → maps to TerminalPanel
+ * - 'empty': Clear the panel
  */
-function sendPanelUpdate(view: string, context: any): void {
+function sendPanelIntent(intent: string, context: any): void {
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-        win.webContents.send('right-panel:set-view', {
-            view,
+        win.webContents.send('right-panel:set-intent', {
+            intent,
             context,
             timestamp: Date.now(),
             source: 'system',
         });
     }
+    logger.log(`[Panel Intent] Sent intent: ${intent}`);
 }
 
 /**
@@ -40,13 +50,15 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
     activeInterceptors.set(chatId, interceptor);
     logger.log(`Registered permission interceptor for chat ${chatId}`);
 
-    // Wire up permission-request event to update the right panel
+    // Wire up permission-request event to update the right panel with intent
     interceptor.on('permission-request', (data: { operationId: string; request: PermissionRequest }) => {
-        logger.log(`[Panel Update] Showing permission panel for ${data.operationId}`);
-        sendPanelUpdate('permission', {
+        logger.log(`[Panel Intent] Setting show-permissions for ${data.operationId}`);
+        // Send semantic intent - frontend will map 'show-permissions' to 'file-diff' UI
+        sendPanelIntent('show-permissions', {
             operationId: data.operationId,
             operation: data.request.operation,
             message: `AI wants to: ${data.request.operation}`,
+            timestamp: Date.now(),
         });
     });
 }

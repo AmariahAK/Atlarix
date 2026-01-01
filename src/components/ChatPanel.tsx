@@ -93,14 +93,31 @@ export function ChatPanel({
     lastScrollTopRef.current = container.scrollTop;
   }, []);
 
+  // Track if we're in an active streaming session (to differentiate from initial load)
+  const wasStreamingRef = useRef(false);
+
   useEffect(() => {
     const streamCount = chatId ? (streamCountById.get(chatId) ?? 0) : 0;
-    console.log("streamCount - scrolling to bottom", streamCount);
-    scrollToBottom();
+    const currentlyStreaming = chatId ? (isStreamingById.get(chatId) ?? false) : false;
+
+    // Only auto-scroll when:
+    // 1. We're actively streaming (not just loading a chat)
+    // 2. Stream count > 1 (skip first chunk so user sees their message first)
+    // 3. User hasn't scrolled away
+    if (currentlyStreaming && streamCount > 1 && !isUserScrolling) {
+      console.log("[ChatPanel] Streaming detected, scrolling to bottom");
+      requestAnimationFrame(() => {
+        scrollToBottom("smooth");
+      });
+    }
+
+    // Track streaming state for next render
+    wasStreamingRef.current = currentlyStreaming;
   }, [
     chatId,
     chatId ? (streamCountById.get(chatId) ?? 0) : 0,
     chatId ? (isStreamingById.get(chatId) ?? false) : false,
+    isUserScrolling,
   ]);
 
   useEffect(() => {

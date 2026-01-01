@@ -168,6 +168,7 @@ export interface LocalModel {
 
 export type LocalModelListResponse = {
   models: LocalModel[];
+  error?: string; // User-friendly error message (e.g., "LM Studio not running")
 };
 
 export interface TokenCountParams {

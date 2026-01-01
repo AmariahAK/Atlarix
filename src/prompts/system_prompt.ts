@@ -505,16 +505,38 @@ export const constructSystemPrompt = ({
   aiRules,
   chatMode = "build",
   enableTurboEditsV2,
+  userPrompt,
 }: {
   aiRules: string | undefined;
   chatMode?: "build" | "ask" | "agent";
   enableTurboEditsV2: boolean;
+  userPrompt?: string | null; // Global or Workspace prompt from user
 }) => {
-  const systemPrompt = getSystemPromptForChatMode({
+  let systemPrompt = getSystemPromptForChatMode({
     chatMode,
     enableTurboEditsV2,
   });
-  return systemPrompt.replace("[[AI_RULES]]", aiRules ?? DEFAULT_AI_RULES);
+
+  // Replace AI_RULES placeholder
+  systemPrompt = systemPrompt.replace("[[AI_RULES]]", aiRules ?? DEFAULT_AI_RULES);
+
+  // Add user-defined prompt context if present
+  // This is for Global prompts (incognito) or Workspace prompts (project-specific)
+  if (userPrompt && userPrompt.trim().length > 0) {
+    const userContextSection = `
+<user_context>
+The user has defined the following guidance for this conversation:
+
+${userPrompt.trim()}
+
+Follow these instructions throughout the conversation while respecting the above guidelines.
+</user_context>
+`;
+    // Append to end of system prompt
+    systemPrompt = systemPrompt + userContextSection;
+  }
+
+  return systemPrompt;
 };
 
 export const getSystemPromptForChatMode = ({

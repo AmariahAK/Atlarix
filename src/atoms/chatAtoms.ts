@@ -9,6 +9,10 @@ export const chatErrorByIdAtom = atom<Map<number, string | null>>(new Map());
 // Atom to hold the currently selected chat ID
 export const selectedChatIdAtom = atom<number | null>(null);
 
+// Active chat ID for seamless inline chat (persists across navigation)
+// Only reset when "New Chat" is clicked or app restarts
+export const activeChatIdAtom = atom<number | null>(null);
+
 export const isStreamingByIdAtom = atom<Map<number, boolean>>(new Map());
 export const chatInputValueAtom = atom<string>("");
 export const homeChatInputValueAtom = atom<string>("");

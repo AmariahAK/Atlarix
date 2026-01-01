@@ -3,47 +3,59 @@
  * =======================
  * Listens for IPC events from main process that control the right panel.
  * This enables the AI (via permission system, tools, etc.) to explicitly
- * set what the right panel should display.
+ * set what the right panel should display using semantic intents.
+ * 
+ * Part of the Hybrid Approach:
+ * - AI sends semantic intent (e.g., 'show-permissions')
+ * - Frontend maps to correct UI component (e.g., 'file-diff')
  */
 
 import { useEffect } from 'react';
 import { useSetAtom } from 'jotai';
-import { aiControlledPanelAtom, type AIPanelState, type PanelType } from '@/atoms/sourceAtoms';
+import { aiPanelIntentAtom, type AIPanelIntent, type AIPanelIntentState } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 
-// Valid panel types
-const VALID_PANEL_TYPES: PanelType[] = [
-    'web-search', 'code-preview', 'diagram', 'terminal',
-    'file-diff', 'files', 'timeline', 'tools', 'permission', 'empty'
+// Valid AI intents that can be received from backend
+const VALID_INTENTS: AIPanelIntent[] = [
+    'show-permissions',
+    'show-file-changes',
+    'show-web-search',
+    'show-diagram',
+    'show-terminal',
+    'show-timeline',
+    'show-files',
+    'hide',
+    'empty'
 ];
 
 export function useAIPanelListener() {
-    const setAIPanel = useSetAtom(aiControlledPanelAtom);
+    const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
 
     useEffect(() => {
-        // Listen for panel updates from main process via IpcClient
-        const handlePanelUpdate = (data: {
-            view: string;
+        // Listen for intent updates from main process via IpcClient
+        const handleIntentUpdate = (data: {
+            intent: string;
             context?: any;
             timestamp: number;
             source?: 'ai' | 'user' | 'system';
         }) => {
-            console.log('[useAIPanelListener] Received panel update:', data);
+            console.log('[useAIPanelListener] Received intent update:', data);
 
-            // Validate view is a valid panel type
-            if (!VALID_PANEL_TYPES.includes(data.view as PanelType)) {
-                console.warn(`[useAIPanelListener] Invalid panel view: ${data.view}`);
+            // Validate intent is known
+            if (!VALID_INTENTS.includes(data.intent as AIPanelIntent)) {
+                console.warn(`[useAIPanelListener] Unknown intent: ${data.intent}, ignoring`);
                 return;
             }
 
-            const panelState: AIPanelState = {
-                view: data.view as PanelType,
+            const intentState: AIPanelIntentState = {
+                intent: data.intent as AIPanelIntent,
                 context: data.context,
                 timestamp: data.timestamp,
                 source: data.source || 'system',
             };
 
-            setAIPanel(panelState);
+            console.log(`[useAIPanelListener] Setting AI intent: ${data.intent}`);
+            setAIPanelIntent(intentState);
         };
 
         // Use IpcClient's underlying ipcRenderer
@@ -51,15 +63,40 @@ export function useAIPanelListener() {
         const ipcRenderer = (ipcClient as any).ipcRenderer;
 
         if (ipcRenderer?.on) {
-            ipcRenderer.on('right-panel:set-view', handlePanelUpdate);
+            // Listen for new intent-based events
+            ipcRenderer.on('right-panel:set-intent', handleIntentUpdate);
+
+            // Also listen for legacy view-based events (backwards compatibility)
+            ipcRenderer.on('right-panel:set-view', (data: any) => {
+                console.log('[useAIPanelListener] Legacy set-view event, converting to intent');
+                // Map legacy view to intent
+                const viewToIntent: Record<string, AIPanelIntent> = {
+                    'permission': 'show-permissions',
+                    'file-diff': 'show-file-changes',
+                    'web-search': 'show-web-search',
+                    'diagram': 'show-diagram',
+                    'terminal': 'show-terminal',
+                    'timeline': 'show-timeline',
+                    'files': 'show-files',
+                    'empty': 'empty',
+                };
+                const intent = viewToIntent[data.view] || 'empty';
+                handleIntentUpdate({
+                    intent,
+                    context: data.context,
+                    timestamp: data.timestamp,
+                    source: data.source,
+                });
+            });
 
             return () => {
-                ipcRenderer.off?.('right-panel:set-view', handlePanelUpdate);
+                ipcRenderer.off?.('right-panel:set-intent', handleIntentUpdate);
+                ipcRenderer.off?.('right-panel:set-view', handleIntentUpdate);
             };
         }
 
         return () => { };
-    }, [setAIPanel]);
+    }, [setAIPanelIntent]);
 }
 
 export default useAIPanelListener;
