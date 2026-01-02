@@ -128,9 +128,13 @@ ipcMain.handle('dev-server:list-running', async () => {
 // CLEANUP ON APP QUIT
 // ============================================
 
+// Import stream cleanup for AI requests
+import { abortAllStreams } from './chat_stream_handlers';
+
 app.on('before-quit', () => {
-    logger.log('App quitting, stopping all dev servers');
+    logger.log('App quitting, stopping all dev servers and AI streams');
     devServerManager.stopAllServers();
+    abortAllStreams(); // Cancel active AI requests to save tokens
 });
 
 app.on('window-all-closed', () => {

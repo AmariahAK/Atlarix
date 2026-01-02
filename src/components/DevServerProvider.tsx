@@ -14,13 +14,15 @@
 import { useEffect, useRef } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
-import { devServerUrlAtom, rightPanelVisibleAtom } from '@/atoms/sourceAtoms';
+import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const workspaceId = useAtomValue(selectedAppIdAtom);
     const setDevServerUrl = useSetAtom(devServerUrlAtom);
     const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+    const setProjectType = useSetAtom(projectTypeAtom);
+    const setPinnedPanel = useSetAtom(pinnedPanelAtom);
     const previousWorkspaceId = useRef<number | null>(null);
 
     useEffect(() => {
@@ -46,12 +48,17 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
                 const frontendCheck = await IpcClient.getInstance().isFrontendProject(workspaceId);
 
                 if (!frontendCheck.isFrontend) {
-                    console.log(`📦 [DevServerProvider] Workspace ${workspaceId} is not a frontend project`);
+                    console.log(`📦 [DevServerProvider] Workspace ${workspaceId} is backend project`);
                     setDevServerUrl(null);
+                    setProjectType('backend');
+                    // Auto-show diagram for backend projects
+                    setPinnedPanel('diagram');
+                    setRightPanelVisible(true);
                     return;
                 }
 
                 console.log(`🎨 [DevServerProvider] Detected ${frontendCheck.framework} project`);
+                setProjectType('frontend');
 
                 // Check if already running
                 const status = await IpcClient.getInstance().getDevServerStatus(workspaceId);

@@ -2,6 +2,57 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.7] - 2026-01-02
+
+### 🚀 Command Execution Wait Fix (Critical)
+
+#### Core Fix
+- **FIXED**: AI now waits for commands to complete before issuing next command
+- **Root Cause**: `resolveApproval()` was called BEFORE command execution, not after
+- **Solution**: Moved approval resolution to AFTER `executeRunCommand()` completes
+- **Sequential Execution**: `executeAllOperations()` now runs commands sequentially
+
+#### Smart Output Formatting
+- **Priority Slicing**: Command output limited to 1500 chars with intelligent truncation
+- **Extraction Order**: Errors → Warnings → First 5 lines → Last 5 lines
+- **AI Context**: AI now receives formatted terminal output for decision making
+
+#### Timeout Protection
+- **5-Minute Default**: Commands timeout after 300 seconds (configurable)
+- **Progress Updates**: UI updates every 2 seconds for long-running commands
+- **Error Storage**: Timeout/failure info captured for AI context
+
+### 🔧 Technical Changes
+
+#### Files Modified
+- `src/ipc/handlers/permissions/interceptor.ts`
+  - Moved `resolveApproval()` to after execution completes
+  - Added `CommandExecutionResult` interface with timing info
+  - Added `formatCommandOutput()` with smart slicing
+  - Changed `executeAllOperations()` to sequential execution
+  - Added timeout with `Promise.race()` and progress interval
+  - Added `queueCapture()` for timeline auto-capture after file ops
+
+### 🌐 Live Preview (Lovable-style)
+- **Auto-Start Dev Server**: DevServerProvider detects frontend projects and starts server
+- **Iframe Preview**: RightPanel Preview tab with responsive viewport controls
+- **Framework Detection**: Vite, Next.js, Create React App, Nuxt, Astro
+- **Backend Fallback**: Auto-pins diagram panel for non-frontend projects
+
+### 📊 Timeline & Project Evolution
+- **Auto-Capture**: Diagram snapshots on AI file changes (5-min debounce)
+- **11 Timeline IPC Channels**: Full timeline API for project evolution
+- **AI Awareness**: System prompt teaches Lovable-style workflow
+
+### 💰 Token-Saving Stop Button
+- **chat:abort IPC**: Cancels backend AI stream immediately
+- **abortAllStreams()**: Cleanup on app quit
+- **Stop Button Wired**: SimpleChatInput + ChatInput call abort to save tokens
+
+### 🐛 Bug Fixes
+- **PlantUMLPreview null check**: Fixed undefined split error
+- **Database paths documented**: Dev vs Production DB locations
+
 ## [v0.9.6] - 2026-01-01
 
 ### 🎉 New Features

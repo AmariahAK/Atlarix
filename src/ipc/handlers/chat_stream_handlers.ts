@@ -110,6 +110,29 @@ const activeStreams = new Map<number, AbortController>();
 // Track partial responses for cancelled streams
 const partialResponses = new Map<number, string>();
 
+/**
+ * Abort all active AI streams - call on app quit to save tokens
+ */
+export function abortAllStreams(): void {
+  const count = activeStreams.size;
+  if (count === 0) return;
+
+  logger.log(`[Cleanup] Aborting ${count} active AI streams to save tokens...`);
+
+  for (const [chatId, controller] of activeStreams.entries()) {
+    try {
+      controller.abort();
+      logger.log(`[Cleanup] Aborted stream for chat ${chatId}`);
+    } catch (error) {
+      logger.warn(`[Cleanup] Error aborting stream ${chatId}:`, error);
+    }
+  }
+
+  activeStreams.clear();
+  partialResponses.clear();
+  logger.log(`[Cleanup] All AI streams aborted`);
+}
+
 // Directory for storing temporary files
 const TEMP_DIR = path.join(os.tmpdir(), "dyad-attachments");
 
@@ -1471,16 +1494,33 @@ If the user requests modifications, politely explain that Ask mode is for explor
                             success: true,
                             message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as any).path || "operation"}`,
                             path: execResult.path,
+                            output: execResult.output,
                           });
                         } else {
-                          // User rejected or timeout
-                          logger.log(`[Build Mode] Permission denied: ${operationId}`);
-                          return JSON.stringify({
-                            success: false,
-                            error: "Permission denied by user",
-                            operation: permRequest.operation,
-                            path: (permRequest.preview as any).path,
-                          });
+                          // Check if this was a command failure vs user rejection
+                          const execResult = permissionInterceptor.getExecutionResult(operationId);
+
+                          if (execResult.exitCode !== undefined) {
+                            // Command was executed but failed - include error details for AI
+                            logger.log(`[Build Mode] Command failed: ${operationId} (exit ${execResult.exitCode})`);
+                            return JSON.stringify({
+                              success: false,
+                              error: execResult.error || `Command failed with exit code ${execResult.exitCode}`,
+                              exitCode: execResult.exitCode,
+                              output: execResult.output,  // Include terminal output for AI context
+                              operation: permRequest.operation,
+                              path: (permRequest.preview as any).path || (permRequest.preview as any).command,
+                            });
+                          } else {
+                            // User actually rejected or timeout
+                            logger.log(`[Build Mode] Permission denied: ${operationId}`);
+                            return JSON.stringify({
+                              success: false,
+                              error: "Permission denied by user",
+                              operation: permRequest.operation,
+                              path: (permRequest.preview as any).path,
+                            });
+                          }
                         }
                       } catch (error) {
                         logger.error(`[Build Mode] Permission error: ${operationId}`, error);
@@ -1603,16 +1643,34 @@ If the user requests modifications, politely explain that Ask mode is for explor
                                 success: true,
                                 message: `Operation completed`,
                                 path: execResult.path,
+                                output: execResult.output,
                               }),
                             });
                           } else {
-                            iterationResults.push({
-                              tool: toolCall.toolName,
-                              result: JSON.stringify({
-                                success: false,
-                                error: "Permission denied by user",
-                              }),
-                            });
+                            // Check if command failure vs user rejection
+                            const execResult = permissionInterceptor.getExecutionResult(operationId);
+
+                            if (execResult.exitCode !== undefined) {
+                              // Command failed - include terminal output for AI
+                              iterationResults.push({
+                                tool: toolCall.toolName,
+                                result: JSON.stringify({
+                                  success: false,
+                                  error: execResult.error || `Command failed with exit code ${execResult.exitCode}`,
+                                  exitCode: execResult.exitCode,
+                                  output: execResult.output,
+                                }),
+                              });
+                            } else {
+                              // User rejected
+                              iterationResults.push({
+                                tool: toolCall.toolName,
+                                result: JSON.stringify({
+                                  success: false,
+                                  error: "Permission denied by user",
+                                }),
+                              });
+                            }
                           }
                         } catch (error) {
                           iterationResults.push({
@@ -1872,6 +1930,21 @@ If the user requests modifications, politely explain that Ask mode is for explor
     } catch { }
 
     return true;
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // ABORT STREAM - User can cancel AI stream to save tokens
+  // ═══════════════════════════════════════════════════════════
+  ipcMain.handle("chat:abort", async (_, chatId: number) => {
+    const controller = activeStreams.get(chatId);
+    if (controller) {
+      logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
+      controller.abort();
+      activeStreams.delete(chatId);
+      partialResponses.delete(chatId);
+      return { success: true, message: 'AI response cancelled' };
+    }
+    return { success: false, message: 'No active stream for this chat' };
   });
 }
 

@@ -230,14 +230,19 @@ export const diagramStateAtom = atom<DiagramState | null>(null);
 // ═══════════════════════════════════════════════════════════
 
 export interface TerminalOutput {
-    commandId: string;
-    command: string;
-    output: string[];
+    operationId: string;    // Unique ID for this command execution
+    command: string;        // The command being run
+    output: string;         // Combined stdout/stderr output
     status: 'running' | 'completed' | 'error';
     exitCode?: number;
+    duration?: number;      // Execution time in ms
+    startTime: number;      // When command started (Date.now())
 }
 
-/** Current terminal output */
+/** Map of operationId → TerminalOutput for multiple concurrent commands */
+export const terminalOutputsAtom = atom<Map<string, TerminalOutput>>(new Map());
+
+/** Current terminal output (legacy - for single command view) */
 export const terminalOutputAtom = atom<TerminalOutput | null>(null);
 
 // ═══════════════════════════════════════════════════════════
@@ -255,6 +260,10 @@ export const rightPanelWidthAtom = atom<number>(400);
 
 /** Dev server URL for live preview (Lovable-style) */
 export const devServerUrlAtom = atom<string | null>(null);
+
+/** Project type detected by DevServerProvider - used for backend diagram fallback */
+export type ProjectType = 'frontend' | 'backend' | 'unknown';
+export const projectTypeAtom = atom<ProjectType>('unknown');
 
 // ═══════════════════════════════════════════════════════════
 // PANEL HISTORY (for breadcrumb navigation)

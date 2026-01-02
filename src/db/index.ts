@@ -18,6 +18,12 @@ let _db: ReturnType<typeof drizzle> | null = null;
 
 /**
  * Get the database path based on the current environment
+ * 
+ * DATABASE LOCATIONS:
+ * - Development (npm run dev): ./userData/sqlite.db (relative to project root)
+ * - Production (packaged app): ~/Library/Application Support/Atlarix/sqlite.db (macOS)
+ *                              %APPDATA%/Atlarix/sqlite.db (Windows)
+ *                              ~/.config/Atlarix/sqlite.db (Linux)
  */
 export function getDatabasePath(): string {
   return path.join(getUserDataPath(), "sqlite.db");

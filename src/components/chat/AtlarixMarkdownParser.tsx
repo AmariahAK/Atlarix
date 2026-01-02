@@ -220,7 +220,26 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       .sort((a, b) => a.seqIndex - b.seqIndex)
       .map(({ id, toolName, status, args, error }) => ({ id, toolName, status, args, error }));
 
-    return { thoughts, toolCalls: deduplicatedTools, answerPieces: answer };
+    // Deduplicate consecutive identical markdown content (common model issue)
+    const deduplicatedAnswer: Array<{ piece: ContentPiece; index: number }> = [];
+    let lastMarkdownContent = '';
+
+    for (const item of answer) {
+      if (item.piece.type === 'markdown') {
+        const trimmed = item.piece.content.trim();
+        // Skip if this is identical to the previous markdown content
+        if (trimmed === lastMarkdownContent) {
+          continue;
+        }
+        lastMarkdownContent = trimmed;
+      } else {
+        // Reset for non-markdown pieces
+        lastMarkdownContent = '';
+      }
+      deduplicatedAnswer.push(item);
+    }
+
+    return { thoughts, toolCalls: deduplicatedTools, answerPieces: deduplicatedAnswer };
   }, [contentPieces]);
 
   // Import ThinkingCard

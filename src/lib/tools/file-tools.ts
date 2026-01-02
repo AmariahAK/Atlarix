@@ -25,68 +25,215 @@ import {
 // FILE READING
 // ═══════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════
+// SMART FILE SLICING HELPERS
+// ═══════════════════════════════════════════════════════════
+
+type SliceContext = 'full' | 'imports' | 'exports' | 'functions' | 'classes' | 'types' | 'errors';
+
+interface SliceResult {
+    text: string;
+    linesShown: number;
+    strategy: string;
+}
+
+/**
+ * Intelligently slice file content based on context
+ */
+function smartSliceFile(lines: string[], maxLines: number, context: SliceContext): SliceResult {
+    switch (context) {
+        case 'imports':
+            // First 50 lines (imports are usually at top)
+            return {
+                text: lines.slice(0, Math.min(50, lines.length)).map((l, i) => `${i + 1}: ${l}`).join('\n'),
+                linesShown: Math.min(50, lines.length),
+                strategy: 'top-50-lines (imports)'
+            };
+
+        case 'exports':
+            // Last 100 lines (exports often at bottom)
+            const exportStart = Math.max(0, lines.length - 100);
+            return {
+                text: lines.slice(-Math.min(100, lines.length)).map((l, i) => `${exportStart + i + 1}: ${l}`).join('\n'),
+                linesShown: Math.min(100, lines.length),
+                strategy: 'bottom-100-lines (exports)'
+            };
+
+        case 'functions':
+        case 'classes':
+            // Extract function/class signatures only
+            const sigPattern = context === 'functions'
+                ? /^(export\s+)?(async\s+)?function\s+\w+|^(export\s+)?(const|let)\s+\w+\s*=\s*(async\s+)?\(/
+                : /^(export\s+)?class\s+\w+/;
+            const signatures: string[] = [];
+            for (let i = 0; i < lines.length && signatures.length < maxLines; i++) {
+                if (sigPattern.test(lines[i].trim())) {
+                    // Include signature + next 2 lines for context
+                    signatures.push(
+                        `${i + 1}: ${lines[i]}`,
+                        lines[i + 1] ? `${i + 2}: ${lines[i + 1]}` : '',
+                        lines[i + 2] ? `${i + 3}: ${lines[i + 2]}` : '',
+                        ''
+                    );
+                }
+            }
+            return {
+                text: signatures.join('\n'),
+                linesShown: signatures.filter(s => s).length,
+                strategy: `${context}-signatures`
+            };
+
+        case 'types':
+            // Extract type/interface definitions
+            const types: string[] = [];
+            for (let i = 0; i < lines.length; i++) {
+                const trimmed = lines[i].trim();
+                if (/^(export\s+)?(interface|type)\s+\w+/.test(trimmed)) {
+                    // Include definition + next 5 lines
+                    for (let j = 0; j < 6 && i + j < lines.length; j++) {
+                        types.push(`${i + j + 1}: ${lines[i + j]}`);
+                        if (lines[i + j].includes('}') || lines[i + j].includes(';')) break;
+                    }
+                    types.push('');
+                }
+            }
+            return {
+                text: types.slice(0, maxLines).join('\n'),
+                linesShown: Math.min(types.length, maxLines),
+                strategy: 'type-definitions'
+            };
+
+        case 'errors':
+            // Lines with error handling
+            const errorLines: string[] = [];
+            for (let i = 0; i < lines.length; i++) {
+                if (/catch|throw|error|Error|reject|\.catch\(/.test(lines[i])) {
+                    errorLines.push(`${i + 1}: ${lines[i]}`);
+                }
+            }
+            return {
+                text: errorLines.slice(0, maxLines).join('\n'),
+                linesShown: Math.min(errorLines.length, maxLines),
+                strategy: 'error-handling'
+            };
+
+        case 'full':
+        default:
+            // Head + Tail strategy (60% top, 40% bottom)
+            const headLines = Math.floor(maxLines * 0.6);
+            const tailLines = Math.floor(maxLines * 0.4);
+
+            const head = lines.slice(0, headLines).map((l, i) => `${i + 1}: ${l}`);
+            const tailStart = lines.length - tailLines;
+            const tail = lines.slice(-tailLines).map((l, i) => `${tailStart + i + 1}: ${l}`);
+
+            return {
+                text: [
+                    ...head,
+                    '',
+                    `... [${lines.length - headLines - tailLines} lines omitted - use line_range or get_file_outline for details] ...`,
+                    '',
+                    ...tail
+                ].join('\n'),
+                linesShown: headLines + tailLines,
+                strategy: 'head-tail'
+            };
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SMART FILE READING
+// ═══════════════════════════════════════════════════════════
+
 ToolRegistry.register({
     name: "read_file",
     category: ToolCategory.FILE,
     description:
-        "Read the contents of a file from the workspace. Returns the full file content or relevant sections for large files.",
+        "Read file contents with smart truncation. Returns full content for small files (<500 lines), or intelligent snippets for large files. Use context parameter to focus on specific parts.",
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
-    isReadOnly: true, // Safe for Ask mode
+    isReadOnly: true,
     parameters: createParameters(
         {
             path: stringParam("Path to the file to read (relative to workspace)"),
             file_path: stringParam("Alternative: Path to the file (alias for path)"),
+            max_lines: {
+                type: "number",
+                description: "Maximum lines to return (default: 500, max: 2000). Large files are intelligently truncated.",
+            },
+            context: {
+                type: "string",
+                description: "What to focus on: 'full' (default), 'imports', 'exports', 'functions', 'classes', 'types', 'errors'. Helps prioritize relevant sections.",
+                enum: ["full", "imports", "exports", "functions", "classes", "types", "errors"],
+            },
             start_line: {
                 type: "number",
-                description: "Optional: Starting line number (1-indexed)",
+                description: "Read from this line (1-indexed). Use with end_line for specific range.",
             },
             end_line: {
                 type: "number",
-                description: "Optional: Ending line number (1-indexed)",
+                description: "Read to this line (1-indexed). Use with start_line for specific range.",
             },
         },
-        ["path"] // path is required, but we'll also check file_path in handler
+        ["path"]
     ),
-    handler: async ({ path: pathArg, file_path, start_line, end_line, workspace }) => {
+    handler: async ({ path: pathArg, file_path, max_lines = 500, context = 'full', start_line, end_line, workspace }) => {
         try {
-            // Accept both "path" and "file_path" parameter names
             let filePath = pathArg || file_path;
 
             if (!filePath) {
                 throw new Error("Missing required parameter: path or file_path");
             }
 
-            // Normalize path: strip common AI-generated prefixes
-            // Many AI models are trained to use /workspace/ paths like Claude Sonnet
+            // Normalize path
             filePath = filePath
-                .replace(/^\/workspace\//, '')  // Strip /workspace/ prefix
-                .replace(/^workspace\//, '')    // Strip workspace/ prefix (no leading slash)
-                .replace(/^\/+/, '');           // Strip any remaining leading slashes
+                .replace(/^\/workspace\//, '')
+                .replace(/^workspace\//, '')
+                .replace(/^\/+/, '');
 
-            // Resolve path relative to workspace if provided, otherwise relative to cwd
             const fullPath = workspace
                 ? path.join(workspace, filePath)
                 : path.resolve(filePath);
 
-            // Debug logging
-            console.log(`[read_file] workspace: ${workspace}, filePath: ${filePath}, fullPath: ${fullPath}`);
+            console.log(`[read_file] workspace: ${workspace}, filePath: ${filePath}, context: ${context}, max_lines: ${max_lines}`);
 
             const content = await fs.promises.readFile(fullPath, "utf-8");
             const lines = content.split("\n");
 
-            // Apply line range if specified
-            const startIdx = start_line ? start_line - 1 : 0;
-            const endIdx = end_line ? end_line : lines.length;
-            const selectedLines = lines.slice(startIdx, endIdx);
+            // Cap max_lines
+            max_lines = Math.min(max_lines, 2000);
 
-            // Add line numbers
-            const numberedLines = selectedLines
-                .map((line, idx) => `${startIdx + idx + 1}: ${line}`)
-                .join("\n");
+            // Specific line range requested
+            if (start_line !== undefined && end_line !== undefined) {
+                const startIdx = Math.max(0, start_line - 1);
+                const endIdx = Math.min(lines.length, end_line);
+                const selectedLines = lines.slice(startIdx, endIdx);
 
-            return `File: ${filePath}\nLines: ${startIdx + 1}-${endIdx}\n\n${numberedLines}`;
+                const numberedLines = selectedLines
+                    .map((line, idx) => `${startIdx + idx + 1}: ${line}`)
+                    .join("\n");
+
+                return `File: ${filePath}\nLines: ${startIdx + 1}-${endIdx} of ${lines.length}\n\n${numberedLines}`;
+            }
+
+            // Small files: return as-is
+            if (lines.length <= max_lines && context === 'full') {
+                const numberedLines = lines
+                    .map((line, idx) => `${idx + 1}: ${line}`)
+                    .join("\n");
+                return `File: ${filePath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
+            }
+
+            // Large files: use smart slicing
+            const sliced = smartSliceFile(lines, max_lines, context as SliceContext);
+
+            let result = `File: ${filePath}\n`;
+            result += `Total lines: ${lines.length} | Showing: ${sliced.linesShown} (${sliced.strategy})\n`;
+            result += `💡 Tip: Use start_line/end_line for specific sections, or get_file_outline for structure.\n\n`;
+            result += sliced.text;
+
+            return result;
         } catch (error) {
             console.error(`[read_file] Error:`, error);
             throw new Error(`Failed to read file: ${error}`);
@@ -234,18 +381,18 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// PROJECT STRUCTURE
+// PROJECT STRUCTURE (WITH STATS)
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
     name: "list_files",
     category: ToolCategory.FILE,
     description:
-        "List all files in the workspace or a specific directory. Returns file paths and basic metadata.",
+        "List all files in the workspace or a specific directory. Use include_stats to see file sizes to help decide which files to read.",
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
-    isReadOnly: true, // Safe for Ask mode
+    isReadOnly: true,
     parameters: createParameters(
         {
             path: stringParam("Path to scan (default: workspace root)"),
@@ -254,26 +401,23 @@ ToolRegistry.register({
                 type: "number",
                 description: "Maximum depth to scan (default: 3)",
             },
+            include_stats: booleanParam("Include file sizes and line counts to help decide what to read (default: false)"),
         },
         []
     ),
-    handler: async ({ path: pathArg, directory, max_depth = 3, workspace }) => {
+    handler: async ({ path: pathArg, directory, max_depth = 3, include_stats = false, workspace }) => {
         try {
-            // Accept both "path" and "directory" parameter names
             let scanPath = pathArg || directory || ".";
 
-            // Normalize path: strip common AI-generated prefixes
             scanPath = scanPath
                 .replace(/^\/workspace\//, '')
                 .replace(/^workspace\//, '')
                 .replace(/^\/+/, '') || ".";
 
-            // Resolve path relative to workspace if provided
             const fullPath = workspace
                 ? path.join(workspace, scanPath)
                 : path.resolve(scanPath);
 
-            // Use glob to get all files
             const files = await glob("**/*", {
                 cwd: fullPath,
                 ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
@@ -281,9 +425,88 @@ ToolRegistry.register({
                 maxDepth: max_depth,
             });
 
-            // Build tree structure
-            const tree = buildTree(files);
-            return `Project Structure (${files.length} items):\n\n${tree}`;
+            if (!include_stats) {
+                // Simple tree output
+                const tree = buildTree(files);
+                return `Project Structure (${files.length} items):\n\n${tree}`;
+            }
+
+            // With stats: show file info to help AI decide what to read
+            interface FileInfo {
+                path: string;
+                size: number;
+                lines?: number;
+            }
+
+            const fileInfos: FileInfo[] = [];
+
+            for (const file of files.slice(0, 100)) { // Limit to 100 files for stats
+                try {
+                    const filePath = path.join(fullPath, file);
+                    const stat = await fs.promises.stat(filePath);
+
+                    if (stat.isFile()) {
+                        const info: FileInfo = {
+                            path: file,
+                            size: stat.size,
+                        };
+
+                        // Count lines for text files
+                        if (stat.size < 500000) { // Only for files < 500KB
+                            try {
+                                const content = await fs.promises.readFile(filePath, 'utf-8');
+                                info.lines = content.split('\n').length;
+                            } catch {
+                                // Binary or unreadable file
+                            }
+                        }
+
+                        fileInfos.push(info);
+                    }
+                } catch {
+                    // Skip inaccessible files
+                }
+            }
+
+            // Sort by lines (largest first) to help identify complex files
+            fileInfos.sort((a, b) => (b.lines || 0) - (a.lines || 0));
+
+            let output = `📊 **Project Structure with Stats** (${files.length} items)\n\n`;
+
+            // Group by size category
+            const large = fileInfos.filter(f => (f.lines || 0) > 500);
+            const medium = fileInfos.filter(f => (f.lines || 0) > 100 && (f.lines || 0) <= 500);
+            const small = fileInfos.filter(f => (f.lines || 0) <= 100);
+
+            if (large.length > 0) {
+                output += `**🔴 Large Files (>500 lines)** - Use get_file_outline first:\n`;
+                large.slice(0, 10).forEach(f => {
+                    output += `  - ${f.path} (${f.lines} lines, ${(f.size / 1024).toFixed(1)}KB)\n`;
+                });
+                output += '\n';
+            }
+
+            if (medium.length > 0) {
+                output += `**🟡 Medium Files (100-500 lines)** - Consider using context param:\n`;
+                medium.slice(0, 15).forEach(f => {
+                    output += `  - ${f.path} (${f.lines} lines)\n`;
+                });
+                output += '\n';
+            }
+
+            if (small.length > 0) {
+                output += `**🟢 Small Files (<100 lines)** - Safe to read fully:\n`;
+                small.slice(0, 20).forEach(f => {
+                    output += `  - ${f.path} (${f.lines || '?'} lines)\n`;
+                });
+                if (small.length > 20) {
+                    output += `  ... and ${small.length - 20} more small files\n`;
+                }
+            }
+
+            output += `\n💡 **Tip:** For large files, use \`get_file_outline\` first, then \`view_symbol\` for specific functions.`;
+
+            return output;
         } catch (error) {
             throw new Error(`Failed to scan project: ${error}`);
         }
@@ -338,18 +561,18 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// CODE SEARCH
+// CODE SEARCH (WITH CONTEXT)
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
     name: "search_code",
     category: ToolCategory.FILE,
     description:
-        "Search for text/code patterns across all files in the project. Returns matches with file paths and line numbers.",
+        "Search for text/code patterns across all files in the project. Returns matches with surrounding context. Use to find where functions/classes are defined.",
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
-    isReadOnly: true, // Safe for Ask mode
+    isReadOnly: true,
     parameters: createParameters(
         {
             query: stringParam("Text or code to search for"),
@@ -358,26 +581,38 @@ ToolRegistry.register({
                 "Optional: File pattern to search in (e.g., '*.ts')"
             ),
             case_sensitive: booleanParam("Case-sensitive search (default: false)"),
+            context_lines: {
+                type: "number",
+                description: "Number of lines to show before/after each match (default: 2, max: 5). Set to 0 for compact results.",
+            },
         },
-        ["query"] // query is required, but we'll also check pattern in handler
+        ["query"]
     ),
-    handler: async ({ query: queryArg, pattern, file_pattern = "**/*", case_sensitive = false, workspace }) => {
+    handler: async ({ query: queryArg, pattern, file_pattern = "**/*", case_sensitive = false, context_lines = 2, workspace }) => {
         try {
-            // Accept both "query" and "pattern" parameter names
             const query = queryArg || pattern;
 
             if (!query) {
                 throw new Error("Missing required parameter: query or pattern");
             }
 
-            // Get all files matching pattern in workspace
+            // Cap context lines
+            context_lines = Math.min(Math.max(0, context_lines), 5);
+
             const searchCwd = workspace || process.cwd();
             const files = await glob(file_pattern, {
                 cwd: searchCwd,
                 ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
             });
 
-            const matches: string[] = [];
+            interface Match {
+                file: string;
+                line: number;
+                content: string;
+                context: string[];
+            }
+
+            const matches: Match[] = [];
             const searchRegex = new RegExp(
                 query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
                 case_sensitive ? "g" : "gi"
@@ -389,25 +624,73 @@ ToolRegistry.register({
                     const content = await fs.promises.readFile(fullFilePath, "utf-8");
                     const lines = content.split("\n");
 
-                    lines.forEach((line, idx) => {
-                        if (searchRegex.test(line)) {
-                            matches.push(`${file}:${idx + 1}: ${line.trim()}`);
+                    for (let idx = 0; idx < lines.length; idx++) {
+                        if (searchRegex.test(lines[idx])) {
+                            // Build context
+                            const contextStart = Math.max(0, idx - context_lines);
+                            const contextEnd = Math.min(lines.length, idx + context_lines + 1);
+                            const contextLines: string[] = [];
+
+                            for (let j = contextStart; j < contextEnd; j++) {
+                                const prefix = j === idx ? "→ " : "  ";
+                                contextLines.push(`${prefix}${j + 1}: ${lines[j]}`);
+                            }
+
+                            matches.push({
+                                file,
+                                line: idx + 1,
+                                content: lines[idx].trim(),
+                                context: contextLines,
+                            });
+
+                            if (matches.length >= 30) break; // Limit matches per file
                         }
-                    });
+                    }
                 } catch {
                     // Skip files that can't be read
                 }
+
+                if (matches.length >= 50) break; // Total limit
             }
 
             if (matches.length === 0) {
-                return `No matches found for: "${query}"`;
+                return `No matches found for: "${query}"\n\nTry:\n- Different spelling\n- Broader pattern\n- Different file_pattern (e.g., '*.ts')`;
             }
 
-            // Limit to first 50 matches
-            const displayMatches = matches.slice(0, 50);
-            const truncated = matches.length > 50 ? `\n\n(${matches.length - 50} more matches not shown)` : "";
+            // Format output with context
+            let output = `Found ${matches.length} match(es) for "${query}":\n\n`;
 
-            return `Found ${matches.length} match(es):\n\n${displayMatches.join("\n")}${truncated}`;
+            if (context_lines > 0) {
+                // With context: show grouped by file
+                const byFile = new Map<string, Match[]>();
+                matches.forEach(m => {
+                    if (!byFile.has(m.file)) byFile.set(m.file, []);
+                    byFile.get(m.file)!.push(m);
+                });
+
+                for (const [file, fileMatches] of byFile) {
+                    output += `📄 **${file}**\n`;
+                    fileMatches.slice(0, 5).forEach(m => {
+                        output += m.context.join("\n") + "\n\n";
+                    });
+                    if (fileMatches.length > 5) {
+                        output += `  ... and ${fileMatches.length - 5} more in this file\n\n`;
+                    }
+                }
+            } else {
+                // Compact: just file:line: content
+                matches.forEach(m => {
+                    output += `${m.file}:${m.line}: ${m.content}\n`;
+                });
+            }
+
+            if (matches.length >= 50) {
+                output += `\n(Limited to 50 matches. Use file_pattern to narrow search.)`;
+            }
+
+            output += `\n\n💡 **Tip:** Use \`view_symbol('${query}')\` to see the full function/class, or \`read_file\` with \`start_line/end_line\` for specific ranges.`;
+
+            return output;
         } catch (error) {
             throw new Error(`Search failed: ${error}`);
         }

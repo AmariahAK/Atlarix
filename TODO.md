@@ -4,6 +4,78 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 🔥 v0.9.7 - Command Execution & Smart Context Management
+
+### Core Command Wait Fix ✅
+- [x] **Move resolveApproval()**: Call AFTER command execution, not before
+- [x] **Store command results**: Add `CommandExecutionResult` with stdout/stderr/exitCode/duration
+- [x] **Sequential executeAllOperations()**: Commands wait for completion before next starts
+
+### Smart Output Formatting ✅
+- [x] **Priority slicing**: Errors → Warnings → First 5 lines → Last 5 lines
+- [x] **formatCommandOutput()**: Intelligent 1500-char limit for AI context
+- [x] **Include output in getExecutionResult()**: AI sees terminal results
+
+### Timeout Protection ✅
+- [x] **5-minute timeout**: Configurable timeout with Promise.race()
+- [x] **Progress updates**: UI updates every 2 seconds for long commands
+- [x] **Error storage**: Capture timeout/failure info for AI context
+
+### Command Error Handling ✅
+- [x] **Distinguish errors vs rejection**: Command failures include terminal output for AI
+- [x] **Dev server detection**: `npm run dev`, `vite` etc. timeout as success after 10s
+- [x] **Terminal UI feedback**: CommandOutputCard shows running commands with spinner
+
+### Smart Context Management (Solving AI "Blindness") ✅
+- [x] **Smart read_file**: Add `max_lines`, `context` mode, `line_range` parameters
+- [x] **Smart search_code**: Add `context_lines` for surrounding context
+- [x] **get_file_outline tool**: Table of contents for files (imports, functions, classes)
+- [x] **view_symbol tool**: Read single function/class by name
+- [x] **list_files stats**: Add file size/line count to help AI decide
+- [x] **ContextManager**: Model-aware token budgets (8K Ollama → 200K Claude)
+- [x] **System prompt update**: Context management hints for AI
+
+### Surgical Edit Tools (Precise Code Changes) ✅
+- [x] **replace_code tool**: Find and replace specific code snippet
+- [x] **insert_code tool**: Insert code at specific line
+- [x] **delete_lines tool**: Delete specific line range
+- [x] **Updated system prompt**: Document new tools prominently
+- [x] **Updated request_tools**: Document core tools already available
+
+### Diagram Stale Detection ✅
+- [x] **Workspace fingerprint**: Track file counts, types, and hash per workspace
+- [x] **Staleness severity**: none/minor/moderate/major based on % change
+- [x] **diagram:check-staleness IPC**: Compare stored vs current fingerprint
+- [x] **Schema columns**: `fingerprintHash`, `fingerprintData`, `createdFromFileCount`
+- [x] **StalenessBanner UI**: Color-coded banner with refresh button
+- [x] **Empty state enhancement**: "Generate First Diagram" CTA
+
+### UI Bug Fixes ✅
+- [x] **Dev server detection fix**: Exclude `npm install` from timeouts
+- [x] **AI text deduplication**: Filter consecutive identical responses
+- [x] **Copy button fix**: Exclude thoughts and tool calls from copy
+- [x] **Unified diff view**: +/- line style with theme colors
+- [x] **Command queue status**: Queued/Done labels in FilesTab
+
+### Live Preview (Lovable-style) ✅
+- [x] **Preload whitelist**: Added `dev-server:*` IPC channels
+- [x] **DevServerProvider**: Auto-detects frontend, starts server
+- [x] **RightPanel Preview tab**: Iframe with viewport controls
+- [x] **Framework detection**: Vite, Next, CRA, Nuxt, Astro
+
+### Todo: Timeline & Evolution ✅
+- [x] **Timeline auto-capture**: queueCapture() in interceptor.ts after file ops
+- [x] **AI preview awareness**: System prompt teaches Lovable-style workflow
+- [x] **Project evolution view**: Added 11 timeline IPC channels to preload.ts
+
+### Token-Saving Stop Button ✅
+- [x] **chat:abort IPC handler**: Cancels backend AI stream immediately
+- [x] **abortAllStreams()**: Cleanup on app quit
+- [x] **Stop button wired**: Both SimpleChatInput and ChatInput call abort
+- [x] **Preload whitelist**: chat:abort added for frontend access
+
+---
+
 ## 🔥 v0.9.6 - Prompts, Persistence & Polish ✅
 
 ### Global & Workspace Prompts ✅

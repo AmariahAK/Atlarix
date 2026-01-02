@@ -15,6 +15,17 @@ const CUSTOM_TAG_NAMES = [
   "atlarix-codebase-context",
   "think",
   "atlarix-command",
+  // Tool-related tags (should be excluded from copy)
+  "atlarix-tool-call",
+  "atlarix-tool-result",
+  "atlarix-mcp-tool-call",
+  "atlarix-mcp-tool-result",
+  "atlarix-web-search",
+  "atlarix-web-crawl",
+  "atlarix-web-search-result",
+  "atlarix-code-search",
+  "atlarix-code-search-result",
+  "atlarix-read",
 ];
 export const useCopyToClipboard = () => {
   const [copied, setCopied] = useState(false);
@@ -81,8 +92,19 @@ export const useCopyToClipboard = () => {
     const { tag, attributes, content } = tagInfo;
 
     switch (tag) {
+      // Exclude thinking and tool tags from copy output - user wants the response only
       case "think":
-        return `### Thinking\n\n${content}\n\n`;
+      case "atlarix-tool-call":
+      case "atlarix-tool-result":
+      case "atlarix-mcp-tool-call":
+      case "atlarix-mcp-tool-result":
+      case "atlarix-web-search":
+      case "atlarix-web-crawl":
+      case "atlarix-web-search-result":
+      case "atlarix-code-search":
+      case "atlarix-code-search-result":
+      case "atlarix-read":
+        return "";  // Don't include in copy output
 
       case "atlarix-write": {
         const writePath = attributes.path || "file";

@@ -34,7 +34,13 @@ Available categories:
 - execution: live_preview, run_dev_server
 - search_intelligence: semantic_search, find_related_code, build_knowledge_graph
 
-DO NOT request categories you don't immediately need. Start with core tools, expand as needed.`,
+CORE TOOLS ALREADY AVAILABLE (no request needed):
+- Context: get_file_outline, view_symbol (10-40x more efficient than read_file)
+- Surgical Edit: replace_code, insert_code, delete_lines (precise changes)
+- Files: read_file, write_file, list_files, search_code
+- Commands: run_command, add_dependency
+
+DO NOT request categories you don't immediately need. Use core tools first!`,
     cost: 0, // Free meta-tool
     requiresWorkspace: false, // Available in both modes (but only useful with workspace)
     isCore: true, // Always available

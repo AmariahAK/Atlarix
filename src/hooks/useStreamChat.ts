@@ -18,10 +18,11 @@ import {
   pendingProposalsAtom,
   diagramStateAtom,
   previewTabAtom,
-  terminalOutputAtom,
+  terminalOutputsAtom,
   type SourceItem,
   type FileProposal,
   type DiagramState,
+  type TerminalOutput,
 } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
@@ -102,7 +103,7 @@ export function useStreamChat({
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
-  const setTerminalOutput = useSetAtom(terminalOutputAtom);
+  const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -235,18 +236,42 @@ export function useStreamChat({
         const unsubscribeTerminal = IpcClient.getInstance().onTerminalOutput(
           chatId,
           (payload) => {
-            // Update terminal output atom for right panel display
-            setTerminalOutput({
-              commandId: payload.commandId,
-              command: payload.command,
-              output: payload.output ? [payload.output] : [],
-              status: payload.status,
-              exitCode: payload.exitCode,
+            // Update terminal outputs Map for CommandOutputCard display
+            setTerminalOutputs((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(payload.commandId);
+
+              const output: TerminalOutput = {
+                operationId: payload.commandId,
+                command: payload.command,
+                output: payload.output || '',
+                status: payload.status,
+                exitCode: payload.exitCode,
+                startTime: existing?.startTime || Date.now(),
+                duration: existing?.startTime
+                  ? Date.now() - existing.startTime
+                  : undefined,
+              };
+
+              next.set(payload.commandId, output);
+              return next;
             });
+
             // Show terminal panel when commands are running
             if (payload.status === 'running') {
               setRightPanelVisible(true);
               setPreviewTab('terminal');
+            }
+
+            // Clear completed/error commands from map after a delay
+            if (payload.status === 'completed' || payload.status === 'error') {
+              setTimeout(() => {
+                setTerminalOutputs((prev) => {
+                  const next = new Map(prev);
+                  next.delete(payload.commandId);
+                  return next;
+                });
+              }, 5000);  // Keep visible for 5 seconds after completion
             }
           }
         );

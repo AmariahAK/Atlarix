@@ -147,6 +147,15 @@ body[data-scroll-locked] .app-region-drag {
   --sidebar-accent-foreground: #052E16;
   --sidebar-border: #BBF7D0;
   --sidebar-ring: #059669;
+
+  /* Diff Colors */
+  --diff-add-bg: rgba(16, 185, 129, 0.15);
+  --diff-add-text: #059669;
+  --diff-add-line: rgba(16, 185, 129, 0.5);
+  --diff-remove-bg: rgba(244, 63, 94, 0.15);
+  --diff-remove-text: #E11D48;
+  --diff-remove-line: rgba(244, 63, 94, 0.5);
+  --diff-context-text: #6B7280;
 }
 
 .prose {
@@ -215,6 +224,15 @@ body[data-scroll-locked] .app-region-drag {
   --sidebar-accent-foreground: #ECFDF5;
   --sidebar-border: #162419;
   --sidebar-ring: #10B981;
+
+  /* Diff Colors - Dark Theme */
+  --diff-add-bg: rgba(16, 185, 129, 0.2);
+  --diff-add-text: #6EE7B7;
+  --diff-add-line: rgba(16, 185, 129, 0.6);
+  --diff-remove-bg: rgba(244, 63, 94, 0.2);
+  --diff-remove-text: #FDA4AF;
+  --diff-remove-line: rgba(244, 63, 94, 0.6);
+  --diff-context-text: #9CA3AF;
 }
 
 @theme inline {

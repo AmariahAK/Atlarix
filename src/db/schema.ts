@@ -343,6 +343,17 @@ export const diagrams = sqliteTable("diagrams", {
     entities?: string[];
     focus?: string;
   } | null>(),
+  // Fingerprint fields for staleness detection
+  fingerprintHash: text("fingerprint_hash"), // Quick comparison hash
+  fingerprintData: text("fingerprint_data", { mode: "json" }).$type<{
+    fileCount: number;
+    directoryCount: number;
+    fileTypes: Record<string, number>;
+    totalSize: number;
+    lastModified: number;
+    hash: string;
+  } | null>(),
+  createdFromFileCount: integer("created_from_file_count"), // For fast checks
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

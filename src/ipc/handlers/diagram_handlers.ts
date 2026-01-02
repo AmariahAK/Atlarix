@@ -15,6 +15,8 @@ import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import { AppChatContext } from "../../lib/schemas";
 import { apps } from "@/db/schema";
+import { generateFingerprint } from "../../lib/analysis/fingerprint";
+import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
 
 // ============================================
 // TYPES
@@ -142,7 +144,10 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             }
             content = content.trim();
 
-            // 6. Save to DB
+            // 6. Generate fingerprint for staleness tracking
+            const fingerprint = await generateFingerprint(appPath);
+
+            // 7. Save to DB with fingerprint
             const [diagram] = await db
                 .insert(diagrams)
                 .values({
@@ -151,6 +156,9 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     title: title || `${app.name} Architecture (AI)`,
                     content,
                     metadata: { focus: "ai-generated" },
+                    fingerprintHash: fingerprint.hash,
+                    fingerprintData: fingerprint,
+                    createdFromFileCount: fingerprint.fileCount,
                 })
                 .returning();
 
@@ -195,6 +203,46 @@ ipcMain.handle(
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error",
                 diagrams: [],
+            };
+        }
+    }
+);
+
+// ============================================
+// DIAGRAM:CHECK-STALENESS - Check if diagram is outdated
+// ============================================
+
+ipcMain.handle(
+    "diagram:check-staleness",
+    async (_, { diagramId, workspacePath }: { diagramId: number; workspacePath: string }): Promise<{ success: boolean; staleness?: StalenessCheck; error?: string }> => {
+        try {
+            console.log(`📊 [diagram:check-staleness] Checking diagram ${diagramId}`);
+
+            // Get stored diagram
+            const [diagram] = await db
+                .select()
+                .from(diagrams)
+                .where(eq(diagrams.id, diagramId));
+
+            if (!diagram) {
+                return { success: false, error: "Diagram not found" };
+            }
+
+            // Check staleness
+            const staleness = await checkDiagramStaleness(
+                diagram.fingerprintData,
+                diagram.createdFromFileCount,
+                workspacePath
+            );
+
+            console.log(`📊 [diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
+
+            return { success: true, staleness };
+        } catch (error) {
+            console.error("[diagram:check-staleness] Error:", error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
             };
         }
     }

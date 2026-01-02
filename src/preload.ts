@@ -20,6 +20,7 @@ const validInvokeChannels = [
   "chat:message",
   "chat:cancel",
   "chat:stream",
+  "chat:abort",  // User can stop AI to save tokens
   "chat:count-tokens",
   "create-chat",
   "create-chat-only",
@@ -193,6 +194,25 @@ const validInvokeChannels = [
   "diagram:delete",
   "diagram:history",
   "diagram:restore",
+  "diagram:check-staleness",
+  // Dev Server (Live Preview)
+  "dev-server:is-frontend",
+  "dev-server:start",
+  "dev-server:stop",
+  "dev-server:status",
+  "dev-server:list-running",
+  // Diagram Timeline (Project Evolution)
+  "diagram:capture-snapshot",
+  "diagram:get-timeline",
+  "diagram:get-detailed-timeline",
+  "diagram:get-snapshot",
+  "diagram:annotate-snapshot",
+  "diagram:delete-snapshot",
+  "diagram:compress-old",
+  "diagram:compress-all",
+  "diagram:queue-capture",
+  "diagram:flush-pending",
+  "diagram:capture-initial",
 ];
 
 const validReceiveChannels = [

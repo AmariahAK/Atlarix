@@ -535,9 +535,11 @@ export class IpcClient {
     }
   }
 
-  // Method to cancel an ongoing stream
+  // Method to cancel an ongoing stream (stops AI to save tokens)
   public cancelChatStream(chatId: number): void {
     this.ipcRenderer.invoke("chat:cancel", chatId);
+    // Also abort the backend stream to save tokens
+    this.ipcRenderer.invoke("chat:abort", chatId);
   }
 
   // Create a new chat for an app
@@ -1784,6 +1786,28 @@ export class IpcClient {
     format: "svg" | "png" | "code";
   }): Promise<{ success: boolean; data?: string; error?: string }> {
     return this.ipcRenderer.invoke("diagram:export", params);
+  }
+
+  public async checkDiagramStaleness(params: {
+    diagramId: number;
+    workspacePath: string;
+  }): Promise<{
+    success: boolean;
+    staleness?: {
+      isStale: boolean;
+      severity: 'none' | 'minor' | 'moderate' | 'major';
+      reason: string;
+      changes: {
+        filesAdded: number;
+        filesRemoved: number;
+        fileCountChange: number;
+        percentChange: number;
+      };
+      recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
+    };
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("diagram:check-staleness", params);
   }
 
   // ============================================

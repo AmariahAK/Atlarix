@@ -26,6 +26,9 @@ import {
     History,
     RotateCcw,
     Check,
+    AlertTriangle,
+    RefreshCw,
+    Sparkles,
 } from 'lucide-react';
 
 interface DiagramPanelProps {
@@ -67,10 +70,24 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
 
     if (!diagram) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Layout className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No diagram to display</p>
-                <p className="text-xs">Generate a diagram using the AI</p>
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                    <Sparkles className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-medium text-foreground mb-2">No Diagrams Yet</h3>
+                <p className="text-sm text-center mb-4">
+                    Generate an AI-powered architecture diagram to visualize your project structure.
+                </p>
+                <button
+                    onClick={() => {
+                        // TODO: Wire up to actual workspace ID
+                        console.log('Generate diagram clicked');
+                    }}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    Generate First Diagram
+                </button>
             </div>
         );
     }
@@ -288,6 +305,9 @@ function DiagramViewer({
  * PlantUML Preview (code display for now)
  */
 function PlantUMLPreview({ code }: { code: string }) {
+    // Guard against undefined/null code
+    const safeCode = code || '';
+
     return (
         <div className="space-y-4">
             <div className="bg-gradient-to-br from-green-500/5 to-blue-500/5 rounded-lg border border-border p-6 min-h-[200px] flex items-center justify-center">
@@ -295,7 +315,7 @@ function PlantUMLPreview({ code }: { code: string }) {
                     <Layout className="w-16 h-16 mx-auto text-green-500/50" />
                     <p className="text-sm text-muted-foreground">PlantUML Diagram</p>
                     <p className="text-xs text-muted-foreground/70">
-                        {code.split('\n').length} lines
+                        {safeCode.split('\n').length} lines
                     </p>
                 </div>
             </div>
@@ -305,7 +325,7 @@ function PlantUMLPreview({ code }: { code: string }) {
                     <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
                 </div>
                 <pre className="p-3 text-xs font-mono text-foreground overflow-x-auto max-h-[300px]">
-                    {code}
+                    {safeCode}
                 </pre>
             </div>
         </div>
@@ -358,6 +378,50 @@ function DiagramLogs() {
             <Code2 className="w-12 h-12 mb-3 opacity-50" />
             <p className="text-sm">No diagram logs</p>
             <p className="text-xs">Generation logs will appear here</p>
+        </div>
+    );
+}
+
+/**
+ * Staleness Banner - Shows when diagram is outdated
+ */
+interface StalenessBannerProps {
+    severity: 'minor' | 'moderate' | 'major';
+    reason: string;
+    onRefresh: () => void;
+    isRefreshing?: boolean;
+}
+
+export function StalenessBanner({ severity, reason, onRefresh, isRefreshing }: StalenessBannerProps) {
+    const colors = {
+        minor: 'bg-muted/50 text-muted-foreground border-border',
+        moderate: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30',
+        major: 'bg-destructive/10 text-destructive border-destructive/30',
+    };
+
+    return (
+        <div className={cn(
+            "flex items-center justify-between gap-3 px-3 py-2 border-b",
+            colors[severity]
+        )}>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span className="text-xs truncate">{reason}</span>
+            </div>
+            <button
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors shrink-0",
+                    severity === 'major'
+                        ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        : "bg-primary text-primary-foreground hover:bg-primary/90",
+                    isRefreshing && "opacity-50 cursor-not-allowed"
+                )}
+            >
+                <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
         </div>
     );
 }

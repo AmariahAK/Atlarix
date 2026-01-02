@@ -19,6 +19,7 @@ import {
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
+import { queueCapture } from "../../../lib/diagram-timeline";
 
 const logger = log.scope("permission-interceptor");
 
@@ -41,8 +42,18 @@ interface PendingApproval {
 interface BufferedOperation {
     id: string;
     request: PermissionRequest;
-    status: 'pending' | 'approved' | 'rejected' | 'executed';
+    status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
     createdAt: number;
+}
+
+/** Result of command execution with full details for AI context */
+interface CommandExecutionResult {
+    success: boolean;
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    duration: number;
+    timestamp: number;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -321,8 +332,8 @@ export class PermissionInterceptor extends EventEmitter {
 
         const request = operation.request;
 
-        // Resolve the waiting promise (unblocks chat stream)
-        this.resolveApproval(operationId, true);
+        // NOTE: Do NOT resolve approval here! We wait until execution completes.
+        // This ensures the AI doesn't continue until the command is done.
 
         try {
             operation.status = 'approved';
@@ -352,13 +363,36 @@ export class PermissionInterceptor extends EventEmitter {
 
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);
 
+            // Queue timeline capture for file operations
+            if (request.operation === 'write_file' || request.operation === 'write_multiple_files' ||
+                request.operation === 'delete_file' || request.operation === 'rename_file') {
+                const filesChanged = request.operation === 'write_multiple_files'
+                    ? (request.data?.files || []).map((f: any) => f.path)
+                    : request.data?.path ? [request.data.path] : [];
+                if (filesChanged.length > 0 && request.data?.appId) {
+                    // Queue with 5 minute debounce - multiple rapid edits get one snapshot
+                    queueCapture(request.data.appId, filesChanged);
+                }
+            }
+
+            // ✅ Resolve approval AFTER execution completes
+            // This is the key fix - AI now waits for command to finish
+            this.resolveApproval(operationId, true);
+
             return {
                 operationId,
                 approved: true,
                 executedAt: Date.now(),
             };
         } catch (error) {
+            // Mark as failed
+            operation.status = 'failed';
+
             logger.error(`[executeOperation] Failed ${operationId}:`, error);
+
+            // ✅ Resolve with false on error so AI knows it failed
+            this.resolveApproval(operationId, false);
+
             return {
                 operationId,
                 approved: false,
@@ -369,14 +403,35 @@ export class PermissionInterceptor extends EventEmitter {
 
     /**
      * Get the execution result for an operation (for returning to AI)
+     * For run_command, includes formatted terminal output with smart truncation
      */
-    getExecutionResult(operationId: string): { success: boolean; path?: string; error?: string } {
+    getExecutionResult(operationId: string): {
+        success: boolean;
+        path?: string;
+        error?: string;
+        output?: string;
+        exitCode?: number;
+        duration?: number;
+    } {
         const operation = this.pendingOperations.get(operationId);
         if (!operation) {
             return { success: false, error: `Operation ${operationId} not found` };
         }
 
         if (operation.status === 'executed') {
+            // Include command output for run_command operations
+            if (operation.request.operation === 'run_command') {
+                const cmdResult = this.commandOutputs.get(operationId);
+                if (cmdResult) {
+                    return {
+                        success: cmdResult.success,
+                        output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                        exitCode: cmdResult.exitCode,
+                        error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),
+                    };
+                }
+            }
+
             const path = (operation.request.preview as any)?.path;
             return { success: true, path };
         }
@@ -385,16 +440,75 @@ export class PermissionInterceptor extends EventEmitter {
             return { success: false, error: 'Permission denied by user' };
         }
 
+        if (operation.status === 'failed') {
+            // Include command error output if available
+            const cmdResult = this.commandOutputs.get(operationId);
+            if (cmdResult) {
+                return {
+                    success: false,
+                    output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                    exitCode: cmdResult.exitCode,
+                    error: cmdResult.stderr.slice(0, 500) || 'Command failed',
+                };
+            }
+            return { success: false, error: 'Execution failed' };
+        }
+
         return { success: false, error: `Operation status: ${operation.status}` };
     }
 
     /**
+     * Format command output with smart truncation for AI context.
+     * Priority: Errors > Warnings > First 5 lines > Last 5 lines
+     */
+    private formatCommandOutput(stdout: string, stderr: string): string {
+        const MAX_OUTPUT = 1500; // Conservative limit for context
+        const output = stdout || stderr;
+
+        if (!output) {
+            return '(no output)';
+        }
+
+        if (output.length <= MAX_OUTPUT) {
+            return output;
+        }
+
+        // Extract key information with priority slicing
+        const lines = output.split('\n');
+        const errors = lines.filter(l =>
+            l.toLowerCase().includes('error') ||
+            l.toLowerCase().includes('failed') ||
+            l.includes('\u2717') || // ✗
+            l.includes('ERR!')
+        );
+        const warnings = lines.filter(l =>
+            l.toLowerCase().includes('warn') ||
+            l.includes('\u26a0') // ⚠
+        );
+
+        let summary = '';
+
+        if (errors.length > 0) {
+            summary += '=== ERRORS ===\n' + errors.slice(0, 10).join('\n') + '\n\n';
+        }
+
+        if (warnings.length > 0) {
+            summary += '=== WARNINGS ===\n' + warnings.slice(0, 5).join('\n') + '\n\n';
+        }
+
+        summary += '=== FIRST 5 LINES ===\n' + lines.slice(0, 5).join('\n') + '\n\n';
+        summary += '=== LAST 5 LINES ===\n' + lines.slice(-5).join('\n');
+
+        return summary.slice(0, MAX_OUTPUT); // Hard cap
+    }
+
+    /**
      * Execute all pending operations (batch approval)
-     * File operations run sequentially, but commands run in parallel (non-blocking)
+     * All operations now run sequentially to ensure proper ordering.
+     * Commands wait for completion before the next operation starts.
      */
     async executeAllOperations(): Promise<PermissionResult[]> {
         const results: PermissionResult[] = [];
-        const commandPromises: Promise<PermissionResult>[] = [];
         const operationsToExecute: [string, BufferedOperation][] = [];
 
         // Filter to only pending operations (not already executed/rejected)
@@ -409,40 +523,15 @@ export class PermissionInterceptor extends EventEmitter {
             return results;
         }
 
-        logger.log(`[executeAllOperations] Processing ${operationsToExecute.length} pending operations`);
+        logger.log(`[executeAllOperations] Processing ${operationsToExecute.length} pending operations sequentially`);
 
-        for (const [operationId, operation] of operationsToExecute) {
-            const request = operation.request;
+        // Execute all operations sequentially - this ensures commands complete before next starts
+        for (const [operationId] of operationsToExecute) {
+            const result = await this.executeOperation(operationId);
+            results.push(result);
 
-            if (request.operation === 'run_command') {
-                // Commands run in parallel (fire-and-forget for batch mode)
-                // This allows multiple commands to be approved and run without blocking
-                commandPromises.push(this.executeOperation(operationId));
-
-                // Add a placeholder result immediately (approved, will update when command finishes)
-                results.push({
-                    operationId,
-                    approved: true,
-                });
-            } else {
-                // File operations run sequentially
-                const result = await this.executeOperation(operationId);
-                results.push(result);
-            }
-        }
-
-        // Wait for all commands to complete in parallel
-        if (commandPromises.length > 0) {
-            logger.log(`[executeAllOperations] Waiting for ${commandPromises.length} commands to complete in parallel...`);
-            const commandResults = await Promise.all(commandPromises);
-
-            // Update results with actual command results
-            for (const cmdResult of commandResults) {
-                const idx = results.findIndex(r => r.operationId === cmdResult.operationId);
-                if (idx >= 0) {
-                    results[idx] = cmdResult;
-                }
-            }
+            // Log progress for long-running command sequences
+            logger.log(`[executeAllOperations] Completed ${result.operationId}: ${result.approved ? 'success' : 'failed'}`);
         }
 
         // Clear executed operations from pending map
@@ -450,7 +539,7 @@ export class PermissionInterceptor extends EventEmitter {
             this.pendingOperations.delete(operationId);
         }
 
-        logger.log(`[executeAllOperations] Completed, cleared ${operationsToExecute.length} operations`);
+        logger.log(`[executeAllOperations] Completed all ${operationsToExecute.length} operations`);
 
         return results;
     }
@@ -546,8 +635,49 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /**
+     * Detect if a command is a dev server that runs indefinitely.
+     * These commands should be treated as "started successfully" after a short time.
+     */
+    private isDevServerCommand(command: string): boolean {
+        // FIRST: Explicitly exclude install commands (common false positive)
+        const excludePatterns = [
+            /npm\s+install/i,
+            /npm\s+i\s/i,
+            /npm\s+ci/i,
+            /yarn\s+add/i,
+            /yarn\s+install/i,
+            /pnpm\s+add/i,
+            /pnpm\s+install/i,
+            /pnpm\s+i\s/i,
+        ];
+
+        if (excludePatterns.some(pattern => pattern.test(command))) {
+            return false;
+        }
+
+        // Dev server patterns - commands that run indefinitely
+        const devServerPatterns = [
+            /npm\s+run\s+dev/i,
+            /npm\s+run\s+start/i,
+            /npm\s+start$/i,  // Exact end to avoid matching "npm start ..."
+            /yarn\s+dev$/i,
+            /yarn\s+start$/i,
+            /pnpm\s+(run\s+)?dev$/i,
+            /pnpm\s+(run\s+)?start$/i,
+            /npx\s+vite(\s|$)/i,
+            /vite\s*(dev|serve)?$/i,
+            /next\s+dev/i,
+            /remix\s+dev/i,
+            /astro\s+dev/i,
+        ];
+
+        return devServerPatterns.some(pattern => pattern.test(command));
+    }
+
+    /**
      * Execute a shell command and store output.
      * Emits 'terminal-output' event for UI updates.
+     * Includes timeout protection and progress updates for long-running commands.
      */
     private async executeRunCommand(operationId: string, request: PermissionRequest): Promise<void> {
         const preview = request.preview as CommandOperationPreview;
@@ -557,7 +687,16 @@ export class PermissionInterceptor extends EventEmitter {
                 : path.join(this.workspacePath, preview.workingDirectory)
             : this.workspacePath;
 
-        logger.log(`[executeRunCommand] Running: ${preview.command} in ${workingDir}`);
+        // Detect dev server commands that run indefinitely
+        const isDevServerCommand = this.isDevServerCommand(preview.command);
+
+        // Dev servers get 10 seconds to start; regular commands get 5 minutes
+        const timeoutMs = isDevServerCommand
+            ? 10 * 1000  // 10 seconds for dev servers
+            : ((preview as any).timeout || 5 * 60 * 1000);
+        const startTime = Date.now();
+
+        logger.log(`[executeRunCommand] Running: ${preview.command} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
 
         // Emit that command is starting
         this.emit('terminal-output', {
@@ -567,27 +706,111 @@ export class PermissionInterceptor extends EventEmitter {
             status: 'running' as const,
         });
 
-        const result = await runShellCommand(preview.command, workingDir);
+        // Progress interval - update UI every 2 seconds for long commands
+        const progressInterval = setInterval(() => {
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            this.emit('terminal-output', {
+                operationId,
+                command: preview.command,
+                output: `Running... ${elapsed}s`,
+                status: 'running' as const,
+            });
+        }, 2000);
 
-        // Store output for UI display and AI feedback
-        this.commandOutputs.set(operationId, result);
-
-        // Emit final output
-        this.emit('terminal-output', {
-            operationId,
-            command: preview.command,
-            output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
-            status: result.success ? 'completed' as const : 'error' as const,
-            exitCode: result.exitCode,
+        // Create timeout promise
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+            }, timeoutMs);
         });
 
-        if (result.success) {
-            logger.log(`[executeRunCommand] Success: ${preview.command}`);
-        } else {
-            logger.error(`[executeRunCommand] Failed: ${preview.command} (exit ${result.exitCode})`);
-            if (result.stderr) {
-                logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
+        try {
+            // Race between command execution and timeout
+            const result = await Promise.race([
+                runShellCommand(preview.command, workingDir),
+                timeoutPromise
+            ]);
+
+            clearInterval(progressInterval);
+            const duration = Date.now() - startTime;
+
+            // Store output for UI display and AI feedback
+            this.commandOutputs.set(operationId, {
+                ...result,
+                // Add duration to result (extending CommandResult)
+            } as CommandResult);
+
+            // Emit final output
+            this.emit('terminal-output', {
+                operationId,
+                command: preview.command,
+                output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+                status: result.success ? 'completed' as const : 'error' as const,
+                exitCode: result.exitCode,
+                duration,
+            });
+
+            if (result.success) {
+                logger.log(`[executeRunCommand] Success: ${preview.command} (${(duration / 1000).toFixed(1)}s)`);
+            } else {
+                logger.error(`[executeRunCommand] Failed: ${preview.command} (exit ${result.exitCode})`);
+                if (result.stderr) {
+                    logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
+                }
+                // Throw error so executeOperation marks it as failed
+                throw new Error(`Command failed with exit code ${result.exitCode}`);
             }
+        } catch (error) {
+            clearInterval(progressInterval);
+            const duration = Date.now() - startTime;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isTimeout = errorMessage.includes('timed out');
+
+            // Dev server timeout = success (server is still running after 10 seconds)
+            if (isDevServerCommand && isTimeout) {
+                logger.log(`[executeRunCommand] Dev server started: ${preview.command} (running in background)`);
+
+                // Store success result for AI context
+                this.commandOutputs.set(operationId, {
+                    stdout: `Dev server started successfully and is running in background`,
+                    stderr: '',
+                    exitCode: 0,
+                    success: true,
+                });
+
+                // Emit success for dev server
+                this.emit('terminal-output', {
+                    operationId,
+                    command: preview.command,
+                    output: 'Dev server started successfully (running in background)',
+                    status: 'completed' as const,
+                    exitCode: 0,
+                    duration,
+                });
+
+                return; // Don't throw - treat as success
+            }
+
+            // Regular timeout or error - store error result for AI context
+            this.commandOutputs.set(operationId, {
+                stdout: '',
+                stderr: errorMessage,
+                exitCode: -1,
+                success: false,
+            });
+
+            // Emit error output
+            this.emit('terminal-output', {
+                operationId,
+                command: preview.command,
+                output: errorMessage,
+                status: 'error' as const,
+                exitCode: -1,
+                duration,
+            });
+
+            logger.error(`[executeRunCommand] Error: ${preview.command} - ${errorMessage}`);
+            throw error;
         }
     }
 

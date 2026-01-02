@@ -292,10 +292,24 @@ function FilesTab({
                                             {opInfo.label}
                                         </span>
 
-                                        {/* File Name */}
+                                        {/* File/Command Name */}
                                         <span className="flex-1 text-sm truncate">
                                             {displayName}
                                         </span>
+
+                                        {/* Command Status - show Running/Queued for commands */}
+                                        {proposal.operation === 'command' && !isApproved && !isRejected && (
+                                            <span className="flex items-center gap-1 text-xs text-amber-400">
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                Queued
+                                            </span>
+                                        )}
+                                        {proposal.operation === 'command' && isApproved && (
+                                            <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Done
+                                            </span>
+                                        )}
 
                                         {/* Approval Status */}
                                         <button
@@ -327,7 +341,7 @@ function FilesTab({
 }
 
 /**
- * Diff Tab - Monaco diff viewer (simplified for now)
+ * Diff Tab - Unified diff view with +/- line markers
  */
 function DiffTab({ proposal }: { proposal: FileProposal | null }) {
     if (!proposal) {
@@ -338,6 +352,82 @@ function DiffTab({ proposal }: { proposal: FileProposal | null }) {
             </div>
         );
     }
+
+    // Generate unified diff lines
+    const generateDiff = () => {
+        const oldLines = (proposal.oldContent || '').split('\n');
+        const newLines = (proposal.newContent || '').split('\n');
+
+        const diffLines: { type: 'context' | 'add' | 'remove' | 'header'; content: string; oldLineNum?: number; newLineNum?: number }[] = [];
+
+        // For create operation - all additions
+        if (proposal.operation === 'create') {
+            diffLines.push({ type: 'header', content: `+++ ${proposal.path} (new file)` });
+            newLines.forEach((line, i) => {
+                diffLines.push({ type: 'add', content: line, newLineNum: i + 1 });
+            });
+            return diffLines;
+        }
+
+        // For delete operation - all removals
+        if (proposal.operation === 'delete') {
+            diffLines.push({ type: 'header', content: `--- ${proposal.path} (deleted)` });
+            oldLines.forEach((line, i) => {
+                diffLines.push({ type: 'remove', content: line, oldLineNum: i + 1 });
+            });
+            return diffLines;
+        }
+
+        // For modify - compute simple line-by-line diff
+        diffLines.push({ type: 'header', content: `--- ${proposal.path}` });
+        diffLines.push({ type: 'header', content: `+++ ${proposal.path}` });
+
+        // Simple diff: show removed and added lines
+        // Find common prefix
+        let prefixLen = 0;
+        while (prefixLen < oldLines.length && prefixLen < newLines.length &&
+            oldLines[prefixLen] === newLines[prefixLen]) {
+            prefixLen++;
+        }
+
+        // Find common suffix (after prefix)
+        let suffixLen = 0;
+        while (suffixLen < (oldLines.length - prefixLen) &&
+            suffixLen < (newLines.length - prefixLen) &&
+            oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]) {
+            suffixLen++;
+        }
+
+        // Context before (up to 3 lines)
+        const contextBefore = Math.max(0, prefixLen - 3);
+        for (let i = contextBefore; i < prefixLen; i++) {
+            diffLines.push({ type: 'context', content: oldLines[i], oldLineNum: i + 1, newLineNum: i + 1 });
+        }
+
+        // Changed lines - removals first
+        for (let i = prefixLen; i < oldLines.length - suffixLen; i++) {
+            diffLines.push({ type: 'remove', content: oldLines[i], oldLineNum: i + 1 });
+        }
+
+        // Changed lines - additions
+        for (let i = prefixLen; i < newLines.length - suffixLen; i++) {
+            diffLines.push({ type: 'add', content: newLines[i], newLineNum: i + 1 });
+        }
+
+        // Context after (up to 3 lines)
+        const contextAfterStart = Math.max(oldLines.length - suffixLen, 0);
+        const contextAfterEnd = Math.min(contextAfterStart + 3, oldLines.length);
+        for (let i = contextAfterStart; i < contextAfterEnd; i++) {
+            const newI = newLines.length - (oldLines.length - i);
+            diffLines.push({ type: 'context', content: oldLines[i], oldLineNum: i + 1, newLineNum: newI + 1 });
+        }
+
+        return diffLines;
+    };
+
+    const diffLines = generateDiff();
+    const addedCount = diffLines.filter(l => l.type === 'add').length;
+    const removedCount = diffLines.filter(l => l.type === 'remove').length;
 
     return (
         <div className="flex flex-col h-full">
@@ -352,53 +442,109 @@ function DiffTab({ proposal }: { proposal: FileProposal | null }) {
                 )}>
                     {proposal.operation}
                 </span>
+                {/* Line change summary */}
+                <div className="ml-auto flex items-center gap-2 text-xs">
+                    {addedCount > 0 && (
+                        <span className="font-mono" style={{ color: 'var(--diff-add-text)' }}>+{addedCount}</span>
+                    )}
+                    {removedCount > 0 && (
+                        <span className="font-mono" style={{ color: 'var(--diff-remove-text)' }}>-{removedCount}</span>
+                    )}
+                </div>
             </div>
 
-            {/* Diff Content (simplified - would use Monaco in full implementation) */}
-            <div className="flex-1 overflow-auto p-3 font-mono text-xs">
-                {proposal.operation === 'delete' ? (
-                    <div className="bg-red-500/10 p-3 rounded border border-red-500/30">
-                        <p className="text-red-500 mb-2">File will be deleted:</p>
-                        <pre className="text-muted-foreground whitespace-pre-wrap">
-                            {proposal.oldContent || '(content not available)'}
-                        </pre>
-                    </div>
-                ) : proposal.operation === 'create' ? (
-                    <div className="bg-green-500/10 p-3 rounded border border-green-500/30">
-                        <p className="text-green-500 mb-2">New file:</p>
-                        <pre className="text-foreground whitespace-pre-wrap">
-                            {proposal.newContent || '(content not available)'}
-                        </pre>
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        {proposal.oldContent && (
-                            <div className="bg-red-500/10 p-3 rounded border border-red-500/30">
-                                <p className="text-red-500 mb-2">- Old:</p>
-                                <pre className="text-muted-foreground whitespace-pre-wrap">
-                                    {proposal.oldContent}
-                                </pre>
+            {/* Unified Diff View */}
+            <div className="flex-1 overflow-auto font-mono text-xs">
+                {diffLines.map((line, index) => (
+                    <div
+                        key={index}
+                        className={cn(
+                            "flex",
+                            line.type === 'header' && "bg-muted/50 border-b border-border"
+                        )}
+                        style={{
+                            backgroundColor: line.type === 'add'
+                                ? 'var(--diff-add-bg)'
+                                : line.type === 'remove'
+                                    ? 'var(--diff-remove-bg)'
+                                    : undefined
+                        }}
+                    >
+                        {/* Line numbers */}
+                        {line.type !== 'header' && (
+                            <div className="flex shrink-0 select-none">
+                                <span
+                                    className="w-10 text-right px-1 border-r border-border/30"
+                                    style={{
+                                        color: line.type === 'add'
+                                            ? 'var(--diff-add-line)'
+                                            : line.type === 'remove'
+                                                ? 'var(--diff-remove-line)'
+                                                : 'var(--diff-context-text)'
+                                    }}
+                                >
+                                    {line.type !== 'add' ? line.oldLineNum : ''}
+                                </span>
+                                <span
+                                    className="w-10 text-right px-1 border-r border-border/30"
+                                    style={{
+                                        color: line.type === 'add'
+                                            ? 'var(--diff-add-line)'
+                                            : line.type === 'remove'
+                                                ? 'var(--diff-remove-line)'
+                                                : 'var(--diff-context-text)'
+                                    }}
+                                >
+                                    {line.type !== 'remove' ? line.newLineNum : ''}
+                                </span>
                             </div>
                         )}
-                        {proposal.newContent && (
-                            <div className="bg-green-500/10 p-3 rounded border border-green-500/30">
-                                <p className="text-green-500 mb-2">+ New:</p>
-                                <pre className="text-foreground whitespace-pre-wrap">
-                                    {proposal.newContent}
-                                </pre>
-                            </div>
-                        )}
-                    </div>
-                )}
 
-                {proposal.description && (
-                    <div className="mt-4 p-3 bg-muted/30 rounded border border-border">
-                        <p className="text-xs text-muted-foreground">
-                            {proposal.description}
-                        </p>
+                        {/* +/- prefix and content */}
+                        <div className="flex-1 flex">
+                            <span
+                                className="w-5 text-center select-none shrink-0 font-bold"
+                                style={{
+                                    color: line.type === 'add'
+                                        ? 'var(--diff-add-text)'
+                                        : line.type === 'remove'
+                                            ? 'var(--diff-remove-text)'
+                                            : 'var(--diff-context-text)'
+                                }}
+                            >
+                                {line.type === 'add' && '+'}
+                                {line.type === 'remove' && '-'}
+                                {line.type === 'context' && ' '}
+                            </span>
+                            <pre
+                                className={cn(
+                                    "flex-1 whitespace-pre-wrap break-words px-2 py-0.5",
+                                    line.type === 'header' && "text-muted-foreground italic py-1 px-3"
+                                )}
+                                style={{
+                                    color: line.type === 'add'
+                                        ? 'var(--diff-add-text)'
+                                        : line.type === 'remove'
+                                            ? 'var(--diff-remove-text)'
+                                            : line.type === 'context'
+                                                ? 'var(--diff-context-text)'
+                                                : undefined
+                                }}
+                            >
+                                {line.content}
+                            </pre>
+                        </div>
                     </div>
-                )}
+                ))}
             </div>
+
+            {proposal.description && (
+                <div className="px-3 py-2 bg-muted/30 border-t border-border">
+                    <p className="text-xs text-muted-foreground">
+                        {proposal.description}
+                    </p>
+                </div>
+            )}
         </div>
     );
 }

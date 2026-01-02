@@ -67,7 +67,18 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Permission Panel** - Dedicated view for showing pending tool approvals
 - **Priority System** - AI state → User pinned → Heuristic fallback
 
-### ⚠️ Known Issues (v0.9.6)
+### 🌐 Live Preview (NEW in v0.9.7!)
+- **Lovable-Style Preview** - Auto-starts dev server for frontend projects
+- **Responsive Iframe** - Mobile, tablet, desktop viewport controls
+- **Framework Detection** - Vite, Next.js, Create React App, Nuxt, Astro
+- **Backend Fallback** - Auto-shows diagram panel for backend projects
+
+### 💰 Token-Saving Stop Button (NEW in v0.9.7!)
+- **Instant Cancel** - Stop AI mid-response to save API tokens
+- **Backend Abort** - Actually cancels the API call, not just UI
+- **App Quit Cleanup** - All active streams aborted on close
+
+### ⚠️ Known Issues (v0.9.7)
 - ~~**Prompt Box Clipping** - Mode/model controls hidden after first message~~ **FIXED**
 - ~~**MiniMax Duplication** - Content appeared twice with reasoning models~~ **FIXED**
 - ~~**LM Studio Errors** - Technical stack traces shown to users~~ **FIXED**

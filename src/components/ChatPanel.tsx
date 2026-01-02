@@ -5,6 +5,7 @@ import {
   chatStreamCountByIdAtom,
   isStreamingByIdAtom,
 } from "../atoms/chatAtoms";
+import { terminalOutputsAtom } from "../atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 
 import { ChatHeader } from "./chat/ChatHeader";
@@ -12,6 +13,7 @@ import { MessagesList } from "./chat/MessagesList";
 import { ChatInput } from "./chat/ChatInput";
 import { VersionPane } from "./chat/VersionPane";
 import { ChatError } from "./chat/ChatError";
+import { CommandOutputCard } from "./CommandOutputCard";
 import { Button } from "@/components/ui/button";
 import { ArrowDown } from "lucide-react";
 
@@ -32,6 +34,13 @@ export function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const streamCountById = useAtomValue(chatStreamCountByIdAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
+
+  // Terminal output listener - tracks running commands
+  // Note: Terminal events are handled in useStreamChat which updates terminalOutputsAtom
+  const terminalOutputs = useAtomValue(terminalOutputsAtom);
+  const runningCommands = Array.from(terminalOutputs.values())
+    .filter(t => t.status === 'running');
+
   // Reference to store the processed prompt so we don't submit it twice
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -208,6 +217,23 @@ export function ChatPanel({
             </div>
 
             <ChatError error={error} onDismiss={() => setError(null)} />
+
+            {/* Running commands - show spinner cards above input */}
+            {runningCommands.length > 0 && (
+              <div className="px-4 pb-2 space-y-2">
+                {runningCommands.map(cmd => (
+                  <CommandOutputCard
+                    key={cmd.operationId}
+                    command={cmd.command}
+                    status={cmd.status === 'completed' ? 'success' : cmd.status}
+                    output={cmd.output}
+                    exitCode={cmd.exitCode}
+                    duration={cmd.duration}
+                  />
+                ))}
+              </div>
+            )}
+
             {/* flex-shrink-0 ensures input controls are never clipped */}
             <div className="flex-shrink-0">
               <ChatInput chatId={chatId} />
