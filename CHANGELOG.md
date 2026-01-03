@@ -2,6 +2,35 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.8] - 2026-01-03
+
+### 🔧 Permission Queue Integration
+
+#### Unified FileDiffPanel
+- **Merged PermissionQueuePanel** into FileDiffPanel's Approve tab
+- **Simplified routing**: `show-permissions` intent → `file-diff` panel
+- **No more dual panels**: Single panel handles both file changes and permissions
+- **Real-time updates**: Permissions load via IPC `permission-request` events
+
+#### Files Modified
+- `src/atoms/sourceAtoms.ts`: Reverted `show-permissions` → `file-diff` mapping
+- `src/components/preview_panel/FileDiffPanel.tsx`: Approve tab now shows PermissionQueuePanel
+- `src/ipc/handlers/permissions/handlers.ts`: Added `permission-request` IPC emission
+- `src/components/PermissionQueuePanel.tsx`: Added useEffect for loading permissions
+
+### 🚀 Workspace Delete UI Fix
+- **Instant UI update**: Workspace disappears immediately on delete click
+- **Optimistic update**: UI updates before backend confirms deletion
+- **Graceful handling**: "Already deleted" errors ignored silently
+- **Auto-navigate**: Returns to home when current workspace is deleted
+
+### 🐛 Bug Fixes
+- **FIXED**: AI `Invalid prompt: The messages must be a ModelMessage[]` error
+  - Restored `chat_stream_handlers.ts` to stable commit 4a2b440
+  - Error was caused by message format incompatibility
+- **Removed PlantUML code**: DiagramPanel no longer shows raw PlantUML code
+- **IPC whitelist**: Added `operation-status` and `auto-recovery-needed` channels
+
 ## [v0.9.7] - 2026-01-02
 
 ### 🚀 Command Execution Wait Fix (Critical)

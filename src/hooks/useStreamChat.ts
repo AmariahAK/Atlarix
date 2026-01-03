@@ -24,6 +24,12 @@ import {
   type DiagramState,
   type TerminalOutput,
 } from "@/atoms/sourceAtoms";
+import {
+  permissionQueueAtom,
+  updateOperationStatus,
+  addOperation,
+  type QueuedOperation,
+} from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
@@ -31,7 +37,7 @@ import { useChats } from "./useChats";
 import { useLoadApp } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useVersions } from "./useVersions";
-import { showExtraFilesToast } from "@/lib/toast";
+import { showExtraFilesToast, showError } from "@/lib/toast";
 import { useProposal } from "./useProposal";
 import { useSearch } from "@tanstack/react-router";
 import { useRunApp } from "./useRunApp";
@@ -104,6 +110,7 @@ export function useStreamChat({
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
+  const setPermissionQueue = useSetAtom(permissionQueueAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -197,16 +204,24 @@ export function useStreamChat({
 
             const allProposals = [...fileProposals, ...commandProposals];
 
-            // Add to pending proposals
+            // Add to pending proposals (with deduplication)
             setPendingProposals((prev) => {
-              const newProposals = [...prev, ...allProposals];
+              // Deduplicate by operation ID - don't re-add if already exists
+              const existingIds = new Set(prev.map(p => p.id));
+              const newProposals = allProposals.filter(p => !existingIds.has(p.id));
+
+              if (newProposals.length === 0) {
+                return prev; // No new proposals to add
+              }
+
+              const combined = [...prev, ...newProposals];
 
               // If we had proposals before and got more, play sound to alert user
-              if (prev.length > 0 && allProposals.length > 0) {
+              if (prev.length > 0 && newProposals.length > 0) {
                 playRemaining();
               }
 
-              return newProposals;
+              return combined;
             });
 
             // Show panel and force Code tab so user sees new files/commands
@@ -265,6 +280,17 @@ export function useStreamChat({
 
             // Clear completed/error commands from map after a delay
             if (payload.status === 'completed' || payload.status === 'error') {
+              // Show error toast to inform user when command fails
+              if (payload.status === 'error') {
+                const shortCmd = payload.command.length > 50
+                  ? payload.command.substring(0, 50) + '...'
+                  : payload.command;
+                showError(
+                  `Command failed: ${shortCmd}`,
+                  payload.output || `Exit code: ${payload.exitCode ?? 'unknown'}`
+                );
+              }
+
               setTimeout(() => {
                 setTerminalOutputs((prev) => {
                   const next = new Map(prev);
@@ -273,6 +299,21 @@ export function useStreamChat({
                 });
               }, 5000);  // Keep visible for 5 seconds after completion
             }
+          }
+        );
+
+        // Register operation status listener for permission queue UI
+        const unsubscribeOperationStatus = IpcClient.getInstance().onOperationStatus(
+          (payload) => {
+            // Update permission queue state based on operation status
+            setPermissionQueue((prev) => {
+              return updateOperationStatus(prev, payload.operationId, {
+                status: payload.status as QueuedOperation['status'],
+                progress: payload.progress,
+                duration: payload.duration,
+                error: payload.error,
+              });
+            });
           }
         );
 

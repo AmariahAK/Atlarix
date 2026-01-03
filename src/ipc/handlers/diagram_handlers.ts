@@ -483,3 +483,125 @@ ipcMain.handle(
         }
     }
 );
+
+// ============================================
+// DIAGRAM:REGENERATE-BACKGROUND - Background regeneration
+// Triggered by post-sequence diagram refresh engine
+// ============================================
+
+ipcMain.handle(
+    "diagram:regenerate-background",
+    async (_, { workspaceId }: { workspaceId: number }) => {
+        try {
+            console.log(`📊 [diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
+
+            // 1. Get Workspace Path
+            const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
+            if (!app) {
+                console.log(`[diagram:regenerate-background] Workspace not found: ${workspaceId}`);
+                return { success: false, error: "Workspace not found" };
+            }
+
+            const appPath = getAtlarixAppPath(app.name);
+            const settings = readSettings();
+
+            // 2. Extract Codebase Context
+            const chatContext: AppChatContext = {
+                contextPaths: [],
+                smartContextAutoIncludes: [],
+                excludePaths: []
+            };
+
+            console.log(`📊 [diagram:regenerate-background] Extracting codebase from ${appPath}`);
+            const { formattedOutput } = await extractCodebase({
+                appPath,
+                chatContext
+            });
+
+            // 3. Prepare AI Client
+            const modelConfig = settings.selectedModel;
+            const { modelClient } = await getModelClient(modelConfig, settings);
+
+            // 4. Generate Diagram
+            const systemPrompt = `You are an expert software architect.
+Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
+Focus on:
+- Major components/modules
+- Data flow
+- relationships between files
+- External dependencies (if obvious)
+
+Requirements:
+- Return ONLY the mermaid code block.
+- Use 'graph TB' or 'graph LR'.
+- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
+- Keep the diagram clean and readable (avoid too many nodes).
+- Group related components in subgraphs.`;
+
+            const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
+
+            console.log(`📊 [diagram:regenerate-background] Sending prompt to model ${modelConfig.name}`);
+            const result = await generateText({
+                model: modelClient.model,
+                system: systemPrompt,
+                messages: [{ role: 'user', content: userPrompt }],
+            });
+
+            // 5. Parse Output
+            let content = result.text;
+            const match = content.match(/```mermaid\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
+            if (match) {
+                content = match[1];
+            }
+            content = content.trim();
+
+            // 6. Generate fingerprint
+            const fingerprint = await generateFingerprint(appPath);
+
+            // 7. Check for existing diagram and update or create
+            const existingDiagram = await db.query.diagrams.findFirst({
+                where: eq(diagrams.workspaceId, workspaceId),
+            });
+
+            if (existingDiagram) {
+                await db
+                    .update(diagrams)
+                    .set({
+                        content,
+                        fingerprintHash: fingerprint.hash,
+                        fingerprintData: fingerprint,
+                        createdFromFileCount: fingerprint.fileCount,
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(diagrams.id, existingDiagram.id));
+
+                console.log(`📊 [diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
+                return { success: true, action: 'updated', diagramId: existingDiagram.id };
+            } else {
+                const [diagram] = await db
+                    .insert(diagrams)
+                    .values({
+                        workspaceId,
+                        type: "mermaid",
+                        title: `${app.name} Architecture`,
+                        content,
+                        metadata: { focus: "auto-generated" },
+                        fingerprintHash: fingerprint.hash,
+                        fingerprintData: fingerprint,
+                        createdFromFileCount: fingerprint.fileCount,
+                    })
+                    .returning();
+
+                console.log(`📊 [diagram:regenerate-background] Created new diagram ${diagram.id}`);
+                return { success: true, action: 'created', diagramId: diagram.id };
+            }
+
+        } catch (error) {
+            console.error("[diagram:regenerate-background] Error:", error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            };
+        }
+    }
+);

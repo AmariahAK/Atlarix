@@ -36,7 +36,10 @@ Examples:
 - "Create a sequence diagram for login flow" → type: sequence
 - "Visualize the component structure" → type: flowchart
 
-The diagram will be displayed in the Right Panel for the user to view.`,
+The diagram will be:
+1. Displayed in the Right Panel for the user to view
+2. Saved to the workspace for future chats
+3. Returned as context for you to understand the project structure`,
     cost: 10,
     requiresWorkspace: true,
     isCore: true,
@@ -45,6 +48,11 @@ The diagram will be displayed in the Right Panel for the user to view.`,
         workspace: {
             type: "string",
             description: "Project directory path",
+            required: false,
+        },
+        workspaceId: {
+            type: "number",
+            description: "Workspace ID for saving diagram (auto-provided)",
             required: false,
         },
         diagram_type: {
@@ -61,6 +69,7 @@ The diagram will be displayed in the Right Panel for the user to view.`,
     },
     handler: async (params: {
         workspace?: string;
+        workspaceId?: number;
         diagram_type?: string;
         title?: string;
     }) => {
@@ -88,12 +97,69 @@ The diagram will be displayed in the Right Panel for the user to view.`,
                     mermaidCode = await generateArchitectureDiagram(workspace);
             }
 
+            // Save diagram to database if workspaceId is provided
+            let savedMessage = "";
+            if (params.workspaceId) {
+                try {
+                    // Dynamic import to avoid circular dependency
+                    const { db } = await import("../../db");
+                    const { diagrams } = await import("../../db/schema");
+                    const { eq } = await import("drizzle-orm");
+
+                    // Check for existing diagram
+                    const existingDiagram = await db.query.diagrams.findFirst({
+                        where: eq(diagrams.workspaceId, params.workspaceId),
+                    });
+
+                    if (existingDiagram) {
+                        // Update existing
+                        await db
+                            .update(diagrams)
+                            .set({
+                                content: mermaidCode,
+                                type: "mermaid",
+                                title,
+                                updatedAt: new Date(),
+                            })
+                            .where(eq(diagrams.id, existingDiagram.id));
+                        savedMessage = "Diagram updated and saved to workspace.";
+                    } else {
+                        // Create new
+                        await db.insert(diagrams).values({
+                            workspaceId: params.workspaceId,
+                            type: "mermaid",
+                            title,
+                            content: mermaidCode,
+                            metadata: { focus: "ai-generated" },
+                        });
+                        savedMessage = "Diagram created and saved to workspace.";
+                    }
+                } catch (saveError) {
+                    console.error("[get_diagram] Failed to save diagram:", saveError);
+                    savedMessage = "Diagram generated but failed to save to database.";
+                }
+            }
+
+            // Return full context for AI to use
             return {
                 success: true,
                 workspace,
                 diagram_type: diagramType,
                 title,
                 mermaid_code: mermaidCode,
+                saved: savedMessage || "Not saved (no workspaceId provided)",
+                // Include a formatted version the AI can understand
+                context_for_ai: `
+## Architecture Diagram: ${title}
+
+This diagram shows the project structure:
+
+\`\`\`mermaid
+${mermaidCode}
+\`\`\`
+
+Use this to understand the codebase layout before making changes.
+`,
                 // Signal to show in Right Panel
                 _showInPanel: true,
                 _panelType: "diagram",

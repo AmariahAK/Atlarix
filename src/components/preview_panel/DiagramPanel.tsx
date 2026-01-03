@@ -9,8 +9,9 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useAtom } from 'jotai';
-import { diagramStateAtom, type DiagramState } from '@/atoms/sourceAtoms';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { diagramStateAtom, diagramStalenessAtom, type DiagramState } from '@/atoms/sourceAtoms';
+import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
 import { IpcClient } from '@/ipc/ipc_client';
@@ -29,6 +30,7 @@ import {
     AlertTriangle,
     RefreshCw,
     Sparkles,
+    Info,
 } from 'lucide-react';
 
 interface DiagramPanelProps {
@@ -47,9 +49,12 @@ interface DiagramVersion {
 
 export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
+    const [staleness, setStaleness] = useAtom(diagramStalenessAtom);
+    const app = useAtomValue(currentAppAtom);
     const [compareMode, setCompareMode] = useState<CompareMode>('current');
     const [versions, setVersions] = useState<DiagramVersion[]>([]);
     const [showHistory, setShowHistory] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Use data from props or atom
     const diagram = data || diagramState;
@@ -67,6 +72,32 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                 .catch(console.error);
         }
     }, [diagram]);
+
+    // Handle refresh click
+    const handleRefreshDiagram = useCallback(async () => {
+        if (!app?.id) return;
+        setIsRefreshing(true);
+        try {
+            const result = await IpcClient.getInstance().generateAiDiagram({
+                workspaceId: app.id,
+                title: diagram?.title,
+            });
+            if (result.success && result.diagram) {
+                setDiagramState({
+                    id: result.diagram.id,
+                    code: result.diagram.content,
+                    type: result.diagram.type || 'mermaid',
+                    title: result.diagram.title,
+                    compareMode: 'current',
+                });
+                setStaleness(null); // Clear staleness warning
+            }
+        } catch (error) {
+            console.error('Failed to refresh diagram:', error);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [app?.id, diagram?.title, setDiagramState, setStaleness]);
 
     if (!diagram) {
         return (
@@ -96,6 +127,16 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
 
     return (
         <div className="flex flex-col h-full">
+            {/* Staleness Warning Banner */}
+            {staleness && staleness.isStale && activeTab === 'diagram' && (
+                <StalenessWarningBanner
+                    severity={staleness.severity === 'none' ? 'minor' : staleness.severity}
+                    reason={staleness.reason}
+                    onRefresh={handleRefreshDiagram}
+                    isRefreshing={isRefreshing}
+                />
+            )}
+
             {activeTab === 'diagram' && (
                 <DiagramViewer
                     diagram={diagram}
@@ -108,6 +149,68 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                 />
             )}
             {activeTab === 'logs' && <DiagramLogs />}
+        </div>
+    );
+}
+
+/**
+ * Staleness Warning Banner with AI accuracy explanation
+ */
+function StalenessWarningBanner({
+    severity,
+    reason,
+    onRefresh,
+    isRefreshing
+}: {
+    severity: 'minor' | 'moderate' | 'major';
+    reason: string;
+    onRefresh: () => void;
+    isRefreshing: boolean;
+}) {
+    const colors = {
+        minor: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30',
+        moderate: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30',
+        major: 'bg-destructive/10 text-destructive border-destructive/30',
+    };
+
+    const messages = {
+        minor: 'Minor project changes detected.',
+        moderate: 'Project structure has changed.',
+        major: 'Significant changes detected!',
+    };
+
+    return (
+        <div className={cn(
+            "flex flex-col gap-2 px-3 py-3 border-b",
+            colors[severity]
+        )}>
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span className="text-sm font-medium">{messages[severity]}</span>
+                </div>
+                <button
+                    onClick={onRefresh}
+                    disabled={isRefreshing}
+                    className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors shrink-0",
+                        severity === 'major'
+                            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            : "bg-primary text-primary-foreground hover:bg-primary/90",
+                        isRefreshing && "opacity-50 cursor-not-allowed"
+                    )}
+                >
+                    <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                    {isRefreshing ? 'Refreshing...' : 'Refresh Diagram'}
+                </button>
+            </div>
+            <div className="flex items-start gap-2 text-xs opacity-80">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                    Refreshing helps the AI understand your current project structure accurately.
+                    {severity === 'major' && ' Outdated diagrams may cause incorrect suggestions.'}
+                </span>
+            </div>
         </div>
     );
 }
@@ -319,15 +422,7 @@ function PlantUMLPreview({ code }: { code: string }) {
                     </p>
                 </div>
             </div>
-            <div className="bg-muted/30 rounded-lg border border-border overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
-                    <span className="text-xs font-medium text-muted-foreground">PlantUML Code</span>
-                    <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
-                </div>
-                <pre className="p-3 text-xs font-mono text-foreground overflow-x-auto max-h-[300px]">
-                    {safeCode}
-                </pre>
-            </div>
+            {/* PlantUML code section removed per user request */}
         </div>
     );
 }

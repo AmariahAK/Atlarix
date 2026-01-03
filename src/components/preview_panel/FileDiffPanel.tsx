@@ -17,6 +17,7 @@ import {
 } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
 import { IpcClient } from '@/ipc/ipc_client';
+import { PermissionQueuePanel } from '@/components/PermissionQueuePanel';
 import {
     File,
     FilePlus,
@@ -191,14 +192,7 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
                 <DiffTab proposal={selectedProposal} />
             )}
             {activeTab === 'approve' && (
-                <ApproveTab
-                    proposals={proposals}
-                    approvalState={approvalState}
-                    onApproveAll={handleApproveAll}
-                    onRejectAll={handleRejectAll}
-                    onExecuteSelected={handleExecuteSelected}
-                    isExecuting={isExecuting}
-                />
+                <PermissionQueuePanel chatId={chatId} />
             )}
         </div>
     );

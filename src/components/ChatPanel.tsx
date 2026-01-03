@@ -7,6 +7,7 @@ import {
 } from "../atoms/chatAtoms";
 import { terminalOutputsAtom } from "../atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useStreamChat } from "@/hooks/useStreamChat";
 
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessagesList } from "./chat/MessagesList";
@@ -34,12 +35,17 @@ export function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const streamCountById = useAtomValue(chatStreamCountByIdAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
 
-  // Terminal output listener - tracks running commands
-  // Note: Terminal events are handled in useStreamChat which updates terminalOutputsAtom
+  // Get stream function for "Fix with AI"
+  const { streamMessage } = useStreamChat();
+
+  // Terminal output listener - tracks running AND failed commands
   const terminalOutputs = useAtomValue(terminalOutputsAtom);
-  const runningCommands = Array.from(terminalOutputs.values())
-    .filter(t => t.status === 'running');
+
+  // Show running commands AND recently failed commands (for recovery)
+  const activeCommands = Array.from(terminalOutputs.values())
+    .filter(t => t.status === 'running' || t.status === 'error');
 
   // Reference to store the processed prompt so we don't submit it twice
 
@@ -182,6 +188,34 @@ export function ChatPanel({
     }
   }, [messages, isUserScrolling, isStreaming]);
 
+  // Recovery action handlers
+  const handleFixWithAI = useCallback((cmd: { command: string; output?: string }) => {
+    if (!chatId) return;
+
+    // Inject error context into chat and trigger AI to fix
+    const fixPrompt = `The previous command failed:\n\`\`\`\n${cmd.command}\n\`\`\`\n\nError output:\n\`\`\`\n${cmd.output || 'No output'}\n\`\`\`\n\nPlease analyze this error and suggest a fix.`;
+
+    streamMessage(chatId, fixPrompt);
+  }, [chatId, streamMessage]);
+
+  const handleRetry = useCallback(async (operationId: string, command: string) => {
+    if (!chatId) return;
+
+    // Re-run the same command
+    const retryPrompt = `Please run this command again:\n\`\`\`bash\n${command}\n\`\`\``;
+
+    streamMessage(chatId, retryPrompt);
+  }, [chatId, streamMessage]);
+
+  const handleIgnore = useCallback((operationId: string) => {
+    // Remove the failed command from display
+    setTerminalOutputs((prev) => {
+      const next = new Map(prev);
+      next.delete(operationId);
+      return next;
+    });
+  }, [setTerminalOutputs]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <ChatHeader
@@ -218,10 +252,10 @@ export function ChatPanel({
 
             <ChatError error={error} onDismiss={() => setError(null)} />
 
-            {/* Running commands - show spinner cards above input */}
-            {runningCommands.length > 0 && (
+            {/* Running and failed commands - show above input with recovery actions */}
+            {activeCommands.length > 0 && (
               <div className="px-4 pb-2 space-y-2">
-                {runningCommands.map(cmd => (
+                {activeCommands.map(cmd => (
                   <CommandOutputCard
                     key={cmd.operationId}
                     command={cmd.command}
@@ -229,6 +263,10 @@ export function ChatPanel({
                     output={cmd.output}
                     exitCode={cmd.exitCode}
                     duration={cmd.duration}
+                    // Recovery actions - only for failed commands
+                    onFixWithAI={cmd.status === 'error' ? () => handleFixWithAI(cmd) : undefined}
+                    onRetry={cmd.status === 'error' ? () => handleRetry(cmd.operationId, cmd.command) : undefined}
+                    onIgnore={cmd.status === 'error' ? () => handleIgnore(cmd.operationId) : undefined}
                   />
                 ))}
               </div>
@@ -248,3 +286,4 @@ export function ChatPanel({
     </div>
   );
 }
+

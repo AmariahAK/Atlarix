@@ -4,7 +4,41 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🔥 v0.9.7 - Command Execution & Smart Context Management
+## ✅ v0.9.8 - Permission Queue & Workspace Delete Fixes (COMPLETED)
+
+### Permission Queue Integration ✅
+- [x] **Unified FileDiffPanel**: Merged PermissionQueuePanel into Approve tab
+- [x] **Simplified routing**: `show-permissions` intent → `file-diff` panel
+- [x] **Real-time IPC**: Added `permission-request` event emission
+- [x] **useEffect loading**: Permissions load on panel mount
+
+### Workspace Delete UI ✅
+- [x] **Instant UI update**: Optimistic delete removes workspace immediately
+- [x] **"Already deleted" handling**: Errors ignored gracefully
+- [x] **Auto-navigate**: Returns to home when current workspace deleted
+
+### Bug Fixes ✅
+- [x] **AI prompt error**: Restored `chat_stream_handlers.ts` to stable 4a2b440
+- [x] **PlantUML code removal**: DiagramPanel no longer shows raw code
+- [x] **IPC whitelist**: Added `operation-status` and `auto-recovery-needed` channels
+
+---
+
+## 🔥 v1.0.0 - Production Ready (NEXT)
+
+### Core Stability
+- [ ] **End-to-end testing**: All major flows verified
+- [ ] **Error boundary improvements**: Better crash recovery
+- [ ] **Performance optimization**: Startup time < 3s
+
+### Known Issues to Address
+- [ ] **PlantUML → Mermaid migration**: Remove PlantUML dependency
+- [ ] **Session memory limits**: Implement token-aware trimming
+- [ ] **Diagram staleness**: More aggressive refresh triggers
+
+---
+
+## ✅ v0.9.7 - Command Execution & Smart Context Management (COMPLETED)
 
 ### Core Command Wait Fix ✅
 - [x] **Move resolveApproval()**: Call AFTER command execution, not before

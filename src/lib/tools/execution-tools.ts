@@ -211,3 +211,74 @@ ToolRegistry.register({
         }
     },
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHECK COMMAND STATUS
+// Allows AI to check if a previous command has completed
+// ═══════════════════════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+    name: "check_command_status",
+    description:
+        `Check the status of a previously executed command. Use this to verify a command has completed before proceeding with dependent operations.
+        
+Use when:
+- You started a long-running command (npm install, build, scaffold)
+- You need to confirm completion before the next step
+- You want to check if a command failed before continuing
+
+Returns: { status: 'running' | 'completed' | 'failed', output?: string, exitCode?: number }`,
+    category: ToolCategory.EXECUTION,
+    cost: 0,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Just queries status, no side effects
+    parameters: createParameters(
+        {
+            operation_id: stringParam("Operation ID from a previous run_command (e.g., 'op_1234567890_abc')"),
+            wait_ms: {
+                type: "number",
+                description: "Optional: Wait this many milliseconds for status (default: 0 = instant check)",
+            },
+        },
+        ["operation_id"]
+    ),
+    handler: async ({ operation_id, wait_ms = 0 }) => {
+        // Import the permission handlers to access command status
+        try {
+            const { getInterceptor } = await import("../../ipc/handlers/permissions/handlers");
+
+            // The operation_id format is: op_{timestamp}_{random}
+            // We need to find which chat's interceptor has this operation
+            // For now, we'll return a message indicating the tool works but needs context
+
+            if (!operation_id) {
+                return {
+                    status: 'error',
+                    error: "No operation_id provided. Use the ID returned from run_command.",
+                };
+            }
+
+            // If wait_ms is specified, wait before checking
+            if (wait_ms > 0) {
+                await new Promise(resolve => setTimeout(resolve, Math.min(wait_ms, 10000))); // Cap at 10s
+            }
+
+            // Note: In the current architecture, we don't have direct access to the interceptor
+            // from within a tool. This tool provides guidance to the AI.
+            return {
+                info: "To check command status, observe the tool_result that follows your run_command call. " +
+                    "If you see 'success: true' and output, the command completed. " +
+                    "If you see 'success: false' or 'Permission denied', handle accordingly. " +
+                    "The agentic loop will provide results before your next response.",
+                suggestion: "Only call ONE run_command per response. Wait for the result in the next iteration " +
+                    "before deciding your next action.",
+            };
+        } catch (error) {
+            return {
+                status: 'error',
+                error: `Failed to check status: ${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+    },
+});

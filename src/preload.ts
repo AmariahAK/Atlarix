@@ -234,6 +234,8 @@ const validReceiveChannels = [
   // Permission system (Build mode)
   "permission-request",
   "terminal-output",
+  "operation-status",         // Permission queue status updates
+  "auto-recovery-needed",     // AI self-healing on failures
   "chat:workspace-diagram",
   // AI-controlled right panel (Hybrid Intent System)
   "right-panel:set-intent",  // New: semantic intent-based

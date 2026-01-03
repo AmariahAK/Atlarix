@@ -58,6 +58,7 @@ export interface AIPanelIntentState {
         searchId?: string;       // For web-search
         diagramId?: string;      // For diagram
         commandId?: string;      // For terminal
+        chatId?: number;         // For permission queue panel
         message?: string;        // User-facing explanation
     };
     timestamp: number;
@@ -77,7 +78,7 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
     switch (intent) {
         case 'show-permissions':
         case 'show-file-changes':
-            // Both map to FileDiffPanel (handles file changes AND permission approvals)
+            // Both map to FileDiffPanel (approve tab shows permission queue)
             return 'file-diff';
 
         case 'show-web-search':
@@ -224,6 +225,17 @@ export interface DiagramState {
 
 /** Current diagram state */
 export const diagramStateAtom = atom<DiagramState | null>(null);
+
+/** Diagram staleness warning - shown when external changes detected */
+export interface DiagramStalenessWarning {
+    diagramId: number;
+    isStale: boolean;
+    severity: 'none' | 'minor' | 'moderate' | 'major';
+    reason: string;
+    recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
+}
+
+export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

@@ -21,6 +21,7 @@ import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { TimelineView } from './DiagramTimeline';
+import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { cn } from '@/lib/utils';
 import {
     Pin, PinOff, X, Maximize2, Minimize2, Terminal, Wrench,
@@ -306,9 +307,8 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
             return <ToolsPanel data={context.data} />;
 
         case 'permission':
-            // Legacy: permission panel now redirects to FileDiffPanel
-            // (AI intent 'show-permissions' maps to 'file-diff' in the hybrid system)
-            return <FileDiffPanel data={{ proposals: context.data?.proposals || [] }} activeTab="approve" />;
+            // New permission queue panel with status sections
+            return <PermissionQueuePanel chatId={context.data?.chatId} />;
 
         default:
             return (

@@ -53,13 +53,26 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
     // Wire up permission-request event to update the right panel with intent
     interceptor.on('permission-request', (data: { operationId: string; request: PermissionRequest }) => {
         logger.log(`[Panel Intent] Setting show-permissions for ${data.operationId}`);
-        // Send semantic intent - frontend will map 'show-permissions' to 'file-diff' UI
+
+        // Send semantic intent - frontend will map 'show-permissions' to permission UI
         sendPanelIntent('show-permissions', {
             operationId: data.operationId,
             operation: data.request.operation,
+            chatId, // Include chatId for PermissionQueuePanel
             message: `AI wants to: ${data.request.operation}`,
             timestamp: Date.now(),
         });
+
+        // 🚀 Also emit permission-request IPC event for PermissionQueuePanel
+        const windows = BrowserWindow.getAllWindows();
+        for (const win of windows) {
+            win.webContents.send('permission-request', {
+                chatId,
+                type: 'permission-request',
+                operationId: data.operationId,
+                request: data.request,
+            });
+        }
     });
 }
 

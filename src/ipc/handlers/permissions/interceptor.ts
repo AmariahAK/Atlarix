@@ -11,6 +11,12 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import log from "electron-log";
 import { EventEmitter } from "events";
+import { BrowserWindow } from "electron";
+import {
+    decideDiagramAction,
+    type ApprovedOperation,
+    type DiagramDecision,
+} from "../../../lib/diagram-refresh-engine";
 import {
     PermissionRequest,
     PermissionResult,
@@ -70,13 +76,44 @@ export class PermissionInterceptor extends EventEmitter {
     /** Map of operation ID to command execution results */
     private commandOutputs: Map<string, CommandResult> = new Map();
 
+    /** Track executed operations for diagram refresh analysis */
+    private executedOperations: ApprovedOperation[] = [];
+
     /** Workspace path for resolving file paths */
     private workspacePath: string;
 
-    constructor(workspacePath: string) {
+    /** Workspace ID for diagram refresh */
+    private workspaceId: number | null = null;
+
+    constructor(workspacePath: string, workspaceId?: number) {
         super();
         this.workspacePath = workspacePath;
-        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath}`);
+        this.workspaceId = workspaceId ?? null;
+        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId})`);
+    }
+
+    /**
+     * Emit operation status to all windows for queue UI updates
+     */
+    private emitStatus(
+        operationId: string,
+        status: 'pending' | 'queued' | 'running' | 'completed' | 'failed',
+        progress?: number,
+        duration?: number,
+        error?: string
+    ): void {
+        const payload = { operationId, status, progress, duration, error };
+        for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send('operation-status', payload);
+        }
+        logger.log(`[emitStatus] ${operationId} -> ${status}${error ? ` (${error})` : ''}`);
+    }
+
+    /**
+     * Set workspace ID (if not known at construction time)
+     */
+    setWorkspaceId(id: number): void {
+        this.workspaceId = id;
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -338,6 +375,9 @@ export class PermissionInterceptor extends EventEmitter {
         try {
             operation.status = 'approved';
 
+            // 📊 Emit running status for queue UI
+            this.emitStatus(operationId, 'running');
+
             switch (request.operation) {
                 case "write_file":
                     await this.executeWriteFile(request);
@@ -361,7 +401,20 @@ export class PermissionInterceptor extends EventEmitter {
             // Mark as executed
             operation.status = 'executed';
 
+            // 📊 Emit completed status for queue UI
+            this.emitStatus(operationId, 'completed');
+
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);
+
+            // Track operation for diagram refresh analysis
+            const preview = request.preview as FileOperationPreview;
+            const cmdPreview = request.preview as CommandOperationPreview;
+            this.executedOperations.push({
+                type: request.operation as ApprovedOperation['type'],
+                path: preview?.path,
+                command: cmdPreview?.command,
+                isNewFile: preview?.type === 'create',
+            });
 
             // Queue timeline capture for file operations
             if (request.operation === 'write_file' || request.operation === 'write_multiple_files' ||
@@ -387,6 +440,10 @@ export class PermissionInterceptor extends EventEmitter {
         } catch (error) {
             // Mark as failed
             operation.status = 'failed';
+
+            // 📊 Emit failed status for queue UI
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.emitStatus(operationId, 'failed', undefined, undefined, errorMessage);
 
             logger.error(`[executeOperation] Failed ${operationId}:`, error);
 
@@ -414,7 +471,22 @@ export class PermissionInterceptor extends EventEmitter {
         duration?: number;
     } {
         const operation = this.pendingOperations.get(operationId);
+
+        // CRITICAL FIX: If operation was deleted from pendingOperations 
+        // (which happens after executeAllOperations), still check commandOutputs
+        // This ensures command failures are correctly identified vs user rejections
         if (!operation) {
+            const cmdResult = this.commandOutputs.get(operationId);
+            if (cmdResult) {
+                // Command was executed - return result with exitCode
+                return {
+                    success: cmdResult.success,
+                    output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                    exitCode: cmdResult.exitCode,
+                    error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500) || 'Command failed',
+                };
+            }
+            // Truly not found - this is a user rejection or timeout
             return { success: false, error: `Operation ${operationId} not found` };
         }
 
@@ -541,7 +613,60 @@ export class PermissionInterceptor extends EventEmitter {
 
         logger.log(`[executeAllOperations] Completed all ${operationsToExecute.length} operations`);
 
+        // ════════════════════════════════════════════════════════════════════
+        // POST-SEQUENCE DIAGRAM REFRESH
+        // Evaluate operations and refresh diagram if structural changes detected
+        // ════════════════════════════════════════════════════════════════════
+        if (this.workspaceId && this.executedOperations.length > 0) {
+            await this.evaluateDiagramRefresh();
+        }
+
+        // Clear executed operations for next sequence
+        this.executedOperations = [];
+
         return results;
+    }
+
+    /**
+     * Evaluate whether diagram needs refresh after operation sequence.
+     * Called automatically after executeAllOperations completes.
+     */
+    private async evaluateDiagramRefresh(): Promise<void> {
+        if (!this.workspaceId) return;
+
+        try {
+            const decision = await decideDiagramAction(this.workspaceId, this.executedOperations);
+
+            logger.log(`📊 [Diagram Refresh] Decision: ${decision.action} - ${decision.reason} (confidence: ${decision.confidence.toFixed(2)})`);
+
+            if (decision.action === 'generate' || decision.action === 'refresh') {
+                // Emit event for frontend notification
+                this.emit('diagram:refresh-needed', {
+                    workspaceId: this.workspaceId,
+                    action: decision.action,
+                    reason: decision.reason,
+                    confidence: decision.confidence,
+                });
+
+                // Trigger background diagram regeneration
+                // Uses setImmediate to not block the permission response
+                const workspaceId = this.workspaceId;
+                setImmediate(async () => {
+                    try {
+                        const { ipcMain } = await import('electron');
+                        logger.log(`📊 [Diagram Refresh] Triggering background regeneration for workspace ${workspaceId}`);
+                        // Invoke the diagram regeneration handler directly
+                        // Note: This is in the main process, so we need to invoke the handler manually
+                        // The handler is registered in diagram_handlers.ts
+                        ipcMain.emit('diagram:regenerate-background', {}, { workspaceId });
+                    } catch (err) {
+                        logger.error('[Diagram Refresh] Background regeneration failed:', err);
+                    }
+                });
+            }
+        } catch (error) {
+            logger.error('[Diagram Refresh] Error evaluating:', error);
+        }
     }
 
     /**

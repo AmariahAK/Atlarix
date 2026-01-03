@@ -225,8 +225,8 @@ function getDataForType(
         case 'code-preview':
             return { url: state.devServerUrl, ...state.aiContext };
         case 'permission':
-            // Legacy - permission panel now maps to file-diff
-            return { proposals: state.proposals, ...state.aiContext };
+            // New PermissionQueuePanel - pass chatId from AI context
+            return { chatId: state.aiContext?.chatId, ...state.aiContext };
         default:
             return state.aiContext || null;
     }

@@ -170,16 +170,17 @@ export function AppList({ show }: { show?: boolean }) {
               title="Delete ALL Workspaces"
               onClick={async () => {
                 if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
-                  try {
-                    for (const app of apps) {
+                  for (const app of apps) {
+                    try {
                       await IpcClient.getInstance().deleteApp(app.id);
+                    } catch {
+                      // Ignore errors - some may already be deleted
                     }
-                    refreshApps?.();
-                    setSelectedAppId(null);
-                    setSelectedWorkspaceInfo(null);
-                  } catch (e) {
-                    console.error("Failed to delete all:", e);
                   }
+                  refreshApps?.();
+                  setSelectedAppId(null);
+                  setSelectedWorkspaceInfo(null);
+                  navigate({ to: "/" });
                 }
               }}
             >
@@ -289,17 +290,27 @@ export function AppList({ show }: { show?: boolean }) {
                           onClick={async (e) => {
                             e.stopPropagation();
                             if (confirm(`Delete workspace "${ws.name}"? This will remove it from Atlarix.`)) {
+                              // 🚀 Optimistic UI update - remove immediately
+                              setWorkspaces(prev => prev.filter(w => w.id !== ws.id));
+
+                              if (selectedAppId === ws.id) {
+                                setSelectedAppId(null);
+                                setSelectedWorkspaceInfo(null);
+                                navigate({ to: "/" });
+                              }
+
+                              // Then do the actual delete in background
                               try {
                                 await IpcClient.getInstance().deleteApp(ws.id);
-                                refreshApps?.();
-                                if (selectedAppId === ws.id) {
-                                  setSelectedAppId(null);
-                                  setSelectedWorkspaceInfo(null);
-                                }
                               } catch (err) {
-                                console.error("Failed to delete workspace:", err);
-                                alert("Failed to delete workspace. See console.");
+                                // Ignore "not found" errors - workspace may have been auto-deleted
+                                const errorMessage = err instanceof Error ? err.message : '';
+                                if (!errorMessage.includes('not found') && !errorMessage.includes('already been deleted')) {
+                                  console.error("Failed to delete workspace:", err);
+                                }
                               }
+                              // Refresh to sync with backend
+                              refreshApps?.();
                             }
                           }}
                           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"

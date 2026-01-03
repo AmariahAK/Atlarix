@@ -78,10 +78,20 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Backend Abort** - Actually cancels the API call, not just UI
 - **App Quit Cleanup** - All active streams aborted on close
 
-### ⚠️ Known Issues (v0.9.7)
-- ~~**Prompt Box Clipping** - Mode/model controls hidden after first message~~ **FIXED**
-- ~~**MiniMax Duplication** - Content appeared twice with reasoning models~~ **FIXED**
-- ~~**LM Studio Errors** - Technical stack traces shown to users~~ **FIXED**
+### 🔧 Unified Permission Queue (NEW in v0.9.8!)
+- **Merged into FileDiffPanel** - Permissions show in Approve tab alongside file changes
+- **Real-time Updates** - IPC events populate queue as AI requests arrive
+- **Simplified Routing** - Single panel handles both files and permissions
+
+### 🗑️ Instant Workspace Delete (NEW in v0.9.8!)
+- **Optimistic UI** - Workspace disappears immediately before backend confirms
+- **Auto-Navigate** - Returns to home when current workspace deleted
+- **Graceful Errors** - "Already deleted" scenarios handled silently
+
+### ⚠️ Known Issues (v0.9.8)
+- ~~**AI Prompt Error** - Message format incompatibility~~ **FIXED**
+- ~~**PlantUML Code Shown** - Raw code visible in DiagramPanel~~ **FIXED**
+- ~~**Workspace Delete Lag** - UI didn't update after deletion~~ **FIXED**
 
 ---
 

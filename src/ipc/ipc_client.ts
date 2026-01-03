@@ -1132,6 +1132,44 @@ export class IpcClient {
       this.terminalHandlers.delete(chatId);
     };
   }
+
+  /**
+   * Register a handler for operation status updates (permission queue)
+   * Returns unsubscribe function
+   */
+  public onOperationStatus(
+    handler: (payload: {
+      operationId: string;
+      status: 'pending' | 'queued' | 'running' | 'completed' | 'failed';
+      progress?: number;
+      duration?: number;
+      error?: string;
+    }) => void
+  ): () => void {
+    const listener = (data: any) => handler(data);
+    this.ipcRenderer.on('operation-status', listener);
+    return () => {
+      this.ipcRenderer.removeListener('operation-status', listener);
+    };
+  }
+
+  /**
+   * Register a handler for auto-recovery events
+   * Fires when command(s) fail and AI should analyze
+   */
+  public onAutoRecovery(
+    handler: (payload: {
+      chatId: number;
+      prompt: string;
+      failureCount: number;
+    }) => void
+  ): () => void {
+    const listener = (data: any) => handler(data);
+    this.ipcRenderer.on('auto-recovery-needed', listener);
+    return () => {
+      this.ipcRenderer.removeListener('auto-recovery-needed', listener);
+    };
+  }
   // --- End Permission Management ---
 
   // --- Supabase Management ---

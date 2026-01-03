@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Terminal, CheckCircle2, XCircle, Loader2, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, Terminal, CheckCircle2, XCircle, Loader2, Copy, Check, Wand2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { translateError, summarizeError } from '@/lib/error-translator';
 
 /**
  * CommandOutputCard - Collapsed card showing terminal output (like ThinkingCard)
  * - Auto-collapsed on success, auto-expanded on error
  * - Shows spinner while running, checkmark/error on complete
  * - Click to expand full terminal output
+ * - Recovery actions on failure: Fix with AI, Retry, Ignore
  */
 
 export interface CommandOutputCardProps {
@@ -17,6 +19,11 @@ export interface CommandOutputCardProps {
     exitCode?: number;
     startTime?: Date;
     duration?: number;  // milliseconds
+    // Recovery actions
+    onFixWithAI?: () => void;
+    onRetry?: () => void;
+    onIgnore?: () => void;
+    isRetrying?: boolean;
 }
 
 export function CommandOutputCard({
@@ -27,11 +34,19 @@ export function CommandOutputCard({
     exitCode,
     startTime,
     duration,
+    onFixWithAI,
+    onRetry,
+    onIgnore,
+    isRetrying = false,
 }: CommandOutputCardProps) {
     // Auto-expand on error, start collapsed otherwise
     const [isExpanded, setIsExpanded] = useState(status === 'error');
     const [copied, setCopied] = useState(false);
     const outputRef = useRef<HTMLPreElement>(null);
+
+    // Get error translation for human-readable message
+    const fullOutput = [output, stderr && `\n--- STDERR ---\n${stderr}`].filter(Boolean).join('');
+    const errorTranslation = status === 'error' ? translateError(fullOutput) : null;
 
     // Auto-expand when error occurs
     useEffect(() => {
@@ -66,9 +81,6 @@ export function CommandOutputCard({
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
-
-    // Combined output for display
-    const fullOutput = [output, stderr && `\n--- STDERR ---\n${stderr}`].filter(Boolean).join('');
 
     return (
         <div
@@ -129,6 +141,18 @@ export function CommandOutputCard({
             {/* Expanded content - Terminal output */}
             {isExpanded && (
                 <div className="border-t border-slate-700/50">
+                    {/* Human-readable error message (if available) */}
+                    {status === 'error' && errorTranslation && (
+                        <div className="px-4 py-2.5 bg-rose-500/10 border-b border-rose-500/20">
+                            <p className="text-sm text-rose-400 font-medium">
+                                {errorTranslation.message}
+                            </p>
+                            <p className="text-xs text-rose-400/70 mt-0.5">
+                                💡 {errorTranslation.suggestion}
+                            </p>
+                        </div>
+                    )}
+
                     {/* Toolbar */}
                     <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/30">
                         <span className="text-xs text-slate-500">
@@ -168,6 +192,44 @@ export function CommandOutputCard({
                             </span>
                         )}
                     </pre>
+
+                    {/* Recovery Actions - Only show on error if handlers provided */}
+                    {status === 'error' && (onFixWithAI || onRetry || onIgnore) && (
+                        <div className="px-4 py-3 border-t border-slate-700/50 bg-slate-800/20 flex items-center gap-2">
+                            {onFixWithAI && (
+                                <button
+                                    onClick={onFixWithAI}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                                >
+                                    <Wand2 className="w-3.5 h-3.5" />
+                                    Fix with AI
+                                </button>
+                            )}
+                            {onRetry && (
+                                <button
+                                    onClick={onRetry}
+                                    disabled={isRetrying}
+                                    className={cn(
+                                        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-600 transition-colors",
+                                        isRetrying
+                                            ? "opacity-50 cursor-not-allowed"
+                                            : "hover:bg-slate-700"
+                                    )}
+                                >
+                                    <RotateCcw className={cn("w-3.5 h-3.5", isRetrying && "animate-spin")} />
+                                    {isRetrying ? 'Retrying...' : 'Retry'}
+                                </button>
+                            )}
+                            {onIgnore && (
+                                <button
+                                    onClick={onIgnore}
+                                    className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                                >
+                                    Ignore
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -175,3 +237,4 @@ export function CommandOutputCard({
 }
 
 export default CommandOutputCard;
+

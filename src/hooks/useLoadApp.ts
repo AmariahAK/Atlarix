@@ -3,12 +3,13 @@ import { useQuery, QueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
 import { currentAppAtom } from "@/atoms/appAtoms";
-import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom } from "@/atoms/sourceAtoms";
+import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
 import { App } from "@/ipc/ipc_types";
 
 export function useLoadApp(appId: number | null) {
   const [, setApp] = useAtom(currentAppAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
+  const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const loadedAppIdRef = useRef<number | null>(null);
@@ -34,6 +35,7 @@ export function useLoadApp(appId: number | null) {
     if (appId === null) {
       setApp(null);
       setDiagramState(null);
+      setDiagramStaleness(null);
       loadedAppIdRef.current = null;
     } else if (appData !== undefined) {
       // Prevent duplicate loading for the same app ID
@@ -50,6 +52,7 @@ export function useLoadApp(appId: number | null) {
             // Get the most recent diagram
             const latestDiagram = result.diagrams[0];
             setDiagramState({
+              id: latestDiagram.id,
               code: latestDiagram.content || '',
               type: latestDiagram.type || 'mermaid',
               title: latestDiagram.title,
@@ -59,8 +62,37 @@ export function useLoadApp(appId: number | null) {
             setRightPanelVisible(true);
             setPreviewTab('diagram');
             console.log(`[useLoadApp] Loaded diagram for workspace ${appId}: ${latestDiagram.title}`);
+
+            // Check if diagram is stale (external changes detected)
+            if (appData?.path) {
+              try {
+                const stalenessResult = await IpcClient.getInstance().checkDiagramStaleness({
+                  diagramId: latestDiagram.id,
+                  workspacePath: appData.path,
+                });
+
+                if (stalenessResult.success && stalenessResult.staleness) {
+                  const staleness = stalenessResult.staleness;
+                  if (staleness.isStale) {
+                    console.log(`[useLoadApp] Diagram is stale: ${staleness.reason}`);
+                    setDiagramStaleness({
+                      diagramId: latestDiagram.id,
+                      isStale: staleness.isStale,
+                      severity: staleness.severity,
+                      reason: staleness.reason,
+                      recommendation: staleness.recommendation,
+                    });
+                  } else {
+                    setDiagramStaleness(null);
+                  }
+                }
+              } catch (stalenessErr) {
+                console.warn('[useLoadApp] Failed to check diagram staleness:', stalenessErr);
+              }
+            }
           } else {
             console.log(`[useLoadApp] No saved diagram for workspace ${appId}.`);
+            setDiagramStaleness(null);
             // Do not auto-generate. Let the user decide when to generate.
           }
         } catch (err) {
@@ -70,7 +102,7 @@ export function useLoadApp(appId: number | null) {
 
       loadDiagram();
     }
-  }, [appId, appData, setApp, setDiagramState, setRightPanelVisible, setPreviewTab]);
+  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness, setRightPanelVisible, setPreviewTab]);
 
   return { app: appData, loading, error, refreshApp };
 }
