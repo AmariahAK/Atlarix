@@ -14,8 +14,9 @@
 import { useEffect, useRef } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
-import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
+import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
+import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const workspaceId = useAtomValue(selectedAppIdAtom);
@@ -23,7 +24,34 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
     const setProjectType = useSetAtom(projectTypeAtom);
     const setPinnedPanel = useSetAtom(pinnedPanelAtom);
+    const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
     const previousWorkspaceId = useRef<number | null>(null);
+
+    // Listen for browser errors from iframe
+    useBrowserErrorListener();
+
+    // Subscribe to dev server output events
+    useEffect(() => {
+        const ipc = IpcClient.getInstance();
+        const unsubscribe = ipc.onDevServerOutput((payload) => {
+            // Convert dev server output to TerminalOutput format
+            const terminalOutput: TerminalOutput = {
+                operationId: `dev-server-${payload.workspaceId}`,
+                command: `npm run dev (${payload.framework})`,
+                output: payload.fullOutput,
+                status: payload.status === 'running' ? 'running' : 'completed',
+                startTime: payload.timestamp,
+            };
+
+            setTerminalOutputs((prev) => {
+                const next = new Map(prev);
+                next.set(terminalOutput.operationId, terminalOutput);
+                return next;
+            });
+        });
+
+        return unsubscribe;
+    }, [setTerminalOutputs]);
 
     useEffect(() => {
         if (!workspaceId) {

@@ -14,8 +14,9 @@
 
 import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
+import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
@@ -24,11 +25,10 @@ import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { cn } from '@/lib/utils';
 import {
-    Pin, PinOff, X, Maximize2, Minimize2, Terminal, Wrench,
-    Search, Code, Workflow, Eye, MoreVertical
+    X, Terminal, Wrench,
+    Search, Code, Workflow, Eye
 } from 'lucide-react';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
-import { motion } from 'framer-motion';
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
     Tooltip,
@@ -56,21 +56,35 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
 };
 
 export function RightPanel() {
-    const { context, isPinned, isAIControlled, aiIntent, pin, unpin, setActiveTab, clearAIIntent } = useRightPanelContext();
+    const { context, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
+    const setChatInput = useSetAtom(chatInputValueAtom);
+
+    // Handle "Solve with AI" button click - pre-fills chat with error context
+    const handleSolveWithAI = useCallback((error: { message: string; source?: string; stack?: string }) => {
+        const prompt = `Please fix this error in my application:
+
+**Error:** ${error.message}
+${error.source ? `**File:** ${error.source}` : ''}
+${error.stack ? `
+**Stack Trace:**
+\`\`\`
+${error.stack}
+\`\`\`` : ''}
+
+Please identify the issue and provide a fix.`;
+
+        setChatInput(prompt.trim());
+    }, [setChatInput]);
 
     // Track which primary mode is selected
     const currentMode = PANEL_TYPE_TO_MODE[context.type] || 'search';
 
-    // Refs for animated indicator
-    const searchRef = useRef<HTMLButtonElement>(null);
-    const codeRef = useRef<HTMLButtonElement>(null);
-    const diagramsRef = useRef<HTMLButtonElement>(null);
-    const previewRef = useRef<HTMLButtonElement>(null);
-    const toolsRef = useRef<HTMLButtonElement>(null);
-    const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+    // Drag resize state
+    const [isDragging, setIsDragging] = useState(false);
+    const panelRef = useRef<HTMLDivElement>(null);
 
     // Handle primary mode click - pins to appropriate panel type
     const handleModeClick = useCallback((mode: PrimaryMode) => {
@@ -85,148 +99,171 @@ export function RightPanel() {
         setPinnedPanel(modeToPanel[mode]);
     }, [setPinnedPanel]);
 
-    // Update indicator position when mode changes
+    // Handle drag resize
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    }, []);
+
     useEffect(() => {
-        const refs: Record<PrimaryMode, React.RefObject<HTMLButtonElement | null>> = {
-            'search': searchRef,
-            'code': codeRef,
-            'diagrams': diagramsRef,
-            'preview': previewRef,
-            'tools': toolsRef,
+        if (!isDragging) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!panelRef.current) return;
+            const containerRight = window.innerWidth;
+            const newWidth = containerRight - e.clientX;
+            // Clamp between min and max
+            setWidth(Math.max(280, Math.min(700, newWidth)));
         };
 
-        const targetRef = refs[currentMode];
-        if (targetRef.current) {
-            const button = targetRef.current;
-            const container = button.parentElement;
-            if (container) {
-                const containerRect = container.getBoundingClientRect();
-                const buttonRect = button.getBoundingClientRect();
-                setIndicatorStyle({
-                    left: buttonRect.left - containerRect.left,
-                    width: buttonRect.width,
-                });
-            }
-        }
-    }, [currentMode]);
+        const handleMouseUp = () => {
+            setIsDragging(false);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isDragging, setWidth]);
 
     // Don't render if not visible
     if (!isVisible) {
         return null;
     }
 
-    const iconSize = 16;
+    const iconSize = 18;
 
     return (
         <div
-            className="flex flex-col h-full border-l border-border bg-background animate-slide-in-right"
-            style={{ width: `${width}px`, minWidth: '300px', maxWidth: '600px' }}
+            ref={panelRef}
+            className={cn(
+                "relative flex flex-col h-full bg-background border-l border-border flex-none",
+                !isDragging && "animate-slide-in-right"
+            )}
+            style={{ width: `${width}px`, minWidth: '280px', maxWidth: '700px' }}
         >
-            {/* Primary Toolbar - ActionHeader style */}
+            {/* Global Drag Overlay - Captures all mouse events during drag */}
+            {isDragging && (
+                <div
+                    className="fixed inset-0 z-[9999] cursor-col-resize user-select-none"
+                    style={{ touchAction: 'none' }}
+                />
+            )}
+
+            {/* Drag Resize Handle - positioned at left edge */}
+            <div
+                onMouseDown={handleMouseDown}
+                className={cn(
+                    "absolute left-0 top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-50",
+                    "hover:bg-primary/30 transition-colors",
+                    isDragging && "bg-primary/50"
+                )}
+                style={{ touchAction: 'none' }}
+            />
+
+            {/* Icon Toolbar - Simple like reference app */}
             <TooltipProvider>
-                <div className="flex items-center justify-between px-2 py-2 border-b border-border">
-                    {/* Mode Buttons with animated indicator */}
-                    <div className="relative flex rounded-md p-0.5 gap-0.5">
-                        <motion.div
-                            className="absolute top-0.5 bottom-0.5 bg-primary/10 shadow rounded-md"
-                            animate={{
-                                left: indicatorStyle.left,
-                                width: indicatorStyle.width,
-                            }}
-                            transition={{
-                                type: "spring",
-                                stiffness: 600,
-                                damping: 35,
-                                mass: 0.6,
-                            }}
-                        />
-
-                        <ModeButton
-                            ref={searchRef}
-                            icon={<Search size={iconSize} />}
-                            label="Search"
-                            isActive={currentMode === 'search'}
-                            onClick={() => handleModeClick('search')}
-                        />
-                        <ModeButton
-                            ref={codeRef}
-                            icon={<Code size={iconSize} />}
-                            label="Code"
-                            isActive={currentMode === 'code'}
-                            onClick={() => handleModeClick('code')}
-                        />
-                        <ModeButton
-                            ref={diagramsRef}
-                            icon={<Workflow size={iconSize} />}
-                            label="Diagrams"
-                            isActive={currentMode === 'diagrams'}
-                            onClick={() => handleModeClick('diagrams')}
-                        />
-                        <ModeButton
-                            ref={previewRef}
-                            icon={<Eye size={iconSize} />}
-                            label="Preview"
-                            isActive={currentMode === 'preview'}
-                            onClick={() => handleModeClick('preview')}
-                        />
-                        {/* Tools button removed - ThinkingCard shows tool activity */}
-                    </div>
-
-                    {/* Controls */}
-                    <div className="flex items-center gap-0.5">
-                        {/* Pin/Unpin */}
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                    {/* Mode Icons */}
+                    <div className="flex items-center gap-1">
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
-                                    onClick={isPinned ? unpin : pin}
-                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    onClick={() => handleModeClick('search')}
+                                    className={cn(
+                                        "p-2 rounded-lg transition-colors",
+                                        currentMode === 'search'
+                                            ? "bg-primary/15 text-primary"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}
                                 >
-                                    {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                                    <Search size={iconSize} />
                                 </button>
                             </TooltipTrigger>
-                            <TooltipContent>{isPinned ? "Unpin panel" : "Pin panel"}</TooltipContent>
+                            <TooltipContent>Search Results</TooltipContent>
                         </Tooltip>
 
-                        {/* Resize toggle */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
-                                    onClick={() => setWidth(width === 400 ? 550 : 400)}
-                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    onClick={() => handleModeClick('code')}
+                                    className={cn(
+                                        "p-2 rounded-lg transition-colors",
+                                        currentMode === 'code'
+                                            ? "bg-primary/15 text-primary"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}
                                 >
-                                    {width === 400 ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+                                    <Code size={iconSize} />
                                 </button>
                             </TooltipTrigger>
-                            <TooltipContent>{width === 400 ? "Expand panel" : "Collapse panel"}</TooltipContent>
+                            <TooltipContent>Code & Permissions</TooltipContent>
                         </Tooltip>
 
-                        {/* Close */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
-                                    onClick={() => setIsVisible(false)}
-                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    onClick={() => handleModeClick('diagrams')}
+                                    className={cn(
+                                        "p-2 rounded-lg transition-colors",
+                                        currentMode === 'diagrams'
+                                            ? "bg-primary/15 text-primary"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}
                                 >
-                                    <X className="w-4 h-4" />
+                                    <Workflow size={iconSize} />
                                 </button>
                             </TooltipTrigger>
-                            <TooltipContent>Close panel</TooltipContent>
+                            <TooltipContent>Diagrams</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={() => handleModeClick('preview')}
+                                    className={cn(
+                                        "p-2 rounded-lg transition-colors",
+                                        currentMode === 'preview'
+                                            ? "bg-primary/15 text-primary"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}
+                                >
+                                    <Eye size={iconSize} />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Live Preview</TooltipContent>
                         </Tooltip>
                     </div>
+
+                    {/* Close button */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                onClick={() => setIsVisible(false)}
+                                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Close panel</TooltipContent>
+                    </Tooltip>
                 </div>
             </TooltipProvider>
 
             {/* Secondary Tabs (context-specific) */}
             {context.tabs.length > 1 && (
-                <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/50 bg-muted/20">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0">
                     {context.tabs.map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={cn(
-                                "px-2 py-1 text-xs rounded transition-colors capitalize",
+                                "px-3 py-1.5 text-sm rounded-md transition-colors capitalize whitespace-nowrap flex-shrink-0",
                                 context.activeTab === tab
-                                    ? "bg-primary/10 text-primary font-medium"
+                                    ? "bg-primary/15 text-primary font-medium"
                                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                             )}
                         >
@@ -236,52 +273,24 @@ export function RightPanel() {
                 </div>
             )}
 
-            {/* Panel Content */}
-            <div className="flex-1 overflow-hidden">
-                <PanelContent context={context} />
+            {/* Panel Content - scrollable */}
+            <div className="flex-1 overflow-auto">
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} />
             </div>
         </div>
     );
 }
 
 /**
- * Mode button component for primary toolbar
- */
-interface ModeButtonProps {
-    icon: React.ReactNode;
-    label: string;
-    isActive: boolean;
-    onClick: () => void;
-}
-
-const ModeButton = React.forwardRef<HTMLButtonElement, ModeButtonProps>(
-    ({ icon, label, isActive, onClick }, ref) => (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <button
-                    ref={ref}
-                    onClick={onClick}
-                    className={cn(
-                        "relative flex flex-col items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium z-10 transition-colors",
-                        isActive
-                            ? "text-primary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
-                >
-                    {icon}
-                    <span className="hidden sm:block">{label}</span>
-                </button>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">{label}</TooltipContent>
-        </Tooltip>
-    )
-);
-ModeButton.displayName = 'ModeButton';
-
-/**
  * Renders the appropriate panel content based on context type
  */
-function PanelContent({ context }: { context: ReturnType<typeof useRightPanelContext>['context'] }) {
+function PanelContent({
+    context,
+    onSolveWithAI
+}: {
+    context: ReturnType<typeof useRightPanelContext>['context'];
+    onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
+}) {
     switch (context.type) {
         case 'web-search':
             return <SourcePreviewPanel data={context.data} activeTab={context.activeTab} />;
@@ -290,7 +299,13 @@ function PanelContent({ context }: { context: ReturnType<typeof useRightPanelCon
             return <FileDiffPanel data={context.data} activeTab={context.activeTab} />;
 
         case 'code-preview':
-            return <CodePreviewPanel data={context.data} activeTab={context.activeTab} />;
+            return (
+                <CodePreviewPanel
+                    data={context.data}
+                    activeTab={context.activeTab}
+                    onSolveWithAI={onSolveWithAI}
+                />
+            );
 
         case 'diagram':
             return <DiagramPanel data={context.data} activeTab={context.activeTab} />;

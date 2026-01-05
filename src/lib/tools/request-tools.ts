@@ -38,7 +38,7 @@ CORE TOOLS ALREADY AVAILABLE (no request needed):
 - Context: get_file_outline, view_symbol (10-40x more efficient than read_file)
 - Surgical Edit: replace_code, insert_code, delete_lines (precise changes)
 - Files: read_file, write_file, list_files, search_code
-- Commands: run_command, add_dependency
+- Commands: run_command (for npm install, pip install, cargo add, etc.)
 
 DO NOT request categories you don't immediately need. Use core tools first!`,
     cost: 0, // Free meta-tool

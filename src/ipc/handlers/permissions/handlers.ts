@@ -74,6 +74,30 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
             });
         }
     });
+
+    // Wire up terminal-output event to switch to preview panel when dev server succeeds
+    interceptor.on('terminal-output', (data: {
+        operationId: string;
+        command: string;
+        output: string;
+        status: 'running' | 'completed' | 'error';
+        exitCode?: number;
+    }) => {
+        // When dev server completes successfully, switch to preview panel
+        const isDevServer = data.command.includes('run dev') ||
+            data.command.includes('start') ||
+            data.command.includes('serve');
+
+        if (isDevServer && data.status === 'completed' && data.exitCode === 0) {
+            logger.log(`[Panel Intent] Dev server completed, switching to show-preview`);
+            sendPanelIntent('show-preview', {
+                chatId,
+                devServer: data.command,
+                message: 'Dev server is running',
+                timestamp: Date.now(),
+            });
+        }
+    });
 }
 
 /**

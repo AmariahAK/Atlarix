@@ -18,7 +18,7 @@ Example output:
 $$SUPABASE_CLIENT_CODE$$
 </atlarix-write>
 
-<atlarix-add-dependency packages="@supabase/supabase-js"></atlarix-add-dependency>
+Then install the dependency using: npm install @supabase/supabase-js
 
 ## Auth
 

@@ -22,11 +22,14 @@ import {
     XCircle,
     AlertCircle,
     ChevronRight,
+    ChevronDown,
     FileEdit,
     Trash2,
+    FilePlus,
     Wand2,
     RotateCcw,
     X,
+    Terminal,
 } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -51,22 +54,22 @@ function StatusBadge({ status, isRecovering }: { status: OperationStatus; isReco
         pending: {
             icon: AlertCircle,
             label: 'Awaiting Approval',
-            color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30'
+            color: 'text-amber-400 bg-amber-500/10 border-amber-500/30'
         },
         queued: {
             icon: Clock,
             label: 'Queued',
-            color: 'text-blue-400 bg-blue-500/10 border-blue-500/30'
+            color: 'text-amber-300 bg-amber-400/10 border-amber-400/30'
         },
         running: {
             icon: Loader2,
             label: 'Running',
-            color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30'
+            color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
         },
         completed: {
             icon: CheckCircle2,
             label: 'Completed',
-            color: 'text-green-400 bg-green-500/10 border-green-500/30'
+            color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30'
         },
         failed: {
             icon: XCircle,
@@ -110,17 +113,21 @@ function OperationCard({
     onRetry,
     onDismiss,
 }: OperationCardProps) {
+    const [isExpanded, setIsExpanded] = useState(false);
     const isPending = operation.status === 'pending';
     const isRunning = operation.status === 'running';
     const isFailed = operation.status === 'failed';
+    const isCompleted = operation.status === 'completed';
 
     const getOperationIcon = () => {
         switch (operation.operation) {
             case 'run_command':
-                return <Play className="w-4 h-4 text-cyan-400" />;
+                return <Terminal className="w-4 h-4 text-cyan-400" />;
             case 'write_file':
             case 'write_multiple_files':
-                return <FileEdit className="w-4 h-4 text-blue-400" />;
+                return operation.path?.includes('new') || operation.content
+                    ? <FilePlus className="w-4 h-4 text-emerald-400" />
+                    : <FileEdit className="w-4 h-4 text-blue-400" />;
             case 'delete_file':
                 return <Trash2 className="w-4 h-4 text-red-400" />;
             default:
@@ -128,103 +135,163 @@ function OperationCard({
         }
     };
 
+    // Get display name - command text or filename
+    const displayName = operation.command
+        ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
+        : operation.path
+            ? operation.path.split('/').pop()
+            : `${operation.operation} operation`;
+
+    // Full path for tooltip
+    const fullPath = operation.path || operation.command || '';
+
     return (
         <div className={cn(
-            "border rounded-lg p-3 transition-all bg-slate-800/50",
-            isPending && "border-yellow-500/30 bg-yellow-500/5",
-            isRunning && "border-cyan-500/30 bg-cyan-500/5",
+            "border rounded-lg overflow-hidden transition-all bg-card/80",
+            isPending && "border-amber-500/40 bg-amber-500/5",
+            isRunning && "border-emerald-500/40 bg-emerald-500/5",
             isFailed && "border-red-500/30 bg-red-500/5",
-            !isPending && !isRunning && !isFailed && "border-slate-700/50"
+            isCompleted && "border-emerald-500/30 bg-emerald-500/5",
+            !isPending && !isRunning && !isFailed && !isCompleted && "border-border"
         )}>
-            {/* Header */}
-            <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {getOperationIcon()}
-                    <span className="text-sm font-medium text-slate-200 truncate">
-                        {operation.command || operation.path || 'Unknown operation'}
-                    </span>
-                </div>
-                <StatusBadge status={operation.status} isRecovering={operation.isRecovering} />
+            {/* Header - always visible, clickable to expand */}
+            <div className="flex items-center gap-2 p-3">
+                {/* Expand/Collapse button */}
+                <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="p-1 hover:bg-muted rounded transition-colors"
+                    title={isExpanded ? "Collapse" : "Expand to see details"}
+                >
+                    <ChevronDown className={cn(
+                        "w-4 h-4 text-muted-foreground transition-transform",
+                        isExpanded && "rotate-180"
+                    )} />
+                </button>
+
+                {/* Icon */}
+                {getOperationIcon()}
+
+                {/* Name */}
+                <span
+                    className="flex-1 text-sm font-medium text-foreground truncate"
+                    title={fullPath}
+                >
+                    {displayName}
+                </span>
+
+                {/* Status or Actions */}
+                {isPending ? (
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onApprove?.(operation.id); }}
+                            className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-medium rounded hover:bg-emerald-500 transition-colors"
+                        >
+                            Approve
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onReject?.(operation.id); }}
+                            className="px-2.5 py-1 bg-red-600/80 text-white text-xs font-medium rounded hover:bg-red-500 transition-colors"
+                        >
+                            Reject
+                        </button>
+                    </div>
+                ) : (
+                    <StatusBadge status={operation.status} isRecovering={operation.isRecovering} />
+                )}
             </div>
 
             {/* Progress Bar (for running commands) */}
             {isRunning && operation.progress !== undefined && (
-                <div className="mb-2">
-                    <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                <div className="px-3 pb-2">
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                         <div
-                            className="bg-cyan-500 h-full transition-all duration-300 rounded-full"
+                            className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
                             style={{ width: `${operation.progress}%` }}
                         />
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                        {operation.progress}% complete
-                    </p>
                 </div>
             )}
 
-            {/* Duration (for completed) */}
-            {operation.status === 'completed' && operation.duration && (
-                <p className="text-xs text-slate-500 mb-2">
-                    Completed in {(operation.duration / 1000).toFixed(1)}s
-                </p>
-            )}
+            {/* Expanded Content */}
+            {isExpanded && (
+                <div className="border-t border-border p-3 space-y-2">
+                    {/* Full path for files */}
+                    {operation.path && (
+                        <div className="text-xs text-muted-foreground">
+                            <span className="text-muted-foreground/60">Path:</span> {operation.path}
+                        </div>
+                    )}
 
-            {/* Error Message */}
-            {isFailed && operation.error && (
-                <div className="mb-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">
-                    {operation.error}
-                </div>
-            )}
+                    {/* Command preview for run_command */}
+                    {operation.operation === 'run_command' && operation.command && (
+                        <div className="bg-background-darkest rounded p-2 font-mono text-xs text-emerald-400 overflow-x-auto">
+                            $ {operation.command}
+                        </div>
+                    )}
 
-            {/* Preview (for files) */}
-            {operation.preview && (
-                <pre className="text-xs bg-slate-900 text-slate-300 p-2 rounded mt-2 overflow-x-auto max-h-24 overflow-y-auto">
-                    {operation.preview.split('\n').slice(0, 5).join('\n')}
-                    {operation.preview.split('\n').length > 5 && '\n...'}
-                </pre>
-            )}
+                    {/* Content preview for file operations */}
+                    {operation.content && (
+                        <pre className="text-xs bg-background-darkest text-foreground/80 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                            {operation.content.split('\n').slice(0, 10).map((line, i) => (
+                                <div key={i} className="flex">
+                                    <span className="text-emerald-500 mr-2 select-none">+</span>
+                                    <span>{line}</span>
+                                </div>
+                            ))}
+                            {operation.content.split('\n').length > 10 && (
+                                <div className="text-muted-foreground italic mt-1">
+                                    ... {operation.content.split('\n').length - 10} more lines
+                                </div>
+                            )}
+                        </pre>
+                    )}
 
-            {/* Actions */}
-            {isPending && (
-                <div className="flex gap-2 mt-3 pt-2 border-t border-slate-700/50">
-                    <button
-                        onClick={() => onApprove?.(operation.id)}
-                        className="flex-1 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-500 transition-colors"
-                    >
-                        Approve
-                    </button>
-                    <button
-                        onClick={() => onReject?.(operation.id)}
-                        className="flex-1 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-500 transition-colors"
-                    >
-                        Reject
-                    </button>
-                </div>
-            )}
+                    {/* JSON preview fallback */}
+                    {operation.preview && !operation.content && operation.operation !== 'run_command' && (
+                        <pre className="text-xs bg-background-darkest text-muted-foreground p-2 rounded overflow-x-auto max-h-24 overflow-y-auto">
+                            {operation.preview}
+                        </pre>
+                    )}
 
-            {/* Failed Actions */}
-            {isFailed && !operation.isRecovering && (
-                <div className="flex gap-2 mt-3 pt-2 border-t border-slate-700/50">
-                    <button
-                        onClick={() => onFixWithAI?.(operation)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-500 transition-colors"
-                    >
-                        <Wand2 className="w-3 h-3" />
-                        Fix with AI
-                    </button>
-                    <button
-                        onClick={() => onRetry?.(operation)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded hover:bg-slate-500 transition-colors"
-                    >
-                        <RotateCcw className="w-3 h-3" />
-                        Retry
-                    </button>
-                    <button
-                        onClick={() => onDismiss?.(operation.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 text-slate-300 text-xs font-medium rounded hover:bg-slate-600 transition-colors"
-                    >
-                        <X className="w-3 h-3" />
-                    </button>
+                    {/* Duration for completed */}
+                    {isCompleted && operation.duration && (
+                        <p className="text-xs text-emerald-500">
+                            ✓ Completed in {(operation.duration / 1000).toFixed(1)}s
+                        </p>
+                    )}
+
+                    {/* Error message */}
+                    {isFailed && operation.error && (
+                        <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">
+                            {operation.error}
+                        </div>
+                    )}
+
+                    {/* Failed actions */}
+                    {isFailed && !operation.isRecovering && (
+                        <div className="flex gap-2 pt-2">
+                            <button
+                                onClick={() => onFixWithAI?.(operation)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-500 transition-colors"
+                            >
+                                <Wand2 className="w-3 h-3" />
+                                Fix with AI
+                            </button>
+                            <button
+                                onClick={() => onRetry?.(operation)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white text-xs font-medium rounded hover:bg-slate-500 transition-colors"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Retry
+                            </button>
+                            <button
+                                onClick={() => onDismiss?.(operation.id)}
+                                className="p-1.5 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition-colors"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -258,9 +325,10 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
                     setQueue(q => addOperation(q, {
                         id: p.id,
                         operation: request.operation || 'unknown',
-                        command: request.command,
-                        path: request.path,
-                        content: request.content,
+                        command: (request.preview as any)?.command,
+                        path: (request.preview as any)?.path,
+                        content: (request.preview as any)?.content,
+                        preview: JSON.stringify(request.preview, null, 2).slice(0, 500),
                         status: 'pending',
                     }));
                 });
@@ -276,9 +344,10 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
             setQueue(q => addOperation(q, {
                 id: payload.operationId,
                 operation: request.operation || 'unknown',
-                command: request.command,
-                path: request.path,
-                content: request.content,
+                command: (request.preview as any)?.command,
+                path: (request.preview as any)?.path,
+                content: (request.preview as any)?.content,
+                preview: JSON.stringify(request.preview, null, 2).slice(0, 500),
                 status: 'pending',
             }));
         });
@@ -369,10 +438,10 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
 
             {/* Bulk Actions */}
             {pending.length > 0 && (
-                <div className="border-b border-slate-700/50 p-3 bg-slate-800/30 flex gap-2">
+                <div className="border-b border-border p-3 bg-muted/30 flex gap-2">
                     <button
                         onClick={handleApproveAll}
-                        className="flex-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-500 transition-colors"
+                        className="flex-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-500 transition-colors"
                     >
                         Approve All ({pending.length})
                     </button>
@@ -389,7 +458,7 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {/* Pending Section */}
                 {pending.length > 0 && (
-                    <Section title="Awaiting Approval" count={pending.length} color="text-yellow-400">
+                    <Section title="Awaiting Approval" count={pending.length} color="text-amber-400">
                         {pending.map(op => (
                             <OperationCard
                                 key={op.id}
@@ -403,7 +472,7 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
 
                 {/* Running Section */}
                 {running.length > 0 && (
-                    <Section title="Currently Running" count={running.length} color="text-cyan-400">
+                    <Section title="Currently Running" count={running.length} color="text-emerald-400">
                         {running.map(op => (
                             <OperationCard key={op.id} operation={op} />
                         ))}
@@ -412,7 +481,7 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
 
                 {/* Queued Section */}
                 {queued.length > 0 && (
-                    <Section title="Queued" count={queued.length} color="text-blue-400">
+                    <Section title="Queued" count={queued.length} color="text-amber-300">
                         {queued.map(op => (
                             <OperationCard key={op.id} operation={op} />
                         ))}

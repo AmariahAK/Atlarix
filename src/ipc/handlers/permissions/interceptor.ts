@@ -284,6 +284,22 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /**
+     * Get count of all executed operations (for agentic loop tracking)
+     */
+    getExecutedOperationsCount(): number {
+        return Array.from(this.pendingOperations.values())
+            .filter(op => op.status === 'executed' || op.status === 'failed')
+            .length;
+    }
+
+    /**
+     * Get count of all operations (any status)
+     */
+    getAllOperationsCount(): number {
+        return this.pendingOperations.size;
+    }
+
+    /**
      * Clear all pending operations
      */
     clearPendingOperations(): void {
@@ -393,6 +409,12 @@ export class PermissionInterceptor extends EventEmitter {
                     break;
                 case "run_command":
                     await this.executeRunCommand(operationId, request);
+                    break;
+                // Surgical edit tools - they all produce preview.content with full file
+                case "replace_code":
+                case "insert_code":
+                case "delete_lines":
+                    await this.executeWriteFile(request);
                     break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);

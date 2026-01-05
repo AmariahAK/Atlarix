@@ -12,6 +12,8 @@ export * from "./registry";
 // Tool modules (importing registers them)
 import "./file-tools";
 import "./advanced-file-tools";
+import "./edit-tools"; // Surgical edit tools: replace_code, insert_code, delete_lines
+import "./symbol-tools"; // Symbol tools: get_file_outline, view_symbol
 import "./web-tools";
 import "./execution-tools";
 import "./memory-tools";
@@ -26,6 +28,7 @@ import "./diagram-tools";
 import "./testing-tools";
 import "./refactoring-tools";
 import "./meta-tools"; // Phase 3: New meta-tools
+
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

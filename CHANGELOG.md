@@ -2,6 +2,138 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.10] - 2026-01-05
+
+### 🎨 Right Panel UX Improvements
+
+#### Terminal Output Formatting
+- **Fixed**: Terminal output now properly formatted with line breaks instead of one paragraph
+- **Added**: ANSI color code stripping for cleaner display
+- **Improvement**: Leading empty lines filtered out automatically
+
+#### Tab Navigation Improvements
+- **Fixed**: Tab names no longer truncated (increased from `text-xs` to `text-sm`)
+- **Added**: `whitespace-nowrap` and `flex-shrink-0` to prevent text cutting
+- **Improvement**: Tab container now horizontally scrollable if needed
+
+#### Browser Error Capture (WIP)
+- **Added**: New "Errors" tab in code preview panel
+- **Added**: Collapsible error cards with stack traces
+- **Added**: "Solve with AI" button to pre-fill chat with error context
+- **Infrastructure**: Error capture proxy and injection script created
+- **Known Issue**: Proxy not starting correctly - errors not yet being captured from iframe
+
+#### Files Modified
+- `src/components/RightPanel.tsx`: Improved tab styling and sizing
+- `src/components/preview_panel/CodePreviewPanel.tsx`: Added ErrorsTab with collapsible cards
+- `src/hooks/useRightPanelContext.ts`: Fixed terminal output formatting with ANSI stripping
+- `src/lib/error_capture_proxy.ts`: Created HTTP proxy for error script injection
+- `src/lib/dev_server_manager.ts`: Integrated error capture proxy (pending fixes)
+- `src/hooks/useBrowserErrorListener.ts`: Added message listener for browser errors
+- `src/atoms/sourceAtoms.ts`: Added `browserErrorsAtom` for error storage
+
+## [v0.9.9] - 2026-01-03
+
+### 🎨 Unified Permission Card UI
+
+#### Data Extraction Fix
+- **FIXED**: "Unknown operation" display bug - commands now show correctly
+- **Root Cause**: Frontend extracted `request.command` but data was in `request.preview.command`
+- **Solution**: Updated `PermissionQueuePanel.tsx` to extract from `preview` object
+
+#### Collapsible Operation Cards
+- **New design**: Each operation displays as a collapsible card (like ThinkingCard)
+- **Header**: Icon + command/filename + inline Approve/Reject buttons
+- **Expandable**: Click chevron to reveal full command/diff preview
+- **Status badges**: Pending → Running → Completed/Failed
+
+#### Simplified Panel
+- **Unified view**: Removed separate Files/Diff/Approve tabs
+- **PermissionQueuePanel**: Now the single source of truth for all operations
+- **Cleaner UI**: No more visual duplication between tabs
+
+#### Emerald Theme Integration
+- **Updated colors**: All hardcoded slate colors → theme variables
+- **StatusBadge**: Yellow→amber, cyan→emerald, green→emerald
+- **OperationCard**: Uses `bg-card`, `border-border`, `text-foreground`
+- **Approve buttons**: Green→emerald to match app theme
+
+#### Files Modified
+- `src/components/PermissionQueuePanel.tsx`: Fixed data extraction, redesigned OperationCard
+- `src/components/preview_panel/FileDiffPanel.tsx`: Simplified to render PermissionQueuePanel directly
+- `src/hooks/useRightPanelContext.ts`: Removed unused tabs for file-diff panel
+
+### 🔄 Agentic Loop Continuation (Option A)
+
+#### Root Cause
+- AI stopped after approved commands (e.g., `npm install`)
+- Loop only checked for text-based tool calls (MiniMax XML format)
+- Native function calling (Claude, GPT via OpenRouter) wasn't detected
+
+#### Solution
+- Added `hadToolExecution` flag to track ALL tool executions
+- Check `permissionInterceptor.getPendingOperations()` for native tool calls
+- Loop continues if tools executed (regardless of format)
+- Error feedback already works via tool results message
+
+#### Files Modified
+- `src/ipc/handlers/chat_stream_handlers.ts`: Added tool execution tracking
+
+### 🗺️ Diagram Path Fix
+
+#### Root Cause
+- "Not in folder" error for imported projects
+- Code used `getAtlarixAppPath(app.name)` → created wrong path
+- Should use `app.path` directly (actual project location)
+
+#### Solution
+- Changed to use `app.path` for both `diagram:generate-ai` and `diagram:regenerate-background`
+
+#### Files Modified
+- `src/ipc/handlers/diagram_handlers.ts`: Fixed path resolution
+
+### 🤖 Dev Server Error Auto-Reporter
+
+#### Feature
+- ThinkingCard-style collapsible error banner in preview panel
+- One-click "Fix with AI" for quick error reporting
+- "Edit" mode for developers to add custom instructions
+- Comprehensive error context sent to AI (server URL, source, notes)
+
+#### Files Modified
+- `src/components/preview_panel/PreviewIframe.tsx`: Enhanced ErrorBanner component
+
+### 📺 Preview Panel Visibility
+
+#### Issue
+- After `npm run dev` completed, the right panel stayed on "permission" mode instead of switching to preview
+
+#### Solution
+- Added `terminal-output` event listener in permission handlers
+- Emits `show-preview` intent when dev server completes successfully
+- Added `show-preview` to `AIPanelIntent` type and `mapIntentToView` function
+
+#### Files Modified
+- `src/ipc/handlers/permissions/handlers.ts`: Added terminal-output listener
+- `src/atoms/sourceAtoms.ts`: Added show-preview intent mapping
+
+### 🔄 Improved Agentic Loop Tracking
+
+#### Issue
+- Loop showed "0 tools executed" even after commands completed
+- `getPendingOperations()` checked after operations were resolved
+
+#### Solution
+- Added `getAllOperationsCount()` to PermissionInterceptor
+- Compare operation count before/after stream to detect native tool calls
+- Loop now continues properly after any tool execution
+
+#### Files Modified
+- `src/ipc/handlers/permissions/interceptor.ts`: Added tracking methods
+- `src/ipc/handlers/chat_stream_handlers.ts`: Fixed detection logic
+
+---
+
 ## [v0.9.8] - 2026-01-03
 
 ### 🔧 Permission Queue Integration

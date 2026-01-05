@@ -15,7 +15,6 @@ import {
   getAtlarixRenameTags,
   getAtlarixDeleteTags,
   getAtlarixExecuteSqlTags,
-  getAtlarixAddDependencyTags,
   getAtlarixChatSummaryTag,
   getAtlarixCommandTags,
   getAtlarixSearchReplaceTags,
@@ -156,7 +155,6 @@ const getProposalHandler = async (
         const proposalRenameFiles = getAtlarixRenameTags(messageContent);
         const proposalDeleteFiles = getAtlarixDeleteTags(messageContent);
         const proposalExecuteSqlQueries = getAtlarixExecuteSqlTags(messageContent);
-        const packagesAdded = getAtlarixAddDependencyTags(messageContent);
 
         const filesChanged = [
           ...proposalWriteFiles
@@ -186,7 +184,6 @@ const getProposalHandler = async (
         // Check if we have enough information to create a proposal
         if (
           filesChanged.length > 0 ||
-          packagesAdded.length > 0 ||
           proposalExecuteSqlQueries.length > 0
         ) {
           const proposal: CodeProposal = {
@@ -195,7 +192,7 @@ const getProposalHandler = async (
             title: proposalTitle ?? "Proposed File Changes",
             securityRisks: [], // Keep empty
             filesChanged,
-            packagesAdded,
+            packagesAdded: [], // Dependencies now go through run_command
             sqlQueries: proposalExecuteSqlQueries.map((query) => ({
               content: query.content,
               description: query.description,
@@ -206,8 +203,6 @@ const getProposalHandler = async (
             proposal.title,
             "files=",
             proposal.filesChanged.length,
-            "packages=",
-            proposal.packagesAdded.length,
           );
 
           return {

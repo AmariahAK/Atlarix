@@ -85,8 +85,10 @@ ipcMain.handle(
             const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
             if (!app) throw new Error("Workspace not found");
 
-            // Use app.name for path construction - app.path may be absolute for imported apps
-            const appPath = getAtlarixAppPath(app.name);
+            // Use app.path directly - this is the actual location of the workspace
+            // For imported apps, app.path is absolute (e.g., /Users/x/Documents/GitHub/Project)
+            // For created apps, app.path is also set correctly
+            const appPath = app.path;
             const settings = readSettings();
 
             // 2. Extract Codebase Context
@@ -502,7 +504,8 @@ ipcMain.handle(
                 return { success: false, error: "Workspace not found" };
             }
 
-            const appPath = getAtlarixAppPath(app.name);
+            // Use app.path directly - this is the actual location of the workspace
+            const appPath = app.path;
             const settings = readSettings();
 
             // 2. Extract Codebase Context

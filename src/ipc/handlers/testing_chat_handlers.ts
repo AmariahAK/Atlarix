@@ -14,21 +14,6 @@ const TEST_RESPONSES: Record<string, string> = {
   </atlarix-write>
   
   EOM`,
-  "add-dep": `I'll add that dependency for you.
-  
-  <atlarix-add-dependency packages="deno"></atlarix-add-dependency>
-  
-  EOM`,
-  "add-non-existing-dep": `I'll add that dependency for you.
-  
-  <atlarix-add-dependency packages="@angular/does-not-exist"></atlarix-add-dependency>
-  
-  EOM`,
-  "add-multiple-deps": `I'll add that dependency for you.
-  
-  <atlarix-add-dependency packages="react-router-dom react-query"></atlarix-add-dependency>
-  
-  EOM`,
   write: `Hello world
   <atlarix-write path="src/hello.ts" content="Hello world">
   console.log("Hello world");

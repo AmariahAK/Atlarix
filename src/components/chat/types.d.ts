@@ -21,10 +21,5 @@ declare module "react-markdown" {
       node?: any;
       path?: string;
     }) => JSX.Element;
-    "atlarix-add-dependency"?: (props: {
-      children?: ReactNode;
-      node?: any;
-      package?: string;
-    }) => JSX.Element;
   }
 }

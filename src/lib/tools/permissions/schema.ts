@@ -62,6 +62,10 @@ export const PermissionOperationType = z.enum([
     "rename_file",
     "run_command",
     "batch_refactor",
+    // Surgical edit tools
+    "replace_code",
+    "insert_code",
+    "delete_lines",
 ]);
 
 export type PermissionOperationType = z.infer<typeof PermissionOperationType>;

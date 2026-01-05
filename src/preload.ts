@@ -240,6 +240,8 @@ const validReceiveChannels = [
   // AI-controlled right panel (Hybrid Intent System)
   "right-panel:set-intent",  // New: semantic intent-based
   "right-panel:set-view",    // Legacy: kept for backwards compatibility
+  // Dev server output streaming
+  "dev-server:output",       // Live dev server console output
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

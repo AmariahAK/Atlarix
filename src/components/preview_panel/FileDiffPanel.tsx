@@ -168,34 +168,13 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     }, [chatId, approvalState, setPendingProposals]);
 
     if (proposals.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <FolderOpen className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No pending changes</p>
-                <p className="text-xs">File proposals will appear here</p>
-            </div>
-        );
+        // When no proposals, still show PermissionQueuePanel for real-time queue
+        return <PermissionQueuePanel chatId={chatId} />;
     }
 
-    return (
-        <div className="flex flex-col h-full">
-            {activeTab === 'files' && (
-                <FilesTab
-                    groupedProposals={groupedProposals}
-                    selectedProposal={selectedProposal}
-                    approvalState={approvalState}
-                    onSelectProposal={setSelectedProposal}
-                    onToggleApproval={handleToggleApproval}
-                />
-            )}
-            {activeTab === 'diff' && (
-                <DiffTab proposal={selectedProposal} />
-            )}
-            {activeTab === 'approve' && (
-                <PermissionQueuePanel chatId={chatId} />
-            )}
-        </div>
-    );
+    // Unified view - PermissionQueuePanel handles everything now
+    // It shows each operation as a collapsible card with inline approve/reject
+    return <PermissionQueuePanel chatId={chatId} />;
 }
 
 /**

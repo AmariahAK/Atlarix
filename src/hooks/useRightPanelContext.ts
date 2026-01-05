@@ -25,22 +25,24 @@ import {
     sourceListAtom,
     pendingProposalsAtom,
     toolTimelineAtom,
-    terminalOutputAtom,
+    terminalOutputsAtom,
     diagramStateAtom,
     pinnedPanelAtom,
     previewTabAtom,
     devServerUrlAtom,
     aiPanelIntentAtom,
     mapIntentToView,
+    browserErrorsAtom,
 } from '@/atoms/sourceAtoms';
+import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal'],
+    'code-preview': ['preview', 'code', 'terminal', 'errors'],
     'diagram': ['diagram', 'logs'],
     'terminal': ['terminal'],
-    'file-diff': ['files', 'diff', 'approve'],
+    'file-diff': [],  // Unified PermissionQueuePanel handles all - no more separate tabs
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
@@ -65,22 +67,48 @@ export function useRightPanelContext(): RightPanelContextResult {
     const sources = useAtomValue(sourceListAtom);
     const proposals = useAtomValue(pendingProposalsAtom);
     const toolTimeline = useAtomValue(toolTimelineAtom);
-    const terminalOutput = useAtomValue(terminalOutputAtom);
+    const terminalOutputs = useAtomValue(terminalOutputsAtom);
+
+    // Get the latest/running terminal output from the Map
+    const terminalOutput = useMemo(() => {
+        if (terminalOutputs.size === 0) return null;
+        // Prefer running commands, otherwise get the most recent
+        const outputs = Array.from(terminalOutputs.values());
+        const running = outputs.find(o => o.status === 'running');
+        if (running) return running;
+        // Sort by startTime descending and take the most recent
+        return outputs.sort((a, b) => b.startTime - a.startTime)[0] || null;
+    }, [terminalOutputs]);
     const diagramState = useAtomValue(diagramStateAtom);
     const devServerUrl = useAtomValue(devServerUrlAtom);
+    const browserErrors = useAtomValue(browserErrorsAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
+    const permissionQueue = useAtomValue(permissionQueueAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
+
+    // Check if there are any pending permissions in the queue
+    const hasPendingPermissions = useMemo(() => {
+        const pending = getOperationsByStatus(permissionQueue, 'pending');
+        const queued = getOperationsByStatus(permissionQueue, 'queued');
+        const running = getOperationsByStatus(permissionQueue, 'running');
+        return pending.length > 0 || queued.length > 0 || running.length > 0;
+    }, [permissionQueue]);
 
     // ═══════════════════════════════════════════════════════════
     // LAYER 2: Heuristic Fallback (v0.9.4 Logic)
     // Used when AI doesn't explicitly set intent
     // ═══════════════════════════════════════════════════════════
     const heuristicType = useMemo((): PanelType => {
-        // Priority 1: Active file diff / permissions (unapproved proposals)
+        // Priority 1: Active permissions in the queue (pending, queued, or running)
+        if (hasPendingPermissions) {
+            return 'file-diff';  // PermissionQueuePanel handles all permission operations
+        }
+
+        // Priority 1b: Legacy file diff / proposals (for backwards compat)
         const pendingApproval = proposals.filter(p => !p.approved);
         if (pendingApproval.length > 0) {
             return 'file-diff';  // FileDiffPanel handles both files AND permissions
@@ -117,7 +145,7 @@ export function useRightPanelContext(): RightPanelContextResult {
         }
 
         return 'empty';
-    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl]);
+    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl, hasPendingPermissions]);
 
     // ═══════════════════════════════════════════════════════════
     // LAYER 1: AI Intent Mapping
@@ -159,10 +187,11 @@ export function useRightPanelContext(): RightPanelContextResult {
                 terminalOutput,
                 toolTimeline,
                 devServerUrl,
+                browserErrors,
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, aiPanelIntent]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, browserErrors, aiPanelIntent]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
@@ -207,6 +236,7 @@ function getDataForType(
         terminalOutput: any;
         toolTimeline: any[];
         devServerUrl: string | null;
+        browserErrors: any[];
         aiContext?: AIPanelIntentState['context'];
     }
 ) {
@@ -223,7 +253,28 @@ function getDataForType(
         case 'tools':
             return { timeline: state.toolTimeline, ...state.aiContext };
         case 'code-preview':
-            return { url: state.devServerUrl, ...state.aiContext };
+            // Include terminal output for the Terminal tab inside CodePreviewPanel
+            // TerminalOutput has .output (string), but CodePreviewPanel expects .output (string[])
+            // Strip ANSI codes for cleaner display
+            const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
+            const rawOutput = state.terminalOutput?.output || '';
+            const cleanOutput = stripAnsi(rawOutput);
+            // Split by newlines and filter empty lines at the start
+            const lines = cleanOutput.split('\n').filter((line, i, arr) => {
+                // Keep all lines except leading empty ones
+                if (i === 0 && line.trim() === '') return false;
+                return true;
+            });
+
+            return {
+                url: state.devServerUrl,
+                terminal: state.terminalOutput ? {
+                    output: lines,
+                    running: state.terminalOutput.status === 'running'
+                } : null,
+                errors: state.browserErrors,
+                ...state.aiContext
+            };
         case 'permission':
             // New PermissionQueuePanel - pass chatId from AI context
             return { chatId: state.aiContext?.chatId, ...state.aiContext };

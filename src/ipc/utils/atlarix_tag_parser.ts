@@ -75,17 +75,6 @@ export function getAtlarixDeleteTags(fullResponse: string): string[] {
   return paths;
 }
 
-export function getAtlarixAddDependencyTags(fullResponse: string): string[] {
-  const dyadAddDependencyRegex =
-    /<atlarix-add-dependency packages="([^"]+)">[^<]*<\/atlarix-add-dependency>/g;
-  let match;
-  const packages: string[] = [];
-  while ((match = dyadAddDependencyRegex.exec(fullResponse)) !== null) {
-    packages.push(...match[1].split(" "));
-  }
-  return packages;
-}
-
 export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
   const dyadChatSummaryRegex =
     /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/g;

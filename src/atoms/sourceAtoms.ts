@@ -22,7 +22,7 @@ export type PanelType =
     | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors';
 
 export interface PanelContext {
     type: PanelType;
@@ -48,6 +48,7 @@ export type AIPanelIntent =
     | 'show-terminal'       // Show command output → maps to 'terminal'
     | 'show-timeline'       // Show diagram history → maps to 'timeline'
     | 'show-files'          // Show file explorer → maps to 'files'
+    | 'show-preview'        // Show dev server preview → maps to 'code-preview'
     | 'hide'                // Clear/hide panel → maps to 'empty'
     | 'empty';              // No specific content → maps to 'empty'
 
@@ -95,6 +96,10 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
 
         case 'show-files':
             return 'files';
+
+        case 'show-preview':
+            // Dev server preview panel
+            return 'code-preview';
 
         case 'hide':
         case 'empty':
@@ -276,6 +281,24 @@ export const devServerUrlAtom = atom<string | null>(null);
 /** Project type detected by DevServerProvider - used for backend diagram fallback */
 export type ProjectType = 'frontend' | 'backend' | 'unknown';
 export const projectTypeAtom = atom<ProjectType>('unknown');
+
+// ═══════════════════════════════════════════════════════════
+// BROWSER ERRORS (Live Preview Console Errors)
+// ═══════════════════════════════════════════════════════════
+
+export interface BrowserError {
+    id: string;
+    type: 'error' | 'warning' | 'unhandled-rejection';
+    message: string;
+    source?: string;      // File/URL where error occurred
+    lineno?: number;      // Line number
+    colno?: number;       // Column number
+    stack?: string;       // Stack trace if available
+    timestamp: number;
+}
+
+/** Browser errors captured from the live preview iframe */
+export const browserErrorsAtom = atom<BrowserError[]>([]);
 
 // ═══════════════════════════════════════════════════════════
 // PANEL HISTORY (for breadcrumb navigation)

@@ -65,7 +65,6 @@ import { generateProblemReport } from "../processors/tsc";
 import { createProblemFixPrompt } from "@/shared/problem_prompt";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
 import {
-  getAtlarixAddDependencyTags,
   getAtlarixWriteTags,
   getAtlarixDeleteTags,
   getAtlarixRenameTags,
@@ -778,12 +777,27 @@ ${componentSnippet}
           );
 
           // Prepare message history for the AI
-          const messageHistory = updatedChat.messages.map((message) => ({
-            role: message.role as "user" | "assistant" | "system",
-            content: message.content,
-            sourceCommitHash: message.sourceCommitHash,
-            commitHash: message.commitHash,
-          }));
+          // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
+          // We only include them if they have actual values to avoid confusing the AI SDK
+          const messageHistory = updatedChat.messages.map((message) => {
+            const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
+              role: message.role as "user" | "assistant" | "system",
+              content: message.content || "", // Ensure content is never undefined
+            };
+
+            // Only include commit hash fields if they're defined (DB messages have them, ephemeral don't)
+            // These are used for Atlarix Pro engine features
+            const commitFields: { sourceCommitHash?: string; commitHash?: string } = {};
+            if (message.sourceCommitHash) {
+              commitFields.sourceCommitHash = message.sourceCommitHash;
+            }
+            if (message.commitHash) {
+              commitFields.commitHash = message.commitHash;
+            }
+
+            return { ...baseMessage, ...commitFields };
+          });
+
 
           // For Atlarix Pro + Deep Context, we set to 200 chat turns (+1)
           // this is to enable more cache hits. Practically, users should
@@ -1024,22 +1038,32 @@ This conversation includes one or more image attachments. When the user uploads 
               ] as const)
               : [];
 
-          const limitedHistoryChatMessages = limitedMessageHistory.map((msg) => ({
-            role: msg.role as "user" | "assistant" | "system",
-            // Why remove thinking tags?
-            // Thinking tags are generally not critical for the context
-            // and eats up extra tokens.
-            content:
-              settings.selectedChatMode === "ask"
-                ? removeAtlarixTags(removeNonEssentialTags(msg.content))
-                : removeNonEssentialTags(msg.content),
-            providerOptions: {
-              "dyad-engine": {
-                sourceCommitHash: msg.sourceCommitHash,
-                commitHash: msg.commitHash,
-              },
-            },
-          }));
+          const limitedHistoryChatMessages = limitedMessageHistory.map((msg) => {
+            const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
+              role: msg.role as "user" | "assistant" | "system",
+              // Why remove thinking tags?
+              // Thinking tags are generally not critical for the context
+              // and eats up extra tokens.
+              content:
+                settings.selectedChatMode === "ask"
+                  ? removeAtlarixTags(removeNonEssentialTags(msg.content))
+                  : removeNonEssentialTags(msg.content),
+            };
+
+            // Only include providerOptions if we have actual commit hash values
+            // (ephemeral/incognito messages don't have these)
+            if (msg.sourceCommitHash || msg.commitHash) {
+              baseMsg.providerOptions = {
+                "dyad-engine": {
+                  ...(msg.sourceCommitHash && { sourceCommitHash: msg.sourceCommitHash }),
+                  ...(msg.commitHash && { commitHash: msg.commitHash }),
+                },
+              };
+            }
+
+            return baseMsg;
+          });
+
 
           let chatMessages: ModelMessage[] = [
             ...codebasePrefix,
@@ -1545,11 +1569,13 @@ If the user requests modifications, politely explain that Ask mode is for explor
             // AGENTIC TOOL LOOP
             // For models that use text-based tool calls (MiniMax, etc.),
             // we need to loop: execute tools → feed results back → let AI continue
+            // Option A: Track tool execution regardless of format (native or text-based)
             // ═══════════════════════════════════════════════════════════════
             const MAX_AGENTIC_ITERATIONS = 5;
             let agenticIteration = 0;
             let agenticMessages = [...chatMessages]; // Copy current messages
             let allToolResults: { tool: string; result: string }[] = [];
+            let totalToolExecutions = 0; // Track total tools executed across all iterations
 
             const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
 
@@ -1574,23 +1600,47 @@ If the user requests modifications, politely explain that Ask mode is for explor
                 });
                 fullResponse = result.fullResponse;
 
+                // ═══════════════════════════════════════════════════════════
+                // OPTION A: Track tool execution (works with ALL providers)
+                // ═══════════════════════════════════════════════════════════
+
                 // Check for text-based tool calls (MiniMax, Claude XML, etc.)
-                if (!containsTextToolCall(fullResponse)) {
-                  logger.log("[Agentic Loop] No text-based tool calls detected, ending loop");
+                const hasTextToolCalls = containsTextToolCall(fullResponse);
+
+                // Check how many operations were buffered in this iteration
+                // (This tracks native function calling - Claude, GPT via OpenRouter)
+                const currentOpCount = permissionInterceptor.getAllOperationsCount();
+                const executedOpCount = permissionInterceptor.getExecutedOperationsCount();
+                logger.log(`[Agentic Loop] Operation counts: total=${currentOpCount}, executed=${executedOpCount}, tracked=${totalToolExecutions}`);
+
+                const hadNativeToolExecution = currentOpCount > totalToolExecutions;
+
+                if (hasTextToolCalls) {
+                  logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
+                } else if (hadNativeToolExecution) {
+                  const newOps = currentOpCount - totalToolExecutions;
+                  logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
+                  totalToolExecutions = currentOpCount;
+                }
+
+                // If no tool calls of any kind, end the loop
+                if (!hasTextToolCalls && !hadNativeToolExecution) {
+                  logger.log("[Agentic Loop] No tool calls detected (text-based or native), ending loop");
+                  logger.log(`[Agentic Loop] Total tools executed: ${totalToolExecutions}`);
                   break;
                 }
 
-                logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
-                const textToolCalls = parseTextToolCalls(fullResponse);
+                // Parse and execute text-based tool calls
+                const textToolCalls = hasTextToolCalls ? parseTextToolCalls(fullResponse) : [];
 
-                if (textToolCalls.length === 0) {
+                if (hasTextToolCalls && textToolCalls.length === 0) {
                   logger.log("[Agentic Loop] No parseable tool calls found, ending loop");
                   break;
                 }
 
                 // Execute all text-based tools
                 const iterationResults: { tool: string; result: string }[] = [];
-                let hasPermissionRequest = false;
+                let hasPermissionRequest = hadNativeToolExecution; // Carry forward native tool detection
 
                 for (const toolCall of textToolCalls) {
                   try {
@@ -1702,6 +1752,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
 
                 // Store all tool results
                 allToolResults.push(...iterationResults);
+                totalToolExecutions += iterationResults.length; // Track total executions
 
                 // Format tool results to feed back to AI
                 const toolResultsMessage = iterationResults.map(r =>

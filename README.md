@@ -113,7 +113,10 @@ npm start
 
 ---
 
-See [TODO.md](./TODO.md) for full list and roadmap.
+## ⚠️ Known Issues
+
+- **Browser Error Capture** - Errors tab in live preview not yet capturing runtime errors (infrastructure in place, proxy startup pending fix)
+- See [TODO.md](./TODO.md) for full list and roadmap.
 
 ---
 

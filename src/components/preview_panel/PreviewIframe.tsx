@@ -71,98 +71,185 @@ import { Annotator } from "@/pro/ui/components/Annotator/Annotator";
 import { VisualEditingToolbar } from "./VisualEditingToolbar";
 
 interface ErrorBannerProps {
-  error: { message: string; source: "preview-app" | "atlarix-app" } | undefined;
+  error: { message: string; source: "preview-app" | "atlarix-app"; stack?: string } | undefined;
   onDismiss: () => void;
-  onAIFix: () => void;
+  onAIFix: (customNotes?: string) => void;
 }
 
 const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [devNotes, setDevNotes] = useState("");
   const { isStreaming } = useStreamChat();
+
   if (!error) return null;
   const isDockerError = error.message.includes("Cannot connect to the Docker");
 
   const getTruncatedError = () => {
     const firstLine = error.message.split("\n")[0];
-    const snippetLength = 250;
-    const snippet = error.message.substring(0, snippetLength);
-    return firstLine.length < snippet.length
-      ? firstLine
-      : snippet + (snippet.length === snippetLength ? "..." : "");
+    const snippetLength = 80;
+    return firstLine.length > snippetLength
+      ? firstLine.substring(0, snippetLength) + "..."
+      : firstLine;
   };
 
+  const handleQuickFix = () => {
+    onAIFix();
+  };
+
+  const handleSendWithNotes = () => {
+    onAIFix(devNotes.trim() || undefined);
+    setIsEditing(false);
+    setDevNotes("");
+  };
+
+  // ThinkingCard-style collapsed view
+  if (!isEditing) {
+    return (
+      <div
+        className="absolute top-2 left-2 right-2 z-10 bg-red-950/90 backdrop-blur-sm border border-red-800/50 rounded-lg shadow-lg overflow-hidden"
+        data-testid="preview-error-banner"
+      >
+        {/* Header row - always visible */}
+        <div className="px-3 py-2 flex items-center gap-2">
+          {/* Error icon */}
+          <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+            <X size={12} className="text-red-400" />
+          </div>
+
+          {/* Error summary */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="flex-1 text-left flex items-center gap-1 min-w-0"
+          >
+            <span className="text-sm font-medium text-red-300 truncate">
+              {getTruncatedError()}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`text-red-400 flex-shrink-0 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
+            />
+          </button>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {!isDockerError && error.source === "preview-app" && (
+              <>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="px-2 py-1 text-xs text-red-300 hover:bg-red-800/50 rounded transition-colors"
+                  title="Add notes before sending"
+                >
+                  Edit
+                </button>
+                <button
+                  disabled={isStreaming}
+                  onClick={handleQuickFix}
+                  className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-xs rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Sparkles size={12} />
+                  <span>Fix with AI</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={onDismiss}
+              className="p-1 text-red-400 hover:bg-red-800/50 rounded transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Expanded details */}
+        {!isCollapsed && (
+          <div className="px-3 pb-3 border-t border-red-800/30">
+            <pre className="mt-2 text-xs text-red-300/80 font-mono whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+              {error.message}
+            </pre>
+            {error.stack && (
+              <pre className="mt-2 text-xs text-red-400/60 font-mono whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+                {error.stack}
+              </pre>
+            )}
+
+            {/* Tip for internal errors */}
+            {error.source === "atlarix-app" && (
+              <div className="mt-2 p-2 bg-red-900/30 rounded text-xs text-red-300 flex items-center gap-2">
+                <Lightbulb size={14} className="flex-shrink-0" />
+                <span>Try restarting the Atlarix app or your computer.</span>
+              </div>
+            )}
+
+            {isDockerError && (
+              <div className="mt-2 p-2 bg-red-900/30 rounded text-xs text-red-300 flex items-center gap-2">
+                <Lightbulb size={14} className="flex-shrink-0" />
+                <span>Make sure Docker Desktop is running and try restarting the app.</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Editing view with developer notes
   return (
     <div
-      className="absolute top-2 left-2 right-2 z-10 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md shadow-sm p-2"
-      data-testid="preview-error-banner"
+      className="absolute top-2 left-2 right-2 z-10 bg-red-950/95 backdrop-blur-sm border border-red-800/50 rounded-lg shadow-lg overflow-hidden"
+      data-testid="preview-error-banner-editing"
     >
-      {/* Close button in top left */}
-      <button
-        onClick={onDismiss}
-        className="absolute top-1 left-1 p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded"
-      >
-        <X size={14} className="text-red-500 dark:text-red-400" />
-      </button>
-
-      {/* Add a little chip that says "Internal error" if source is "atlarix-app" */}
-      {error.source === "atlarix-app" && (
-        <div className="absolute top-1 right-1 p-1 bg-red-100 dark:bg-red-900 rounded-md text-xs font-medium text-red-700 dark:text-red-300">
-          Internal Atlarix error
+      {/* Header */}
+      <div className="px-3 py-2 flex items-center gap-2 border-b border-red-800/30">
+        <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+          <X size={12} className="text-red-400" />
         </div>
-      )}
-
-      {/* Error message in the middle */}
-      <div
-        className={cn(
-          "px-6 py-1 text-sm",
-          error.source === "atlarix-app" && "pt-6",
-        )}
-      >
-        <div
-          className="text-red-700 dark:text-red-300 text-wrap font-mono whitespace-pre-wrap break-words text-xs cursor-pointer flex gap-1 items-start"
-          onClick={() => setIsCollapsed(!isCollapsed)}
+        <span className="text-sm font-medium text-red-300">Add Notes for AI</span>
+        <div className="flex-1" />
+        <button
+          onClick={() => { setIsEditing(false); setDevNotes(""); }}
+          className="p-1 text-red-400 hover:bg-red-800/50 rounded transition-colors"
         >
-          <ChevronRight
-            size={14}
-            className={`mt-0.5 transform transition-transform ${
-              isCollapsed ? "" : "rotate-90"
-            }`}
-          />
-          {isCollapsed ? getTruncatedError() : error.message}
-        </div>
+          <X size={14} />
+        </button>
       </div>
 
-      {/* Tip message */}
-      <div className="mt-2 px-6">
-        <div className="relative p-2 bg-red-100 dark:bg-red-900 rounded-sm flex gap-1 items-center">
-          <div>
-            <Lightbulb size={16} className=" text-red-800 dark:text-red-300" />
-          </div>
-          <span className="text-sm text-red-700 dark:text-red-200">
-            <span className="font-medium">Tip: </span>
-            {isDockerError
-              ? "Make sure Docker Desktop is running and try restarting the app."
-              : error.source === "atlarix-app"
-                ? "Try restarting the Atlarix app or restarting your computer to see if that fixes the error."
-                : "Check if restarting the app fixes the error."}
-          </span>
-        </div>
+      {/* Error preview */}
+      <div className="px-3 py-2">
+        <pre className="text-xs text-red-300/70 font-mono whitespace-pre-wrap break-words max-h-20 overflow-y-auto bg-red-900/20 rounded p-2">
+          {error.message.split("\n").slice(0, 3).join("\n")}
+          {error.message.split("\n").length > 3 && "\n..."}
+        </pre>
       </div>
 
-      {/* Action buttons at the bottom */}
-      {!isDockerError && error.source === "preview-app" && (
-        <div className="mt-3 px-6 flex justify-end gap-2">
-          <CopyErrorMessage errorMessage={error.message} />
-          <button
-            disabled={isStreaming}
-            onClick={onAIFix}
-            className="cursor-pointer flex items-center space-x-1 px-2 py-1 bg-red-500 dark:bg-red-600 text-white rounded text-sm hover:bg-red-600 dark:hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Sparkles size={14} />
-            <span>Fix error with AI</span>
-          </button>
-        </div>
-      )}
+      {/* Developer notes textarea */}
+      <div className="px-3 pb-2">
+        <textarea
+          value={devNotes}
+          onChange={(e) => setDevNotes(e.target.value)}
+          placeholder="Optional: Add context or specific instructions for the AI..."
+          className="w-full h-16 p-2 text-sm bg-red-900/30 border border-red-800/30 rounded text-red-100 placeholder-red-400/50 resize-none focus:outline-none focus:border-red-600"
+          autoFocus
+        />
+      </div>
+
+      {/* Action buttons */}
+      <div className="px-3 pb-3 flex justify-end gap-2">
+        <button
+          onClick={() => { setIsEditing(false); setDevNotes(""); }}
+          className="px-3 py-1.5 text-xs text-red-300 hover:bg-red-800/50 rounded transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          disabled={isStreaming}
+          onClick={handleSendWithNotes}
+          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Sparkles size={12} />
+          <span>Send to AI</span>
+        </button>
+      </div>
     </div>
   );
 };
@@ -450,12 +537,12 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
 
       const { type, payload } = event.data as {
         type:
-          | "window-error"
-          | "unhandled-rejection"
-          | "iframe-sourcemapped-error"
-          | "build-error-report"
-          | "pushState"
-          | "replaceState";
+        | "window-error"
+        | "unhandled-rejection"
+        | "iframe-sourcemapped-error"
+        | "build-error-report"
+        | "pushState"
+        | "replaceState";
         payload?: {
           message?: string;
           stack?: string;
@@ -475,9 +562,8 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
           type === "iframe-sourcemapped-error"
             ? payload?.stack?.split("\n").slice(0, 1).join("\n")
             : payload?.stack;
-        const errorMessage = `Error ${
-          payload?.message || payload?.reason
-        }\nStack trace: ${stack}`;
+        const errorMessage = `Error ${payload?.message || payload?.reason
+          }\nStack trace: ${stack}`;
         console.error("Iframe error:", errorMessage);
         setErrorMessage({ message: errorMessage, source: "preview-app" });
         setAppOutput((prev) => [
@@ -726,11 +812,10 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleActivateComponentSelector}
-                    className={`p-1 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isPicking
-                        ? "bg-purple-500 text-white hover:bg-purple-600 dark:bg-purple-600 dark:hover:bg-purple-700"
-                        : " text-purple-700 hover:bg-purple-200  dark:text-purple-300 dark:hover:bg-purple-900"
-                    }`}
+                    className={`p-1 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${isPicking
+                      ? "bg-purple-500 text-white hover:bg-purple-600 dark:bg-purple-600 dark:hover:bg-purple-700"
+                      : " text-purple-700 hover:bg-purple-200  dark:text-purple-300 dark:hover:bg-purple-900"
+                      }`}
                     disabled={
                       loading ||
                       !selectedAppId ||
@@ -756,11 +841,10 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleAnnotatorClick}
-                    className={`p-1 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                      annotatorMode
-                        ? "bg-purple-500 text-white hover:bg-purple-600 dark:bg-purple-600 dark:hover:bg-purple-700"
-                        : " text-purple-700 hover:bg-purple-200  dark:text-purple-300 dark:hover:bg-purple-900"
-                    }`}
+                    className={`p-1 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${annotatorMode
+                      ? "bg-purple-500 text-white hover:bg-purple-600 dark:bg-purple-600 dark:hover:bg-purple-700"
+                      : " text-purple-700 hover:bg-purple-200  dark:text-purple-300 dark:hover:bg-purple-900"
+                      }`}
                     disabled={
                       loading ||
                       !selectedAppId ||
@@ -815,7 +899,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
                   <span className="truncate flex-1 mr-2 min-w-0">
                     {navigationHistory[currentHistoryPosition]
                       ? new URL(navigationHistory[currentHistoryPosition])
-                          .pathname
+                        .pathname
                       : "/"}
                   </span>
                   <ChevronDown size={14} className="flex-shrink-0" />
@@ -952,10 +1036,28 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
         <ErrorBanner
           error={errorMessage}
           onDismiss={() => setErrorMessage(undefined)}
-          onAIFix={() => {
+          onAIFix={(customNotes) => {
             if (selectedChatId) {
+              // Build comprehensive error context for AI
+              const errorContext = `## 🔴 Runtime Error in Live Preview
+
+**Error Message:**
+\`\`\`
+${errorMessage?.message}
+\`\`\`
+
+**Context:**
+- Dev server is running at ${appUrl || 'localhost'}
+- Error source: ${errorMessage?.source === 'preview-app' ? 'Preview application' : 'Atlarix internal'}
+- User is viewing live preview
+${customNotes ? `
+**Developer Notes:**
+> ${customNotes}
+` : ''}
+Please analyze this error and provide a fix.`;
+
               streamMessage({
-                prompt: `Fix error: ${errorMessage?.message}`,
+                prompt: errorContext,
                 chatId: selectedChatId,
               });
             }

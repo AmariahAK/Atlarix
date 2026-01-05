@@ -5,7 +5,6 @@ const CUSTOM_TAG_NAMES = [
   "atlarix-write",
   "atlarix-rename",
   "atlarix-delete",
-  "atlarix-add-dependency",
   "atlarix-execute-sql",
   "atlarix-add-integration",
   "atlarix-output",
@@ -141,11 +140,6 @@ export const useCopyToClipboard = () => {
       case "atlarix-delete": {
         const deletePath = attributes.path || "";
         return `### Delete: ${deletePath}\n\n`;
-      }
-
-      case "atlarix-add-dependency": {
-        const packages = attributes.packages || "";
-        return `### Add Dependencies\n\n\`\`\`bash\n${packages}\n\`\`\`\n\n`;
       }
 
       case "atlarix-execute-sql": {

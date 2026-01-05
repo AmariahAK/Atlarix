@@ -16,6 +16,8 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
+import { BrowserWindow } from 'electron';
+import { createErrorCaptureProxy, stopProxy, stopAllProxies } from './error_capture_proxy';
 
 const execAsync = promisify(exec);
 const logger = log.scope('dev-server-manager');
@@ -36,9 +38,11 @@ export interface RunningServer {
     workspaceId: number;
     workspacePath: string;
     process: ChildProcess;
-    url: string | null;
+    url: string | null;      // Raw dev server URL
+    proxyUrl: string | null; // Error capture proxy URL (used for iframe)
     framework: string;
     startedAt: Date;
+    outputBuffer: string;    // Accumulated output for the session
 }
 
 // ============================================
@@ -228,8 +232,10 @@ export class DevServerManager {
             workspacePath,
             process: proc,
             url: null,
+            proxyUrl: null,  // Will be set when URL is detected
             framework: config.framework,
             startedAt: new Date(),
+            outputBuffer: '',  // Initialize empty output buffer
         };
         this.runningServers.set(workspaceId, server);
 
@@ -237,22 +243,54 @@ export class DevServerManager {
             this.urlCallbacks.set(workspaceId, onUrlDetected);
         }
 
-        // Parse output for URL
+        // Parse output for URL and emit to frontend
         const handleOutput = (data: Buffer) => {
             const output = data.toString();
             logger.log(`[${config.framework}] ${output.trim()}`);
 
+            // Accumulate output
+            server.outputBuffer += output;
+
+            // Emit to frontend via IPC
+            const mainWindow = BrowserWindow.getAllWindows()[0];
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('dev-server:output', {
+                    workspaceId,
+                    framework: config.framework,
+                    output: output,
+                    fullOutput: server.outputBuffer,
+                    status: 'running',
+                    timestamp: Date.now(),
+                });
+            }
+
             // Try to extract URL
             const match = config.portPattern.exec(output);
-            if (match) {
+            if (match && !server.url) {
                 const detectedUrl = `http://localhost:${match[1]}`;
                 server.url = detectedUrl;
                 logger.log(`✅ Dev server ready at ${detectedUrl}`);
 
-                const callback = this.urlCallbacks.get(workspaceId);
-                if (callback) {
-                    callback(detectedUrl);
-                }
+                // Start error capture proxy
+                createErrorCaptureProxy(workspaceId, detectedUrl)
+                    .then(({ proxyUrl }) => {
+                        server.proxyUrl = proxyUrl;
+                        logger.log(`✅ Error capture proxy ready at ${proxyUrl}`);
+
+                        // Notify callback with proxy URL (not raw URL)
+                        const callback = this.urlCallbacks.get(workspaceId);
+                        if (callback) {
+                            callback(proxyUrl);
+                        }
+                    })
+                    .catch((err) => {
+                        logger.warn(`Failed to start error capture proxy: ${err}`);
+                        // Fall back to raw URL
+                        const callback = this.urlCallbacks.get(workspaceId);
+                        if (callback) {
+                            callback(detectedUrl);
+                        }
+                    });
             }
         };
 
@@ -265,6 +303,7 @@ export class DevServerManager {
 
         proc.on('exit', (code) => {
             logger.log(`Dev server exited for workspace ${workspaceId} with code ${code}`);
+            stopProxy(workspaceId);  // Stop the error capture proxy
             this.runningServers.delete(workspaceId);
             this.urlCallbacks.delete(workspaceId);
         });
@@ -272,11 +311,12 @@ export class DevServerManager {
         // Wait a bit for the server to start
         await new Promise((resolve) => setTimeout(resolve, 3000));
 
-        // Return current status
+        // Return current status - prefer proxy URL if available
         const finalServer = this.runningServers.get(workspaceId);
+        const finalUrl = finalServer?.proxyUrl || finalServer?.url || `http://localhost:${port}`;
         return {
             success: true,
-            url: finalServer?.url || `http://localhost:${port}`,
+            url: finalUrl,
         };
     }
 
@@ -304,10 +344,12 @@ export class DevServerManager {
     }
 
     /**
-     * Get the URL for a running server
+     * Get the URL for a running server (prefers proxy URL for error capture)
      */
     getServerUrl(workspaceId: number): string | null {
-        return this.runningServers.get(workspaceId)?.url || null;
+        const server = this.runningServers.get(workspaceId);
+        // Prefer proxy URL for error capture, fall back to raw URL
+        return server?.proxyUrl || server?.url || null;
     }
 
     /**
@@ -323,7 +365,8 @@ export class DevServerManager {
     getRunningServers(): Array<{ workspaceId: number; url: string | null; framework: string }> {
         return Array.from(this.runningServers.values()).map((s) => ({
             workspaceId: s.workspaceId,
-            url: s.url,
+            // Prefer proxy URL for error capture
+            url: s.proxyUrl || s.url,
             framework: s.framework,
         }));
     }

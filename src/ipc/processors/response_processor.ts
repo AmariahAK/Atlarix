@@ -7,7 +7,6 @@ import path from "node:path";
 import { safeJoin } from "../utils/path_utils";
 
 import log from "electron-log";
-import { executeAddDependency } from "./executeAddDependency";
 import {
   deleteSupabaseFunction,
   deploySupabaseFunction,
@@ -33,7 +32,6 @@ import {
   getAtlarixWriteTags,
   getAtlarixRenameTags,
   getAtlarixDeleteTags,
-  getAtlarixAddDependencyTags,
   getAtlarixExecuteSqlTags,
   getAtlarixSearchReplaceTags,
 } from "../utils/atlarix_tag_parser";
@@ -135,7 +133,7 @@ export async function processFullResponseActions(
       logger.error("Error creating Neon branch at current version:", error);
       throw new Error(
         "Could not create Neon branch; database versioning functionality is not working: " +
-          error,
+        error,
       );
     }
   }
@@ -157,7 +155,6 @@ export async function processFullResponseActions(
     const dyadWriteTags = getAtlarixWriteTags(fullResponse);
     const dyadRenameTags = getAtlarixRenameTags(fullResponse);
     const dyadDeletePaths = getAtlarixDeleteTags(fullResponse);
-    const dyadAddDependencyPackages = getAtlarixAddDependencyTags(fullResponse);
     const dyadExecuteSqlQueries = chatWithApp.app.supabaseProjectId
       ? getAtlarixExecuteSqlTags(fullResponse)
       : [];
@@ -210,32 +207,7 @@ export async function processFullResponseActions(
       logger.log(`Executed ${dyadExecuteSqlQueries.length} SQL queries`);
     }
 
-    // TODO: Handle add dependency tags
-    if (dyadAddDependencyPackages.length > 0) {
-      try {
-        await executeAddDependency({
-          packages: dyadAddDependencyPackages,
-          message: message,
-          appPath,
-        });
-      } catch (error) {
-        errors.push({
-          message: `Failed to add dependencies: ${dyadAddDependencyPackages.join(
-            ", ",
-          )}`,
-          error: error,
-        });
-      }
-      writtenFiles.push("package.json");
-      const pnpmFilename = "pnpm-lock.yaml";
-      if (fs.existsSync(safeJoin(appPath, pnpmFilename))) {
-        writtenFiles.push(pnpmFilename);
-      }
-      const packageLockFilename = "package-lock.json";
-      if (fs.existsSync(safeJoin(appPath, packageLockFilename))) {
-        writtenFiles.push(packageLockFilename);
-      }
-    }
+
 
     //////////////////////
     // File operations //
@@ -505,8 +477,7 @@ export async function processFullResponseActions(
     hasChanges =
       writtenFiles.length > 0 ||
       renamedFiles.length > 0 ||
-      deletedFiles.length > 0 ||
-      dyadAddDependencyPackages.length > 0;
+      deletedFiles.length > 0;
 
     let uncommittedFiles: string[] = [];
     let extraFilesError: string | undefined;
@@ -525,10 +496,6 @@ export async function processFullResponseActions(
         changes.push(`renamed ${renamedFiles.length} file(s)`);
       if (deletedFiles.length > 0)
         changes.push(`deleted ${deletedFiles.length} file(s)`);
-      if (dyadAddDependencyPackages.length > 0)
-        changes.push(
-          `added ${dyadAddDependencyPackages.join(", ")} package(s)`,
-        );
       if (dyadExecuteSqlQueries.length > 0)
         changes.push(`executed ${dyadExecuteSqlQueries.length} SQL queries`);
 
@@ -597,17 +564,17 @@ export async function processFullResponseActions(
   } finally {
     const appendedContent = `
     ${warnings
-      .map(
-        (warning) =>
-          `<atlarix-output type="warning" message="${warning.message}">${warning.error}</atlarix-output>`,
-      )
-      .join("\n")}
+        .map(
+          (warning) =>
+            `<atlarix-output type="warning" message="${warning.message}">${warning.error}</atlarix-output>`,
+        )
+        .join("\n")}
     ${errors
-      .map(
-        (error) =>
-          `<atlarix-output type="error" message="${error.message}">${error.error}</atlarix-output>`,
-      )
-      .join("\n")}
+        .map(
+          (error) =>
+            `<atlarix-output type="error" message="${error.message}">${error.error}</atlarix-output>`,
+        )
+        .join("\n")}
     `;
     if (appendedContent.length > 0) {
       await db

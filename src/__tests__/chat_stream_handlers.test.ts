@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getAtlarixWriteTags,
   getAtlarixRenameTags,
-  getAtlarixAddDependencyTags,
   getAtlarixDeleteTags,
 } from "../ipc/utils/atlarix_tag_parser";
 
@@ -85,40 +84,6 @@ vi.mock("../db", () => ({
   },
 }));
 
-describe("getAtlarixAddDependencyTags", () => {
-  it("should return an empty array when no atlarix-add-dependency tags are found", () => {
-    const result = getAtlarixAddDependencyTags("No atlarix-add-dependency tags here");
-    expect(result).toEqual([]);
-  });
-
-  it("should return an array of atlarix-add-dependency tags", () => {
-    const result = getAtlarixAddDependencyTags(
-      `<atlarix-add-dependency packages="uuid"></atlarix-add-dependency>`,
-    );
-    expect(result).toEqual(["uuid"]);
-  });
-
-  it("should return all the packages in the atlarix-add-dependency tags", () => {
-    const result = getAtlarixAddDependencyTags(
-      `<atlarix-add-dependency packages="pkg1 pkg2"></atlarix-add-dependency>`,
-    );
-    expect(result).toEqual(["pkg1", "pkg2"]);
-  });
-
-  it("should return all the packages in the atlarix-add-dependency tags", () => {
-    const result = getAtlarixAddDependencyTags(
-      `txt before<atlarix-add-dependency packages="pkg1 pkg2"></atlarix-add-dependency>text after`,
-    );
-    expect(result).toEqual(["pkg1", "pkg2"]);
-  });
-
-  it("should return all the packages in multiple atlarix-add-dependency tags", () => {
-    const result = getAtlarixAddDependencyTags(
-      `txt before<atlarix-add-dependency packages="pkg1 pkg2"></atlarix-add-dependency>txt between<atlarix-add-dependency packages="pkg3"></atlarix-add-dependency>text after`,
-    );
-    expect(result).toEqual(["pkg1", "pkg2", "pkg3"]);
-  });
-});
 describe("getAtlarixWriteTags", () => {
   it("should return an empty array when no atlarix-write tags are found", () => {
     const result = getAtlarixWriteTags("No atlarix-write tags here");
@@ -582,8 +547,6 @@ const Index: React.FC = () => {
 
 export default Index;
 </atlarix-write>
-
-<atlarix-add-dependency packages="uuid"></atlarix-add-dependency>
 
 <atlarix-write path="src/types/uuid.d.ts" description="Adding type definitions for uuid">
 declare module 'uuid' {

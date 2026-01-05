@@ -32,6 +32,7 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] **Performance optimization**: Startup time < 3s
 
 ### Known Issues to Address
+- [ ] **Browser error capture**: Errors tab not capturing errors from live preview iframe (proxy not starting)
 - [ ] **PlantUML → Mermaid migration**: Remove PlantUML dependency
 - [ ] **Session memory limits**: Implement token-aware trimming
 - [ ] **Diagram staleness**: More aggressive refresh triggers

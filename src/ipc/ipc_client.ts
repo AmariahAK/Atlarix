@@ -1134,6 +1134,28 @@ export class IpcClient {
   }
 
   /**
+   * Register a handler for dev server output events
+   * Receives streaming output from auto-started dev servers
+   * Returns unsubscribe function
+   */
+  public onDevServerOutput(
+    handler: (payload: {
+      workspaceId: number;
+      framework: string;
+      output: string;
+      fullOutput: string;
+      status: 'running' | 'stopped' | 'error';
+      timestamp: number;
+    }) => void
+  ): () => void {
+    const listener = (data: any) => handler(data);
+    this.ipcRenderer.on('dev-server:output', listener);
+    return () => {
+      this.ipcRenderer.removeListener('dev-server:output', listener);
+    };
+  }
+
+  /**
    * Register a handler for operation status updates (permission queue)
    * Returns unsubscribe function
    */

@@ -5,7 +5,6 @@ import remarkGfm from "remark-gfm";
 import { AtlarixWrite } from "./AtlarixWrite";
 import { AtlarixRename } from "./AtlarixRename";
 import { AtlarixDelete } from "./AtlarixDelete";
-import { AtlarixAddDependency } from "./AtlarixAddDependency";
 import { AtlarixExecuteSql } from "./AtlarixExecuteSql";
 import { AtlarixAddIntegration } from "./AtlarixAddIntegration";
 import { AtlarixEdit } from "./AtlarixEdit";
@@ -310,7 +309,6 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-write",
     "atlarix-rename",
     "atlarix-delete",
-    "atlarix-add-dependency",
     "atlarix-execute-sql",
     "atlarix-add-integration",
     "atlarix-output",
@@ -386,7 +384,6 @@ function parseCustomTags(content: string): ContentPiece[] {
     "atlarix-write",
     "atlarix-rename",
     "atlarix-delete",
-    "atlarix-add-dependency",
     "atlarix-execute-sql",
     "atlarix-add-integration",
     "atlarix-output",
@@ -608,19 +605,6 @@ function renderCustomTag(
         >
           {content}
         </AtlarixDelete>
-      );
-
-    case "atlarix-add-dependency":
-      return (
-        <AtlarixAddDependency
-          node={{
-            properties: {
-              packages: attributes.packages || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixAddDependency>
       );
 
     case "atlarix-execute-sql":
