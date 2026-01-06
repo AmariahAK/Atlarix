@@ -14,9 +14,10 @@
 import { useEffect, useRef } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
-import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput } from '@/atoms/sourceAtoms';
+import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput, browserErrorsAtom } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
+import { parseDevServerOutput, deduplicateErrors } from '@/lib/devServerErrorParser';
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const workspaceId = useAtomValue(selectedAppIdAtom);
@@ -25,6 +26,7 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const setProjectType = useSetAtom(projectTypeAtom);
     const setPinnedPanel = useSetAtom(pinnedPanelAtom);
     const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
+    const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const previousWorkspaceId = useRef<number | null>(null);
 
     // Listen for browser errors from iframe
@@ -48,6 +50,20 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
                 next.set(terminalOutput.operationId, terminalOutput);
                 return next;
             });
+
+            // Parse output for errors (IDE-style detection)
+            // This captures errors from Vite, TypeScript, Python, etc. directly from stdout/stderr
+            const parsedErrors = parseDevServerOutput(payload.output, payload.framework);
+
+            if (parsedErrors.length > 0) {
+                console.log(`[DevServerProvider] Detected ${parsedErrors.length} errors in output`);
+                setBrowserErrors((prev) => {
+                    // Convert Atom format to ParsedError format if needed (they are compatible)
+                    // Deduplicate against existing errors
+                    const uniqueErrors = deduplicateErrors(prev as any, parsedErrors);
+                    return [...prev, ...uniqueErrors] as any;
+                });
+            }
         });
 
         return unsubscribe;

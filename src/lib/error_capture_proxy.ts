@@ -198,22 +198,37 @@ export async function createErrorCaptureProxy(
             req.pipe(proxyReq);
         });
 
-        // Find available port starting from 9100
-        let proxyPort = 9100 + workspaceId;
+        // Use port offset of +1000 from the dev server port to avoid conflicts
+        // e.g., dev server on 5173 → proxy on 6173
+        const targetPort = parseInt(targetParsed.port) || 3000;
+        let proxyPort = targetPort + 1000;
+        let retryCount = 0;
+        const maxRetries = 10;
 
         const tryListen = () => {
+            // Clear any previous error handlers to prevent memory leaks
+            proxy.removeAllListeners('error');
+
+            if (retryCount >= maxRetries) {
+                reject(new Error(`Failed to find available port after ${maxRetries} attempts`));
+                return;
+            }
+
             proxy.once('error', (err: NodeJS.ErrnoException) => {
                 if (err.code === 'EADDRINUSE') {
+                    logger.log(`[Proxy] Port ${proxyPort} in use, trying ${proxyPort + 1}`);
                     proxyPort++;
+                    retryCount++;
                     tryListen();
                 } else {
+                    logger.error(`[Proxy] Server error:`, err);
                     reject(err);
                 }
             });
 
             proxy.listen(proxyPort, '127.0.0.1', () => {
                 const proxyUrl = `http://localhost:${proxyPort}`;
-                logger.log(`[Proxy] Started error capture proxy at ${proxyUrl} → ${targetUrl}`);
+                logger.log(`[Proxy] ✅ Started error capture proxy at ${proxyUrl} → ${targetUrl}`);
 
                 runningProxies.set(workspaceId, {
                     port: proxyPort,

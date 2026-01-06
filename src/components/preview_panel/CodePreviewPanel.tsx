@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useSetAtom } from 'jotai';
 import { cn } from '@/lib/utils';
 import {
     RefreshCw,
@@ -21,23 +22,23 @@ import {
     Play,
     Square,
     AlertTriangle,
-    Trash2
+    Trash2,
+    Shield,
+    Globe,
+    ExternalLink as LinkIcon
 } from 'lucide-react';
+import { PermissionQueuePanel } from '../PermissionQueuePanel';
+import { type SourceItem, browserErrorsAtom } from '@/atoms/sourceAtoms';
+import { type ParsedError } from '@/lib/devServerErrorParser';
 
 interface CodePreviewPanelProps {
     data: {
         url?: string;
         file?: { path: string; content: string };
         terminal?: { output: string[]; running: boolean };
-        errors?: Array<{
-            id: string;
-            type: 'error' | 'warning' | 'unhandled-rejection';
-            message: string;
-            source?: string;
-            lineno?: number;
-            stack?: string;
-            timestamp: number;
-        }>;
+        errors?: ParsedError[];
+        sources?: SourceItem[];  // Web search sources for search tab
+        chatId?: number;         // For permissions tab
     } | null;
     activeTab: string;
     onClearErrors?: () => void;
@@ -58,6 +59,8 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
     const currentFile = data?.file;
     const terminalData = data?.terminal;
     const errorsData = data?.errors || [];
+    const sourcesData = data?.sources || [];
+    const chatId = data?.chatId;
 
     return (
         <div className="flex flex-col h-full">
@@ -73,6 +76,12 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
             {activeTab === 'errors' && (
                 <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} />
             )}
+            {activeTab === 'permissions' && (
+                <PermissionsTab chatId={chatId} />
+            )}
+            {activeTab === 'search' && (
+                <SearchTab sources={sourcesData} />
+            )}
         </div>
     );
 }
@@ -84,6 +93,113 @@ function PreviewTab({ url }: { url?: string }) {
     const [viewport, setViewport] = useState<ViewportSize>('full');
     const [key, setKey] = useState(0); // For refresh
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const setErrors = useSetAtom(browserErrorsAtom);
+
+    // Inject error capture script into iframe on load
+    useEffect(() => {
+        const iframe = iframeRef.current;
+        if (!iframe || !url) return;
+
+        const handleIframeLoad = () => {
+            try {
+                const iframeWin = iframe.contentWindow;
+                if (!iframeWin) {
+                    console.debug('[PreviewTab] No contentWindow access');
+                    return;
+                }
+
+                // For same-origin iframes (localhost dev server), we can inject directly
+                // For cross-origin, accessing document will throw an error
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const _test = iframeWin.document; // This throws if cross-origin
+
+                // Check if already injected
+                if ((iframeWin as any).__atlarixErrorCapture) {
+                    console.debug('[PreviewTab] Error capture already injected');
+                    return;
+                }
+                (iframeWin as any).__atlarixErrorCapture = true;
+
+                console.log('[PreviewTab] Injecting error capture into iframe');
+
+                // Send error to parent via postMessage
+                const sendError = (type: string, message: string, source?: string, lineno?: number, stack?: string) => {
+                    window.postMessage({
+                        type: 'atlarix-error',
+                        payload: {
+                            type,
+                            message: String(message),
+                            source: source || url,
+                            lineno,
+                            stack,
+                            timestamp: Date.now(),
+                            url
+                        }
+                    }, '*');
+                };
+
+                // Override console.error in iframe
+                const originalError = iframeWin.console.error;
+                iframeWin.console.error = function (...args: any[]) {
+                    const message = args.map(arg => {
+                        if (arg instanceof Error) {
+                            return arg.message + (arg.stack ? '\n' + arg.stack : '');
+                        }
+                        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+                    }).join(' ');
+
+                    sendError('console-error', message);
+                    return originalError.apply(iframeWin.console, args);
+                };
+
+                // Global error handler in iframe
+                iframeWin.onerror = function (message, source, lineno, colno, error) {
+                    sendError(
+                        'error',
+                        String(message),
+                        source,
+                        lineno,
+                        error?.stack
+                    );
+                    return false;
+                };
+
+                // Unhandled promise rejection handler in iframe
+                iframeWin.addEventListener('unhandledrejection', function (event: PromiseRejectionEvent) {
+                    const reason = event.reason;
+                    sendError(
+                        'unhandled-rejection',
+                        reason instanceof Error ? reason.message : String(reason),
+                        undefined,
+                        undefined,
+                        reason instanceof Error ? reason.stack : undefined
+                    );
+                });
+
+                // Also capture script errors
+                iframeWin.addEventListener('error', function (event: ErrorEvent) {
+                    if (event.error || event.message) {
+                        sendError(
+                            'error',
+                            event.message || event.error?.message || 'Unknown error',
+                            event.filename,
+                            event.lineno,
+                            event.error?.stack
+                        );
+                    }
+                }, true);
+
+                console.log('[PreviewTab] Error capture successfully injected');
+            } catch (e) {
+                // Cross-origin iframe - can't inject directly
+                // Rely on proxy injection or postMessage from the page itself
+                console.debug('[PreviewTab] Cannot inject into cross-origin iframe, relying on postMessage');
+            }
+        };
+
+        iframe.addEventListener('load', handleIframeLoad);
+        return () => iframe.removeEventListener('load', handleIframeLoad);
+    }, [url, key]);
 
     const handleRefresh = useCallback(() => {
         setKey(prev => prev + 1);
@@ -327,25 +443,16 @@ function TerminalTab({ data }: { data?: { output: string[]; running: boolean } }
 }
 
 /**
- * Errors Tab - Browser console errors from iframe
- * Features collapsible error cards with stack traces and "Solve with AI" button
+ * Errors Tab - Enhanced IDE-style error display
  */
 function ErrorsTab({
     errors,
     onClear,
     onSolveWithAI
 }: {
-    errors: Array<{
-        id: string;
-        type: 'error' | 'warning' | 'unhandled-rejection';
-        message: string;
-        source?: string;
-        lineno?: number;
-        stack?: string;
-        timestamp: number;
-    }>;
+    errors: ParsedError[];
     onClear?: () => void;
-    onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
+    onSolveWithAI?: (error: ParsedError) => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -363,120 +470,264 @@ function ErrorsTab({
 
     if (errors.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <AlertTriangle className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm text-green-500">No errors detected</p>
-                <p className="text-xs">Browser errors will appear here</p>
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 bg-[#1e1e1e]">
+                <Shield className="w-12 h-12 mb-3 opacity-20 text-green-500" />
+                <p className="text-sm text-green-500/80">No errors detected</p>
+                <p className="text-xs text-zinc-500">Dev server output is clean</p>
             </div>
         );
     }
 
+    // Group errors by file
+    const errorsByFile = errors.reduce((acc, error) => {
+        const file = error.file || 'General';
+        if (!acc[file]) acc[file] = [];
+        acc[file].push(error);
+        return acc;
+    }, {} as Record<string, ParsedError[]>);
+
+    // Sort files locally (General last)
+    const sortedFiles = Object.keys(errorsByFile).sort((a, b) => {
+        if (a === 'General') return 1;
+        if (b === 'General') return -1;
+        return a.localeCompare(b);
+    });
+
+    const errorCount = errors.filter(e => e.severity === 'error').length;
+    const warningCount = errors.filter(e => e.severity === 'warning').length;
+
     return (
         <div className="flex flex-col h-full bg-[#1e1e1e]">
             {/* Errors Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-700 bg-zinc-900">
-                <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-red-400" />
-                    <span className="text-sm text-zinc-300">
-                        {errors.length} Error{errors.length !== 1 ? 's' : ''}
-                    </span>
+            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800 bg-[#1e1e1e]">
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-500/20 text-red-400">
+                            <span className="text-xs font-bold">{errorCount}</span>
+                        </div>
+                        <span className="text-xs text-zinc-400">errors</span>
+                    </div>
+                    {warningCount > 0 && (
+                        <div className="flex items-center gap-1.5">
+                            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-yellow-500/20 text-yellow-400">
+                                <span className="text-xs font-bold">{warningCount}</span>
+                            </div>
+                            <span className="text-xs text-zinc-400">warnings</span>
+                        </div>
+                    )}
                 </div>
                 {onClear && (
                     <button
                         onClick={onClear}
-                        className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                        className="p-1.5 text-xs rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                        title="Clear all errors"
                     >
-                        <Trash2 className="w-3 h-3" />
-                        Clear All
+                        <Trash2 className="w-3.5 h-3.5" />
                     </button>
                 )}
             </div>
 
             {/* Error List */}
-            <div className="flex-1 overflow-auto p-2 space-y-2">
-                {errors.map((error) => {
-                    const isExpanded = expandedIds.has(error.id);
-                    const hasDetails = error.stack || error.source;
+            <div className="flex-1 overflow-auto p-3 space-y-4">
+                {sortedFiles.map(file => (
+                    <div key={file} className="space-y-1">
+                        {/* File Header */}
+                        {file !== 'General' && (
+                            <div className="flex items-center gap-2 px-1 pb-1">
+                                <span className="text-xs font-medium text-zinc-400 font-mono">{file}</span>
+                                <span className="h-px flex-1 bg-zinc-800"></span>
+                            </div>
+                        )}
 
-                    return (
-                        <div
-                            key={error.id}
-                            className={cn(
-                                "rounded-lg border overflow-hidden transition-all",
-                                error.type === 'error' || error.type === 'unhandled-rejection'
-                                    ? "bg-red-500/10 border-red-500/30"
-                                    : "bg-yellow-500/10 border-yellow-500/30"
-                            )}
-                        >
-                            {/* Error Header - Clickable to expand */}
-                            <button
-                                onClick={() => hasDetails && toggleExpanded(error.id)}
-                                className={cn(
-                                    "w-full p-3 text-left flex items-start gap-2",
-                                    hasDetails && "cursor-pointer hover:bg-white/5"
-                                )}
-                            >
-                                <AlertTriangle className={cn(
-                                    "w-4 h-4 mt-0.5 flex-shrink-0",
-                                    error.type === 'error' || error.type === 'unhandled-rejection'
-                                        ? "text-red-400"
-                                        : "text-yellow-400"
-                                )} />
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-zinc-200 font-mono break-words">
-                                        {error.message}
-                                    </p>
-                                    {error.source && (
-                                        <p className="text-xs text-zinc-500 mt-1 truncate">
-                                            📁 {error.source}{error.lineno ? `:${error.lineno}` : ''}
-                                        </p>
-                                    )}
-                                </div>
-                                {hasDetails && (
-                                    <Code2 className={cn(
-                                        "w-4 h-4 text-zinc-500 transition-transform",
-                                        isExpanded && "rotate-90"
-                                    )} />
-                                )}
-                            </button>
+                        {/* Errors for this file */}
+                        <div className="space-y-2">
+                            {errorsByFile[file].map(error => {
+                                const isExpanded = expandedIds.has(error.id);
+                                // Check for rawOutput or stack or file for details
+                                const hasDetails = error.rawOutput || error.stack || error.file;
 
-                            {/* Expanded Details */}
-                            {isExpanded && hasDetails && (
-                                <div className="border-t border-zinc-700/50">
-                                    {/* Stack Trace */}
-                                    {error.stack && (
-                                        <div className="p-3 bg-zinc-900/50">
-                                            <p className="text-xs text-zinc-400 mb-2 font-medium">Stack Trace:</p>
-                                            <pre className="text-xs text-zinc-400 font-mono whitespace-pre-wrap overflow-x-auto max-h-40 overflow-y-auto">
-                                                {error.stack}
-                                            </pre>
+                                return (
+                                    <div
+                                        key={error.id}
+                                        className={cn(
+                                            "group rounded border transition-all duration-200",
+                                            error.severity === 'error'
+                                                ? "bg-red-500/5 border-red-500/20 hover:border-red-500/40"
+                                                : "bg-yellow-500/5 border-yellow-500/20 hover:border-yellow-500/40"
+                                        )}
+                                    >
+                                        <div
+                                            className="p-3 cursor-pointer"
+                                            onClick={() => toggleExpanded(error.id)}
+                                        >
+                                            {error.file && (
+                                                <p className="text-xs text-zinc-500 mt-1 truncate">
+                                                    📁 {error.file}{error.line ? `:${error.line}` : ''}
+                                                </p>
+                                            )}
+                                            <div className="flex items-start gap-3">
+                                                {/* Icon */}
+                                                <AlertTriangle className={cn(
+                                                    "w-4 h-4 mt-0.5 flex-shrink-0",
+                                                    error.severity === 'error' ? "text-red-400" : "text-yellow-400"
+                                                )} />
+
+                                                {/* Content */}
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className={cn(
+                                                            "text-xs px-1.5 py-0.5 rounded border uppercase font-bold tracking-wider",
+                                                            error.severity === 'error'
+                                                                ? "border-red-500/30 text-red-400 bg-red-500/10"
+                                                                : "border-yellow-500/30 text-yellow-400 bg-yellow-500/10"
+                                                        )}>
+                                                            {error.type}
+                                                        </span>
+                                                        <span className="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700">
+                                                            {error.framework}
+                                                        </span>
+                                                    </div>
+
+                                                    <p className="text-sm text-zinc-300 font-mono break-words leading-relaxed">
+                                                        {error.message}
+                                                    </p>
+
+                                                    {/* Location */}
+                                                    {(error.line || error.file) && (
+                                                        <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-500">
+                                                            <span>Line {error.line || '?'}:{error.column || '?'}</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Suggestion */}
+                                                    {error.suggestion && (
+                                                        <div className="mt-2 flex items-start gap-1.5 text-xs text-emerald-400/80 bg-emerald-500/5 p-1.5 rounded border border-emerald-500/20">
+                                                            <div className="w-1 h-1 rounded-full bg-emerald-500 mt-1.5"></div>
+                                                            <span>Tip: {error.suggestion}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Action Bar (always visible if actionable) */}
+                                            {error.actionable && onSolveWithAI && (
+                                                <div className="mt-3 pl-7 flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onSolveWithAI(error);
+                                                        }}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
+                                                    >
+                                                        <span>✨ Fix with AI</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
 
-                                    {/* Solve with AI Button */}
-                                    {onSolveWithAI && (
-                                        <div className="p-2 bg-zinc-800/50 border-t border-zinc-700/50">
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onSolveWithAI({
-                                                        message: error.message,
-                                                        source: error.source,
-                                                        stack: error.stack
-                                                    });
-                                                }}
-                                                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-md bg-gradient-to-r from-primary/80 to-purple-500/80 text-white hover:from-primary hover:to-purple-500 transition-all"
-                                            >
-                                                <span className="text-base">✨</span>
-                                                Solve with AI
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                        {/* Raw Details (Expanded) */}
+                                        {isExpanded && error.rawOutput && (
+                                            <div className="border-t border-zinc-800 bg-black/20 p-3">
+                                                <pre className="text-[10px] text-zinc-500 font-mono whitespace-pre-wrap overflow-x-auto">
+                                                    {error.rawOutput}
+                                                </pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
-                    );
-                })}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Permissions Tab - Show pending permission requests
+ * Features empty state when no permissions pending
+ */
+function PermissionsTab({ chatId }: { chatId?: number }) {
+    return (
+        <div className="flex flex-col h-full">
+            <PermissionQueuePanel chatId={chatId} />
+        </div>
+    );
+}
+
+/**
+ * Search Tab - Display web search results from AI
+ * Shows URL cards that user can click to view sources
+ */
+function SearchTab({ sources }: { sources: SourceItem[] }) {
+    if (sources.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+                <Globe className="w-12 h-12 mb-3 opacity-50" />
+                <p className="text-sm">No search results</p>
+                <p className="text-xs">Web search URLs will appear here</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-background">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
+                <Globe className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium">Search Results</span>
+                <span className="ml-auto text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                    {sources.length} source{sources.length !== 1 ? 's' : ''}
+                </span>
+            </div>
+
+            {/* Source List */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {sources.map((source) => (
+                    <a
+                        key={source.id}
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
+                    >
+                        <div className="flex items-start gap-3">
+                            {/* Favicon */}
+                            {source.favicon ? (
+                                <img
+                                    src={source.favicon}
+                                    alt=""
+                                    className="w-5 h-5 rounded mt-0.5"
+                                />
+                            ) : (
+                                <Globe className="w-5 h-5 text-muted-foreground mt-0.5" />
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                                {/* Title */}
+                                <h4 className="text-sm font-medium text-foreground line-clamp-1">
+                                    {source.title}
+                                </h4>
+
+                                {/* URL */}
+                                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                    {source.url}
+                                </p>
+
+                                {/* Snippet */}
+                                {source.snippet && (
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                        {source.snippet}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* External link indicator */}
+                            <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        </div>
+                    </a>
+                ))}
             </div>
         </div>
     );

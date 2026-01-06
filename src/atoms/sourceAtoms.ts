@@ -5,6 +5,7 @@
  */
 
 import { atom } from 'jotai';
+import { type ParsedError } from '@/lib/devServerErrorParser';
 
 // ═══════════════════════════════════════════════════════════
 // PANEL TYPES
@@ -22,7 +23,7 @@ export type PanelType =
     | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search';
 
 export interface PanelContext {
     type: PanelType;
@@ -286,19 +287,10 @@ export const projectTypeAtom = atom<ProjectType>('unknown');
 // BROWSER ERRORS (Live Preview Console Errors)
 // ═══════════════════════════════════════════════════════════
 
-export interface BrowserError {
-    id: string;
-    type: 'error' | 'warning' | 'unhandled-rejection';
-    message: string;
-    source?: string;      // File/URL where error occurred
-    lineno?: number;      // Line number
-    colno?: number;       // Column number
-    stack?: string;       // Stack trace if available
-    timestamp: number;
-}
+export type BrowserError = ParsedError;
 
 /** Browser errors captured from the live preview iframe */
-export const browserErrorsAtom = atom<BrowserError[]>([]);
+export const browserErrorsAtom = atom<ParsedError[]>([]);
 
 // ═══════════════════════════════════════════════════════════
 // PANEL HISTORY (for breadcrumb navigation)

@@ -32,7 +32,10 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] **Performance optimization**: Startup time < 3s
 
 ### Known Issues to Address
-- [ ] **Browser error capture**: Errors tab not capturing errors from live preview iframe (proxy not starting)
+- [x] **Browser error capture**: Hybrid system (Terminal Parser + LSP-Lite Watcher) implemented.
+- [ ] **Advanced Error Recovery** (Future)
+    - [ ] Browser Injection: Research methods to inject error listener before bundle execution (e.g. Vite plugin).
+    - [ ] Full LSP: Switch from "LSP-Lite" to full Language Server Protocol for hover/autocomplete.
 - [ ] **PlantUML → Mermaid migration**: Remove PlantUML dependency
 - [ ] **Session memory limits**: Implement token-aware trimming
 - [ ] **Diagram staleness**: More aggressive refresh triggers

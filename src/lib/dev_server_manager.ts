@@ -38,6 +38,7 @@ export interface RunningServer {
     workspaceId: number;
     workspacePath: string;
     process: ChildProcess;
+    watcherProcess?: ChildProcess; // Background type checker (tsc --watch, etc)
     url: string | null;      // Raw dev server URL
     proxyUrl: string | null; // Error capture proxy URL (used for iframe)
     framework: string;
@@ -193,7 +194,8 @@ export class DevServerManager {
     async startServer(
         workspaceId: number,
         workspacePath: string,
-        onUrlDetected?: (url: string) => void
+        onUrlDetected?: (url: string) => void,
+        enableTypeCheck: boolean = true // New parameter for type checking
     ): Promise<{ success: boolean; url?: string; error?: string }> {
         // Check if already running
         const existing = this.runningServers.get(workspaceId);
@@ -226,11 +228,32 @@ export class DevServerManager {
             },
         });
 
+        // Start Type Watcher (LSP-Lite) if enabled
+        let watcherProcess: ChildProcess | undefined;
+        if (enableTypeCheck) {
+            watcherProcess = this.startTypeWatcher(workspacePath, config.framework, (output) => {
+                // Forward watcher output to the main output stream
+                const mainWindow = BrowserWindow.getAllWindows()[0];
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('dev-server:output', {
+                        workspaceId,
+                        framework: config.framework,
+                        output: output,
+                        fullOutput: this.runningServers.get(workspaceId)?.outputBuffer + output, // Append to main buffer
+                        status: 'running',
+                        timestamp: Date.now(),
+                        isWatcher: true,
+                    });
+                }
+            });
+        }
+
         // Track the server
         const server: RunningServer = {
             workspaceId,
             workspacePath,
             process: proc,
+            watcherProcess, // Store the watcher process
             url: null,
             proxyUrl: null,  // Will be set when URL is detected
             framework: config.framework,
@@ -284,7 +307,17 @@ export class DevServerManager {
                         }
                     })
                     .catch((err) => {
-                        logger.warn(`Failed to start error capture proxy: ${err}`);
+                        logger.warn(`⚠️ Error capture proxy failed: ${err.message}`);
+                        logger.warn(`Falling back to direct URL (error capture will use postMessage)`);
+
+                        // Emit event so frontend knows to rely on postMessage
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('error-capture:proxy-failed', {
+                                workspaceId,
+                                reason: err.message
+                            });
+                        }
+
                         // Fall back to raw URL
                         const callback = this.urlCallbacks.get(workspaceId);
                         if (callback) {
@@ -321,12 +354,67 @@ export class DevServerManager {
     }
 
     /**
+     * Starts a type-checking watcher process (e.g., tsc --watch)
+     */
+    private startTypeWatcher(projectPath: string, framework: string, onOutput: (output: string) => void): ChildProcess | undefined {
+        // Only support TypeScript projects for now
+        const tsConfigPath = path.join(projectPath, 'tsconfig.json');
+        if (!fs.existsSync(tsConfigPath)) {
+            logger.log(`No tsconfig.json found in ${projectPath}. Skipping type watcher.`);
+            return undefined;
+        }
+
+        logger.log(`Starting TypeScript watcher for ${projectPath}`);
+        const watcher = spawn('npx', ['tsc', '--watch', '--noEmit'], {
+            cwd: projectPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            shell: true,
+            env: {
+                ...process.env,
+                FORCE_COLOR: '1', // Enable colored output
+            },
+        });
+
+        watcher.stdout?.on('data', (data) => {
+            const output = data.toString();
+            logger.log(`[${framework} Watcher] ${output.trim()}`);
+            onOutput(output);
+        });
+
+        watcher.stderr?.on('data', (data) => {
+            const output = data.toString();
+            logger.error(`[${framework} Watcher Error] ${output.trim()}`);
+            onOutput(output);
+        });
+
+        watcher.on('error', (error) => {
+            logger.error(`Type watcher process error for ${projectPath}:`, error);
+        });
+
+        watcher.on('exit', (code) => {
+            logger.log(`Type watcher process exited for ${projectPath} with code ${code}`);
+        });
+
+        return watcher;
+    }
+
+    /**
      * Stop a dev server for a workspace
      */
     stopServer(workspaceId: number): void {
         const server = this.runningServers.get(workspaceId);
         if (server) {
             logger.log(`Stopping dev server for workspace ${workspaceId}`);
+            if (server.watcherProcess) {
+                try {
+                    logger.log(`Stopping watcher process for workspace ${workspaceId}`);
+                    server.watcherProcess.kill();
+                } catch (e) {
+                    logger.error(`Error killing watcher process for workspace ${workspaceId}:`, e);
+                }
+            }
+
+            // Stop main process
             server.process.kill('SIGTERM');
             this.runningServers.delete(workspaceId);
             this.urlCallbacks.delete(workspaceId);

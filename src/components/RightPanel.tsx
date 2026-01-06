@@ -26,7 +26,8 @@ import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
-    Search, Code, Workflow, Eye
+    Search, Code, Workflow, Eye,
+    AlertTriangle, Shield, Globe, Code2, FileText
 } from 'lucide-react';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
@@ -36,7 +37,27 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { type PanelType } from '@/atoms/sourceAtoms';
+import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
+
+// Icon configuration for secondary tabs
+const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
+    preview: { icon: Eye, label: 'Preview' },
+    code: { icon: Code2, label: 'Code' },
+    terminal: { icon: Terminal, label: 'Terminal' },
+    errors: { icon: AlertTriangle, label: 'Errors' },
+    permissions: { icon: Shield, label: 'Permissions' },
+    search: { icon: Globe, label: 'Search' },
+    sources: { icon: Globe, label: 'Sources' },
+    diagram: { icon: Workflow, label: 'Diagram' },
+    logs: { icon: FileText, label: 'Logs' },
+    files: { icon: FileText, label: 'Files' },
+    diff: { icon: Code2, label: 'Diff' },
+    approve: { icon: Shield, label: 'Approve' },
+    timeline: { icon: Workflow, label: 'Timeline' },
+    permission: { icon: Shield, label: 'Permission' },
+    tools: { icon: Wrench, label: 'Tools' },
+    debug: { icon: Terminal, label: 'Debug' },
+};
 
 // Primary mode categories for the toolbar
 type PrimaryMode = 'search' | 'code' | 'diagrams' | 'preview' | 'tools';
@@ -254,23 +275,37 @@ Please identify the issue and provide a fix.`;
             </TooltipProvider>
 
             {/* Secondary Tabs (context-specific) */}
+            {/* Secondary Tabs - Icon-only with tooltips */}
             {context.tabs.length > 1 && (
-                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0">
-                    {context.tabs.map((tab) => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={cn(
-                                "px-3 py-1.5 text-sm rounded-md transition-colors capitalize whitespace-nowrap flex-shrink-0",
-                                context.activeTab === tab
-                                    ? "bg-primary/15 text-primary font-medium"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                            )}
-                        >
-                            {tab}
-                        </button>
-                    ))}
-                </div>
+                <TooltipProvider>
+                    <div className="flex items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0">
+                        {context.tabs.map((tab) => {
+                            const tabConfig = TAB_ICONS[tab];
+                            const Icon = tabConfig?.icon || Code2;
+                            const label = tabConfig?.label || tab;
+                            return (
+                                <Tooltip key={tab}>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={() => setActiveTab(tab)}
+                                            aria-label={label}
+                                            className={cn(
+                                                "p-2 rounded-md transition-colors",
+                                                context.activeTab === tab
+                                                    ? "bg-primary/15 text-primary"
+                                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                            )}
+                                        >
+                                            <Icon size={16} />
+                                            <span className="sr-only">{label}</span>
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{label}</TooltipContent>
+                                </Tooltip>
+                            );
+                        })}
+                    </div>
+                </TooltipProvider>
             )}
 
             {/* Panel Content - scrollable */}

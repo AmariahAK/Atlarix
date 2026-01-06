@@ -61,6 +61,19 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Project Evolution** - Visualize architecture changes over time
 - **Smart Snapshots** - Auto-capture when code changes
 - **Time Drill-Down** - Navigate from "All Time" to hourly
+### 🛡️ Hybrid Error Detection (New in v0.9.5)
+Atlarix now uses a "Double Agent" strategy to ensure no error is missed:
+1.  **Terminal Parser**: Reads output from your dev server (Vite, Next.js) to catch build errors.
+2.  **Type Watcher (LSP-Lite)**: Runs `tsc --watch` (or equivalent) in the background to catch type errors that bundlers usually ignore.
+3.  **Browser Listener**: Catches runtime errors in the preview window (with some limitations on initial load).
+
+This ensures you see:
+*   Build Errors (Syntax)
+*   Type Errors (Missing imports/props)
+*   Runtime Errors (Crashes)
+
+### 🧩 Smart Suggestions
+errors are parsed and actionable fixes are suggested. Click "Fix with AI" to have the agent attempt to resolve the issue automatically.
 
 ### 🎯 AI-Controlled Right Panel (NEW in v0.9.5!)
 - **Explicit AI Intent** - AI tells the panel what to show (no more heuristic guessing)
@@ -113,10 +126,10 @@ npm start
 
 ---
 
-## ⚠️ Known Issues
+## 🚧 Known Issues & Limitations
+*   **Browser Injection Race Condition**: Extremely early runtime errors (like immediate SyntaxErrors on page load) might fire before the Atlarix error capture script injects, causing them to appear in the browser console but not the Errors tab. The new "Type Watcher" mitigates this by catching these as buildtime errors.
+*   Search Configuration: Searching for templates via SearxNG might require manual Docker setup if the automated script fails.
 
-- **Browser Error Capture** - Errors tab in live preview not yet capturing runtime errors (infrastructure in place, proxy startup pending fix)
-- See [TODO.md](./TODO.md) for full list and roadmap.
 
 ---
 

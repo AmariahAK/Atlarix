@@ -3,6 +3,24 @@
 All notable changes to Atlarix will be documented in this file.
 
 ## [v0.9.10] - 2026-01-05
+## [v0.9.5] - 2026-01-06
+
+### Added
+- **Hybrid Error Detection System**:
+  - Implemented `devServerErrorParser` to capture errors from terminal output (Vite, Next.js, Python, Go, Rust).
+  - Added **LSP-Lite (Type Watcher)**: Runs `tsc --watch` in background to catch type errors (like missing exports) that bundlers ignore.
+  - Unified "Errors" tab displaying both Build and Runtime errors.
+- **Smart Error UI**:
+  - Errors grouped by file.
+  - "Fix with AI" button for one-click resolution.
+  - Framework badges and severity indicators.
+
+### Fixed
+- **Silent Type Errors**: Fixed issue where "Module not found" errors were ignored by Vite and invisible in terminal.
+- **Linting**: Resolved TS lint errors in `useBrowserErrorListener` and `CodePreviewPanel`.
+
+### Known Issues
+- **Early Browser Errors**: Runtime errors triggering strictly on initial page load (ms 0) may still occasionally slip past the browser injector, though the new Watcher catches the underlying cause in most cases.
 
 ### 🎨 Right Panel UX Improvements
 

@@ -39,7 +39,7 @@ import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQu
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'errors'],
+    'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search'],
     'diagram': ['diagram', 'logs'],
     'terminal': ['terminal'],
     'file-diff': [],  // Unified PermissionQueuePanel handles all - no more separate tabs
@@ -273,6 +273,7 @@ function getDataForType(
                     running: state.terminalOutput.status === 'running'
                 } : null,
                 errors: state.browserErrors,
+                sources: state.sources,  // Web search sources for the search tab
                 ...state.aiContext
             };
         case 'permission':

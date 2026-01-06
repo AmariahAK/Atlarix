@@ -4,7 +4,7 @@
  * IPC handlers for starting/stopping dev servers for live preview
  */
 
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, BrowserWindow } from 'electron';
 import log from 'electron-log';
 import { devServerManager, detectFramework } from '@/lib/dev_server_manager';
 import { db } from '@/db';
@@ -51,7 +51,7 @@ ipcMain.handle(
  */
 ipcMain.handle(
     'dev-server:start',
-    async (_, { workspaceId }: { workspaceId: number }) => {
+    async (_, { workspaceId, enableTypeCheck = true }: { workspaceId: number; enableTypeCheck?: boolean }) => {
         try {
             // Get workspace path
             const [workspace] = await db
@@ -65,7 +65,18 @@ ipcMain.handle(
 
             logger.log(`Starting dev server for workspace ${workspaceId} at ${workspace.path}`);
 
-            const result = await devServerManager.startServer(workspaceId, workspace.path);
+            const result = await devServerManager.startServer(
+                workspaceId,
+                workspace.path,
+                (url) => {
+                    // This callback might be called later when port is detected
+                    const win = BrowserWindow.getAllWindows()[0];
+                    if (win) {
+                        win.webContents.send('dev-server:url', { workspaceId, url });
+                    }
+                },
+                enableTypeCheck // Pass the type check flag
+            );
             return result;
         } catch (error) {
             logger.error('Error starting dev server:', error);

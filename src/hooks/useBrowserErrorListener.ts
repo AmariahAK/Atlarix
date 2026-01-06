@@ -38,13 +38,16 @@ export function useBrowserErrorListener() {
                     const payload = data.payload;
                     const error: BrowserError = {
                         id: `atlarix-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                        type: payload.type === 'console-error' ? 'error'
-                            : payload.type === 'unhandled-rejection' ? 'unhandled-rejection'
-                                : 'error',
+                        type: payload.type === 'console-error' ? 'runtime'
+                            : payload.type === 'unhandled-rejection' ? 'runtime'
+                                : 'runtime',
+                        severity: 'error',
+                        framework: 'browser',
+                        actionable: false,
                         message: payload.message || 'Unknown error',
-                        source: payload.source,
-                        lineno: payload.lineno,
-                        colno: payload.colno,
+                        file: payload.source,
+                        line: payload.lineno,
+                        column: payload.colno,
                         stack: payload.stack,
                         timestamp: payload.timestamp || Date.now(),
                     };
@@ -69,10 +72,13 @@ export function useBrowserErrorListener() {
                 if (data.type === 'error' || data.type === 'full-reload-error') {
                     const error: BrowserError = {
                         id: `vite-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                        type: 'error',
+                        type: 'build',
+                        severity: 'error',
+                        framework: 'vite',
+                        actionable: true,
                         message: data.err?.message || data.message || 'Unknown error',
-                        source: data.err?.file || data.err?.loc?.file,
-                        lineno: data.err?.loc?.line,
+                        file: data.err?.file || data.err?.loc?.file,
+                        line: data.err?.loc?.line,
                         stack: data.err?.stack,
                         timestamp: Date.now(),
                     };
@@ -93,7 +99,10 @@ export function useBrowserErrorListener() {
                     data.errors.forEach((errMsg: string) => {
                         const error: BrowserError = {
                             id: `webpack-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                            type: 'error',
+                            type: 'build',
+                            severity: 'error',
+                            framework: 'webpack',
+                            actionable: true,
                             message: errMsg,
                             timestamp: Date.now(),
                         };
@@ -117,11 +126,14 @@ export function useBrowserErrorListener() {
             if (event.filename?.includes('localhost')) {
                 const error: BrowserError = {
                     id: `runtime-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    type: 'error',
+                    type: 'runtime',
+                    severity: 'error',
+                    framework: 'browser',
+                    actionable: false,
                     message: event.message,
-                    source: event.filename,
-                    lineno: event.lineno,
-                    colno: event.colno,
+                    file: event.filename,
+                    line: event.lineno,
+                    column: event.colno,
                     timestamp: Date.now(),
                 };
 
