@@ -1324,6 +1324,26 @@ export class IpcClient {
     };
   }
 
+  // Listen for diagram staleness detected events
+  // Fired when project changes significantly (50%+) and diagram needs refresh
+  public onDiagramStalenessDetected(
+    callback: (data: {
+      diagramId: number;
+      isStale: boolean;
+      severity: 'minor' | 'moderate' | 'major';
+      reason: string;
+      recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
+    }) => void,
+  ): () => void {
+    const listener = (data: any) => {
+      callback(data);
+    };
+    this.ipcRenderer.on("diagram:staleness-detected", listener);
+    return () => {
+      this.ipcRenderer.removeListener("diagram:staleness-detected", listener);
+    };
+  }
+
   // Count tokens for a chat and input
   public async countTokens(
     params: TokenCountParams,
@@ -1925,6 +1945,45 @@ export class IpcClient {
     servers: Array<{ workspaceId: number; url: string | null; framework: string }>;
   }> {
     return this.ipcRenderer.invoke("dev-server:list-running");
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // FILE OPERATIONS (For live code editor)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Read file contents
+   */
+  public async readFileContent(filePath: string): Promise<{
+    success: boolean;
+    content?: string;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("file:read-content", { filePath });
+  }
+
+  /**
+   * Write file contents
+   */
+  public async writeFileContent(filePath: string, content: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("file:write-content", { filePath, content });
+  }
+
+  /**
+   * Get file stats (exists, size, modified time)
+   */
+  public async getFileStats(filePath: string): Promise<{
+    success: boolean;
+    exists?: boolean;
+    size?: number;
+    modifiedTime?: number;
+    isDirectory?: boolean;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("file:get-stats", { filePath });
   }
 }
 

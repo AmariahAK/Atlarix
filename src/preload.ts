@@ -213,6 +213,10 @@ const validInvokeChannels = [
   "diagram:queue-capture",
   "diagram:flush-pending",
   "diagram:capture-initial",
+  // File operations (Live Code Editor)
+  "file:read-content",
+  "file:write-content",
+  "file:get-stats",
 ];
 
 const validReceiveChannels = [
@@ -244,6 +248,8 @@ const validReceiveChannels = [
   "dev-server:output",       // Live dev server console output
   // Browser console error capture (CDP debugger)
   "browser-console-error",   // Console errors from Electron debugger
+  // Diagram staleness notification
+  "diagram:staleness-detected", // Diagram outdated due to code changes
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

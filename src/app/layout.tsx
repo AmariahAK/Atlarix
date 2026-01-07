@@ -4,15 +4,123 @@ import { ThemeProvider } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster } from "sonner";
 import { TitleBar } from "./TitleBar";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useCallback, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { previewModeAtom, selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
-import { chatInputValueAtom } from "@/atoms/chatAtoms";
+import { chatInputValueAtom, activeChatIdAtom, chatMessagesByIdAtom, isStreamingByIdAtom, chatStreamCountByIdAtom } from "@/atoms/chatAtoms";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
+import { useLocation } from "@tanstack/react-router";
+import { SimpleInlineChat } from "@/components/SimpleInlineChat";
+import { RightPanel } from "@/components/RightPanel";
+import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
+import { useStreamChat } from "@/hooks/useStreamChat";
+import { PanelRightOpen, PanelRightClose } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { IpcClient } from "@/ipc/ipc_client";
+
+/**
+ * PersistentChatContainer
+ * =======================
+ * Keeps the chat mounted at layout level so it persists across navigation.
+ * Hidden when not on home page, but never unmounted.
+ */
+function PersistentChatContainer() {
+  const location = useLocation();
+  const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
+  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const sources = useAtomValue(sourceListAtom);
+  const setSourceList = useSetAtom(sourceListAtom);
+  const setSelectedSource = useSetAtom(selectedSourceAtom);
+  const { streamMessage } = useStreamChat({ hasChatId: false });
+
+  // Determine if we're on the home page
+  const isHomePage = location.pathname === '/';
+
+  // Handle continuing the chat conversation 
+  const handleContinueChat = useCallback((prompt: string) => {
+    if (!activeChatId || !prompt.trim()) return;
+    streamMessage({
+      prompt,
+      chatId: activeChatId,
+      attachments: [],
+    });
+  }, [activeChatId, streamMessage]);
+
+  // Handle new chat - reset to home state
+  const handleNewChat = useCallback(() => {
+    setActiveChatId(null);
+    setSourceList([]);
+    setSelectedSource(null);
+    setRightPanelVisible(false);
+  }, [setActiveChatId, setSourceList, setSelectedSource, setRightPanelVisible]);
+
+  // Don't render anything if no active chat
+  if (!activeChatId) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 flex z-10 bg-background",
+        // Show when on home page AND has active chat
+        // Hidden (but still mounted) when navigated away
+        !isHomePage && "hidden"
+      )}
+    >
+      {/* Main Content Area (Chat) */}
+      <div className="flex-1 flex flex-col min-w-0 h-full">
+        {/* Sticky header with back button and panel toggle */}
+        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
+          <button
+            onClick={handleNewChat}
+            className="text-xs text-muted-foreground/70 hover:text-foreground flex items-center gap-1 transition-colors"
+          >
+            ← New Chat
+          </button>
+          <div className="flex items-center gap-2">
+            <img src="/logo/Atlarix.png" alt="Atlarix" className="w-6 h-6" />
+            <span className="font-medium">Atlarix</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Source count badge */}
+            {sources.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                {sources.length} sources
+              </span>
+            )}
+            {/* Panel toggle button */}
+            <button
+              onClick={() => setRightPanelVisible(!rightPanelVisible)}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title={rightPanelVisible ? "Hide panel" : "Show panel"}
+            >
+              {rightPanelVisible ? (
+                <PanelRightClose className="w-5 h-5" />
+              ) : (
+                <PanelRightOpen className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Chat messages and input - stays mounted */}
+        <SimpleInlineChat
+          chatId={activeChatId}
+          onSendMessage={handleContinueChat}
+        />
+      </div>
+
+      {/* Right Panel - Context-aware preview */}
+      {rightPanelVisible && <RightPanel />}
+    </div>
+  );
+}
 
 const DEFAULT_ZOOM_LEVEL: ZoomLevel = "100";
 
@@ -78,6 +186,21 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     setSelectedComponentsPreview([]);
   }, [selectedAppId]);
 
+  // Listen for diagram staleness events from main process
+  const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
+  useEffect(() => {
+    const unsubscribe = IpcClient.getInstance().onDiagramStalenessDetected((data) => {
+      setDiagramStaleness({
+        diagramId: data.diagramId,
+        isStale: data.isStale,
+        severity: data.severity as 'none' | 'minor' | 'moderate' | 'major',
+        reason: data.reason,
+        recommendation: data.recommendation as 'keep' | 'suggest-refresh' | 'force-refresh',
+      });
+    });
+    return () => unsubscribe();
+  }, [setDiagramStaleness]);
+
   return (
     <>
       <ThemeProvider>
@@ -87,8 +210,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <AppSidebar />
             <div
               id="layout-main-content-container"
-              className="flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
+              className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
+              {/* Persistent chat - stays mounted across navigation */}
+              <PersistentChatContainer />
+              {/* Route content */}
               {children}
             </div>
             <Toaster richColors />

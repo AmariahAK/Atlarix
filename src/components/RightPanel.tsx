@@ -229,81 +229,9 @@ Please fix these errors in priority order (structural/build errors first, then r
                 style={{ touchAction: 'none' }}
             />
 
-            {/* Icon Toolbar - Simple like reference app */}
-            <TooltipProvider>
-                <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-                    {/* Mode Icons */}
-                    <div className="flex items-center gap-1">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <button
-                                    onClick={() => handleModeClick('search')}
-                                    className={cn(
-                                        "p-2 rounded-lg transition-colors",
-                                        currentMode === 'search'
-                                            ? "bg-primary/15 text-primary"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                    )}
-                                >
-                                    <Search size={iconSize} />
-                                </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Search Results</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <button
-                                    onClick={() => handleModeClick('code')}
-                                    className={cn(
-                                        "p-2 rounded-lg transition-colors",
-                                        currentMode === 'code'
-                                            ? "bg-primary/15 text-primary"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                    )}
-                                >
-                                    <Code size={iconSize} />
-                                </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Code & Permissions</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <button
-                                    onClick={() => handleModeClick('diagrams')}
-                                    className={cn(
-                                        "p-2 rounded-lg transition-colors",
-                                        currentMode === 'diagrams'
-                                            ? "bg-primary/15 text-primary"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                    )}
-                                >
-                                    <Workflow size={iconSize} />
-                                </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Diagrams</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <button
-                                    onClick={() => handleModeClick('preview')}
-                                    className={cn(
-                                        "p-2 rounded-lg transition-colors",
-                                        currentMode === 'preview'
-                                            ? "bg-primary/15 text-primary"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                    )}
-                                >
-                                    <Eye size={iconSize} />
-                                </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Live Preview</TooltipContent>
-                        </Tooltip>
-                    </div>
-
-                    {/* Close button */}
+            {/* Header with Close Button */}
+            <div className="flex items-center justify-end px-3 py-2 border-b border-border">
+                <TooltipProvider>
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <button
@@ -315,12 +243,11 @@ Please fix these errors in priority order (structural/build errors first, then r
                         </TooltipTrigger>
                         <TooltipContent>Close panel</TooltipContent>
                     </Tooltip>
-                </div>
-            </TooltipProvider>
+                </TooltipProvider>
+            </div>
 
-            {/* Secondary Tabs (context-specific) */}
-            {/* Secondary Tabs - Icon-only with tooltips */}
-            {context.tabs.length > 1 && (
+            {/* Tab Navigation - Always visible */}
+            {context.tabs.length > 0 && (
                 <TooltipProvider>
                     <div className="flex items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0">
                         {context.tabs.map((tab) => {
@@ -351,6 +278,7 @@ Please fix these errors in priority order (structural/build errors first, then r
                     </div>
                 </TooltipProvider>
             )}
+
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto">

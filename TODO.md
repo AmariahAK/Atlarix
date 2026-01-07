@@ -4,25 +4,74 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🔥 v0.9.12 - Next Up
+## 🔥 v0.9.13 - AI-Controlled Diagram System (Next Up)
 
-### Live Code Editor Tab
-- [ ] **Error File Viewer**: Show files with errors in Code tab (not all files)
-- [ ] **Live Editing**: User can edit error files directly without switching to IDE
-- [ ] **File Selector**: Collapsible list of files with errors (like ThinkingCard)
-- [ ] **Auto-Save**: Changes saved and hot-reloaded in preview
-- [ ] **Error Resolution**: Mark error as solved when file no longer has that error
+### Phase 1: DiagramManager Enhancements
+- [ ] Add `generatingWorkspaces` Set to track in-progress generation
+- [ ] Add `generationPromises` Map for deduplication
+- [ ] Implement `hasAnyDiagram(workspaceId)` - check if diagram exists
+- [ ] Implement `isGenerating(workspaceId)` - check generation status
+- [ ] Implement `waitForGeneration(workspaceId, timeout)` - wait for completion
+- [ ] Implement `generateInitialDiagram(workspaceId, appPath)` - with deduplication
 
-### Diagram State Notifiers
-- [ ] **50%+ Change Detection**: AI doesn't notify when project changes significantly
-- [ ] **Staleness Indicators**: Visual cue when diagram is outdated
+### Phase 2: update_diagram Tool
+- [ ] Create `diagram-tools.ts` with update_diagram tool
+- [ ] Schema: updateType, affectedComponents, changeDescription, suggestedFocus
+- [ ] Return `__permission_required: true` for approval flow
+- [ ] Add tool to workspace tools list
 
-### Chat Session Persistence
-- [ ] **Navigate & Return**: Session persists when user leaves (Settings, Library)
-- [ ] **"Back to Chat" Button**: Return to active session without losing progress
-- [ ] **Why Lost?**: Investigate why session resets on navigation
+### Phase 3: Cold Start Handling
+- [ ] In `chat_stream_handlers.ts`: Check `hasAnyDiagram()` before first message
+- [ ] Start background generation (non-blocking) for new workspaces
+- [ ] Send `diagram:initial-ready` IPC when generation completes
+- [ ] Update `get_diagram` tool to wait if generation in progress
+
+### Phase 4: Permission System Integration
+- [ ] In `interceptor.ts`: Handle `update_diagram` operation approvals
+- [ ] Call `DiagramManager.regenerateForWorkspace()` on approval
+- [ ] Pass `focusComponents` and `context` to diagram generation
+
+### Phase 5: UI Components
+- [ ] Add DiagramUpdateCard to PermissionQueuePanel or FileDiffPanel
+- [ ] Show: updateType badge, affected components, change description
+- [ ] Actions: "Regenerate Diagram" and "Skip" buttons
+
+### Phase 6: System Prompt Update
+- [ ] Add diagram management instructions to system prompt
+- [ ] Examples of when to use/not use `update_diagram`
+- [ ] Teach AI architectural vs cosmetic changes
 
 ---
+
+## ✅ v0.9.12 - Live Code Editor & Session Persistence (COMPLETED)
+
+### Chat Session Persistence ✅
+- [x] **Hidden Div Approach**: Chat mounted in invisible div during navigation
+- [x] **Streaming Persists**: AI continues streaming when navigating away
+- [x] **Route Detection**: Shows/hides based on current path
+
+### Diagram State Notifiers ✅
+- [x] **Staleness IPC**: `diagram:staleness-detected` sent after file operations
+- [x] **Atom Updates**: `diagramStalenessAtom` tracks outdated state
+- [x] **Staleness Banner**: DiagramPanel shows when diagram needs refresh
+- [x] **Preload Whitelist**: Added staleness channel
+
+### Live Code Editor ✅
+- [x] **ErrorFileEditor**: Monaco-based editor for error files
+- [x] **File List**: Collapsible list with error counts
+- [x] **Save Shortcut**: Cmd/Ctrl+S saves changes
+- [x] **Error Markers**: Squiggly underlines at error locations
+- [x] **Auto-Position**: Cursor moves to first error
+- [x] **File IPC**: Read/write/stats handlers added
+
+### UI Improvements ✅
+- [x] **Simplified Toolbar**: Removed top 4-icon bar, now single 7-tab row
+- [x] **Diagram Tab**: Added to secondary toolbar
+- [x] **URL Cleanup**: Parses `http://localhost:5174/src/...` → `src/...`
+- [x] **Error Filtering**: Ignores Monaco, CDN, extension errors
+
+---
+
 
 ## ✅ v0.9.11 - Error Capture UX Improvements (COMPLETED)
 

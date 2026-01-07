@@ -662,13 +662,30 @@ export class PermissionInterceptor extends EventEmitter {
             logger.log(`📊 [Diagram Refresh] Decision: ${decision.action} - ${decision.reason} (confidence: ${decision.confidence.toFixed(2)})`);
 
             if (decision.action === 'generate' || decision.action === 'refresh') {
-                // Emit event for frontend notification
+                // Emit event for frontend notification (EventEmitter for internal use)
                 this.emit('diagram:refresh-needed', {
                     workspaceId: this.workspaceId,
                     action: decision.action,
                     reason: decision.reason,
                     confidence: decision.confidence,
                 });
+
+                // ═══════════════════════════════════════════════════════════════
+                // CRITICAL: Send IPC to renderer for staleness banner display
+                // This updates diagramStalenessAtom in the frontend
+                // ═══════════════════════════════════════════════════════════════
+                const stalenessPayload = {
+                    diagramId: this.workspaceId, // Use workspace ID as diagram reference
+                    isStale: true,
+                    severity: decision.confidence > 0.7 ? 'major' : decision.confidence > 0.4 ? 'moderate' : 'minor' as const,
+                    reason: decision.reason,
+                    recommendation: decision.action === 'generate' ? 'force-refresh' : 'suggest-refresh' as const,
+                };
+
+                for (const win of BrowserWindow.getAllWindows()) {
+                    win.webContents.send('diagram:staleness-detected', stalenessPayload);
+                }
+                logger.log(`📊 [Diagram Staleness] Sent to renderer: ${stalenessPayload.severity} - ${stalenessPayload.reason}`);
 
                 // Trigger background diagram regeneration
                 // Uses setImmediate to not block the permission response

@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useSetAtom } from 'jotai';
+import { useSetAtom, useAtomValue } from 'jotai';
 import { cn } from '@/lib/utils';
 import {
     RefreshCw,
@@ -30,8 +30,10 @@ import {
 } from 'lucide-react';
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
-import { type SourceItem, browserErrorsAtom } from '@/atoms/sourceAtoms';
+import { type SourceItem, browserErrorsAtom, diagramStateAtom } from '@/atoms/sourceAtoms';
 import { type ParsedError } from '@/lib/devServerErrorParser';
+import { ErrorFileEditor } from './ErrorFileEditor';
+import { MermaidRenderer } from '@/components/MermaidRenderer';
 
 interface CodePreviewPanelProps {
     data: {
@@ -41,6 +43,7 @@ interface CodePreviewPanelProps {
         errors?: ParsedError[];
         sources?: SourceItem[];  // Web search sources for search tab
         chatId?: number;         // For permissions tab
+        workspacePath?: string;  // For live code editor
     } | null;
     activeTab: string;
     onClearErrors?: () => void;
@@ -64,6 +67,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
     const errorsData = data?.errors || [];
     const sourcesData = data?.sources || [];
     const chatId = data?.chatId;
+    const workspacePath = data?.workspacePath || '';
 
     return (
         <div className="flex flex-col h-full">
@@ -71,7 +75,11 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 <PreviewTab url={previewUrl} />
             )}
             {activeTab === 'code' && (
-                <CodeTab file={currentFile} />
+                <CodeTab
+                    file={currentFile}
+                    errors={errorsData}
+                    workspacePath={workspacePath}
+                />
             )}
             {activeTab === 'terminal' && (
                 <TerminalTab data={terminalData} />
@@ -84,6 +92,9 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
             )}
             {activeTab === 'search' && (
                 <SearchTab sources={sourcesData} />
+            )}
+            {activeTab === 'diagram' && (
+                <DiagramTab />
             )}
         </div>
     );
@@ -337,9 +348,32 @@ function PreviewTab({ url }: { url?: string }) {
 }
 
 /**
- * Code Tab - Current file view
+ * Code Tab - Current file view or Error File Editor
+ * Shows Monaco-based editor when there are errors with file paths
  */
-function CodeTab({ file }: { file?: { path: string; content: string } }) {
+function CodeTab({
+    file,
+    errors = [],
+    workspacePath = ''
+}: {
+    file?: { path: string; content: string };
+    errors?: ParsedError[];
+    workspacePath?: string;
+}) {
+    // Check if we have errors with file paths - show editor for those
+    const filesWithErrors = errors.filter(e => e.file);
+
+    // If there are errors with files, show the ErrorFileEditor
+    if (filesWithErrors.length > 0 && workspacePath) {
+        return (
+            <ErrorFileEditor
+                errors={errors}
+                workspacePath={workspacePath}
+            />
+        );
+    }
+
+    // Otherwise show read-only file view
     if (!file) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
@@ -380,6 +414,7 @@ function CodeTab({ file }: { file?: { path: string; content: string } }) {
         </div>
     );
 }
+
 
 /**
  * Terminal Tab - Command output
@@ -656,8 +691,8 @@ function ErrorsTab({
                                                                 }
                                                             }}
                                                             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${suggestingErrorId === error.id
-                                                                    ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                                                                    : 'bg-zinc-700/30 text-zinc-400 hover:bg-zinc-700/50 border-zinc-700/50'
+                                                                ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                                                                : 'bg-zinc-700/30 text-zinc-400 hover:bg-zinc-700/50 border-zinc-700/50'
                                                                 }`}
                                                         >
                                                             <span>💡 Suggest</span>
@@ -835,6 +870,49 @@ function SearchTab({ sources }: { sources: SourceItem[] }) {
                         </div>
                     </a>
                 ))}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Diagram Tab - Shows current workspace diagram
+ * Uses diagramStateAtom to display the Mermaid diagram
+ */
+function DiagramTab() {
+    const diagramState = useAtomValue(diagramStateAtom);
+
+    if (!diagramState || !diagramState.code) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                    <Code2 className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
+                <p className="text-sm text-center max-w-[250px]">
+                    Generate an architecture diagram from the sidebar to visualize your project structure.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
+                <div className="flex items-center gap-2">
+                    <Code2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{diagramState.title || 'Architecture Diagram'}</span>
+                </div>
+                <span className="text-xs text-muted-foreground capitalize">{diagramState.type}</span>
+            </div>
+
+            {/* Diagram */}
+            <div className="flex-1 overflow-auto p-4">
+                <MermaidRenderer
+                    code={diagramState.code}
+                    className="min-h-[300px]"
+                />
             </div>
         </div>
     );

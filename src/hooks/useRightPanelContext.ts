@@ -35,11 +35,12 @@ import {
     browserErrorsAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
+import { currentAppAtom } from '@/atoms/appAtoms';
 
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search'],
+    'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],
     'diagram': ['diagram', 'logs'],
     'terminal': ['terminal'],
     'file-diff': [],  // Unified PermissionQueuePanel handles all - no more separate tabs
@@ -86,6 +87,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
+    const currentApp = useAtomValue(currentAppAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
@@ -188,10 +190,11 @@ export function useRightPanelContext(): RightPanelContextResult {
                 toolTimeline,
                 devServerUrl,
                 browserErrors,
+                workspacePath: currentApp?.path || '',
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, browserErrors, aiPanelIntent]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
@@ -237,6 +240,7 @@ function getDataForType(
         toolTimeline: any[];
         devServerUrl: string | null;
         browserErrors: any[];
+        workspacePath: string;
         aiContext?: AIPanelIntentState['context'];
     }
 ) {
@@ -274,6 +278,7 @@ function getDataForType(
                 } : null,
                 errors: state.browserErrors,
                 sources: state.sources,  // Web search sources for the search tab
+                workspacePath: state.workspacePath,  // For live code editor
                 ...state.aiContext
             };
         case 'permission':

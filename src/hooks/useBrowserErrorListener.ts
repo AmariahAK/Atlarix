@@ -17,9 +17,58 @@ export function useBrowserErrorListener() {
     const setErrors = useSetAtom(browserErrorsAtom);
 
     useEffect(() => {
+        /**
+         * Filter out internal/library errors that aren't actionable
+         * - Monaco editor internal errors (inmemory://model)
+         * - CDN library errors (jsdelivr, unpkg, etc.)
+         * - Browser extension errors
+         */
+        const shouldIgnoreError = (message: string, source?: string): boolean => {
+            // Monaco TypeScript worker errors
+            if (message.includes('inmemory://model') ||
+                message.includes('Could not find source file:')) {
+                return true;
+            }
+
+            // CDN library files (not user's code)
+            const cdnPatterns = [
+                'cdn.jsdelivr.net',
+                'unpkg.com',
+                'esm.sh',
+                'cdnjs.cloudflare.com',
+                'monaco-editor',
+            ];
+            if (source && cdnPatterns.some(pattern => source.includes(pattern))) {
+                return true;
+            }
+            if (message && cdnPatterns.some(pattern => message.includes(pattern))) {
+                return true;
+            }
+
+            // Browser extension errors
+            if (source?.startsWith('chrome-extension://') ||
+                source?.startsWith('moz-extension://')) {
+                return true;
+            }
+
+            // Autofill-related errors (Chrome DevTools)
+            if (message.includes('Autofill.enable') ||
+                message.includes('Autofill.setAddresses')) {
+                return true;
+            }
+
+            return false;
+        };
+
         // Listen for CDP debugger console errors (from main process)
         const handleCDPError = (payload: any) => {
             console.log('[useBrowserErrorListener] CDP console error:', payload);
+
+            // Filter out internal/library errors
+            if (shouldIgnoreError(payload.message || '', payload.source)) {
+                console.log('[useBrowserErrorListener] Ignoring internal error:', payload.message?.slice(0, 60));
+                return;
+            }
 
             if (payload.type === 'error' || payload.type === 'warning') {
                 const error: BrowserError = {
@@ -72,6 +121,14 @@ export function useBrowserErrorListener() {
                 if (data.type === 'atlarix-error' && data.payload) {
                     console.log('[useBrowserErrorListener] Processing atlarix-error:', data.payload);
                     const payload = data.payload;
+
+                    // Filter out internal/library errors
+                    const errorMessage = payload.message || '';
+                    const errorSource = payload.file || payload.source || '';
+                    if (shouldIgnoreError(errorMessage, errorSource)) {
+                        console.log('[useBrowserErrorListener] Ignoring internal atlarix-error:', errorMessage.slice(0, 60));
+                        return;
+                    }
 
                     // Map errorType to our type system
                     // New format uses: 'runtime', 'unhandled-rejection', 'console-error', 'build'

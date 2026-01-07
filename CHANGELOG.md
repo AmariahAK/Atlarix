@@ -2,7 +2,58 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.12] - 2026-01-07
+
+### Chat Session Persistence
+- **Fixed**: Chat sessions now persist when navigating to Settings/Library/Diagram pages
+- **New**: Hidden div approach keeps chat mounted but visually hidden during navigation
+- **Improvement**: Streaming continues even when chat is hidden
+
+### Diagram State Notifiers
+- **New**: Staleness detection sends IPC events when AI modifies files
+- **New**: `diagramStalenessAtom` tracks when diagram needs refresh
+- **New**: Staleness banner in DiagramPanel shows when outdated
+- **New**: IPC channel `diagram:staleness-detected` whitelisted in preload.ts
+
+### Live Code Editor (Code Tab)
+- **New**: Monaco-based editor for files with errors
+- **New**: Collapsible file list showing files with error counts
+- **New**: Cmd/Ctrl+S to save changes directly from the editor
+- **New**: Unsaved changes indicator (amber dot)
+- **New**: Error line highlighting (red/yellow underlines like IDE)
+- **New**: Auto-position cursor at first error on file open
+- **New**: IPC handlers for file read/write operations
+
+### UI Improvements
+- **Changed**: Removed top 4-icon mode toolbar (simplified to single 7-tab bar)
+- **Added**: Diagram tab to secondary toolbar (now 7 tabs total)
+- **Fixed**: URL path parsing - extracts real paths from `http://localhost:5174/src/...`
+- **Fixed**: Filters out CDN/library files from error file list
+
+### Error Filtering
+- **New**: `shouldIgnoreError` filter in useBrowserErrorListener
+- **Filters**: Monaco `inmemory://model` errors
+- **Filters**: CDN library errors (jsdelivr, unpkg, esm.sh)
+- **Filters**: Browser extension errors
+- **Filters**: Chrome Autofill DevTools errors
+
+### Monaco Editor Improvements
+- **Fixed**: Disabled built-in TypeScript validation (prevents inmemory errors)
+- **Fixed**: Error markers auto-apply after file loads (100ms retry)
+- **New**: Squiggly underlines at error locations like real IDE
+
+### Files Modified
+- `src/app/layout.tsx`: PersistentChatContainer for session persistence
+- `src/ipc/handlers/file_handlers.ts`: [NEW] File read/write/stats IPC handlers
+- `src/components/preview_panel/ErrorFileEditor.tsx`: [NEW] Monaco-based editor
+- `src/components/preview_panel/CodePreviewPanel.tsx`: DiagramTab, workspacePath
+- `src/hooks/useRightPanelContext.ts`: Added diagram tab, workspacePath from currentAppAtom
+- `src/hooks/useBrowserErrorListener.ts`: Added shouldIgnoreError filter
+- `src/components/RightPanel.tsx`: Removed top toolbar, simplified to tabs only
+- `src/preload.ts`: Whitelisted file operation and diagram channels
+
 ## [v0.9.11] - 2026-01-07
+
 
 ### Error Capture UX Improvements
 

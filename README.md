@@ -77,6 +77,14 @@ This ensures you see:
 - **Suggest Button**: Add your own notes/suggestions when sending errors to AI
 - **Clean Prompts**: Simplified format without redundant markdown
 
+### 📝 Live Code Editor (NEW in v0.9.12!)
+- **Monaco Editor**: Edit error files directly in the Code tab
+- **Error Underlines**: Red/yellow squiggly lines at exact error locations
+- **File List**: Collapsible list of files with error counts
+- **Save Shortcut**: Cmd/Ctrl+S saves changes directly
+- **Auto-Focus**: Cursor positions at first error automatically
+
+
 ### 🎯 AI-Controlled Right Panel (NEW in v0.9.5!)
 - **Explicit AI Intent** - AI tells the panel what to show (no more heuristic guessing)
 - **Permission Panel** - Dedicated view for showing pending tool approvals
