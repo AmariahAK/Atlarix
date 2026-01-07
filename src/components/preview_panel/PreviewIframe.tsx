@@ -4,6 +4,7 @@ import {
   appOutputAtom,
   previewErrorMessageAtom,
 } from "@/atoms/appAtoms";
+import { browserErrorsAtom, type BrowserError } from "@/atoms/sourceAtoms";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -262,6 +263,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   // State to trigger iframe reload
   const [reloadKey, setReloadKey] = useState(0);
   const [errorMessage, setErrorMessage] = useAtom(previewErrorMessageAtom);
+  const setBrowserErrors = useSetAtom(browserErrorsAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const { streamMessage } = useStreamChat();
   const { routes: availableRoutes } = useParseRouter(selectedAppId);
@@ -575,6 +577,23 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
             timestamp: Date.now(),
           },
         ]);
+        // Also add to browserErrorsAtom so it shows in Errors Tab
+        setBrowserErrors((prev) => {
+          const newError: BrowserError = {
+            id: `iframe-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            type: 'runtime',
+            severity: 'error',
+            framework: 'browser',
+            actionable: true,
+            message: payload?.message || payload?.reason || 'Unknown error',
+            stack: stack,
+            timestamp: Date.now(),
+          };
+          // Deduplicate by message
+          const isDuplicate = prev.some(e => e.message === newError.message && Date.now() - e.timestamp < 5000);
+          if (isDuplicate) return prev;
+          return [...prev, newError];
+        });
       } else if (type === "build-error-report") {
         console.debug(`Build error report: ${payload}`);
         const errorMessage = `${payload?.message} from file ${payload?.file}.\n\nSource code:\n${payload?.frame}`;
@@ -588,6 +607,24 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
             timestamp: Date.now(),
           },
         ]);
+        // Also add to browserErrorsAtom so it shows in Errors Tab
+        setBrowserErrors((prev) => {
+          const newError: BrowserError = {
+            id: `build-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            type: 'build',
+            severity: 'error',
+            framework: 'vite',
+            actionable: true,
+            message: payload?.message || 'Build error',
+            file: payload?.file,
+            rawOutput: payload?.frame,
+            timestamp: Date.now(),
+          };
+          // Deduplicate by message
+          const isDuplicate = prev.some(e => e.message === newError.message && Date.now() - e.timestamp < 5000);
+          if (isDuplicate) return prev;
+          return [...prev, newError];
+        });
       } else if (type === "pushState" || type === "replaceState") {
         console.debug(`Navigation event: ${type}`, payload);
 

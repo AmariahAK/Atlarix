@@ -10,6 +10,7 @@ import { devServerManager, detectFramework } from '@/lib/dev_server_manager';
 import { db } from '@/db';
 import { apps } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { attachConsoleDebugger } from './console_debugger';
 
 const logger = log.scope('dev-server-handlers');
 
@@ -64,6 +65,12 @@ ipcMain.handle(
             }
 
             logger.log(`Starting dev server for workspace ${workspaceId} at ${workspace.path}`);
+
+            // Attach console debugger to capture browser errors via CDP
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) {
+                attachConsoleDebugger(win);
+            }
 
             const result = await devServerManager.startServer(
                 workspaceId,
@@ -141,12 +148,10 @@ ipcMain.handle('dev-server:list-running', async () => {
 
 // Import stream cleanup for AI requests
 import { abortAllStreams } from './chat_stream_handlers';
-import { stopAllProxies } from '@/lib/error_capture_proxy';
 
 app.on('before-quit', () => {
-    logger.log('App quitting, stopping all dev servers, proxies, and AI streams');
+    logger.log('App quitting, stopping all dev servers and AI streams');
     devServerManager.stopAllServers();
-    stopAllProxies();  // Also stop error capture proxies
     abortAllStreams(); // Cancel active AI requests to save tokens
 });
 

@@ -5,14 +5,15 @@
  * Supports model switcher and file attachments like the home input.
  */
 
-import { useState, useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import { SendIcon, Paperclip, StopCircle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
-import { useAtomValue } from "jotai";
-import { isStreamingByIdAtom } from "@/atoms/chatAtoms";
+import { useAtom, useAtomValue } from "jotai";
+import { isStreamingByIdAtom, chatInputValueAtom } from "@/atoms/chatAtoms";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
 import type { FileAttachment } from "@/ipc/ipc_types";
+import { useState } from "react";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -21,12 +22,21 @@ interface SimpleChatInputProps {
 }
 
 export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the conversation..." }: SimpleChatInputProps) {
-    const [inputValue, setInputValue] = useState("");
+    // Use global atom so "Fix with AI" button can pre-fill this input
+    const [inputValue, setInputValue] = useAtom(chatInputValueAtom);
     const { settings } = useSettings();
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+
+    // Auto-resize textarea when value changes (e.g., pre-filled by "Fix with AI")
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto';
+            inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 160)}px`;
+        }
+    }, [inputValue]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

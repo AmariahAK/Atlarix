@@ -4,6 +4,45 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 🔥 v0.9.12 - Next Up
+
+### Live Code Editor Tab
+- [ ] **Error File Viewer**: Show files with errors in Code tab (not all files)
+- [ ] **Live Editing**: User can edit error files directly without switching to IDE
+- [ ] **File Selector**: Collapsible list of files with errors (like ThinkingCard)
+- [ ] **Auto-Save**: Changes saved and hot-reloaded in preview
+- [ ] **Error Resolution**: Mark error as solved when file no longer has that error
+
+### Diagram State Notifiers
+- [ ] **50%+ Change Detection**: AI doesn't notify when project changes significantly
+- [ ] **Staleness Indicators**: Visual cue when diagram is outdated
+
+### Chat Session Persistence
+- [ ] **Navigate & Return**: Session persists when user leaves (Settings, Library)
+- [ ] **"Back to Chat" Button**: Return to active session without losing progress
+- [ ] **Why Lost?**: Investigate why session resets on navigation
+
+---
+
+## ✅ v0.9.11 - Error Capture UX Improvements (COMPLETED)
+
+### CDP-Based Error Capture ✅
+- [x] **Electron Debugger API**: Replaced proxy with `webContents.debugger` for reliability
+- [x] **Filter Atlarix Errors**: Skip port 5173 (Atlarix dev server) and internal Electron errors
+- [x] **IPC Whitelisting**: Added `browser-console-error` channel to preload.ts
+
+### "Fix with AI" Button ✅
+- [x] **SimpleChatInput Atom**: Changed from local useState to global `chatInputValueAtom`
+- [x] **Textarea Auto-Resize**: Added useEffect to expand when pre-filled
+- [x] **Clean Prompt Format**: Simplified to "Error: ... File: ..." (no redundant markdown)
+
+### "Suggest" Button ✅
+- [x] **Notes Input**: User can add suggestions when sending error to AI
+- [x] **Inline UI**: Input appears below Suggest button when clicked
+- [x] **Combined Prompt**: Error + user suggestion sent together
+
+---
+
 ## ✅ v0.9.8 - Permission Queue & Workspace Delete Fixes (COMPLETED)
 
 ### Permission Queue Integration ✅

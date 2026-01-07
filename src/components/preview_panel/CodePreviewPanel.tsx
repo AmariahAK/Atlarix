@@ -25,9 +25,11 @@ import {
     Trash2,
     Shield,
     Globe,
-    ExternalLink as LinkIcon
+    ExternalLink as LinkIcon,
+    Sparkles
 } from 'lucide-react';
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
+import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
 import { type SourceItem, browserErrorsAtom } from '@/atoms/sourceAtoms';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 
@@ -43,6 +45,7 @@ interface CodePreviewPanelProps {
     activeTab: string;
     onClearErrors?: () => void;
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
+    onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
 }
 
 type ViewportSize = 'mobile' | 'tablet' | 'desktop' | 'full';
@@ -54,7 +57,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
     full: { width: '100%', label: 'Full' },
 };
 
-export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI }: CodePreviewPanelProps) {
+export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI }: CodePreviewPanelProps) {
     const previewUrl = data?.url;
     const currentFile = data?.file;
     const terminalData = data?.terminal;
@@ -74,7 +77,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 <TerminalTab data={terminalData} />
             )}
             {activeTab === 'errors' && (
-                <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} />
+                <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} onSolveAllWithAI={onSolveAllWithAI} />
             )}
             {activeTab === 'permissions' && (
                 <PermissionsTab chatId={chatId} />
@@ -448,13 +451,19 @@ function TerminalTab({ data }: { data?: { output: string[]; running: boolean } }
 function ErrorsTab({
     errors,
     onClear,
-    onSolveWithAI
+    onSolveWithAI,
+    onSolveAllWithAI
 }: {
     errors: ParsedError[];
     onClear?: () => void;
     onSolveWithAI?: (error: ParsedError) => void;
+    onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+    const [showFixAllDialog, setShowFixAllDialog] = useState(false);
+    // State for "Suggest" feature - tracks which error has input open and the notes content
+    const [suggestingErrorId, setSuggestingErrorId] = useState<string | null>(null);
+    const [suggestNotes, setSuggestNotes] = useState('');
 
     const toggleExpanded = (id: string) => {
         setExpandedIds(prev => {
@@ -516,15 +525,28 @@ function ErrorsTab({
                         </div>
                     )}
                 </div>
-                {onClear && (
-                    <button
-                        onClick={onClear}
-                        className="p-1.5 text-xs rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-                        title="Clear all errors"
-                    >
-                        <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {/* Fix All Button */}
+                    {errors.length > 1 && onSolveAllWithAI && (
+                        <button
+                            onClick={() => setShowFixAllDialog(true)}
+                            className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
+                            title="Fix all errors with AI"
+                        >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Fix All</span>
+                        </button>
+                    )}
+                    {onClear && (
+                        <button
+                            onClick={onClear}
+                            className="p-1.5 text-xs rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                            title="Clear all errors"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Error List */}
@@ -611,16 +633,88 @@ function ErrorsTab({
 
                                             {/* Action Bar (always visible if actionable) */}
                                             {error.actionable && onSolveWithAI && (
-                                                <div className="mt-3 pl-7 flex items-center gap-2">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onSolveWithAI(error);
-                                                        }}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
-                                                    >
-                                                        <span>✨ Fix with AI</span>
-                                                    </button>
+                                                <div className="mt-3 pl-7 space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onSolveWithAI(error);
+                                                            }}
+                                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
+                                                        >
+                                                            <span>✨ Fix with AI</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (suggestingErrorId === error.id) {
+                                                                    setSuggestingErrorId(null);
+                                                                    setSuggestNotes('');
+                                                                } else {
+                                                                    setSuggestingErrorId(error.id);
+                                                                    setSuggestNotes('');
+                                                                }
+                                                            }}
+                                                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${suggestingErrorId === error.id
+                                                                    ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                                                                    : 'bg-zinc-700/30 text-zinc-400 hover:bg-zinc-700/50 border-zinc-700/50'
+                                                                }`}
+                                                        >
+                                                            <span>💡 Suggest</span>
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Suggest Notes Input */}
+                                                    {suggestingErrorId === error.id && (
+                                                        <div className="flex flex-col gap-2 p-2 rounded-md bg-zinc-800/50 border border-zinc-700/50" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="text"
+                                                                value={suggestNotes}
+                                                                onChange={(e) => setSuggestNotes(e.target.value)}
+                                                                placeholder="Your suggestion for the AI (e.g., 'add export keyword')"
+                                                                className="w-full px-2 py-1.5 text-xs rounded bg-zinc-900 border border-zinc-700 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-primary/50"
+                                                                autoFocus
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter' && suggestNotes.trim()) {
+                                                                        // Create enhanced error with user's suggestion
+                                                                        onSolveWithAI({
+                                                                            ...error,
+                                                                            message: `${error.message}\n\n💡 User's suggestion: ${suggestNotes}`
+                                                                        });
+                                                                        setSuggestingErrorId(null);
+                                                                        setSuggestNotes('');
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (suggestNotes.trim()) {
+                                                                            onSolveWithAI({
+                                                                                ...error,
+                                                                                message: `${error.message}\n\n💡 User's suggestion: ${suggestNotes}`
+                                                                            });
+                                                                            setSuggestingErrorId(null);
+                                                                            setSuggestNotes('');
+                                                                        }
+                                                                    }}
+                                                                    disabled={!suggestNotes.trim()}
+                                                                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                                >
+                                                                    <span>Send with Notes</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSuggestingErrorId(null);
+                                                                        setSuggestNotes('');
+                                                                    }}
+                                                                    className="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -640,6 +734,19 @@ function ErrorsTab({
                     </div>
                 ))}
             </div>
+
+            {/* Fix All Errors Dialog */}
+            {onSolveAllWithAI && (
+                <FixAllErrorsDialog
+                    isOpen={showFixAllDialog}
+                    onClose={() => setShowFixAllDialog(false)}
+                    errors={errors}
+                    onSubmit={(selectedErrors, context) => {
+                        onSolveAllWithAI(selectedErrors, context);
+                        setShowFixAllDialog(false);
+                    }}
+                />
+            )}
         </div>
     );
 }

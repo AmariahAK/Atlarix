@@ -242,6 +242,8 @@ const validReceiveChannels = [
   "right-panel:set-view",    // Legacy: kept for backwards compatibility
   // Dev server output streaming
   "dev-server:output",       // Live dev server console output
+  // Browser console error capture (CDP debugger)
+  "browser-console-error",   // Console errors from Electron debugger
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

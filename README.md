@@ -61,19 +61,21 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Project Evolution** - Visualize architecture changes over time
 - **Smart Snapshots** - Auto-capture when code changes
 - **Time Drill-Down** - Navigate from "All Time" to hourly
-### 🛡️ Hybrid Error Detection (New in v0.9.5)
-Atlarix now uses a "Double Agent" strategy to ensure no error is missed:
+### 🛡️ Hybrid Error Detection (v0.9.11)
+Atlarix uses multiple strategies to ensure no error is missed:
 1.  **Terminal Parser**: Reads output from your dev server (Vite, Next.js) to catch build errors.
-2.  **Type Watcher (LSP-Lite)**: Runs `tsc --watch` (or equivalent) in the background to catch type errors that bundlers usually ignore.
-3.  **Browser Listener**: Catches runtime errors in the preview window (with some limitations on initial load).
+2.  **Type Watcher (LSP-Lite)**: Runs `tsc --watch` in the background to catch type errors.
+3.  **CDP Browser Debugger**: Uses Electron's debugger API to capture runtime errors (filters out Atlarix's own errors).
 
 This ensures you see:
 *   Build Errors (Syntax)
 *   Type Errors (Missing imports/props)
 *   Runtime Errors (Crashes)
 
-### 🧩 Smart Suggestions
-errors are parsed and actionable fixes are suggested. Click "Fix with AI" to have the agent attempt to resolve the issue automatically.
+### 🧩 Smart Error Actions (NEW in v0.9.11!)
+- **Fix with AI**: One-click button to pre-fill chat with error context
+- **Suggest Button**: Add your own notes/suggestions when sending errors to AI
+- **Clean Prompts**: Simplified format without redundant markdown
 
 ### 🎯 AI-Controlled Right Panel (NEW in v0.9.5!)
 - **Explicit AI Intent** - AI tells the panel what to show (no more heuristic guessing)

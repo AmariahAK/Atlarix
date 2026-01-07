@@ -29,6 +29,7 @@ import {
     Search, Code, Workflow, Eye,
     AlertTriangle, Shield, Globe, Code2, FileText
 } from 'lucide-react';
+import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
@@ -85,17 +86,60 @@ export function RightPanel() {
 
     // Handle "Solve with AI" button click - pre-fills chat with error context
     const handleSolveWithAI = useCallback((error: { message: string; source?: string; stack?: string }) => {
-        const prompt = `Please fix this error in my application:
+        // Check if message already includes user suggestion (from Suggest button)
+        const hasSuggestion = error.message.includes("💡 User's suggestion:");
 
-**Error:** ${error.message}
-${error.source ? `**File:** ${error.source}` : ''}
-${error.stack ? `
-**Stack Trace:**
-\`\`\`
-${error.stack}
-\`\`\`` : ''}
+        let prompt: string;
+        if (hasSuggestion) {
+            // Split message and suggestion
+            const [errorPart, suggestionPart] = error.message.split("\n\n💡 User's suggestion:");
+            prompt = `Please identify the issue and provide a fix.
 
-Please identify the issue and provide a fix.`;
+Error: ${errorPart}${error.source ? `
+File: ${error.source}` : ''}
+
+💡 User's suggestion:${suggestionPart}`;
+        } else {
+            prompt = `Please identify the issue and provide a fix.
+
+Error: ${error.message}${error.source ? `
+File: ${error.source}` : ''}`;
+        }
+
+        setChatInput(prompt.trim());
+    }, [setChatInput]);
+
+    // Handle "Fix All" button click - formats multiple errors for AI
+    const handleSolveAllWithAI = useCallback((errors: ParsedError[], context: string) => {
+        // Group errors by type for better organization
+        const errorsByType = errors.reduce((acc, err) => {
+            const type = err.type || 'unknown';
+            if (!acc[type]) acc[type] = [];
+            acc[type].push(err);
+            return acc;
+        }, {} as Record<string, ParsedError[]>);
+
+        // Format errors list
+        const errorsList = Object.entries(errorsByType)
+            .map(([type, errs]) => {
+                const header = `### ${type.toUpperCase()} ERRORS`;
+                const items = errs.map((e, i) =>
+                    `${i + 1}. **${e.file || 'Unknown file'}${e.line ? `:${e.line}` : ''}**\n   ${e.message}${e.stack ? `\n   \`\`\`\n   ${e.stack.slice(0, 200)}...\n   \`\`\`` : ''}`
+                ).join('\n\n');
+                return `${header}\n${items}`;
+            })
+            .join('\n\n---\n\n');
+
+        const prompt = `Please fix the following ${errors.length} error${errors.length !== 1 ? 's' : ''} in my application:
+
+${errorsList}
+${context ? `
+---
+
+**Additional Context from User:**
+${context}` : ''}
+
+Please fix these errors in priority order (structural/build errors first, then runtime errors). Provide fixes for each error.`;
 
         setChatInput(prompt.trim());
     }, [setChatInput]);
@@ -310,7 +354,7 @@ Please identify the issue and provide a fix.`;
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} />
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} />
             </div>
         </div>
     );
@@ -321,10 +365,12 @@ Please identify the issue and provide a fix.`;
  */
 function PanelContent({
     context,
-    onSolveWithAI
+    onSolveWithAI,
+    onSolveAllWithAI
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
+    onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
 }) {
     switch (context.type) {
         case 'web-search':
@@ -339,6 +385,7 @@ function PanelContent({
                     data={context.data}
                     activeTab={context.activeTab}
                     onSolveWithAI={onSolveWithAI}
+                    onSolveAllWithAI={onSolveAllWithAI}
                 />
             );
 

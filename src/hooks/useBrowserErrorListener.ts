@@ -3,9 +3,10 @@
  * =======================
  * Hook to capture browser console errors from the live preview iframe.
  * 
- * Vite's dev server sends error messages via postMessage when compilation
- * or runtime errors occur. This hook listens for those messages and updates
- * the browserErrorsAtom.
+ * Error sources:
+ * 1. CDP Debugger (browser-console-error IPC) - Electron's debugger API
+ * 2. PostMessage from iframe - Vite/Webpack HMR errors
+ * 3. Window error events - Uncaught exceptions
  */
 
 import { useEffect } from 'react';
@@ -16,6 +17,41 @@ export function useBrowserErrorListener() {
     const setErrors = useSetAtom(browserErrorsAtom);
 
     useEffect(() => {
+        // Listen for CDP debugger console errors (from main process)
+        const handleCDPError = (payload: any) => {
+            console.log('[useBrowserErrorListener] CDP console error:', payload);
+
+            if (payload.type === 'error' || payload.type === 'warning') {
+                const error: BrowserError = {
+                    id: `cdp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    type: 'runtime',
+                    severity: payload.type === 'warning' ? 'warning' : 'error',
+                    framework: 'browser',
+                    actionable: true,
+                    message: payload.message || 'Unknown error',
+                    file: payload.source,
+                    line: payload.line,
+                    column: payload.column,
+                    stack: payload.stack,
+                    timestamp: payload.timestamp || Date.now(),
+                };
+
+                setErrors((prev) => {
+                    // Avoid duplicates
+                    const isDuplicate = prev.some(
+                        e => e.message === error.message && Date.now() - e.timestamp < 5000
+                    );
+                    if (isDuplicate) return prev;
+                    console.log('[useBrowserErrorListener] Adding CDP error:', error.message);
+                    return [...prev, error];
+                });
+            }
+        };
+
+        // Register CDP listener (use type assertion since window.electron type doesn't include .on)
+        const ipcRenderer = window.electron?.ipcRenderer as any;
+        ipcRenderer?.on?.('browser-console-error', handleCDPError);
+
         const handleMessage = (event: MessageEvent) => {
             // Log all messages for debugging (comment out in production)
             if (event.data?.type) {
@@ -29,26 +65,34 @@ export function useBrowserErrorListener() {
                 const data = event.data;
 
                 // ================================================
-                // Atlarix Error Capture Script (from injected proxy)
-                // This is the primary error source - captures console.error, 
-                // window.onerror, and unhandled rejections from the iframe
+                // Atlarix Error Capture Script (from injected shim)
+                // Captures: runtime errors, promise rejections, 
+                // console.error, Vite overlay, Next.js overlay
                 // ================================================
                 if (data.type === 'atlarix-error' && data.payload) {
                     console.log('[useBrowserErrorListener] Processing atlarix-error:', data.payload);
                     const payload = data.payload;
+
+                    // Map errorType to our type system
+                    // New format uses: 'runtime', 'unhandled-rejection', 'console-error', 'build'
+                    // Old format uses: 'error', 'console-error', 'unhandled-rejection'
+                    const errorType = payload.errorType || payload.type || 'runtime';
+                    const isBuildError = errorType === 'build';
+
                     const error: BrowserError = {
                         id: `atlarix-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                        type: payload.type === 'console-error' ? 'runtime'
-                            : payload.type === 'unhandled-rejection' ? 'runtime'
-                                : 'runtime',
+                        type: isBuildError ? 'build' : 'runtime',
                         severity: 'error',
-                        framework: 'browser',
-                        actionable: false,
+                        framework: isBuildError ? 'vite' : 'browser',
+                        actionable: true, // All browser errors can be sent to AI
                         message: payload.message || 'Unknown error',
-                        file: payload.source,
-                        line: payload.lineno,
-                        column: payload.colno,
+                        // Support both old (source) and new (file) field names
+                        file: payload.file || payload.source,
+                        line: payload.line || payload.lineno,
+                        column: payload.column || payload.colno,
                         stack: payload.stack,
+                        // Include frame for Vite build errors (source code snippet)
+                        rawOutput: payload.frame,
                         timestamp: payload.timestamp || Date.now(),
                     };
 
@@ -56,13 +100,14 @@ export function useBrowserErrorListener() {
                         // Avoid duplicates in last 5 seconds
                         const isDuplicate = prev.some(
                             e => e.message === error.message &&
-                                Date.now() - e.timestamp < 5000
+                                e.file === error.file &&
+                                Date.now() - (e.timestamp || 0) < 5000
                         );
                         if (isDuplicate) {
                             console.log('[useBrowserErrorListener] Duplicate error, ignoring');
                             return prev;
                         }
-                        console.log('[useBrowserErrorListener] Adding error to browserErrorsAtom');
+                        console.log('[useBrowserErrorListener] Adding error to browserErrorsAtom:', error.type, error.message);
                         return [...prev, error];
                     });
                     return; // Don't process further
@@ -154,6 +199,7 @@ export function useBrowserErrorListener() {
         return () => {
             window.removeEventListener('message', handleMessage);
             window.removeEventListener('error', handleError);
+            ipcRenderer?.removeListener?.('browser-console-error', handleCDPError);
         };
     }, [setErrors]);
 }

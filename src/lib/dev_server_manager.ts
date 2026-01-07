@@ -17,7 +17,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import { BrowserWindow } from 'electron';
-import { createErrorCaptureProxy, stopProxy, stopAllProxies } from './error_capture_proxy';
 
 const execAsync = promisify(exec);
 const logger = log.scope('dev-server-manager');
@@ -294,36 +293,12 @@ export class DevServerManager {
                 server.url = detectedUrl;
                 logger.log(`✅ Dev server ready at ${detectedUrl}`);
 
-                // Start error capture proxy
-                createErrorCaptureProxy(workspaceId, detectedUrl)
-                    .then(({ proxyUrl }) => {
-                        server.proxyUrl = proxyUrl;
-                        logger.log(`✅ Error capture proxy ready at ${proxyUrl}`);
-
-                        // Notify callback with proxy URL (not raw URL)
-                        const callback = this.urlCallbacks.get(workspaceId);
-                        if (callback) {
-                            callback(proxyUrl);
-                        }
-                    })
-                    .catch((err) => {
-                        logger.warn(`⚠️ Error capture proxy failed: ${err.message}`);
-                        logger.warn(`Falling back to direct URL (error capture will use postMessage)`);
-
-                        // Emit event so frontend knows to rely on postMessage
-                        if (mainWindow && !mainWindow.isDestroyed()) {
-                            mainWindow.webContents.send('error-capture:proxy-failed', {
-                                workspaceId,
-                                reason: err.message
-                            });
-                        }
-
-                        // Fall back to raw URL
-                        const callback = this.urlCallbacks.get(workspaceId);
-                        if (callback) {
-                            callback(detectedUrl);
-                        }
-                    });
+                // Notify callback with direct URL
+                // Browser errors are now captured via Electron's CDP debugger (console_debugger.ts)
+                const callback = this.urlCallbacks.get(workspaceId);
+                if (callback) {
+                    callback(detectedUrl);
+                }
             }
         };
 
@@ -336,7 +311,6 @@ export class DevServerManager {
 
         proc.on('exit', (code) => {
             logger.log(`Dev server exited for workspace ${workspaceId} with code ${code}`);
-            stopProxy(workspaceId);  // Stop the error capture proxy
             this.runningServers.delete(workspaceId);
             this.urlCallbacks.delete(workspaceId);
         });

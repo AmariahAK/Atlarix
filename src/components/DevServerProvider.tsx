@@ -17,7 +17,8 @@ import { selectedAppIdAtom } from '@/atoms/appAtoms';
 import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput, browserErrorsAtom } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
-import { parseDevServerOutput, deduplicateErrors } from '@/lib/devServerErrorParser';
+import { deduplicateErrors } from '@/lib/devServerErrorParser';
+import { TerminalIntelligence } from '@/lib/terminal-intelligence';
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const workspaceId = useAtomValue(selectedAppIdAtom);
@@ -51,9 +52,9 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
                 return next;
             });
 
-            // Parse output for errors (IDE-style detection)
-            // This captures errors from Vite, TypeScript, Python, etc. directly from stdout/stderr
-            const parsedErrors = parseDevServerOutput(payload.output, payload.framework);
+            // Parse output for errors using TerminalIntelligence (3-layer system)
+            // Layer 1: SARIF (if JSON) | Layer 2: Problem Matchers | Layer 3: LLM fallback (not used here)
+            const parsedErrors = TerminalIntelligence.parse(payload.output);
 
             if (parsedErrors.length > 0) {
                 console.log(`[DevServerProvider] Detected ${parsedErrors.length} errors in output`);

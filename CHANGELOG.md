@@ -2,6 +2,32 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.11] - 2026-01-07
+
+### Error Capture UX Improvements
+
+#### CDP-Based Browser Error Capture
+- **New**: Replaced proxy-based capture with Electron's `webContents.debugger` API (CDP)
+- **Filter**: Atlarix's own errors (port 5173) and internal Electron warnings filtered out
+- **Reliability**: Direct access to iframe console without injection race conditions
+
+#### "Fix with AI" Button
+- **Fixed**: Button now correctly pre-fills chat input (was using local state instead of atom)
+- **Added**: Textarea auto-resizes when pre-filled with error prompt
+- **Simplified**: Error prompt format - clean "Error: ... File: ..." (no redundant markdown/stack)
+
+#### "Suggest" Button (New Feature)
+- **New**: Users can add their own suggestions/notes when sending errors to AI
+- **UI**: Inline input field appears when Suggest is clicked
+- **Format**: Combined prompt includes error + user's suggestion for better AI context
+
+#### Files Modified
+- `src/ipc/handlers/console_debugger.ts`: Added `isAtlarixOrInternalError` filter
+- `src/components/SimpleChatInput.tsx`: Changed to use `chatInputValueAtom` + auto-resize
+- `src/components/RightPanel.tsx`: Simplified error prompt format, handles user suggestions
+- `src/components/preview_panel/CodePreviewPanel.tsx`: Added Suggest button in ErrorsTab
+- `src/preload.ts`: Whitelisted `browser-console-error` IPC channel
+
 ## [v0.9.10] - 2026-01-05
 ## [v0.9.5] - 2026-01-06
 
