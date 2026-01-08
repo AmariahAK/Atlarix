@@ -776,6 +776,41 @@ ${componentSnippet}
             codebaseInfo.length / 4,
           );
 
+          // ═══════════════════════════════════════════════════════════════
+          // COLD START: Background diagram generation for new workspaces
+          // Start non-blocking generation if no diagram exists yet
+          // ═══════════════════════════════════════════════════════════════
+          const workspaceId = updatedChat.app?.id;
+          if (workspaceId) {
+            try {
+              const { DiagramManager } = await import("../../lib/DiagramManager");
+              const hasDiagram = await DiagramManager.hasAnyDiagram(workspaceId);
+
+              if (!hasDiagram && !DiagramManager.isGenerating(workspaceId)) {
+                logger.info(`[Cold Start] Starting background diagram generation for workspace ${workspaceId}`);
+
+                // Start background generation (non-blocking - don't await)
+                DiagramManager.generateInitialDiagram(workspaceId, appPath)
+                  .then((diagram) => {
+                    logger.info(`[Cold Start] Initial diagram ready for workspace ${workspaceId}`);
+                    // Notify renderer that diagram is ready
+                    safeSend(event.sender, "diagram:initial-ready", {
+                      workspaceId,
+                      diagramId: diagram.id,
+                      title: diagram.title,
+                    });
+                  })
+                  .catch((err) => {
+                    logger.error(`[Cold Start] Background diagram generation failed:`, err);
+                  });
+              } else if (DiagramManager.isGenerating(workspaceId)) {
+                logger.info(`[Cold Start] Diagram generation already in progress for workspace ${workspaceId}`);
+              }
+            } catch (coldStartError) {
+              logger.warn("[Cold Start] Failed to check/start diagram generation:", coldStartError);
+            }
+          }
+
           // Prepare message history for the AI
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK

@@ -48,6 +48,7 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
     const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<Monaco | null>(null);
+    const decorationIdsRef = useRef<string[]>([]);
 
     /**
      * Clean file path from URLs
@@ -210,57 +211,62 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
             if (!model || model.isDisposed()) return;
 
             // Create decorations for error lines (background highlighting)
-            const decorations = selectedFile.errors
-                .filter(err => err.line !== undefined)
-                .map(err => ({
-                    range: new monaco.Range(err.line!, 1, err.line!, 1),
-                    options: {
-                        isWholeLine: true,
-                        className: err.severity === 'error'
-                            ? 'error-line-decoration'
-                            : 'warning-line-decoration',
-                        glyphMarginClassName: err.severity === 'error'
-                            ? 'error-glyph-margin'
-                            : 'warning-glyph-margin',
-                        glyphMarginHoverMessage: { value: err.message },
-                    },
-                }));
+            // Line numbers must be positive integers for Monaco
+            const validErrors = selectedFile.errors.filter(err =>
+                typeof err.line === 'number' && err.line > 0 && Number.isInteger(err.line)
+            );
 
-            editor.deltaDecorations([], decorations);
+            const decorations = validErrors.map(err => ({
+                range: new monaco.Range(err.line!, 1, err.line!, 1),
+                options: {
+                    isWholeLine: true,
+                    className: err.severity === 'error'
+                        ? 'error-line-decoration'
+                        : 'warning-line-decoration',
+                    glyphMarginClassName: err.severity === 'error'
+                        ? 'error-glyph-margin'
+                        : 'warning-glyph-margin',
+                    glyphMarginHoverMessage: { value: err.message },
+                },
+            }));
+
+            // Properly dispose old decorations before adding new ones
+            decorationIdsRef.current = editor.deltaDecorations(
+                decorationIdsRef.current,
+                decorations
+            );
 
             // Create Monaco markers (squiggly underlines like IDE)
-            const markers = selectedFile.errors
-                .filter(err => err.line !== undefined)
-                .map(err => {
-                    const line = err.line!;
-                    const column = err.column || 1;
-                    // Get line content to calculate end column
-                    const lineContent = model.getLineContent(line) || '';
-                    const endColumn = column + 20; // Underline ~20 chars or to end of line
+            const markers = validErrors.map(err => {
+                const line = err.line!;
+                const column = err.column || 1;
+                // Get line content to calculate end column
+                const lineContent = model.getLineContent(line) || '';
+                const endColumn = column + 20; // Underline ~20 chars or to end of line
 
-                    return {
-                        severity: err.severity === 'error'
-                            ? monaco.MarkerSeverity.Error
-                            : monaco.MarkerSeverity.Warning,
-                        message: err.message,
-                        startLineNumber: line,
-                        startColumn: column,
-                        endLineNumber: line,
-                        endColumn: Math.min(endColumn, lineContent.length + 1),
-                    };
-                });
+                return {
+                    severity: err.severity === 'error'
+                        ? monaco.MarkerSeverity.Error
+                        : monaco.MarkerSeverity.Warning,
+                    message: err.message,
+                    startLineNumber: line,
+                    startColumn: column,
+                    endLineNumber: line,
+                    endColumn: Math.min(endColumn, lineContent.length + 1),
+                };
+            });
 
             // Set markers on the model
             monaco.editor.setModelMarkers(model, 'error-file-editor', markers);
 
-            // Jump to first error line
-            const firstError = selectedFile.errors.find(e => e.line !== undefined);
-            if (firstError?.line) {
+            // Jump to first error line (ensure valid line number > 0)
+            const firstError = validErrors[0];
+            if (firstError && firstError.line && firstError.line > 0) {
                 editor.revealLineInCenter(firstError.line);
                 // Also position cursor at the error
                 editor.setPosition({
                     lineNumber: firstError.line,
-                    column: firstError.column || 1
+                    column: Math.max(1, firstError.column || 1)
                 });
             }
         };
@@ -269,9 +275,17 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
         applyMarkers();
         const timerId = setTimeout(applyMarkers, 100);
 
-        // Cleanup markers when component unmounts or file changes
+        // Cleanup markers and decorations when component unmounts or file changes
         return () => {
             clearTimeout(timerId);
+            // Clear decorations
+            if (editorRef.current && decorationIdsRef.current.length > 0) {
+                decorationIdsRef.current = editorRef.current.deltaDecorations(
+                    decorationIdsRef.current,
+                    []
+                );
+            }
+            // Clear markers
             const model = editor.getModel();
             if (model && !model.isDisposed()) {
                 monaco.editor.setModelMarkers(model, 'error-file-editor', []);
@@ -405,6 +419,8 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
                     </div>
                 ) : selectedFile ? (
                     <Editor
+                        key={selectedFile.absolutePath}
+                        path={selectedFile.absolutePath}
                         height="100%"
                         language={getLanguage(selectedFile.path)}
                         value={fileContent}
@@ -422,6 +438,11 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
                             automaticLayout: true,
                             tabSize: 2,
                             wordWrap: 'on',
+                            quickSuggestions: false,
+                            parameterHints: { enabled: false },
+                            suggestOnTriggerCharacters: false,
+                            acceptSuggestionOnCommitCharacter: false,
+                            tabCompletion: 'off',
                         }}
                     />
                 ) : (
@@ -452,22 +473,26 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
             {/* CSS for error decorations */}
             <style>{`
                 .error-line-decoration {
-                    background-color: rgba(239, 68, 68, 0.1) !important;
-                    border-left: 2px solid rgb(239, 68, 68);
+                    background-color: rgba(239, 68, 68, 0.15) !important;
                 }
                 .warning-line-decoration {
-                    background-color: rgba(234, 179, 8, 0.1) !important;
-                    border-left: 2px solid rgb(234, 179, 8);
+                    background-color: rgba(234, 179, 8, 0.15) !important;
                 }
                 .error-glyph-margin {
-                    background-color: rgb(239, 68, 68);
-                    border-radius: 50%;
-                    margin-left: 3px;
+                    background: rgb(239, 68, 68) !important;
+                    width: 8px !important;
+                    height: 8px !important;
+                    border-radius: 50% !important;
+                    margin-left: 4px !important;
+                    margin-top: 6px !important;
                 }
                 .warning-glyph-margin {
-                    background-color: rgb(234, 179, 8);
-                    border-radius: 50%;
-                    margin-left: 3px;
+                    background: rgb(234, 179, 8) !important;
+                    width: 8px !important;
+                    height: 8px !important;
+                    border-radius: 50% !important;
+                    margin-left: 4px !important;
+                    margin-top: 6px !important;
                 }
             `}</style>
         </div>

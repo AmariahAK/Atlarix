@@ -30,6 +30,7 @@ import {
     RotateCcw,
     X,
     Terminal,
+    Map,
 } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -130,17 +131,24 @@ function OperationCard({
                     : <FileEdit className="w-4 h-4 text-blue-400" />;
             case 'delete_file':
                 return <Trash2 className="w-4 h-4 text-red-400" />;
+            case 'update_diagram':
+                return <Map className="w-4 h-4 text-emerald-400" />;
             default:
                 return <FileEdit className="w-4 h-4 text-gray-400" />;
         }
     };
 
     // Get display name - command text or filename
-    const displayName = operation.command
-        ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
-        : operation.path
-            ? operation.path.split('/').pop()
-            : `${operation.operation} operation`;
+    const isDiagramUpdate = operation.operation === 'update_diagram';
+    const diagramPreview = isDiagramUpdate ? JSON.parse(operation.preview || '{}') : null;
+
+    const displayName = isDiagramUpdate
+        ? 'Diagram Update Request'
+        : operation.command
+            ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
+            : operation.path
+                ? operation.path.split('/').pop()
+                : `${operation.operation} operation`;
 
     // Full path for tooltip
     const fullPath = operation.path || operation.command || '';
@@ -247,10 +255,34 @@ function OperationCard({
                     )}
 
                     {/* JSON preview fallback */}
-                    {operation.preview && !operation.content && operation.operation !== 'run_command' && (
+                    {operation.preview && !operation.content && operation.operation !== 'run_command' && operation.operation !== 'update_diagram' && (
                         <pre className="text-xs bg-background-darkest text-muted-foreground p-2 rounded overflow-x-auto max-h-24 overflow-y-auto">
                             {operation.preview}
                         </pre>
+                    )}
+
+                    {/* Diagram update preview */}
+                    {isDiagramUpdate && diagramPreview && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <Map className="w-4 h-4 text-emerald-400" />
+                                <span className="font-medium text-emerald-300">Diagram Regeneration</span>
+                                <span className={cn(
+                                    "text-xs px-2 py-0.5 rounded-full font-medium",
+                                    diagramPreview.type === 'major' && "bg-amber-500/20 text-amber-400",
+                                    diagramPreview.type === 'new_component' && "bg-cyan-500/20 text-cyan-400",
+                                    diagramPreview.type === 'minor' && "bg-slate-500/20 text-slate-400"
+                                )}>
+                                    {diagramPreview.type}
+                                </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                <strong className="text-emerald-300">Affected:</strong> {diagramPreview.components?.join(', ') || 'N/A'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                {diagramPreview.description}
+                            </p>
+                        </div>
                     )}
 
                     {/* Duration for completed */}

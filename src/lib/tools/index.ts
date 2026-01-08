@@ -27,6 +27,7 @@ import "./analysis-tools";
 import "./diagram-tools";
 import "./testing-tools";
 import "./refactoring-tools";
+import "./project-structure-tools"; // Multi-Layer Fallback System
 import "./meta-tools"; // Phase 3: New meta-tools
 
 

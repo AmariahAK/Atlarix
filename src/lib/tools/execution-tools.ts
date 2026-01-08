@@ -220,15 +220,7 @@ ToolRegistry.register({
 
 ToolRegistry.register({
     name: "check_command_status",
-    description:
-        `Check the status of a previously executed command. Use this to verify a command has completed before proceeding with dependent operations.
-        
-Use when:
-- You started a long-running command (npm install, build, scaffold)
-- You need to confirm completion before the next step
-- You want to check if a command failed before continuing
-
-Returns: { status: 'running' | 'completed' | 'failed', output?: string, exitCode?: number }`,
+    description: "Check status of a previous command. Returns running/completed/failed.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: true,

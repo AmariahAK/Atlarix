@@ -26,16 +26,7 @@ import {
 ToolRegistry.register({
     name: "replace_code",
     category: ToolCategory.FILE,
-    description:
-        `Replace a specific code snippet in a file. MUCH more efficient than write_file for small changes.
-        
-Use this when:
-- Fixing a bug in one function
-- Updating a variable value
-- Changing an import statement
-- Making any small, targeted change
-
-The old_code must EXACTLY match (including whitespace). Use view_symbol or read_file first to get exact code.`,
+    description: "Replace a specific code snippet. The old_code must match EXACTLY (including whitespace).",
     cost: 3,
     requiresWorkspace: true,
     isCore: true,
@@ -140,13 +131,7 @@ The old_code must EXACTLY match (including whitespace). Use view_symbol or read_
 ToolRegistry.register({
     name: "insert_code",
     category: ToolCategory.FILE,
-    description:
-        `Insert code at a specific line in a file. Use for adding new functions, imports, or code blocks.
-        
-Use this when:
-- Adding a new import at the top
-- Adding a new function to a file
-- Inserting code between existing blocks`,
+    description: "Insert code at a specific line. Use for adding imports, functions, or code blocks.",
     cost: 3,
     requiresWorkspace: true,
     isCore: true,

@@ -146,11 +146,71 @@ loader.init().then((monaco) => {
   monaco.editor.defineTheme("atlarix-light", customLight);
   monaco.editor.defineTheme("atlarix-dark", customDark);
 
+  // ==========================================================
+  // TypeScript Configuration
+  // Disable all validation to prevent "inmemory://model" errors
+  // We don't have full TypeScript context so validation is noisy
+  // ==========================================================
   monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-    jsx: monaco.languages.typescript.JsxEmit.React, // Enable JSX
+    jsx: monaco.languages.typescript.JsxEmit.React,
+    allowNonTsExtensions: true,
+    allowJs: true,
+    target: monaco.languages.typescript.ScriptTarget.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    noEmit: true,
+    esModuleInterop: true,
+    skipLibCheck: true,
   });
+
   monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-    // Too noisy because we don't have the full TS environment.
     noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
   });
+
+  // Disable eager model sync to prevent worker errors
+  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(false);
+
+  // ==========================================================
+  // JavaScript Configuration (same as TypeScript)
+  // ==========================================================
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+    jsx: monaco.languages.typescript.JsxEmit.React,
+    allowNonTsExtensions: true,
+    allowJs: true,
+    target: monaco.languages.typescript.ScriptTarget.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    noEmit: true,
+    esModuleInterop: true,
+  });
+
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
+  });
+
+  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
 });
+
+// ==========================================================
+// Suppress Monaco TypeScript Worker Errors
+// These errors occur when TS worker tries to access disposed models
+// They are not actionable and clutter the console
+// ==========================================================
+if (typeof window !== 'undefined') {
+  const originalConsoleError = console.error;
+  console.error = (...args) => {
+    // Suppress "Could not find source file: 'inmemory://model'" errors
+    const firstArg = args[0];
+    if (typeof firstArg === 'string' && firstArg.includes('inmemory://model')) {
+      return; // Suppress
+    }
+    if (typeof firstArg === 'object' && firstArg?.message?.includes?.('inmemory://model')) {
+      return; // Suppress
+    }
+    originalConsoleError.apply(console, args);
+  };
+}

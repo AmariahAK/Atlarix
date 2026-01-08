@@ -28,24 +28,7 @@ const execAsync = promisify(exec);
 ToolRegistry.register({
     name: "create_workspace",
     category: ToolCategory.FILE,
-    description: `Create a new workspace for building a project.
-
-Call this tool when:
-- User wants to build/create an app/website
-- Starting a new project from scratch
-- Preparing to apply a template
-
-DO NOT call for:
-- Simple questions or chat
-- Web searches
-- Information gathering
-
-After creating workspace, you can:
-- Use apply_template to clone a template
-- Use write_file to create files from scratch
-- Use git tools to manage code
-
-Returns workspace ID and path.`,
+    description: "Create a new workspace (project folder) for building an app. Returns workspace ID and path.",
     cost: 5,
     requiresWorkspace: false, // Called BEFORE workspace exists
     isCore: true, // Always available

@@ -24,25 +24,7 @@ import { smartSearch, isSearxngEnabled } from "../search";
 
 ToolRegistry.register({
     name: "web_search",
-    description:
-        `Unified web search with 3 modes and intelligent source selection:
-
-MODES:
-- quick (3 credits): Fast search, returns top results
-- deep (5 credits): Fetches full content from top URLs
-- comprehensive (8 credits): Maximum depth research with cross-referencing
-
-SOURCES (choose based on query type):
-- general: News, articles, blogs, current events (use for: news, trends, general info)
-- stackoverflow: Programming Q&A (use for: code solutions, debugging)
-- github: Code repositories, issues (use for: libraries, projects, examples)
-- reddit: Community discussions (use for: opinions, experiences)
-- mdn: Web API documentation (use for: HTML/CSS/JS API reference)
-- all: Search all sources (use when broad coverage needed)
-
-IMPORTANT: For news/current events, use sources="general". For code help, use sources="stackoverflow,github,mdn".
-
-Returns rich previews with inline readable content.`,
+    description: "Search the web. Modes: quick | deep | comprehensive. Sources: general, stackoverflow, github, reddit, mdn, all. See AGENTS.md for details.",
     category: ToolCategory.WEB,
     cost: 3, // Base cost, adjusted by mode
     requiresWorkspace: false,

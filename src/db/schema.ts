@@ -334,10 +334,10 @@ export const diagrams = sqliteTable("diagrams", {
   workspaceId: integer("workspace_id").references(() => apps.id, { onDelete: "cascade" }),
   chatId: integer("chat_id").references(() => chats.id, { onDelete: "set null" }),
   type: text("type", {
-    enum: ["mermaid", "plantuml", "architecture", "sequence", "class", "flowchart"],
+    enum: ["mermaid", "architecture", "sequence", "class", "flowchart"],
   }).notNull(),
   title: text("title").notNull(),
-  content: text("content").notNull(), // Mermaid/PlantUML code
+  content: text("content").notNull(), // Mermaid diagram code
   metadata: text("metadata", { mode: "json" }).$type<{
     files?: string[];
     entities?: string[];
@@ -369,7 +369,7 @@ export const diagramVersions = sqliteTable("diagram_versions", {
   diagramId: integer("diagram_id")
     .notNull()
     .references(() => diagrams.id, { onDelete: "cascade" }),
-  content: text("content").notNull(), // Previous Mermaid/PlantUML code
+  content: text("content").notNull(), // Previous Mermaid diagram code
   changeDescription: text("change_description"), // AI: "Added authentication flow"
   // New fields for Diagram-First Context System
   trigger: text("trigger", {

@@ -2,7 +2,7 @@
 
 **Atlas + Axis + Intelligence**
 
-Atlarix is your premium AI coding copilot - a powerful desktop application that brings together 41 intelligent tools for modern software development.
+Atlarix is your premium AI coding copilot - a powerful desktop application that brings together 55 intelligent tools for modern software development.
 
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
@@ -51,7 +51,13 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **OpenRouter** - Cloud access to 100+ models (including MiniMax 2.1)
 - **Model Name Display** - See which model generated each response
 
-### 🛠️ 41 Intelligent Tools
+### 🧠 Smart Context System (NEW in v0.9.14!)
+- **AGENTS.md Reference** - Single source of truth for all 55 tools
+- **Model-Aware Loading** - Full guidance for 32K+, compact for 8K models
+- **~80% Prompt Reduction** - system_prompt.ts stripped from 770 to 153 lines
+- **Small Model Support** - Actually fits in Ollama 8K context now!
+
+### 🛠️ 55 Intelligent Tools
 **File Operations** - Read, write, search, modify files  
 **Code Intelligence** - Semantic search, architecture diagrams  
 **Web & Research** - web_search, deep_search, read_url  

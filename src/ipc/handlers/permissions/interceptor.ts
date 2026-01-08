@@ -22,6 +22,7 @@ import {
     PermissionResult,
     FileOperationPreview,
     CommandOperationPreview,
+    DiagramUpdatePreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
@@ -416,6 +417,10 @@ export class PermissionInterceptor extends EventEmitter {
                 case "delete_lines":
                     await this.executeWriteFile(request);
                     break;
+                // AI-controlled diagram update
+                case "update_diagram":
+                    await this.executeUpdateDiagram(request);
+                    break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
             }
@@ -796,6 +801,35 @@ export class PermissionInterceptor extends EventEmitter {
 
         await fs.rename(fromFullPath, toFullPath);
         logger.log(`Renamed file: ${fromFullPath} → ${toFullPath}`);
+    }
+
+    /**
+     * Execute diagram update when user approves the AI's request.
+     * Calls DiagramManager.regenerateForWorkspace with focus components.
+     */
+    private async executeUpdateDiagram(request: PermissionRequest): Promise<void> {
+        const preview = request.preview as DiagramUpdatePreview;
+
+        if (!this.workspaceId) {
+            throw new Error("Cannot update diagram: workspace ID not set");
+        }
+
+        logger.log(`[executeUpdateDiagram] Regenerating diagram for workspace ${this.workspaceId}`, {
+            type: preview.type,
+            components: preview.components,
+            description: preview.description,
+        });
+
+        // Import DiagramManager dynamically to avoid circular dependencies
+        const { DiagramManager } = await import("../../../lib/DiagramManager");
+
+        // Regenerate diagram with focus on affected components
+        await DiagramManager.regenerateForWorkspace(this.workspaceId, {
+            focusComponents: preview.components,
+            context: preview.description,
+        });
+
+        logger.log(`[executeUpdateDiagram] Diagram regenerated successfully`);
     }
 
     /**

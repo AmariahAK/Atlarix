@@ -1803,7 +1803,7 @@ export class IpcClient {
   public async generateDiagram(input: {
     workspaceId?: number;
     chatId?: number;
-    type: "mermaid" | "plantuml" | "architecture" | "sequence" | "class" | "flowchart";
+    type: "mermaid" | "architecture" | "sequence" | "class" | "flowchart";
     title: string;
     content: string;
     metadata?: { files?: string[]; entities?: string[]; focus?: string };

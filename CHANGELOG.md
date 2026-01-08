@@ -2,6 +2,54 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.14] - 2026-01-08
+
+### AGENTS.md Context Optimization (StackSense Approach)
+
+This release dramatically reduces AI context usage, making Atlarix work on small context models (Ollama 8K).
+
+#### New Files
+- **AGENTS.md** - Single source of truth for all 55 tools (1464 lines, 34KB)
+  - Full documentation for every tool with parameters and examples
+  - Decision trees for workspace exploration, bug fixing, feature adding
+  - Common workflows (CLI → Template → Manual priority)
+  - Critical rules (code style, sequential commands)
+  
+- **AGENTS_COMPACT.md** - Essential guidance for 8K models (~100 lines, 3KB)
+  - Core tools and workflows only
+  - Fits in small context windows
+
+#### system_prompt.ts Stripped
+- **770 lines → 153 lines** (80% reduction!)
+- Removed embedded guidance (now lives in AGENTS.md)
+- Removed "agent mode" (UI only has build/ask)
+- Added `getAgentsMdForContextSize()` for model-aware loading
+
+#### Tool Descriptions Trimmed
+- 9 tool descriptions reduced to one-liners:
+  - `web_search`, `check_command_status`, `get_project_structure`
+  - `get_diagram`, `create_workspace`, `search_templates`
+  - `apply_template`, `preview_changes`, `batch_read_files`
+
+#### Token Usage (8K Model)
+| Before | After |
+|--------|-------|
+| ~19,000 tokens (overflow!) | ~6,050 tokens |
+| No chat room | ~2,000 tokens for chat |
+
+#### Files Modified
+- `AGENTS.md` - Created (55 tools documented)
+- `AGENTS_COMPACT.md` - Created (essential guidance)
+- `src/prompts/system_prompt.ts` - Rewritten (770→153 lines)
+- `src/lib/tools/web-tools.ts` - Trimmed descriptions
+- `src/lib/tools/execution-tools.ts` - Trimmed descriptions
+- `src/lib/tools/project-structure-tools.ts` - Trimmed descriptions
+- `src/lib/tools/diagram-tools.ts` - Trimmed descriptions
+- `src/lib/tools/workspace-tools.ts` - Trimmed descriptions
+- `src/lib/tools/ai-template-tools.ts` - Trimmed descriptions
+- `src/lib/tools/meta-tools.ts` - Trimmed descriptions
+- `TODO.md` - Updated v0.9.14 progress
+
 ## [v0.9.12] - 2026-01-07
 
 ### Chat Session Persistence

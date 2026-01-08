@@ -18,16 +18,64 @@ export function useBrowserErrorListener() {
 
     useEffect(() => {
         /**
+         * Normalize error message for deduplication
+         * Strips variable parts like line numbers, timestamps, etc.
+         */
+        const normalizeMessage = (msg: string): string => {
+            return msg
+                .replace(/at line \d+/gi, '')
+                .replace(/:\d+:\d+/g, '') // Remove :line:col
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 100); // First 100 chars for comparison
+        };
+
+        /**
+         * Check if error is a duplicate of an existing one
+         */
+        const isDuplicateError = (newError: BrowserError, existingErrors: BrowserError[]): boolean => {
+            const normalizedNew = normalizeMessage(newError.message);
+            return existingErrors.some(e => {
+                // Within last 10 seconds
+                if (Date.now() - (e.timestamp || 0) > 10000) return false;
+
+                // Check normalized message similarity
+                const normalizedExisting = normalizeMessage(e.message);
+                return normalizedNew === normalizedExisting;
+            });
+        };
+        /**
          * Filter out internal/library errors that aren't actionable
          * - Monaco editor internal errors (inmemory://model)
          * - CDN library errors (jsdelivr, unpkg, etc.)
          * - Browser extension errors
+         * - Atlarix's own renderer process errors (same port as Atlarix app)
          */
+
+        // Get Atlarix's renderer port (the port this app runs on)
+        const atlarixPort = window.location.port;
+
         const shouldIgnoreError = (message: string, source?: string): boolean => {
             // Monaco TypeScript worker errors
             if (message.includes('inmemory://model') ||
                 message.includes('Could not find source file:')) {
                 return true;
+            }
+
+            // Ignore errors from Atlarix's own renderer process
+            // Errors from Atlarix come from the same port as the app itself
+            // User project errors come from a different port (their preview dev server)
+            if (source) {
+                try {
+                    const errorUrl = new URL(source);
+                    if (errorUrl.port === atlarixPort || errorUrl.port === '') {
+                        // Same port as Atlarix = Atlarix internal error, ignore it
+                        console.debug('[useBrowserErrorListener] Ignoring Atlarix internal error from port:', errorUrl.port || 'default');
+                        return true;
+                    }
+                } catch {
+                    // Not a valid URL, continue with other checks
+                }
             }
 
             // CDN library files (not user's code)
@@ -86,11 +134,8 @@ export function useBrowserErrorListener() {
                 };
 
                 setErrors((prev) => {
-                    // Avoid duplicates
-                    const isDuplicate = prev.some(
-                        e => e.message === error.message && Date.now() - e.timestamp < 5000
-                    );
-                    if (isDuplicate) return prev;
+                    // Avoid duplicates using normalized comparison
+                    if (isDuplicateError(error, prev)) return prev;
                     console.log('[useBrowserErrorListener] Adding CDP error:', error.message);
                     return [...prev, error];
                 });
@@ -154,13 +199,8 @@ export function useBrowserErrorListener() {
                     };
 
                     setErrors((prev) => {
-                        // Avoid duplicates in last 5 seconds
-                        const isDuplicate = prev.some(
-                            e => e.message === error.message &&
-                                e.file === error.file &&
-                                Date.now() - (e.timestamp || 0) < 5000
-                        );
-                        if (isDuplicate) {
+                        // Avoid duplicates using normalized comparison
+                        if (isDuplicateError(error, prev)) {
                             console.log('[useBrowserErrorListener] Duplicate error, ignoring');
                             return prev;
                         }
@@ -186,12 +226,8 @@ export function useBrowserErrorListener() {
                     };
 
                     setErrors((prev) => {
-                        // Avoid duplicates in last 5 seconds
-                        const isDuplicate = prev.some(
-                            e => e.message === error.message &&
-                                Date.now() - e.timestamp < 5000
-                        );
-                        if (isDuplicate) return prev;
+                        // Avoid duplicates using normalized comparison
+                        if (isDuplicateError(error, prev)) return prev;
                         return [...prev, error];
                     });
                 }
@@ -218,6 +254,56 @@ export function useBrowserErrorListener() {
                             return [...prev, error];
                         });
                     });
+                }
+
+                // ================================================
+                // Vite HMR Success - Clear Errors for Updated Files
+                // When HMR successfully updates files, clear old errors
+                // ================================================
+                if (data.type === 'update' && Array.isArray(data.updates)) {
+                    // Extract file paths from HMR updates
+                    const updatedFiles = data.updates
+                        .map((update: any) => update.path || update.acceptedPath)
+                        .filter(Boolean)
+                        .map((path: string) => {
+                            // Normalize path - remove query params and leading slash
+                            return path.split('?')[0].replace(/^\//, '');
+                        });
+
+                    if (updatedFiles.length > 0) {
+                        console.log('[useBrowserErrorListener] HMR update success, clearing errors for:', updatedFiles);
+
+                        setErrors((prev) => {
+                            const filtered = prev.filter(error => {
+                                // Keep errors that don't have a file path
+                                if (!error.file) return true;
+
+                                // Check if this error's file was in the HMR update
+                                const errorFile = error.file
+                                    .split('?')[0]
+                                    .replace(/^\//, '')
+                                    .replace(/.*localhost:\d+\//, ''); // Remove localhost prefix
+
+                                const wasUpdated = updatedFiles.some((uf: string) =>
+                                    errorFile.endsWith(uf) || uf.endsWith(errorFile) || errorFile.includes(uf)
+                                );
+
+                                if (wasUpdated) {
+                                    console.log('[useBrowserErrorListener] Clearing error for updated file:', errorFile);
+                                }
+
+                                return !wasUpdated;
+                            });
+
+                            return filtered;
+                        });
+                    }
+                }
+
+                // Vite full-reload success - clear all build errors
+                if (data.type === 'full-reload') {
+                    console.log('[useBrowserErrorListener] Full reload, clearing all build errors');
+                    setErrors((prev) => prev.filter(error => error.type !== 'build'));
                 }
             }
         };

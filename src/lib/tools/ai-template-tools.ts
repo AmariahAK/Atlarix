@@ -24,20 +24,7 @@ const execAsync = promisify(exec);
 ToolRegistry.register({
     name: "search_templates",
     category: ToolCategory.CODE,
-    description: `Search for project templates matching user's description.
-    
-Returns top 3 curated templates with:
-- Template ID, name, description
-- Tech stack, difficulty level
-- GitHub stars (if available)
-- Live demo URL
-
-Use when user describes a project without selecting a specific template.
-
-Examples:
-- "blog with MDX" → Returns Next.js blog templates
-- "React dashboard" → Returns React/Vite admin templates  
-- "fullstack e-commerce" → Returns fullstack shop templates`,
+    description: "Search for project templates. Returns top 3 matches with tech stack and demo URLs.",
     cost: 2,
     requiresWorkspace: false, // Can search before workspace created
     isCore: true,
@@ -207,22 +194,7 @@ Examples:
 ToolRegistry.register({
     name: "apply_template",
     category: ToolCategory.CODE,
-    description: `Apply a template to the current workspace.
-    
-MUST be used AFTER workspace is created.
-
-What it does:
-1. Git clone template to workspace
-2. Remove template's .git folder
-3. Initialize new git repo
-4. List created files
-
-After applying, you can:
-- Use read_file to understand structure
-- Use write_file to modify files
-- Customize to match user's exact needs
-
-IMPORTANT: Call this ONCE per workspace. Don't call multiple times.`,
+    description: "Clone a template to workspace. Use AFTER create_workspace. Call ONCE per workspace.",
     cost: 10,
     requiresWorkspace: true,
     isCore: true,

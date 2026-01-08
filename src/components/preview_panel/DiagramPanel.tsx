@@ -323,8 +323,8 @@ function DiagramViewer({
                         onRender={setRenderedSvg}
                     />
                 ) : (
-                    // PlantUML fallback - show code
-                    <PlantUMLPreview code={displayCode} />
+                    // Unsupported diagram type fallback
+                    <UnsupportedDiagramPreview code={displayCode} type={diagram.type} />
                 )}
             </div>
 
@@ -405,24 +405,23 @@ function DiagramViewer({
 }
 
 /**
- * PlantUML Preview (code display for now)
+ * Unsupported Diagram Type Preview
  */
-function PlantUMLPreview({ code }: { code: string }) {
+function UnsupportedDiagramPreview({ code, type }: { code: string; type: string }) {
     // Guard against undefined/null code
     const safeCode = code || '';
 
     return (
         <div className="space-y-4">
-            <div className="bg-gradient-to-br from-green-500/5 to-blue-500/5 rounded-lg border border-border p-6 min-h-[200px] flex items-center justify-center">
+            <div className="bg-gradient-to-br from-amber-500/5 to-orange-500/5 rounded-lg border border-border p-6 min-h-[200px] flex items-center justify-center">
                 <div className="text-center space-y-3">
-                    <Layout className="w-16 h-16 mx-auto text-green-500/50" />
-                    <p className="text-sm text-muted-foreground">PlantUML Diagram</p>
+                    <Layout className="w-16 h-16 mx-auto text-amber-500/50" />
+                    <p className="text-sm text-muted-foreground">Unsupported Diagram Type: {type}</p>
                     <p className="text-xs text-muted-foreground/70">
-                        {safeCode.split('\n').length} lines
+                        {safeCode.split('\n').length} lines • Only Mermaid diagrams are supported
                     </p>
                 </div>
             </div>
-            {/* PlantUML code section removed per user request */}
         </div>
     );
 }

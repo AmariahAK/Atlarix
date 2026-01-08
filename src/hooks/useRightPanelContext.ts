@@ -43,11 +43,11 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],
     'diagram': ['diagram', 'logs'],
     'terminal': ['terminal'],
-    'file-diff': [],  // Unified PermissionQueuePanel handles all - no more separate tabs
+    'file-diff': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],  // Same as code-preview
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['permission'],  // Legacy - now handled by file-diff
+    'permission': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],  // Same as code-preview
     'empty': [],
 };
 
@@ -244,12 +244,48 @@ function getDataForType(
         aiContext?: AIPanelIntentState['context'];
     }
 ) {
+    // Helper to prepare terminal output
+    const prepareTerminalOutput = () => {
+        const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
+        const rawOutput = state.terminalOutput?.output || '';
+        const cleanOutput = stripAnsi(rawOutput);
+        const lines = cleanOutput.split('\n').filter((line: string, i: number) => {
+            if (i === 0 && line.trim() === '') return false;
+            return true;
+        });
+        return state.terminalOutput ? {
+            output: lines,
+            running: state.terminalOutput.status === 'running'
+        } : null;
+    };
+
     switch (type) {
         case 'web-search':
             return { sources: state.sources, timeline: state.toolTimeline, ...state.aiContext };
         case 'file-diff':
-            // FileDiffPanel handles both file changes AND permission approvals
-            return { proposals: state.proposals, ...state.aiContext };
+        case 'permission':
+            // Include ALL data so tabs work when switching
+            // Permissions view + full access to preview/terminal/diagram/etc
+            return {
+                // Permission-specific
+                proposals: state.proposals,
+                chatId: state.aiContext?.chatId,
+                // Preview tab
+                url: state.devServerUrl,
+                // Terminal tab
+                terminal: prepareTerminalOutput(),
+                output: state.terminalOutput?.output,
+                status: state.terminalOutput?.status,
+                // Diagram tab
+                ...state.diagramState,
+                // Errors tab
+                errors: state.browserErrors,
+                // Search tab
+                sources: state.sources,
+                // Code tab
+                workspacePath: state.workspacePath,
+                ...state.aiContext
+            };
         case 'diagram':
             return { ...state.diagramState, ...state.aiContext };
         case 'terminal':
@@ -257,33 +293,14 @@ function getDataForType(
         case 'tools':
             return { timeline: state.toolTimeline, ...state.aiContext };
         case 'code-preview':
-            // Include terminal output for the Terminal tab inside CodePreviewPanel
-            // TerminalOutput has .output (string), but CodePreviewPanel expects .output (string[])
-            // Strip ANSI codes for cleaner display
-            const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
-            const rawOutput = state.terminalOutput?.output || '';
-            const cleanOutput = stripAnsi(rawOutput);
-            // Split by newlines and filter empty lines at the start
-            const lines = cleanOutput.split('\n').filter((line, i, arr) => {
-                // Keep all lines except leading empty ones
-                if (i === 0 && line.trim() === '') return false;
-                return true;
-            });
-
             return {
                 url: state.devServerUrl,
-                terminal: state.terminalOutput ? {
-                    output: lines,
-                    running: state.terminalOutput.status === 'running'
-                } : null,
+                terminal: prepareTerminalOutput(),
                 errors: state.browserErrors,
-                sources: state.sources,  // Web search sources for the search tab
-                workspacePath: state.workspacePath,  // For live code editor
+                sources: state.sources,
+                workspacePath: state.workspacePath,
                 ...state.aiContext
             };
-        case 'permission':
-            // New PermissionQueuePanel - pass chatId from AI context
-            return { chatId: state.aiContext?.chatId, ...state.aiContext };
         default:
             return state.aiContext || null;
     }

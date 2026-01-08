@@ -91,9 +91,36 @@ export function useLoadApp(appId: number | null) {
               }
             }
           } else {
-            console.log(`[useLoadApp] No saved diagram for workspace ${appId}.`);
+            console.log(`[useLoadApp] No saved diagram for workspace ${appId}. Auto-generating...`);
             setDiagramStaleness(null);
-            // Do not auto-generate. Let the user decide when to generate.
+
+            // Auto-generate initial diagram for new workspaces
+            if (appData?.path) {
+              try {
+                const generateResult = await IpcClient.getInstance().generateDiagram({
+                  workspaceId: appId,
+                  appPath: appData.path,
+                  type: 'mermaid',
+                });
+
+                if (generateResult.success && generateResult.diagram) {
+                  setDiagramState({
+                    id: generateResult.diagram.id,
+                    code: generateResult.diagram.content || '',
+                    type: generateResult.diagram.type || 'mermaid',
+                    title: generateResult.diagram.title || 'Architecture Diagram',
+                    compareMode: 'current',
+                  });
+                  setRightPanelVisible(true);
+                  setPreviewTab('diagram');
+                  console.log(`[useLoadApp] Auto-generated diagram for workspace ${appId}`);
+                } else {
+                  console.warn('[useLoadApp] Diagram generation returned no result');
+                }
+              } catch (genErr) {
+                console.error('[useLoadApp] Failed to auto-generate diagram:', genErr);
+              }
+            }
           }
         } catch (err) {
           console.error('[useLoadApp] Failed to load diagram:', err);

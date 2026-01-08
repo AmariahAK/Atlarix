@@ -24,9 +24,7 @@ import * as path from "path";
 
 ToolRegistry.register({
     name: "preview_changes",
-    description:
-        `Preview proposed file changes WITHOUT applying them. Shows diffs in the right panel for user approval. 
-Use this BEFORE write_file to let users review changes. Costs 0 credits.`,
+    description: "Preview file changes as diffs before applying. Costs 0 credits.",
     category: ToolCategory.CODE,
     cost: 0,
     requiresWorkspace: true,
@@ -90,9 +88,7 @@ Use this BEFORE write_file to let users review changes. Costs 0 credits.`,
 
 ToolRegistry.register({
     name: "batch_read_files",
-    description:
-        `Read multiple files in a single operation. More efficient than multiple read_file calls.
-Maximum 10 files per batch. Returns content with file path headers.`,
+    description: "Read multiple files at once. Max 10 files per batch.",
     category: ToolCategory.FILE,
     cost: 1,
     requiresWorkspace: true,
@@ -265,7 +261,7 @@ Cost: 1 credit per file modified.`,
 ToolRegistry.register({
     name: "explain_diagram",
     description:
-        `Analyze a Mermaid or PlantUML diagram and generate a natural language explanation.
+        `Analyze a Mermaid diagram and generate a natural language explanation.
 Identifies components, relationships, data flows, and patterns.`,
     category: ToolCategory.DIAGRAM,
     cost: 2,
@@ -273,7 +269,7 @@ Identifies components, relationships, data flows, and patterns.`,
     isCore: false,
     parameters: createParameters(
         {
-            diagram_code: stringParam("Mermaid or PlantUML diagram code"),
+            diagram_code: stringParam("Mermaid diagram code"),
             detail_level: stringParam("Explanation detail: 'brief', 'standard' (default), or 'detailed'"),
         },
         ["diagram_code"]
@@ -288,9 +284,8 @@ Identifies components, relationships, data flows, and patterns.`,
         const isMermaid = code.startsWith('graph') || code.startsWith('flowchart') ||
             code.startsWith('sequenceDiagram') || code.startsWith('classDiagram') ||
             code.startsWith('stateDiagram') || code.startsWith('erDiagram');
-        const isPlantUML = code.startsWith('@startuml') || code.includes('@enduml');
 
-        const diagramType = isMermaid ? 'Mermaid' : isPlantUML ? 'PlantUML' : 'Unknown';
+        const diagramType = isMermaid ? 'Mermaid' : 'Unknown';
 
         // Parse diagram structure
         const analysis = analyzeDiagramStructure(code, diagramType);
@@ -326,7 +321,7 @@ Identifies components, relationships, data flows, and patterns.`,
         return {
             text: explanation,
             diagram: {
-                type: diagramType.toLowerCase() as 'mermaid' | 'plantuml',
+                type: 'mermaid' as const,
                 code: diagram_code,
                 analysis
             }

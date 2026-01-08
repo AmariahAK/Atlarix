@@ -250,6 +250,7 @@ const validReceiveChannels = [
   "browser-console-error",   // Console errors from Electron debugger
   // Diagram staleness notification
   "diagram:staleness-detected", // Diagram outdated due to code changes
+  "diagram:initial-ready",      // Cold start: initial diagram generated
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

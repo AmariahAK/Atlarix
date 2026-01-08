@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { useTheme } from "@/contexts/ThemeContext";
-import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize2, Move } from "lucide-react";
+import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize2, Move, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
 interface MermaidRendererProps {
@@ -23,6 +23,105 @@ interface MermaidRendererProps {
 
 // Unique ID counter for mermaid diagrams
 let mermaidIdCounter = 0;
+
+/**
+ * ErrorOverlay - Shows Mermaid parsing errors with raw code view
+ */
+function ErrorOverlay({
+    error,
+    code,
+    onRetry
+}: {
+    error: string;
+    code: string;
+    onRetry: () => void;
+}) {
+    const [showRawCode, setShowRawCode] = useState(false);
+
+    // Safely extract line number from error like "Lexical error on line 31"
+    let errorLine: number | null = null;
+    try {
+        const lineMatch = error?.match(/line (\d+)/i);
+        if (lineMatch && lineMatch[1]) {
+            const parsed = parseInt(lineMatch[1], 10);
+            if (!isNaN(parsed) && parsed > 0) {
+                errorLine = parsed;
+            }
+        }
+    } catch {
+        // Ignore parsing errors
+    }
+
+    // Safe code lines
+    const codeLines = code?.split('\n') || [];
+
+    return (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-background p-6 overflow-auto">
+            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 max-w-lg w-full">
+                <div className="flex items-start gap-3 mb-3">
+                    <AlertCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-destructive mb-1">
+                            Diagram Syntax Error
+                        </p>
+                        <p className="text-xs text-destructive/80 font-mono break-words">
+                            {error || 'Unknown error'}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 mb-3">
+                    <button
+                        onClick={onRetry}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+                    >
+                        <RefreshCw className="w-3 h-3" />
+                        Retry
+                    </button>
+                    {codeLines.length > 0 && (
+                        <button
+                            onClick={() => setShowRawCode(!showRawCode)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                        >
+                            <Code className="w-3 h-3" />
+                            {showRawCode ? 'Hide' : 'View'} Raw Code
+                            {showRawCode ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+                    )}
+                </div>
+
+                {/* Raw code view */}
+                {showRawCode && codeLines.length > 0 && (
+                    <div className="mt-3 border-t border-destructive/20 pt-3">
+                        <div className="bg-zinc-900 rounded-md p-3 overflow-auto max-h-[300px]">
+                            <pre className="text-xs font-mono text-zinc-300">
+                                {codeLines.map((line, i) => {
+                                    const lineNum = i + 1;
+                                    const isErrorLine = errorLine !== null && errorLine === lineNum;
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`flex ${isErrorLine ? 'bg-red-500/20 -mx-3 px-3' : ''}`}
+                                        >
+                                            <span className={`w-8 text-right pr-3 select-none ${isErrorLine ? 'text-red-400' : 'text-zinc-500'}`}>
+                                                {lineNum}
+                                            </span>
+                                            <span className={isErrorLine ? 'text-red-300' : ''}>
+                                                {line || ' '}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </pre>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 
 export function MermaidRenderer({
     code,
@@ -131,26 +230,13 @@ export function MermaidRenderer({
 
     return (
         <div className={`relative w-full h-full min-h-[500px] ${className}`}>
-            {/* Error Message */}
+            {/* Error Message - Full overlay with raw code view */}
             {error && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/90 p-6">
-                    <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 max-w-md text-center">
-                        <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-2" />
-                        <p className="text-sm font-medium text-destructive mb-2">
-                            Invalid Mermaid Syntax
-                        </p>
-                        <p className="text-xs text-destructive/80 mb-3 font-mono break-all">
-                            {error}
-                        </p>
-                        <button
-                            onClick={renderDiagram}
-                            className="flex items-center gap-1 mx-auto px-3 py-1.5 text-xs rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
-                        >
-                            <RefreshCw className="w-3 h-3" />
-                            Retry
-                        </button>
-                    </div>
-                </div>
+                <ErrorOverlay
+                    error={error}
+                    code={code}
+                    onRetry={renderDiagram}
+                />
             )}
 
             {/* Loading Spinner - Overlay */}

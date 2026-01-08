@@ -40,6 +40,19 @@ export const CommandOperationPreviewSchema = z.object({
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
 
 // ════════════════════════════════════════════════════════════════════════════
+// DIAGRAM UPDATE PREVIEW
+// ════════════════════════════════════════════════════════════════════════════
+
+export const DiagramUpdatePreviewSchema = z.object({
+    type: z.enum(["minor", "major", "new_component"]).describe("Update severity"),
+    components: z.array(z.string()).describe("Affected components"),
+    description: z.string().describe("What changed architecturally"),
+    focus: z.string().optional().describe("Which part to focus on"),
+});
+
+export type DiagramUpdatePreview = z.infer<typeof DiagramUpdatePreviewSchema>;
+
+// ════════════════════════════════════════════════════════════════════════════
 // PERMISSION METADATA
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -66,6 +79,8 @@ export const PermissionOperationType = z.enum([
     "replace_code",
     "insert_code",
     "delete_lines",
+    // AI-controlled diagram update
+    "update_diagram",
 ]);
 
 export type PermissionOperationType = z.infer<typeof PermissionOperationType>;
@@ -77,6 +92,7 @@ export const PermissionRequestSchema = z.object({
         FileOperationPreviewSchema,
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
+        DiagramUpdatePreviewSchema,
     ]),
     metadata: PermissionMetadataSchema.optional(),
 });

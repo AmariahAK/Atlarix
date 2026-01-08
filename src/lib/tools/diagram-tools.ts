@@ -28,18 +28,7 @@ import path from "path";
 ToolRegistry.register({
     name: "get_diagram",
     category: ToolCategory.DIAGRAM,
-    description: `Generate a Mermaid diagram of project architecture.
-
-Examples:
-- "Show me the architecture of this project" → type: architecture
-- "Generate a class diagram for auth module" → type: class
-- "Create a sequence diagram for login flow" → type: sequence
-- "Visualize the component structure" → type: flowchart
-
-The diagram will be:
-1. Displayed in the Right Panel for the user to view
-2. Saved to the workspace for future chats
-3. Returned as context for you to understand the project structure`,
+    description: "Generate Mermaid diagram. Types: architecture, class, sequence, flowchart.",
     cost: 10,
     requiresWorkspace: true,
     isCore: true,
@@ -78,6 +67,110 @@ The diagram will be:
             const diagramType = params.diagram_type || "architecture";
             const title = params.title || `${path.basename(workspace)} ${diagramType} diagram`;
 
+            // If workspaceId provided, try to get AI-generated diagram first
+            if (params.workspaceId) {
+                try {
+                    const { DiagramManager } = await import("../DiagramManager");
+                    const { db } = await import("../../db");
+                    const { diagrams } = await import("../../db/schema");
+                    const { eq } = await import("drizzle-orm");
+
+                    // Check for existing diagram
+                    let existingDiagram = await db.query.diagrams.findFirst({
+                        where: eq(diagrams.workspaceId, params.workspaceId),
+                    });
+
+                    // If no diagram exists, check if one is being generated (cold start)
+                    if (!existingDiagram) {
+                        if (DiagramManager.isGenerating(params.workspaceId)) {
+                            // Wait for in-progress generation (up to 30s)
+                            console.log(`[get_diagram] Waiting for in-progress generation for workspace ${params.workspaceId}`);
+                            const generatedDiagram = await DiagramManager.waitForGeneration(params.workspaceId, 30000);
+
+                            if (generatedDiagram) {
+                                return {
+                                    success: true,
+                                    workspace,
+                                    diagram_type: diagramType,
+                                    title: generatedDiagram.title,
+                                    mermaid_code: generatedDiagram.content,
+                                    saved: "Retrieved from AI-generated diagram (waited for generation)",
+                                    source: "waited-for-generation",
+                                    context_for_ai: `
+## Architecture Diagram: ${generatedDiagram.title}
+
+This diagram shows the project structure (AI-generated):
+
+\`\`\`mermaid
+${generatedDiagram.content}
+\`\`\`
+
+Use this to understand the codebase layout before making changes.
+`,
+                                    _showInPanel: true,
+                                    _panelType: "diagram",
+                                };
+                            }
+                        }
+
+                        // No generation in progress, start one now
+                        console.log(`[get_diagram] No diagram found, generating on-demand for workspace ${params.workspaceId}`);
+                        const newDiagram = await DiagramManager.generateInitialDiagram(params.workspaceId, workspace);
+
+                        return {
+                            success: true,
+                            workspace,
+                            diagram_type: diagramType,
+                            title: newDiagram.title,
+                            mermaid_code: newDiagram.content,
+                            saved: "Generated and saved to workspace",
+                            source: "on-demand-generation",
+                            context_for_ai: `
+## Architecture Diagram: ${newDiagram.title}
+
+This diagram shows the project structure (AI-generated):
+
+\`\`\`mermaid
+${newDiagram.content}
+\`\`\`
+
+Use this to understand the codebase layout before making changes.
+`,
+                            _showInPanel: true,
+                            _panelType: "diagram",
+                        };
+                    }
+
+                    // Existing diagram found - return it
+                    return {
+                        success: true,
+                        workspace,
+                        diagram_type: existingDiagram.type,
+                        title: existingDiagram.title,
+                        mermaid_code: existingDiagram.content,
+                        saved: "Retrieved from saved diagram",
+                        source: "database",
+                        context_for_ai: `
+## Architecture Diagram: ${existingDiagram.title}
+
+This diagram shows the project structure:
+
+\`\`\`mermaid
+${existingDiagram.content}
+\`\`\`
+
+Use this to understand the codebase layout before making changes.
+`,
+                        _showInPanel: true,
+                        _panelType: "diagram",
+                    };
+                } catch (dbError) {
+                    console.error("[get_diagram] Failed to fetch from database, falling back to local generation:", dbError);
+                    // Fall through to local generation below
+                }
+            }
+
+            // Fallback: Generate locally without saving (for when no workspaceId)
             let mermaidCode = "";
 
             switch (diagramType) {
@@ -97,49 +190,6 @@ The diagram will be:
                     mermaidCode = await generateArchitectureDiagram(workspace);
             }
 
-            // Save diagram to database if workspaceId is provided
-            let savedMessage = "";
-            if (params.workspaceId) {
-                try {
-                    // Dynamic import to avoid circular dependency
-                    const { db } = await import("../../db");
-                    const { diagrams } = await import("../../db/schema");
-                    const { eq } = await import("drizzle-orm");
-
-                    // Check for existing diagram
-                    const existingDiagram = await db.query.diagrams.findFirst({
-                        where: eq(diagrams.workspaceId, params.workspaceId),
-                    });
-
-                    if (existingDiagram) {
-                        // Update existing
-                        await db
-                            .update(diagrams)
-                            .set({
-                                content: mermaidCode,
-                                type: "mermaid",
-                                title,
-                                updatedAt: new Date(),
-                            })
-                            .where(eq(diagrams.id, existingDiagram.id));
-                        savedMessage = "Diagram updated and saved to workspace.";
-                    } else {
-                        // Create new
-                        await db.insert(diagrams).values({
-                            workspaceId: params.workspaceId,
-                            type: "mermaid",
-                            title,
-                            content: mermaidCode,
-                            metadata: { focus: "ai-generated" },
-                        });
-                        savedMessage = "Diagram created and saved to workspace.";
-                    }
-                } catch (saveError) {
-                    console.error("[get_diagram] Failed to save diagram:", saveError);
-                    savedMessage = "Diagram generated but failed to save to database.";
-                }
-            }
-
             // Return full context for AI to use
             return {
                 success: true,
@@ -147,8 +197,8 @@ The diagram will be:
                 diagram_type: diagramType,
                 title,
                 mermaid_code: mermaidCode,
-                saved: savedMessage || "Not saved (no workspaceId provided)",
-                // Include a formatted version the AI can understand
+                saved: "Not saved (no workspaceId provided)",
+                source: "local-generation",
                 context_for_ai: `
 ## Architecture Diagram: ${title}
 
@@ -165,64 +215,106 @@ Use this to understand the codebase layout before making changes.
                 _panelType: "diagram",
             };
         } catch (error) {
+            console.error('[get_diagram] Failed:', error);
+
+            // Graceful fallback - tell AI to use other tools
             return {
                 success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
+                error: error instanceof Error ? error.message : "Diagram generation failed",
+                fallbackAdvice: `Diagram generation failed, but YOU CAN STILL HELP THE USER.
+
+Use these alternative tools to understand the codebase:
+
+1. **get_project_structure** - Get file tree overview with framework detection (instant, never fails)
+2. **find_relevant_files** - Search for files by keyword/feature name
+3. **search_code** - Find specific code patterns
+4. **list_files** - Browse directory contents
+5. **read_file** - Read specific files
+
+You have ALL the tools needed to explore and modify this codebase.
+DO NOT tell the user you cannot help. Proceed with alternative exploration.`,
+                context_for_ai: "Diagram failed. Use get_project_structure as your first fallback, then find_relevant_files for specific tasks.",
             };
         }
     },
 });
 
 // ============================================
-// UPDATE DIAGRAM
+// UPDATE DIAGRAM (AI-Controlled)
 // ============================================
 
 /**
- * Update diagram based on code changes
+ * Request diagram update after architectural changes
+ * Returns a permission request that the user must approve
+ * 
+ * The AI decides when to call this based on the changes it made:
+ * - New major components (AuthService, StateManager)
+ * - Folder restructures
+ * - New integrations (Redux, Supabase, API clients)
  */
 ToolRegistry.register({
     name: "update_diagram",
     category: ToolCategory.DIAGRAM,
-    description: "Update existing diagram with new changes",
+    description: `Request diagram update after architectural changes.
+
+USE WHEN YOU'VE MADE:
+✅ New major components (StateManager, APIClient, AuthService)
+✅ Folder restructures (moved components, added modules)
+✅ New integrations (Redux, Supabase, API clients)
+✅ Major refactors that change module relationships
+
+DON'T USE FOR:
+❌ Import fixes, typos, CSS changes
+❌ Minor bug fixes, documentation updates
+❌ Adding console.logs or comments
+❌ Small function changes within existing components
+
+The user will see a preview and can approve or skip the diagram regeneration.`,
     parameters: {
-        workspace: {
+        updateType: {
             type: "string",
-            description: "Project directory",
-            required: false,
+            description: "Severity: 'minor' (small structural change), 'major' (significant refactor), 'new_component' (added new module)",
+            required: true,
+            enum: ["minor", "major", "new_component"],
         },
-        changes: {
+        affectedComponents: {
             type: "array",
-            description: "List of changed files",
+            description: "List of components/modules affected by the change",
+            required: true,
+        },
+        changeDescription: {
+            type: "string",
+            description: "Brief description of what changed architecturally",
+            required: true,
+        },
+        suggestedFocus: {
+            type: "string",
+            description: "Optional: Which part of the diagram to focus on during regeneration",
             required: false,
         },
     },
     cost: 8,
     requiresWorkspace: true,
     isCore: true,
-    isReadOnly: true, // Safe for Ask mode
+    isReadOnly: false, // This modifies diagram state
     handler: async (params: {
-        workspace?: string;
-        changes?: string[];
+        updateType: "minor" | "major" | "new_component";
+        affectedComponents: string[];
+        changeDescription: string;
+        suggestedFocus?: string;
     }) => {
-        try {
-            const workspace = params.workspace || process.cwd();
-
-            // Regenerate diagram
-            const mermaidCode = await generateArchitectureDiagram(workspace);
-
-            return {
-                success: true,
-                workspace,
-                changes_count: params.changes?.length || 0,
-                mermaid_code: mermaidCode,
-                updated_at: new Date().toISOString(),
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
+        // Return permission request - doesn't execute immediately
+        // The interceptor will handle this when user approves
+        return {
+            __permission_required: true,
+            operation: "update_diagram",
+            preview: {
+                type: params.updateType,
+                components: params.affectedComponents,
+                description: params.changeDescription,
+                focus: params.suggestedFocus,
+            },
+        };
     },
 });
 

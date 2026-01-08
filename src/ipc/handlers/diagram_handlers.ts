@@ -25,7 +25,7 @@ import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/s
 export interface DiagramInput {
     workspaceId?: number;
     chatId?: number;
-    type: "mermaid" | "plantuml" | "architecture" | "sequence" | "class" | "flowchart";
+    type: "mermaid" | "architecture" | "sequence" | "class" | "flowchart";
     title: string;
     content: string;
     metadata?: {

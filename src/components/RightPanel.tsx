@@ -15,6 +15,7 @@
 import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useSearch } from '@tanstack/react-router';
 import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
@@ -83,6 +84,15 @@ export function RightPanel() {
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const setChatInput = useSetAtom(chatInputValueAtom);
+
+    // Get chatId from URL route as fallback for PermissionQueuePanel
+    let routeChatId: number | undefined;
+    try {
+        const searchParams = useSearch({ from: '/chat', strict: false });
+        routeChatId = (searchParams as any)?.id;
+    } catch {
+        // Not on chat route, that's fine
+    }
 
     // Handle "Solve with AI" button click - pre-fills chat with error context
     const handleSolveWithAI = useCallback((error: { message: string; source?: string; stack?: string }) => {
@@ -282,7 +292,7 @@ Please fix these errors in priority order (structural/build errors first, then r
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} />
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} fallbackChatId={routeChatId} />
             </div>
         </div>
     );
@@ -294,18 +304,49 @@ Please fix these errors in priority order (structural/build errors first, then r
 function PanelContent({
     context,
     onSolveWithAI,
-    onSolveAllWithAI
+    onSolveAllWithAI,
+    fallbackChatId
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
+    fallbackChatId?: number;
 }) {
+    // For file-diff and permission types, route based on activeTab
+    if (context.type === 'file-diff' || context.type === 'permission') {
+        switch (context.activeTab) {
+            case 'permissions':
+            case 'permission':
+            case 'approve':
+            case 'diff':
+                return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
+            case 'preview':
+            case 'code':
+            case 'errors':
+                return (
+                    <CodePreviewPanel
+                        data={context.data}
+                        activeTab={context.activeTab}
+                        onSolveWithAI={onSolveWithAI}
+                        onSolveAllWithAI={onSolveAllWithAI}
+                    />
+                );
+            case 'diagram':
+                return <DiagramPanel data={context.data} activeTab="diagram" />;
+            case 'terminal':
+                return <TerminalPanel data={context.data} />;
+            case 'search':
+            case 'sources':
+                return <SourcePreviewPanel data={context.data} activeTab="sources" />;
+            default:
+                // Default to permission queue
+                return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
+        }
+    }
+
     switch (context.type) {
         case 'web-search':
             return <SourcePreviewPanel data={context.data} activeTab={context.activeTab} />;
-
-        case 'file-diff':
-            return <FileDiffPanel data={context.data} activeTab={context.activeTab} />;
 
         case 'code-preview':
             return (
@@ -330,10 +371,6 @@ function PanelContent({
         case 'tools':
             // Tool execution activity panel
             return <ToolsPanel data={context.data} />;
-
-        case 'permission':
-            // New permission queue panel with status sections
-            return <PermissionQueuePanel chatId={context.data?.chatId} />;
 
         default:
             return (

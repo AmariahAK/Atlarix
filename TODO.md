@@ -4,42 +4,100 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🔥 v0.9.13 - AI-Controlled Diagram System (Next Up)
+## 🔥 v0.9.14 - AGENTS.md Context Optimization (In Progress)
 
-### Phase 1: DiagramManager Enhancements
-- [ ] Add `generatingWorkspaces` Set to track in-progress generation
-- [ ] Add `generationPromises` Map for deduplication
-- [ ] Implement `hasAnyDiagram(workspaceId)` - check if diagram exists
-- [ ] Implement `isGenerating(workspaceId)` - check generation status
-- [ ] Implement `waitForGeneration(workspaceId, timeout)` - wait for completion
-- [ ] Implement `generateInitialDiagram(workspaceId, appPath)` - with deduplication
+Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense approach)
+
+### Phase 1: Create AGENTS.md Full Reference ✅
+- [x] Document all 55 tools with full descriptions, parameters, examples
+- [x] Add decision trees (workspace exploration, bug fixing, feature adding)
+- [x] Add common workflows (CLI → template → manual priorities)
+- [x] Add critical rules section (code style, sequential commands)
+- [x] **Result: 1464 lines, 34KB (~8500 tokens)**
+
+### Phase 2: Create AGENTS_COMPACT.md for Small Models ✅
+- [x] Essential tools and workflows only
+- [x] Critical rules and decision trees
+- [x] **Result: ~100 lines, 3KB (~750 tokens)**
+
+### Phase 3: Simplify system_prompt.ts ✅
+- [x] Strip from 770 lines → **153 lines** (80% reduction!)
+- [x] Remove agent mode (UI only has build/ask)
+- [x] AGENTS.md is now primary guidance source
+- [x] Add model-aware `getAgentsMdForContextSize()`
+
+### Phase 4: Trim Tool Descriptions ✅
+- [x] Trimmed `web_search` description
+- [x] Trimmed `check_command_status`, `get_project_structure`, `get_diagram`
+- [x] Trimmed `create_workspace`, `search_templates`, `apply_template`
+- [x] Trimmed `preview_changes`, `batch_read_files`
+- [x] 9 verbose tool descriptions → one-liners
+
+### Phase 5: Test & Validate
+- [ ] Test with Ollama 8K context model
+- [ ] Verify all tools still work correctly
+- [ ] Measure actual token usage before/after
+
+---
+
+## 🔥 v0.9.13 - AI-Controlled Diagram System (In Progress)
+
+### Phase 1: DiagramManager Creation
+- [ ] Create `/src/lib/DiagramManager.ts` static utility class
+  - [ ] Add `generatingWorkspaces` Set for tracking in-progress generation
+  - [ ] Add `generationPromises` Map for deduplication
+  - [ ] Implement `hasAnyDiagram(workspaceId)` - check if diagram exists
+  - [ ] Implement `isGenerating(workspaceId)` - check generation status
+  - [ ] Implement `waitForGeneration(workspaceId, timeout)` - wait for completion
+  - [ ] Implement `generateInitialDiagram(workspaceId, appPath)` - with deduplication
+  - [ ] Implement `regenerateForWorkspace(workspaceId, options)` - for AI updates
 
 ### Phase 2: update_diagram Tool
-- [ ] Create `diagram-tools.ts` with update_diagram tool
-- [ ] Schema: updateType, affectedComponents, changeDescription, suggestedFocus
-- [ ] Return `__permission_required: true` for approval flow
-- [ ] Add tool to workspace tools list
+- [ ] Modify `diagram-tools.ts` - replace existing `update_diagram` with permission-based version
+  - [ ] Schema: updateType (minor/major/new_component), affectedComponents, changeDescription, suggestedFocus
+  - [ ] Return `__permission_required: true` for approval flow
+  - [ ] Add comprehensive description for AI guidance (when to use/not use)
 
 ### Phase 3: Cold Start Handling
-- [ ] In `chat_stream_handlers.ts`: Check `hasAnyDiagram()` before first message
-- [ ] Start background generation (non-blocking) for new workspaces
-- [ ] Send `diagram:initial-ready` IPC when generation completes
-- [ ] Update `get_diagram` tool to wait if generation in progress
+- [ ] Modify `chat_stream_handlers.ts`
+  - [ ] Check `hasAnyDiagram()` before first workspace message
+  - [ ] Start background generation (non-blocking) for new workspaces
+  - [ ] Emit `diagram:initial-ready` IPC when generation completes
 
-### Phase 4: Permission System Integration
-- [ ] In `interceptor.ts`: Handle `update_diagram` operation approvals
-- [ ] Call `DiagramManager.regenerateForWorkspace()` on approval
-- [ ] Pass `focusComponents` and `context` to diagram generation
+### Phase 4: get_diagram Enhancement
+- [ ] Modify `diagram-tools.ts` - update `get_diagram` handler
+  - [ ] Wait for in-progress generation if `isGenerating()` is true
+  - [ ] Start on-demand generation if no diagram exists
 
-### Phase 5: UI Components
-- [ ] Add DiagramUpdateCard to PermissionQueuePanel or FileDiffPanel
-- [ ] Show: updateType badge, affected components, change description
-- [ ] Actions: "Regenerate Diagram" and "Skip" buttons
+### Phase 5: Permission System Integration
+- [ ] Modify `interceptor.ts`
+  - [ ] Add case for `update_diagram` operation in `executeOperation()`
+  - [ ] Call `DiagramManager.regenerateForWorkspace()` on approval
+  - [ ] Return result with diagramId
 
-### Phase 6: System Prompt Update
-- [ ] Add diagram management instructions to system prompt
-- [ ] Examples of when to use/not use `update_diagram`
-- [ ] Teach AI architectural vs cosmetic changes
+### Phase 6: UI Components
+- [ ] Modify `PermissionQueuePanel.tsx`
+  - [ ] Add diagram update card for `update_diagram` operation
+  - [ ] Show updateType badge, affected components, description
+  - [ ] Emerald theme styling to match diagram panel
+
+### Phase 7: System Prompt & Preload
+- [ ] Modify `system_prompt.ts`
+  - [ ] Add "Diagram Management" section with examples
+  - [ ] Document when to use/not use `update_diagram`
+- [ ] Modify `preload.ts`
+  - [ ] Whitelist `diagram:initial-ready` channel
+
+### Phase 8: PlantUML → Mermaid Migration
+- [ ] Remove PlantUML references from type definitions
+  - [ ] `db/schema.ts` - Remove "plantuml" from diagram type enum
+  - [ ] `atoms/sourceAtoms.ts` - Remove "plantuml" from DiagramState type
+  - [ ] `ipc/ipc_client.ts` - Remove "plantuml" from DiagramInput type
+  - [ ] `ipc/handlers/diagram_handlers.ts` - Remove "plantuml" from DiagramInput type
+- [ ] Remove PlantUML components
+  - [ ] `components/preview_panel/DiagramPanel.tsx` - Remove PlantUMLPreview component
+  - [ ] `lib/tools/meta-tools.ts` - Remove PlantUML detection from explain_diagram tool
+- [ ] Update comments to reference only Mermaid
 
 ---
 
