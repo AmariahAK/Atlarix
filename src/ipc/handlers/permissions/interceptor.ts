@@ -428,7 +428,7 @@ export class PermissionInterceptor extends EventEmitter {
             // Mark as executed
             operation.status = 'executed';
 
-            // 📊 Emit completed status for queue UI
+            // 📊 Emit completed status - frontend will clear all errors (todo approach)
             this.emitStatus(operationId, 'completed');
 
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);

@@ -99,15 +99,86 @@ import { registerInterceptor } from "./permissions/handlers";
 import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
 
 
+
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+// ═══════════════════════════════════════════════════════════════
+// SMART AGENTIC LOOP CONFIGURATION
+// ═══════════════════════════════════════════════════════════════
+
+interface AgenticLoopConfig {
+  maxIterations: number;
+  maxDurationMs: number;
+  requireExplicitCompletion: boolean;
+}
+
+const DEFAULT_AGENTIC_CONFIG: AgenticLoopConfig = {
+  maxIterations: 20,
+  maxDurationMs: 10 * 60 * 1000, // 10 minutes
+  requireExplicitCompletion: true,
+};
+
+/**
+ * Detect if AI signals task completion.
+ * Checks for explicit <task_complete> tag OR natural language patterns in the end of response.
+ */
+function isTaskComplete(response: string): boolean {
+  // Explicit completion signal
+  if (response.includes('<task_complete>')) return true;
+
+  // Natural language patterns (must appear near end of response)
+  const completionPatterns = [
+    /task (is |has been )?completed successfully/i,
+    /i('ve| have) completed (the |all )/i,
+    /all done/i,
+    /everything (is |has been )?(set up|ready|working)/i,
+    /implementation (is )?complete/i,
+    /successfully (created|built|implemented|set up)/i,
+  ];
+
+  const endOfResponse = response.slice(-500);
+  return completionPatterns.some(pattern => pattern.test(endOfResponse));
+}
+
+/**
+ * Wait for user to approve or decline continuation.
+ * Properly cleans up listeners to prevent memory leaks.
+ */
+function waitForUserContinuation(
+  chatId: number,
+  timeout: number,
+  defaultAction: boolean = true
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      ipcMain.removeListener(`chat:${chatId}:continue-approved`, handleApprove);
+      ipcMain.removeListener(`chat:${chatId}:continue-declined`, handleDecline);
+    };
+
+    const timer = setTimeout(() => {
+      logger.info(`[Agentic Loop] Continuation timeout, defaulting to: ${defaultAction}`);
+      resolve(defaultAction);
+      cleanup();
+    }, timeout);
+
+    const handleApprove = () => { clearTimeout(timer); resolve(true); cleanup(); };
+    const handleDecline = () => { clearTimeout(timer); resolve(false); cleanup(); };
+
+    ipcMain.once(`chat:${chatId}:continue-approved`, handleApprove);
+    ipcMain.once(`chat:${chatId}:continue-declined`, handleDecline);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 
 // Track active streams for cancellation
 const activeStreams = new Map<number, AbortController>();
 
 // Track partial responses for cancelled streams
 const partialResponses = new Map<number, string>();
+
 
 /**
  * Abort all active AI streams - call on app quit to save tokens
@@ -1507,6 +1578,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
                 output: payload.output,
                 status: payload.status,
                 exitCode: payload.exitCode,
+                isPermissionBased: true, // Don't force-switch to terminal tab
               });
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
             });
@@ -1549,6 +1621,24 @@ If the user requests modifications, politely explain that Ask mode is for explor
                           // User approved - return success to AI
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
                           logger.log(`[Build Mode] Permission approved: ${operationId}`);
+
+                          // Check if output contains error patterns (dev server may start but have compilation errors)
+                          const output = execResult.output || '';
+                          const hasCompilationErrors = /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(output);
+
+                          if (hasCompilationErrors) {
+                            // Command ran but has errors in output - tell AI there are issues
+                            logger.log(`[Build Mode] Command output contains errors: ${operationId}`);
+                            return JSON.stringify({
+                              success: true, // Command started
+                              hasErrors: true, // But has compilation/runtime errors
+                              warning: "The command ran but the output shows errors. Please review the output and fix the underlying code issue before running the same command again.",
+                              message: `Command started but output shows errors`,
+                              path: execResult.path,
+                              output: output.slice(-2000), // Last 2000 chars for context
+                            });
+                          }
+
                           return JSON.stringify({
                             success: true,
                             message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as any).path || "operation"}`,
@@ -1601,12 +1691,15 @@ If the user requests modifications, politely explain that Ask mode is for explor
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
 
             // ═══════════════════════════════════════════════════════════════
-            // AGENTIC TOOL LOOP
-            // For models that use text-based tool calls (MiniMax, etc.),
-            // we need to loop: execute tools → feed results back → let AI continue
-            // Option A: Track tool execution regardless of format (native or text-based)
+            // SMART AGENTIC TOOL LOOP
+            // - Dynamic iteration limit (can be extended by user)
+            // - Time limit safety (10 min max)
+            // - Completion detection (AI signals when done)
+            // - Progress emission to frontend
             // ═══════════════════════════════════════════════════════════════
-            const MAX_AGENTIC_ITERATIONS = 5;
+            let maxIterations = DEFAULT_AGENTIC_CONFIG.maxIterations;
+            const loopStartTime = Date.now();
+            let hasShownWarning = false;
             let agenticIteration = 0;
             let agenticMessages = [...chatMessages]; // Copy current messages
             let allToolResults: { tool: string; result: string }[] = [];
@@ -1615,8 +1708,27 @@ If the user requests modifications, politely explain that Ask mode is for explor
             const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
 
             try {
-              while (agenticIteration < MAX_AGENTIC_ITERATIONS) {
-                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1}/${MAX_AGENTIC_ITERATIONS}`);
+              while (agenticIteration < maxIterations) {
+                // Time limit safety check
+                if (Date.now() - loopStartTime > DEFAULT_AGENTIC_CONFIG.maxDurationMs) {
+                  logger.warn(`[Agentic Loop] Hit time limit (10 minutes)`);
+                  safeSend(event.sender, "chat:iteration:timeout", {
+                    chatId: req.chatId,
+                    message: "Task took too long. Stopping to prevent runaway costs.",
+                    duration: Date.now() - loopStartTime,
+                  });
+                  break;
+                }
+
+                // Emit progress to frontend
+                safeSend(event.sender, "chat:iteration:progress", {
+                  chatId: req.chatId,
+                  iteration: agenticIteration + 1,
+                  maxIterations,
+                  totalToolsExecuted: totalToolExecutions,
+                });
+
+                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1}/${maxIterations}`);
 
                 const { fullStream } = await simpleStreamText({
                   chatMessages: agenticMessages,
@@ -1656,6 +1768,12 @@ If the user requests modifications, politely explain that Ask mode is for explor
                   const newOps = currentOpCount - totalToolExecutions;
                   logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
                   totalToolExecutions = currentOpCount;
+                }
+
+                // Check if task is explicitly complete
+                if (DEFAULT_AGENTIC_CONFIG.requireExplicitCompletion && isTaskComplete(fullResponse)) {
+                  logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
+                  break;
                 }
 
                 // If no tool calls of any kind, end the loop
@@ -1806,21 +1924,60 @@ If the user requests modifications, politely explain that Ask mode is for explor
                   content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
                 });
 
-                // Reset fullResponse for next iteration (AI will generate new response)
-                fullResponse = '';
+                // Keep fullResponse for UI continuity - don't reset
+                // (Conversation history already has the response)
                 agenticIteration++;
 
                 // If we hit permission requests, the AI should continue after approval
                 if (hasPermissionRequest) {
                   logger.log("[Agentic Loop] Had permission requests, continuing loop...");
                 }
+
+                // 75% warning: Ask user if they want to continue
+                const warningThreshold = Math.floor(maxIterations * 0.75);
+                if (agenticIteration === warningThreshold && !hasShownWarning) {
+                  hasShownWarning = true;
+
+                  safeSend(event.sender, "chat:iteration:warning", {
+                    chatId: req.chatId,
+                    iteration: agenticIteration,
+                    maxIterations,
+                    totalToolsExecuted: totalToolExecutions,
+                    estimatedTokens: totalToolExecutions * 500,
+                    message: `Task running long (${agenticIteration}/${maxIterations}). Continue?`,
+                  });
+
+                  const approval = await waitForUserContinuation(req.chatId, 30000, true);
+                  if (approval) {
+                    maxIterations += 10;
+                    logger.info(`[Agentic Loop] Extended to ${maxIterations} iterations`);
+                  } else {
+                    logger.info(`[Agentic Loop] User declined continuation`);
+                    break;
+                  }
+                }
               }
 
-              if (agenticIteration >= MAX_AGENTIC_ITERATIONS) {
-                logger.warn(`[Agentic Loop] Hit max iterations (${MAX_AGENTIC_ITERATIONS})`);
+              if (agenticIteration >= maxIterations) {
+                logger.warn(`[Agentic Loop] Hit max iterations (${maxIterations})`);
+                safeSend(event.sender, "chat:iteration:limit-reached", {
+                  chatId: req.chatId,
+                  message: "Hit iteration limit. Task may be incomplete.",
+                  iterations: agenticIteration,
+                  totalToolsExecuted: totalToolExecutions,
+                });
               }
 
-              logger.log(`[Agentic Loop] Completed after ${agenticIteration + 1} iteration(s), ${allToolResults.length} tools executed`);
+              // Structured metrics logging
+              logger.info(`[Agentic Loop] Completed:`, {
+                chatId: req.chatId,
+                iterations: agenticIteration,
+                toolsExecuted: totalToolExecutions,
+                durationMs: Date.now() - loopStartTime,
+                completedNaturally: isTaskComplete(fullResponse),
+                hitIterationLimit: agenticIteration >= maxIterations,
+                userExtensions: Math.floor((maxIterations - DEFAULT_AGENTIC_CONFIG.maxIterations) / 10),
+              });
               // ═══════════════════════════════════════════════════════════════
 
             } catch (streamError) {

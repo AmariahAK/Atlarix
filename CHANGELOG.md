@@ -2,6 +2,32 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.15] - 2026-01-09 (WIP)
+
+### Error Handling Investigation
+
+This session focused on debugging error persistence and AI hallucination issues.
+
+#### Changes Made
+- **Todo Approach**: Simplified error clearing logic to clear ALL errors on success signals (HMR success, operation complete, full reload)
+- **Edit Button**: Added "Edit" button to individual error cards for quick file editing
+- **Line Number Regex**: Fixed `extractLineNumber` to handle URLs with port numbers (was matching port instead of line number)
+
+#### Root Causes Identified
+
+| Issue | Root Cause | Status |
+|-------|------------|--------|
+| Errors not clearing | CDP browser console buffer not cleared, old errors re-reported | Identified |
+| AI doesn't see file paths | Field mismatch: `ParsedError.file` vs `handleSolveWithAI.source` | Identified |
+| Duplicate messages | IPC sent to all windows + React StrictMode double-mount | Suspected |
+| Monaco cursor jumping | Line highlighting triggers re-render during typing | Suspected |
+
+#### Files Modified
+- `src/hooks/useBrowserErrorListener.ts` - Simplified error clearing, fixed line number regex
+- `src/components/preview_panel/CodePreviewPanel.tsx` - Added Edit button to error cards
+- `src/ipc/handlers/permissions/interceptor.ts` - Simplified emitStatus (removed unused filePath)
+- `TODO.md` - Added v0.9.15 investigation summary with fix plan
+
 ## [v0.9.14] - 2026-01-08
 
 ### AGENTS.md Context Optimization (StackSense Approach)

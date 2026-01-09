@@ -25,24 +25,45 @@ export function useBrowserErrorListener() {
             return msg
                 .replace(/at line \d+/gi, '')
                 .replace(/:\d+:\d+/g, '') // Remove :line:col
+                .replace(/\?t=\d+/g, '') // Remove cache-busting params
                 .replace(/\s+/g, ' ')
                 .trim()
                 .slice(0, 100); // First 100 chars for comparison
         };
 
+        // Track seen error hashes to prevent duplicates across all sources
+        const seenErrorHashes = new Set<string>();
+
         /**
          * Check if error is a duplicate of an existing one
+         * Uses both in-memory hash set AND existing errors list
          */
         const isDuplicateError = (newError: BrowserError, existingErrors: BrowserError[]): boolean => {
             const normalizedNew = normalizeMessage(newError.message);
-            return existingErrors.some(e => {
-                // Within last 10 seconds
-                if (Date.now() - (e.timestamp || 0) > 10000) return false;
+            const errorHash = `${normalizedNew}-${newError.file || ''}-${newError.line || ''}`;
 
-                // Check normalized message similarity
+            // Check hash set first (catches same error from multiple sources)
+            if (seenErrorHashes.has(errorHash)) {
+                return true;
+            }
+
+            // Check existing errors (5-second window)
+            const isDupe = existingErrors.some(e => {
+                if (Date.now() - (e.timestamp || 0) > 5000) return false;
                 const normalizedExisting = normalizeMessage(e.message);
                 return normalizedNew === normalizedExisting;
             });
+
+            if (!isDupe) {
+                seenErrorHashes.add(errorHash);
+                // Limit hash set size to prevent memory leak
+                if (seenErrorHashes.size > 100) {
+                    const first = seenErrorHashes.values().next().value;
+                    if (first) seenErrorHashes.delete(first);
+                }
+            }
+
+            return isDupe;
         };
         /**
          * Filter out internal/library errors that aren't actionable
@@ -108,6 +129,39 @@ export function useBrowserErrorListener() {
             return false;
         };
 
+        /**
+         * Extract line number from file path or stack trace
+         * Patterns: file.ts:9:5, file.ts:9, http://localhost:5174/src/file.ts:9
+         */
+        const extractLineNumber = (source?: string, stack?: string): { line?: number; column?: number } => {
+            // Try source path first (often includes line:col after file extension)
+            if (source) {
+                // Match line:col after file extension: .ts:9:5 or .tsx:9 or .js:1
+                // This avoids matching port numbers like :5174
+                const sourceMatch = source.match(/\.[a-zA-Z]{2,4}:(\d+)(?::(\d+))?(?:\?.*)?$/);
+                if (sourceMatch) {
+                    return {
+                        line: parseInt(sourceMatch[1], 10),
+                        column: sourceMatch[2] ? parseInt(sourceMatch[2], 10) : undefined
+                    };
+                }
+            }
+
+            // Try stack trace
+            if (stack) {
+                // Common patterns: "at file.ts:9:5" or "(file.ts:9:5)"
+                const stackMatch = stack.match(/(?:at\s+.*?)?(?:\()?([^:\s()]+):(\d+):(\d+)/);
+                if (stackMatch) {
+                    return {
+                        line: parseInt(stackMatch[2], 10),
+                        column: parseInt(stackMatch[3], 10)
+                    };
+                }
+            }
+
+            return {};
+        };
+
         // Listen for CDP debugger console errors (from main process)
         const handleCDPError = (payload: any) => {
             console.log('[useBrowserErrorListener] CDP console error:', payload);
@@ -119,6 +173,11 @@ export function useBrowserErrorListener() {
             }
 
             if (payload.type === 'error' || payload.type === 'warning') {
+                // Extract line number from source if not directly provided
+                const extracted = (!payload.line && payload.source)
+                    ? extractLineNumber(payload.source, payload.stack)
+                    : {};
+
                 const error: BrowserError = {
                     id: `cdp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                     type: 'runtime',
@@ -127,8 +186,8 @@ export function useBrowserErrorListener() {
                     actionable: true,
                     message: payload.message || 'Unknown error',
                     file: payload.source,
-                    line: payload.line,
-                    column: payload.column,
+                    line: payload.line || extracted.line,
+                    column: payload.column || extracted.column,
                     stack: payload.stack,
                     timestamp: payload.timestamp || Date.now(),
                 };
@@ -145,6 +204,20 @@ export function useBrowserErrorListener() {
         // Register CDP listener (use type assertion since window.electron type doesn't include .on)
         const ipcRenderer = window.electron?.ipcRenderer as any;
         ipcRenderer?.on?.('browser-console-error', handleCDPError);
+
+        // ================================================
+        // SIMPLE TODO APPROACH: Clear ALL errors on success signals
+        // Errors that still exist will re-appear naturally
+        // ================================================
+        const handleOperationStatus = (payload: any) => {
+            // When any file operation completes successfully, clear all browser errors
+            // If errors still exist, the browser will report them again
+            if (payload.status === 'completed') {
+                console.log('[useBrowserErrorListener] ✅ Operation completed - clearing all browser errors (they will re-appear if still present)');
+                setErrors([]);
+            }
+        };
+        ipcRenderer?.on?.('operation-status', handleOperationStatus);
 
         const handleMessage = (event: MessageEvent) => {
             // Log all messages for debugging (comment out in production)
@@ -181,6 +254,13 @@ export function useBrowserErrorListener() {
                     const errorType = payload.errorType || payload.type || 'runtime';
                     const isBuildError = errorType === 'build';
 
+                    // Extract line number from source/stack if not directly provided
+                    const sourcePath = payload.file || payload.source;
+                    const providedLine = payload.line || payload.lineno;
+                    const extracted = (!providedLine && sourcePath)
+                        ? extractLineNumber(sourcePath, payload.stack)
+                        : {};
+
                     const error: BrowserError = {
                         id: `atlarix-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                         type: isBuildError ? 'build' : 'runtime',
@@ -189,9 +269,9 @@ export function useBrowserErrorListener() {
                         actionable: true, // All browser errors can be sent to AI
                         message: payload.message || 'Unknown error',
                         // Support both old (source) and new (file) field names
-                        file: payload.file || payload.source,
-                        line: payload.line || payload.lineno,
-                        column: payload.column || payload.colno,
+                        file: sourcePath,
+                        line: providedLine || extracted.line,
+                        column: payload.column || payload.colno || extracted.column,
                         stack: payload.stack,
                         // Include frame for Vite build errors (source code snippet)
                         rawOutput: payload.frame,
@@ -257,53 +337,18 @@ export function useBrowserErrorListener() {
                 }
 
                 // ================================================
-                // Vite HMR Success - Clear Errors for Updated Files
-                // When HMR successfully updates files, clear old errors
+                // SIMPLE TODO APPROACH: HMR Success = Clear ALL Errors
+                // If errors still exist, browser will report them again
                 // ================================================
-                if (data.type === 'update' && Array.isArray(data.updates)) {
-                    // Extract file paths from HMR updates
-                    const updatedFiles = data.updates
-                        .map((update: any) => update.path || update.acceptedPath)
-                        .filter(Boolean)
-                        .map((path: string) => {
-                            // Normalize path - remove query params and leading slash
-                            return path.split('?')[0].replace(/^\//, '');
-                        });
-
-                    if (updatedFiles.length > 0) {
-                        console.log('[useBrowserErrorListener] HMR update success, clearing errors for:', updatedFiles);
-
-                        setErrors((prev) => {
-                            const filtered = prev.filter(error => {
-                                // Keep errors that don't have a file path
-                                if (!error.file) return true;
-
-                                // Check if this error's file was in the HMR update
-                                const errorFile = error.file
-                                    .split('?')[0]
-                                    .replace(/^\//, '')
-                                    .replace(/.*localhost:\d+\//, ''); // Remove localhost prefix
-
-                                const wasUpdated = updatedFiles.some((uf: string) =>
-                                    errorFile.endsWith(uf) || uf.endsWith(errorFile) || errorFile.includes(uf)
-                                );
-
-                                if (wasUpdated) {
-                                    console.log('[useBrowserErrorListener] Clearing error for updated file:', errorFile);
-                                }
-
-                                return !wasUpdated;
-                            });
-
-                            return filtered;
-                        });
-                    }
+                if (data.type === 'update' && Array.isArray(data.updates) && data.updates.length > 0) {
+                    console.log('[useBrowserErrorListener] ✅ HMR update success - clearing all errors (they will re-appear if still present)');
+                    setErrors([]);
                 }
 
-                // Vite full-reload success - clear all build errors
+                // Vite full-reload success - clear all errors
                 if (data.type === 'full-reload') {
-                    console.log('[useBrowserErrorListener] Full reload, clearing all build errors');
-                    setErrors((prev) => prev.filter(error => error.type !== 'build'));
+                    console.log('[useBrowserErrorListener] ✅ Full reload - clearing all errors');
+                    setErrors([]);
                 }
             }
         };
@@ -343,6 +388,7 @@ export function useBrowserErrorListener() {
             window.removeEventListener('message', handleMessage);
             window.removeEventListener('error', handleError);
             ipcRenderer?.removeListener?.('browser-console-error', handleCDPError);
+            ipcRenderer?.removeListener?.('operation-status', handleOperationStatus);
         };
     }, [setErrors]);
 }

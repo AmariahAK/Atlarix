@@ -1125,6 +1125,7 @@ export class IpcClient {
       output: string;
       status: 'running' | 'completed' | 'error';
       exitCode?: number;
+      isPermissionBased?: boolean; // True if this command came from permission system
     }) => void
   ): () => void {
     this.terminalHandlers.set(chatId, handler);

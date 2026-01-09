@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -32,6 +32,7 @@ import { ToolSummary, ToolCall as ToolSummaryCall } from "../ToolSummary";
 import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
+import { ThinkingCard } from "./ThinkingSection";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -94,6 +95,11 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const contentPieces = useMemo(() => {
     return parseCustomTags(content);
   }, [content]);
+
+  // Stability guard: Don't hide ThinkingCard immediately when it becomes empty
+  // This prevents flashing during streaming when content briefly parses to empty
+  const [showThinking, setShowThinking] = useState(false);
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Extract error messages and track positions
   const { errorMessages, lastErrorIndex, errorCount } = useMemo(() => {
@@ -241,16 +247,46 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     return { thoughts, toolCalls: deduplicatedTools, answerPieces: deduplicatedAnswer };
   }, [contentPieces]);
 
-  // Import ThinkingCard
-  const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
+  // Import ThinkingCard - moved to static import to prevent lazy-loading flicker
+  // const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
+
+  // Stability guard: Delay hiding to prevent flicker during streaming
+  const hasThinkingContent = thoughts.length > 0 || toolCalls.length > 0;
+
+  useEffect(() => {
+    if (hasThinkingContent) {
+      // Show immediately when content appears
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+        hideTimeoutRef.current = null;
+      }
+      setShowThinking(true);
+    } else if (showThinking && !isStreaming) {
+      // Only hide when not streaming and after a delay
+      hideTimeoutRef.current = setTimeout(() => {
+        setShowThinking(false);
+      }, 300); // Small delay to prevent flicker
+    } else if (showThinking && isStreaming) {
+      // During streaming, keep showing but don't hide yet
+      // (content may briefly become empty between chunks)
+    }
+
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+      }
+    };
+  }, [hasThinkingContent, isStreaming, showThinking]);
 
   return (
     <>
       {/* CARD 1: Thinking (thoughts + tools) - Collapsed, independent */}
-      {(thoughts.length > 0 || toolCalls.length > 0) && (
-        <React.Suspense fallback={<div className="h-10 bg-slate-900/50 rounded-lg animate-pulse" />}>
-          <ThinkingCard thoughts={thoughts} toolCalls={toolCalls} />
-        </React.Suspense>
+      {/* Use showThinking for stability, but pass actual content to ThinkingCard */}
+      {showThinking && (
+        <ThinkingCard
+          thoughts={thoughts}
+          toolCalls={toolCalls}
+        />
       )}
 
       {/* CARD 2: Response - The actual answer, completely separate */}

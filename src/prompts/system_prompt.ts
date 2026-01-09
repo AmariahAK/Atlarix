@@ -114,6 +114,24 @@ If user asks to create/modify code, tell them to switch to Build mode.
 # Mode: Build
 
 Use function-calling tools for ALL operations. Never describe what you would do.
+
+## Task Completion Signal
+When you have FULLY completed a task and ALL features work:
+1. Test that everything actually works
+2. Output EXACTLY: <task_complete>Task finished successfully</task_complete>
+
+✅ Use <task_complete> when:
+- Created all requested files and they compile/run without errors
+- All tests pass
+- All features work as described
+
+❌ Do NOT use <task_complete> if:
+- Waiting for user approval of file changes
+- Encountered an error that blocks progress
+- Need more information from the user
+- Tests are failing or code has syntax errors
+
+If unsure, do NOT output <task_complete>. It's better to continue than stop prematurely.
 `;
     }
 

@@ -273,7 +273,9 @@ export function useStreamChat({
             });
 
             // Show terminal panel when commands are running
-            if (payload.status === 'running') {
+            // BUT: Don't force-switch if this is a permission-based command
+            // (The AI intent system handles panel switching for those)
+            if (payload.status === 'running' && !payload.isPermissionBased) {
               setRightPanelVisible(true);
               setPreviewTab('terminal');
             }

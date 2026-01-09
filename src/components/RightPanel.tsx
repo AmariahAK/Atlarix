@@ -83,7 +83,7 @@ export function RightPanel() {
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
-    const setChatInput = useSetAtom(chatInputValueAtom);
+    const [chatInputValue, setChatInput] = useAtom(chatInputValueAtom);
 
     // Get chatId from URL route as fallback for PermissionQueuePanel
     let routeChatId: number | undefined;
@@ -94,30 +94,38 @@ export function RightPanel() {
         // Not on chat route, that's fine
     }
 
-    // Handle "Solve with AI" button click - pre-fills chat with error context
+    // Handle "Solve with AI" button click - appends error context to existing chat input
     const handleSolveWithAI = useCallback((error: { message: string; source?: string; stack?: string }) => {
         // Check if message already includes user suggestion (from Suggest button)
         const hasSuggestion = error.message.includes("💡 User's suggestion:");
 
-        let prompt: string;
+        let errorContext: string;
         if (hasSuggestion) {
             // Split message and suggestion
             const [errorPart, suggestionPart] = error.message.split("\n\n💡 User's suggestion:");
-            prompt = `Please identify the issue and provide a fix.
+            errorContext = `Please identify the issue and provide a fix.
 
 Error: ${errorPart}${error.source ? `
 File: ${error.source}` : ''}
 
 💡 User's suggestion:${suggestionPart}`;
         } else {
-            prompt = `Please identify the issue and provide a fix.
+            errorContext = `Please identify the issue and provide a fix.
 
 Error: ${error.message}${error.source ? `
 File: ${error.source}` : ''}`;
         }
 
-        setChatInput(prompt.trim());
-    }, [setChatInput]);
+        // Append to existing input instead of replacing
+        const existingInput = chatInputValue?.trim() || '';
+        if (existingInput) {
+            // User has typed something - append error context
+            setChatInput(`${existingInput}\n\n---\n${errorContext.trim()}`);
+        } else {
+            // No existing input - just set the error
+            setChatInput(errorContext.trim());
+        }
+    }, [chatInputValue, setChatInput]);
 
     // Handle "Fix All" button click - formats multiple errors for AI
     const handleSolveAllWithAI = useCallback((errors: ParsedError[], context: string) => {
@@ -292,7 +300,7 @@ Please fix these errors in priority order (structural/build errors first, then r
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} fallbackChatId={routeChatId} />
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} fallbackChatId={routeChatId} />
             </div>
         </div>
     );
@@ -305,11 +313,13 @@ function PanelContent({
     context,
     onSolveWithAI,
     onSolveAllWithAI,
+    onSwitchToCode,
     fallbackChatId
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
+    onSwitchToCode?: () => void;
     fallbackChatId?: number;
 }) {
     // For file-diff and permission types, route based on activeTab
@@ -329,6 +339,7 @@ function PanelContent({
                         activeTab={context.activeTab}
                         onSolveWithAI={onSolveWithAI}
                         onSolveAllWithAI={onSolveAllWithAI}
+                        onSwitchToCode={onSwitchToCode}
                     />
                 );
             case 'diagram':
@@ -355,6 +366,7 @@ function PanelContent({
                     activeTab={context.activeTab}
                     onSolveWithAI={onSolveWithAI}
                     onSolveAllWithAI={onSolveAllWithAI}
+                    onSwitchToCode={onSwitchToCode}
                 />
             );
 

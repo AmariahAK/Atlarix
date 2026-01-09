@@ -251,6 +251,11 @@ const validReceiveChannels = [
   // Diagram staleness notification
   "diagram:staleness-detected", // Diagram outdated due to code changes
   "diagram:initial-ready",      // Cold start: initial diagram generated
+  // Smart Agentic Loop (iteration progress)
+  "chat:iteration:progress",    // Progress updates (iteration count, tools)
+  "chat:iteration:warning",     // Warning: task running long, continue?
+  "chat:iteration:limit-reached", // Hit max iterations
+  "chat:iteration:timeout",     // Hit time limit (10 min)
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

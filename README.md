@@ -143,8 +143,16 @@ npm start
 ---
 
 ## 🚧 Known Issues & Limitations
-*   **Browser Injection Race Condition**: Extremely early runtime errors (like immediate SyntaxErrors on page load) might fire before the Atlarix error capture script injects, causing them to appear in the browser console but not the Errors tab. The new "Type Watcher" mitigates this by catching these as buildtime errors.
-*   Search Configuration: Searching for templates via SearxNG might require manual Docker setup if the automated script fails.
+
+### Active Investigation (v0.9.15)
+- **Errors Not Clearing**: CDP browser console buffer persists after React state clears - errors reappear after fix
+- **AI Missing File Paths**: "Fix with AI" button doesn't include file path due to field mismatch (`file` vs `source`)
+- **Duplicate Messages**: Chat messages may appear 2x due to IPC broadcast + React StrictMode
+- **Monaco Cursor Jumping**: Typing in Code tab may cause cursor to jump (line highlighting interference)
+
+### Long-Standing
+- **Browser Injection Race Condition**: Extremely early runtime errors might fire before error capture injects
+- **Search Configuration**: SearxNG template search may require manual Docker setup
 
 
 ---

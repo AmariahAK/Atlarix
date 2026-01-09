@@ -52,7 +52,9 @@ export function ThinkingCard({ thoughts, toolCalls }: ThinkingCardProps) {
             className={cn(
                 "mb-3 rounded-lg border overflow-hidden",
                 "bg-slate-900/60 border-slate-700/50",
-                stats.isRunning && "border-amber-500/30"
+                stats.isRunning && "border-amber-500/30",
+                // Smooth animation on appear
+                "animate-in fade-in slide-in-from-top-2 duration-200"
             )}
         >
             {/* Header - Click to expand/collapse */}

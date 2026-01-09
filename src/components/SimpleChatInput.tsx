@@ -29,6 +29,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+    // Prevent double-submit when clicking rapidly or "Fix with AI" triggers re-renders
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Auto-resize textarea when value changes (e.g., pre-filled by "Fix with AI")
     useEffect(() => {
@@ -40,7 +42,10 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputValue.trim() || isStreaming) return;
+        if (!inputValue.trim() || isStreaming || isSubmitting) return;
+
+        // Set submitting guard immediately
+        setIsSubmitting(true);
 
         // Check model is selected
         const hasModel = settings?.selectedModel ||
@@ -51,12 +56,16 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             import("@/lib/toast").then(({ showError }) => {
                 showError("Please select a model first");
             });
+            setIsSubmitting(false); // Reset guard on early return
             return;
         }
 
         onSubmit(inputValue, attachments);
         setInputValue("");
         setAttachments([]);
+
+        // Reset submitting guard after a short delay to prevent double-clicks
+        setTimeout(() => setIsSubmitting(false), 100);
         inputRef.current?.focus();
     };
 

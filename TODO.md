@@ -4,6 +4,75 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 🔥 v0.9.15 - Error Handling & UI Fixes (Next Session)
+
+### Investigation Summary (2026-01-09)
+Based on debugging session, the following issues were identified and need fixes:
+
+### 1. Duplicate Message Visual (2x) 🟡
+**Status:** Needs investigation
+
+When sending a prompt, it appears twice visually. On followup, the original goes back to 1, but the new prompt shows 2x.
+
+**Analysis:**
+- IPC events are sent to all BrowserWindows (line 34-42 in handlers.ts)
+- Combined with React StrictMode double-mounting, this causes duplicate processing
+
+**Fix needed:** Add message deduplication or track listener registration.
+
+### 2. Monaco Cursor Jumping While Typing 🟡
+**Status:** Needs investigation
+
+When typing in the Code tab editor (e.g., changing `import` to `import type`), the cursor jumps to random lines with each keystroke.
+
+**Analysis:**
+- Line highlighting from errors triggers re-renders
+- Cursor repositions based on error line numbers during typing
+
+**Fix needed:** Disable line highlighting during active typing, or debounce the highlight updates.
+
+### 3. Errors Not Clearing After Fix 🔴
+**Status:** Root cause confirmed
+
+**Problem:** Errors persist in UI even after AI successfully fixes the file and HMR succeeds.
+
+**Root Cause:** CDP (Chrome DevTools Protocol) reports console messages from the browser's internal buffer. When we call `setErrors([])`:
+- Our React state clears
+- But the browser console buffer is NOT cleared
+- CDP continues to report old entries from the buffer
+
+**Fix needed:** 
+- [ ] Send `Console.clearMessages` CDP command after success to actually clear the browser console
+- [ ] Or track timestamps strictly to ignore stale messages after a clear event
+
+### 4. AI Doesn't Receive File Paths with Errors 🔴
+**Status:** Root cause confirmed - Field name mismatch!
+
+**Problem:** When clicking "Fix with AI", the AI only sees the error message, not the file location. This causes AI to hallucinate when multiple files have the same error.
+
+**Root Cause:** Field name mismatch in `RightPanel.tsx`:
+```typescript
+// ParsedError interface uses:
+file?: string;
+
+// But handleSolveWithAI looks for:
+error.source  // undefined!
+```
+
+**Fix needed:**
+- [ ] Change `error.source` to `error.file` in `handleSolveWithAI`
+- [ ] Also include line number in the AI prompt
+
+### Priority Order
+| Issue | Priority | File(s) to Modify |
+|-------|----------|-------------------|
+| 4. Missing file path in AI | 🔴 High | `RightPanel.tsx` |
+| 3. Errors not clearing | 🔴 High | `console_debugger.ts`, `useBrowserErrorListener.ts` |
+| 2. Monaco cursor jumping | 🟡 Medium | `ErrorFileEditor.tsx` |
+| 1. Duplicate messages | 🟡 Medium | `useAIPanelListener.ts`, layout components |
+
+---
+
 ## 🔥 v0.9.14 - AGENTS.md Context Optimization (In Progress)
 
 Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense approach)

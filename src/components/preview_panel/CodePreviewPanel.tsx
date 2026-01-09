@@ -49,6 +49,7 @@ interface CodePreviewPanelProps {
     onClearErrors?: () => void;
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
+    onSwitchToCode?: () => void; // Switch to Code tab for line highlighting
 }
 
 type ViewportSize = 'mobile' | 'tablet' | 'desktop' | 'full';
@@ -60,7 +61,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
     full: { width: '100%', label: 'Full' },
 };
 
-export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI }: CodePreviewPanelProps) {
+export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
     const previewUrl = data?.url;
     const currentFile = data?.file;
     const terminalData = data?.terminal;
@@ -85,7 +86,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 <TerminalTab data={terminalData} />
             )}
             {activeTab === 'errors' && (
-                <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} onSolveAllWithAI={onSolveAllWithAI} />
+                <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} onSolveAllWithAI={onSolveAllWithAI} onSwitchToCode={onSwitchToCode} />
             )}
             {activeTab === 'permissions' && (
                 <PermissionsTab chatId={chatId} />
@@ -487,12 +488,14 @@ function ErrorsTab({
     errors,
     onClear,
     onSolveWithAI,
-    onSolveAllWithAI
+    onSolveAllWithAI,
+    onSwitchToCode
 }: {
     errors: ParsedError[];
     onClear?: () => void;
     onSolveWithAI?: (error: ParsedError) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
+    onSwitchToCode?: () => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showFixAllDialog, setShowFixAllDialog] = useState(false);
@@ -522,8 +525,24 @@ function ErrorsTab({
         );
     }
 
+    // Deduplicate errors by message (normalized) to prevent multiple buttons for same error
+    const deduplicatedErrors = errors.reduce((acc, error) => {
+        const normalizedMsg = error.message
+            .replace(/:\d+:\d+/g, '') // Remove line:col
+            .replace(/\?t=\d+/g, '') // Remove cache-busting
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 100);
+        const key = `${normalizedMsg}-${error.file || ''}-${error.type}`;
+        if (!acc.seen.has(key)) {
+            acc.seen.add(key);
+            acc.errors.push(error);
+        }
+        return acc;
+    }, { seen: new Set<string>(), errors: [] as ParsedError[] }).errors;
+
     // Group errors by file
-    const errorsByFile = errors.reduce((acc, error) => {
+    const errorsByFile = deduplicatedErrors.reduce((acc, error) => {
         const file = error.file || 'General';
         if (!acc[file]) acc[file] = [];
         acc[file].push(error);
@@ -537,8 +556,8 @@ function ErrorsTab({
         return a.localeCompare(b);
     });
 
-    const errorCount = errors.filter(e => e.severity === 'error').length;
-    const warningCount = errors.filter(e => e.severity === 'warning').length;
+    const errorCount = deduplicatedErrors.filter(e => e.severity === 'error').length;
+    const warningCount = deduplicatedErrors.filter(e => e.severity === 'warning').length;
 
     return (
         <div className="flex flex-col h-full bg-[#1e1e1e]">
@@ -561,6 +580,17 @@ function ErrorsTab({
                     )}
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* Edit Code Button - Switch to Code tab for line highlighting */}
+                    {onSwitchToCode && deduplicatedErrors.some(e => e.file) && (
+                        <button
+                            onClick={onSwitchToCode}
+                            className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-zinc-700/50 text-zinc-300 hover:bg-zinc-700 border border-zinc-600/50 transition-colors"
+                            title="Edit code with line highlighting"
+                        >
+                            <Code2 className="w-3 h-3" />
+                            <span>Edit Code</span>
+                        </button>
+                    )}
                     {/* Fix All Button */}
                     {errors.length > 1 && onSolveAllWithAI && (
                         <button
@@ -679,6 +709,20 @@ function ErrorsTab({
                                                         >
                                                             <span>✨ Fix with AI</span>
                                                         </button>
+                                                        {/* Edit button - switches to Code tab for this file */}
+                                                        {onSwitchToCode && error.file && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onSwitchToCode();
+                                                                }}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-700/30 text-zinc-300 hover:bg-zinc-700/50 border border-zinc-700/50 transition-colors"
+                                                                title="Edit this file in Code tab"
+                                                            >
+                                                                <Code2 className="w-3 h-3" />
+                                                                <span>Edit</span>
+                                                            </button>
+                                                        )}
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
