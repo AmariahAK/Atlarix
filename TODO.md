@@ -30,6 +30,11 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] Subscription management
 - [ ] Usage limits enforcement
 
+### Template System Improvements (User Request)
+- [ ] **Fix Git Clone UX**: Clicking a template card should trigger `apply_template` directly (clone -> rm .git -> init), not just copy text.
+- [ ] **Template Collection**: Fix hardcoded templates and improve reliability (SearxNG fallbacks).
+- [ ] **Visual Previews**: Show diagram/preview of template *before* cloning.
+
 ---
 
 ## ✅ v0.9.15 - Error Handling & UI Fixes (Complete)
