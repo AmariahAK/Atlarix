@@ -4,72 +4,105 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🔥 v0.9.15 - Error Handling & UI Fixes (Next Session)
+## ✅ v0.9.17 - Session Tracker & Architecture (Complete)
 
-### Investigation Summary (2026-01-09)
-Based on debugging session, the following issues were identified and need fixes:
+### Core Systems ✅
+- [x] **SessionTracker**: Implemented "Mini-Git" to track uncommitted changes
+- [x] **Staleness Logic**: Added <5%, 5-15%, >15% thresholds for diagram updates
+- [x] **New Tools**: `get_session_changes` and `get_dev_server_port`
+- [x] **Right Panel**: Fixed global prompt diagram staleness bug
 
-### 1. Duplicate Message Visual (2x) 🟡
-**Status:** Needs investigation
+### Documentation ✅
+- [x] **Architecture Rewrite**: Removed Dyad references, documented Atlarix accurately
+- [x] **Tool Docs**: Added new tools to AGENTS.md and AGENTS_COMPACT.md
 
-When sending a prompt, it appears twice visually. On followup, the original goes back to 1, but the new prompt shows 2x.
+---
 
-**Analysis:**
-- IPC events are sent to all BrowserWindows (line 34-42 in handlers.ts)
-- Combined with React StrictMode double-mounting, this causes duplicate processing
+## 🚧 v1.0.0 - Business Logic (Next)
 
-**Fix needed:** Add message deduplication or track listener registration.
+### Authentication
+- [ ] Choose provider (Supabase / Clerk)
+- [ ] Implement Login/Signup screens
+- [ ] Add ProtectedRoute components
 
-### 2. Monaco Cursor Jumping While Typing 🟡
-**Status:** Needs investigation
+### Monetization
+- [ ] Integrate Payment Provider (Stripe / LemonSqueezy)
+- [ ] Subscription management
+- [ ] Usage limits enforcement
 
-When typing in the Code tab editor (e.g., changing `import` to `import type`), the cursor jumps to random lines with each keystroke.
+---
 
-**Analysis:**
-- Line highlighting from errors triggers re-renders
-- Cursor repositions based on error line numbers during typing
+## ✅ v0.9.15 - Error Handling & UI Fixes (Complete)
 
-**Fix needed:** Disable line highlighting during active typing, or debounce the highlight updates.
+All 4 bugs fixed and verified on 2026-01-09.
 
-### 3. Errors Not Clearing After Fix 🔴
-**Status:** Root cause confirmed
+---
 
-**Problem:** Errors persist in UI even after AI successfully fixes the file and HMR succeeds.
+### Fix 1: AI Missing File Paths ✅
+**File:** `src/components/RightPanel.tsx`
 
-**Root Cause:** CDP (Chrome DevTools Protocol) reports console messages from the browser's internal buffer. When we call `setErrors([])`:
-- Our React state clears
-- But the browser console buffer is NOT cleared
-- CDP continues to report old entries from the buffer
+- [x] Changed `error.source` → `error.file` in function signature
+- [x] Added `error.line` to include line number in AI prompt
 
-**Fix needed:** 
-- [ ] Send `Console.clearMessages` CDP command after success to actually clear the browser console
-- [ ] Or track timestamps strictly to ignore stale messages after a clear event
+---
 
-### 4. AI Doesn't Receive File Paths with Errors 🔴
-**Status:** Root cause confirmed - Field name mismatch!
+### Fix 2: Errors Not Clearing ✅
+**Files:** `console_debugger.ts`, `useBrowserErrorListener.ts`, `preload.ts`, `interceptor.ts`
 
-**Problem:** When clicking "Fix with AI", the AI only sees the error message, not the file location. This causes AI to hallucinate when multiple files have the same error.
+- [x] Added `clearConsoleBuffer()` and `clearAllConsoleBuffers()` functions
+- [x] Added `browser-console-cleared` IPC channel to preload whitelist
+- [x] Added listener in `useBrowserErrorListener.ts` to reset error state
+- [x] Call `clearAllConsoleBuffers()` after operations complete in interceptor
 
-**Root Cause:** Field name mismatch in `RightPanel.tsx`:
-```typescript
-// ParsedError interface uses:
-file?: string;
+---
 
-// But handleSolveWithAI looks for:
-error.source  // undefined!
-```
+### Fix 3: Monaco Cursor Jumping ✅
+**File:** `src/components/preview_panel/ErrorFileEditor.tsx`
 
-**Fix needed:**
-- [ ] Change `error.source` to `error.file` in `handleSolveWithAI`
-- [ ] Also include line number in the AI prompt
+- [x] Added `isInitialLoad` state to track first load vs user editing
+- [x] Only apply decorations and cursor positioning on initial load
+- [x] Set `isInitialLoad=false` in onChange handler
 
-### Priority Order
-| Issue | Priority | File(s) to Modify |
-|-------|----------|-------------------|
-| 4. Missing file path in AI | 🔴 High | `RightPanel.tsx` |
-| 3. Errors not clearing | 🔴 High | `console_debugger.ts`, `useBrowserErrorListener.ts` |
-| 2. Monaco cursor jumping | 🟡 Medium | `ErrorFileEditor.tsx` |
-| 1. Duplicate messages | 🟡 Medium | `useAIPanelListener.ts`, layout components |
+---
+
+### Fix 4: Duplicate Messages ✅
+**File:** `src/hooks/useAIPanelListener.ts`
+
+- [x] Added `processedTimestamps` ref to track handled events
+- [x] Skip events with already-processed timestamps
+- [x] Limit set size to prevent memory leak
+
+---
+
+### Verification ✅
+- [x] TypeScript check passed (`npx tsc --noEmit`)
+- [ ] Manual test: "Fix with AI" shows file path + line number
+- [ ] Manual test: Errors clear after fix
+- [ ] Manual test: Cursor stays in place while typing
+- [ ] Manual test: Messages appear only once
+
+
+---
+
+## 🔥 v0.9.16 - Right Panel & AGENTS.md Updates (Complete)
+
+### AGENTS.md Right Panel Documentation ✅
+- [x] Added comprehensive "Right Panel Overview" section
+- [x] Documented all 7 tabs (Preview, Code, Terminal, Errors, Permissions, Search, Diagram)
+- [x] Clarified port info (Atlarix 5173 vs user projects 5174+)
+- [x] Added common user Q&A responses
+- [x] Clarified Mermaid diagrams (not PlantUML)
+- [x] Added guidance for diagram syntax errors
+
+### AGENTS_COMPACT.md Updates ✅
+- [x] Added right panel tabs list
+- [x] Added Mermaid clarification
+- [x] Added port warning
+
+### Known Diagram Limitations (TBD v1.0)
+- [ ] **Retry button** only re-renders same code (doesn't call AI to fix syntax)
+- [ ] **Staleness detection** may not trigger on all workspace changes
+- [ ] Consider adding "Fix with AI" button for diagram errors
 
 ---
 

@@ -194,3 +194,43 @@ export function attachToAllWindows(): void {
         attachConsoleDebugger(win);
     }
 }
+
+/**
+ * Clear browser console buffer via CDP
+ * Call this after successful file operations to prevent stale errors from reappearing.
+ * 
+ * Why this is needed:
+ * - CDP reports console messages from the browser's internal buffer
+ * - When React state clears errors, CDP still has old entries
+ * - This clears the actual browser console buffer
+ */
+export function clearConsoleBuffer(win: BrowserWindow): void {
+    const webContents = win.webContents;
+
+    if (!attachedWebContents.has(webContents.id)) {
+        logger.debug(`No debugger attached to webContents ${webContents.id}, skipping console clear`);
+        return;
+    }
+
+    webContents.debugger.sendCommand('Console.clearMessages')
+        .then(() => {
+            logger.log(`✅ Console buffer cleared for webContents ${webContents.id}`);
+            // Notify renderer that buffer was cleared so it can reset its state
+            webContents.send('browser-console-cleared', { timestamp: Date.now() });
+        })
+        .catch(err => {
+            logger.warn(`Failed to clear console buffer: ${err}`);
+        });
+}
+
+/**
+ * Clear console buffers for all windows
+ * Call this after successful operations (file write, HMR success, etc.)
+ */
+export function clearAllConsoleBuffers(): void {
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+        clearConsoleBuffer(win);
+    }
+    logger.log(`Cleared console buffers for ${windows.length} window(s)`);
+}

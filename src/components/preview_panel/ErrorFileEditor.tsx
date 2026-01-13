@@ -46,6 +46,8 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
+    // FIX 3 (v0.9.15): Track initial load vs user editing to prevent cursor jumping
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<Monaco | null>(null);
     const decorationIdsRef = useRef<string[]>([]);
@@ -117,6 +119,9 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
     // Load file content when selected file changes
     useEffect(() => {
         if (!selectedFile) return;
+
+        // FIX 3: Mark as initial load when file changes
+        setIsInitialLoad(true);
 
         const loadFile = async () => {
             setIsLoading(true);
@@ -199,8 +204,10 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
     }, [handleSave]);
 
     // Highlight error lines in editor with decorations AND markers (underlines)
+    // FIX 3 (v0.9.15): Only apply on initial load to prevent cursor jumping during typing
     useEffect(() => {
-        if (!editorRef.current || !monacoRef.current || !selectedFile || isLoading) return;
+        // Skip if not initial load (user is editing) - this prevents cursor jumping
+        if (!editorRef.current || !monacoRef.current || !selectedFile || isLoading || !isInitialLoad) return;
 
         const editor = editorRef.current;
         const monaco = monacoRef.current;
@@ -259,7 +266,7 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
             // Set markers on the model
             monaco.editor.setModelMarkers(model, 'error-file-editor', markers);
 
-            // Jump to first error line (ensure valid line number > 0)
+            // Jump to first error line - ONLY on initial load (not during typing)
             const firstError = validErrors[0];
             if (firstError && firstError.line && firstError.line > 0) {
                 editor.revealLineInCenter(firstError.line);
@@ -291,7 +298,8 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
                 monaco.editor.setModelMarkers(model, 'error-file-editor', []);
             }
         };
-    }, [selectedFile, fileContent, isLoading]);
+        // FIX 3: Remove fileContent from deps, use isInitialLoad instead
+    }, [selectedFile, isLoading, isInitialLoad]);
 
     // Get file extension for language detection
     const getLanguage = (filePath: string): string => {
@@ -424,7 +432,11 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
                         height="100%"
                         language={getLanguage(selectedFile.path)}
                         value={fileContent}
-                        onChange={(value) => setFileContent(value || '')}
+                        onChange={(value) => {
+                            // FIX 3: Mark as no longer initial load when user starts typing
+                            setIsInitialLoad(false);
+                            setFileContent(value || '');
+                        }}
                         onMount={handleEditorMount}
                         theme="vs-dark"
                         options={{

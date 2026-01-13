@@ -22,6 +22,11 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Version History** - Browse and restore previous diagram versions
 - **Professional UX** - Like Figma/Excalidraw for architecture diagrams
 
+### 🧠 Session Change Tracking (NEW in v0.9.17!)
+- **"Mini-Git" Functionality** - Tracks live file changes *before* you commit
+- **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
+- **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
+
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats
 - **Global Prompts** - Apply to all incognito/general chats

@@ -382,3 +382,150 @@ Searches file names, paths, and optionally file contents for matches.`,
         }
     },
 });
+
+// ═══════════════════════════════════════════════════════════
+// GET SESSION CHANGES - AI's Mini-Git Awareness
+// ═══════════════════════════════════════════════════════════
+
+import { SessionTracker } from '../SessionTracker';
+import { devServerManager } from '../dev_server_manager';
+
+ToolRegistry.register({
+    name: "get_session_changes",
+    category: ToolCategory.FILE,
+    description: `Check what files have been modified this session and if diagram needs updating.
+Use after making 3+ file changes, after major refactors, or when user asks about diagram status.
+
+Returns:
+- changedFiles: List of files you've modified
+- changePercentage: How much of the project changed (0.05 = 5%)
+- diagramStatus: 'current' | 'minor_drift' | 'major_drift'
+- recommendedAction: 'none' | 'update_minor' | 'regenerate'
+
+**Diagram Update Rules:**
+- <5% changes → No update needed
+- 5-15% changes → Call update_diagram with description
+- >15% changes → Call get_diagram to regenerate`,
+    cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true,
+    parameters: createParameters({}, []),
+    handler: async ({ workspace, workspaceId }) => {
+        try {
+            if (!workspaceId) {
+                return "No workspace ID available. Session tracking requires an active workspace.";
+            }
+
+            // Get or create tracker
+            const tracker = SessionTracker.getInstance(workspaceId);
+
+            // Initialize if not done
+            if (!tracker.isInitialized && workspace) {
+                await tracker.initialize(workspace);
+            }
+
+            const state = tracker.getSessionState();
+
+            let output = `# Session Changes\n\n`;
+            output += `**Session Started:** ${state.sessionStartedAt.toLocaleTimeString()}\n`;
+            output += `**Baseline Files:** ${state.totalFileCount}\n`;
+            output += `**Change Percentage:** ${(state.changePercentage * 100).toFixed(1)}%\n\n`;
+
+            output += `## Diagram Status: ${state.diagramStatus.toUpperCase()}\n`;
+            output += `**Recommended Action:** ${state.recommendedAction}\n\n`;
+
+            if (state.changedFiles.length > 0) {
+                output += `## Changed Files (${state.changedFiles.length})\n`;
+                output += `- Added: ${state.filesAdded}\n`;
+                output += `- Modified: ${state.filesModified}\n`;
+                output += `- Deleted: ${state.filesDeleted}\n\n`;
+
+                output += `### File List:\n`;
+                state.changedFiles.slice(0, 20).forEach(f => {
+                    output += `- ${f}\n`;
+                });
+                if (state.changedFiles.length > 20) {
+                    output += `- ... and ${state.changedFiles.length - 20} more\n`;
+                }
+            } else {
+                output += `No files changed yet this session.\n`;
+            }
+
+            if (state.lastDiagramSync) {
+                output += `\n**Last Diagram Sync:** ${state.lastDiagramSync.toLocaleTimeString()}\n`;
+            }
+
+            return output;
+        } catch (error) {
+            throw new Error(`Failed to get session changes: ${error}`);
+        }
+    },
+});
+
+// ═══════════════════════════════════════════════════════════
+// GET DEV SERVER PORT - Accurate Port Information
+// ═══════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+    name: "get_dev_server_port",
+    category: ToolCategory.FILE,
+    description: `Get the port the user's dev server is running on.
+Use when user asks about their app URL or port number.
+
+Note: 
+- Atlarix itself runs on port 5173 (internal, don't mention)
+- User's project runs on a different port (5174, 5175, etc.)
+- Just say "the right panel preview" instead of mentioning specific ports`,
+    cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true,
+    parameters: createParameters({}, []),
+    handler: async ({ workspaceId }) => {
+        try {
+            if (!workspaceId) {
+                return {
+                    port: null,
+                    url: null,
+                    isRunning: false,
+                    message: "No workspace ID available."
+                };
+            }
+
+            const isRunning = devServerManager.isServerRunning(workspaceId);
+            const url = devServerManager.getServerUrl(workspaceId);
+
+            // Extract port from URL
+            let port: number | null = null;
+            if (url) {
+                const match = url.match(/:(\d+)/);
+                if (match) {
+                    port = parseInt(match[1], 10);
+                }
+            }
+
+            // Get all running servers for context
+            const servers = devServerManager.getRunningServers();
+            const currentServer = servers.find(s => s.workspaceId === workspaceId);
+
+            let output = `# Dev Server Status\n\n`;
+            output += `**Running:** ${isRunning ? 'Yes ✅' : 'No ❌'}\n`;
+
+            if (isRunning && url) {
+                output += `**URL:** ${url}\n`;
+                output += `**Port:** ${port}\n`;
+                if (currentServer) {
+                    output += `**Framework:** ${currentServer.framework}\n`;
+                }
+                output += `\n💡 User can view their app in the **Preview tab** of the right panel.\n`;
+            } else {
+                output += `\nNo dev server running. The server auto-starts when a frontend project is opened.\n`;
+            }
+
+            return output;
+        } catch (error) {
+            throw new Error(`Failed to get dev server port: ${error}`);
+        }
+    },
+});

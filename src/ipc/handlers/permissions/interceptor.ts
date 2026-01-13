@@ -27,6 +27,8 @@ import {
 } from "../../../lib/tools/permissions/schema";
 import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
 import { queueCapture } from "../../../lib/diagram-timeline";
+import { clearAllConsoleBuffers } from "../console_debugger";
+import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
 
 const logger = log.scope("permission-interceptor");
 
@@ -108,6 +110,29 @@ export class PermissionInterceptor extends EventEmitter {
             win.webContents.send('operation-status', payload);
         }
         logger.log(`[emitStatus] ${operationId} -> ${status}${error ? ` (${error})` : ''}`);
+    }
+
+    /**
+     * Emit diagram staleness event based on SessionTracker thresholds
+     * v0.9.16: Part of AI's mini-git system
+     */
+    private emitDiagramStaleness(
+        severity: 'minor' | 'major',
+        changedFileCount: number
+    ): void {
+        const payload = {
+            diagramId: this.workspaceId,
+            isStale: true,
+            severity: severity === 'major' ? 'major' : 'moderate',
+            reason: `${changedFileCount} file(s) changed this session`,
+            recommendation: severity === 'major' ? 'force-refresh' : 'suggest-refresh',
+            source: 'session-tracker',
+        };
+
+        for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send('diagram:staleness-detected', payload);
+        }
+        logger.log(`📊 [SessionTracker] Diagram staleness: ${severity} (${changedFileCount} files)`);
     }
 
     /**
@@ -443,6 +468,24 @@ export class PermissionInterceptor extends EventEmitter {
                 isNewFile: preview?.type === 'create',
             });
 
+            // ═══════════════════════════════════════════════════════════════
+            // SESSION TRACKER: Record file changes for AI awareness (v0.9.16)
+            // This feeds the get_session_changes tool
+            // NOTE: Staleness emission happens in executeAllOperations (batch-aware)
+            // ═══════════════════════════════════════════════════════════════
+            if (this.workspaceId && preview?.path) {
+                const tracker = SessionTracker.getInstance(this.workspaceId);
+                if (!tracker.isInitialized) {
+                    tracker.initialize(this.workspacePath).catch(() => { });
+                }
+
+                const changeType = preview.type === 'create' ? 'added'
+                    : request.operation === 'delete_file' ? 'deleted'
+                        : 'modified';
+                tracker.recordChange(preview.path, changeType);
+                // Per-file emission removed - staleness checked after batch completes
+            }
+
             // Queue timeline capture for file operations
             if (request.operation === 'write_file' || request.operation === 'write_multiple_files' ||
                 request.operation === 'delete_file' || request.operation === 'rename_file') {
@@ -648,8 +691,30 @@ export class PermissionInterceptor extends EventEmitter {
             await this.evaluateDiagramRefresh();
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // SESSION TRACKER: Batch-complete staleness check (v0.9.16)
+        // Emit staleness ONCE after all operations complete, not per-file
+        // ═══════════════════════════════════════════════════════════════
+        if (this.workspaceId) {
+            const tracker = SessionTracker.getInstance(this.workspaceId);
+            const status = tracker.getDiagramStatus();
+            if (status !== 'current') {
+                this.emitDiagramStaleness(
+                    status === 'major_drift' ? 'major' : 'minor',
+                    tracker.changeCount
+                );
+                logger.log(`📊 [SessionTracker] Batch complete: ${status} (${tracker.changeCount} files, ${(tracker.getChangePercentage() * 100).toFixed(1)}%)`);
+            }
+        }
+
         // Clear executed operations for next sequence
         this.executedOperations = [];
+
+        // ════════════════════════════════════════════════════════════════════
+        // FIX 2 (v0.9.15): Clear CDP console buffers to prevent stale errors
+        // This sends Console.clearMessages via CDP and notifies renderer
+        // ════════════════════════════════════════════════════════════════════
+        clearAllConsoleBuffers();
 
         return results;
     }

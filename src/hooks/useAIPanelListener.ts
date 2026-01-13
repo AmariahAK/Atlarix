@@ -10,7 +10,7 @@
  * - Frontend maps to correct UI component (e.g., 'file-diff')
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSetAtom } from 'jotai';
 import { aiPanelIntentAtom, type AIPanelIntent, type AIPanelIntentState } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
@@ -32,6 +32,9 @@ const VALID_INTENTS: AIPanelIntent[] = [
 export function useAIPanelListener() {
     const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
 
+    // FIX 4 (v0.9.15): Track processed timestamps to prevent duplicate handling from StrictMode
+    const processedTimestamps = useRef(new Set<number>());
+
     useEffect(() => {
         // Listen for intent updates from main process via IpcClient
         const handleIntentUpdate = (data: {
@@ -41,6 +44,19 @@ export function useAIPanelListener() {
             source?: 'ai' | 'user' | 'system';
         }) => {
             console.log('[useAIPanelListener] Received intent update:', data);
+
+            // FIX 4: Deduplicate - Skip if we've already processed this exact timestamp
+            if (processedTimestamps.current.has(data.timestamp)) {
+                console.debug('[useAIPanelListener] Skipping duplicate intent (same timestamp)');
+                return;
+            }
+            processedTimestamps.current.add(data.timestamp);
+
+            // Limit set size to prevent memory leak
+            if (processedTimestamps.current.size > 50) {
+                const first = processedTimestamps.current.values().next().value;
+                if (first) processedTimestamps.current.delete(first);
+            }
 
             // Validate intent is known
             if (!VALID_INTENTS.includes(data.intent as AIPanelIntent)) {

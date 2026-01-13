@@ -248,6 +248,7 @@ const validReceiveChannels = [
   "dev-server:output",       // Live dev server console output
   // Browser console error capture (CDP debugger)
   "browser-console-error",   // Console errors from Electron debugger
+  "browser-console-cleared", // Console buffer cleared after success (Fix 2: errors not clearing)
   // Diagram staleness notification
   "diagram:staleness-detected", // Diagram outdated due to code changes
   "diagram:initial-ready",      // Cold start: initial diagram generated

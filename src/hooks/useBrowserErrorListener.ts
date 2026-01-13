@@ -219,6 +219,18 @@ export function useBrowserErrorListener() {
         };
         ipcRenderer?.on?.('operation-status', handleOperationStatus);
 
+        // ================================================
+        // FIX 2: CDP Console Buffer Cleared (v0.9.15)
+        // When main process clears CDP buffer, reset our dedup tracking
+        // This ensures errors don't re-appear from stale buffer entries
+        // ================================================
+        const handleBufferCleared = (payload: any) => {
+            console.log('[useBrowserErrorListener] ✅ CDP buffer cleared - resetting error state and dedup tracking');
+            seenErrorHashes.clear(); // Reset deduplication set
+            setErrors([]); // Clear React state
+        };
+        ipcRenderer?.on?.('browser-console-cleared', handleBufferCleared);
+
         const handleMessage = (event: MessageEvent) => {
             // Log all messages for debugging (comment out in production)
             if (event.data?.type) {
@@ -389,6 +401,7 @@ export function useBrowserErrorListener() {
             window.removeEventListener('error', handleError);
             ipcRenderer?.removeListener?.('browser-console-error', handleCDPError);
             ipcRenderer?.removeListener?.('operation-status', handleOperationStatus);
+            ipcRenderer?.removeListener?.('browser-console-cleared', handleBufferCleared);
         };
     }, [setErrors]);
 }

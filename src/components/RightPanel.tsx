@@ -95,7 +95,7 @@ export function RightPanel() {
     }
 
     // Handle "Solve with AI" button click - appends error context to existing chat input
-    const handleSolveWithAI = useCallback((error: { message: string; source?: string; stack?: string }) => {
+    const handleSolveWithAI = useCallback((error: { message: string; file?: string; line?: number; stack?: string }) => {
         // Check if message already includes user suggestion (from Suggest button)
         const hasSuggestion = error.message.includes("💡 User's suggestion:");
 
@@ -105,15 +105,15 @@ export function RightPanel() {
             const [errorPart, suggestionPart] = error.message.split("\n\n💡 User's suggestion:");
             errorContext = `Please identify the issue and provide a fix.
 
-Error: ${errorPart}${error.source ? `
-File: ${error.source}` : ''}
+Error: ${errorPart}${error.file ? `
+File: ${error.file}${error.line ? `:${error.line}` : ''}` : ''}
 
 💡 User's suggestion:${suggestionPart}`;
         } else {
             errorContext = `Please identify the issue and provide a fix.
 
-Error: ${error.message}${error.source ? `
-File: ${error.source}` : ''}`;
+Error: ${error.message}${error.file ? `
+File: ${error.file}${error.line ? `:${error.line}` : ''}` : ''}`;
         }
 
         // Append to existing input instead of replacing

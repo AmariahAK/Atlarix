@@ -16,7 +16,7 @@ import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
-import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
+import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom } from "@/atoms/sourceAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { PanelRightOpen, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,7 @@ function PersistentChatContainer() {
   const sources = useAtomValue(sourceListAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setSelectedSource = useSetAtom(selectedSourceAtom);
+  const setDiagramState = useSetAtom(diagramStateAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
 
   // Determine if we're on the home page
@@ -57,7 +58,8 @@ function PersistentChatContainer() {
     setSourceList([]);
     setSelectedSource(null);
     setRightPanelVisible(false);
-  }, [setActiveChatId, setSourceList, setSelectedSource, setRightPanelVisible]);
+    setDiagramState(null); // Clear stale diagram
+  }, [setActiveChatId, setSourceList, setSelectedSource, setRightPanelVisible, setDiagramState]);
 
   // Don't render anything if no active chat
   if (!activeChatId) {

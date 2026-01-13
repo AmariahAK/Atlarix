@@ -2,6 +2,27 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.17] - 2026-01-13
+### ✨ New Features
+- **SessionTracker**: Implemented "Mini-Git" to track live file changes and detect diagram staleness.
+- **Smart Staleness**: Warns user if diagrams are <5% (clean), 5-15% (minor drift), or >15% (needs regen) outdated.
+- **New AI Tools**: `get_session_changes()` and `get_dev_server_port()`.
+
+### 📚 Documentation
+- **Architecture Rewrite**: Rewrote `docs/architecture.md` to accurately reflect Atlarix (Electron+React) architecture.
+- **Tool Verification**: Verified all 55 tools in `src/lib/tools/`.
+
+### 🐛 Bug Fixes
+- **Right Panel**: Fixed stale diagram state persisting in Global Prompts.
+- **AI Context**: Fixed missing file paths in "Fix with AI" prompts.
+
+## [v0.9.16] - 2026-01-10
+### 🚀 Right Panel & Documentation
+- **Right Panel**: Completed documentation for all 7 tabs.
+- **Port Info**: Clarified Atlarix (5173) vs User App ports.
+- **Mermaid Support**: Standardized on Mermaid.js for diagrams.
+- **Docs**: Updated AGENTS.md and AGENTS_COMPACT.md with new Right Panel guidance.
+
 ## [v0.9.15] - 2026-01-09 (WIP)
 
 ### Error Handling Investigation
