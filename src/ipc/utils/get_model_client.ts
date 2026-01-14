@@ -18,6 +18,7 @@ import { getEnvVar } from "./read_env";
 import log from "electron-log";
 import { FREE_OPENROUTER_MODEL_NAMES } from "../shared/language_model_constants";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
+import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import { createAtlarixEngine } from "./llm_engine_provider";
 
@@ -90,7 +91,7 @@ export async function getModelClient(
             settings.selectedChatMode === "ask"
               ? false
               : settings.enableProLazyEditsMode &&
-                settings.proLazyEditsMode !== "v2",
+              settings.proLazyEditsMode !== "v2",
           enableSmartFilesContext,
           enableWebSearch: settings.enableProWebSearch,
         },
@@ -179,23 +180,33 @@ export async function getModelClient(
       "No API keys available for any model supported by the 'auto' provider.",
     );
   }
-  return getRegularModelClient(model, settings, providerConfig);
+  return await getRegularModelClient(model, settings, providerConfig);
 }
 
-function getRegularModelClient(
+async function getRegularModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
   providerConfig: LanguageModelProvider,
-): {
+): Promise<{
   modelClient: ModelClient;
   backupModelClients: ModelClient[];
-} {
+}> {
   // Get API key for the specific provider
-  const apiKey =
+  // Priority: settings -> env var -> database
+  let apiKey =
     settings.providerSettings?.[model.provider]?.apiKey?.value ||
     (providerConfig.envVarName
       ? getEnvVar(providerConfig.envVarName)
       : undefined);
+
+  // Fallback to database if no key found in settings/env
+  if (!apiKey) {
+    const dbApiKey = await getProviderApiKey(model.provider);
+    if (dbApiKey) {
+      apiKey = dbApiKey;
+      logger.info(`[API Key] Loaded ${model.provider} API key from database`);
+    }
+  }
 
   const providerId = providerConfig.id;
   // Create client based on provider ID or type
@@ -259,9 +270,9 @@ function getRegularModelClient(
         baseURL,
         googleAuthOptions: serviceAccountKey
           ? {
-              // Expecting the user to paste the full JSON of the service account key
-              credentials: JSON.parse(serviceAccountKey),
-            }
+            // Expecting the user to paste the full JSON of the service account key
+            credentials: JSON.parse(serviceAccountKey),
+          }
           : undefined,
       });
       return {

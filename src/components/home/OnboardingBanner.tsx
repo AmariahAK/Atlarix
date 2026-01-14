@@ -41,10 +41,10 @@ export const OnboardingBanner = ({
           <div className="flex-1 px-4 py-3">
             <div className="text-foreground">
               <p className="font-semibold text-base">
-                Get started with Atlarix in 3 minutes
+                Watch: Getting Started with Atlarix
               </p>
               <p className="text-sm text-muted-foreground">
-                Start building your app for free
+                Learn how to set up AI providers and build apps
               </p>
             </div>
           </div>

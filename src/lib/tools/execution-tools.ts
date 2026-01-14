@@ -275,3 +275,112 @@ ToolRegistry.register({
         }
     },
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LANGUAGE/RUNTIME VALIDATION TOOLS
+// Allow AI to check if required languages are installed
+// ═══════════════════════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+    name: "check_language_installed",
+    description:
+        "Check if a programming language/runtime is installed on the system. Returns version if installed, or install URL if missing. Supports: nodejs, python, go, rust, ruby, java, php, dotnet, deno, bun, elixir, docker.",
+    category: ToolCategory.EXECUTION,
+    cost: 1,
+    requiresWorkspace: false,
+    isCore: true,
+    isReadOnly: true, // Just checks, no side effects
+    parameters: createParameters(
+        {
+            language: stringParam(
+                "Language to check: nodejs, python, go, rust, ruby, java, php, dotnet, deno, bun, elixir, docker"
+            ),
+        },
+        ["language"]
+    ),
+    handler: async ({ language }) => {
+        try {
+            const { validateLanguageInstalled } = await import("../language_validator");
+            const { LANGUAGE_REGISTRY } = await import("../language_registry");
+
+            const result = await validateLanguageInstalled(language);
+
+            if (result.installed) {
+                return {
+                    installed: true,
+                    language: result.displayName,
+                    version: result.version,
+                    icon: result.icon,
+                    message: `✓ ${result.displayName} is installed (${result.version})`,
+                };
+            } else {
+                return {
+                    installed: false,
+                    language: result.displayName,
+                    icon: result.icon,
+                    installUrl: result.installUrl,
+                    message: `✗ ${result.displayName} is not installed. User can download from: ${result.installUrl}`,
+                };
+            }
+        } catch (error) {
+            return {
+                installed: false,
+                error: `Failed to check: ${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+    },
+});
+
+ToolRegistry.register({
+    name: "detect_project_languages",
+    description:
+        "Detect what programming languages a project uses by scanning for indicator files (package.json, Cargo.toml, go.mod, etc.). Returns list of detected languages.",
+    category: ToolCategory.EXECUTION,
+    cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true, // Just scans files, no side effects
+    parameters: createParameters(
+        {
+            workspace: stringParam("Workspace path (automatically provided)"),
+        },
+        []
+    ),
+    handler: async ({ workspace }) => {
+        try {
+            const { detectProjectLanguages } = await import("../project_language_detector");
+
+            const workspacePath = workspace || process.cwd();
+            const languages = await detectProjectLanguages(workspacePath);
+
+            if (languages.length === 0) {
+                return {
+                    detected: [],
+                    message: "No recognized languages detected in this project.",
+                };
+            }
+
+            const formatted = languages.map(lang => ({
+                name: lang.name,
+                displayName: lang.displayName,
+                icon: lang.icon,
+                isPrimary: lang.isPrimary,
+                foundIndicators: lang.foundIndicators,
+            }));
+
+            const primary = languages.find(l => l.isPrimary);
+
+            return {
+                detected: formatted,
+                primary: primary ? primary.displayName : null,
+                message: `Detected ${languages.length} language(s): ${languages.map(l => `${l.icon} ${l.displayName}`).join(', ')}`,
+            };
+        } catch (error) {
+            return {
+                detected: [],
+                error: `Failed to detect: ${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+    },
+});
+

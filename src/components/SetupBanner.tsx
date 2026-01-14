@@ -28,8 +28,8 @@ import { NodeSystemInfo } from "@/ipc/ipc_types";
 import { usePostHog } from "posthog-js/react";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useScrollAndNavigateTo } from "@/hooks/useScrollAndNavigateTo";
-// @ts-ignore
-import logo from "../../assets/logo.svg";
+// Use correct logo path instead of SVG import
+const logo = '/logo/Atlarix.png';
 import { OnboardingBanner } from "./home/OnboardingBanner";
 import { showError } from "@/lib/toast";
 import { useSettings } from "@/hooks/useSettings";
@@ -144,9 +144,8 @@ export function SetupBanner() {
   const isNodeSetupComplete = Boolean(nodeSystemInfo?.nodeVersion);
 
   const itemsNeedAction: string[] = [];
-  if (!isNodeSetupComplete && nodeSystemInfo) {
-    itemsNeedAction.push("node-setup");
-  }
+  // Language detection is now lazy - only check when trying to run
+  // So we don't block the banner with node-setup anymore
   if (!isAnyProviderSetup() && !loading) {
     itemsNeedAction.push("ai-setup");
   }
@@ -306,40 +305,27 @@ export function SetupBanner() {
                 <div className="flex items-center gap-3">
                   {getStatusIcon(isAnyProviderSetup())}
                   <span className="font-medium text-sm">
-                    2. Setup AI Access
+                    1. Setup AI Access
                   </span>
                 </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="px-4 pt-2 pb-4 bg-white dark:bg-zinc-900 border-t border-inherit">
               <p className="text-[15px] mb-3">
-                Not sure what to do? Watch the Get Started video above ☝️
+                Choose an AI provider below. OpenRouter is recommended for access to 100+ models.
               </p>
-              <div className="flex gap-2">
-                <SetupProviderCard
-                  className="flex-1"
-                  variant="google"
-                  onClick={handleGoogleSetupClick}
-                  tabIndex={isNodeSetupComplete ? 0 : -1}
-                  leadingIcon={
-                    <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  }
-                  title="Setup Google Gemini API Key"
-                  chip={<>Free</>}
-                />
-
-                <SetupProviderCard
-                  className="flex-1"
-                  variant="openrouter"
-                  onClick={handleOpenRouterSetupClick}
-                  tabIndex={isNodeSetupComplete ? 0 : -1}
-                  leadingIcon={
-                    <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                  }
-                  title="Setup OpenRouter API Key"
-                  chip={<>Free</>}
-                />
-              </div>
+              <SetupProviderCard
+                className="w-full"
+                variant="openrouter"
+                onClick={handleOpenRouterSetupClick}
+                tabIndex={isNodeSetupComplete ? 0 : -1}
+                leadingIcon={
+                  <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                }
+                title="Setup OpenRouter API Key"
+                subtitle="Access 100+ models including GPT-4, Claude, Deepseek, Qwen & more"
+                chip={<>Free</>}
+              />
 
               <SetupProviderCard
                 className="mt-2"
@@ -354,6 +340,15 @@ export function SetupBanner() {
                 chip={<>Recommended</>}
               />
 
+              {/* OpenRouter Credits Info */}
+              <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  💡 <strong>Note:</strong> Paid OpenRouter models require credits in your OpenRouter account.
+                  Free models (like Deepseek, Qwen, Gemma, Mistral, etc) work immediately.
+                </p>
+              </div>
+
+              {/* TODO: Enable when other providers are fully configured in settings
               <div
                 className="mt-2 p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
                 onClick={handleOtherProvidersClick}
@@ -377,10 +372,11 @@ export function SetupBanner() {
                   <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                 </div>
               </div>
+              */}
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </div>
+      </div >
     </>
   );
 }

@@ -2,6 +2,30 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.19] - 2026-01-14
+### 🌐 Language Detection System
+- **Language Registry**: Added support for 12 languages (Node.js, Python, Go, Rust, Ruby, Java, PHP, .NET, Deno, Bun, Elixir, Docker)
+- **Project Detection**: Auto-detects project languages from indicator files (package.json, Cargo.toml, go.mod, etc.)
+- **Lazy Validation**: Languages are only checked when running/building projects, not on startup
+- **AI Tools**: Added `check_language_installed(lang)` and `detect_project_languages()` tools (now 57 total)
+
+### 🎨 Setup Banner UI
+- **Simplified Cards**: Removed Google Gemini, now shows OpenRouter + Atlarix Pro only
+- **Credits Note**: Added info message about OpenRouter paid vs free models
+- **Hidden Other Providers**: Commented out until settings are complete
+- **Fixed Logo**: Atlarix Pro card now uses correct `/logo/Atlarix.png`
+
+### ⚙️ Settings Page
+- **Workflow Toggles**: Disabled Auto-Approve and Auto-Fix with "Coming Soon" badge
+- **Reset Text**: Updated to mention workspaces, diagrams, prompts
+
+### 🐛 Bug Fixes
+- **OpenRouter API Key**: Fixed production loading from database in `get_model_client.ts`
+- **Banner Visibility**: `useLanguageModelProviders` now checks database for API keys
+- **Fixed Duplicate Span**: Resolved JSX parsing error in SetupBanner
+
+
+
 ## [v0.9.18] - 2026-01-14
 ### 🔐 Authentication & Session
 - **Google OAuth**: Implemented Google Sign-In via Supabase Auth (removed GitHub option).

@@ -4,6 +4,29 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## ✅ v0.9.19 - Language Detection & Setup UI (Complete)
+
+### Language Detection System ✅
+- [x] **Language Registry**: 12 languages (Node.js, Python, Go, Rust, Ruby, Java, PHP, .NET, Deno, Bun, Elixir, Docker)
+- [x] **Project Detector**: Auto-detect languages from indicator files (package.json, Cargo.toml, etc.)
+- [x] **Lazy Validation**: Only check when running/building, not on startup
+- [x] **AI Tools**: Added `check_language_installed` and `detect_project_languages` (57 total)
+
+### SetupBanner & Settings UI ✅
+- [x] **Removed Node.js Block**: Banner no longer blocks for Node.js (lazy detection)
+- [x] **Removed Google Gemini Card**: Simplified to OpenRouter + Atlarix Pro only
+- [x] **OpenRouter Credits Note**: Added info about paid vs free models
+- [x] **Fixed Banner Visibility**: Now checks database for API keys (hides when configured)
+- [x] **Workflow Settings**: Disabled toggles with "Coming Soon" badge
+- [x] **Fixed Atlarix Pro Logo**: Uses correct `/logo/Atlarix.png`
+
+### API Key Fix ✅
+- [x] **OpenRouter Production Fix**: Added database fallback in `get_model_client.ts`
+- [x] **Provider Detection**: `useLanguageModelProviders` now checks DB
+
+---
+
+
 ## ✅ v0.9.18 - Authentication & Polish (Complete)
 
 ### Authentication & Session ✅

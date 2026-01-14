@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
 import { useSettings } from "./useSettings";
@@ -12,12 +13,28 @@ export function useLanguageModelProviders() {
   const ipcClient = IpcClient.getInstance();
   const { settings, envVars } = useSettings();
 
+  // State for database-configured providers
+  const [dbConfiguredProviders, setDbConfiguredProviders] = useState<string[]>([]);
+
   const queryResult = useQuery<LanguageModelProvider[], Error>({
     queryKey: ["languageModelProviders"],
     queryFn: async () => {
       return ipcClient.getLanguageModelProviders();
     },
   });
+
+  // Fetch configured providers from database
+  useEffect(() => {
+    const fetchConfiguredProviders = async () => {
+      try {
+        const providers = await ipcClient.getConfiguredProviders();
+        setDbConfiguredProviders(providers);
+      } catch (error) {
+        console.error("Failed to fetch configured providers:", error);
+      }
+    };
+    fetchConfiguredProviders();
+  }, []);
 
   const isProviderSetup = (provider: string) => {
     const providerSettings = settings?.providerSettings[provider];
@@ -40,7 +57,7 @@ export function useLanguageModelProviders() {
       const azureSettings = providerSettings as AzureProviderSetting;
       const hasSavedSettings = Boolean(
         (azureSettings?.apiKey?.value ?? "").trim() &&
-          (azureSettings?.resourceName ?? "").trim(),
+        (azureSettings?.resourceName ?? "").trim(),
       );
       if (hasSavedSettings) {
         return true;
@@ -50,11 +67,17 @@ export function useLanguageModelProviders() {
       }
       return false;
     }
+    // Check settings
     if (providerSettings?.apiKey?.value) {
       return true;
     }
+    // Check env vars
     const providerData = queryResult.data?.find((p) => p.id === provider);
     if (providerData?.envVarName && envVars[providerData.envVarName]) {
+      return true;
+    }
+    // Check database (provider_api_keys table)
+    if (dbConfiguredProviders.includes(provider)) {
       return true;
     }
     return false;

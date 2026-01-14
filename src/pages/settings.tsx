@@ -98,7 +98,7 @@ export default function SettingsPage() {
                     Reset Everything
                   </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    This will delete all your apps, chats, and settings. This
+                    This will delete all your workspaces, diagrams, prompts, and settings. This
                     action cannot be undone.
                   </p>
                 </div>
@@ -117,7 +117,7 @@ export default function SettingsPage() {
         <ConfirmationDialog
           isOpen={isResetDialogOpen}
           title="Reset Everything"
-          message="Are you sure you want to reset everything? This will delete all your apps, chats, and settings. This action cannot be undone."
+          message="Are you sure you want to reset everything? This will delete all your workspaces, diagrams, prompts and settings. This action cannot be undone."
           confirmText="Reset Everything"
           cancelText="Cancel"
           onConfirm={handleResetEverything}
@@ -201,15 +201,21 @@ export function WorkflowSettings() {
         Workflow Settings
       </h2>
 
-      <div className="space-y-1">
-        <AutoApproveSwitch showToast={false} />
+      <div className="space-y-1 opacity-50">
+        <div className="flex items-center gap-2 pointer-events-none">
+          <AutoApproveSwitch showToast={false} />
+          <span className="text-xs bg-muted px-2 py-0.5 rounded">Coming Soon</span>
+        </div>
         <div className="text-sm text-gray-500 dark:text-gray-400">
           This will automatically approve code changes and run them.
         </div>
       </div>
 
-      <div className="space-y-1 mt-4">
-        <AutoFixProblemsSwitch />
+      <div className="space-y-1 mt-4 opacity-50">
+        <div className="flex items-center gap-2 pointer-events-none">
+          <AutoFixProblemsSwitch />
+          <span className="text-xs bg-muted px-2 py-0.5 rounded">Coming Soon</span>
+        </div>
         <div className="text-sm text-gray-500 dark:text-gray-400">
           This will automatically fix TypeScript errors.
         </div>

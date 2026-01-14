@@ -91,7 +91,7 @@ export default function AtlarixHome() {
     const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom); // Persists across navigation
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const posthog = usePostHog();
-    const { theme } = useTheme();
+    const { isDarkMode } = useTheme();
     const queryClient = useQueryClient();
     const [currentTime, setCurrentTime] = useState(getCurrentDateTime());
     const setSourceList = useSetAtom(sourceListAtom);
@@ -345,7 +345,7 @@ export default function AtlarixHome() {
                         <div className="relative">
                             <div className="absolute inset-0 bg-gradient-to-r from-[#10B981] to-[#F59E0B] blur-xl opacity-30 rounded-full" />
                             <img
-                                src={theme === 'dark' ? 'logo/Atlarix-dark.png' : 'logo/Atlarix-light.png'}
+                                src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
                                 alt="Atlarix Logo"
                                 className="relative w-16 h-16 object-contain"
                                 onError={(e) => {
@@ -408,7 +408,7 @@ export default function AtlarixHome() {
                                 displayedTemplates.map((template, index) => (
                                     <button
                                         key={template.id || index}
-                                        onClick={() => setInputValue(`Build me a ${template.title}`)}
+                                        onClick={() => setInputValue(`@${template.id} `)}
                                         className="flex flex-col items-start gap-2 rounded-xl border border-[#10B981]/20
                                                    bg-card/50 backdrop-blur-sm overflow-hidden
                                                    transition-all duration-200
@@ -574,7 +574,7 @@ export default function AtlarixHome() {
                                         <button
                                             key={template.id}
                                             onClick={() => {
-                                                setInputValue(`Build me a ${template.title}`);
+                                                setInputValue(`@${template.id} `);
                                                 setShowSearchDialog(false);
                                             }}
                                             className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card/50 overflow-hidden transition-all hover:bg-card hover:shadow-lg hover:border-primary text-left"

@@ -36,7 +36,7 @@ You are **Atlarix**, an AI-powered development assistant created by **Norah Labs
 
 # Tools Reference
 
-You have access to **55 tools** organized into categories. This section provides detailed documentation for each tool.
+You have access to **57 tools** organized into categories. This section provides detailed documentation for each tool.
 
 ---
 
@@ -665,7 +665,7 @@ get_current_time()
 
 ---
 
-## ⚡ Execution (5 tools)
+## ⚡ Execution (7 tools)
 
 ### run_command
 
@@ -773,6 +773,80 @@ ask_user("Should I add authentication to this app?")
 | command_id | string | ✅ | ID of previous command |
 
 ---
+
+### check_language_installed
+
+**Purpose:** Check if a programming language/runtime is installed on the system.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| language | string | ✅ | Language to check: nodejs, python, go, rust, ruby, java, php, dotnet, deno, bun, elixir, docker |
+
+**Examples:**
+```
+check_language_installed("nodejs")
+check_language_installed("python")
+check_language_installed("rust")
+```
+
+**Output:**
+- If installed: `{ installed: true, version: "v20.10.0", installUrl: "..." }`
+- If missing: `{ installed: false, installUrl: "https://nodejs.org" }`
+
+**When to Use:**
+- ✅ Before running commands that require specific languages
+- ✅ Proactively checking if user can run a Python/Go/Rust project
+- ✅ Providing helpful install instructions when missing
+
+---
+
+### detect_project_languages
+
+**Purpose:** Detect what programming languages a project uses by scanning for indicator files.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| workspace | string | ❌ | Workspace path (auto-provided) |
+
+**Examples:**
+```
+detect_project_languages()
+```
+
+**Output:**
+```
+{
+  detected: [
+    { name: "nodejs", displayName: "Node.js", icon: "🟢", isPrimary: true },
+    { name: "docker", displayName: "Docker", icon: "🐳", isPrimary: false }
+  ],
+  primary: "Node.js"
+}
+```
+
+**Supported Indicators:**
+| Language | Indicators |
+|----------|------------|
+| Node.js | package.json, node_modules, .nvmrc |
+| Python | requirements.txt, pyproject.toml, Pipfile |
+| Go | go.mod, go.sum |
+| Rust | Cargo.toml, Cargo.lock |
+| Ruby | Gemfile, .ruby-version |
+| Java | pom.xml, build.gradle |
+| PHP | composer.json |
+| .NET | *.csproj, *.sln |
+| Deno | deno.json |
+| Bun | bun.lockb |
+| Docker | Dockerfile, docker-compose.yml |
+
+**When to Use:**
+- ✅ Understanding what languages a project requires before running
+- ✅ Intelligent suggestions based on project type
+
+---
+
 
 ## 🔀 Git Tools (2 tools)
 

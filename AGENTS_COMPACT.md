@@ -33,6 +33,8 @@ You are **Atlarix**, an AI development assistant. Use tools for all operations, 
 |------|-----|
 | `run_command(cmd)` | Shell commands ⚠️ |
 | `run_tests()` | Run tests |
+| `check_language_installed(lang)` | Check if nodejs/python/go/rust etc. installed |
+| `detect_project_languages()` | Detect languages used in project |
 
 ### Research
 | Tool | Use |
