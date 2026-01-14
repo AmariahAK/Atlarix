@@ -62,15 +62,51 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] Implement Login/Signup (Google OAuth)
 - [x] Session Persistence (Electron file-based storage)
 
-### Monetization (Next Session)
+### Monetization (LemonSqueezy Integration)
 - [ ] Integrate Payment Provider (LemonSqueezy)
-- [ ] Subscription management
-- [ ] Usage limits enforcement
+- [ ] Subscription management UI
+- [ ] Workspace limits enforcement (see below)
+- [ ] Replace OnboardingBanner video with Atlarix-specific content
 
-### Template System Improvements (User Request)
-- [ ] **Fix Git Clone UX**: Clicking a template card should trigger `apply_template` directly (clone -> rm .git -> init), not just copy text.
-- [ ] **Template Collection**: Fix hardcoded templates and improve reliability (SearxNG fallbacks).
-- [ ] **Visual Previews**: Show diagram/preview of template *before* cloning.
+### Workspace Limits Strategy
+**Free Tier (1 Workspace):**
+- ✅ Full feature access: All 57 tools, live preview, diagrams, any AI model
+- ✅ Unlimited incognito/non-workspace chats (free, ephemeral)
+- ❌ Limit: 1 workspace - delete to create another, or upgrade
+
+**Pro Tier ($19/mo):**
+- ✅ Unlimited workspaces
+- ✅ Workspace switching (no setup loss)
+- ✅ (Future) Cross-workspace memory
+- ✅ (Future) Workspace templates
+
+**Implementation:**
+- [ ] `canCreateWorkspace(userId)` - check tier + workspace count
+- [ ] Delete confirmation modal with data loss warning
+- [ ] Upgrade prompt when hitting limit
+
+### Template System ✅
+- [x] **Git Clone UX**: Clicking template triggers `apply_template` (clone → rm .git → init)
+- [x] **Template Search**: SearxNG-powered template discovery (not hardcoded)
+- [ ] **Visual Previews**: Show diagram/preview *before* cloning (Future v1.1+)
+
+### Other TBD Items
+- [ ] **SearxNG for web_search**: Add fallback when API rate limits hit
+- [ ] **"Other AI Providers" section**: Complete settings UI
+
+---
+
+## 🔮 Future Versions (v1.1+)
+
+### Workspace Templates (Pro Feature)
+- [ ] Save workspace config as template (prompts, diagram style, tool preferences)
+- [ ] Apply to new workspaces in 1 click
+- [ ] Useful for freelancers/agencies with similar project setups
+
+### Enhanced Features
+- [ ] Cross-workspace AI memory (remembers patterns across projects)
+- [ ] Team collaboration features
+- [ ] Priority support for Pro users
 
 ---
 
