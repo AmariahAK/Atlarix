@@ -340,14 +340,18 @@ export default function AtlarixHome() {
             <div className="w-full max-w-4xl px-8 pt-12 space-y-8">{/* Content centered within main area */}
                 {/* Atlarix Header - Enhanced with signature glow effect */}
                 <div className="text-center space-y-4">
-                    {/* Logo with glow effect */}
+                    {/* Logo with glow effect - theme-aware */}
                     <div className="flex items-center justify-center gap-4 mb-2">
                         <div className="relative">
                             <div className="absolute inset-0 bg-gradient-to-r from-[#10B981] to-[#F59E0B] blur-xl opacity-30 rounded-full" />
                             <img
-                                src="/logo/Atlarix.png"
+                                src={theme === 'dark' ? 'logo/Atlarix-dark.png' : 'logo/Atlarix-light.png'}
                                 alt="Atlarix Logo"
                                 className="relative w-16 h-16 object-contain"
+                                onError={(e) => {
+                                    console.error('Failed to load logo:', e.currentTarget.src);
+                                    e.currentTarget.style.display = 'none';
+                                }}
                             />
                         </div>
                         <h1 className="text-5xl font-bold bg-gradient-to-r from-[#10B981] via-[#059669] to-[#F59E0B] bg-clip-text text-transparent bg-[length:200%_auto] animate-gradient">

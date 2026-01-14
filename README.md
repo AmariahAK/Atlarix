@@ -16,6 +16,11 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **25+ Framework Support** - React, Next.js, Vue, Svelte, Astro, Express, NestJS, Electron, and more
 - **Template Fallback** - Falls back to SearxNG template search when GitHub API is rate-limited
 
+### 🔐 Authentication & Security (v0.9.18+)
+- **Google OAuth** - Secure sign-in with your Google account
+- **Session Persistence** - Stay logged in across restarts (file-based storage)
+- **Deep Linking** - Seamless redirect handling (`atlarix://`)
+
 ### 📊 AI Diagram System (NEW in v0.9.4!)
 - **Real AI Generation** - Diagrams created by analyzing your actual codebase
 - **Pan/Zoom Controls** - Drag to pan, scroll to zoom, control buttons (+, -, Reset, Center)

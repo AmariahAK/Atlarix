@@ -4,6 +4,20 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## ✅ v0.9.18 - Authentication & Polish (Complete)
+
+### Authentication & Session ✅
+- [x] **Google OAuth**: Supabase Auth integration with Deep Linking (`atlarix://`)
+- [x] **Session Persistence**: Custom file-based storage for Electron
+- [x] **Auth UI**: User profile, plan status, sign out
+
+### UI Improvements ✅
+- [x] **App Icon**: Updated to Split design
+- [x] **Theme-Aware Logos**: Home page auto-switches dark/light logos
+- [x] **Success Flow**: Toast notification to close browser tab
+
+---
+
 ## ✅ v0.9.17 - Session Tracker & Architecture (Complete)
 
 ### Core Systems ✅
@@ -20,13 +34,13 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 🚧 v1.0.0 - Business Logic (Next)
 
-### Authentication
-- [ ] Choose provider (Supabase / Clerk)
-- [ ] Implement Login/Signup screens
-- [ ] Add ProtectedRoute components
+### Authentication ✅
+- [x] Choose provider (Supabase)
+- [x] Implement Login/Signup (Google OAuth)
+- [x] Session Persistence (Electron file-based storage)
 
-### Monetization
-- [ ] Integrate Payment Provider (Stripe / LemonSqueezy)
+### Monetization (Next Session)
+- [ ] Integrate Payment Provider (LemonSqueezy)
 - [ ] Subscription management
 - [ ] Usage limits enforcement
 

@@ -2,6 +2,23 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.18] - 2026-01-14
+### 🔐 Authentication & Session
+- **Google OAuth**: Implemented Google Sign-In via Supabase Auth (removed GitHub option).
+- **Session Persistence**: Implemented file-based session storage (`supabase-auth.json`) to keep users logged in across app restarts.
+- **Deep Linking**: Fixed `atlarix://` protocol handling for OAuth callbacks.
+- **Auth UI**: Added sidebar dropdown with User Email, Plan status, and Upgrade/Sign Out buttons.
+
+### 🎨 UI Polish
+- **App Icon**: Updated to "Split" (Dark/Light) design for better visibility on all backgrounds.
+- **Theme-Aware Logos**: Home page now switches between Dark/Light logos based on theme.
+- **Success Toast**: Added notification to close browser tab after successful OAuth login.
+
+### 🐛 Bug Fixes
+- **Profile Picture**: Fixed missing user avatar by extracting from Google metadata.
+- **Lint Errors**: Resolved TypeScript errors in auth hooks.
+- **Logo Paths**: Fixed broken image paths in production build.
+
 ## [v0.9.17] - 2026-01-13
 ### ✨ New Features
 - **SessionTracker**: Implemented "Mini-Git" to track live file changes and detect diagram staleness.

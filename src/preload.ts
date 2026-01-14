@@ -217,6 +217,12 @@ const validInvokeChannels = [
   "file:read-content",
   "file:write-content",
   "file:get-stats",
+  // Auth (OAuth Sign-In)
+  "auth:sign-in",
+  "auth:sign-out",
+  "auth:get-current-user",
+  "auth:can-create-workspace",
+  "auth:get-plan-info",
 ];
 
 const validReceiveChannels = [
@@ -257,6 +263,8 @@ const validReceiveChannels = [
   "chat:iteration:warning",     // Warning: task running long, continue?
   "chat:iteration:limit-reached", // Hit max iterations
   "chat:iteration:timeout",     // Hit time limit (10 min)
+  // OAuth callback from main process
+  "oauth-callback-success",
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

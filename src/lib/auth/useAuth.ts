@@ -1,211 +1,202 @@
 /**
  * OAuth Authentication Hook
  * ===========================
- * Handles Google and GitHub OAuth flows
+ * Handles Google and GitHub OAuth flows via Supabase
+ * Uses IPC to communicate with main process
  */
 
-import { useState, useEffect } from 'react';
-import { GOOGLE_OAUTH, GITHUB_OAUTH, OAUTH_URLS, AUTH_ENDPOINTS } from './oauth-config';
+import { useState, useEffect, useCallback } from 'react';
 
 export interface AuthUser {
     id: string;
     email: string;
     name: string;
     avatar?: string;
-    provider: 'google' | 'github';
+    provider?: 'google' | 'github';
 }
 
 export interface UserStatus {
-    plan: 'free' | 'monthly' | 'annual_sub' | string;
-    status: 'active' | 'expired' | 'cancelled';
-    versions: string[];
-    prompts_remaining: number | null;
-    devices: number;
-    max_devices: number;
+    plan: 'free' | 'pro';
+    isLoggedIn: boolean;
+    workspaceLimit: number;
+    currentWorkspaceCount: number;
+    canCreateWorkspace: boolean;
 }
 
 export function useAuth() {
     const [user, setUser] = useState<AuthUser | null>(null);
-    const [token, setToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
+    // Check for existing session on mount
     useEffect(() => {
-        // Load cached auth from localStorage
-        const cachedToken = localStorage.getItem('atlarix_auth_token');
-        const cachedUser = localStorage.getItem('atlarix_user');
+        checkSession();
 
-        if (cachedToken && cachedUser) {
-            setToken(cachedToken);
-            setUser(JSON.parse(cachedUser));
-            fetchUserStatus(cachedToken);
+        // Listen for OAuth callback success
+        // Note: preload strips the event, so data is the first parameter
+        const handleOAuthSuccess = (data: { user: AuthUser }) => {
+            console.log('[useAuth] OAuth success callback received:', data);
+            if (data?.user) {
+                console.log('[useAuth] Setting user:', data.user.email);
+                setUser({
+                    id: data.user.id,
+                    email: data.user.email,
+                    name: data.user.email?.split('@')[0] || 'User',
+                    avatar: data.user.avatar,
+                });
+                fetchPlanInfo();
+
+                // Show success notification - inform user to close the browser tab
+                if (typeof window !== 'undefined' && document?.body) {
+                    // Use a timeout to ensure the UI has updated first
+                    setTimeout(() => {
+                        // Create a non-blocking notification
+                        const notification = document.createElement('div');
+                        notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                        notification.innerHTML = `
+                            <span class="text-xl">✅</span>
+                            <div>
+                                <div class="font-medium">Signed in successfully!</div>
+                                <div class="text-sm opacity-90">You can close the browser tab now.</div>
+                            </div>
+                        `;
+                        document.body.appendChild(notification);
+
+                        // Auto-remove after 5 seconds
+                        setTimeout(() => notification.remove(), 5000);
+                    }, 100);
+                }
+            }
+        };
+
+        // Use correct IPC pattern for electron
+        const ipcRenderer = window.electron?.ipcRenderer;
+        if (ipcRenderer?.on) {
+            console.log('[useAuth] Registering oauth-callback-success listener');
+            ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
         }
 
-        setLoading(false);
+        return () => {
+            // Cleanup listener if available
+            if (ipcRenderer?.removeListener) {
+                ipcRenderer.removeListener('oauth-callback-success', handleOAuthSuccess as any);
+            }
+        };
     }, []);
 
-    const fetchUserStatus = async (authToken: string) => {
+    const checkSession = async () => {
+        setLoading(true);
         try {
-            const response = await fetch(AUTH_ENDPOINTS.status, {
-                headers: {
-                    Authorization: `Bearer ${authToken}`,
-                },
-            });
-
-            if (response.ok) {
-                const statusData = await response.json();
-                setStatus(statusData);
-            }
-        } catch (error) {
-            console.error('Failed to fetch user status:', error);
-        }
-    };
-
-    const signInWithGoogle = async () => {
-        const state = generateRandomState();
-        const authUrl = buildAuthUrl('google', state);
-
-        // Open browser for OAuth
-        (window as any).electron?.shell?.openExternal(authUrl);
-
-        // Listen for redirect callback
-        listenForOAuthCallback(state, 'google');
-    };
-
-    const signInWithGitHub = async () => {
-        const state = generateRandomState();
-        const authUrl = buildAuthUrl('github', state);
-
-        (window as any).electron?.shell?.openExternal(authUrl);
-        listenForOAuthCallback(state, 'github');
-    };
-
-    const signOut = () => {
-        setUser(null);
-        setToken(null);
-        setStatus(null);
-        localStorage.removeItem('atlarix_auth_token');
-        localStorage.removeItem('atlarix_user');
-    };
-
-    const buildAuthUrl = (provider: 'google' | 'github', state: string): string => {
-        const config = provider === 'google' ? GOOGLE_OAUTH : GITHUB_OAUTH;
-        const urls = OAUTH_URLS[provider];
-
-        const params = new URLSearchParams({
-            client_id: config.clientId,
-            redirect_uri: config.redirectUri,
-            response_type: 'code',
-            scope: config.scopes.join(' '),
-            state,
-        });
-
-        return `${urls.authUrl}?${params.toString()}`;
-    };
-
-    const listenForOAuthCallback = (state: string, provider: 'google' | 'github') => {
-        // This will be handled by the main process via protocol handler
-        // Register a one-time listener for the callback
-        window.electron?.ipcRenderer.once('oauth-callback', async (_, data: { code: string; state: string }) => {
-            if (data.state !== state) {
-                console.error('OAuth state mismatch');
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) {
+                setLoading(false);
                 return;
             }
 
-            try {
-                // Exchange code for token via backend
-                const endpoint = provider === 'google' ? AUTH_ENDPOINTS.google : AUTH_ENDPOINTS.github;
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ code: data.code }),
+            const result = await ipcRenderer.invoke('auth:get-current-user');
+
+            if (result?.user) {
+                setUser({
+                    id: result.user.id,
+                    email: result.user.email,
+                    name: result.user.email.split('@')[0],
+                    avatar: undefined,
                 });
-
-                if (!response.ok) {
-                    throw new Error('Failed to exchange code for token');
-                }
-
-                const authData = await response.json();
-
-                // Save auth state
-                setToken(authData.token);
-                setUser(authData.user);
-                localStorage.setItem('atlarix_auth_token', authData.token);
-                localStorage.setItem('atlarix_user', JSON.stringify(authData.user));
-
-                // Fetch user status
-                await fetchUserStatus(authData.token);
-
-                // Register device
-                await registerDevice(authData.token);
-            } catch (error) {
-                console.error('OAuth exchange failed:', error);
+                setStatus({
+                    plan: result.user.plan || 'free',
+                    isLoggedIn: true,
+                    workspaceLimit: result.isPro ? Infinity : 1,
+                    currentWorkspaceCount: 0,
+                    canCreateWorkspace: true,
+                });
             }
-        });
-    };
-
-    const registerDevice = async (authToken: string) => {
-        try {
-            const deviceId = getDeviceId();
-            const deviceName = getDeviceName();
-            const os = getOS();
-
-            await fetch(AUTH_ENDPOINTS.registerDevice, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${authToken}`,
-                },
-                body: JSON.stringify({
-                    device_id: deviceId,
-                    device_name: deviceName,
-                    os,
-                }),
-            });
         } catch (error) {
-            console.error('Failed to register device:', error);
+            console.error('Failed to check session:', error);
+        } finally {
+            setLoading(false);
         }
     };
 
+    const fetchPlanInfo = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) return;
+
+            const result = await ipcRenderer.invoke('auth:get-plan-info');
+
+            if (result?.success) {
+                setStatus({
+                    plan: result.plan,
+                    isLoggedIn: result.isLoggedIn,
+                    workspaceLimit: result.workspaceLimit,
+                    currentWorkspaceCount: result.currentWorkspaceCount,
+                    canCreateWorkspace: result.canCreateWorkspace,
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch plan info:', error);
+        }
+    }, []);
+
+    const signInWithGoogle = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) {
+                console.error('IPC not available');
+                return;
+            }
+
+            const result = await ipcRenderer.invoke('auth:sign-in', { provider: 'google' });
+
+            if (result?.error) {
+                console.error('Google sign in failed:', result.error);
+            }
+            // OAuth flow will continue in browser, callback handled by main process
+        } catch (error) {
+            console.error('Google sign in error:', error);
+        }
+    }, []);
+
+    const signInWithGitHub = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) {
+                console.error('IPC not available');
+                return;
+            }
+
+            const result = await ipcRenderer.invoke('auth:sign-in', { provider: 'github' });
+
+            if (result?.error) {
+                console.error('GitHub sign in failed:', result.error);
+            }
+            // OAuth flow will continue in browser, callback handled by main process
+        } catch (error) {
+            console.error('GitHub sign in error:', error);
+        }
+    }, []);
+
+    const signOut = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) return;
+
+            await ipcRenderer.invoke('auth:sign-out');
+            setUser(null);
+            setStatus(null);
+        } catch (error) {
+            console.error('Sign out error:', error);
+        }
+    }, []);
+
     return {
         user,
-        token,
         status,
         loading,
         isAuthenticated: !!user,
         signInWithGoogle,
         signInWithGitHub,
         signOut,
-        refreshStatus: () => token && fetchUserStatus(token),
+        refreshStatus: fetchPlanInfo,
     };
-}
-
-// Helper functions
-function generateRandomState(): string {
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-}
-
-function getDeviceId(): string {
-    let deviceId = localStorage.getItem('atlarix_device_id');
-    if (!deviceId) {
-        deviceId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-        localStorage.setItem('atlarix_device_id', deviceId);
-    }
-    return deviceId;
-}
-
-function getDeviceName(): string {
-    // Try to get computer name (will need to be passed from main process)
-    return window.electron?.computerName || 'Unknown Device';
-}
-
-function getOS(): string {
-    // Detect OS
-    const platform = navigator.platform.toLowerCase();
-    if (platform.includes('mac')) return 'macOS';
-    if (platform.includes('win')) return 'Windows';
-    if (platform.includes('linux')) return 'Linux';
-    return 'Unknown';
 }

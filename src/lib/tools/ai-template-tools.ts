@@ -9,7 +9,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
-import { localTemplatesData, type Template } from "../../shared/templates";
+import { localTemplatesData, CLI_TEMPLATES, type Template } from "../../shared/templates";
 
 const execAsync = promisify(exec);
 
@@ -124,13 +124,14 @@ ToolRegistry.register({
                                     id: `${owner}/${repoName}`,
                                     title: r.title.replace(' - GitHub', '').replace(' · GitHub', ''),
                                     description: r.snippet.slice(0, 200),
-                                    techStack: [],
+                                    imageUrl: '', // SearxNG doesn't provide preview images
+                                    techStack: [] as string[],
                                     category: params.category || 'fullstack',
                                     githubUrl: r.url,
                                     stars: 0,
                                     isOfficial: false,
                                     source: 'searxng', // Mark as SearxNG-discovered
-                                };
+                                } as Template & { source: string };
                             });
 
                         // Merge with local results (avoid duplicates)
@@ -189,19 +190,19 @@ ToolRegistry.register({
 
 /**
  * Apply a template to the current workspace
- * Clones template code, removes .git, initializes new repo
+ * Priority: 1) CLI command, 2) ZIP download, 3) Git clone (deprecated)
  */
 ToolRegistry.register({
     name: "apply_template",
     category: ToolCategory.CODE,
-    description: "Clone a template to workspace. Use AFTER create_workspace. Call ONCE per workspace.",
+    description: "Scaffold a project from template. Uses CLI commands (fast) or ZIP download. Call AFTER create_workspace.",
     cost: 10,
     requiresWorkspace: true,
     isCore: true,
     parameters: {
         template_id: {
             type: "string",
-            description: "Template ID from search_templates or manual selection",
+            description: "Template ID from search_templates or CLI_TEMPLATES catalog",
             required: true,
         },
         customizations: {
@@ -216,43 +217,79 @@ ToolRegistry.register({
         workspacePath?: string; // Injected by system
     }) => {
         try {
-            // Get template from registry
-            const template = localTemplatesData.find((t) => t.id === params.template_id);
-
-            if (!template) {
-                return {
-                    success: false,
-                    error: `Template "${params.template_id}" not found in registry`,
-                };
-            }
-
-            if (!template.githubUrl) {
-                return {
-                    success: false,
-                    error: `Template "${params.template_id}" does not have a GitHub URL`,
-                };
-            }
-
-            // Get workspace path (should be injected by system)
             const workspacePath = params.workspacePath || process.cwd();
 
-            // Clone template
-            const cloneCommand = `git clone --depth 1 ${template.githubUrl} ${workspacePath}`;
-            await execAsync(cloneCommand, {
-                maxBuffer: 10 * 1024 * 1024,
-            });
+            // Find template in local registry
+            const template = localTemplatesData.find((t) => t.id === params.template_id);
 
-            // Remove .git folder
-            await execAsync(`rm -rf ${path.join(workspacePath, ".git")}`, {
-                cwd: workspacePath,
-            });
+            // Check if it's a direct CLI_TEMPLATES entry
+            const cliTemplate = CLI_TEMPLATES[params.template_id];
 
-            // Initialize new git repo
-            await execAsync("git init", { cwd: workspacePath });
-            await execAsync('git add .', { cwd: workspacePath });
-            await execAsync('git commit -m "Initial commit from template"', {
-                cwd: workspacePath,
-            });
+            let method = 'unknown';
+            let templateName = template?.title || params.template_id;
+
+            // ═══════════════════════════════════════════════════════════════
+            // PRIORITY 1: CLI Command (fastest, most reliable)
+            // ═══════════════════════════════════════════════════════════════
+            const cliCommand = template?.cliCommand || cliTemplate?.command;
+            const postInstall = template?.postInstall || cliTemplate?.postInstall;
+
+            if (cliCommand) {
+                console.log(`[apply_template] Using CLI command for ${params.template_id}`);
+                const command = cliCommand.replace('{path}', workspacePath).replace('{name}', path.basename(workspacePath));
+
+                await execAsync(command, {
+                    maxBuffer: 50 * 1024 * 1024,
+                    timeout: 120000, // 2 min timeout
+                });
+
+                // Run post-install if needed
+                if (postInstall) {
+                    await execAsync(postInstall, {
+                        cwd: workspacePath,
+                        maxBuffer: 50 * 1024 * 1024,
+                        timeout: 300000, // 5 min for npm install
+                    });
+                }
+
+                // Initialize git if not already done
+                await initGitIfNeeded(workspacePath);
+
+                method = 'cli';
+            }
+            // ═══════════════════════════════════════════════════════════════
+            // PRIORITY 2: ZIP Download (faster than git clone, no rate limits)
+            // ═══════════════════════════════════════════════════════════════
+            else if (template?.githubUrl) {
+                console.log(`[apply_template] Using ZIP download for ${params.template_id}`);
+
+                await downloadGitHubZip(template.githubUrl, workspacePath);
+
+                // Install dependencies
+                try {
+                    await execAsync('npm install', {
+                        cwd: workspacePath,
+                        maxBuffer: 50 * 1024 * 1024,
+                        timeout: 300000,
+                    });
+                } catch {
+                    // npm install might fail, that's ok
+                }
+
+                // Initialize git
+                await initGitIfNeeded(workspacePath);
+
+                method = 'zip';
+            }
+            // ═══════════════════════════════════════════════════════════════
+            // FALLBACK: Error - no valid template source
+            // ═══════════════════════════════════════════════════════════════
+            else {
+                return {
+                    success: false,
+                    error: `Template "${params.template_id}" not found. Available: ${Object.keys(CLI_TEMPLATES).join(', ')}`,
+                };
+            }
 
             // Apply customizations if provided
             if (params.customizations) {
@@ -261,7 +298,7 @@ ToolRegistry.register({
 
             // List created files
             const { stdout: lsOutput } = await execAsync(
-                "find . -type f -not -path '*/\\.git/*' -not -path '*/node_modules/*' | head -  n 30",
+                "find . -type f -not -path '*/\\.git/*' -not -path '*/node_modules/*' | head -n 30",
                 { cwd: workspacePath }
             );
 
@@ -269,16 +306,17 @@ ToolRegistry.register({
                 .trim()
                 .split("\n")
                 .filter(Boolean)
-                .slice(0, 20); // Limit to 20 files
+                .slice(0, 20);
 
             return {
                 success: true,
                 template_id: params.template_id,
-                template_name: template.title,
+                template_name: templateName,
                 workspace_path: workspacePath,
+                method,
                 files_created: fileList,
-                message: `Template "${template.title}" applied to workspace.
-                
+                message: `Template "${templateName}" applied via ${method}.
+
 Files created (showing first ${fileList.length}):
 ${fileList.join("\n")}
 
@@ -296,6 +334,67 @@ Use read_file to understand structure, then modify files to match user's needs.`
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+/**
+ * Download a GitHub repo as ZIP (faster than git clone, no rate limits)
+ */
+async function downloadGitHubZip(githubUrl: string, targetPath: string): Promise<void> {
+    // Convert https://github.com/user/repo to https://github.com/user/repo/archive/refs/heads/main.zip
+    const cleanUrl = githubUrl.replace(/\.git$/, '').replace(/\/$/, '');
+    const zipUrl = `${cleanUrl}/archive/refs/heads/main.zip`;
+
+    console.log(`[downloadGitHubZip] Downloading from ${zipUrl}`);
+
+    // Download using curl (more reliable than fetch for large files)
+    const zipPath = path.join(targetPath, '..', 'template.zip');
+
+    await execAsync(`curl -L -o "${zipPath}" "${zipUrl}"`, {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 120000,
+    });
+
+    // Extract using unzip
+    await execAsync(`unzip -o "${zipPath}" -d "${targetPath}/.."`, {
+        maxBuffer: 50 * 1024 * 1024,
+    });
+
+    // GitHub zips have a nested folder like "repo-main/", flatten it
+    const { stdout: lsOutput } = await execAsync(`ls -d "${targetPath}/../"*/`, {
+        cwd: path.dirname(targetPath),
+    });
+
+    const extractedDir = lsOutput.trim().split('\n')[0];
+    if (extractedDir && extractedDir.includes('-main') || extractedDir.includes('-master')) {
+        // Move contents from extracted dir to target
+        await execAsync(`mv "${extractedDir}"* "${targetPath}/" || true`, {
+            cwd: path.dirname(targetPath),
+        });
+        // Clean up
+        await execAsync(`rm -rf "${extractedDir}" "${zipPath}" || true`);
+    } else {
+        // Clean up zip
+        await execAsync(`rm -f "${zipPath}" || true`);
+    }
+}
+
+/**
+ * Initialize git repo if not already initialized
+ */
+async function initGitIfNeeded(workspacePath: string): Promise<void> {
+    try {
+        // Check if .git exists
+        await fs.access(path.join(workspacePath, '.git'));
+        console.log('[initGitIfNeeded] Git already initialized');
+    } catch {
+        // Initialize git
+        await execAsync('git init', { cwd: workspacePath });
+        await execAsync('git add .', { cwd: workspacePath });
+        await execAsync('git commit -m "Initial commit from template"', {
+            cwd: workspacePath,
+        });
+        console.log('[initGitIfNeeded] Git initialized');
+    }
+}
 
 async function applyTemplateCustomizations(
     projectPath: string,

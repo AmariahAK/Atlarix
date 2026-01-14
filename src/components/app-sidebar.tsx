@@ -194,10 +194,38 @@ export function AppSidebar() {
 
                 {/* Dropdown menu for sign out */}
                 {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-32 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
-                    <div className="text-xs text-muted-foreground mb-2 px-2">
-                      {status?.plan === 'free' ? 'Free Plan' : 'Pro Plan'}
+                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
+                    {/* User info */}
+                    <div className="px-2 pb-2 mb-2 border-b border-border">
+                      <div className="text-xs text-muted-foreground">Signed in as</div>
+                      <div className="text-sm font-medium truncate" title={user.email}>
+                        {user.email}
+                      </div>
                     </div>
+
+                    {/* Plan badge with upgrade button */}
+                    <div className="flex items-center justify-between px-2 py-1.5 mb-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro'
+                          ? 'bg-primary/20 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                        }`}>
+                        {status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
+                      </span>
+                      {status?.plan === 'free' && (
+                        <button
+                          onClick={() => {
+                            // Open upgrade URL - placeholder for LemonSqueezy
+                            window.open('https://atlarix.dev/pricing', '_blank');
+                            setShowAuthMenu(false);
+                          }}
+                          className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
+                        >
+                          Upgrade
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Sign out button */}
                     <button
                       onClick={() => {
                         signOut();
@@ -238,16 +266,6 @@ export function AppSidebar() {
                     >
                       <Chrome className="h-4 w-4" />
                       Google
-                    </button>
-                    <button
-                      onClick={() => {
-                        signInWithGitHub();
-                        setShowAuthMenu(false);
-                      }}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
-                    >
-                      <Github className="h-4 w-4" />
-                      GitHub
                     </button>
                   </div>
                 )}

@@ -311,12 +311,28 @@ if (!gotTheLock) {
   app.whenReady().then(onReady);
 }
 
-// Handle the protocol. In this case, we choose to show an Error Box.
+// Handle the protocol. On macOS, deep links come through open-url event
 app.on("open-url", (event, url) => {
+  event.preventDefault(); // Prevent trying to open a new instance
+
+  // Focus existing window
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+
   handleDeepLinkReturn(url);
 });
 
 function handleDeepLinkReturn(url: string) {
+  // DEBUG: Log what URL we actually receive
+  log.log("=== DEEP LINK RECEIVED ===");
+  log.log("Full URL:", url);
+  log.log("URL length:", url.length);
+  log.log("Has hash (#):", url.includes('#'));
+  log.log("Has query (?):", url.includes('?'));
+  log.log("========================");
+
   // example url: "atlarix://auth/callback?code=abc&state=xyz"
   let parsed: URL;
   try {
@@ -341,20 +357,40 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // Handle OAuth callback: atlarix://auth/callback?code=abc&state=xyz
-  if (parsed.hostname === "auth" && parsed.pathname === "/callback") {
-    const code = parsed.searchParams.get("code");
-    const state = parsed.searchParams.get("state");
+  // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
+  // Supabase OAuth returns tokens in hash fragment, not query params
+  if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {
+    // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy
+    // We need to pass the full URL to SubscriptionManager for parsing
+    log.log("Handling Supabase OAuth callback");
+    log.log("OAuth callback URL has hash:", url.includes('#'));
 
-    if (!code || !state) {
-      dialog.showErrorBox("OAuth Error", "Missing code or state parameter");
-      return;
-    }
+    // Import dynamically to avoid circular dependencies
+    import('./lib/SubscriptionManager').then(async ({ SubscriptionManager }) => {
+      log.log("SubscriptionManager imported, calling handleOAuthCallback");
+      const result = await SubscriptionManager.handleOAuthCallback(url);
+      log.log("handleOAuthCallback result:", { success: result.success, hasUser: !!result.user, hasError: !!result.error });
 
-    // Send OAuth callback to renderer
-    mainWindow?.webContents.send("oauth-callback", {
-      code,
-      state,
+      if (result.error) {
+        log.error("OAuth callback error:", result.error.message);
+        dialog.showErrorBox("OAuth Error", result.error.message);
+        return;
+      }
+
+      // Send success to renderer
+      if (mainWindow) {
+        log.log("Sending oauth-callback-success to renderer, user:", result.user?.email);
+        mainWindow.webContents.send("oauth-callback-success", {
+          user: result.user,
+        });
+      } else {
+        log.error("MainWindow is null, cannot send oauth-callback-success!");
+      }
+
+      log.log("OAuth callback handled successfully");
+    }).catch(err => {
+      log.error("Failed to handle OAuth callback:", err);
+      dialog.showErrorBox("OAuth Error", "Failed to process authentication");
     });
     return;
   }

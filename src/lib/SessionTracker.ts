@@ -7,11 +7,15 @@
  * - Replace fingerprint-based staleness detection with live tracking
  * 
  * Created: v0.9.16 (2026-01-09)
+ * Enhanced: v1.0.0 (2026-01-14) - Added file-hash snapshotting
  */
 
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import log from 'electron-log';
+import git from 'isomorphic-git';
 
 const logger = log.scope('session-tracker');
 
@@ -38,6 +42,10 @@ export interface SessionState {
     recommendedAction: 'none' | 'update_minor' | 'regenerate';
     lastDiagramSync: Date | null;
     sessionStartedAt: Date;
+    /** Whether the workspace is a git repository */
+    isGitRepo: boolean;
+    /** Whether baseline snapshot was captured successfully */
+    hasBaseline: boolean;
 }
 
 // ============================================
@@ -68,6 +76,12 @@ export class SessionTracker {
 
     /** Baseline state when session started */
     private baselineFileCount: number = 0;
+
+    /** File hash snapshot for accurate change detection (path -> MD5 hash) */
+    private baselineSnapshot: Map<string, string> = new Map();
+
+    /** Whether the workspace is a git repository */
+    private isGitRepo: boolean = false;
 
     /** Changes during this session */
     private changedFiles: Map<string, FileChange> = new Map();
@@ -128,21 +142,88 @@ export class SessionTracker {
 
         this.workspacePath = workspacePath;
         this.sessionStartedAt = new Date();
+        this.baselineSnapshot.clear();
 
         try {
-            // Count files in workspace (excluding node_modules, .git, etc.)
-            this.baselineFileCount = await this.countProjectFiles(workspacePath);
+            // Detect if this is a git repository
+            try {
+                await git.findRoot({ fs: fsSync, filepath: workspacePath });
+                this.isGitRepo = true;
+                logger.log(`[SessionTracker] Git repo detected`);
+            } catch {
+                this.isGitRepo = false;
+                logger.log(`[SessionTracker] Not a git repo, using file-hash baseline`);
+            }
+
+            // Snapshot all project files with their hashes
+            await this.snapshotProjectFiles(workspacePath);
+            this.baselineFileCount = this.baselineSnapshot.size;
             this.initialized = true;
 
             logger.log(`[SessionTracker] Initialized for workspace ${this.workspaceId}`);
             logger.log(`  → Path: ${workspacePath}`);
             logger.log(`  → Baseline files: ${this.baselineFileCount}`);
+            logger.log(`  → Is Git Repo: ${this.isGitRepo}`);
         } catch (error) {
             logger.error('[SessionTracker] Failed to initialize:', error);
             // Don't fail - just use default
             this.baselineFileCount = 100; // Reasonable default
             this.initialized = true;
         }
+    }
+
+    /**
+     * Snapshot all project files with their MD5 hashes
+     * Used for accurate change detection
+     */
+    private async snapshotProjectFiles(dirPath: string, depth = 0): Promise<void> {
+        if (depth > 10) return; // Prevent deep recursion
+
+        const IGNORE_PATTERNS = [
+            'node_modules',
+            '.git',
+            'dist',
+            'build',
+            '.next',
+            '.nuxt',
+            'coverage',
+            '.cache',
+            '__pycache__',
+            '.vite',
+        ];
+
+        try {
+            const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+            for (const entry of entries) {
+                if (IGNORE_PATTERNS.includes(entry.name)) continue;
+                if (entry.name.startsWith('.') && entry.name !== '.env') continue;
+
+                const fullPath = path.join(dirPath, entry.name);
+
+                if (entry.isDirectory()) {
+                    await this.snapshotProjectFiles(fullPath, depth + 1);
+                } else if (entry.isFile()) {
+                    try {
+                        const hash = await this.computeFileHash(fullPath);
+                        const relativePath = path.relative(this.workspacePath, fullPath);
+                        this.baselineSnapshot.set(relativePath, hash);
+                    } catch {
+                        // Skip files that can't be read
+                    }
+                }
+            }
+        } catch {
+            // Directory not accessible
+        }
+    }
+
+    /**
+     * Compute MD5 hash of a file for quick change detection
+     */
+    private async computeFileHash(filePath: string): Promise<string> {
+        const content = await fs.readFile(filePath);
+        return crypto.createHash('md5').update(content).digest('hex');
     }
 
     /**
@@ -279,6 +360,8 @@ export class SessionTracker {
             recommendedAction: this.getRecommendedAction(),
             lastDiagramSync: this.lastDiagramSync,
             sessionStartedAt: this.sessionStartedAt,
+            isGitRepo: this.isGitRepo,
+            hasBaseline: this.baselineSnapshot.size > 0,
         };
     }
 

@@ -14,6 +14,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs/promises";
 import { getAtlarixAppPath } from "../../paths/paths";
+import { SubscriptionManager } from "../SubscriptionManager";
 
 const execAsync = promisify(exec);
 
@@ -50,6 +51,37 @@ ToolRegistry.register({
         chatId?: number; // Injected by system
     }) => {
         try {
+            // ════════════════════════════════════════════════════════════
+            // FREEMIUM CHECK: Free tier allows 1 workspace only
+            // ════════════════════════════════════════════════════════════
+            const workspaceLimitCheck = await SubscriptionManager.canCreateWorkspace();
+
+            if (!workspaceLimitCheck.allowed) {
+                // Get current workspace details for the upgrade modal
+                const currentWorkspace = await SubscriptionManager.getCurrentWorkspaceDetails();
+
+                // Return permission request for the UI to show upgrade modal
+                return {
+                    __permission_required: true,
+                    operation: 'upgrade_required',
+                    limit_type: 'workspace',
+                    current_count: workspaceLimitCheck.currentCount,
+                    max_allowed: workspaceLimitCheck.maxAllowed,
+                    current_workspace: currentWorkspace,
+                    reason: workspaceLimitCheck.reason,
+                    upgrade_message: `🚀 Free tier includes 1 workspace with all features.
+
+Your current workspace: "${currentWorkspace?.name || 'Unknown'}"
+• ${currentWorkspace?.diagramCount || 0} diagrams saved
+
+To create a new workspace, you can:
+1. Delete your current workspace (loses data)
+2. Upgrade to Pro ($19/mo) for unlimited workspaces
+
+Would you like to upgrade or delete the existing workspace?`,
+                };
+            }
+
             // Generate project name
             const projectName = params.project_name || generateCuteAppName();
 
@@ -61,6 +93,9 @@ ToolRegistry.register({
                     path: projectName,
                 })
                 .returning();
+
+            // Clear workspace count cache
+            SubscriptionManager.clearWorkspaceCache();
 
             // Create project directory
             const projectPath = getAtlarixAppPath(app.path);
