@@ -354,9 +354,9 @@ export function ChatInput({ chatId }: { chatId?: number }) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => {
-                          IpcClient.getInstance().openExternalUrl(
-                            "https://atlarix.dev/pro",
-                          );
+                          import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                            triggerUpgrade();
+                          });
                         }}
                         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer"
                       >

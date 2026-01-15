@@ -131,24 +131,26 @@ export function TokenBar({ chatId }: TokenBarProps) {
       )}
       {(!settings?.enableProSmartFilesContextMode ||
         !settings?.enableAtlarixPro) && (
-        <div className="text-xs text-center text-muted-foreground mt-2">
-          Optimize your tokens with{" "}
-          <a
-            onClick={() =>
-              settings?.enableAtlarixPro
-                ? IpcClient.getInstance().openExternalUrl(
+          <div className="text-xs text-center text-muted-foreground mt-2">
+            Optimize your tokens with{" "}
+            <a
+              onClick={() => {
+                if (settings?.enableAtlarixPro) {
+                  IpcClient.getInstance().openExternalUrl(
                     "https://www.atlarix.dev/docs/guides/ai-models/pro-modes#smart-context",
-                  )
-                : IpcClient.getInstance().openExternalUrl(
-                    "https://atlarix.dev/pro#ai",
-                  )
-            }
-            className="text-blue-500 dark:text-blue-400 cursor-pointer hover:underline"
-          >
-            Atlarix Pro's Smart Context
-          </a>
-        </div>
-      )}
+                  );
+                } else {
+                  import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                    triggerUpgrade();
+                  });
+                }
+              }}
+              className="text-blue-500 dark:text-blue-400 cursor-pointer hover:underline"
+            >
+              Atlarix Pro's Smart Context
+            </a>
+          </div>
+        )}
     </div>
   );
 }

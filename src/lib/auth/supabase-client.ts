@@ -319,26 +319,46 @@ async function ensureUserExists(user: User): Promise<void> {
 }
 
 /**
- * Get user's plan from database
+ * Get user's plan from database (with timeout to prevent hanging)
  */
 export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
-    try {
-        const supabase = getSupabaseClient();
+    // Add timeout to prevent hanging if database is slow
+    const timeoutPromise = new Promise<'free'>((resolve) => {
+        setTimeout(() => {
+            logger.warn('[Supabase] getUserPlan timed out, defaulting to free');
+            resolve('free');
+        }, 5000); // 5 second timeout
+    });
 
-        const { data, error } = await supabase
-            .from('users')
-            .select('plan')
-            .eq('id', userId)
-            .single();
+    const fetchPromise = (async (): Promise<'free' | 'pro'> => {
+        try {
+            const supabase = getSupabaseClient();
 
-        if (error || !data) {
+            const { data, error } = await supabase
+                .from('users')
+                .select('plan')
+                .eq('id', userId)
+                .maybeSingle(); // Use maybeSingle instead of single to avoid throwing when no row exists
+
+            if (error) {
+                logger.warn('[Supabase] getUserPlan error:', error.message);
+                return 'free';
+            }
+
+            if (!data) {
+                // New user, no row yet
+                logger.log('[Supabase] No user row found, defaulting to free');
+                return 'free';
+            }
+
+            return data.plan as 'free' | 'pro';
+        } catch (err) {
+            logger.warn('[Supabase] getUserPlan exception:', err);
             return 'free';
         }
+    })();
 
-        return data.plan as 'free' | 'pro';
-    } catch {
-        return 'free';
-    }
+    return Promise.race([fetchPromise, timeoutPromise]);
 }
 
 /**
@@ -352,4 +372,59 @@ export function onAuthStateChange(callback: (session: Session | null) => void): 
     });
 
     return () => subscription.unsubscribe();
+}
+
+// ============================================
+// REALTIME SUBSCRIPTION FOR PLAN CHANGES
+// ============================================
+
+type PlanChangeCallback = (newPlan: 'free' | 'pro', oldPlan: 'free' | 'pro') => void;
+let planSubscription: any = null;
+
+/**
+ * Subscribe to realtime plan changes for the current user
+ * Called after user logs in to detect Pro upgrades
+ */
+export function subscribeToPlanChanges(userEmail: string, callback: PlanChangeCallback): () => void {
+    const supabase = getSupabaseClient();
+
+    // Unsubscribe from any existing subscription
+    if (planSubscription) {
+        supabase.removeChannel(planSubscription);
+    }
+
+    logger.log(`[Supabase] Setting up realtime subscription for plan changes: ${userEmail}`);
+
+    planSubscription = supabase
+        .channel('user-plan-changes')
+        .on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'users',
+                filter: `email=eq.${userEmail}`,
+            },
+            (payload) => {
+                const newPlan = (payload.new as { plan: string })?.plan as 'free' | 'pro';
+                const oldPlan = (payload.old as { plan: string })?.plan as 'free' | 'pro';
+
+                logger.log(`[Supabase] Realtime plan update: ${oldPlan} → ${newPlan}`);
+
+                if (newPlan !== oldPlan) {
+                    callback(newPlan, oldPlan);
+                }
+            }
+        )
+        .subscribe((status) => {
+            logger.log(`[Supabase] Realtime subscription status: ${status}`);
+        });
+
+    return () => {
+        if (planSubscription) {
+            supabase.removeChannel(planSubscription);
+            planSubscription = null;
+            logger.log('[Supabase] Unsubscribed from plan changes');
+        }
+    };
 }

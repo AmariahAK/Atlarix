@@ -1,5 +1,6 @@
 import { IpcClient } from "@/ipc/ipc_client";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 import {
   X,
   ExternalLink as ExternalLinkIcon,
@@ -22,12 +23,9 @@ export function ChatErrorBox({
       <ChatErrorContainer onDismiss={onDismiss}>
         {error}
         <span className="ml-1">
-          <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=free-quota-error"
-            variant="primary"
-          >
+          <UpgradeButton>
             Access with Atlarix Pro
-          </ExternalLink>
+          </UpgradeButton>
         </span>{" "}
         or switch to another model.
       </ChatErrorContainer>
@@ -50,12 +48,9 @@ export function ChatErrorBox({
       <ChatErrorContainer onDismiss={onDismiss}>
         {error}
         <div className="mt-2 space-y-2 space-x-2">
-          <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=rate-limit-error"
-            variant="primary"
-          >
+          <UpgradeButton>
             Upgrade to Atlarix Pro
-          </ExternalLink>
+          </UpgradeButton>
 
           <ExternalLink href="https://atlarix.dev/docs/help/ai-rate-limit">
             Troubleshooting guide
@@ -70,12 +65,9 @@ export function ChatErrorBox({
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>
           Looks like you don't have a valid Atlarix Pro key.{" "}
-          <ExternalLink
-            href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=invalid-pro-key-error"
-            variant="primary"
-          >
+          <UpgradeButton>
             Upgrade to Atlarix Pro
-          </ExternalLink>{" "}
+          </UpgradeButton>{" "}
           today.
         </span>
       </ChatInfoContainer>
@@ -113,12 +105,9 @@ export function ChatErrorBox({
         {!isAtlarixProEnabled &&
           error.includes(AI_STREAMING_ERROR_MESSAGE_PREFIX) &&
           !error.includes("TypeError: terminated") && (
-            <ExternalLink
-              href="https://atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=general-error"
-              variant="primary"
-            >
+            <UpgradeButton>
               Upgrade to Atlarix Pro
-            </ExternalLink>
+            </UpgradeButton>
           )}
         <ExternalLink href="https://www.atlarix.dev/docs/faq">
           Read docs
@@ -155,13 +144,32 @@ function ExternalLink({
 
   return (
     <a
-      className={`${baseClasses} ${
-        variant === "primary" ? primaryClasses : secondaryClasses
-      }`}
+      className={`${baseClasses} ${variant === "primary" ? primaryClasses : secondaryClasses
+        }`}
       onClick={() => IpcClient.getInstance().openExternalUrl(href)}
     >
       <span>{children}</span>
       {iconElement}
+    </a>
+  );
+}
+
+/**
+ * Upgrade button that opens LemonSqueezy checkout (requires sign-in)
+ */
+function UpgradeButton({ children }: { children: React.ReactNode }) {
+  const baseClasses =
+    "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
+  const primaryClasses =
+    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500";
+
+  return (
+    <a
+      className={`${baseClasses} ${primaryClasses}`}
+      onClick={() => triggerUpgrade()}
+    >
+      <span>{children}</span>
+      <CircleArrowUp size={18} />
     </a>
   );
 }

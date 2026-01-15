@@ -223,6 +223,10 @@ const validInvokeChannels = [
   "auth:get-current-user",
   "auth:can-create-workspace",
   "auth:get-plan-info",
+  "auth:upgrade",
+  "auth:refresh-plan",
+  "auth:manage-subscription",
+  "auth:cancel-subscription",
 ];
 
 const validReceiveChannels = [
@@ -234,6 +238,8 @@ const validReceiveChannels = [
   "github:flow-success",
   "github:flow-error",
   "deep-link-received",
+  "plan-changed",              // Realtime plan updates from Supabase
+  "oauth-callback-success",    // OAuth callback from main process
   "force-close-detected",
   // Help bot
   "help:chat:response:chunk",

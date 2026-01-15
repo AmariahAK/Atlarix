@@ -7,26 +7,22 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   BookOpenIcon,
   BugIcon,
-  UploadIcon,
-  ChevronLeftIcon,
-  CheckIcon,
+  SendIcon,
+  ImagePlusIcon,
   XIcon,
-  FileIcon,
   SparklesIcon,
 } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useState, useEffect } from "react";
-import { useAtomValue } from "jotai";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
-import { ChatLogsData } from "@/ipc/ipc_types";
-import { showError } from "@/lib/toast";
+import { useState, useEffect, useRef } from "react";
 import { HelpBotDialog } from "./HelpBotDialog";
 import { useSettings } from "@/hooks/useSettings";
-import { BugScreenshotDialog } from "./BugScreenshotDialog";
-import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
+import { useAuth } from "@/lib/auth/useAuth";
 
 interface HelpDialogProps {
   isOpen: boolean;
@@ -35,258 +31,222 @@ interface HelpDialogProps {
 
 export function HelpDialog({ isOpen, onClose }: HelpDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [reviewMode, setReviewMode] = useState(false);
-  const [chatLogsData, setChatLogsData] = useState<ChatLogsData | null>(null);
-  const [uploadComplete, setUploadComplete] = useState(false);
-  const [sessionId, setSessionId] = useState("");
+  const [showBugForm, setShowBugForm] = useState(false);
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
-  const [isBugScreenshotOpen, setIsBugScreenshotOpen] = useState(false);
-  const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const [bugFormData, setBugFormData] = useState({
+    email: "",
+    subject: "",
+    message: "",
+  });
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { settings } = useSettings();
-  const { userBudget } = useUserBudgetInfo();
+  const { user } = useAuth();
   const isAtlarixProUser = settings?.providerSettings?.["auto"]?.apiKey?.value;
 
-  // Function to reset all dialog state
-  const resetDialogState = () => {
-    setIsLoading(false);
-    setIsUploading(false);
-    setReviewMode(false);
-    setChatLogsData(null);
-    setUploadComplete(false);
-    setSessionId("");
-  };
+  // Auto-fill email if user is logged in
+  useEffect(() => {
+    if (user?.email && !bugFormData.email) {
+      setBugFormData((prev) => ({ ...prev, email: user.email }));
+    }
+  }, [user?.email, bugFormData.email]);
 
-  // Reset state when dialog closes or reopens
+  // Reset state when dialog closes
   useEffect(() => {
     if (!isOpen) {
-      resetDialogState();
+      setShowBugForm(false);
+      setBugFormData({ email: "", subject: "", message: "" });
+      setAttachments([]);
+      setIsLoading(false);
     }
   }, [isOpen]);
 
-  // Wrap the original onClose to also reset state
   const handleClose = () => {
     onClose();
   };
 
-  const handleReportBug = async () => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      const imageFiles = Array.from(files).filter((f) =>
+        f.type.startsWith("image/")
+      );
+      setAttachments((prev) => [...prev, ...imageFiles].slice(0, 5)); // Max 5 images
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitBugReport = async () => {
+    if (!bugFormData.email || !bugFormData.subject || !bugFormData.message) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // Get system debug info
-      const debugInfo = await IpcClient.getInstance().getSystemDebugInfo();
-
-      // Create a formatted issue body with the debug info
-      const issueBody = `
-<!-- 
-⚠️ IMPORTANT: All sections marked as required must be completed in English.
-Issues that do not meet these requirements will be closed and may need to be resubmitted.
--->
-
-## Bug Description (required)
-<!-- Please describe the issue you're experiencing -->
-
-## Steps to Reproduce (required)
-<!-- Please list the steps to reproduce the issue -->
-
-## Expected Behavior (required)
-<!-- What did you expect to happen? -->
-
-## Actual Behavior (required)
-<!-- What actually happened? -->
-
-## Screenshot (Optional)
-<!-- Screenshot of the bug -->
-
-## System Information
-- Atlarix Version: ${debugInfo.dyadVersion}
-- Platform: ${debugInfo.platform}
-- Architecture: ${debugInfo.architecture}
-- Node Version: ${debugInfo.nodeVersion || "n/a"}
-- PNPM Version: ${debugInfo.pnpmVersion || "n/a"}
-- Node Path: ${debugInfo.nodePath || "n/a"}
-- Pro User ID: ${userBudget?.redactedUserId || "n/a"}
-- Telemetry ID: ${debugInfo.telemetryId || "n/a"}
-- Model: ${debugInfo.selectedLanguageModel || "n/a"}
-
-## Logs
-\`\`\`
-${debugInfo.logs.slice(-3_500) || "No logs available"}
-\`\`\`
+      // Get system debug info for additional context
+      let debugInfo = "";
+      try {
+        const info = await IpcClient.getInstance().getSystemDebugInfo();
+        debugInfo = `
+---
+System Info:
+- Version: ${info.dyadVersion}
+- Platform: ${info.platform} ${info.architecture}
+- Node: ${info.nodeVersion || "N/A"}
 `;
-
-      // Create the GitHub issue URL with the pre-filled body
-      const encodedBody = encodeURIComponent(issueBody);
-      const encodedTitle = encodeURIComponent("[bug] <WRITE TITLE HERE>");
-      const labels = ["bug"];
-      if (isAtlarixProUser) {
-        labels.push("pro");
+      } catch {
+        debugInfo = "";
       }
-      const githubIssueUrl = `https://github.com/norahlabs/atlarix/issues/new?title=${encodedTitle}&labels=${labels}&body=${encodedBody}`;
 
-      // Open the pre-filled GitHub issue page
-      IpcClient.getInstance().openExternalUrl(githubIssueUrl);
+      // Compose email body
+      const emailBody = `${bugFormData.message}${debugInfo}`;
+
+      // Create mailto URL with attachments note
+      const attachmentNote =
+        attachments.length > 0
+          ? `\n\n[Note: ${attachments.length} image(s) attached - please attach them manually in your email client]`
+          : "";
+
+      const mailto = `mailto:support@atlarix.dev?subject=${encodeURIComponent(
+        bugFormData.subject
+      )}&body=${encodeURIComponent(emailBody + attachmentNote)}`;
+
+      // Open default email client
+      IpcClient.getInstance().openExternalUrl(mailto);
+
+      // Reset form
+      setShowBugForm(false);
+      setBugFormData({ email: user?.email || "", subject: "", message: "" });
+      setAttachments([]);
+      handleClose();
     } catch (error) {
       console.error("Failed to prepare bug report:", error);
-      // Fallback to opening the regular GitHub issue page
-      IpcClient.getInstance().openExternalUrl(
-        "https://github.com/norahlabs/atlarix/issues/new",
-      );
+      alert("Failed to open email client. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUploadChatSession = async () => {
-    if (!selectedChatId) {
-      alert("Please select a chat first");
-      return;
-    }
-
-    setIsUploading(true);
-    try {
-      // Get chat logs (includes debug info, chat data, and codebase)
-      const chatLogs =
-        await IpcClient.getInstance().getChatLogs(selectedChatId);
-
-      // Store data for review and switch to review mode
-      setChatLogsData(chatLogs);
-      setReviewMode(true);
-    } catch (error) {
-      console.error("Failed to upload chat session:", error);
-      alert(
-        "Failed to upload chat session. Please try again or report manually.",
-      );
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleSubmitChatLogs = async () => {
-    if (!chatLogsData) return;
-
-    setIsUploading(true);
-    try {
-      // Prepare data for upload
-      const chatLogsJson = {
-        systemInfo: chatLogsData.debugInfo,
-        chat: chatLogsData.chat,
-        codebaseSnippet: chatLogsData.codebase,
-      };
-
-      // Get signed URL
-      const response = await fetch(
-        "https://upload-logs.atlarix.dev/generate-upload-url",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            extension: "json",
-            contentType: "application/json",
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        showError(`Failed to get upload URL: ${response.statusText}`);
-        throw new Error(`Failed to get upload URL: ${response.statusText}`);
-      }
-
-      const { uploadUrl, filename } = await response.json();
-
-      await IpcClient.getInstance().uploadToSignedUrl(
-        uploadUrl,
-        "application/json",
-        chatLogsJson,
-      );
-
-      // Extract session ID (filename without extension)
-      const sessionId = filename.replace(".json", "");
-      setSessionId(sessionId);
-      setUploadComplete(true);
-      setReviewMode(false);
-    } catch (error) {
-      console.error("Failed to upload chat logs:", error);
-      alert("Failed to upload chat logs. Please try again.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleCancelReview = () => {
-    setReviewMode(false);
-    setChatLogsData(null);
-  };
-
-  const handleOpenGitHubIssue = () => {
-    // Create a GitHub issue with the session ID
-    const issueBody = `
-<!-- 
-⚠️ IMPORTANT: All sections marked as required must be completed in English.
-Issues that do not meet these requirements will be closed and may need to be resubmitted.
--->
-
-Session ID: ${sessionId}
-Pro User ID: ${userBudget?.redactedUserId || "n/a"}
-
-## Issue Description (required)
-<!-- Please describe the issue you're experiencing -->
-
-## Expected Behavior (required)
-<!-- What did you expect to happen? -->
-
-## Actual Behavior (required)
-<!-- What actually happened? -->
-`;
-
-    const encodedBody = encodeURIComponent(issueBody);
-    const encodedTitle = encodeURIComponent("[session report] <add title>");
-    const labels = ["support"];
-    if (isAtlarixProUser) {
-      labels.push("pro");
-    }
-    const githubIssueUrl = `https://github.com/norahlabs/atlarix/issues/new?title=${encodedTitle}&labels=${labels}&body=${encodedBody}`;
-
-    IpcClient.getInstance().openExternalUrl(githubIssueUrl);
-    handleClose();
-  };
-
-  if (uploadComplete) {
+  // Bug report form view
+  if (showBugForm) {
     return (
       <Dialog open={isOpen} onOpenChange={handleClose}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Upload Complete</DialogTitle>
+            <DialogTitle className="flex items-center">
+              <Button
+                variant="ghost"
+                className="mr-2 p-0 h-8 w-8"
+                onClick={() => setShowBugForm(false)}
+              >
+                <XIcon className="h-4 w-4" />
+              </Button>
+              Report a Bug
+            </DialogTitle>
           </DialogHeader>
-          <div className="py-6 flex flex-col items-center space-y-4">
-            <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-full">
-              <CheckIcon className="h-8 w-8 text-green-600 dark:text-green-400" />
-            </div>
-            <h3 className="text-lg font-medium">
-              Chat Logs Uploaded Successfully
-            </h3>
-            <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded flex items-center space-x-2 font-mono text-sm">
-              <FileIcon
-                className="h-4 w-4 cursor-pointer"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(sessionId);
-                  } catch (err) {
-                    console.error("Failed to copy session ID:", err);
-                  }
-                }}
+          <DialogDescription>
+            Describe your issue and we'll get back to you as soon as possible.
+          </DialogDescription>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Your Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="your@email.com"
+                value={bugFormData.email}
+                onChange={(e) =>
+                  setBugFormData((prev) => ({ ...prev, email: e.target.value }))
+                }
               />
-              <span>{sessionId}</span>
             </div>
-            <p className="text-center text-sm">
-              You must open a GitHub issue for us to investigate. Without a
-              linked issue, your report will not be reviewed.
-            </p>
+
+            <div className="space-y-2">
+              <Label htmlFor="subject">Subject *</Label>
+              <Input
+                id="subject"
+                placeholder="Brief description of the issue"
+                value={bugFormData.subject}
+                onChange={(e) =>
+                  setBugFormData((prev) => ({
+                    ...prev,
+                    subject: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="message">Message *</Label>
+              <Textarea
+                id="message"
+                placeholder="Please describe what happened, steps to reproduce, and what you expected..."
+                rows={5}
+                value={bugFormData.message}
+                onChange={(e) =>
+                  setBugFormData((prev) => ({
+                    ...prev,
+                    message: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Attachments (optional)</Label>
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((file, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm"
+                  >
+                    <span className="truncate max-w-[100px]">{file.name}</span>
+                    <button
+                      onClick={() => removeAttachment(index)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {attachments.length < 5 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <ImagePlusIcon className="h-4 w-4 mr-1" />
+                    Add Image
+                  </Button>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Max 5 images. They'll be noted in the email for you to attach.
+              </p>
+            </div>
           </div>
+
           <DialogFooter>
-            <Button onClick={handleOpenGitHubIssue} className="w-full">
-              Open GitHub Issue
+            <Button variant="outline" onClick={() => setShowBugForm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmitBugReport} disabled={isLoading}>
+              <SendIcon className="h-4 w-4 mr-2" />
+              {isLoading ? "Sending..." : "Send Report"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -294,105 +254,14 @@ Pro User ID: ${userBudget?.redactedUserId || "n/a"}
     );
   }
 
-  if (reviewMode && chatLogsData) {
-    return (
-      <Dialog open={isOpen} onOpenChange={handleClose}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center">
-              <Button
-                variant="ghost"
-                className="mr-2 p-0 h-8 w-8"
-                onClick={handleCancelReview}
-              >
-                <ChevronLeftIcon className="h-4 w-4" />
-              </Button>
-              OK to upload chat session?
-            </DialogTitle>
-          </DialogHeader>
-          <DialogDescription>
-            Please review the information that will be submitted. Your chat
-            messages, system information, and a snapshot of your codebase will
-            be included.
-          </DialogDescription>
-
-          <div className="space-y-4 overflow-y-auto flex-grow">
-            <div className="border rounded-md p-3">
-              <h3 className="font-medium mb-2">Chat Messages</h3>
-              <div className="text-sm bg-slate-50 dark:bg-slate-900 rounded p-2 max-h-40 overflow-y-auto">
-                {chatLogsData.chat.messages.map((msg) => (
-                  <div key={msg.id} className="mb-2">
-                    <span className="font-semibold">
-                      {msg.role === "user" ? "You" : "Assistant"}:{" "}
-                    </span>
-                    <span>{msg.content}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <h3 className="font-medium mb-2">Codebase Snapshot</h3>
-              <div className="text-sm bg-slate-50 dark:bg-slate-900 rounded p-2 max-h-40 overflow-y-auto font-mono">
-                {chatLogsData.codebase}
-              </div>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <h3 className="font-medium mb-2">Logs</h3>
-              <div className="text-sm bg-slate-50 dark:bg-slate-900 rounded p-2 max-h-40 overflow-y-auto font-mono">
-                {chatLogsData.debugInfo.logs}
-              </div>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <h3 className="font-medium mb-2">System Information</h3>
-              <div className="text-sm bg-slate-50 dark:bg-slate-900 rounded p-2 max-h-32 overflow-y-auto">
-                <p>Atlarix Version: {chatLogsData.debugInfo.dyadVersion}</p>
-                <p>Platform: {chatLogsData.debugInfo.platform}</p>
-                <p>Architecture: {chatLogsData.debugInfo.architecture}</p>
-                <p>
-                  Node Version:{" "}
-                  {chatLogsData.debugInfo.nodeVersion || "Not available"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-between mt-4 pt-2 sticky bottom-0 bg-background">
-            <Button
-              variant="outline"
-              onClick={handleCancelReview}
-              className="flex items-center"
-            >
-              <XIcon className="mr-2 h-4 w-4" /> Cancel
-            </Button>
-            <Button
-              onClick={handleSubmitChatLogs}
-              className="flex items-center"
-              disabled={isUploading}
-            >
-              {isUploading ? (
-                "Uploading..."
-              ) : (
-                <>
-                  <CheckIcon className="mr-2 h-4 w-4" /> Upload
-                </>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
+  // Main help dialog
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Need help with Atlarix?</DialogTitle>
         </DialogHeader>
-        <DialogDescription className="">
+        <DialogDescription>
           If you need help or want to report an issue, here are some options:
         </DialogDescription>
         <div className="flex flex-col space-y-4 w-full">
@@ -409,8 +278,8 @@ Pro User ID: ${userBudget?.redactedUserId || "n/a"}
                 bot (Pro)
               </Button>
               <p className="text-sm text-muted-foreground px-2">
-                Opens an in-app help chat assistant that searches through Atlarix's
-                docs.
+                Opens an in-app help chat assistant that searches through
+                Atlarix's docs.
               </p>
             </div>
           ) : (
@@ -419,7 +288,7 @@ Pro User ID: ${userBudget?.redactedUserId || "n/a"}
                 variant="outline"
                 onClick={() => {
                   IpcClient.getInstance().openExternalUrl(
-                    "https://www.atlarix.dev/docs",
+                    "https://www.atlarix.dev/docs"
                   );
                 }}
                 className="w-full py-6 bg-(--background-lightest)"
@@ -435,34 +304,14 @@ Pro User ID: ${userBudget?.redactedUserId || "n/a"}
           <div className="flex flex-col space-y-2">
             <Button
               variant="outline"
-              onClick={() => {
-                handleClose();
-                setIsBugScreenshotOpen(true);
-              }}
-              disabled={isLoading}
+              onClick={() => setShowBugForm(true)}
               className="w-full py-6 bg-(--background-lightest)"
             >
-              <BugIcon className="mr-2 h-5 w-5" />{" "}
-              {isLoading ? "Preparing Report..." : "Report a Bug"}
+              <BugIcon className="mr-2 h-5 w-5" /> Report a Bug
             </Button>
             <p className="text-sm text-muted-foreground px-2">
-              We'll auto-fill your report with system info and logs. You can
-              review it for any sensitive info before submitting.
-            </p>
-          </div>
-          <div className="flex flex-col space-y-2">
-            <Button
-              variant="outline"
-              onClick={handleUploadChatSession}
-              disabled={isUploading || !selectedChatId}
-              className="w-full py-6 bg-(--background-lightest)"
-            >
-              <UploadIcon className="mr-2 h-5 w-5" />{" "}
-              {isUploading ? "Preparing Upload..." : "Upload Chat Session"}
-            </Button>
-            <p className="text-sm text-muted-foreground px-2">
-              Share chat logs and code for troubleshooting. Data is used only to
-              resolve your issue and auto-deleted after a limited time.
+              Send us an email with details about your issue. We'll get back to
+              you promptly.
             </p>
           </div>
         </div>
@@ -470,12 +319,6 @@ Pro User ID: ${userBudget?.redactedUserId || "n/a"}
       <HelpBotDialog
         isOpen={isHelpBotOpen}
         onClose={() => setIsHelpBotOpen(false)}
-      />
-      <BugScreenshotDialog
-        isOpen={isBugScreenshotOpen}
-        onClose={() => setIsBugScreenshotOpen(false)}
-        handleReportBug={handleReportBug}
-        isLoading={isLoading}
       />
     </Dialog>
   );

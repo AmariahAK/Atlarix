@@ -28,8 +28,8 @@ import { NodeSystemInfo } from "@/ipc/ipc_types";
 import { usePostHog } from "posthog-js/react";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useScrollAndNavigateTo } from "@/hooks/useScrollAndNavigateTo";
-// Use correct logo path instead of SVG import
-const logo = '/logo/Atlarix.png';
+// Use the app icon logo (green/white)
+const atlarixLogo = new URL('/logo.png', import.meta.url).href;
 import { OnboardingBanner } from "./home/OnboardingBanner";
 import { showError } from "@/lib/toast";
 import { useSettings } from "@/hooks/useSettings";
@@ -114,11 +114,25 @@ export function SetupBanner() {
       params: { provider: "openrouter" },
     });
   };
-  const handleAtlarixProSetupClick = () => {
+  const handleAtlarixProSetupClick = async () => {
     posthog.capture("setup-flow:ai-provider-setup:dyad:click");
-    IpcClient.getInstance().openExternalUrl(
-      "https://www.atlarix.dev/pro?utm_source=atlarix-app&utm_medium=app&utm_campaign=setup-banner",
-    );
+
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (!ipcRenderer?.invoke) {
+        showError("Unable to access upgrade. Please restart the app.");
+        return;
+      }
+
+      const result = await ipcRenderer.invoke("auth:upgrade");
+
+      if (!result.success && result.error) {
+        // User needs to sign in first
+        showError(result.error);
+      }
+    } catch (error) {
+      showError("Failed to open upgrade page. Please try again.");
+    }
   };
 
   const handleOtherProvidersClick = () => {
@@ -189,104 +203,32 @@ export function SetupBanner() {
           className="w-full"
           defaultValue={itemsNeedAction}
         >
-          <AccordionItem
-            value="node-setup"
-            className={cn(
-              nodeCheckError
-                ? "bg-red-50 dark:bg-red-900/30"
-                : isNodeSetupComplete
-                  ? "bg-green-50 dark:bg-green-900/30"
-                  : "bg-yellow-50 dark:bg-yellow-900/30",
-            )}
-          >
-            <AccordionTrigger className="px-4 py-3 transition-colors w-full hover:no-underline">
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  {getStatusIcon(isNodeSetupComplete, nodeCheckError)}
-                  <span className="font-medium text-sm">
-                    1. Install Node.js (App Runtime)
-                  </span>
-                </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="px-4 pt-2 pb-4 bg-white dark:bg-zinc-900 border-t border-inherit">
-              {nodeCheckError && (
-                <p className="text-sm text-red-600 dark:text-red-400">
-                  Error checking Node.js status. Try installing Node.js.
-                </p>
-              )}
-              {isNodeSetupComplete ? (
-                <p className="text-sm">
-                  Node.js ({nodeSystemInfo!.nodeVersion}) installed.{" "}
-                  {nodeSystemInfo!.pnpmVersion && (
-                    <span className="text-xs text-gray-500">
-                      {" "}
-                      (optional) pnpm ({nodeSystemInfo!.pnpmVersion}) installed.
-                    </span>
-                  )}
-                </p>
-              ) : (
-                <div className="text-sm">
-                  <p>Node.js is required to run apps locally.</p>
-                  {nodeInstallStep === "waiting-for-continue" && (
-                    <p className="mt-1">
-                      After you have installed Node.js, click "Continue". If the
-                      installer didn't work, try{" "}
-                      <a
-                        className="text-blue-500 dark:text-blue-400 hover:underline"
-                        onClick={() => {
-                          IpcClient.getInstance().openExternalUrl(
-                            "https://nodejs.org/en/download",
-                          );
-                        }}
-                      >
-                        more download options
-                      </a>
-                      .
-                    </p>
-                  )}
-                  <NodeInstallButton
-                    nodeInstallStep={nodeInstallStep}
-                    handleNodeInstallClick={handleNodeInstallClick}
-                    finishNodeInstall={finishNodeInstall}
-                  />
+          {/* Informational Tips - Not requirements, just helpful info */}
+          <div className="p-4 space-y-3">
+            {/* Project Languages Tip */}
+            <div className="p-3 bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700 rounded-lg">
+              <p className="text-sm text-teal-700 dark:text-teal-400">
+                🔧 <strong>Project Languages:</strong> Atlarix auto-detects your project's language (Node.js, Python, Go, Rust, etc.)
+                and will prompt you to install any missing runtimes when you try to run your app.
+              </p>
+            </div>
 
-                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <button
-                      onClick={() => setShowManualConfig(!showManualConfig)}
-                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Node.js already installed? Configure path manually →
-                    </button>
-
-                    {showManualConfig && (
-                      <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                        <Button
-                          onClick={handleManualNodeConfig}
-                          disabled={isSelectingPath}
-                          variant="outline"
-                          size="sm"
-                        >
-                          {isSelectingPath ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Selecting...
-                            </>
-                          ) : (
-                            <>
-                              <Folder className="mr-2 h-4 w-4" />
-                              Browse for Node.js folder
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              <NodeJsHelpCallout />
-            </AccordionContent>
-          </AccordionItem>
+            {/* Docker Tip for Web Search */}
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+              <p className="text-sm text-blue-700 dark:text-blue-400">
+                🐳 <strong>Tip:</strong> Web search is free but limited, however with{" "}
+                <a
+                  onClick={() => {
+                    IpcClient.getInstance().openExternalUrl("https://www.docker.com/get-started/");
+                  }}
+                  className="underline cursor-pointer hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  Docker installed
+                </a>
+                , searches become <strong>unlimited & more private</strong> using local SearxNG.
+              </p>
+            </div>
+          </div>
 
           <AccordionItem
             value="ai-setup"
@@ -305,7 +247,7 @@ export function SetupBanner() {
                 <div className="flex items-center gap-3">
                   {getStatusIcon(isAnyProviderSetup())}
                   <span className="font-medium text-sm">
-                    1. Setup AI Access
+                    Setup AI Access
                   </span>
                 </div>
               </div>
@@ -318,7 +260,7 @@ export function SetupBanner() {
                 className="w-full"
                 variant="openrouter"
                 onClick={handleOpenRouterSetupClick}
-                tabIndex={isNodeSetupComplete ? 0 : -1}
+                tabIndex={0}
                 leadingIcon={
                   <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                 }
@@ -331,9 +273,9 @@ export function SetupBanner() {
                 className="mt-2"
                 variant="dyad"
                 onClick={handleAtlarixProSetupClick}
-                tabIndex={isNodeSetupComplete ? 0 : -1}
+                tabIndex={0}
                 leadingIcon={
-                  <img src={logo} alt="Atlarix Logo" className="w-6 h-6 mr-0.5" />
+                  <img src={atlarixLogo} alt="Atlarix Logo" className="w-6 h-6 mr-0.5" />
                 }
                 title="Setup Atlarix Pro"
                 subtitle="Access all AI models with one plan"
@@ -353,7 +295,7 @@ export function SetupBanner() {
                 className="mt-2 p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
                 onClick={handleOtherProvidersClick}
                 role="button"
-                tabIndex={isNodeSetupComplete ? 0 : -1}
+                tabIndex={0}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">

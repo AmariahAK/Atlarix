@@ -2,6 +2,25 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.20] - 2026-01-15
+### 💳 LemonSqueezy Integration (Monetization)
+- **Checkout Flow**: Upgrade button opens LemonSqueezy checkout with pre-filled email
+- **Webhook Handling**: Supabase Edge Function processes subscription lifecycle events
+- **Realtime Updates**: Supabase Realtime instantly updates UI when plan changes
+- **Unsubscribe Button**: Direct API cancellation with confirmation dialog
+- **Subscription Expiry**: Users keep Pro access until billing period ends (not immediately revoked)
+- **Hardcoded Fallbacks**: LemonSqueezy credentials bundled for production builds
+
+### 🔧 Help Modal Improvements
+- **Email Bug Reports**: "Report a Bug" now opens email form (auto-fills user email)
+- **Removed Chat Upload**: Removed "Upload Chat Session" button (unused)
+- **Simplified UI**: Cleaner dialog with Open Docs and Report a Bug options
+
+### 🐛 Bug Fixes
+- **Profile Picture Fix**: Fixed Google avatar not showing in bundled app (was hardcoded to undefined)
+- **OAuth Hang Fix**: Added 5-second timeout to `getUserPlan()` for new accounts
+- **Reload Fix**: Changed `window.location.reload()` to proper Electron-compatible refresh
+
 ## [v0.9.19] - 2026-01-14
 ### 🌐 Language Detection System
 - **Language Registry**: Added support for 12 languages (Node.js, Python, Go, Rust, Ruby, Java, PHP, .NET, Deno, Bun, Elixir, Docker)

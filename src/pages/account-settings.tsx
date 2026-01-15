@@ -39,10 +39,15 @@ export function AccountSettings() {
         return null;
     }
 
-    const handleUpgrade = () => {
-        // Open pricing page with user email
-        const url = `https://atlarix.dev/pricing?email=${encodeURIComponent(user.email)}`;
-        window.open(url, '_blank');
+    const handleUpgrade = async () => {
+        // Open LemonSqueezy checkout (requires sign-in)
+        const { triggerUpgrade } = await import('@/hooks/useUpgrade');
+        triggerUpgrade();
+    };
+
+    const handleManageSubscription = async () => {
+        // Open LemonSqueezy customer portal
+        await window.electron?.ipcRenderer?.invoke('auth:manage-subscription');
     };
 
     return (
@@ -174,11 +179,28 @@ export function AccountSettings() {
                             </div>
                         )}
 
-                        {/* Manage subscription for paid users */}
+                        {/* Cancel subscription for paid users */}
                         {status.plan !== 'free' && (
                             <div className="pt-4 border-t">
-                                <Button onClick={handleUpgrade} variant="outline" className="w-full">
-                                    Manage Subscription
+                                <Button
+                                    onClick={async () => {
+                                        const confirmed = window.confirm(
+                                            'Are you sure you want to cancel your Atlarix Pro subscription?\n\nYou will retain access until the end of your billing period.'
+                                        );
+                                        if (!confirmed) return;
+
+                                        const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
+                                        if (result?.success) {
+                                            alert('Subscription cancelled. You will have access until the end of your billing period.');
+                                            window.location.href = window.location.href;
+                                        } else {
+                                            alert(result?.error || 'Failed to cancel subscription');
+                                        }
+                                    }}
+                                    variant="outline"
+                                    className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+                                >
+                                    Cancel Subscription
                                 </Button>
                             </div>
                         )}

@@ -84,6 +84,13 @@ export function useLanguageModelProviders() {
   };
 
   const isAnyProviderSetup = () => {
+    // Check if a local provider is selected (ollama, lmstudio don't need API keys)
+    const localProviders = ['ollama', 'lmstudio'];
+    const selectedProvider = settings?.selectedModel?.provider;
+    if (selectedProvider && localProviders.includes(selectedProvider)) {
+      return true;
+    }
+
     // Check hardcoded cloud providers
     if (cloudProviders.some((provider) => isProviderSetup(provider))) {
       return true;

@@ -69,20 +69,45 @@ export function useAuth() {
             }
         };
 
+        // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
+        const handlePlanChanged = (data: { plan: 'free' | 'pro'; previousPlan: 'free' | 'pro' }) => {
+            console.log('[useAuth] Plan changed via realtime:', data);
+            if (status && data.plan !== status.plan) {
+                setStatus({ ...status, plan: data.plan });
+
+                // Show upgrade notification if upgraded to Pro
+                if (data.plan === 'pro' && data.previousPlan === 'free') {
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                    notification.innerHTML = `
+                        <span class="text-xl">✨</span>
+                        <div>
+                            <div class="font-medium">Welcome to Atlarix Pro!</div>
+                            <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
+                        </div>
+                    `;
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.remove(), 6000);
+                }
+            }
+        };
+
         // Use correct IPC pattern for electron
         const ipcRenderer = window.electron?.ipcRenderer;
         if (ipcRenderer?.on) {
-            console.log('[useAuth] Registering oauth-callback-success listener');
+            console.log('[useAuth] Registering listeners');
             ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
+            ipcRenderer.on('plan-changed', handlePlanChanged as any);
         }
 
         return () => {
-            // Cleanup listener if available
+            // Cleanup listeners if available
             if (ipcRenderer?.removeListener) {
                 ipcRenderer.removeListener('oauth-callback-success', handleOAuthSuccess as any);
+                ipcRenderer.removeListener('plan-changed', handlePlanChanged as any);
             }
         };
-    }, []);
+    }, [status]);
 
     const checkSession = async () => {
         setLoading(true);
@@ -99,8 +124,8 @@ export function useAuth() {
                 setUser({
                     id: result.user.id,
                     email: result.user.email,
-                    name: result.user.email.split('@')[0],
-                    avatar: undefined,
+                    name: result.user.name || result.user.email.split('@')[0],
+                    avatar: result.user.avatar,
                 });
                 setStatus({
                     plan: result.user.plan || 'free',
@@ -189,6 +214,47 @@ export function useAuth() {
         }
     }, []);
 
+    /**
+     * Refresh plan from Supabase - call after payment completion
+     */
+    const refreshPlan = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) return null;
+
+            const result = await ipcRenderer.invoke('auth:refresh-plan');
+
+            if (result?.success && status) {
+                setStatus({
+                    ...status,
+                    plan: result.plan,
+                });
+                console.log('[useAuth] Plan refreshed:', result.plan);
+
+                // Show notification if upgraded
+                if (result.plan === 'pro' && status.plan !== 'pro') {
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                    notification.innerHTML = `
+                        <span class="text-xl">✨</span>
+                        <div>
+                            <div class="font-medium">Welcome to Atlarix Pro!</div>
+                            <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
+                        </div>
+                    `;
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.remove(), 5000);
+                }
+
+                return result.plan;
+            }
+            return null;
+        } catch (error) {
+            console.error('Refresh plan error:', error);
+            return null;
+        }
+    }, [status]);
+
     return {
         user,
         status,
@@ -198,5 +264,6 @@ export function useAuth() {
         signInWithGitHub,
         signOut,
         refreshStatus: fetchPlanInfo,
+        refreshPlan,
     };
 }

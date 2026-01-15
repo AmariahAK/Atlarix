@@ -120,6 +120,41 @@ export class SubscriptionManager {
 
         this.cachedWorkspaceCount = null; // Clear cache
         logger.log(`[SubscriptionManager] Session updated: ${user.email} (${plan})`, { avatar: !!avatar, name });
+
+        // Subscribe to realtime plan changes for instant Pro activation
+        if (user.email) {
+            this.setupRealtimeSubscription(user.email);
+        }
+    }
+
+    /**
+     * Setup realtime subscription for plan changes
+     */
+    private static realtimeCleanup: (() => void) | null = null;
+
+    private static setupRealtimeSubscription(email: string): void {
+        // Import dynamically to avoid circular deps
+        import('./auth/supabase-client').then(({ subscribeToPlanChanges }) => {
+            // Cleanup any existing subscription
+            if (this.realtimeCleanup) {
+                this.realtimeCleanup();
+            }
+
+            this.realtimeCleanup = subscribeToPlanChanges(email, (newPlan, oldPlan) => {
+                logger.log(`[SubscriptionManager] 🎉 Plan changed via realtime: ${oldPlan} → ${newPlan}`);
+
+                if (this.session) {
+                    this.session = { ...this.session, plan: newPlan };
+
+                    // Notify the frontend about the plan change
+                    const { BrowserWindow } = require('electron');
+                    const windows = BrowserWindow.getAllWindows();
+                    windows.forEach((win: any) => {
+                        win.webContents.send('plan-changed', { plan: newPlan, previousPlan: oldPlan });
+                    });
+                }
+            });
+        });
     }
 
     // ========================================
@@ -153,6 +188,26 @@ export class SubscriptionManager {
      */
     static isPro(): boolean {
         return this.getLocalUserPlan() === 'pro';
+    }
+
+    /**
+     * Refresh user plan from Supabase
+     * Call this after payment to detect plan upgrades
+     */
+    static async refreshPlan(): Promise<UserPlan> {
+        if (!this.session) {
+            logger.log('[SubscriptionManager] Cannot refresh plan - not logged in');
+            return 'free';
+        }
+
+        const newPlan = await getUserPlan(this.session.id);
+
+        if (newPlan !== this.session.plan) {
+            logger.log(`[SubscriptionManager] Plan changed: ${this.session.plan} → ${newPlan}`);
+            this.session = { ...this.session, plan: newPlan };
+        }
+
+        return newPlan;
     }
 
     /**

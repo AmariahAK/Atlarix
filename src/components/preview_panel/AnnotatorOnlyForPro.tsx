@@ -1,6 +1,6 @@
 import { Lock, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IpcClient } from "@/ipc/ipc_client";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 
 interface AnnotatorOnlyForProProps {
   onGoBack: () => void;
@@ -8,7 +8,7 @@ interface AnnotatorOnlyForProProps {
 
 export const AnnotatorOnlyForPro = ({ onGoBack }: AnnotatorOnlyForProProps) => {
   const handleGetPro = () => {
-    IpcClient.getInstance().openExternalUrl("https://atlarix.dev/pro");
+    triggerUpgrade();
   };
 
   return (

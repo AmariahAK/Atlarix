@@ -62,11 +62,14 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] Implement Login/Signup (Google OAuth)
 - [x] Session Persistence (Electron file-based storage)
 
-### Monetization (LemonSqueezy Integration)
-- [ ] Integrate Payment Provider (LemonSqueezy)
-- [ ] Subscription management UI
-- [ ] Workspace limits enforcement (see below)
-- [ ] Replace OnboardingBanner video with Atlarix-specific content
+### Monetization (LemonSqueezy Integration) ✅
+- [x] Integrate Payment Provider (LemonSqueezy)
+- [x] Subscription checkout flow (Upgrade button)
+- [x] Unsubscribe button with direct API cancellation
+- [x] Supabase Realtime for instant plan updates
+- [x] LemonSqueezy webhook handling (subscription lifecycle)
+- [x] Customer portal URL storage for subscription management
+- [x] Subscription expiry handling (access until billing period ends)
 
 ### Workspace Limits Strategy
 **Free Tier (1 Workspace):**
@@ -91,6 +94,9 @@ This file tracks upcoming features, improvements, and known issues.
 - [ ] **Visual Previews**: Show diagram/preview *before* cloning (Future v1.1+)
 
 ### Other TBD Items
+- [ ] **SetupBanner Video**: Replace Dyad video with Atlarix-specific content
+- [ ] **Help Docs Button**: Update Open Docs to point to Atlarix documentation
+- [ ] **LemonSqueezy Live Mode**: Switch from test to production mode before release
 - [ ] **SearxNG for web_search**: Add fallback when API rate limits hit
 - [ ] **"Other AI Providers" section**: Complete settings UI
 
@@ -214,70 +220,70 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 - [x] 9 verbose tool descriptions → one-liners
 
 ### Phase 5: Test & Validate
-- [ ] Test with Ollama 8K context model
-- [ ] Verify all tools still work correctly
-- [ ] Measure actual token usage before/after
+- [X] Test with Ollama 8K context model
+- [X] Verify all tools still work correctly
+- [X] Measure actual token usage before/after
 
 ---
 
 ## 🔥 v0.9.13 - AI-Controlled Diagram System (In Progress)
 
 ### Phase 1: DiagramManager Creation
-- [ ] Create `/src/lib/DiagramManager.ts` static utility class
-  - [ ] Add `generatingWorkspaces` Set for tracking in-progress generation
-  - [ ] Add `generationPromises` Map for deduplication
-  - [ ] Implement `hasAnyDiagram(workspaceId)` - check if diagram exists
-  - [ ] Implement `isGenerating(workspaceId)` - check generation status
-  - [ ] Implement `waitForGeneration(workspaceId, timeout)` - wait for completion
-  - [ ] Implement `generateInitialDiagram(workspaceId, appPath)` - with deduplication
-  - [ ] Implement `regenerateForWorkspace(workspaceId, options)` - for AI updates
+- [X] Create `/src/lib/DiagramManager.ts` static utility class
+  - [X] Add `generatingWorkspaces` Set for tracking in-progress generation
+  - [X] Add `generationPromises` Map for deduplication
+  - [X] Implement `hasAnyDiagram(workspaceId)` - check if diagram exists
+  - [X] Implement `isGenerating(workspaceId)` - check generation status
+  - [X] Implement `waitForGeneration(workspaceId, timeout)` - wait for completion
+  - [X] Implement `generateInitialDiagram(workspaceId, appPath)` - with deduplication
+  - [X] Implement `regenerateForWorkspace(workspaceId, options)` - for AI updates
 
 ### Phase 2: update_diagram Tool
-- [ ] Modify `diagram-tools.ts` - replace existing `update_diagram` with permission-based version
-  - [ ] Schema: updateType (minor/major/new_component), affectedComponents, changeDescription, suggestedFocus
-  - [ ] Return `__permission_required: true` for approval flow
-  - [ ] Add comprehensive description for AI guidance (when to use/not use)
+- [X] Modify `diagram-tools.ts` - replace existing `update_diagram` with permission-based version
+  - [X] Schema: updateType (minor/major/new_component), affectedComponents, changeDescription, suggestedFocus
+  - [X] Return `__permission_required: true` for approval flow
+  - [X] Add comprehensive description for AI guidance (when to use/not use)
 
 ### Phase 3: Cold Start Handling
-- [ ] Modify `chat_stream_handlers.ts`
-  - [ ] Check `hasAnyDiagram()` before first workspace message
-  - [ ] Start background generation (non-blocking) for new workspaces
-  - [ ] Emit `diagram:initial-ready` IPC when generation completes
+- [X] Modify `chat_stream_handlers.ts`
+  - [X] Check `hasAnyDiagram()` before first workspace message
+  - [X] Start background generation (non-blocking) for new workspaces
+  - [X] Emit `diagram:initial-ready` IPC when generation completes
 
 ### Phase 4: get_diagram Enhancement
-- [ ] Modify `diagram-tools.ts` - update `get_diagram` handler
-  - [ ] Wait for in-progress generation if `isGenerating()` is true
-  - [ ] Start on-demand generation if no diagram exists
+- [X] Modify `diagram-tools.ts` - update `get_diagram` handler
+  - [X] Wait for in-progress generation if `isGenerating()` is true
+  - [X] Start on-demand generation if no diagram exists
 
 ### Phase 5: Permission System Integration
-- [ ] Modify `interceptor.ts`
-  - [ ] Add case for `update_diagram` operation in `executeOperation()`
-  - [ ] Call `DiagramManager.regenerateForWorkspace()` on approval
-  - [ ] Return result with diagramId
+- [X] Modify `interceptor.ts`
+  - [X] Add case for `update_diagram` operation in `executeOperation()`
+  - [X] Call `DiagramManager.regenerateForWorkspace()` on approval
+  - [X] Return result with diagramId
 
 ### Phase 6: UI Components
-- [ ] Modify `PermissionQueuePanel.tsx`
-  - [ ] Add diagram update card for `update_diagram` operation
-  - [ ] Show updateType badge, affected components, description
-  - [ ] Emerald theme styling to match diagram panel
+- [X] Modify `PermissionQueuePanel.tsx`
+  - [X] Add diagram update card for `update_diagram` operation
+  - [X] Show updateType badge, affected components, description
+  - [X] Emerald theme styling to match diagram panel
 
 ### Phase 7: System Prompt & Preload
-- [ ] Modify `system_prompt.ts`
-  - [ ] Add "Diagram Management" section with examples
-  - [ ] Document when to use/not use `update_diagram`
-- [ ] Modify `preload.ts`
-  - [ ] Whitelist `diagram:initial-ready` channel
+- [X] Modify `system_prompt.ts`
+  - [X] Add "Diagram Management" section with examples
+  - [X] Document when to use/not use `update_diagram`
+- [X] Modify `preload.ts`
+  - [X] Whitelist `diagram:initial-ready` channel
 
 ### Phase 8: PlantUML → Mermaid Migration
-- [ ] Remove PlantUML references from type definitions
-  - [ ] `db/schema.ts` - Remove "plantuml" from diagram type enum
-  - [ ] `atoms/sourceAtoms.ts` - Remove "plantuml" from DiagramState type
-  - [ ] `ipc/ipc_client.ts` - Remove "plantuml" from DiagramInput type
-  - [ ] `ipc/handlers/diagram_handlers.ts` - Remove "plantuml" from DiagramInput type
-- [ ] Remove PlantUML components
-  - [ ] `components/preview_panel/DiagramPanel.tsx` - Remove PlantUMLPreview component
-  - [ ] `lib/tools/meta-tools.ts` - Remove PlantUML detection from explain_diagram tool
-- [ ] Update comments to reference only Mermaid
+- [X] Remove PlantUML references from type definitions
+  - [X] `db/schema.ts` - Remove "plantuml" from diagram type enum
+  - [X] `atoms/sourceAtoms.ts` - Remove "plantuml" from DiagramState type
+  - [X] `ipc/ipc_client.ts` - Remove "plantuml" from DiagramInput type
+  - [X] `ipc/handlers/diagram_handlers.ts` - Remove "plantuml" from DiagramInput type
+- [X] Remove PlantUML components
+  - [X] `components/preview_panel/DiagramPanel.tsx` - Remove PlantUMLPreview component
+  - [X] `lib/tools/meta-tools.ts` - Remove PlantUML detection from explain_diagram tool
+- [X] Update comments to reference only Mermaid
 
 ---
 
@@ -349,22 +355,6 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 - [x] **IPC whitelist**: Added `operation-status` and `auto-recovery-needed` channels
 
 ---
-
-## 🔥 v1.0.0 - Production Ready (NEXT)
-
-### Core Stability
-- [ ] **End-to-end testing**: All major flows verified
-- [ ] **Error boundary improvements**: Better crash recovery
-- [ ] **Performance optimization**: Startup time < 3s
-
-### Known Issues to Address
-- [x] **Browser error capture**: Hybrid system (Terminal Parser + LSP-Lite Watcher) implemented.
-- [ ] **Advanced Error Recovery** (Future)
-    - [ ] Browser Injection: Research methods to inject error listener before bundle execution (e.g. Vite plugin).
-    - [ ] Full LSP: Switch from "LSP-Lite" to full Language Server Protocol for hover/autocomplete.
-- [ ] **PlantUML → Mermaid migration**: Remove PlantUML dependency
-- [ ] **Session memory limits**: Implement token-aware trimming
-- [ ] **Diagram staleness**: More aggressive refresh triggers
 
 ---
 
@@ -578,22 +568,6 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 - [x] **Sidebar Workspace Selection**: Fixed - Click to select, double-click for new chat
 - [x] **Individual File Approval**: Added "Execute Selected" button for granular file acceptance
 - [x] **Command Safety Wrapper**: Added dangerous pattern blocklist (rm -rf, sudo, curl|bash)
-
-
-## 🎯 Medium Priority (v1.0)
-
-### Features
-- [ ] **Model Switching Mid-Chat**: Switch models during a conversation
-- [ ] **Search in Chat**: Ctrl/Cmd + F to search messages
-- [ ] **Chat Templates**: Pre-filled prompts for common tasks
-
-### UI/UX
-- [ ] **Keyboard Shortcuts**: Cmd+B (right panel), Cmd+/ (sidebar), Cmd+[ ] (resize), Esc (close)
-- [ ] **Loading States**: Skeleton screens, progress bars
-
-### Documentation
-- [ ] **User Guide**: Getting started, tool reference
-- [ ] **API Documentation**: IPC handler signatures
 
 ---
 

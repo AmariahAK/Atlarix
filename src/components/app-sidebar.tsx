@@ -203,24 +203,51 @@ export function AppSidebar() {
                       </div>
                     </div>
 
-                    {/* Plan badge with upgrade button */}
+                    {/* Plan badge with upgrade/manage button */}
                     <div className="flex items-center justify-between px-2 py-1.5 mb-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro'
-                          ? 'bg-primary/20 text-primary'
-                          : 'bg-muted text-muted-foreground'
+                        ? 'bg-primary/20 text-primary'
+                        : 'bg-muted text-muted-foreground'
                         }`}>
                         {status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
                       </span>
-                      {status?.plan === 'free' && (
+                      {status?.plan === 'free' ? (
                         <button
                           onClick={() => {
-                            // Open upgrade URL - placeholder for LemonSqueezy
-                            window.open('https://atlarix.dev/pricing', '_blank');
+                            // Open LemonSqueezy checkout (requires sign-in)
+                            import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                              triggerUpgrade();
+                            });
                             setShowAuthMenu(false);
                           }}
                           className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
                         >
                           Upgrade
+                        </button>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            // Confirm before cancelling
+                            const confirmed = window.confirm(
+                              'Are you sure you want to cancel your Atlarix Pro subscription?\n\nYou will retain access until the end of your billing period.'
+                            );
+                            if (!confirmed) return;
+
+                            setShowAuthMenu(false);
+
+                            // Call cancel subscription API
+                            const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
+                            if (result?.success) {
+                              alert('Subscription cancelled. You will have access until the end of your billing period.');
+                              // Reload the app properly in Electron
+                              window.location.href = window.location.href;
+                            } else {
+                              alert(result?.error || 'Failed to cancel subscription');
+                            }
+                          }}
+                          className="text-xs px-2 py-0.5 bg-destructive/10 text-destructive rounded-full hover:bg-destructive/20 transition-colors"
+                        >
+                          Unsubscribe
                         </button>
                       )}
                     </div>
