@@ -211,10 +211,10 @@ export function AppSidebar() {
                         }`}>
                         {status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
                       </span>
-                      {status?.plan === 'free' ? (
+                      {/* Free tier: show Upgrade button */}
+                      {status?.plan === 'free' && (
                         <button
                           onClick={() => {
-                            // Open LemonSqueezy checkout (requires sign-in)
                             import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
                               triggerUpgrade();
                             });
@@ -224,10 +224,11 @@ export function AppSidebar() {
                         >
                           Upgrade
                         </button>
-                      ) : (
+                      )}
+                      {/* Pro tier (active): show Unsubscribe button */}
+                      {status?.plan === 'pro' && status?.subscriptionStatus !== 'cancelled' && (
                         <button
                           onClick={async () => {
-                            // Confirm before cancelling
                             const confirmed = window.confirm(
                               'Are you sure you want to cancel your Atlarix Pro subscription?\n\nYou will retain access until the end of your billing period.'
                             );
@@ -235,11 +236,8 @@ export function AppSidebar() {
 
                             setShowAuthMenu(false);
 
-                            // Call cancel subscription API
                             const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
                             if (result?.success) {
-                              // Show success message - no reload needed
-                              // The plan-changed IPC event will update the UI reactively
                               alert(result.message || 'Subscription cancelled. You will retain Pro access until the end of your billing period.');
                             } else {
                               alert(result?.error || 'Failed to cancel subscription');
@@ -260,6 +258,23 @@ export function AppSidebar() {
                         ) : (
                           <span>Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
                         )}
+                      </div>
+                    )}
+
+                    {/* Pro tier (cancelled): show Subscribe button to re-subscribe */}
+                    {status?.plan === 'pro' && status?.subscriptionStatus === 'cancelled' && (
+                      <div className="px-2 pb-2 mb-2">
+                        <button
+                          onClick={() => {
+                            import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                              triggerUpgrade();
+                            });
+                            setShowAuthMenu(false);
+                          }}
+                          className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                        >
+                          Subscribe Again
+                        </button>
                       </div>
                     )}
 
