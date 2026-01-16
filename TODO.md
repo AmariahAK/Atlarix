@@ -84,9 +84,9 @@ This file tracks upcoming features, improvements, and known issues.
 - ✅ (Future) Workspace templates
 
 **Implementation:**
-- [ ] `canCreateWorkspace(userId)` - check tier + workspace count
+- [x] `canCreateWorkspace(userId)` - check tier + workspace count
 - [ ] Delete confirmation modal with data loss warning
-- [ ] Upgrade prompt when hitting limit
+- [x] Upgrade prompt when hitting limit
 
 ### Template System ✅
 - [x] **Git Clone UX**: Clicking template triggers `apply_template` (clone → rm .git → init)

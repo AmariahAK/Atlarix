@@ -93,6 +93,22 @@ export function registerAuthHandlers() {
         }
     });
 
+    // Check workspace limit (alias for frontend use)
+    ipcMain.handle("auth:check-workspace-limit", async () => {
+        try {
+            const result = await SubscriptionManager.canCreateWorkspace();
+            return {
+                allowed: result.allowed,
+                reason: result.reason,
+                currentCount: result.currentCount,
+                maxAllowed: result.maxAllowed,
+            };
+        } catch (error) {
+            logger.error(`[AuthHandlers] Check workspace limit error:`, error);
+            return { allowed: true }; // Fail open
+        }
+    });
+
     // Get workspace limit info
     ipcMain.handle("auth:get-plan-info", async () => {
         try {

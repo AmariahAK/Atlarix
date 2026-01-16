@@ -1197,6 +1197,16 @@ export function registerAppHandlers() {
           logger.error(`Error during workspace cleanup for ${workspacePath}:`, error);
           // Don't fail - main deletion already succeeded
         }
+
+        // Clear workspace count cache so next check gets fresh count
+        try {
+          const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
+          SubscriptionManager.clearWorkspaceCache();
+          logger.info(`Cleared workspace count cache after deleting workspace ${appId}`);
+        } catch (error) {
+          logger.warn(`Could not clear workspace cache: ${error}`);
+          // Don't fail - main deletion succeeded
+        }
       });
     },
   );

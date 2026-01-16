@@ -222,6 +222,7 @@ const validInvokeChannels = [
   "auth:sign-out",
   "auth:get-current-user",
   "auth:can-create-workspace",
+  "auth:check-workspace-limit",  // Workspace limit check for Free tier
   "auth:get-plan-info",
   "auth:upgrade",
   "auth:refresh-plan",

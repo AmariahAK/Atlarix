@@ -69,6 +69,13 @@ export function registerImportHandlers() {
         throw new Error("Source folder does not exist");
       }
 
+      // Check workspace limit (safeguard - frontend should check first)
+      const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
+      const limitCheck = await SubscriptionManager.canCreateWorkspace();
+      if (!limitCheck.allowed) {
+        throw new Error(limitCheck.reason || "Workspace limit reached. Upgrade to Pro for unlimited workspaces.");
+      }
+
       // Check if an app with this PATH already exists (return existing if so)
       const existingByPath = await db.query.apps.findFirst({
         where: eq(apps.path, sourcePath),

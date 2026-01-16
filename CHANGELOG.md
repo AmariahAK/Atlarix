@@ -2,6 +2,17 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.21] - 2026-01-16
+### 🔒 Workspace Limits (Free Tier Enforcement)
+- **Limit Check**: Free tier now limited to 1 workspace (enforced in frontend + backend)
+- **Upgrade Prompt**: Shows upgrade modal when limit reached
+- **Cache Fix**: Fixed stale workspace count after deletion (was blocking new imports)
+- **Import Safeguard**: Backend validates limit in `import-app` handler
+
+### 🐛 Bug Fixes
+- **Unsubscribe White Screen**: Removed page reload after cancellation (UI now updates reactively)
+- **IPC Whitelist**: Added `auth:check-workspace-limit` channel
+
 ## [v0.9.20] - 2026-01-15
 ### 💳 LemonSqueezy Integration (Monetization)
 - **Checkout Flow**: Upgrade button opens LemonSqueezy checkout with pre-filled email

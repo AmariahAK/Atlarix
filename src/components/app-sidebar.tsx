@@ -238,9 +238,9 @@ export function AppSidebar() {
                             // Call cancel subscription API
                             const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
                             if (result?.success) {
-                              alert('Subscription cancelled. You will have access until the end of your billing period.');
-                              // Reload the app properly in Electron
-                              window.location.href = window.location.href;
+                              // Show success message - no reload needed
+                              // The plan-changed IPC event will update the UI reactively
+                              alert(result.message || 'Subscription cancelled. You will retain Pro access until the end of your billing period.');
                             } else {
                               alert(result?.error || 'Failed to cancel subscription');
                             }

@@ -125,25 +125,45 @@ export function AppList({ show }: { show?: boolean }) {
       setWorkspaces(prev => prev.map(w =>
         w.id === existingApp.id ? { ...w, isExpanded: true } : w
       ));
-    } else {
-      // Try to import/register the workspace
-      try {
-        const appName = path.split('/').pop() || 'Workspace';
-        const result = await IpcClient.getInstance().importApp({ path, appName });
-        setSelectedAppId(result.appId);
-        setSelectedWorkspaceInfo({ id: result.appId, name: appName });
-        // Refresh to get the new/existing workspace in the list
-        refreshApps?.();
-        // Expand the workspace
-        setWorkspaces(prev => prev.map(w =>
-          w.id === result.appId ? { ...w, isExpanded: true } : w
-        ));
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Failed to create workspace:', error);
-        // Show user-friendly error
-        alert(`Could not add workspace: ${errorMessage}`);
+      return;
+    }
+
+    // Check workspace limit before importing (Free tier = 1 workspace max)
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (ipcRenderer?.invoke) {
+        const limitCheck = await ipcRenderer.invoke('auth:check-workspace-limit');
+        if (!limitCheck.allowed) {
+          // Show upgrade prompt instead of importing
+          import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+            triggerUpgrade();
+          });
+          alert(`Workspace limit reached. ${limitCheck.reason || 'Upgrade to Pro for unlimited workspaces.'}`);
+          return;
+        }
       }
+    } catch (error) {
+      console.warn('Could not check workspace limit:', error);
+      // Continue anyway if check fails (fail open)
+    }
+
+    // Try to import/register the workspace
+    try {
+      const appName = path.split('/').pop() || 'Workspace';
+      const result = await IpcClient.getInstance().importApp({ path, appName });
+      setSelectedAppId(result.appId);
+      setSelectedWorkspaceInfo({ id: result.appId, name: appName });
+      // Refresh to get the new/existing workspace in the list
+      refreshApps?.();
+      // Expand the workspace
+      setWorkspaces(prev => prev.map(w =>
+        w.id === result.appId ? { ...w, isExpanded: true } : w
+      ));
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Failed to create workspace:', error);
+      // Show user-friendly error
+      alert(`Could not add workspace: ${errorMessage}`);
     }
   };
 
