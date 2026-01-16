@@ -140,17 +140,25 @@ export class SubscriptionManager {
                 this.realtimeCleanup();
             }
 
-            this.realtimeCleanup = subscribeToPlanChanges(email, (newPlan, oldPlan) => {
-                logger.log(`[SubscriptionManager] 🎉 Plan changed via realtime: ${oldPlan} → ${newPlan}`);
+            this.realtimeCleanup = subscribeToPlanChanges(email, (newData, oldData) => {
+                logger.log(`[SubscriptionManager] 🎉 Subscription changed via realtime:`, {
+                    plan: `${oldData.plan} → ${newData.plan}`,
+                    status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
+                });
 
                 if (this.session) {
-                    this.session = { ...this.session, plan: newPlan };
+                    this.session = { ...this.session, plan: newData.plan };
 
-                    // Notify the frontend about the plan change
+                    // Notify the frontend about the subscription change (with complete data)
                     const { BrowserWindow } = require('electron');
                     const windows = BrowserWindow.getAllWindows();
                     windows.forEach((win: any) => {
-                        win.webContents.send('plan-changed', { plan: newPlan, previousPlan: oldPlan });
+                        win.webContents.send('plan-changed', {
+                            plan: newData.plan,
+                            previousPlan: oldData.plan,
+                            subscriptionStatus: newData.subscriptionStatus,
+                            subscriptionEndsAt: newData.subscriptionEndsAt,
+                        });
                     });
                 }
             });

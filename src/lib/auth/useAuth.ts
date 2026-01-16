@@ -30,29 +30,6 @@ export function useAuth() {
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
-    const fetchPlanInfo = useCallback(async () => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) return;
-
-            const result = await ipcRenderer.invoke('auth:get-plan-info');
-
-            if (result?.success) {
-                setStatus({
-                    plan: result.plan,
-                    isLoggedIn: result.isLoggedIn,
-                    workspaceLimit: result.workspaceLimit,
-                    currentWorkspaceCount: result.currentWorkspaceCount,
-                    canCreateWorkspace: result.canCreateWorkspace,
-                    subscriptionStatus: result.subscriptionStatus,
-                    subscriptionEndsAt: result.subscriptionEndsAt,
-                });
-            }
-        } catch (error) {
-            console.error('Failed to fetch plan info:', error);
-        }
-    }, []);
-
     // Check for existing session on mount
     useEffect(() => {
         checkSession();
@@ -95,11 +72,23 @@ export function useAuth() {
         };
 
         // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
-        const handlePlanChanged = (data: any) => {
+        const handlePlanChanged = (data: {
+            plan: 'free' | 'pro';
+            previousPlan?: 'free' | 'pro';
+            subscriptionStatus?: 'active' | 'cancelled' | null;
+            subscriptionEndsAt?: string | null;
+        }) => {
             console.log('[useAuth] Plan changed via realtime:', data);
 
-            // Re-fetch everything from backend to ensure consistency
-            fetchPlanInfo();
+            // Update status with all new fields
+            if (status) {
+                setStatus({
+                    ...status,
+                    plan: data.plan,
+                    subscriptionStatus: data.subscriptionStatus || status.subscriptionStatus,
+                    subscriptionEndsAt: data.subscriptionEndsAt || status.subscriptionEndsAt,
+                });
+            }
 
             // Show upgrade notification if upgraded to Pro
             if (data.plan === 'pro' && data.previousPlan === 'free') {
@@ -119,21 +108,20 @@ export function useAuth() {
 
         // Use correct IPC pattern for electron
         const ipcRenderer = window.electron?.ipcRenderer;
-        let cleanupOAuth: (() => void) | undefined;
-        let cleanupPlan: (() => void) | undefined;
-
         if (ipcRenderer?.on) {
             console.log('[useAuth] Registering listeners');
-            cleanupOAuth = ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
-            cleanupPlan = ipcRenderer.on('plan-changed', handlePlanChanged as any);
+            ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
+            ipcRenderer.on('plan-changed', handlePlanChanged as any);
         }
 
         return () => {
-            // Call cleanup functions returned by preload
-            cleanupOAuth?.();
-            cleanupPlan?.();
+            // Cleanup listeners if available
+            if (ipcRenderer?.removeListener) {
+                ipcRenderer.removeListener('oauth-callback-success', handleOAuthSuccess as any);
+                ipcRenderer.removeListener('plan-changed', handlePlanChanged as any);
+            }
         };
-    }, [status, fetchPlanInfo]);
+    }, [status]);
 
     const checkSession = async () => {
         setLoading(true);
@@ -168,7 +156,28 @@ export function useAuth() {
         }
     };
 
+    const fetchPlanInfo = useCallback(async () => {
+        try {
+            const ipcRenderer = window.electron?.ipcRenderer;
+            if (!ipcRenderer?.invoke) return;
 
+            const result = await ipcRenderer.invoke('auth:get-plan-info');
+
+            if (result?.success) {
+                setStatus({
+                    plan: result.plan,
+                    isLoggedIn: result.isLoggedIn,
+                    workspaceLimit: result.workspaceLimit,
+                    currentWorkspaceCount: result.currentWorkspaceCount,
+                    canCreateWorkspace: result.canCreateWorkspace,
+                    subscriptionStatus: result.subscriptionStatus,
+                    subscriptionEndsAt: result.subscriptionEndsAt,
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch plan info:', error);
+        }
+    }, []);
 
     const signInWithGoogle = useCallback(async () => {
         try {

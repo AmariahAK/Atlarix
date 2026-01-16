@@ -305,15 +305,39 @@ export function registerAuthHandlers() {
             // Emit plan-changed event to update UI immediately
             const { BrowserWindow } = await import("electron");
             const windows = BrowserWindow.getAllWindows();
-            logger.log(`[AuthHandlers] Emitting plan-changed to ${windows.length} window(s)`);
             for (const win of windows) {
                 win.webContents.send('plan-changed', {
                     plan: 'pro', // Still pro until expiry
                     subscriptionStatus: 'cancelled',
                     subscriptionEndsAt: endsAt,
                 });
-                logger.log(`[AuthHandlers] Sent plan-changed event with status=cancelled, endsAt=${endsAt}`);
             }
+
+            // Delayed verification check (safety net) - re-confirm after 3s
+            setTimeout(async () => {
+                try {
+                    const { data: verifyData } = await supabase
+                        .from('users')
+                        .select('subscription_status, subscription_ends_at')
+                        .eq('email', currentUser.email)
+                        .single();
+
+                    if (verifyData) {
+                        logger.log("[AuthHandlers] Verification check:", verifyData);
+                        // Re-emit to ensure UI is in sync
+                        const { BrowserWindow: BW } = require('electron');
+                        BW.getAllWindows().forEach((win: any) => {
+                            win.webContents.send('plan-changed', {
+                                plan: 'pro',
+                                subscriptionStatus: verifyData.subscription_status,
+                                subscriptionEndsAt: verifyData.subscription_ends_at,
+                            });
+                        });
+                    }
+                } catch (err) {
+                    logger.warn("[AuthHandlers] Verification check failed:", err);
+                }
+            }, 3000);
 
             // Format the end date for display
             let endDateDisplay = "the end of your billing period";

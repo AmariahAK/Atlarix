@@ -378,14 +378,20 @@ export function onAuthStateChange(callback: (session: Session | null) => void): 
 // REALTIME SUBSCRIPTION FOR PLAN CHANGES
 // ============================================
 
-type PlanChangeCallback = (newPlan: 'free' | 'pro', oldPlan: 'free' | 'pro') => void;
+export interface SubscriptionData {
+    plan: 'free' | 'pro';
+    subscriptionStatus: 'active' | 'cancelled' | null;
+    subscriptionEndsAt: string | null;
+}
+
+type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
 let planSubscription: any = null;
 
 /**
- * Subscribe to realtime plan changes for the current user
- * Called after user logs in to detect Pro upgrades
+ * Subscribe to realtime subscription changes for the current user
+ * Called after user logs in to detect Pro upgrades AND cancellations
  */
-export function subscribeToPlanChanges(userEmail: string, callback: PlanChangeCallback): () => void {
+export function subscribeToPlanChanges(userEmail: string, callback: SubscriptionChangeCallback): () => void {
     const supabase = getSupabaseClient();
 
     // Unsubscribe from any existing subscription
@@ -406,13 +412,34 @@ export function subscribeToPlanChanges(userEmail: string, callback: PlanChangeCa
                 filter: `email=eq.${userEmail}`,
             },
             (payload) => {
-                const newPlan = (payload.new as { plan: string })?.plan as 'free' | 'pro';
-                const oldPlan = (payload.old as { plan: string })?.plan as 'free' | 'pro';
+                const newRow = payload.new as { plan: string; subscription_status: string | null; subscription_ends_at: string | null };
+                const oldRow = payload.old as { plan: string; subscription_status: string | null; subscription_ends_at: string | null };
 
-                logger.log(`[Supabase] Realtime plan update: ${oldPlan} → ${newPlan}`);
+                const newData: SubscriptionData = {
+                    plan: (newRow?.plan || 'free') as 'free' | 'pro',
+                    subscriptionStatus: (newRow?.subscription_status || null) as 'active' | 'cancelled' | null,
+                    subscriptionEndsAt: newRow?.subscription_ends_at || null,
+                };
 
-                if (newPlan !== oldPlan) {
-                    callback(newPlan, oldPlan);
+                const oldData: SubscriptionData = {
+                    plan: (oldRow?.plan || 'free') as 'free' | 'pro',
+                    subscriptionStatus: (oldRow?.subscription_status || null) as 'active' | 'cancelled' | null,
+                    subscriptionEndsAt: oldRow?.subscription_ends_at || null,
+                };
+
+                logger.log(`[Supabase] Realtime subscription update:`, {
+                    plan: `${oldData.plan} → ${newData.plan}`,
+                    status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
+                    endsAt: newData.subscriptionEndsAt,
+                });
+
+                // Fire callback on ANY relevant change (plan, status, or date)
+                if (
+                    newData.plan !== oldData.plan ||
+                    newData.subscriptionStatus !== oldData.subscriptionStatus ||
+                    newData.subscriptionEndsAt !== oldData.subscriptionEndsAt
+                ) {
+                    callback(newData, oldData);
                 }
             }
         )
