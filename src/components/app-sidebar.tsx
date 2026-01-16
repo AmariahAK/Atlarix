@@ -87,7 +87,7 @@ export function AppSidebar() {
   const [showAuthMenu, setShowAuthMenu] = useState(false);
 
   // Auth hook for OAuth login
-  const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
+  const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status, refreshStatus } = useAuth();
 
   useEffect(() => {
     if (hoverState.startsWith("start-hover") && state === "collapsed") {
@@ -238,6 +238,8 @@ export function AppSidebar() {
 
                             const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
                             if (result?.success) {
+                              // Refresh status to update UI immediately
+                              await refreshStatus();
                               alert(result.message || 'Subscription cancelled. You will retain Pro access until the end of your billing period.');
                             } else {
                               alert(result?.error || 'Failed to cancel subscription');
