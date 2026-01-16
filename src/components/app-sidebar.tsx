@@ -252,6 +252,17 @@ export function AppSidebar() {
                       )}
                     </div>
 
+                    {/* Subscription date info for Pro users */}
+                    {status?.plan === 'pro' && status?.subscriptionEndsAt && (
+                      <div className="px-2 pb-2 mb-2 border-b border-border text-xs text-muted-foreground">
+                        {status.subscriptionStatus === 'cancelled' ? (
+                          <span>Pro ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                        ) : (
+                          <span>Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Sign out button */}
                     <button
                       onClick={() => {

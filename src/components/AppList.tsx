@@ -217,29 +217,18 @@ export function AppList({ show }: { show?: boolean }) {
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-6 w-6 p-0 ${!canAddWorkspace ? 'opacity-50' : ''}`}
-              title={canAddWorkspace ? "Add Workspace" : "Free tier: 1 workspace max. Delete current or upgrade."}
-              onClick={() => {
-                if (!canAddWorkspace) {
-                  // Free tier with 1 workspace - show upgrade prompt
-                  const shouldUpgrade = window.confirm(
-                    `Free tier allows 1 workspace.\n\nYou currently have ${apps.length} workspace(s).\n\nTo add another:\n• Delete your current workspace, OR\n• Upgrade to Pro for unlimited workspaces\n\nUpgrade to Pro now?`
-                  );
-                  if (shouldUpgrade) {
-                    import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-                      triggerUpgrade();
-                    });
-                  }
-                  return;
-                }
-                setShowWorkspacePicker(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {/* Only show + button if user can add workspace (Pro OR Free with 0 workspaces) */}
+            {canAddWorkspace && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Add Workspace"
+                onClick={() => setShowWorkspacePicker(true)}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </SidebarGroupLabel>
         <SidebarGroupContent>

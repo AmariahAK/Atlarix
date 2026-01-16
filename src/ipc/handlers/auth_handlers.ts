@@ -116,6 +116,29 @@ export function registerAuthHandlers() {
             const canCreate = await SubscriptionManager.canCreateWorkspace();
             const workspaceDetails = await SubscriptionManager.getCurrentWorkspaceDetails();
 
+            // Fetch subscription details from Supabase
+            let subscriptionStatus: string | null = null;
+            let subscriptionEndsAt: string | null = null;
+
+            if (user?.email) {
+                try {
+                    const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
+                    const supabase = getSupabaseClient();
+                    const { data } = await supabase
+                        .from('users')
+                        .select('subscription_status, subscription_ends_at')
+                        .eq('email', user.email)
+                        .single();
+
+                    if (data) {
+                        subscriptionStatus = data.subscription_status;
+                        subscriptionEndsAt = data.subscription_ends_at;
+                    }
+                } catch (err) {
+                    logger.warn("[auth:get-plan-info] Could not fetch subscription details:", err);
+                }
+            }
+
             return {
                 success: true,
                 plan: user?.plan || "free",
@@ -124,6 +147,8 @@ export function registerAuthHandlers() {
                 currentWorkspaceCount: canCreate.currentCount,
                 canCreateWorkspace: canCreate.allowed,
                 currentWorkspace: workspaceDetails,
+                subscriptionStatus,      // 'active' | 'cancelled' | null
+                subscriptionEndsAt,      // ISO date string or null
             };
         } catch (error) {
             logger.error(`[AuthHandlers] Get plan info error:`, error);

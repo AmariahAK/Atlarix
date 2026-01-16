@@ -21,6 +21,8 @@ export interface UserStatus {
     workspaceLimit: number;
     currentWorkspaceCount: number;
     canCreateWorkspace: boolean;
+    subscriptionStatus?: 'active' | 'cancelled' | null;
+    subscriptionEndsAt?: string | null; // ISO date string
 }
 
 export function useAuth() {
@@ -156,6 +158,8 @@ export function useAuth() {
                     workspaceLimit: result.workspaceLimit,
                     currentWorkspaceCount: result.currentWorkspaceCount,
                     canCreateWorkspace: result.canCreateWorkspace,
+                    subscriptionStatus: result.subscriptionStatus,
+                    subscriptionEndsAt: result.subscriptionEndsAt,
                 });
             }
         } catch (error) {
