@@ -17,6 +17,7 @@ import { AppSearchDialog } from "./AppSearchDialog";
 import { WorkspaceSelector } from "@/components/workspace/WorkspaceSelector";
 import { Badge } from "@/components/ui/badge";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useAuth } from "@/lib/auth/useAuth";
 
 interface WorkspaceWithChats {
   id: number;
@@ -33,10 +34,20 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
 
+  // Auth hook for checking plan/workspace limits
+  const { status } = useAuth();
+
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
+
+  // Check if user can add more workspaces (Free = 1 max)
+  const canAddWorkspace = useMemo(() => {
+    if (!status) return true; // Allow if status not loaded yet
+    if (status.plan === 'pro') return true; // Pro = unlimited
+    return apps.length < 1; // Free = only if 0 workspaces
+  }, [status, apps.length]);
 
   // Load chats for each workspace
   useEffect(() => {
@@ -209,8 +220,23 @@ export function AppList({ show }: { show?: boolean }) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 w-6 p-0"
-              onClick={() => setShowWorkspacePicker(true)}
+              className={`h-6 w-6 p-0 ${!canAddWorkspace ? 'opacity-50' : ''}`}
+              title={canAddWorkspace ? "Add Workspace" : "Free tier: 1 workspace max. Delete current or upgrade."}
+              onClick={() => {
+                if (!canAddWorkspace) {
+                  // Free tier with 1 workspace - show upgrade prompt
+                  const shouldUpgrade = window.confirm(
+                    `Free tier allows 1 workspace.\n\nYou currently have ${apps.length} workspace(s).\n\nTo add another:\n• Delete your current workspace, OR\n• Upgrade to Pro for unlimited workspaces\n\nUpgrade to Pro now?`
+                  );
+                  if (shouldUpgrade) {
+                    import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                      triggerUpgrade();
+                    });
+                  }
+                  return;
+                }
+                setShowWorkspacePicker(true);
+              }}
             >
               <Plus className="h-4 w-4" />
             </Button>

@@ -177,9 +177,8 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
             `Unknown GitHub error: ${data.error_description || data.error}`,
           );
           event.sender.send("github:flow-error", {
-            error: `GitHub authorization error: ${
-              data.error_description || data.error
-            }`,
+            error: `GitHub authorization error: ${data.error_description || data.error
+              }`,
           });
           stopPolling();
           break;
@@ -190,9 +189,8 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
   } catch (error) {
     logger.error("Error polling for GitHub access token:", error);
     event.sender.send("github:flow-error", {
-      error: `Network or unexpected error during polling: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      error: `Network or unexpected error during polling: ${error instanceof Error ? error.message : String(error)
+        }`,
     });
     stopPolling();
   }
