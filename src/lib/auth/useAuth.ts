@@ -119,18 +119,19 @@ export function useAuth() {
 
         // Use correct IPC pattern for electron
         const ipcRenderer = window.electron?.ipcRenderer;
+        let cleanupOAuth: (() => void) | undefined;
+        let cleanupPlan: (() => void) | undefined;
+
         if (ipcRenderer?.on) {
             console.log('[useAuth] Registering listeners');
-            ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
-            ipcRenderer.on('plan-changed', handlePlanChanged as any);
+            cleanupOAuth = ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
+            cleanupPlan = ipcRenderer.on('plan-changed', handlePlanChanged as any);
         }
 
         return () => {
-            // Cleanup listeners if available
-            if (ipcRenderer?.removeListener) {
-                ipcRenderer.removeListener('oauth-callback-success', handleOAuthSuccess as any);
-                ipcRenderer.removeListener('plan-changed', handlePlanChanged as any);
-            }
+            // Call cleanup functions returned by preload
+            cleanupOAuth?.();
+            cleanupPlan?.();
         };
     }, [status, fetchPlanInfo]);
 

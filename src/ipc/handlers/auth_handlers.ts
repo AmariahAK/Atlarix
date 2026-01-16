@@ -305,12 +305,14 @@ export function registerAuthHandlers() {
             // Emit plan-changed event to update UI immediately
             const { BrowserWindow } = await import("electron");
             const windows = BrowserWindow.getAllWindows();
+            logger.log(`[AuthHandlers] Emitting plan-changed to ${windows.length} window(s)`);
             for (const win of windows) {
                 win.webContents.send('plan-changed', {
                     plan: 'pro', // Still pro until expiry
                     subscriptionStatus: 'cancelled',
                     subscriptionEndsAt: endsAt,
                 });
+                logger.log(`[AuthHandlers] Sent plan-changed event with status=cancelled, endsAt=${endsAt}`);
             }
 
             // Format the end date for display
