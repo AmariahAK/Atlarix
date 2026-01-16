@@ -118,8 +118,9 @@ serve(async (req: Request) => {
             case 'subscription_updated': {
                 const status = data?.status; // active, cancelled, expired, on_trial, paused, past_due
                 const isActive = ['active', 'on_trial'].includes(status);
+                const renewsAt = data?.renews_at || null; // Next billing date for active subscriptions
 
-                console.log(`[Webhook] Status: ${status}, isActive: ${isActive}`);
+                console.log(`[Webhook] Status: ${status}, isActive: ${isActive}, renewsAt: ${renewsAt}`);
 
                 // First, check if user exists
                 const { data: existingUser, error: fetchError } = await supabase
@@ -143,6 +144,7 @@ serve(async (req: Request) => {
                             lemon_subscription_id: String(event.data.id),
                             lemon_customer_id: String(data?.customer_id),
                             subscription_status: status,
+                            subscription_ends_at: renewsAt, // Store renewal date
                             customer_portal_url: data?.urls?.customer_portal || null,
                         });
 
@@ -163,6 +165,7 @@ serve(async (req: Request) => {
                             lemon_subscription_id: String(event.data.id),
                             lemon_customer_id: String(data?.customer_id),
                             subscription_status: status,
+                            subscription_ends_at: renewsAt, // Store renewal date
                             customer_portal_url: data?.urls?.customer_portal || null,
                             updated_at: new Date().toISOString(),
                         })
