@@ -302,6 +302,17 @@ export function registerAuthHandlers() {
                 })
                 .eq('email', currentUser.email);
 
+            // Emit plan-changed event to update UI immediately
+            const { BrowserWindow } = await import("electron");
+            const windows = BrowserWindow.getAllWindows();
+            for (const win of windows) {
+                win.webContents.send('plan-changed', {
+                    plan: 'pro', // Still pro until expiry
+                    subscriptionStatus: 'cancelled',
+                    subscriptionEndsAt: endsAt,
+                });
+            }
+
             // Format the end date for display
             let endDateDisplay = "the end of your billing period";
             if (endsAt) {

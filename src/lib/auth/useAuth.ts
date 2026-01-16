@@ -72,25 +72,37 @@ export function useAuth() {
         };
 
         // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
-        const handlePlanChanged = (data: { plan: 'free' | 'pro'; previousPlan: 'free' | 'pro' }) => {
+        const handlePlanChanged = (data: {
+            plan: 'free' | 'pro';
+            previousPlan?: 'free' | 'pro';
+            subscriptionStatus?: 'active' | 'cancelled' | null;
+            subscriptionEndsAt?: string | null;
+        }) => {
             console.log('[useAuth] Plan changed via realtime:', data);
-            if (status && data.plan !== status.plan) {
-                setStatus({ ...status, plan: data.plan });
 
-                // Show upgrade notification if upgraded to Pro
-                if (data.plan === 'pro' && data.previousPlan === 'free') {
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                    notification.innerHTML = `
-                        <span class="text-xl">✨</span>
-                        <div>
-                            <div class="font-medium">Welcome to Atlarix Pro!</div>
-                            <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
-                        </div>
-                    `;
-                    document.body.appendChild(notification);
-                    setTimeout(() => notification.remove(), 6000);
-                }
+            // Update status with all new fields
+            if (status) {
+                setStatus({
+                    ...status,
+                    plan: data.plan,
+                    subscriptionStatus: data.subscriptionStatus || status.subscriptionStatus,
+                    subscriptionEndsAt: data.subscriptionEndsAt || status.subscriptionEndsAt,
+                });
+            }
+
+            // Show upgrade notification if upgraded to Pro
+            if (data.plan === 'pro' && data.previousPlan === 'free') {
+                const notification = document.createElement('div');
+                notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                notification.innerHTML = `
+                    <span class="text-xl">✨</span>
+                    <div>
+                        <div class="font-medium">Welcome to Atlarix Pro!</div>
+                        <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
+                    </div>
+                `;
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 6000);
             }
         };
 
