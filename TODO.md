@@ -93,12 +93,17 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **Template Search**: SearxNG-powered template discovery (not hardcoded)
 - [ ] **Visual Previews**: Show diagram/preview *before* cloning (Future v1.1+)
 
+
 ### Other TBD Items
-- [ ] **SetupBanner Video**: Replace Dyad video with Atlarix-specific content
-- [ ] **Help Docs Button**: Update Open Docs to point to Atlarix documentation
 - [ ] **LemonSqueezy Live Mode**: Switch from test to production mode before release
+- [ ] **Setup Video**: Create setup walkthrough video for SetupBanner & Help Docs button
 - [ ] **SearxNG for web_search**: Add fallback when API rate limits hit
 - [ ] **"Other AI Providers" section**: Complete settings UI
+
+### Known Bugs (Investigate ASAP)
+- [ ] **Logout Not Deleting Workspaces**: Sign out handler updated with manual cleanup of dependent records (prompts, chats, diagrams) but still may fail in some edge cases. Monitor logs.
+- [ ] **Library Page Workspaces Not Showing (Prod Build Only)**: `npm start` correctly shows workspaces in Library "Workspace Prompts" section, but the bundled production app (`npm run make`) does NOT show them. Same database path logic is used. Cause unknown - possibly a rendering issue or stale bundle cache.
+
 
 ---
 

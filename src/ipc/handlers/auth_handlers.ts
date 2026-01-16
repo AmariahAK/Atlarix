@@ -7,6 +7,8 @@
 import { ipcMain } from "electron";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import log from "electron-log";
+import { db } from "@/db";
+import { apps } from "@/db/schema";
 
 const logger = log.scope("auth-handlers");
 
@@ -42,11 +44,42 @@ export function registerAuthHandlers() {
         }
     });
 
-    // Sign out
+    // Sign out - also clears all workspaces for fresh start
     ipcMain.handle("auth:sign-out", async () => {
         logger.log("[AuthHandlers] Sign out requested");
 
         try {
+            // Delete ALL workspaces on logout (fresh start)
+            // wrap in try check to ensure sign out continues even if db fails
+            try {
+                const allWorkspaces = db.select().from(apps).all();
+                logger.log(`[AuthHandlers] Deleting ${allWorkspaces.length} workspaces on logout`);
+
+                // Manually delete dependent records to avoid FK constraints issues
+                // (Prompts specifically might not have cascade set up correctly in all DBs)
+                const { prompts, chats, diagrams, diagramVersions } = await import("@/db/schema");
+                const { eq, inArray } = await import("drizzle-orm");
+
+                if (allWorkspaces.length > 0) {
+                    const workspaceIds = allWorkspaces.map(a => a.id);
+                    logger.log(`[AuthHandlers] Cleaning up dependent records for workspaces: ${workspaceIds.join(',')}`);
+
+                    // 1. Delete prompts (often missing FK cascade)
+                    try { db.delete(prompts).where(inArray(prompts.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting prompts:', e); }
+
+                    // 2. Delete diagrams (and versions via cascade hopefully, or leave them as strict orphans)
+                    try { db.delete(diagrams).where(inArray(diagrams.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting diagrams:', e); }
+
+                    // 3. Delete chats 
+                    try { db.delete(chats).where(inArray(chats.appId, workspaceIds)).run(); } catch (e) { console.error('Error deleting chats:', e); }
+
+                    // 4. Finally delete apps
+                    db.delete(apps).run();
+                }
+            } catch (dbError) {
+                logger.error("[AuthHandlers] Failed to clear workspaces on logout (proceeding with sign out anyway):", dbError);
+            }
+
             await SubscriptionManager.signOut();
             return { success: true };
         } catch (error) {
@@ -106,6 +139,57 @@ export function registerAuthHandlers() {
         } catch (error) {
             logger.error(`[AuthHandlers] Check workspace limit error:`, error);
             return { allowed: true }; // Fail open
+        }
+    });
+
+    // Enforce workspace limit for Free tier users
+    // Called on login - removes newer workspaces if Free tier user has more than 1
+    ipcMain.handle("auth:enforce-workspace-limit", async () => {
+        logger.log("[AuthHandlers] Enforcing workspace limit");
+
+        try {
+            const isPro = SubscriptionManager.isPro();
+
+            // Pro users have no limit
+            if (isPro) {
+                return { success: true, removed: 0 };
+            }
+
+            // Free tier: only 1 workspace allowed
+            const allWorkspaces = db.select().from(apps).all();
+
+            if (allWorkspaces.length <= 1) {
+                return { success: true, removed: 0 };
+            }
+
+            // Sort by createdAt ascending (oldest first) - keep only the OLDEST one
+            const sorted = [...allWorkspaces].sort((a, b) => {
+                const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+                const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
+                return aTime - bTime;
+            });
+
+            // Keep oldest, delete the rest
+            const toKeep = sorted[0];
+            const toDelete = sorted.slice(1);
+
+            for (const workspace of toDelete) {
+                if (workspace.id) {
+                    logger.log(`[AuthHandlers] Deleting excess workspace: ${workspace.name} (id: ${workspace.id})`);
+                    const { eq } = await import("drizzle-orm");
+                    db.delete(apps).where(eq(apps.id, workspace.id)).run();
+                }
+            }
+
+            logger.log(`[AuthHandlers] Removed ${toDelete.length} excess workspaces, kept: ${toKeep.name}`);
+            return {
+                success: true,
+                removed: toDelete.length,
+                keptWorkspace: toKeep.name
+            };
+        } catch (error) {
+            logger.error(`[AuthHandlers] Enforce workspace limit error:`, error);
+            return { success: false, removed: 0 };
         }
     });
 
@@ -292,7 +376,8 @@ export function registerAuthHandlers() {
             logger.log("[AuthHandlers] Subscription cancelled successfully. Ends at:", endsAt);
 
             // Update local database - keep plan as 'pro' until ends_at, just update status
-            await supabase
+            logger.log(`[AuthHandlers] Updating Supabase for email: ${currentUser.email}`);
+            const { data: updateData, error: updateError, count } = await supabase
                 .from('users')
                 .update({
                     // Keep plan as 'pro' - LemonSqueezy webhook will set to 'free' when it actually expires
@@ -300,7 +385,14 @@ export function registerAuthHandlers() {
                     subscription_ends_at: endsAt || null,
                     updated_at: new Date().toISOString(),
                 })
-                .eq('email', currentUser.email);
+                .eq('email', currentUser.email)
+                .select(); // Add select() to get the updated row back
+
+            logger.log(`[AuthHandlers] Supabase update result:`, {
+                updateData,
+                updateError: updateError?.message,
+                rowsUpdated: updateData?.length || 0
+            });
 
             // Emit plan-changed event to update UI immediately
             const { BrowserWindow } = await import("electron");

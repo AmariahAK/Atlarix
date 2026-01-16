@@ -35,19 +35,20 @@ export function AppList({ show }: { show?: boolean }) {
   const { apps, loading, error, refreshApps } = useLoadApps();
 
   // Auth hook for checking plan/workspace limits
-  const { status } = useAuth();
+  const { status, isAuthenticated } = useAuth();
 
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 
-  // Check if user can add more workspaces (Free = 1 max)
+  // Check if user can add more workspaces (must be logged in AND either Pro OR Free with 0 workspaces)
   const canAddWorkspace = useMemo(() => {
-    if (!status) return true; // Allow if status not loaded yet
+    if (!isAuthenticated) return false; // Must be logged in
+    if (!status) return false; // Wait for status to load
     if (status.plan === 'pro') return true; // Pro = unlimited
     return apps.length < 1; // Free = only if 0 workspaces
-  }, [status, apps.length]);
+  }, [status, apps.length, isAuthenticated]);
 
   // Load chats for each workspace
   useEffect(() => {
@@ -194,29 +195,32 @@ export function AppList({ show }: { show?: boolean }) {
         <SidebarGroupLabel className="flex items-center justify-between group/header">
           <span>Workspaces</span>
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity hover:text-destructive"
-              title="Delete ALL Workspaces"
-              onClick={async () => {
-                if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
-                  for (const app of apps) {
-                    try {
-                      await IpcClient.getInstance().deleteApp(app.id);
-                    } catch {
-                      // Ignore errors - some may already be deleted
+            {/* Only show delete button if user is authenticated */}
+            {isAuthenticated && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity hover:text-destructive"
+                title="Delete ALL Workspaces"
+                onClick={async () => {
+                  if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
+                    for (const app of apps) {
+                      try {
+                        await IpcClient.getInstance().deleteApp(app.id);
+                      } catch {
+                        // Ignore errors - some may already be deleted
+                      }
                     }
+                    refreshApps?.();
+                    setSelectedAppId(null);
+                    setSelectedWorkspaceInfo(null);
+                    navigate({ to: "/" });
                   }
-                  refreshApps?.();
-                  setSelectedAppId(null);
-                  setSelectedWorkspaceInfo(null);
-                  navigate({ to: "/" });
-                }
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {/* Only show + button if user can add workspace (Pro OR Free with 0 workspaces) */}
             {canAddWorkspace && (
               <Button

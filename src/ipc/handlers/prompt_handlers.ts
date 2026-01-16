@@ -249,6 +249,8 @@ export function registerPromptHandlers() {
     "prompts:list-workspaces-with-status",
     async (): Promise<WorkspaceWithStatus[]> => {
       const allApps = db.select().from(apps).all();
+      logger.log(`[prompts:list-workspaces-with-status] Found ${allApps.length} workspaces`);
+
       const workspacePrompts = db
         .select()
         .from(prompts)
@@ -263,13 +265,16 @@ export function registerPromptHandlers() {
         }
       }
 
-      return allApps.map((app) => ({
+      const result = allApps.map((app) => ({
         id: app.id!,
         name: app.name,
         path: app.path,
         hasPrompt: promptMap.has(app.id!),
         promptContent: promptMap.get(app.id!),
       }));
+
+      logger.log(`[prompts:list-workspaces-with-status] Returning:`, result.map(r => r.name));
+      return result;
     }
   );
 

@@ -76,7 +76,9 @@ export default function LibraryPage() {
   const loadWorkspaces = useCallback(async () => {
     try {
       setWorkspacesLoading(true);
+      console.log('[Library] Loading workspaces with prompt status...');
       const result = await IpcClient.getInstance().listWorkspacesWithPromptStatus();
+      console.log('[Library] Workspaces loaded:', result);
       setWorkspaces(result);
     } catch (error) {
       console.error("Failed to load workspaces:", error);

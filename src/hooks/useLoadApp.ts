@@ -97,10 +97,9 @@ export function useLoadApp(appId: number | null) {
             // Auto-generate initial diagram for new workspaces
             if (appData?.path) {
               try {
-                const generateResult = await IpcClient.getInstance().generateDiagram({
+                // Use AI-powered diagram generation (generates title and content automatically)
+                const generateResult = await IpcClient.getInstance().generateAiDiagram({
                   workspaceId: appId,
-                  appPath: appData.path,
-                  type: 'mermaid',
                 });
 
                 if (generateResult.success && generateResult.diagram) {

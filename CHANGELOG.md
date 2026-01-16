@@ -2,6 +2,26 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v0.9.22] - 2026-01-16
+### 🔐 Workspace Cleanup & Auth Flow
+- **Logout Clears Workspaces**: Signing out now deletes ALL workspaces for a fresh start
+- **Free Tier Enforcement**: Login now enforces 1-workspace limit (keeps oldest, deletes newer)
+- **Robust FK Handling**: Manual cleanup of chats, prompts, diagrams before workspace deletion
+- **Fail-Safe Logout**: Sign-out now proceeds even if DB cleanup has errors
+
+### 🖼️ UI Improvements  
+- **Auth-Gated UI**: "Add Workspace" (+) and "Delete All" buttons hidden when logged out
+- **Onboarding Banner**: Video placeholder replaced with Atlarix logo + play button overlay
+- **Theme-Aware Chat Header**: Logo switches between dark/light correctly
+- **Removed Pro Button**: ProModeSelector removed from chat input controls
+
+### 🐛 Bug Fixes
+- **Diagram Generation Error**: Fixed `NOT NULL constraint failed: diagrams.title` by using AI-powered generation
+- **Database Schema**: Added fingerprint columns to diagrams table migration
+
+### 📝 Known Issues
+- **Library Workspaces (Prod Only)**: `npm start` shows workspaces in Library page, but bundled app doesn't (under investigation)
+
 ## [v0.9.21] - 2026-01-16
 ### 🔒 Workspace Limits (Free Tier Enforcement)
 - **Limit Check**: Free tier now limited to 1 workspace (enforced in frontend + backend)

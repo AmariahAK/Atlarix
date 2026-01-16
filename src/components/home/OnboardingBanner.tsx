@@ -28,9 +28,9 @@ export const OnboardingBanner = ({
         <div className="flex items-center">
           <div className="relative p-2">
             <img
-              src="https://img.youtube.com/vi/rgdNoHLaRN4/maxresdefault.jpg"
-              alt="Get started with Atlarix in 3 minutes"
-              className="w-28 h-16 object-cover rounded-md"
+              src="/logo/logo.png"
+              alt="Get started with Atlarix"
+              className="w-28 h-16 object-contain rounded-md bg-background p-1"
             />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-10 h-10 bg-background rounded-full flex items-center justify-center shadow-md">

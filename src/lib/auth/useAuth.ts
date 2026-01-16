@@ -36,7 +36,7 @@ export function useAuth() {
 
         // Listen for OAuth callback success
         // Note: preload strips the event, so data is the first parameter
-        const handleOAuthSuccess = (data: { user: AuthUser }) => {
+        const handleOAuthSuccess = async (data: { user: AuthUser }) => {
             console.log('[useAuth] OAuth success callback received:', data);
             if (data?.user) {
                 console.log('[useAuth] Setting user:', data.user.email);
@@ -50,6 +50,20 @@ export function useAuth() {
 
                 // Show success notification - inform user to close the browser tab
                 if (typeof window !== 'undefined' && document?.body) {
+                    // Enforce workspace limit for Free tier users
+                    // This removes any excess workspaces (keeps only oldest)
+                    const ipcRenderer = window.electron?.ipcRenderer;
+                    if (ipcRenderer?.invoke) {
+                        try {
+                            const result = await ipcRenderer.invoke('auth:enforce-workspace-limit');
+                            if (result?.removed > 0) {
+                                console.log(`[useAuth] Removed ${result.removed} excess workspaces to meet Free tier limit`);
+                            }
+                        } catch (e) {
+                            console.warn('[useAuth] Could not enforce workspace limit:', e);
+                        }
+                    }
+
                     // Use a timeout to ensure the UI has updated first
                     setTimeout(() => {
                         // Create a non-blocking notification
@@ -78,20 +92,25 @@ export function useAuth() {
             subscriptionStatus?: 'active' | 'cancelled' | null;
             subscriptionEndsAt?: string | null;
         }) => {
-            console.log('[useAuth] Plan changed via realtime:', data);
+            console.log('[useAuth] Plan changed:', data);
 
             // Update status with all new fields
-            if (status) {
-                setStatus({
-                    ...status,
-                    plan: data.plan,
-                    subscriptionStatus: data.subscriptionStatus || status.subscriptionStatus,
-                    subscriptionEndsAt: data.subscriptionEndsAt || status.subscriptionEndsAt,
-                });
-            }
+            setStatus((prev) => prev ? {
+                ...prev,
+                plan: data.plan,
+                subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
+                subscriptionEndsAt: data.subscriptionEndsAt ?? prev.subscriptionEndsAt,
+            } : prev);
 
-            // Show upgrade notification if upgraded to Pro
-            if (data.plan === 'pro' && data.previousPlan === 'free') {
+            // Show upgrade notification ONLY if:
+            // 1. Plan changed from free to pro
+            // 2. AND subscriptionStatus is 'active' (not cancelled)
+            const isActualUpgrade =
+                data.plan === 'pro' &&
+                data.previousPlan === 'free' &&
+                data.subscriptionStatus === 'active';
+
+            if (isActualUpgrade) {
                 const notification = document.createElement('div');
                 notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                 notification.innerHTML = `
@@ -109,7 +128,6 @@ export function useAuth() {
         // Use correct IPC pattern for electron
         const ipcRenderer = window.electron?.ipcRenderer;
         if (ipcRenderer?.on) {
-            console.log('[useAuth] Registering listeners');
             ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
             ipcRenderer.on('plan-changed', handlePlanChanged as any);
         }
@@ -121,7 +139,7 @@ export function useAuth() {
                 ipcRenderer.removeListener('plan-changed', handlePlanChanged as any);
             }
         };
-    }, [status]);
+    }, []); // Empty deps - only register listeners once
 
     const checkSession = async () => {
         setLoading(true);

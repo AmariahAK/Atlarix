@@ -1,6 +1,6 @@
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ThemeProvider } from "../contexts/ThemeContext";
+import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster } from "sonner";
 import { TitleBar } from "./TitleBar";
@@ -38,6 +38,7 @@ function PersistentChatContainer() {
   const setSelectedSource = useSetAtom(selectedSourceAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
+  const { isDarkMode } = useTheme();
 
   // Determine if we're on the home page
   const isHomePage = location.pathname === '/';
@@ -86,7 +87,11 @@ function PersistentChatContainer() {
             ← New Chat
           </button>
           <div className="flex items-center gap-2">
-            <img src="/logo/Atlarix.png" alt="Atlarix" className="w-6 h-6" />
+            <img
+              src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
+              alt="Atlarix"
+              className="w-6 h-6"
+            />
             <span className="font-medium">Atlarix</span>
           </div>
           <div className="flex items-center gap-2">
