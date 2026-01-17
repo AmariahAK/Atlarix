@@ -125,14 +125,14 @@ export async function onReady() {
     const postfix = settings.releaseChannel === "beta" ? "beta" : "stable";
     // TODO: Phase 4.5 - Set up auto-update via GitHub releases
     // For now, check GitHub API for latest release
-    const host = `https://api.github.com/repos/YOUR_USERNAME/atlarix/releases/latest`;
+    const host = `https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest`;
     // Alternative: Use atlarix-api.fly.dev/v1/update/${postfix} if you want custom update server
     logger.info("Auto-update release channel=", postfix);
     updateElectronApp({
       logger,
       updateSource: {
         type: UpdateSourceType.ElectronPublicUpdateService,
-        repo: "norahlabs/atlarix",
+        repo: "AmariahAK/atlarix-releases",
         host,
       },
     }); // additional configuration options available
