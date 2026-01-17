@@ -87,11 +87,6 @@ function PersistentChatContainer() {
             ← New Chat
           </button>
           <div className="flex items-center gap-2">
-            <img
-              src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
-              alt="Atlarix"
-              className="w-6 h-6"
-            />
             <span className="font-medium">Atlarix</span>
           </div>
           <div className="flex items-center gap-2">

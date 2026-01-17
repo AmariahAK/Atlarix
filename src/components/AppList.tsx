@@ -233,6 +233,18 @@ export function AppList({ show }: { show?: boolean }) {
                 <Plus className="h-4 w-4" />
               </Button>
             )}
+            {/* Show disabled + button with tooltip for Free tier users at limit */}
+            {isAuthenticated && status?.plan === 'free' && apps.length >= 1 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 opacity-50 cursor-not-allowed"
+                title="Upgrade to Pro for unlimited workspaces"
+                disabled
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </SidebarGroupLabel>
         <SidebarGroupContent>
@@ -250,7 +262,12 @@ export function AppList({ show }: { show?: boolean }) {
             </Button>
 
             {/* Workspaces List */}
-            {loading ? (
+            {!isAuthenticated ? (
+              <div className="py-3 px-4 text-sm text-muted-foreground text-center">
+                <EyeOff className="w-5 h-5 mx-auto mb-2 opacity-50" />
+                <p>Login to access workspaces</p>
+              </div>
+            ) : loading ? (
               <div className="py-2 px-4 text-sm text-muted-foreground">
                 Loading...
               </div>

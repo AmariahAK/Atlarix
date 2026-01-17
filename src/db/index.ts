@@ -59,6 +59,14 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   const sqlite = new Database(dbPath, { timeout: 10000 });
   sqlite.pragma("foreign_keys = ON");
 
+  // PRE-MIGRATION FIX: Check and fix prompts table schema before Drizzle migrations
+  // This handles the case where old schema (with 'title') exists but needs 'type' and 'workspace_id'
+  try {
+    fixPromptsSchemaIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
+  }
+
   _db = drizzle(sqlite, { schema });
 
   try {
@@ -74,6 +82,75 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   }
 
   return _db as any;
+}
+
+/**
+ * Fix prompts table schema if it has the old structure
+ * OLD: id, title, description, content, created_at, updated_at
+ * NEW: id, type, workspace_id, content, created_at, updated_at
+ */
+function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
+  // Check if prompts table exists
+  const tableExists = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='prompts'"
+  ).get();
+
+  if (!tableExists) {
+    logger.log("[Schema Fix] Prompts table doesn't exist, will be created by migrations");
+    return;
+  }
+
+  // Check if 'type' column exists (new schema indicator)
+  const columns = sqlite.prepare("PRAGMA table_info(prompts)").all() as Array<{ name: string }>;
+  const hasTypeColumn = columns.some(col => col.name === 'type');
+  const hasTitleColumn = columns.some(col => col.name === 'title');
+
+  if (hasTypeColumn) {
+    logger.log("[Schema Fix] Prompts table already has correct schema (has 'type' column)");
+    return;
+  }
+
+  if (!hasTitleColumn) {
+    logger.log("[Schema Fix] Prompts table has unknown schema, skipping fix");
+    return;
+  }
+
+  // Old schema detected - migrate to new schema
+  logger.log("[Schema Fix] Detected OLD prompts schema (has 'title'), migrating to new schema...");
+
+  // Begin transaction for safety
+  const transaction = sqlite.transaction(() => {
+    // 1. Rename old table
+    sqlite.exec("ALTER TABLE prompts RENAME TO prompts_old_backup");
+
+    // 2. Create new table with correct schema
+    sqlite.exec(`
+      CREATE TABLE prompts (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        type text NOT NULL DEFAULT 'global',
+        workspace_id integer,
+        content text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )
+    `);
+
+    // 3. Create unique index
+    sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS prompts_workspace_unique ON prompts (workspace_id)");
+
+    // 4. Copy data from old table (content becomes global prompts)
+    sqlite.exec(`
+      INSERT INTO prompts (id, type, workspace_id, content, created_at, updated_at)
+      SELECT id, 'global', NULL, content, created_at, updated_at
+      FROM prompts_old_backup
+    `);
+
+    // 5. Drop old table
+    sqlite.exec("DROP TABLE prompts_old_backup");
+  });
+
+  transaction();
+  logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
 }
 
 /**

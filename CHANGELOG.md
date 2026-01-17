@@ -2,6 +2,20 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v1.0.0] - 2026-01-17
+### 🎉 First Major Release
+- **Official Release**: Atlarix is now out of beta!
+- **Documentation**: New comprehensive `/docs` page.
+- **Onboarding**: Setup video and polished onboarding flow.
+- **Production Ready**: Live LemonSqueezy integration, robust auth, and signed binaries.
+
+### 📝 Documentation & Polish
+- **Documentation Page**: Added `/docs` route with Getting Started, Features, and Workflow guides.
+- **Setup Video**: Integrated setup tutorial video in Setup banner.
+- **Credentials**: Switched LemonSqueezy to Live Production mode.
+- **Supabase**: Secured webhook secrets and functions.
+- **Vercel**: Added routing configuration for documentation site.
+
 ## [v0.9.22] - 2026-01-16
 ### 🔐 Workspace Cleanup & Auth Flow
 - **Logout Clears Workspaces**: Signing out now deletes ALL workspaces for a fresh start
@@ -73,8 +87,6 @@ All notable changes to Atlarix will be documented in this file.
 - **OpenRouter API Key**: Fixed production loading from database in `get_model_client.ts`
 - **Banner Visibility**: `useLanguageModelProviders` now checks database for API keys
 - **Fixed Duplicate Span**: Resolved JSX parsing error in SetupBanner
-
-
 
 ## [v0.9.18] - 2026-01-14
 ### 🔐 Authentication & Session
@@ -303,6 +315,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **Added**: "Solve with AI" button to pre-fill chat with error context
 - **Infrastructure**: Error capture proxy and injection script created
 - **Known Issue**: Proxy not starting correctly - errors not yet being captured from iframe
+- **Note**: Proxy approach will be replaced by CDP in v0.9.11
 
 #### Files Modified
 - `src/components/RightPanel.tsx`: Improved tab styling and sizing
@@ -435,7 +448,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **Instant UI update**: Workspace disappears immediately on delete click
 - **Optimistic update**: UI updates before backend confirms deletion
 - **Graceful handling**: "Already deleted" errors ignored silently
-- **Auto-navigate**: Returns to home when current workspace is deleted
+- **Auto-navigate**: Returns to home when current workspace deleted
 
 ### 🐛 Bug Fixes
 - **FIXED**: AI `Invalid prompt: The messages must be a ModelMessage[]` error
@@ -753,5 +766,5 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ---
 
-**Last Updated**: 2025-12-28
-**Version**: v0.9.0 (Permission System + Build Mode)
+**Last Updated**: 2026-01-17
+**Version**: v1.0.0 (First Major Release)

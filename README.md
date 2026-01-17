@@ -152,31 +152,19 @@ npm start
 
 ---
 
-## 🚧 Known Issues & Limitations
-
-### Active Investigation (v0.9.15)
-- **Errors Not Clearing**: CDP browser console buffer persists after React state clears - errors reappear after fix
-- **AI Missing File Paths**: "Fix with AI" button doesn't include file path due to field mismatch (`file` vs `source`)
-- **Duplicate Messages**: Chat messages may appear 2x due to IPC broadcast + React StrictMode
-- **Monaco Cursor Jumping**: Typing in Code tab may cause cursor to jump (line highlighting interference)
-
-### Long-Standing
-- **Browser Injection Race Condition**: Extremely early runtime errors might fire before error capture injects
-- **Search Configuration**: SearxNG template search may require manual Docker setup
-
-
 ---
 
 ## 🎯 Pricing
 
 ### Free Tier
 - 5 prompts per day
-- Full access to all 41 tools
+- Full access to all 57 tools
 - BYOK (Bring Your Own Keys)
 
 ### Pro - $19/month
 - Unlimited prompts
 - Priority support
+- Unlimited workspaces (Free tier limited to 1)
 
 ---
 

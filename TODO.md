@@ -85,7 +85,7 @@ This file tracks upcoming features, improvements, and known issues.
 
 **Implementation:**
 - [x] `canCreateWorkspace(userId)` - check tier + workspace count
-- [ ] Delete confirmation modal with data loss warning
+- [x] Delete confirmation modal with data loss warning
 - [x] Upgrade prompt when hitting limit
 
 ### Template System ✅
@@ -95,10 +95,10 @@ This file tracks upcoming features, improvements, and known issues.
 
 
 ### Other TBD Items
-- [ ] **LemonSqueezy Live Mode**: Switch from test to production mode before release
-- [ ] **Setup Video**: Create setup walkthrough video for SetupBanner & Help Docs button
-- [ ] **SearxNG for web_search**: Add fallback when API rate limits hit
-- [ ] **"Other AI Providers" section**: Complete settings UI
+- [x] **LemonSqueezy Live Mode**: Switched to production mode for release
+- [x] **Setup Video**: Created setup walkthrough video for SetupBanner & Help Docs button
+- [x] **SearxNG for web_search**: Added fallback when API rate limits hit (v0.9.2)
+- [x] **"Other AI Providers" section**: Settings UI implemented
 
 ### Known Bugs (Investigate ASAP)
 - [ ] **Logout Not Deleting Workspaces**: Sign out handler updated with manual cleanup of dependent records (prompts, chats, diagrams) but still may fail in some edge cases. Monitor logs.
@@ -637,5 +637,5 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 
 ---
 
-**Last Updated**: 2026-01-01
-**Version**: v0.9.6 (Prompts, Persistence & Polish)
+**Last Updated**: 2026-01-17
+**Version**: v1.0.0 (First Major Release)

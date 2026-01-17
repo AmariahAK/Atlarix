@@ -55,9 +55,48 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     const [versions, setVersions] = useState<DiagramVersion[]>([]);
     const [showHistory, setShowHistory] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [loadingDiagram, setLoadingDiagram] = useState(false);
 
     // Use data from props or atom
     const diagram = data || diagramState;
+
+    // Load existing diagrams from database when workspace changes
+    useEffect(() => {
+        if (!app?.id) return;
+
+        // If we already have a diagram for this workspace, don't reload
+        if (diagram && (diagram as any).workspaceId === app.id) return;
+
+        const loadExistingDiagrams = async () => {
+            setLoadingDiagram(true);
+            try {
+                console.log(`📊 [DiagramPanel] Loading diagrams for workspace ${app.id}`);
+                const result = await IpcClient.getInstance().listDiagrams({ workspaceId: app.id });
+
+                if (result.success && result.diagrams && result.diagrams.length > 0) {
+                    const firstDiagram = result.diagrams[0];
+                    console.log(`📊 [DiagramPanel] Found ${result.diagrams.length} diagrams, loading first one`);
+                    setDiagramState({
+                        id: firstDiagram.id,
+                        code: firstDiagram.content,
+                        type: firstDiagram.type || 'mermaid',
+                        title: firstDiagram.title,
+                        compareMode: 'current',
+                        workspaceId: app.id,
+                    } as DiagramState);
+                } else {
+                    console.log(`📊 [DiagramPanel] No diagrams found for workspace ${app.id}`);
+                    // Don't clear the atom - might be set from AI generation
+                }
+            } catch (error) {
+                console.error('📊 [DiagramPanel] Failed to load diagrams:', error);
+            } finally {
+                setLoadingDiagram(false);
+            }
+        };
+
+        loadExistingDiagrams();
+    }, [app?.id, setDiagramState]);
 
     // Fetch version history if we have a diagram ID
     useEffect(() => {
@@ -99,26 +138,39 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
         }
     }, [app?.id, diagram?.title, setDiagramState, setStaleness]);
 
+    if (loadingDiagram) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
+                <p className="text-sm">Loading diagram...</p>
+            </div>
+        );
+    }
+
     if (!diagram) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <Sparkles className="w-8 h-8 text-primary" />
+                    <Code2 className="w-8 h-8 text-primary" />
                 </div>
-                <h3 className="text-lg font-medium text-foreground mb-2">No Diagrams Yet</h3>
+                <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
                 <p className="text-sm text-center mb-4">
-                    Generate an AI-powered architecture diagram to visualize your project structure.
+                    Generate an architecture diagram from the sidebar to visualize your project structure.
                 </p>
-                <button
-                    onClick={() => {
-                        // TODO: Wire up to actual workspace ID
-                        console.log('Generate diagram clicked');
-                    }}
-                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
-                >
-                    <Sparkles className="w-4 h-4" />
-                    Generate First Diagram
-                </button>
+                {app?.id && (
+                    <button
+                        onClick={handleRefreshDiagram}
+                        disabled={isRefreshing}
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {isRefreshing ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Sparkles className="w-4 h-4" />
+                        )}
+                        {isRefreshing ? 'Generating...' : 'Generate Diagram'}
+                    </button>
+                )}
             </div>
         );
     }

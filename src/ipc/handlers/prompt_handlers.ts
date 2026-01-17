@@ -248,14 +248,14 @@ export function registerPromptHandlers() {
   handle(
     "prompts:list-workspaces-with-status",
     async (): Promise<WorkspaceWithStatus[]> => {
-      const allApps = db.select().from(apps).all();
+      // Use async db.query pattern (matches working list-apps handler)
+      // Sync db.select().from().all() was not working in production builds
+      const allApps = await db.query.apps.findMany();
       logger.log(`[prompts:list-workspaces-with-status] Found ${allApps.length} workspaces`);
 
-      const workspacePrompts = db
-        .select()
-        .from(prompts)
-        .where(eq(prompts.type, "workspace"))
-        .all();
+      const workspacePrompts = await db.query.prompts.findMany({
+        where: eq(prompts.type, "workspace"),
+      });
 
       // Map workspaceId to prompt content
       const promptMap = new Map<number, string>();

@@ -17,35 +17,23 @@ export const OnboardingBanner = ({
         onClick={(e) => {
           e.preventDefault();
           IpcClient.getInstance().openExternalUrl(
-            "https://www.youtube.com/watch?v=rgdNoHLaRN4",
+            "https://youtu.be/tYYwisgFwpQ",
           );
           setIsVisible(false);
         }}
         target="_blank"
         rel="noopener noreferrer"
-        className="cursor-pointer block bg-(--background-lightest) border border-border rounded-lg shadow-lg hover:bg-accent transition-colors"
+        className="cursor-pointer block bg-(--background-lightest) border border-border rounded-lg shadow-lg hover:bg-accent transition-colors overflow-hidden group"
       >
-        <div className="flex items-center">
-          <div className="relative p-2">
-            <img
-              src="/logo/logo.png"
-              alt="Get started with Atlarix"
-              className="w-28 h-16 object-contain rounded-md bg-background p-1"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-10 h-10 bg-background rounded-full flex items-center justify-center shadow-md">
-                <Play size={20} className="text-foreground ml-0.5" />
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 px-4 py-3">
-            <div className="text-foreground">
-              <p className="font-semibold text-base">
-                Watch: Getting Started with Atlarix
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Learn how to set up AI providers and build apps
-              </p>
+        <div className="relative aspect-video w-full">
+          <img
+            src="/images/setup-thumbnail.jpg"
+            alt="Setup Atlarix Guide"
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+            <div className="w-16 h-16 bg-white/90 rounded-full flex items-center justify-center shadow-lg backdrop-blur-sm transition-transform duration-300 group-hover:scale-110">
+              <Play size={32} className="text-primary ml-1" fill="currentColor" />
             </div>
           </div>
         </div>
