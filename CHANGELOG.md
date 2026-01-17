@@ -2,6 +2,10 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [v1.0.1] - 2026-01-17
+### 📦 Build & Release
+- **macOS DMG**: Switched from `.zip` to `.dmg` for macOS releases for easier installation.
+
 ## [v1.0.0] - 2026-01-17
 ### 🎉 First Major Release
 - **Official Release**: Atlarix is now out of beta!
@@ -767,4 +771,4 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 ---
 
 **Last Updated**: 2026-01-17
-**Version**: v1.0.0 (First Major Release)
+**Version**: v1.0.1 (DMG Update)
