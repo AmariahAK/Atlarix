@@ -157,14 +157,15 @@ npm start
 ## 🎯 Pricing
 
 ### Free Tier
-- 5 prompts per day
+- Unlimited non-workspace chats
+- 1 Workspace chat (Full features)
 - Full access to all 57 tools
 - BYOK (Bring Your Own Keys)
 
 ### Pro - $19/month
+- Unlimited workspaces
 - Unlimited prompts
 - Priority support
-- Unlimited workspaces (Free tier limited to 1)
 
 ---
 
