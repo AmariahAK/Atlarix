@@ -6,7 +6,7 @@
   "main": ".vite/build/main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pilgrimstack/atlarix.git"
+    "url": "https://github.com/AmariahAK/Atlarix.git"
   },
   "engines": {
     "node": ">=20"
