@@ -6,7 +6,7 @@ const logger = log.scope("ollama_handler");
 
 export function parseOllamaHost(host?: string): string {
   if (!host) {
-    return "http://localhost:11434";
+    return "http://127.0.0.1:11434";
   }
 
   // If it already has a protocol, use as-is
@@ -89,7 +89,7 @@ export async function fetchOllamaModels(): Promise<LocalModelListResponse> {
       (error as Error).message.includes("fetch failed")
     ) {
       throw new Error(
-        "Could not connect to Ollama. Make sure it's running at http://localhost:11434",
+        "Could not connect to Ollama. Make sure it's running at http://127.0.0.1:11434",
       );
     }
     throw new Error("Failed to fetch models from Ollama");
