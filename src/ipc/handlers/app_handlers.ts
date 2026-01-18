@@ -1453,10 +1453,7 @@ export function registerAppHandlers() {
   });
 
   ipcMain.handle("get-app-version", async (): Promise<{ version: string }> => {
-    // Read version from package.json at project root
-    const packageJsonPath = path.resolve(__dirname, "..", "..", "package.json");
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-    return { version: packageJson.version };
+    return { version: app.getVersion() };
   });
 
   handle("rename-branch", async (_, params: RenameBranchParams) => {
