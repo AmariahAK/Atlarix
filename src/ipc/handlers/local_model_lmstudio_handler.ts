@@ -51,14 +51,14 @@ export function registerLMStudioHandlers() {
           logger.info('LM Studio is not running or not accessible');
           return {
             models: [],
-            error: 'LM Studio not running. Please start LM Studio and load a model.'
+            error: 'LM Studio not reachable. Go to "Developer" (sidebar) → "Start Server". Ensure a model is loaded.'
           };
         }
         // Other errors
         logger.error('Error fetching LM Studio models:', error);
         return {
           models: [],
-          error: 'Failed to connect to LM Studio'
+          error: 'Failed to connect to LM Studio. Is the server running?'
         };
       }
     },
