@@ -32,6 +32,7 @@ import {
     Terminal,
     Map,
 } from "lucide-react";
+import { SmartDiffView } from "./SmartDiffView";
 import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -115,7 +116,10 @@ function OperationCard({
     onDismiss,
 }: OperationCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [dangerAcknowledged, setDangerAcknowledged] = useState(false);
     const isPending = operation.status === 'pending';
+    const isDangerous = operation.isDangerous && operation.operation === 'run_command';
+    const canApprove = !isDangerous || dangerAcknowledged;
     const isRunning = operation.status === 'running';
     const isFailed = operation.status === 'failed';
     const isCompleted = operation.status === 'completed';
@@ -187,12 +191,34 @@ function OperationCard({
                     {displayName}
                 </span>
 
+                {/* Inline "I understand" for dangerous commands */}
+                {isPending && isDangerous && (
+                    <div className="flex items-center gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <input
+                            type="checkbox"
+                            id={`danger-inline-${operation.id}`}
+                            checked={dangerAcknowledged}
+                            onChange={(e) => setDangerAcknowledged(e.target.checked)}
+                            className="rounded border-amber-500/50"
+                        />
+                        <label htmlFor={`danger-inline-${operation.id}`} className="text-amber-400 whitespace-nowrap">
+                            I understand
+                        </label>
+                    </div>
+                )}
+
                 {/* Status or Actions */}
                 {isPending ? (
                     <div className="flex items-center gap-1.5">
                         <button
-                            onClick={(e) => { e.stopPropagation(); onApprove?.(operation.id); }}
-                            className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-medium rounded hover:bg-emerald-500 transition-colors"
+                            onClick={(e) => { e.stopPropagation(); canApprove && onApprove?.(operation.id); }}
+                            disabled={!canApprove}
+                            className={cn(
+                                "px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                                canApprove
+                                    ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                                    : "bg-emerald-600/50 text-white/70 cursor-not-allowed"
+                            )}
                         >
                             Approve
                         </button>
@@ -232,13 +258,40 @@ function OperationCard({
 
                     {/* Command preview for run_command */}
                     {operation.operation === 'run_command' && operation.command && (
-                        <div className="bg-background-darkest rounded p-2 font-mono text-xs text-emerald-400 overflow-x-auto">
-                            $ {operation.command}
+                        <div className="space-y-2">
+                            <div className="bg-background-darkest rounded p-2 font-mono text-xs text-emerald-400 overflow-x-auto">
+                                $ {operation.command}
+                            </div>
+                            {isDangerous && operation.dangerExplanation && (
+                                <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10">
+                                    <input
+                                        type="checkbox"
+                                        id={`danger-ack-${operation.id}`}
+                                        checked={dangerAcknowledged}
+                                        onChange={(e) => { e.stopPropagation(); setDangerAcknowledged(e.target.checked); }}
+                                        className="mt-0.5 rounded border-amber-500/50"
+                                    />
+                                    <label htmlFor={`danger-ack-${operation.id}`} className="text-sm text-amber-200 flex-1">
+                                        <span className="font-medium">I understand:</span> {operation.dangerExplanation}
+                                    </label>
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Content preview for file operations */}
-                    {operation.content && (
+                    {/* Smart diff for file operations with oldContent */}
+                    {operation.content && operation.oldContent !== undefined && operation.path && (
+                        <SmartDiffView
+                            path={operation.path}
+                            oldContent={operation.oldContent}
+                            newContent={operation.content}
+                            description={operation.description}
+                            operation="update"
+                            maxHeight="max-h-64"
+                        />
+                    )}
+                    {/* Fallback: content preview when no diff available */}
+                    {operation.content && operation.oldContent === undefined && (
                         <pre className="text-xs bg-background-darkest text-foreground/80 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
                             {operation.content.split('\n').slice(0, 10).map((line, i) => (
                                 <div key={i} className="flex">
@@ -352,18 +405,23 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
         const loadPermissions = async () => {
             try {
                 const pending = await IpcClient.getInstance().getPendingPermissions({ chatId });
-                pending.forEach((p) => {
-                    const request = p.request;
-                    setQueue(q => addOperation(q, {
-                        id: p.id,
-                        operation: request.operation || 'unknown',
-                        command: (request.preview as any)?.command,
-                        path: (request.preview as any)?.path,
-                        content: (request.preview as any)?.content,
-                        preview: JSON.stringify(request.preview, null, 2).slice(0, 500),
-                        status: 'pending',
-                    }));
-                });
+                    pending.forEach((p) => {
+                        const request = p.request;
+                        const preview = request.preview as any;
+                        setQueue(q => addOperation(q, {
+                            id: p.id,
+                            operation: request.operation || 'unknown',
+                            command: preview?.command,
+                            path: preview?.path,
+                            content: preview?.content,
+                            oldContent: preview?.oldContent,
+                            description: preview?.description,
+                            preview: JSON.stringify(request.preview, null, 2).slice(0, 500),
+                            status: 'pending',
+                            isDangerous: preview?.isDangerous,
+                            dangerExplanation: preview?.dangerExplanation,
+                        }));
+                    });
             } catch (err) {
                 console.error('[PermissionQueuePanel] Failed to load permissions:', err);
             }
@@ -373,14 +431,19 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
         // Subscribe to new permission requests
         const unsubscribe = IpcClient.getInstance().onPermissionRequest(chatId, (payload) => {
             const request = payload.request;
+            const preview = request.preview as any;
             setQueue(q => addOperation(q, {
                 id: payload.operationId,
                 operation: request.operation || 'unknown',
-                command: (request.preview as any)?.command,
-                path: (request.preview as any)?.path,
-                content: (request.preview as any)?.content,
+                command: preview?.command,
+                path: preview?.path,
+                content: preview?.content,
+                oldContent: preview?.oldContent,
+                description: preview?.description,
                 preview: JSON.stringify(request.preview, null, 2).slice(0, 500),
                 status: 'pending',
+                isDangerous: preview?.isDangerous,
+                dangerExplanation: preview?.dangerExplanation,
             }));
         });
 
@@ -468,12 +531,19 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
                 </p>
             </div>
 
-            {/* Bulk Actions */}
+            {/* Bulk Actions - Disable Approve All when any op is dangerous (requires individual acknowledgment) */}
             {pending.length > 0 && (
                 <div className="border-b border-border p-3 bg-muted/30 flex gap-2">
                     <button
                         onClick={handleApproveAll}
-                        className="flex-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-500 transition-colors"
+                        disabled={pending.some(op => op.isDangerous)}
+                        title={pending.some(op => op.isDangerous) ? "Approve dangerous commands individually after checking \"I understand\"" : undefined}
+                        className={cn(
+                            "flex-1 px-3 py-2 text-sm font-medium rounded transition-colors",
+                            pending.some(op => op.isDangerous)
+                                ? "bg-emerald-600/50 text-white/70 cursor-not-allowed"
+                                : "bg-emerald-600 text-white hover:bg-emerald-500"
+                        )}
                     >
                         Approve All ({pending.length})
                     </button>

@@ -17,9 +17,45 @@ export type UserInfoResponse = z.infer<typeof UserInfoResponseSchema>;
 const logger = log.scope("pro_handlers");
 const handle = createLoggedHandler(logger);
 
+/** Shared fetch for use by other handlers (e.g. MCP free-tier limit). */
+export async function fetchUserBudget(): Promise<UserBudgetInfo | null> {
+  if (IS_TEST_BUILD) {
+    const resetDate = new Date();
+    resetDate.setDate(resetDate.getDate() + 30);
+    return {
+      usedCredits: 100,
+      totalCredits: 1000,
+      budgetResetDate: resetDate,
+      redactedUserId: "<redacted-user-id-testing>",
+    };
+  }
+  const settings = readSettings();
+  const apiKey = settings.providerSettings?.auto?.apiKey?.value;
+  if (!apiKey) return null;
+  const url = "https://atlarix-api.fly.dev/v1/user/info";
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  try {
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) return null;
+    const rawData = await response.json();
+    const data = UserInfoResponseSchema.parse(rawData);
+    const redactedUserId =
+      data.userId.length > 8 ? "****" + data.userId.slice(-4) : "<redacted>";
+    return UserBudgetInfoSchema.parse({
+      usedCredits: data.usedCredits,
+      totalCredits: data.totalCredits,
+      budgetResetDate: new Date(data.budgetResetDate),
+      redactedUserId,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function registerProHandlers() {
-  // This method should try to avoid throwing errors because this is auxiliary
-  // information and isn't critical to using the app
   handle("get-user-budget", async (): Promise<UserBudgetInfo | null> => {
     if (IS_TEST_BUILD) {
       // Return mock budget data for E2E tests instead of spamming the API
@@ -33,60 +69,9 @@ export function registerProHandlers() {
       };
     }
     logger.info("Attempting to fetch user budget information.");
-
-    const settings = readSettings();
-
-    const apiKey = settings.providerSettings?.auto?.apiKey?.value;
-
-    if (!apiKey) {
-      logger.error("Atlarix Pro API key is not configured.");
-      return null;
-    }
-
-    // TODO: Phase 4.5 - Implement full backend integration
-    // This endpoint should be created in atlarix-api/src/routes/user.ts
-    const url = "https://atlarix-api.fly.dev/v1/user/info";
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    };
-
     try {
-      // Use native fetch if available, otherwise node-fetch will be used via import
-      const response = await fetch(url, {
-        method: "GET",
-        headers: headers,
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        logger.error(
-          `Failed to fetch user budget. Status: ${response.status}. Body: ${errorBody}`,
-        );
-        return null;
-      }
-
-      const rawData = await response.json();
-
-      // Validate the API response structure
-      const data = UserInfoResponseSchema.parse(rawData);
-
-      // Turn user_abc1234 =>  "****1234"
-      // Preserve the last 4 characters so we can correlate bug reports
-      // with the user.
-      const redactedUserId =
-        data.userId.length > 8 ? "****" + data.userId.slice(-4) : "<redacted>";
-
-      logger.info("Successfully fetched user budget information.");
-
-      // Transform to UserBudgetInfo format
-      const userBudgetInfo = UserBudgetInfoSchema.parse({
-        usedCredits: data.usedCredits,
-        totalCredits: data.totalCredits,
-        budgetResetDate: new Date(data.budgetResetDate),
-        redactedUserId: redactedUserId,
-      });
-
+      const userBudgetInfo = await fetchUserBudget();
+      if (userBudgetInfo) logger.info("Successfully fetched user budget information.");
       return userBudgetInfo;
     } catch (error: any) {
       logger.error(`Error fetching user budget: ${error.message}`, error);

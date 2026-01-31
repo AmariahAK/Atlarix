@@ -932,6 +932,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:list-tools", serverId);
   }
 
+  public async testMcpConnection(
+    serverId: number,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("mcp:test-connection", serverId);
+  }
+
   // Removed: upsertMcpTools and setMcpToolActive – tools are fetched dynamically at runtime
 
   public async getMcpToolConsents() {
@@ -1413,6 +1419,27 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-language-models-by-providers");
   }
 
+  /** Refresh model catalog from models.dev (OpenCode-style dynamic models) */
+  public async refreshModelsDev(): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("models-dev:refresh");
+  }
+
+  /** Search codebase with natural language (semantic search) */
+  public async searchCodebase(params: {
+    query: string;
+    appId: number;
+    maxResults?: number;
+  }): Promise<{
+    success: boolean;
+    query?: string;
+    results?: any[];
+    formatted_with_context?: string;
+    total_matches?: number;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("search-codebase", params);
+  }
+
   public async createCustomLanguageModelProvider({
     id,
     name,
@@ -1889,6 +1916,42 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("diagram:check-staleness", params);
+  }
+
+  /** Get diagram timeline (workspace snapshots for version history) */
+  public async getDiagramTimeline(params: {
+    appId: number;
+    timeRange: "today" | "week" | "month" | "all";
+  }): Promise<{ snapshots: any[]; totalCount: number }> {
+    return this.ipcRenderer.invoke("diagram:get-timeline", params);
+  }
+
+  /** Get single diagram snapshot by ID */
+  public async getDiagramSnapshot(snapshotId: number): Promise<{ architecture: string } | null> {
+    return this.ipcRenderer.invoke("diagram:get-snapshot", snapshotId);
+  }
+
+  // --- Workspace Snapshots (Pro) ---
+  public async createWorkspaceSnapshot(params: {
+    appId: number;
+    name: string;
+    chatMessages?: Array<{ role: string; content: string }>;
+  }): Promise<{ success: boolean; snapshotId?: number; error?: string }> {
+    return this.ipcRenderer.invoke("workspace-snapshot:create", params);
+  }
+
+  public async listWorkspaceSnapshots(appId: number): Promise<{
+    success: boolean;
+    snapshots?: Array<{ id: number; name: string; createdAt: Date; fileCount: number }>;
+  }> {
+    return this.ipcRenderer.invoke("workspace-snapshot:list", appId);
+  }
+
+  public async restoreWorkspaceSnapshot(params: {
+    snapshotId: number;
+    appId: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("workspace-snapshot:restore", params);
   }
 
   // ============================================

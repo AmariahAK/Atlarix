@@ -1,27 +1,16 @@
 import { LanguageModel } from "../ipc_types";
 
-export const PROVIDERS_THAT_SUPPORT_THINKING: (keyof typeof MODEL_OPTIONS)[] = [
+/** Providers that support extended thinking/reasoning modes */
+export const PROVIDERS_THAT_SUPPORT_THINKING: string[] = [
   "google",
   "vertex",
   "auto",
 ];
 
-export interface ModelOption {
-  name: string;
-  displayName: string;
-  description: string;
-  dollarSigns?: number;
-  temperature?: number;
-  tag?: string;
-  tagColor?: string;
-  maxOutputTokens?: number;
-  contextWindow?: number;
-}
-
-export const MODEL_OPTIONS: Record<string, ModelOption[]> = {
-  // OpenRouter models are fetched dynamically from the API
-  // See language_model_helpers.ts -> getLanguageModelsByProviders()
-};
+/**
+ * Model lists are now fetched dynamically from models.dev (OpenCode-style).
+ * See lib/models_dev.ts and language_model_helpers.ts
+ */
 
 export const TURBO_MODELS: LanguageModel[] = [
   {
@@ -51,6 +40,13 @@ export const FREE_OPENROUTER_MODEL_NAMES: string[] = [];
 
 export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  xai: "XAI_API_KEY",
+  togetherai: "TOGETHER_API_KEY",
+  groq: "GROQ_API_KEY",
+  mistral: "MISTRAL_API_KEY",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -68,6 +64,48 @@ export const CLOUD_PROVIDERS: Record<
     hasFreeTier: true,
     websiteUrl: "https://openrouter.ai/settings/keys",
     gatewayPrefix: "openrouter/",
+  },
+  openai: {
+    displayName: "OpenAI",
+    hasFreeTier: false,
+    websiteUrl: "https://platform.openai.com/api-keys",
+    gatewayPrefix: "",
+  },
+  google: {
+    displayName: "Google Gemini",
+    hasFreeTier: true,
+    websiteUrl: "https://aistudio.google.com/apikey",
+    gatewayPrefix: "",
+  },
+  anthropic: {
+    displayName: "Anthropic (Claude)",
+    hasFreeTier: false,
+    websiteUrl: "https://console.anthropic.com/settings/keys",
+    gatewayPrefix: "",
+  },
+  xai: {
+    displayName: "Grok (xAI)",
+    hasFreeTier: false,
+    websiteUrl: "https://console.x.ai/",
+    gatewayPrefix: "",
+  },
+  togetherai: {
+    displayName: "Together AI",
+    hasFreeTier: true,
+    websiteUrl: "https://api.together.xyz/settings/api-keys",
+    gatewayPrefix: "",
+  },
+  groq: {
+    displayName: "Groq",
+    hasFreeTier: true,
+    websiteUrl: "https://console.groq.com/keys",
+    gatewayPrefix: "",
+  },
+  mistral: {
+    displayName: "Mistral AI",
+    hasFreeTier: false,
+    websiteUrl: "https://console.mistral.ai/api-keys/",
+    gatewayPrefix: "",
   },
 };
 

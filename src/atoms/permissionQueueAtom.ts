@@ -15,12 +15,16 @@ export interface QueuedOperation {
     command?: string;
     path?: string;
     content?: string;       // File content for write_file
+    oldContent?: string;    // Original content for diff view
+    description?: string;   // AI-generated change summary
     preview?: string;
     status: OperationStatus;
     progress?: number;      // 0-100 for running commands
     duration?: number;      // ms
     error?: string;
     isRecovering?: boolean; // AI is analyzing this failure
+    isDangerous?: boolean;  // Command is risky (rm -rf, sudo, etc.)
+    dangerExplanation?: string;  // Plain-English risk explanation
     timestamp: number;
 }
 

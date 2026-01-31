@@ -185,6 +185,10 @@ export interface TokenCountResult {
   inputTokens: number;
   systemPromptTokens: number;
   contextWindow: number;
+  /** Effective budget (override or context window) for warnings */
+  effectiveBudget?: number;
+  providerId?: string;
+  budgetSource?: "model" | "override";
 }
 
 export interface ChatLogsData {

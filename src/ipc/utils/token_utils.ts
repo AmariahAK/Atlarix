@@ -24,6 +24,25 @@ export async function getContextWindow() {
   return modelOption?.contextWindow || DEFAULT_CONTEXT_WINDOW;
 }
 
+/** Effective budget: user override (if set) or model context window. Per-provider adaptive. */
+export async function getEffectiveBudget(providerId: string): Promise<{
+  budget: number;
+  source: "model" | "override";
+}> {
+  if (providerId === "auto") {
+    const budget = await getContextWindow();
+    return { budget, source: "model" };
+  }
+  const settings = readSettings();
+  const override = settings.tokenBudgetOverrides?.[providerId];
+  if (override != null && override > 0) {
+    return { budget: override, source: "override" };
+  }
+  const modelOption = await findLanguageModel(settings.selectedModel);
+  const budget = modelOption?.contextWindow || DEFAULT_CONTEXT_WINDOW;
+  return { budget, source: "model" };
+}
+
 export async function getMaxTokens(
   model: LargeLanguageModel,
 ): Promise<number | undefined> {

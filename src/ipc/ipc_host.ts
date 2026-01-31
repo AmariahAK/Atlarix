@@ -40,6 +40,8 @@ import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handler
 import { registerDiagramTimelineHandlers } from "./handlers/diagram_timeline_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
+import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
+import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
@@ -89,4 +91,6 @@ export function registerIpcHandlers() {
   registerDiagramTimelineHandlers(); // Diagram timeline system
   registerFileHandlers(); // File read/write for live code editor
   registerAuthHandlers(); // OAuth & user plan management
+  registerCodebaseSearchHandlers(); // Codebase semantic search
+  registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
 }

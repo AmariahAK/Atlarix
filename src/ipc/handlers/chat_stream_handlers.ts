@@ -1791,32 +1791,70 @@ If the user requests modifications, politely explain that Ask mode is for explor
                   break;
                 }
 
-                // Execute all text-based tools
+                // Execute text-based tools. When all are read-only, run in parallel (Phase 5).
                 const iterationResults: { tool: string; result: string }[] = [];
                 let hasPermissionRequest = hadNativeToolExecution; // Carry forward native tool detection
 
-                for (const toolCall of textToolCalls) {
+                const readOnlyNames = new Set(
+                  ToolRegistry.getAll().filter((t) => t.isReadOnly).map((t) => t.name)
+                );
+                const allReadOnly =
+                  textToolCalls.length > 1 &&
+                  textToolCalls.every((tc) => readOnlyNames.has(tc.toolName));
+
+                const toolCallsToProcess = allReadOnly
+                  ? await Promise.all(
+                      textToolCalls.map(async (tc) => {
+                        const argsWithWorkspace = {
+                          ...tc.args,
+                          workspace: workspacePath || undefined,
+                          chatMode: "build",
+                        };
+                        try {
+                          const r = await ToolRegistry.execute(tc.toolName, argsWithWorkspace);
+                          return { toolCall: tc, toolResult: r };
+                        } catch (e) {
+                          return {
+                            toolCall: tc,
+                            toolResult: `Error: ${e instanceof Error ? e.message : String(e)}`,
+                          };
+                        }
+                      })
+                    )
+                  : null;
+
+                if (allReadOnly) {
+                  logger.log(`[Agentic Loop] Executed ${textToolCalls.length} read-only tools in parallel`);
+                }
+
+                for (let i = 0; i < textToolCalls.length; i++) {
+                  const toolCall = textToolCalls[i];
+                  let toolResult: unknown;
+
+                  if (toolCallsToProcess) {
+                    toolResult = toolCallsToProcess[i].toolResult;
+                  } else {
+                    try {
+                      if (!tools[toolCall.toolName]) {
+                        toolResult = `Error: Unknown tool "${toolCall.toolName}"`;
+                      } else {
+                        const argsWithWorkspace = {
+                          ...toolCall.args,
+                          workspace: workspacePath || undefined,
+                          chatMode: "build",
+                        };
+                        toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);
+                      }
+                    } catch (toolError) {
+                      toolResult = `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`;
+                    }
+                  }
+
                   try {
-                    if (!tools[toolCall.toolName]) {
-                      logger.warn(`[Agentic Loop] Unknown tool: ${toolCall.toolName}`);
-                      iterationResults.push({
-                        tool: toolCall.toolName,
-                        result: `Error: Unknown tool "${toolCall.toolName}"`,
-                      });
+                    if (typeof toolResult === "string" && toolResult.startsWith("Error:")) {
+                      iterationResults.push({ tool: toolCall.toolName, result: toolResult });
                       continue;
                     }
-
-                    logger.log(`[Agentic Loop] Executing: ${toolCall.toolName}`, toolCall.args);
-
-                    // Add workspace path to args
-                    const argsWithWorkspace = {
-                      ...toolCall.args,
-                      workspace: workspacePath || undefined,
-                      chatMode: "build",
-                    };
-
-                    // Execute tool
-                    const toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);
 
                     // Check if this is a permission request
                     if (permissionInterceptor.isPermissionRequest(toolResult)) {
@@ -1824,18 +1862,13 @@ If the user requests modifications, politely explain that Ask mode is for explor
                       if (permRequest) {
                         const operationId = permissionInterceptor.generateOperationId();
                         permissionInterceptor.bufferOperation(operationId, permRequest);
-
-                        // Send permission request to frontend
                         safeSend(event.sender, "permission-request", {
                           chatId: req.chatId,
                           operationId,
                           request: permRequest,
                         });
-
                         logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
                         hasPermissionRequest = true;
-
-                        // Wait for approval
                         try {
                           const approved = await permissionInterceptor.waitForApproval(operationId);
                           if (approved) {
@@ -1850,11 +1883,8 @@ If the user requests modifications, politely explain that Ask mode is for explor
                               }),
                             });
                           } else {
-                            // Check if command failure vs user rejection
                             const execResult = permissionInterceptor.getExecutionResult(operationId);
-
                             if (execResult.exitCode !== undefined) {
-                              // Command failed - include terminal output for AI
                               iterationResults.push({
                                 tool: toolCall.toolName,
                                 result: JSON.stringify({
@@ -1865,13 +1895,9 @@ If the user requests modifications, politely explain that Ask mode is for explor
                                 }),
                               });
                             } else {
-                              // User rejected
                               iterationResults.push({
                                 tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  success: false,
-                                  error: "Permission denied by user",
-                                }),
+                                result: JSON.stringify({ success: false, error: "Permission denied by user" }),
                               });
                             }
                           }
@@ -1886,12 +1912,8 @@ If the user requests modifications, politely explain that Ask mode is for explor
                         }
                       }
                     } else {
-                      // Tool executed directly
-                      const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
-                      iterationResults.push({
-                        tool: toolCall.toolName,
-                        result: resultStr,
-                      });
+                      const resultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
+                      iterationResults.push({ tool: toolCall.toolName, result: resultStr });
                       logger.log(`[Agentic Loop] Tool executed: ${toolCall.toolName} ✓`);
                     }
                   } catch (toolError) {

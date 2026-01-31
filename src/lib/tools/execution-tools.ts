@@ -13,6 +13,7 @@ import {
     stringParam,
     booleanParam,
 } from "./registry";
+import { isDangerousCommand, getDangerExplanation } from "../dangerous-commands";
 
 const execAsync = promisify(exec);
 
@@ -38,15 +39,8 @@ ToolRegistry.register({
         ["command", "description"]
     ),
     handler: async ({ command, cwd = ".", description }) => {
-        // Check for dangerous patterns
-        const dangerousPatterns = [
-            /rm\s+-rf/,
-            /sudo/,
-            /curl.*\|.*bash/,
-            /wget.*\|.*sh/,
-            /chmod\s+777/,
-        ];
-        const isDangerous = dangerousPatterns.some(pattern => pattern.test(command));
+        const dangerous = isDangerousCommand(command);
+        const dangerExplanation = dangerous ? getDangerExplanation(command) : undefined;
 
         // Return structured permission request (JSON format)
         return {
@@ -56,7 +50,8 @@ ToolRegistry.register({
                 command,
                 workingDirectory: cwd,
                 description,
-                isDangerous,
+                isDangerous: dangerous,
+                dangerExplanation,
             },
         };
     },

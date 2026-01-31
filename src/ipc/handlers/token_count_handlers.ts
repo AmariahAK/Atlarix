@@ -15,7 +15,7 @@ import log from "electron-log";
 
 import { TokenCountParams } from "../ipc_types";
 import { TokenCountResult } from "../ipc_types";
-import { estimateTokens, getContextWindow } from "../utils/token_utils";
+import { estimateTokens, getContextWindow, getEffectiveBudget } from "../utils/token_utils";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
@@ -133,6 +133,10 @@ export function registerTokenCountHandlers() {
         .find((m) => m.role === "assistant");
       const actualMaxTokens = lastAssistantMessage?.maxTokensUsed ?? null;
 
+      const providerId = settings.selectedModel?.provider ?? "auto";
+      const { budget: effectiveBudget, source: budgetSource } = await getEffectiveBudget(providerId);
+      const contextWindow = await getContextWindow();
+
       return {
         estimatedTotalTokens: totalTokens,
         actualMaxTokens,
@@ -141,7 +145,10 @@ export function registerTokenCountHandlers() {
         mentionedAppsTokens,
         inputTokens,
         systemPromptTokens,
-        contextWindow: await getContextWindow(),
+        contextWindow,
+        effectiveBudget,
+        providerId,
+        budgetSource,
       };
     },
   );

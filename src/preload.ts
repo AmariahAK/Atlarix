@@ -122,6 +122,7 @@ const validInvokeChannels = [
   "mcp:update-server",
   "mcp:delete-server",
   "mcp:list-tools",
+  "mcp:test-connection",
   "mcp:get-tool-consents",
   "mcp:set-tool-consent",
   // MCP consent response from renderer to main
@@ -159,6 +160,15 @@ const validInvokeChannels = [
   "openrouter:add-favorite",
   "openrouter:remove-favorite",
   "openrouter:is-favorited",
+  // Models.dev (dynamic model catalog)
+  "models-dev:refresh",
+  // Codebase search
+  "search-codebase",
+  // Workspace snapshots (Pro)
+  "workspace-snapshot:create",
+  "workspace-snapshot:list",
+  "workspace-snapshot:restore",
+  "workspace-snapshot:get-metadata",
   // Dialog
   "dialog:openDirectory",
   // SearxNG

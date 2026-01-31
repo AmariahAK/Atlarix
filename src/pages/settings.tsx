@@ -9,6 +9,7 @@ import { MaxChatTurnsSelector } from "@/components/MaxChatTurnsSelector";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
 import { useAppVersion } from "@/hooks/useAppVersion";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -16,6 +17,8 @@ import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { AutoUpdateSwitch } from "@/components/AutoUpdateSwitch";
 import { ZoomSelector } from "@/components/ZoomSelector";
 import { SearchSettings } from "@/components/settings/SearchSettings";
+import { ToolsMcpSettings } from "@/components/settings/ToolsMcpSettings";
+import { TokenBudgetSettings } from "@/components/settings/TokenBudgetSettings";
 import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 
@@ -80,6 +83,22 @@ export default function SettingsPage() {
               Search Settings
             </h2>
             <SearchSettings />
+          </div>
+
+          {/* MCP Servers */}
+          <div
+            id="mcp"
+            className="bg-card rounded-xl shadow-sm p-6 border border-border"
+          >
+            <h2 className="text-lg font-medium text-foreground mb-4">
+              MCP Servers
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Connect Model Context Protocol servers to extend Atlarix with
+              additional tools. Free: 1 server. Pro: unlimited. Test connection
+              to verify each server is valid.
+            </p>
+            <ToolsMcpSettings />
           </div>
 
           {/* Danger Zone */}
@@ -224,6 +243,28 @@ export function WorkflowSettings() {
   );
 }
 export function AISettings() {
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefreshModels = async () => {
+    setIsRefreshing(true);
+    try {
+      const result = await IpcClient.getInstance().refreshModelsDev();
+      if (result.success) {
+        await queryClient.invalidateQueries({
+          queryKey: ["language-models-by-providers"],
+        });
+        showSuccess("Model list refreshed");
+      } else {
+        showError("Failed to refresh model list");
+      }
+    } catch {
+      showError("Failed to refresh model list");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <div
       id="ai"
@@ -240,11 +281,29 @@ export function AISettings() {
       </div>
 
       <div className="mt-6">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
-          Model Providers
+        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+          Token Budget (Optional)
         </h3>
+        <TokenBudgetSettings />
+      </div>
+
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+            Model Providers
+          </h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshModels}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? "Refreshing..." : "Refresh model list"}
+          </Button>
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
-          Configure API keys for OpenRouter and other model providers
+          Configure API keys for OpenRouter and other model providers. Models
+          are fetched from models.dev (refreshed hourly).
         </p>
         <ProviderSettingsGrid />
       </div>

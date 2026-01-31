@@ -109,7 +109,8 @@ ToolRegistry.register({
             preview: {
                 path: normalizedPath,
                 content: newContent,
-                description: description,
+                oldContent: content,
+                description,
                 type: "update" as const,
                 lines: newContent.split('\n').length,
                 diff: {
@@ -201,7 +202,8 @@ ToolRegistry.register({
             preview: {
                 path: normalizedPath,
                 content: newContent,
-                description: description,
+                oldContent: content,
+                description,
                 type: "update" as const,
                 lines: newLines.length,
                 diff: {
@@ -298,7 +300,8 @@ ToolRegistry.register({
             preview: {
                 path: normalizedPath,
                 content: newContent,
-                description: description,
+                oldContent: content,
+                description,
                 type: "update" as const,
                 lines: newLines.length,
                 diff: {

@@ -15,11 +15,9 @@ import { analyzeWorkspace, generateArchitectureDiagram } from "../analysis";
 const logger = log.scope("diagram-timeline-capture");
 
 // Significant files that trigger immediate capture (no debouncing)
+// Excludes lock files - they change on every npm install without structural impact
 const SIGNIFICANT_FILES = [
     "package.json",
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
     "tsconfig.json",
     "vite.config.*",
     "next.config.*",
@@ -28,7 +26,7 @@ const SIGNIFICANT_FILES = [
     "*.config.ts",
     "src/index.*",
     "src/main.*",
-    "src/app.*",
+    "src/App.*",
 ];
 
 export type CaptureT = "auto" | "ai_change" | "user_request" | "structural";
@@ -194,7 +192,7 @@ const pendingFiles = new Map<number, string[]>();
 export function queueCapture(
     appId: number,
     filesChanged: string[],
-    debounceMs: number = 5 * 60 * 1000 // 5 minutes default
+    debounceMs: number = 8 * 60 * 1000 // 8 minutes (was 5) - reduce diagram churn
 ): void {
     // Check if significant file changed (bypass debounce)
     if (isSignificantChange(filesChanged)) {
@@ -221,8 +219,8 @@ export function queueCapture(
     const timeout = setTimeout(async () => {
         const files = pendingFiles.get(appId) || [];
 
-        // Only capture if >= 3 files changed
-        if (files.length >= 3) {
+        // Only capture if >= 5 files changed (was 3 - reduce churn from small edits)
+        if (files.length >= 5) {
             logger.log(`Debounce complete, capturing snapshot for app ${appId} (${files.length} files)`);
             await captureSnapshot({
                 appId,
@@ -230,7 +228,7 @@ export function queueCapture(
                 filesChanged: files,
             });
         } else {
-            logger.log(`Not enough files changed (${files.length} < 3), skipping capture for app ${appId}`);
+            logger.log(`Not enough files changed (${files.length} < 5), skipping capture for app ${appId}`);
         }
 
         // Cleanup
@@ -251,7 +249,7 @@ export async function flushPendingCaptures(): Promise<void> {
         clearTimeout(timeout);
         const files = pendingFiles.get(appId) || [];
 
-        if (files.length >= 3) {
+        if (files.length >= 5) {
             await captureSnapshot({
                 appId,
                 trigger: "ai_change",

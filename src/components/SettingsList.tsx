@@ -10,9 +10,7 @@ const settingsItems = [
   { id: "workflow", label: "Workflow" },
   { id: "ai", label: "AI" },
   { id: "search", label: "Search" },
-  // Model Providers removed - integrated into AI settings
-  // Telemetry removed
-  // Integrations, MCP, Experiments removed - keeping settings minimal
+  { id: "mcp", label: "MCP Servers" },
   { id: "danger-zone", label: "Danger Zone" },
 ];
 

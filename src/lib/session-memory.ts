@@ -3,10 +3,12 @@
  * ======================
  * In-memory rolling buffer of recent exchanges for session continuity.
  * Prevents AI from losing context within a chat session.
- * 
+ *
+ * Phase 5: Raised limits for better task focus (was 5 exchanges, 300/500 chars).
+ *
  * Design:
- * - Keeps last 5 exchanges (user + assistant pairs)
- * - Truncates messages to control token usage
+ * - Keeps last 10 exchanges (user + assistant pairs)
+ * - Truncates messages to control token usage (generous limits)
  * - Per-chat session (cleared when chat ends)
  * - No disk persistence (ephemeral by design)
  */
@@ -47,9 +49,9 @@ export class SessionMemory {
         maxUserChars?: number;
         maxAssistantChars?: number;
     }) {
-        this.maxExchanges = options?.maxExchanges ?? 5;
-        this.maxUserChars = options?.maxUserChars ?? 300;
-        this.maxAssistantChars = options?.maxAssistantChars ?? 500;
+        this.maxExchanges = options?.maxExchanges ?? 10;
+        this.maxUserChars = options?.maxUserChars ?? 800;
+        this.maxAssistantChars = options?.maxAssistantChars ?? 1500;
 
         this.context = {
             exchanges: [],

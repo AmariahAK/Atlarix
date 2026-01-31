@@ -11,8 +11,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMcp, type Transport } from "@/hooks/useMcp";
+import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
-import { Edit2, Plus, Save, Trash2, X } from "lucide-react";
+import { Edit2, Plus, Save, Trash2, X, Wifi } from "lucide-react";
+import { IpcClient } from "@/ipc/ipc_client";
+import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
 import { AddMcpServerDeepLinkData } from "@/ipc/deep_link_data";
 
@@ -293,7 +296,13 @@ export function ToolsMcpSettings() {
     setToolConsent: updateToolConsent,
     updateServer,
     isUpdatingServer,
+    refetchAll,
   } = useMcp();
+  const { userBudget } = useUserBudgetInfo();
+  const { handleUpgrade } = useUpgrade();
+  const isPro = (userBudget?.totalCredits ?? 0) > 0;
+  const mcpAtFreeLimit = !isPro && servers.length >= 1;
+
   const [consents, setConsents] = useState<Record<string, any>>({});
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<Transport>("stdio");
@@ -301,10 +310,9 @@ export function ToolsMcpSettings() {
   const [args, setArgs] = useState<string>("");
   const [url, setUrl] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [testingId, setTestingId] = useState<number | null>(null);
   const { lastDeepLink, clearLastDeepLink } = useDeepLink();
-  console.log("lastDeepLink!!!", lastDeepLink);
   useEffect(() => {
-    console.log("rerun effect");
     const handleDeepLink = async () => {
       if (lastDeepLink?.type === "add-mcp-server") {
         const deepLink = lastDeepLink as AddMcpServerDeepLinkData;
@@ -330,6 +338,10 @@ export function ToolsMcpSettings() {
   }, [consentsMap]);
 
   const onCreate = async () => {
+    if (mcpAtFreeLimit) {
+      showError("Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited.");
+      return;
+    }
     const parsedArgs = (() => {
       const trimmed = args.trim();
       if (!trimmed) return null;
@@ -345,19 +357,43 @@ export function ToolsMcpSettings() {
       }
       return trimmed.split(" ").filter(Boolean);
     })();
-    await createServer({
-      name,
-      transport,
-      command: command || null,
-      args: parsedArgs,
-      url: url || null,
-      enabled,
-    });
-    setName("");
-    setCommand("");
-    setArgs("");
-    setUrl("");
-    setEnabled(true);
+    try {
+      await createServer({
+        name,
+        transport,
+        command: command || null,
+        args: parsedArgs,
+        url: url || null,
+        enabled,
+      });
+      setName("");
+      setCommand("");
+      setArgs("");
+      setUrl("");
+      setEnabled(true);
+      showSuccess("MCP server added. Use \"Test connection\" to verify.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showError(msg);
+    }
+  };
+
+  const onTestConnection = async (serverId: number) => {
+    setTestingId(serverId);
+    try {
+      const ipc = IpcClient.getInstance();
+      const result = await ipc.testMcpConnection(serverId);
+      if (result.ok) {
+        showSuccess("Connection successful");
+        await refetchAll();
+      } else {
+        showError(result.error ?? "Connection failed");
+      }
+    } catch (e) {
+      showError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTestingId(null);
+    }
   };
 
   // Removed activation toggling – tools are used dynamically with consent checks
@@ -429,8 +465,24 @@ export function ToolsMcpSettings() {
             <Label>Enabled</Label>
           </div>
         </div>
+        {mcpAtFreeLimit && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200">
+            Free tier is limited to 1 MCP server.{" "}
+            <button
+              type="button"
+              onClick={() => handleUpgrade()}
+              className="font-medium underline hover:no-underline"
+            >
+              Upgrade to Pro
+            </button>{" "}
+            for unlimited MCP servers.
+          </div>
+        )}
         <div>
-          <Button onClick={onCreate} disabled={!name.trim()}>
+          <Button
+            onClick={onCreate}
+            disabled={!name.trim() || mcpAtFreeLimit}
+          >
             Add Server
           </Button>
         </div>
@@ -451,12 +503,21 @@ export function ToolsMcpSettings() {
                     : ""}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onTestConnection(s.id)}
+                  disabled={testingId === s.id}
+                >
+                  <Wifi className="h-4 w-4 mr-1" />
+                  {testingId === s.id ? "Testing…" : "Test connection"}
+                </Button>
                 <Switch
                   checked={!!s.enabled}
                   onCheckedChange={() => toggleServerEnabled(s.id, !!s.enabled)}
                 />
-                <Button variant="outline" onClick={() => deleteServer(s.id)}>
+                <Button variant="outline" size="sm" onClick={() => deleteServer(s.id)}>
                   Delete
                 </Button>
               </div>

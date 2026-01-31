@@ -504,3 +504,26 @@ export const workspaceDiagramsRelations = relations(workspaceDiagrams, ({ one })
   }),
 }));
 
+// --- Workspace Snapshots (Pro) ---
+// One-click save/restore of workspace state (files, prompt, diagram, chat)
+export const workspaceSnapshots = sqliteTable(
+  "workspace_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    appId: integer("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    filesJson: text("files_json", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    promptContent: text("prompt_content"),
+    diagramContent: text("diagram_content"),
+    chatMessagesJson: text("chat_messages_json", { mode: "json" }).$type<Array<{ role: string; content: string }>>(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index("workspace_snapshots_app_id_idx").on(table.appId),
+  ]
+);
+

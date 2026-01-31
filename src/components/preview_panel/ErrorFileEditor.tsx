@@ -30,6 +30,9 @@ interface ErrorFileEditorProps {
     errors: ParsedError[];
     workspacePath: string;
     onErrorResolved?: (error: ParsedError) => void;
+    /** When switching from Errors tab, pass the file to open */
+    initialFilePath?: string;
+    onInitialFilePathConsumed?: () => void;
 }
 
 interface FileWithErrors {
@@ -38,7 +41,7 @@ interface FileWithErrors {
     errors: ParsedError[];
 }
 
-export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: ErrorFileEditorProps) {
+export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initialFilePath, onInitialFilePathConsumed }: ErrorFileEditorProps) {
     const [filesExpanded, setFilesExpanded] = useState(true);
     const [selectedFile, setSelectedFile] = useState<FileWithErrors | null>(null);
     const [fileContent, setFileContent] = useState<string>('');
@@ -109,12 +112,21 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved }: Erro
             .sort((a, b) => b.errors.length - a.errors.length); // Most errors first
     }, [errors, workspacePath, cleanFilePath]);
 
-    // Auto-select first file if none selected
+    // Auto-select: prefer initialFilePath (from Errors tab "Edit"), else first file
     useEffect(() => {
         if (!selectedFile && filesWithErrors.length > 0) {
-            setSelectedFile(filesWithErrors[0]);
+            const cleanInitial = initialFilePath ? cleanFilePath(initialFilePath) : null;
+            const target = cleanInitial
+                ? filesWithErrors.find(
+                    (f) => f.path === cleanInitial || f.path.endsWith('/' + cleanInitial) || cleanInitial.endsWith('/' + f.path)
+                )
+                : null;
+            setSelectedFile(target || filesWithErrors[0]);
+            if (initialFilePath && onInitialFilePathConsumed) {
+                onInitialFilePathConsumed();
+            }
         }
-    }, [filesWithErrors, selectedFile]);
+    }, [filesWithErrors, selectedFile, initialFilePath, onInitialFilePathConsumed, cleanFilePath]);
 
     // Load file content when selected file changes
     useEffect(() => {

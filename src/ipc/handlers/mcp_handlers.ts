@@ -9,9 +9,12 @@ import { resolveConsent } from "../utils/mcp_consent";
 import { getStoredConsent } from "../utils/mcp_consent";
 import { mcpManager } from "../utils/mcp_manager";
 import { CreateMcpServer, McpServerUpdate, McpTool } from "../ipc_types";
+import { fetchUserBudget } from "./pro_handlers";
 
 const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
+
+const MCP_FREE_TIER_LIMIT = 1;
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
@@ -24,6 +27,16 @@ export function registerMcpHandlers() {
   handle(
     "mcp:create-server",
     async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => {
+      const existing = await db.select().from(mcpServers);
+      if (existing.length >= MCP_FREE_TIER_LIMIT) {
+        const budget = await fetchUserBudget();
+        const isPro = budget != null && budget.totalCredits > 0;
+        if (!isPro) {
+          throw new Error(
+            "Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited MCP servers.",
+          );
+        }
+      }
       const { name, transport, command, args, envJson, url, enabled } = params;
       const result = await db
         .insert(mcpServers)
@@ -38,6 +51,21 @@ export function registerMcpHandlers() {
         })
         .returning();
       return result[0];
+    },
+  );
+
+  handle(
+    "mcp:test-connection",
+    async (_event: IpcMainInvokeEvent, serverId: number): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const client = await mcpManager.getClient(serverId);
+        await client.tools();
+        return { ok: true };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        logger.error("MCP test connection failed", e);
+        return { ok: false, error: message };
+      }
     },
   );
 

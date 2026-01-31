@@ -29,6 +29,7 @@ import {
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { clearAllSessionMemories } from "./lib/session-memory";
+import { startModelsDevRefresh } from "./lib/models_dev";
 import fs from "fs";
 
 log.errorHandler.startCatching();
@@ -113,6 +114,10 @@ export async function onReady() {
   // Register workspace cleanup handlers
   registerCleanupHandlers();
   logger.info("Workspace cleanup handlers registered");
+
+  // Start models.dev refresh (dynamic model catalog, OpenCode-style)
+  startModelsDevRefresh();
+  logger.info("Models.dev refresh started");
 
   await onFirstRunMaybe(settings);
   createWindow();

@@ -7,6 +7,8 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
+*Current: v1.8.0 · v2.0 (Phase 6) in progress*
+
 ---
 
 ## ✨ Features
@@ -37,6 +39,32 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Global Prompts** - Apply to all incognito/general chats
 - **Workspace Prompts** - Project-specific AI context and guidelines
 - **Library Page** - Easy management with character counter
+
+### 📋 Smart Diff Preview (v1.5.0)
+- **Hunk View** - Changed sections with ±3 lines of context
+- **Expand All** - Toggle full diff for large files
+- **AI Summary** - Change description at top of each file diff
+- **Permission Queue** - Integrated SmartDiffView for write_file, replace_code, insert_code, delete_lines
+
+### 🔍 Codebase Search Upgrade (v1.5.0)
+- **Natural Language** - "Find the authentication logic" style queries
+- **Results in Context** - ±3 lines of surrounding code per match
+- **Recent Searches** - Dropdown with up to 10 previous queries
+- **Search Tab** - CodebaseSearchBox in Right Panel Search tab
+
+### 💰 Token Budget System (v1.7.5)
+- **Per-provider caps** - Optional token limits in Settings to control API costs
+- **Real-time display** - Color-coded bar (amber 70%+, red 90%+)
+- **Warnings** - "Approaching token limit" at 80%, critical message at 90%
+
+### 📊 Diagram Refinements (v1.7.5)
+- **Smarter tracking** - Fewer refreshes for bug fixes; ±3 files often skip
+- **Version history** - Previous versions dropdown in Diagram tab
+
+### 🛠️ Right Panel Refinements (v1.5.0)
+- **Code Tab** - Edit button opens correct file when switching from Errors tab
+- **Errors Tab** - No stacking; build errors replace, runtime errors preserved
+- **Terminal** - Multi-tab support for backend + frontend dev servers
 
 ### 🔐 Permission System (v0.9.0+)
 - **Tool Approval Flow** - AI proposes changes, you approve before execution
@@ -131,6 +159,12 @@ This ensures you see:
 - ~~**AI Prompt Error** - Message format incompatibility~~ **FIXED**
 - ~~**PlantUML Code Shown** - Raw code visible in DiagramPanel~~ **FIXED**
 - ~~**Workspace Delete Lag** - UI didn't update after deletion~~ **FIXED**
+
+### 🔮 Coming in v2.0 (Phase 6)
+- **Context Bar** - Claude Code-style fillable context; auto-summarize on fill, continue session
+- **Smart Model Routing** - 3-tier favorites (Fast/Balanced/Deep), provider prefs, task-based selection
+- **IDE-like Workspace** - File tree in sidebar, click file → Code tab, collapse on switch
+- **Command Chaining UI** - Visual dependency graph, partial approvals, rollback hints
 
 ---
 

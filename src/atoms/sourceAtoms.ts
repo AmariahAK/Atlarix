@@ -292,6 +292,12 @@ export type BrowserError = ParsedError;
 /** Browser errors captured from the live preview iframe */
 export const browserErrorsAtom = atom<ParsedError[]>([]);
 
+/** When user clicks "Edit" on an error, this file path is set so Code tab opens that file */
+export const selectedErrorFileForCodeAtom = atom<string | null>(null);
+
+/** Recent codebase search queries (max 10, for "Recent Searches" dropdown) */
+export const recentCodeSearchesAtom = atom<string[]>([]);
+
 // ═══════════════════════════════════════════════════════════
 // PANEL HISTORY (for breadcrumb navigation)
 // ═══════════════════════════════════════════════════════════

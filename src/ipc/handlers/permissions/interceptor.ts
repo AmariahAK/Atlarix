@@ -961,6 +961,11 @@ export class PermissionInterceptor extends EventEmitter {
 
         logger.log(`[executeRunCommand] Running: ${preview.command} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
 
+        // Audit log for dangerous commands (rm -rf, sudo, etc.)
+        if (preview.isDangerous) {
+            logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${preview.command}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
+        }
+
         // Emit that command is starting
         this.emit('terminal-output', {
             operationId,

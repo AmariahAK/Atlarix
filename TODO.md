@@ -4,6 +4,77 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## ✅ v1.5.0 - Phase 3 Complete (2026-01-24, Week Before Last)
+
+### Smart Diff Preview ✅
+- [x] Hunks with ±3 lines of context
+- [x] Expand All button for large files
+- [x] AI-generated change summary at top
+- [x] SmartDiffView in PermissionQueuePanel
+- [x] oldContent in edit tools (write_file, replace_code, insert_code, delete_lines)
+
+### Codebase Search Upgrade ✅
+- [x] Natural language search
+- [x] Results in context (±3 lines)
+- [x] Recent Searches dropdown
+- [x] CodebaseSearchBox in Search tab
+
+### Right Panel Refinements ✅
+- [x] Code tab - Edit opens correct file from Errors
+- [x] Errors tab - No stacking, cleared on workspace switch
+- [x] Terminal - Multi-tab for multiple dev servers
+
+---
+
+## ✅ v1.7.5 - Phase 4 Complete (2026-01-31, This Week)
+
+### Diagram Refinements ✅
+- [x] Smarter git tracking (structuralChangeScore 0.8, isMinorBugFix ≤3 files)
+- [x] Capture: debounce 8min, threshold 5 files, lock files excluded
+- [x] Right panel diagram tab - Previous versions dropdown
+
+### Token Budget System ✅
+- [x] Adaptive per-provider token budgets (Settings > AI > Token Budget)
+- [x] Real-time usage display (color-coded TokenBar)
+- [x] Warnings when approaching limit (80%, 90%)
+
+---
+
+## ✅ v1.8.0 - Phase 5 Complete (2026-01-31)
+
+- Memory & Concurrency (10 turns, parallel read-only tools)
+- Workspace Snapshots (Pro)
+- DB migrations run on app start (drizzle migrate)
+
+---
+
+## 🚧 Phase 6 - Planned (→ v2.0)
+
+### Context Bar + Auto-Summarize (Claude Code style)
+- [ ] Replace fixed exchange limits with fillable context bar
+- [ ] When bar fills (model/provider + query + tools): AI summarizes, resets, continues
+- [ ] New session = forget (ephemeral chats stay ephemeral)
+
+### Smart Model Routing
+- [ ] 3-tier favorites per provider (Fast ⚡ / Balanced ⚖️ / Deep 🧠)
+- [ ] Provider preference order (drag to reorder)
+- [ ] Task-based routing (coding→Anthropic, research→Gemini, etc.)
+- [ ] Auto = smart selection + fallback on provider failure
+
+### IDE-like Workspace
+- [ ] File tree in sidebar (single-click expand, double-click chat)
+- [ ] Click file → opens in Code tab
+- [ ] Collapse previous workspace when switching
+
+### Command Chaining UI
+- [ ] Visual dependency graph (commands as nodes)
+- [ ] Partial/selective approvals
+- [ ] Mid-chain failure handling with rollback hints
+
+*Session 2026-01-31: Phase 5 complete, v1.8.0 released. Phase 6 scoped for next session.*
+
+---
+
 ## ✅ v0.9.19 - Language Detection & Setup UI (Complete)
 
 ### Language Detection System ✅
@@ -55,7 +126,7 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🚧 v1.0.0 - Business Logic (Next)
+## ✅ v1.0.0 - Business Logic (Complete)
 
 ### Authentication ✅
 - [x] Choose provider (Supabase)
@@ -637,5 +708,5 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 
 ---
 
-**Last Updated**: 2026-01-17
-**Version**: v1.0.0 (First Major Release)
+**Last Updated**: 2026-01-31
+**Version**: v1.8.0 (Phase 5 Complete)

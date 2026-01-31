@@ -169,6 +169,13 @@
       "when": 1766842309189,
       "tag": "0023_faulty_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1766850000000,
+      "tag": "0024_workspace_snapshots",
+      "breakpoints": true
     }
   ]
 }

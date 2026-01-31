@@ -12,6 +12,8 @@ import {
   getLanguageModels,
   getLanguageModelsByProviders,
 } from "../shared/language_model_helpers";
+import { refreshModelsDev, resetModelsDevCache } from "@/lib/models_dev";
+import { invalidateProviderModelCache } from "@/lib/provider_model_fetchers";
 import { db } from "@/db";
 import {
   language_models,
@@ -369,4 +371,16 @@ export function registerLanguageModelHandlers() {
       return getLanguageModelsByProviders();
     },
   );
+
+  handle("models-dev:refresh", async (): Promise<{ success: boolean }> => {
+    try {
+      invalidateProviderModelCache();
+      resetModelsDevCache();
+      await refreshModelsDev();
+      return { success: true };
+    } catch (e) {
+      logger.warn("models-dev refresh failed", e);
+      return { success: false };
+    }
+  });
 }

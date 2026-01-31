@@ -187,14 +187,16 @@ export function useRightPanelContext(): RightPanelContextResult {
                 proposals,
                 diagramState,
                 terminalOutput,
+                terminalOutputs,
                 toolTimeline,
                 devServerUrl,
                 browserErrors,
                 workspacePath: currentApp?.path || '',
+                appId: currentApp?.id ?? null,
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
@@ -237,10 +239,12 @@ function getDataForType(
         proposals: any[];
         diagramState: any;
         terminalOutput: any;
+        terminalOutputs: Map<string, any>;
         toolTimeline: any[];
         devServerUrl: string | null;
         browserErrors: any[];
         workspacePath: string;
+        appId: number | null;
         aiContext?: AIPanelIntentState['context'];
     }
 ) {
@@ -265,25 +269,19 @@ function getDataForType(
         case 'file-diff':
         case 'permission':
             // Include ALL data so tabs work when switching
-            // Permissions view + full access to preview/terminal/diagram/etc
             return {
-                // Permission-specific
                 proposals: state.proposals,
                 chatId: state.aiContext?.chatId,
-                // Preview tab
                 url: state.devServerUrl,
-                // Terminal tab
                 terminal: prepareTerminalOutput(),
+                terminalOutputs: state.terminalOutputs,
                 output: state.terminalOutput?.output,
                 status: state.terminalOutput?.status,
-                // Diagram tab
                 ...state.diagramState,
-                // Errors tab
                 errors: state.browserErrors,
-                // Search tab
                 sources: state.sources,
-                // Code tab
                 workspacePath: state.workspacePath,
+                appId: state.appId,
                 ...state.aiContext
             };
         case 'diagram':
@@ -296,9 +294,11 @@ function getDataForType(
             return {
                 url: state.devServerUrl,
                 terminal: prepareTerminalOutput(),
+                terminalOutputs: state.terminalOutputs,
                 errors: state.browserErrors,
                 sources: state.sources,
                 workspacePath: state.workspacePath,
+                appId: state.appId,
                 ...state.aiContext
             };
         default:

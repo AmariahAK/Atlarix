@@ -286,24 +286,27 @@ ToolRegistry.register({
 
         // Check if file exists (to set type as update vs create)
         let fileType: "create" | "update" = "create";
+        let oldContent: string | undefined;
         if (workspace) {
             try {
-                await fs.promises.access(path.join(workspace, normalizedPath));
+                const fullPath = path.join(workspace, normalizedPath);
+                await fs.promises.access(fullPath);
                 fileType = "update";
+                oldContent = await fs.promises.readFile(fullPath, "utf-8");
             } catch {
                 fileType = "create";
             }
         }
 
         // Return permission request OBJECT (not JSON string!)
-        // This will be detected by the chat stream handler's isPermissionRequest
         return {
             __permission_required: true,
             operation: "write_file",
             preview: {
                 path: normalizedPath,
-                content: content,
-                description: description,
+                content,
+                ...(oldContent !== undefined && { oldContent }),
+                description,
                 type: fileType,
                 lines: content.split("\n").length,
             },

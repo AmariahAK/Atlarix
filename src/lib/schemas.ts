@@ -70,6 +70,9 @@ const providers = [
   "azure",
   "xai",
   "bedrock",
+  "groq",
+  "together",
+  "mistral",
 ] as const;
 
 export const cloudProviders = providers.filter(
@@ -250,6 +253,9 @@ export const UserSettingsSchema = z.object({
   selectedChatMode: ChatModeSchema.optional(),
   acceptedCommunityCode: z.boolean().optional(),
   zoomLevel: ZoomLevelSchema.optional(),
+
+  /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
+  tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),

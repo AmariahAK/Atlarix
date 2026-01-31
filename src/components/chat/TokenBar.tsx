@@ -39,19 +39,40 @@ export function TokenBar({ chatId }: TokenBarProps) {
     systemPromptTokens,
     inputTokens,
     contextWindow,
+    effectiveBudget,
+    budgetSource,
   } = result;
 
-  const percentUsed = Math.min((totalTokens / contextWindow) * 100, 100);
+  const budget = effectiveBudget ?? contextWindow;
+  const percentUsed = Math.min((totalTokens / budget) * 100, 100);
+
+  // Warning levels for display
+  const isWarning = percentUsed >= 70;
+  const isCritical = percentUsed >= 90;
+  const showWarningText = percentUsed >= 80;
 
   // Calculate widths for each token type
-  const messageHistoryPercent = (messageHistoryTokens / contextWindow) * 100;
-  const codebasePercent = (codebaseTokens / contextWindow) * 100;
-  const mentionedAppsPercent = (mentionedAppsTokens / contextWindow) * 100;
-  const systemPromptPercent = (systemPromptTokens / contextWindow) * 100;
-  const inputPercent = (inputTokens / contextWindow) * 100;
+  const messageHistoryPercent = (messageHistoryTokens / budget) * 100;
+  const codebasePercent = (codebaseTokens / budget) * 100;
+  const mentionedAppsPercent = (mentionedAppsTokens / budget) * 100;
+  const systemPromptPercent = (systemPromptTokens / budget) * 100;
+  const inputPercent = (inputTokens / budget) * 100;
 
   return (
     <div className="px-4 pb-2 text-xs" data-testid="token-bar">
+      {showWarningText && (
+        <div
+          className={`mb-1.5 px-2 py-1 rounded text-xs ${
+            isCritical
+              ? "bg-red-500/15 text-red-600 dark:text-red-400"
+              : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          }`}
+        >
+          {isCritical
+            ? "Token limit nearly reached — consider starting a new chat"
+            : "Approaching token limit"}
+        </div>
+      )}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -60,10 +81,23 @@ export function TokenBar({ chatId }: TokenBarProps) {
                 <span>Tokens: {totalTokens.toLocaleString()}</span>
                 <span>
                   {Math.round(percentUsed)}% of{" "}
-                  {(contextWindow / 1000).toFixed(0)}K
+                  {(budget / 1000).toFixed(0)}K
+                  {budgetSource === "override" && (
+                    <span className="text-muted-foreground/70 ml-0.5">
+                      (capped)
+                    </span>
+                  )}
                 </span>
               </div>
-              <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden flex">
+              <div
+                className={`w-full h-1.5 rounded-full overflow-hidden flex ${
+                  isCritical
+                    ? "bg-red-500/20 ring-1 ring-red-500/40"
+                    : isWarning
+                      ? "bg-amber-500/20 ring-1 ring-amber-500/40"
+                      : "bg-muted"
+                }`}
+              >
                 {/* Message history tokens */}
                 <div
                   className="h-full bg-blue-400"

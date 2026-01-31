@@ -313,10 +313,75 @@ function FilesTab({
     );
 }
 
+/** Context lines to show around each hunk */
+const DIFF_CONTEXT_LINES = 3;
+
+/** Max lines before offering "Expand All" (show hunks only when over this) */
+const DIFF_HUNK_THRESHOLD = 50;
+
+type DiffLineType = { type: 'context' | 'add' | 'remove' | 'header'; content: string; oldLineNum?: number; newLineNum?: number };
+
+function DiffLineRow({ line }: { line: DiffLineType }) {
+    return (
+        <div
+            className={cn("flex", line.type === 'header' && "bg-muted/50 border-b border-border")}
+            style={{
+                backgroundColor: line.type === 'add' ? 'var(--diff-add-bg)' : line.type === 'remove' ? 'var(--diff-remove-bg)' : undefined,
+            }}
+        >
+            {line.type !== 'header' && (
+                <div className="flex shrink-0 select-none">
+                    <span
+                        className="w-10 text-right px-1 border-r border-border/30"
+                        style={{
+                            color: line.type === 'add' ? 'var(--diff-add-line)' : line.type === 'remove' ? 'var(--diff-remove-line)' : 'var(--diff-context-text)',
+                        }}
+                    >
+                        {line.type !== 'add' ? line.oldLineNum : ''}
+                    </span>
+                    <span
+                        className="w-10 text-right px-1 border-r border-border/30"
+                        style={{
+                            color: line.type === 'add' ? 'var(--diff-add-line)' : line.type === 'remove' ? 'var(--diff-remove-line)' : 'var(--diff-context-text)',
+                        }}
+                    >
+                        {line.type !== 'remove' ? line.newLineNum : ''}
+                    </span>
+                </div>
+            )}
+            <div className="flex-1 flex">
+                <span
+                    className="w-5 text-center select-none shrink-0 font-bold"
+                    style={{
+                        color: line.type === 'add' ? 'var(--diff-add-text)' : line.type === 'remove' ? 'var(--diff-remove-text)' : 'var(--diff-context-text)',
+                    }}
+                >
+                    {line.type === 'add' && '+'}
+                    {line.type === 'remove' && '-'}
+                    {line.type === 'context' && ' '}
+                </span>
+                <pre
+                    className={cn(
+                        "flex-1 whitespace-pre-wrap break-words px-2 py-0.5",
+                        line.type === 'header' && "text-muted-foreground italic py-1 px-3",
+                    )}
+                    style={{
+                        color: line.type === 'add' ? 'var(--diff-add-text)' : line.type === 'remove' ? 'var(--diff-remove-text)' : line.type === 'context' ? 'var(--diff-context-text)' : undefined,
+                    }}
+                >
+                    {line.content}
+                </pre>
+            </div>
+        </div>
+    );
+}
+
 /**
- * Diff Tab - Unified diff view with +/- line markers
+ * Diff Tab - Unified diff view with +/- line markers, hunks, Expand All, summary at top
  */
 function DiffTab({ proposal }: { proposal: FileProposal | null }) {
+    const [expandAll, setExpandAll] = useState(false);
+
     if (!proposal) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
@@ -402,13 +467,60 @@ function DiffTab({ proposal }: { proposal: FileProposal | null }) {
     const addedCount = diffLines.filter(l => l.type === 'add').length;
     const removedCount = diffLines.filter(l => l.type === 'remove').length;
 
+    // Split into hunks: each hunk = [context] [add/remove block] [context] (max ±DIFF_CONTEXT_LINES)
+    type DiffLine = { type: 'context' | 'add' | 'remove' | 'header'; content: string; oldLineNum?: number; newLineNum?: number };
+    const nonHeaderLines = diffLines.filter((l): l is DiffLine => l.type !== 'header');
+    const hunks: DiffLine[][] = [];
+    let i = 0;
+    while (i < nonHeaderLines.length) {
+        const hunk: DiffLine[] = [];
+        // Skip leading context (keep up to DIFF_CONTEXT_LINES at start of hunk)
+        let contextCount = 0;
+        while (i < nonHeaderLines.length && nonHeaderLines[i].type === 'context' && contextCount < DIFF_CONTEXT_LINES) {
+            hunk.push(nonHeaderLines[i]);
+            i++;
+            contextCount++;
+        }
+        // Skip extra leading context (collapse)
+        while (i < nonHeaderLines.length && nonHeaderLines[i].type === 'context') {
+            i++;
+        }
+        // Take all add/remove until next context block
+        while (i < nonHeaderLines.length && (nonHeaderLines[i].type === 'add' || nonHeaderLines[i].type === 'remove')) {
+            hunk.push(nonHeaderLines[i]);
+            i++;
+        }
+        // Take up to DIFF_CONTEXT_LINES trailing context
+        let trail = 0;
+        while (i < nonHeaderLines.length && nonHeaderLines[i].type === 'context' && trail < DIFF_CONTEXT_LINES) {
+            hunk.push(nonHeaderLines[i]);
+            i++;
+            trail++;
+        }
+        // Skip trailing context beyond DIFF_CONTEXT_LINES
+        while (i < nonHeaderLines.length && nonHeaderLines[i].type === 'context') {
+            i++;
+        }
+        if (hunk.length > 0) hunks.push(hunk);
+    }
+    const headerLines = diffLines.filter(l => l.type === 'header');
+    const useHunks = !expandAll && diffLines.length > DIFF_HUNK_THRESHOLD && hunks.length > 0;
+
     return (
         <div className="flex flex-col h-full">
+            {/* AI-generated change summary at top */}
+            {proposal.description && (
+                <div className="px-3 py-2 bg-muted/50 border-b border-border">
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5">Summary</p>
+                    <p className="text-sm text-foreground">{proposal.description}</p>
+                </div>
+            )}
+
             {/* File Header */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border">
-                <span className="text-sm font-medium">{proposal.path}</span>
+            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border flex-wrap">
+                <span className="text-sm font-medium truncate">{proposal.path}</span>
                 <span className={cn(
-                    "text-xs px-1.5 py-0.5 rounded capitalize",
+                    "text-xs px-1.5 py-0.5 rounded capitalize shrink-0",
                     proposal.operation === 'create' && "bg-green-500/20 text-green-500",
                     proposal.operation === 'modify' && "bg-yellow-500/20 text-yellow-500",
                     proposal.operation === 'delete' && "bg-red-500/20 text-red-500",
@@ -416,99 +528,54 @@ function DiffTab({ proposal }: { proposal: FileProposal | null }) {
                     {proposal.operation}
                 </span>
                 {/* Line change summary */}
-                <div className="ml-auto flex items-center gap-2 text-xs">
+                <div className="ml-auto flex items-center gap-2 text-xs shrink-0">
                     {addedCount > 0 && (
                         <span className="font-mono" style={{ color: 'var(--diff-add-text)' }}>+{addedCount}</span>
                     )}
                     {removedCount > 0 && (
                         <span className="font-mono" style={{ color: 'var(--diff-remove-text)' }}>-{removedCount}</span>
                     )}
+                    {/* Expand All / Collapse */}
+                    {diffLines.length > DIFF_HUNK_THRESHOLD && (
+                        <button
+                            type="button"
+                            onClick={() => setExpandAll((e) => !e)}
+                            className="px-2 py-0.5 rounded border border-border bg-background hover:bg-muted text-xs font-medium"
+                        >
+                            {expandAll ? 'Collapse' : 'Expand All'}
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* Unified Diff View */}
-            <div className="flex-1 overflow-auto font-mono text-xs">
-                {diffLines.map((line, index) => (
+            {/* Unified Diff View (hunks or full) */}
+            <div className="flex-1 overflow-auto font-mono text-xs" data-lang={proposal.path.split('.').pop() || 'text'}>
+                {headerLines.map((line, index) => (
                     <div
-                        key={index}
-                        className={cn(
-                            "flex",
-                            line.type === 'header' && "bg-muted/50 border-b border-border"
-                        )}
+                        key={`h-${index}`}
+                        className={cn("flex", line.type === 'header' && "bg-muted/50 border-b border-border")}
                         style={{
-                            backgroundColor: line.type === 'add'
-                                ? 'var(--diff-add-bg)'
-                                : line.type === 'remove'
-                                    ? 'var(--diff-remove-bg)'
-                                    : undefined
+                            backgroundColor: line.type === 'add' ? 'var(--diff-add-bg)' : line.type === 'remove' ? 'var(--diff-remove-bg)' : undefined,
                         }}
                     >
-                        {/* Line numbers */}
-                        {line.type !== 'header' && (
-                            <div className="flex shrink-0 select-none">
-                                <span
-                                    className="w-10 text-right px-1 border-r border-border/30"
-                                    style={{
-                                        color: line.type === 'add'
-                                            ? 'var(--diff-add-line)'
-                                            : line.type === 'remove'
-                                                ? 'var(--diff-remove-line)'
-                                                : 'var(--diff-context-text)'
-                                    }}
-                                >
-                                    {line.type !== 'add' ? line.oldLineNum : ''}
-                                </span>
-                                <span
-                                    className="w-10 text-right px-1 border-r border-border/30"
-                                    style={{
-                                        color: line.type === 'add'
-                                            ? 'var(--diff-add-line)'
-                                            : line.type === 'remove'
-                                                ? 'var(--diff-remove-line)'
-                                                : 'var(--diff-context-text)'
-                                    }}
-                                >
-                                    {line.type !== 'remove' ? line.newLineNum : ''}
-                                </span>
-                            </div>
-                        )}
-
-                        {/* +/- prefix and content */}
                         <div className="flex-1 flex">
-                            <span
-                                className="w-5 text-center select-none shrink-0 font-bold"
-                                style={{
-                                    color: line.type === 'add'
-                                        ? 'var(--diff-add-text)'
-                                        : line.type === 'remove'
-                                            ? 'var(--diff-remove-text)'
-                                            : 'var(--diff-context-text)'
-                                }}
-                            >
-                                {line.type === 'add' && '+'}
-                                {line.type === 'remove' && '-'}
-                                {line.type === 'context' && ' '}
-                            </span>
-                            <pre
-                                className={cn(
-                                    "flex-1 whitespace-pre-wrap break-words px-2 py-0.5",
-                                    line.type === 'header' && "text-muted-foreground italic py-1 px-3"
-                                )}
-                                style={{
-                                    color: line.type === 'add'
-                                        ? 'var(--diff-add-text)'
-                                        : line.type === 'remove'
-                                            ? 'var(--diff-remove-text)'
-                                            : line.type === 'context'
-                                                ? 'var(--diff-context-text)'
-                                                : undefined
-                                }}
-                            >
-                                {line.content}
-                            </pre>
+                            <span className="w-5 text-center select-none shrink-0 font-bold" style={{ color: 'var(--diff-context-text)' }}> </span>
+                            <pre className="flex-1 whitespace-pre-wrap break-words px-2 py-0.5 text-muted-foreground italic py-1 px-3">{line.content}</pre>
                         </div>
                     </div>
                 ))}
+                {useHunks
+                    ? hunks.map((hunk, hi) => (
+                        <div key={hi} className="border-b border-border/50">
+                            {hunk.map((line, index) => (
+                                <DiffLineRow key={`${hi}-${index}`} line={line} />
+                            ))}
+                        </div>
+                    ))
+                    : diffLines.filter(l => l.type !== 'header').map((line, index) => (
+                        <DiffLineRow key={index} line={line} />
+                    ))
+                }
             </div>
 
             {proposal.description && (

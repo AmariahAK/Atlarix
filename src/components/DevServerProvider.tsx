@@ -53,22 +53,24 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
             });
 
             // Parse output for errors using TerminalIntelligence (3-layer system)
-            // Layer 1: SARIF (if JSON) | Layer 2: Problem Matchers | Layer 3: LLM fallback (not used here)
             const parsedErrors = TerminalIntelligence.parse(payload.output);
 
+            // Always update: replace build/terminal errors with current parse (prevents stacking)
+            // When build succeeds, parsedErrors is empty → clears build errors
+            setBrowserErrors((prev) => {
+                const runtimeErrors = (prev as ParsedError[]).filter((e) => e.framework === 'browser');
+                const uniqueBuildErrors = parsedErrors.length > 0
+                    ? deduplicateErrors([] as any, parsedErrors)
+                    : [];
+                return [...runtimeErrors, ...uniqueBuildErrors] as any;
+            });
             if (parsedErrors.length > 0) {
                 console.log(`[DevServerProvider] Detected ${parsedErrors.length} errors in output`);
-                setBrowserErrors((prev) => {
-                    // Convert Atom format to ParsedError format if needed (they are compatible)
-                    // Deduplicate against existing errors
-                    const uniqueErrors = deduplicateErrors(prev as any, parsedErrors);
-                    return [...prev, ...uniqueErrors] as any;
-                });
             }
         });
 
         return unsubscribe;
-    }, [setTerminalOutputs]);
+    }, [setTerminalOutputs, setBrowserErrors]);
 
     useEffect(() => {
         if (!workspaceId) {
@@ -85,6 +87,7 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
                     console.log(`🛑 [DevServerProvider] Stopping server for workspace ${previousWorkspaceId.current}`);
                     await IpcClient.getInstance().stopDevServer(previousWorkspaceId.current).catch(() => { });
                     setDevServerUrl(null);
+                    setBrowserErrors([]); // Clear errors when switching workspace
                 }
                 previousWorkspaceId.current = workspaceId;
 

@@ -35,6 +35,7 @@ export const CommandOperationPreviewSchema = z.object({
     workingDirectory: z.string().optional().describe("Working directory"),
     description: z.string().describe("What this command does"),
     isDangerous: z.boolean().optional().describe("Whether command is risky"),
+    dangerExplanation: z.string().optional().describe("Plain-English explanation of risks"),
 });
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;

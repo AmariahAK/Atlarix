@@ -171,8 +171,8 @@ export async function decideDiagramAction(
         };
     }
 
-    // CASE 3: Major structural changes
-    if (analysis.structuralChangeScore >= 0.7) {
+    // CASE 3: Major structural changes (raised from 0.7 → 0.8 to reduce false refreshes)
+    if (analysis.structuralChangeScore >= 0.8) {
         return {
             action: 'refresh',
             reason: `Major structural changes (${analysis.newFolders} new folders, ${analysis.newFiles} new files)`,
@@ -180,7 +180,7 @@ export async function decideDiagramAction(
         };
     }
 
-    // CASE 4: Minor bug fix (surgical edit)
+    // CASE 4: Minor bug fix (surgical edit or small change)
     if (analysis.isMinorBugFix) {
         return {
             action: 'skip',
@@ -198,8 +198,8 @@ export async function decideDiagramAction(
         };
     }
 
-    // CASE 6: Moderate changes (edge case)
-    if (analysis.structuralChangeScore >= 0.5 && analysis.fileCount >= 3) {
+    // CASE 6: Moderate changes (raised 0.5→0.6, fileCount 3→5 - require more files to refresh)
+    if (analysis.structuralChangeScore >= 0.6 && analysis.fileCount >= 5) {
         return {
             action: 'refresh',
             reason: `Moderate changes detected (${analysis.fileCount} files, score: ${analysis.structuralChangeScore.toFixed(2)})`,
@@ -313,12 +313,12 @@ export function analyzeOperations(operations: ApprovedOperation[]): OperationAna
     // Cap at 1.0
     score = Math.min(score, 1.0);
 
-    // Detect minor bug fix pattern
+    // Detect minor bug fix pattern (broadened: ≤3 files, surgical or few paths)
     const isMinorBugFix = (
-        fileCount <= 2 &&
+        fileCount <= 3 &&
         newFolders === 0 &&
         !scaffoldCommandDetected &&
-        (usedSurgicalTools || affectedPaths.size <= 2)
+        (usedSurgicalTools || affectedPaths.size <= 3)
     );
 
     return {

@@ -8,9 +8,14 @@ import { eq } from "drizzle-orm";
 import {
   LOCAL_PROVIDERS,
   CLOUD_PROVIDERS,
-  MODEL_OPTIONS,
   PROVIDER_TO_ENV_VAR,
 } from "./language_model_constants";
+import { getModelsFromModelsDev } from "../../../lib/models_dev";
+import {
+  fetchModelsFromProvider,
+  supportsProviderNativeFetch,
+} from "../../../lib/provider_model_fetchers";
+import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
 
 /**
@@ -133,24 +138,45 @@ export async function getLanguageModels({
     // Continue with empty custom models array
   }
 
-  // If it's a cloud provider, also get the hardcoded models
-  let hardcodedModels: LanguageModel[] = [];
+  // If it's a cloud provider: try provider API first (when key exists), else models.dev
+  let cloudModels: LanguageModel[] = [];
   if (provider.type === "cloud") {
-    if (providerId in MODEL_OPTIONS) {
-      const models = MODEL_OPTIONS[providerId] || [];
-      hardcodedModels = models.map((model) => ({
-        ...model,
-        apiName: model.name,
-        type: "cloud",
-      }));
-    } else {
-      console.warn(
-        `Provider "${providerId}" is cloud type but not found in MODEL_OPTIONS.`,
-      );
+    let apiKey: string | undefined;
+    try {
+      apiKey =
+        (await getProviderApiKey(providerId)) ??
+        (provider.envVarName ? getEnvVar(provider.envVarName) : undefined);
+    } catch {
+      // DB not available (e.g. renderer process)
+    }
+
+    if (
+      apiKey &&
+      supportsProviderNativeFetch(providerId)
+    ) {
+      try {
+        cloudModels = await fetchModelsFromProvider(providerId, apiKey);
+      } catch (error) {
+        console.warn(
+          `[${providerId}] Native fetch failed, falling back to models.dev:`,
+          error,
+        );
+      }
+    }
+
+    if (cloudModels.length === 0) {
+      try {
+        cloudModels = await getModelsFromModelsDev(providerId);
+      } catch (error) {
+        console.warn(
+          `[models.dev] Failed to fetch models for "${providerId}":`,
+          error,
+        );
+      }
     }
   }
 
-  return [...hardcodedModels, ...customModels];
+  return [...cloudModels, ...customModels];
 }
 
 /**

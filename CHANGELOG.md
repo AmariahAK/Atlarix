@@ -2,6 +2,72 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [Unreleased] - v2.0
+### Phase 6 - Planned
+- Context bar with auto-summarize on fill (Claude Code style)
+- Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
+- IDE-like file tree in sidebar
+
+---
+
+## [v1.8.0] - 2026-01-31
+### Phase 5 Complete
+
+#### Memory & Concurrency
+- **Chat turns** - Default 3→10; configurable in Settings (5, 8, 10, 15, 20, 30)
+- **Session memory** - 5→10 exchanges; truncation 300/500→800/1500 chars
+- **MaxChatTurnsSelector** - Now user-configurable dropdown
+
+#### Concurrency
+- **Read-only tools in parallel** - When AI requests multiple read-only tools (read_file, web_search, etc.), they now execute in parallel
+
+#### Workspace Snapshots (Pro)
+- **Save snapshot** - One-click save of files, prompt, diagram, chat history
+- **Restore snapshot** - Restore from any saved snapshot
+- **Pro-gated** - Requires Atlarix Pro subscription
+
+#### Database
+- **Migrations** - Run automatically on app start (drizzle migrate from ./drizzle)
+
+---
+
+## [v1.7.5] - 2026-01-31
+### 🎯 Phase 4 Complete - Atlarix 2.0 Progress (This Week)
+
+#### Phase 4: Diagram Refinements
+- **Smarter tracking** - structuralChangeScore 0.7→0.8, isMinorBugFix broadened (≤3 files)
+- **Less capture churn** - debounce 5→8 min, file threshold 3→5; lock files removed from significant
+- **Diagram version history** - Previous versions dropdown in Diagram tab (workspace snapshots)
+
+#### Phase 4: Token Budget System
+- **Adaptive per-provider budgets** - Optional token caps per provider in Settings (OpenAI, Anthropic, etc.)
+- **Real-time usage display** - TokenBar shows usage vs budget; color-coded bar (amber 70%+, red 90%+)
+- **Warnings** - "Approaching token limit" at 80%; "Token limit nearly reached" at 90%
+
+---
+
+## [v1.5.0] - 2026-01-24
+### 🎯 Phase 3 Complete - Atlarix 2.0 Progress (Week Before Last)
+
+#### Smart Diff Preview
+- **Hunk View** - Changed sections with ±3 lines of context (DIFF_CONTEXT_LINES)
+- **Expand All** - Toggle between hunks and full diff when >50 lines
+- **AI Summary** - Change description at top; fallback to +X -Y line counts
+- **SmartDiffView** - New component in PermissionQueuePanel for file edits
+- **oldContent** - write_file, replace_code, insert_code, delete_lines now pass oldContent for proper diffs
+
+#### Codebase Search Upgrade
+- **Natural Language** - semantic_search accepts "find authentication logic" style queries
+- **Results in Context** - ±3 lines (contextBefore, contextAfter) per match
+- **Recent Searches** - recentCodeSearchesAtom + dropdown (max 10)
+- **Search Tab** - CodebaseSearchBox with search-codebase IPC in Right Panel
+- **deep_search** - Fixed to use semantic_search instead of non-existent search_code
+
+#### Right Panel Refinements
+- **Code Tab** - selectedErrorFileForCodeAtom; Edit button opens correct file
+- **Errors Tab** - Build errors replace (no stacking); runtime errors preserved; cleared on workspace switch
+- **Terminal** - Multi-tab for multiple outputs (backend + frontend dev servers)
+
 ## [v1.0.1] - 2026-01-17
 ### 📦 Build & Release
 - **macOS DMG**: Switched from `.zip` to `.dmg` for macOS releases for easier installation.

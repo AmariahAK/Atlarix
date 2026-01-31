@@ -75,7 +75,9 @@ ToolRegistry.register({
                                 line: index + 1,
                                 content: line.trim(),
                                 score: relevanceScore,
-                                context: getContext(lines, index, 2),
+                                context: getContext(lines, index, 3),
+                                contextBefore: lines.slice(Math.max(0, index - 3), index),
+                                contextAfter: lines.slice(index + 1, Math.min(lines.length, index + 4)),
                             });
                         }
                     });
@@ -86,12 +88,30 @@ ToolRegistry.register({
 
             // Sort by relevance score
             results.sort((a, b) => b.score - a.score);
+            const topResults = results.slice(0, maxResults);
+
+            // Format for AI with ±3 lines context
+            const formatted = topResults
+                .map((r) => {
+                    const relPath = workspace ? path.relative(workspace, r.file) : path.basename(r.file);
+                    const ctxBefore = r.contextBefore || [];
+                    const ctxAfter = r.contextAfter || [];
+                    const lineNum = r.line;
+                    const lines = [
+                        ...ctxBefore.map((l, i) => `  ${lineNum - ctxBefore.length + i}| ${l}`),
+                        `> ${lineNum}| ${r.content}`,
+                        ...ctxAfter.map((l, i) => `  ${lineNum + i + 1}| ${l}`),
+                    ].join("\n");
+                    return `${relPath}:${lineNum}\n${lines}`;
+                })
+                .join("\n\n---\n\n");
 
             return {
                 success: true,
                 query: params.query,
-                results: results.slice(0, maxResults),
+                results: topResults,
                 total_matches: results.length,
+                formatted_with_context: formatted || "No matches found.",
             };
         } catch (error) {
             return {
@@ -243,11 +263,11 @@ ToolRegistry.register({
 
             // Search Code
             if (sources.includes("code")) {
-                const codeSearch = await ToolRegistry.execute("search_code", {
+                const codeSearch = await ToolRegistry.execute("semantic_search", {
                     query: params.query,
                     workspace: params.workspace,
                 });
-                results.code = codeSearch.matches || [];
+                results.code = codeSearch.results || [];
             }
 
             // Search Web
@@ -398,6 +418,23 @@ function getContext(lines: string[], index: number, contextSize: number): string
     const start = Math.max(0, index - contextSize);
     const end = Math.min(lines.length, index + contextSize + 1);
     return lines.slice(start, end);
+}
+
+/** Format search result for display with ±3 lines of context */
+export function formatSearchResultForDisplay(result: {
+    file: string;
+    line: number;
+    content: string;
+    contextBefore?: string[];
+    contextAfter?: string[];
+}): string {
+    const relPath = result.file.includes(process.cwd())
+        ? path.relative(process.cwd(), result.file)
+        : result.file;
+    const before = (result.contextBefore || []).map((l, i) => `  ${result.line - (result.contextBefore!.length - i)}| ${l}`).join("\n");
+    const match = `> ${result.line}| ${result.content}`;
+    const after = (result.contextAfter || []).map((l, i) => `  ${result.line + i + 1}| ${l}`).join("\n");
+    return `${relPath}:${result.line}\n${before}\n${match}\n${after}`;
 }
 
 async function getAllCodeFiles(dir: string): Promise<string[]> {

@@ -400,6 +400,48 @@ async function getRegularModelClient(
         backupModelClients: [],
       };
     }
+    case "togetherai": {
+      const provider = createOpenAICompatible({
+        name: "togetherai",
+        baseURL: "https://api.together.xyz/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "groq": {
+      const provider = createOpenAICompatible({
+        name: "groq",
+        baseURL: "https://api.groq.com/openai/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "mistral": {
+      const provider = createOpenAICompatible({
+        name: "mistral",
+        baseURL: "https://api.mistral.ai/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
     default: {
       // Handle custom providers
       if (providerConfig.type === "custom") {

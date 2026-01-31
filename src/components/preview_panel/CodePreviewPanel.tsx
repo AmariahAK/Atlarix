@@ -8,7 +8,9 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useSetAtom, useAtomValue } from 'jotai';
+import { useQuery } from '@tanstack/react-query';
+import { useSetAtom, useAtomValue, useAtom } from 'jotai';
+import { IpcClient } from '@/ipc/ipc_client';
 import { cn } from '@/lib/utils';
 import {
     RefreshCw,
@@ -26,11 +28,13 @@ import {
     Shield,
     Globe,
     ExternalLink as LinkIcon,
-    Sparkles
+    Sparkles,
+    History
 } from 'lucide-react';
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
-import { type SourceItem, browserErrorsAtom, diagramStateAtom } from '@/atoms/sourceAtoms';
+import { type SourceItem, browserErrorsAtom, diagramStateAtom, selectedErrorFileForCodeAtom } from '@/atoms/sourceAtoms';
+import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
@@ -62,6 +66,8 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
 };
 
 export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
+    const [selectedErrorFile, setSelectedErrorFile] = useAtom(selectedErrorFileForCodeAtom);
+    const currentAppId = (data as { appId?: number })?.appId ?? null;
     const previewUrl = data?.url;
     const currentFile = data?.file;
     const terminalData = data?.terminal;
@@ -80,22 +86,37 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     file={currentFile}
                     errors={errorsData}
                     workspacePath={workspacePath}
+                    selectedErrorFile={selectedErrorFile}
+                    onSelectedErrorFileConsumed={() => setSelectedErrorFile(null)}
                 />
             )}
             {activeTab === 'terminal' && (
-                <TerminalTab data={terminalData} />
+                <TerminalTab data={terminalData} terminalOutputs={data?.terminalOutputs} />
             )}
             {activeTab === 'errors' && (
-                <ErrorsTab errors={errorsData} onClear={onClearErrors} onSolveWithAI={onSolveWithAI} onSolveAllWithAI={onSolveAllWithAI} onSwitchToCode={onSwitchToCode} />
+                <ErrorsTab
+                    errors={errorsData}
+                    onClear={onClearErrors}
+                    onSolveWithAI={onSolveWithAI}
+                    onSolveAllWithAI={onSolveAllWithAI}
+                    onSwitchToCode={onSwitchToCode}
+                    onEditErrorFile={(filePath) => {
+                        setSelectedErrorFile(filePath);
+                        onSwitchToCode?.();
+                    }}
+                />
             )}
             {activeTab === 'permissions' && (
                 <PermissionsTab chatId={chatId} />
             )}
             {activeTab === 'search' && (
-                <SearchTab sources={sourcesData} />
+                <SearchTab
+                    sources={sourcesData}
+                    appId={currentAppId}
+                />
             )}
             {activeTab === 'diagram' && (
-                <DiagramTab />
+                <DiagramTab appId={currentAppId} />
             )}
         </div>
     );
@@ -355,11 +376,15 @@ function PreviewTab({ url }: { url?: string }) {
 function CodeTab({
     file,
     errors = [],
-    workspacePath = ''
+    workspacePath = '',
+    selectedErrorFile = null,
+    onSelectedErrorFileConsumed = () => {},
 }: {
     file?: { path: string; content: string };
     errors?: ParsedError[];
     workspacePath?: string;
+    selectedErrorFile?: string | null;
+    onSelectedErrorFileConsumed?: () => void;
 }) {
     // Check if we have errors with file paths - show editor for those
     const filesWithErrors = errors.filter(e => e.file);
@@ -370,6 +395,8 @@ function CodeTab({
             <ErrorFileEditor
                 errors={errors}
                 workspacePath={workspacePath}
+                initialFilePath={selectedErrorFile || undefined}
+                onInitialFilePathConsumed={onSelectedErrorFileConsumed}
             />
         );
     }
@@ -417,20 +444,52 @@ function CodeTab({
 }
 
 
-/**
- * Terminal Tab - Command output
- */
-function TerminalTab({ data }: { data?: { output: string[]; running: boolean } }) {
-    const outputRef = useRef<HTMLDivElement>(null);
+/** Helper to strip ANSI codes from terminal output */
+function stripAnsi(str: string) {
+    return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
 
-    // Auto-scroll to bottom
+/**
+ * Terminal Tab - Command output with multi-tab support
+ * Shows tabs when multiple commands/servers are running (e.g. backend + frontend)
+ */
+function TerminalTab({
+    data,
+    terminalOutputs,
+}: {
+    data?: { output: string[]; running: boolean };
+    terminalOutputs?: Map<string, { operationId: string; command: string; output: string; status: string; startTime: number }>;
+}) {
+    const outputRef = useRef<HTMLDivElement>(null);
+    const outputs = terminalOutputs && terminalOutputs.size > 0
+        ? Array.from(terminalOutputs.entries())
+            .map(([id, o]) => ({ id, ...o }))
+            .sort((a, b) => b.startTime - a.startTime)
+        : [];
+    const [selectedId, setSelectedId] = useState<string | null>(
+        () => outputs[0]?.operationId ?? null
+    );
+
+    // When outputs change, select first if none selected
+    useEffect(() => {
+        if (outputs.length > 0 && !selectedId) {
+            setSelectedId(outputs[0].operationId);
+        }
+        if (outputs.length > 0 && selectedId && !outputs.some((o) => o.operationId === selectedId)) {
+            setSelectedId(outputs[0].operationId);
+        }
+    }, [outputs, selectedId]);
+
+    const selected = outputs.find((o) => o.operationId === selectedId) ?? outputs[0];
+
+    // Auto-scroll to bottom when selected output changes
     useEffect(() => {
         if (outputRef.current) {
             outputRef.current.scrollTop = outputRef.current.scrollHeight;
         }
-    }, [data?.output]);
+    }, [selected?.output, selected?.operationId]);
 
-    if (!data) {
+    if (outputs.length === 0 && !data) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
                 <Terminal className="w-12 h-12 mb-3 opacity-50" />
@@ -440,26 +499,74 @@ function TerminalTab({ data }: { data?: { output: string[]; running: boolean } }
         );
     }
 
+    // Use selected from Map, or fallback to legacy single data
+    const displayData = selected
+        ? {
+            output: stripAnsi(selected.output || '').split('\n').filter(Boolean),
+            running: selected.status === 'running',
+            command: selected.command,
+        }
+        : data
+            ? { output: data.output, running: data.running, command: 'Command' }
+            : null;
+
+    if (!displayData) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+                <Terminal className="w-12 h-12 mb-3 opacity-50" />
+                <p className="text-sm">No terminal output</p>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col h-full bg-[#1e1e1e]">
-            {/* Terminal Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-700 bg-zinc-900">
-                <div className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-zinc-400" />
-                    <span className="text-sm text-zinc-300">Terminal</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    {data.running ? (
-                        <button className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">
-                            <Square className="w-3 h-3" />
-                            Stop
-                        </button>
-                    ) : (
-                        <span className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500">
-                            <Play className="w-3 h-3" />
-                            Completed
+            {/* Terminal Header with Tabs */}
+            <div className="flex flex-col border-b border-zinc-700 bg-zinc-900">
+                {outputs.length > 1 && (
+                    <div className="flex gap-1 px-2 pt-2 overflow-x-auto">
+                        {outputs.map((o) => (
+                            <button
+                                key={o.operationId}
+                                onClick={() => setSelectedId(o.operationId)}
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 text-xs rounded-t transition-colors shrink-0",
+                                    selectedId === o.operationId
+                                        ? "bg-zinc-800 text-zinc-200"
+                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                )}
+                            >
+                                <Terminal className="w-3 h-3" />
+                                <span className="truncate max-w-[120px]" title={o.command}>
+                                    {o.command.length > 20 ? o.command.slice(0, 17) + '...' : o.command}
+                                </span>
+                                {o.status === 'running' && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <div className="flex items-center justify-between px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <Terminal className="w-4 h-4 text-zinc-400 shrink-0" />
+                        <span className="text-sm text-zinc-300 truncate" title={displayData.command}>
+                            {displayData.command}
                         </span>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {displayData.running ? (
+                            <span className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-green-500/20 text-green-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                                Running
+                            </span>
+                        ) : (
+                            <span className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-500">
+                                <Play className="w-3 h-3" />
+                                Completed
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -468,12 +575,12 @@ function TerminalTab({ data }: { data?: { output: string[]; running: boolean } }
                 ref={outputRef}
                 className="flex-1 overflow-auto p-4 font-mono text-xs text-zinc-300"
             >
-                {data.output.map((line, i) => (
+                {displayData.output.map((line, i) => (
                     <div key={i} className="whitespace-pre-wrap">
                         {line}
                     </div>
                 ))}
-                {data.running && (
+                {displayData.running && (
                     <span className="inline-block w-2 h-4 bg-zinc-300 animate-pulse" />
                 )}
             </div>
@@ -489,13 +596,15 @@ function ErrorsTab({
     onClear,
     onSolveWithAI,
     onSolveAllWithAI,
-    onSwitchToCode
+    onSwitchToCode,
+    onEditErrorFile,
 }: {
     errors: ParsedError[];
     onClear?: () => void;
     onSolveWithAI?: (error: ParsedError) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
     onSwitchToCode?: () => void;
+    onEditErrorFile?: (filePath: string) => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showFixAllDialog, setShowFixAllDialog] = useState(false);
@@ -709,12 +818,16 @@ function ErrorsTab({
                                                         >
                                                             <span>✨ Fix with AI</span>
                                                         </button>
-                                                        {/* Edit button - switches to Code tab for this file */}
-                                                        {onSwitchToCode && error.file && (
+                                                        {/* Edit button - switches to Code tab and opens this file */}
+                                                        {(onEditErrorFile || onSwitchToCode) && error.file && (
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    onSwitchToCode();
+                                                                    if (onEditErrorFile) {
+                                                                        onEditErrorFile(error.file!);
+                                                                    } else {
+                                                                        onSwitchToCode?.();
+                                                                    }
                                                                 }}
                                                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-700/30 text-zinc-300 hover:bg-zinc-700/50 border border-zinc-700/50 transition-colors"
                                                                 title="Edit this file in Code tab"
@@ -843,34 +956,59 @@ function PermissionsTab({ chatId }: { chatId?: number }) {
 }
 
 /**
- * Search Tab - Display web search results from AI
- * Shows URL cards that user can click to view sources
+ * Search Tab - Codebase search + web search results
+ * CodebaseSearchBox with Recent Searches; results shown in context
  */
-function SearchTab({ sources }: { sources: SourceItem[] }) {
-    if (sources.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Globe className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No search results</p>
-                <p className="text-xs">Web search URLs will appear here</p>
-            </div>
-        );
-    }
+function SearchTab({ sources, appId }: { sources: SourceItem[]; appId: number | null }) {
+    const [codeResults, setCodeResults] = useState<{ results: any[]; query: string } | null>(null);
 
     return (
         <div className="flex flex-col h-full bg-background">
-            {/* Header */}
+            {/* Codebase Search (natural language, recent searches) */}
+            <div className="p-3 border-b border-border bg-muted/10">
+                <CodebaseSearchBox
+                    appId={appId}
+                    placeholder="Search codebase... e.g. 'authentication logic'"
+                    onResults={(results, query) => setCodeResults({ results, query })}
+                />
+            </div>
+
+            {/* Code search results (in context with ±3 lines) */}
+            {codeResults && (
+                <div className="flex-1 overflow-y-auto p-3 border-b border-border min-h-0">
+                    <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                        Code: &quot;{codeResults.query}&quot; ({codeResults.results.length} matches)
+                    </h4>
+                    <div className="space-y-3 font-mono text-xs">
+                        {codeResults.results.slice(0, 10).map((r, i) => (
+                            <div key={i} className="rounded border border-border bg-card p-2">
+                                <div className="text-primary mb-1">{r.file?.split(/[/\\]/).pop()}:{r.line}</div>
+                                <pre className="whitespace-pre-wrap text-muted-foreground overflow-x-auto">
+                                    {[...(r.contextBefore || []), r.content, ...(r.contextAfter || [])].join('\n')}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Web Search Results Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
                 <Globe className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">Search Results</span>
+                <span className="text-sm font-medium">Web Results</span>
                 <span className="ml-auto text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
                     {sources.length} source{sources.length !== 1 ? 's' : ''}
                 </span>
             </div>
 
-            {/* Source List */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {sources.map((source) => (
+            {/* Web Source List */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+                {sources.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                        <Globe className="w-10 h-10 mb-2 opacity-40" />
+                        <p className="text-xs">Web search URLs will appear here when AI searches</p>
+                    </div>
+                ) : sources.map((source) => (
                     <a
                         key={source.id}
                         href={source.url}
@@ -920,13 +1058,42 @@ function SearchTab({ sources }: { sources: SourceItem[] }) {
 }
 
 /**
- * Diagram Tab - Shows current workspace diagram
- * Uses diagramStateAtom to display the Mermaid diagram
+ * Diagram Tab - Shows current diagram + previous versions
  */
-function DiagramTab() {
+function DiagramTab({ appId }: { appId: number | null }) {
     const diagramState = useAtomValue(diagramStateAtom);
+    const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
+    const [versionDiagram, setVersionDiagram] = useState<string | null>(null);
 
-    if (!diagramState || !diagramState.code) {
+    const { data: timeline } = useQuery({
+        queryKey: ['diagram-timeline', appId],
+        queryFn: async () => {
+            if (!appId) return { snapshots: [] };
+            return IpcClient.getInstance().getDiagramTimeline({ appId, timeRange: 'all' });
+        },
+        enabled: !!appId,
+    });
+
+    const versions = timeline?.snapshots ?? [];
+
+    useEffect(() => {
+        if (!selectedVersionId) {
+            setVersionDiagram(null);
+            return;
+        }
+        IpcClient.getInstance().getDiagramSnapshot(selectedVersionId).then((snapshot) => {
+            setVersionDiagram(snapshot?.architecture ?? null);
+        });
+    }, [selectedVersionId]);
+
+    const displayCode = selectedVersionId ? versionDiagram : diagramState?.code;
+    const displayTitle = selectedVersionId
+        ? `Version ${versions.find((v: any) => v.id === selectedVersionId)?.id ?? selectedVersionId}`
+        : diagramState?.title;
+
+    const hasCurrent = diagramState?.code;
+    const hasVersions = versions.length > 0;
+    if (!hasCurrent && !selectedVersionId && !hasVersions) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -942,21 +1109,43 @@ function DiagramTab() {
 
     return (
         <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
+            {/* Header + Version selector */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                     <Code2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{diagramState.title || 'Architecture Diagram'}</span>
+                    <span className="text-sm font-medium">{displayTitle || 'Architecture Diagram'}</span>
                 </div>
-                <span className="text-xs text-muted-foreground capitalize">{diagramState.type}</span>
+                {hasVersions && (
+                    <div className="flex items-center gap-1.5">
+                        <History className="w-3.5 h-3.5 text-muted-foreground" />
+                        <select
+                            value={selectedVersionId ?? ''}
+                            onChange={(e) => setSelectedVersionId(e.target.value ? Number(e.target.value) : null)}
+                            className="text-xs rounded border border-border bg-background px-2 py-1"
+                        >
+                            <option value="">Current</option>
+                            {versions.map((v: { id: number; createdAt: Date }) => (
+                                <option key={v.id} value={v.id}>
+                                    {new Date(v.createdAt).toLocaleDateString()}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
             </div>
 
             {/* Diagram */}
             <div className="flex-1 overflow-auto p-4">
-                <MermaidRenderer
-                    code={diagramState.code}
-                    className="min-h-[300px]"
-                />
+                {displayCode ? (
+                    <MermaidRenderer
+                        code={displayCode}
+                        className="min-h-[300px]"
+                    />
+                ) : selectedVersionId ? (
+                    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                        Loading...
+                    </div>
+                ) : null}
             </div>
         </div>
     );
