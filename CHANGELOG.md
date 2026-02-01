@@ -8,6 +8,14 @@ All notable changes to Atlarix will be documented in this file.
 - Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
 - IDE-like file tree in sidebar
 
+### Fixes (2026-02-01)
+- **MCP list-servers** – Fixed `SqliteError: no such column: "scope"` by adding a one-time schema fix in DB init: if `mcp_servers` exists without `scope`/`app_id`, columns are added before Drizzle runs.
+- **Right panel in chats** – Chat page header button now toggles the **toolbar right panel** (7-tab: Preview, Code, Diagram, etc.) via `rightPanelVisibleAtom`; button remains chat-only (home with active chat + workspace `/chat`).
+
+### Next session (see TODO.md)
+- Diagram & Atlaflow: add in-app notes (Architecture vs Atlaflow; Generate Code can update diagram after AI detects big changes).
+- Refine git diagram system: replace current tracking with simple-git–based GitChangeTracker + DiagramUpdateStrategy for accurate update vs regenerate decisions.
+
 ---
 
 ## [v1.8.0] - 2026-01-31

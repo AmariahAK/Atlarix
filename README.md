@@ -33,6 +33,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **"Mini-Git" Functionality** - Tracks live file changes *before* you commit
 - **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
 - **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
+- **Planned:** Git-based diagram system (simple-git) for accurate update vs regenerate; in-app notes for Diagram vs Atlaflow (see TODO.md)
 
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats
@@ -84,10 +85,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Workspace Aware** - Tools automatically resolve paths
 
 ### 🤖 Multi-Provider AI Support
-- **Ollama** - Free, local models (llama3.2, codellama)
-- **LMStudio** - Local models with friendly error messages
-- **OpenRouter** - Cloud access to 100+ models (including MiniMax 2.1)
-- **Model Name Display** - See which model generated each response
+8 cloud providers with native model fetch + tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **OpenRouter**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local models. Model name displayed per response.
 
 ### 🧠 Smart Context System (NEW in v0.9.14!)
 - **AGENTS.md Reference** - Single source of truth for all 57 tools

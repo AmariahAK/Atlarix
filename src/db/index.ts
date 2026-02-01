@@ -67,6 +67,13 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
     logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
   }
 
+  // PRE-MIGRATION FIX: Ensure mcp_servers has scope and app_id (avoids "no such column: scope")
+  try {
+    fixMcpServersSchemaIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error fixing mcp_servers schema (non-fatal, continuing):", error);
+  }
+
   _db = drizzle(sqlite, { schema });
 
   try {
@@ -151,6 +158,33 @@ function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
 
   transaction();
   logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
+}
+
+/**
+ * Ensure mcp_servers has scope and app_id columns (for workspace MCP).
+ * Fixes "SqliteError: no such column: scope" when migration 0026 wasn't applied.
+ */
+function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
+  const tableExists = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'"
+  ).get();
+  if (!tableExists) {
+    return;
+  }
+  const columns = sqlite.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
+  const hasScope = columns.some((c) => c.name === "scope");
+  const hasAppId = columns.some((c) => c.name === "app_id");
+  if (hasScope && hasAppId) {
+    return;
+  }
+  if (!hasScope) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'");
+    logger.log("[Schema Fix] mcp_servers: added scope column");
+  }
+  if (!hasAppId) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN app_id INTEGER");
+    logger.log("[Schema Fix] mcp_servers: added app_id column");
+  }
 }
 
 /**

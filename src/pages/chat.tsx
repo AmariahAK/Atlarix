@@ -11,6 +11,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
+import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { useChats } from "@/hooks/useChats";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 
@@ -18,6 +19,8 @@ export default function ChatPage() {
   let { id: chatId } = useSearch({ from: "/chat" });
   const navigate = useNavigate();
   const [isPreviewOpen, setIsPreviewOpen] = useAtom(isPreviewOpenAtom);
+  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const [isResizing, setIsResizing] = useState(false);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
@@ -47,15 +50,8 @@ export default function ChatPage() {
         <div className="h-full w-full min-h-0">
           <ChatPanel
             chatId={chatId}
-            isPreviewOpen={isPreviewOpen}
-            onTogglePreview={() => {
-              setIsPreviewOpen(!isPreviewOpen);
-              if (isPreviewOpen) {
-                ref.current?.collapse();
-              } else {
-                ref.current?.expand();
-              }
-            }}
+            isPreviewOpen={rightPanelVisible}
+            onTogglePreview={() => setRightPanelVisible(!rightPanelVisible)}
           />
         </div>
       </Panel>

@@ -48,30 +48,119 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
+## 📋 Next Session – Diagram & Atlaflow + Git Diagram System
+
+### Diagram & Atlaflow – In-app notes
+- [ ] Add in-app notes in Diagram/Atlaflow UI explaining:
+  - **Architecture** = Mermaid diagram (project structure, components, data flow).
+  - **Atlaflow** = workflow canvas (nodes, triggers, actions).
+  - **Generate Code** from Atlaflow can update the Architecture diagram **after the AI has detected big changes** (not on every small edit).
+
+### Refine Git diagram system (replace current tracking)
+- [ ] **Problem:** Current system tracks files & changes like git for diagram updates, but it’s inaccurate and often wrong.
+- [ ] **Approach:** Use **simple-git** for a proper git-based diagram system.
+  - **Why simple-git:** Lightweight, no native deps, full Git (diff, log, status, blame), Electron-compatible, TypeScript, 7M+ weekly downloads.
+  - **Install:** `npm install simple-git`
+- [ ] **Step 1:** Create `src/lib/diagram/git_change_tracker.ts` – `GitChangeTracker` class:
+  - `analyzeChanges(sinceCommit?)` → `ChangeAnalysis` (totalFiles, filesAdded/Modified/Deleted, linesAdded/Deleted, changePercentage, isArchitecturalChange, changes[]).
+  - Parse uncommitted (status) + committed since baseline (diffSummary); `FileChange` type: path, type A|M|D|R, insertions, deletions, binary.
+  - Helpers: `getDetailedChanges(filePath)`, `getRecentCommits(count)`.
+- [ ] **Step 2:** Create `src/lib/diagram/diagram_update_strategy.ts` – `DiagramUpdateStrategy`:
+  - Thresholds: &lt;5% = minor (skip), 5–15% = update, 15–30% = update with caution, &gt;30% or architectural = regenerate.
+  - `decideDiagramAction(lastDiagramCommit?)` → `DiagramDecision` (action: none | update | regenerate, reason, confidence, changes).
+  - Architectural indicators: package.json change, new folders, config/routes/index changes, &gt;20% files.
+  - `generateUpdatePrompt(changes)` for AI update (use modify_diagram, not generate_diagram).
+- [ ] **Step 3:** Integrate with existing DiagramManager:
+  - `shouldUpdateDiagram(appPath, lastDiagramTimestamp)` using strategy; store/read `lastDiagramCommit` in diagram metadata.
+  - In `_generateDiagram`: if decision action none → return latest; if update → updateExistingDiagram(updatePrompt); else regenerate.
+  - `saveDiagramVersion` with `metadata.gitCommit`, `metadata.updateType`.
+- [ ] **Step 4:** DiagramPanel staleness UI: show decision banner (update vs regenerate), file counts, “Update Diagram” / “Regenerate Diagram” button.
+- [ ] **Outcome:** Bug fixes/typos don’t trigger diagram refresh; real architectural changes trigger regenerate; moderate changes get smart updates.
+
+---
+
 ## 🚧 Phase 6 - Planned (→ v2.0)
 
-### Context Bar + Auto-Summarize (Claude Code style)
-- [ ] Replace fixed exchange limits with fillable context bar
-- [ ] When bar fills (model/provider + query + tools): AI summarizes, resets, continues
-- [ ] New session = forget (ephemeral chats stay ephemeral)
+**Implementation order (by complexity, simplest first):**
 
-### Smart Model Routing
+1. **IDE-like Workspace** (UI-focused, lower risk)
+2. **Smart Model Routing** (settings + logic, medium)
+3. **Context Bar + Auto-Summarize** (most complex: summarization flow, context management)
+
+### 1. IDE-like Workspace (In progress)
+- [x] File tree in sidebar (single-click expand, double-click chat)
+- [x] Click file → opens in Code tab
+- [x] Collapse previous workspace when switching
+
+### 2. Smart Model Routing
 - [ ] 3-tier favorites per provider (Fast ⚡ / Balanced ⚖️ / Deep 🧠)
 - [ ] Provider preference order (drag to reorder)
 - [ ] Task-based routing (coding→Anthropic, research→Gemini, etc.)
 - [ ] Auto = smart selection + fallback on provider failure
+- [ ] Favorites for Ollama and LMStudio (like OpenRouter)
 
-### IDE-like Workspace
-- [ ] File tree in sidebar (single-click expand, double-click chat)
-- [ ] Click file → opens in Code tab
-- [ ] Collapse previous workspace when switching
+### 3. Context Bar + Auto-Summarize (Claude Code style) ✅
+- [x] Replace fixed exchange limits with fillable context bar
+- [x] When bar fills (model/provider + query + tools): AI summarizes, resets, continues
+- [x] New session = forget (ephemeral chats stay ephemeral)
+- [x] **Post-turn compaction** – Run after AI responds (not before user message); uses real token counts
+- [x] **Real token tracking** – Use API usage from onFinish for compaction decisions
+- [x] **Tool output pruning** – Truncate old tool results (8K chars each) to prevent context bloat
+- [x] **OpenCode-style compaction prompt** – Structured continuation (project overview, accomplished, current state, next steps)
 
-### Command Chaining UI
+### Command Chaining UI (Later)
 - [ ] Visual dependency graph (commands as nodes)
 - [ ] Partial/selective approvals
 - [ ] Mid-chain failure handling with rollback hints
 
-*Session 2026-01-31: Phase 5 complete, v1.8.0 released. Phase 6 scoped for next session.*
+**Providers with native model fetch + tool calling (8):** openai, anthropic, google, openrouter, groq, togetherai, mistral, xai (+ ollama, lmstudio local)
+
+*Session 2026-01-31: Phase 5 complete, v1.8.0 released. Phase 6 scoped.*
+
+---
+
+## 🚧 Workflow-as-Prompt (v2+) – n8n-style
+
+**Concept:** Instead of long text prompts, users create **node-based workflows** (like n8n) that encode intent. The AI reads the workflow (structure + nodes + connections) as the "prompt," reducing tokens and improving clarity.
+
+### Phase 1: JSON Workflow Import ✅
+- [x] Parse n8n/Zapier JSON from chat
+- [x] Infer tech stack from nodes
+- [x] Generate AI prompt from workflow
+- [x] Wire into chat_stream_handlers + chat_only_handlers
+
+### Phase 1b: n8n-node-definitions (no hardcoding) ✅
+### Phase 1c: Credential mappings from n8n source ✅
+- [x] Fetch credential defs from n8n-io/n8n GitHub
+- [x] Parse .credentials.ts → extract properties
+- [x] Auto-generate env vars from property names
+- [x] Heuristic package inference
+- [x] Remove hardcoded CREDENTIAL_MAPPINGS
+- [x] Fetch node defs from DecayAI/n8n-node-definitions on demand
+- [x] Credential→env/package map (small manual layer)
+- [x] Project→workflow inference (package.json deps → nodes)
+- [x] Diagram + workflow produced when reading project
+- [x] Architecture | Workflow toggle in Diagram tab
+
+### Phase 2: Native Workflow Builder (v2.2) – Atlaflow ✅
+- [x] Renamed workflow feature to **Atlaflow**
+- [x] ReactFlow integration in Diagram tab
+- [x] Node library (Webhook, Postgres, Stripe, OpenAI, SendGrid, etc.)
+- [x] Visual editor – drag nodes, connect, Export/Import JSON
+
+### Phase 3: Diff-Based Updates (v2.3)
+- [ ] Workflow version tracking
+- [ ] Change detection algorithm
+- [ ] Auto-generate update prompts
+
+### Phase 4: Template Library (v2.4)
+- [ ] Pre-built workflow templates
+- [ ] Import from URL
+
+### Right Panel UX (Before Workflow) ✅
+- [x] Show right panel when workspace selected (before first prompt)
+- [x] Diagram/Preview/Code quick-toggle bar above content
+- [x] Load diagram on workspace select (useLoadApp)
 
 ---
 
