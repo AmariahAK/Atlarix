@@ -157,8 +157,8 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **Live sync** – “Refresh workflow” button reloads from project; after “Generate Code” success, diagram marked stale (banner suggests refresh).
 - [x] **Polyproject** – detectPolyproject (frontend/backend, packages/*, apps/*); inferWorkflowForWorkspace merges workflows with x-offset and _group label.
 - [x] **Optional** – workflowVersion in diagram metadata; appMapToMermaid for diagram-from-AppMap; Import from URL in Atlaflow (Fetch URL).
-- [ ] **Conditionals from code** – Extract if/else (or branching) around routes/handlers into AppMap conditionals so canvas shows branch nodes from source.
-- [ ] **Template library** – Save/load workflow templates (e.g. “API + DB”, “Webhook → Slack”); apply template to workspace or new project.
+- [x] **Conditionals from code** – Extract if/else (or branching) around routes/handlers into AppMap conditionals so canvas shows branch nodes from source. Node/Python extractors emit `AppMapConditional` with synthetic then/else entry points; `app_map_to_atlaflow` / `atlaflow_to_app_map` support Branch node; **Branch** in Atlaflow node library.
+- [x] **Template library** – Save/load workflow templates (e.g. “API + DB”, “Webhook → Slack”); apply template to workspace or new project. DB: `workflow_templates` table, migration 0027. IPC: template-save, template-list, template-get, template-delete. UI: "Save as template" (modal name/description), "Load template" (list + load + delete per row with confirm).
 
 ### Right Panel UX (Before Workflow) ✅
 - [x] Show right panel when workspace selected (before first prompt)
@@ -800,5 +800,5 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 
 ---
 
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-02
 **Version**: v1.8.0 (Phase 5 Complete)

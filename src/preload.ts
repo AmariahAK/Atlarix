@@ -205,6 +205,17 @@ const validInvokeChannels = [
   "diagram:history",
   "diagram:restore",
   "diagram:check-staleness",
+  "diagram:mark-stale",
+  // Workflow / Atlaflow
+  "workflow:load",
+  "workflow:load-messages",
+  "workflow:save-messages",
+  "workflow:generate-code",
+  "workflow:load-splits",
+  "workflow:template-save",
+  "workflow:template-list",
+  "workflow:template-get",
+  "workflow:template-delete",
   // Dev Server (Live Preview)
   "dev-server:is-frontend",
   "dev-server:start",

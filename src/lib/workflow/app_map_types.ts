@@ -46,6 +46,16 @@ export interface AppMapFlow {
   kind: "calls" | "reads" | "writes";
 }
 
+/** Optional conditional/branch: "if X then A else B" (for round-trip and diagram) */
+export interface AppMapConditional {
+  id: string;
+  label?: string;
+  condition?: string;
+  thenNode: string;
+  elseNode?: string;
+  nodeId?: string;
+}
+
 /** Frontend: screens/pages (for full-stack app map) */
 export interface AppMapScreen {
   id: string;
@@ -62,6 +72,8 @@ export interface AppMap {
   dataSources: AppMapDataSource[];
   flows?: AppMapFlow[];
   screens?: AppMapScreen[];
+  /** Optional: conditionals/branching for round-trip */
+  conditionals?: AppMapConditional[];
   /** Optional: global prompt / instructions for codegen */
   globalPrompt?: string;
 }

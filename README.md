@@ -34,7 +34,9 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
 - **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
 - **Git-based diagram system** – simple-git for update vs regenerate; in-app notes for Architecture vs Atlaflow (see TODO.md)
-- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. Node/Bun + Python extractors and codegen; polyproject splits; conditionals (type + round-trip). Up next: conditionals from code, workflow template library.
+- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. Node/Bun + Python extractors and codegen; polyproject splits.
+- **Conditionals from code** – Extractors detect if/else (and branching) around route handlers; conditionals appear as **Branch** nodes on the Atlaflow canvas so the diagram reflects routing logic from source.
+- **Workflow template library** – In the Atlaflow editor: **Save as template** (name + optional description) stores the current canvas; **Load template** lists saved templates, load one onto the canvas or delete it (with confirmation). Stored in DB (`workflow_templates`); reusable across workspaces (e.g. "API + DB", "Webhook → Slack").
 
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats

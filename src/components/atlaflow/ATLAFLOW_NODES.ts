@@ -36,6 +36,7 @@ export const ATLAFLOW_NODE_LIBRARY: AtlaflowNodeDef[] = [
   // Logic
   { type: "n8n-nodes-base.if", label: "If", category: "action" },
   { type: "n8n-nodes-base.switch", label: "Switch", category: "action" },
+  { type: "atlaflow.branch", label: "Branch", category: "action" },
 
   // Inferred app nodes (all languages — so every user is catered for)
   { type: "atlaflow.reactApp", label: "React App", category: "app" },

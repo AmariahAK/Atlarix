@@ -8,7 +8,18 @@ All notable changes to Atlarix will be documented in this file.
 - Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
 - IDE-like file tree in sidebar
 - **Atlaflow implementation** – Extractors (project → AppMap per language), codegen (AppMap → project), live sync; diagram workflow = your project.
-- **Atlaflow (next)** – Conditionals from code (extract if/else around routes into AppMap conditionals); workflow template library (save/load workflow templates).
+### Atlaflow: Conditionals from code & Template library (2026-02-02)
+
+#### Conditionals from code
+- **Source → AppMap** – Node and Python extractors detect `if`/`else` (and equivalent branching) around route handlers and API logic. Each branch is represented in the AppMap as an `AppMapConditional` with synthetic entry points for "then" and "else" paths.
+- **Types & round-trip** – `AppMapConditional` and branch entry points in `app_map_types.ts`. Converters `app_map_to_atlaflow.ts` and `atlaflow_to_app_map.ts` support the conditional type and the **Branch** node on the Atlaflow canvas.
+- **Canvas** – Atlaflow node library includes a **Branch** node (`ATLAFLOW_BRANCH`). When workflow is inferred from code, conditionals appear as branch nodes so the canvas reflects routing logic from the project.
+
+#### Template library
+- **Database** – New `workflow_templates` table (id, name, description, workflow JSON, created_at, updated_at). Migration `0027_workflow_templates.sql`; migrations run on app start.
+- **IPC** – Four handlers: `workflow:template-save`, `workflow:template-list`, `workflow:template-get`, `workflow:template-delete`. Exposed via preload and `IpcClient` (`saveWorkflowTemplate`, `listWorkflowTemplates`, `getWorkflowTemplate`, `deleteWorkflowTemplate`).
+- **Atlaflow editor UI** – Toolbar: **Save as template** (modal: name, optional description) persists the current canvas workflow. **Load template** lists saved templates; click to load onto canvas (same effect as Import). Each template row has a delete (trash) button on hover with confirmation; list updates in-place after delete.
+- **Use case** – Reusable workflows (e.g. "API + DB", "Webhook → Slack"); save once, load into any workspace or start from a template when building a new project.
 
 ### Atlaflow round-trip (2026-02-02)
 - **AppMap pipeline** – Language-agnostic spec (entry points, data sources, flows, screens) for project ↔ workflow ↔ diagram. `app_map_types.ts`, `app_map_to_atlaflow.ts`, `atlaflow_to_app_map.ts`.

@@ -203,7 +203,29 @@ export const providerApiKeys = sqliteTable("provider_api_keys", {
     .default(sql`(unixepoch())`),
 });
 
-// OpenRouter Favorite Models - Store user's favorite models (max 7)
+// Chat Context Summaries - Phase 6 context bar + auto-summarize
+// One rolling summary per chat; each compaction overwrites the previous
+export const chatContextSummaries = sqliteTable("chat_context_summaries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  chatId: integer("chat_id")
+    .notNull()
+    .unique()
+    .references(() => chats.id, { onDelete: "cascade" }),
+  summaryText: text("summary_text").notNull(),
+  lastMessageId: integer("last_message_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const chatContextSummariesRelations = relations(chatContextSummaries, ({ one }) => ({
+  chat: one(chats, {
+    fields: [chatContextSummaries.chatId],
+    references: [chats.id],
+  }),
+}));
+
+// OpenRouter Favorite Models - Store user's favorite models (max 3: Fast/Balanced/Deep)
 export const openrouterFavorites = sqliteTable("openrouter_favorites", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   modelId: text("model_id").notNull().unique(),
@@ -274,7 +296,6 @@ export const mcpServers = sqliteTable("mcp_servers", {
   name: text("name").notNull(),
   transport: text("transport").notNull(),
   command: text("command"),
-  // Store typed JSON for args and environment variables
   args: text("args", { mode: "json" }).$type<string[] | null>(),
   envJson: text("env_json", { mode: "json" }).$type<Record<
     string,
@@ -284,6 +305,8 @@ export const mcpServers = sqliteTable("mcp_servers", {
   enabled: integer("enabled", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
+  scope: text("scope").notNull().default("global"), // 'global' | 'workspace'
+  appId: integer("app_id").references(() => apps.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -342,6 +365,12 @@ export const diagrams = sqliteTable("diagrams", {
     files?: string[];
     entities?: string[];
     focus?: string;
+    /** Git commit when diagram was saved (for update vs regenerate decision) */
+    gitCommit?: string;
+    /** 'regenerate' | 'update' */
+    updateType?: string;
+    workflow?: { nodes?: unknown[]; connections?: unknown };
+    nodeMessages?: Array<{ nodeId: string; message: string; createdAt: number; updatedAt: number }>;
   } | null>(),
   // Fingerprint fields for staleness detection
   fingerprintHash: text("fingerprint_hash"), // Quick comparison hash
@@ -526,4 +555,21 @@ export const workspaceSnapshots = sqliteTable(
     index("workspace_snapshots_app_id_idx").on(table.appId),
   ]
 );
+
+// --- Workflow Templates (Atlaflow template library) ---
+// Save/load named workflow templates (e.g. "API + DB", "Webhook → Slack")
+export const workflowTemplates = sqliteTable("workflow_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  description: text("description"),
+  workflow: text("workflow", { mode: "json" })
+    .$type<{ nodes: unknown[]; connections: unknown }>()
+    .notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
 

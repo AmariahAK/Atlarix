@@ -4,8 +4,8 @@
  */
 
 import type { AtlaflowWorkflow } from "./atlaflow_converter";
-import type { AppMap, AppMapEntryPoint, AppMapDataSource, AppMapFlow, AppMapScreen, Runtime } from "./app_map_types";
-import { ATLAFLOW_ENTRY, ATLAFLOW_DATA, ATLAFLOW_SCREEN } from "./app_map_to_atlaflow";
+import type { AppMap, AppMapEntryPoint, AppMapDataSource, AppMapFlow, AppMapScreen, AppMapConditional, Runtime } from "./app_map_types";
+import { ATLAFLOW_ENTRY, ATLAFLOW_DATA, ATLAFLOW_SCREEN, ATLAFLOW_BRANCH } from "./app_map_to_atlaflow";
 
 /**
  * Convert AtlaflowWorkflow back to AppMap for codegen.
@@ -19,6 +19,7 @@ export function atlaflowToAppMap(
   const dataSources: AppMapDataSource[] = [];
   const flows: AppMapFlow[] = [];
   const screens: AppMapScreen[] = [];
+  const conditionals: AppMapConditional[] = [];
 
   for (const node of workflow.nodes) {
     const params = node.parameters ?? {};
@@ -50,6 +51,15 @@ export function atlaflowToAppMap(
         path: params.path as string | undefined,
         name: (params.name as string) ?? label,
         file: params.file as string | undefined,
+        nodeId: node.id,
+      });
+    } else if (node.type === ATLAFLOW_BRANCH) {
+      conditionals.push({
+        id: node.id,
+        label: params.label as string | undefined,
+        condition: params.condition as string | undefined,
+        thenNode: params.thenNode as string,
+        elseNode: params.elseNode as string | undefined,
         nodeId: node.id,
       });
     } else {
@@ -92,5 +102,6 @@ export function atlaflowToAppMap(
     dataSources,
     flows,
     ...(screens.length > 0 && { screens }),
+    ...(conditionals.length > 0 && { conditionals }),
   };
 }
