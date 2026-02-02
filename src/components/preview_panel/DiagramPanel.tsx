@@ -10,11 +10,14 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { diagramStateAtom, diagramStalenessAtom, type DiagramState } from '@/atoms/sourceAtoms';
+import { diagramStateAtom, diagramStalenessAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
+import { chatInputValueAtom, homeChatInputValueAtom, activeChatIdAtom } from '@/atoms/chatAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
 import { IpcClient } from '@/ipc/ipc_client';
+import { toast } from 'sonner';
+import { AtlaflowEditor } from "@/components/atlaflow";
 import {
     GitCompare,
     Download,
@@ -47,6 +50,15 @@ interface DiagramVersion {
     createdAt: Date;
 }
 
+interface DiagramRecord {
+    id: number;
+    workspaceId: number | null;
+    type: string;
+    title: string;
+    content: string;
+    metadata?: unknown;
+}
+
 export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
     const [staleness, setStaleness] = useAtom(diagramStalenessAtom);
@@ -56,16 +68,20 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     const [showHistory, setShowHistory] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadingDiagram, setLoadingDiagram] = useState(false);
+    const [diagramViewMode, setDiagramViewMode] = useState<'architecture' | 'workflow'>('architecture');
+    const [allDiagrams, setAllDiagrams] = useState<DiagramRecord[]>([]);
 
-    // Use data from props or atom
-    const diagram = data || diagramState;
+    // Prefer diagramState when we have loaded allDiagrams for this workspace so selector and display stay in sync
+    const diagram = useMemo(() => {
+        if (allDiagrams.length > 0 && diagramState && (diagramState as any).workspaceId === app?.id) {
+            return diagramState;
+        }
+        return data || diagramState;
+    }, [allDiagrams.length, app?.id, diagramState, data]);
 
-    // Load existing diagrams from database when workspace changes
+    // Load ALL diagrams for workspace (same as Diagrams page) so user can switch between them
     useEffect(() => {
         if (!app?.id) return;
-
-        // If we already have a diagram for this workspace, don't reload
-        if (diagram && (diagram as any).workspaceId === app.id) return;
 
         const loadExistingDiagrams = async () => {
             setLoadingDiagram(true);
@@ -74,28 +90,51 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                 const result = await IpcClient.getInstance().listDiagrams({ workspaceId: app.id });
 
                 if (result.success && result.diagrams && result.diagrams.length > 0) {
-                    const firstDiagram = result.diagrams[0];
-                    console.log(`📊 [DiagramPanel] Found ${result.diagrams.length} diagrams, loading first one`);
+                    const diagrams = result.diagrams as DiagramRecord[];
+                    setAllDiagrams(diagrams);
+                    console.log(`📊 [DiagramPanel] Found ${diagrams.length} diagrams`);
+                    // If current diagram is not in the list or from another workspace, show first
+                    const currentInList = diagram && (diagram as any).workspaceId === app.id
+                        ? diagrams.find((d) => d.id === (diagram as any).id)
+                        : null;
+                    const toShow = currentInList || diagrams[0];
+                    const meta = toShow.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                     setDiagramState({
-                        id: firstDiagram.id,
-                        code: firstDiagram.content,
-                        type: firstDiagram.type || 'mermaid',
-                        title: firstDiagram.title,
+                        id: toShow.id,
+                        code: toShow.content ?? '',
+                        type: toShow.type || 'mermaid',
+                        title: toShow.title,
                         compareMode: 'current',
                         workspaceId: app.id,
+                        workflow: meta?.workflow,
                     } as DiagramState);
                 } else {
+                    setAllDiagrams([]);
+                    setDiagramState(null);
                     console.log(`📊 [DiagramPanel] No diagrams found for workspace ${app.id}`);
-                    // Don't clear the atom - might be set from AI generation
                 }
             } catch (error) {
                 console.error('📊 [DiagramPanel] Failed to load diagrams:', error);
+                setAllDiagrams([]);
             } finally {
                 setLoadingDiagram(false);
             }
         };
 
         loadExistingDiagrams();
+    }, [app?.id, setDiagramState]);
+
+    const handleSelectDiagram = useCallback((record: DiagramRecord) => {
+        const meta = record.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
+        setDiagramState({
+            id: record.id,
+            code: record.content ?? '',
+            type: record.type || 'mermaid',
+            title: record.title,
+            compareMode: 'current',
+            workspaceId: app?.id ?? null,
+            workflow: meta?.workflow,
+        } as DiagramState);
     }, [app?.id, setDiagramState]);
 
     // Fetch version history if we have a diagram ID
@@ -122,17 +161,25 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                 title: diagram?.title,
             });
             if (result.success && result.diagram) {
+                const d = result.diagram;
+                const meta = d.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                 setDiagramState({
-                    id: result.diagram.id,
-                    code: result.diagram.content,
-                    type: result.diagram.type || 'mermaid',
-                    title: result.diagram.title,
+                    id: d.id,
+                    code: d.content,
+                    type: d.type || 'mermaid',
+                    title: d.title,
                     compareMode: 'current',
+                    workflow: meta?.workflow,
                 });
                 setStaleness(null); // Clear staleness warning
+                toast.success('Diagram regenerated');
+            } else {
+                const errMsg = (result as { error?: string })?.error ?? 'Regenerate failed';
+                toast.error(errMsg);
             }
         } catch (error) {
             console.error('Failed to refresh diagram:', error);
+            toast.error(error instanceof Error ? error.message : 'Failed to regenerate diagram');
         } finally {
             setIsRefreshing(false);
         }
@@ -176,20 +223,73 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
     }
 
     const hasCompareData = !!(diagram.beforeCode && diagram.afterCode);
+    const workflow = (diagram as DiagramState & { workflow?: { nodes: unknown[]; connections: unknown } }).workflow;
+    const hasWorkflow = true; // Always show Atlaflow tab - build from scratch or edit inferred
 
     return (
         <div className="flex flex-col h-full">
-            {/* Staleness Warning Banner */}
-            {staleness && staleness.isStale && activeTab === 'diagram' && (
+            {/* Diagram selector: all diagrams for this workspace (matches Diagrams page count) */}
+            {activeTab === 'diagram' && allDiagrams.length > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/10">
+                    <span className="text-xs text-muted-foreground">Diagram:</span>
+                    <select
+                        value={String((diagram as any)?.id ?? '')}
+                        onChange={(e) => {
+                            const id = Number(e.target.value);
+                            const record = allDiagrams.find((d) => d.id === id);
+                            if (record) handleSelectDiagram(record);
+                        }}
+                        className="text-xs rounded-md border border-border bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary flex-1 min-w-0"
+                    >
+                        {allDiagrams.map((d) => (
+                            <option key={d.id} value={d.id}>
+                                {d.title} ({d.type || 'mermaid'})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+            {/* Single view selector (Architecture vs Atlaflow) + in-app notes */}
+            {hasWorkflow && activeTab === 'diagram' && (
+                <>
+                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/10">
+                        <span className="text-xs text-muted-foreground">View:</span>
+                        <select
+                            value={diagramViewMode}
+                            onChange={(e) => setDiagramViewMode(e.target.value as 'architecture' | 'workflow')}
+                            className="text-xs rounded-md border border-border bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                            <option value="architecture">Architecture</option>
+                            <option value="workflow">Atlaflow</option>
+                        </select>
+                    </div>
+                    {/* In-app notes: Architecture vs Atlaflow */}
+                    <div className="px-3 py-2 border-b border-border/50 bg-muted/5 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground/90 mb-1">About these views</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                            <li><strong>Architecture</strong> — Mermaid diagram of project structure, components, and data flow.</li>
+                            <li><strong>Atlaflow</strong> — Workflow canvas (nodes, triggers, actions). Edit and &quot;Generate Code&quot; to apply changes; the Architecture diagram can be updated after the AI detects big changes.</li>
+                        </ul>
+                    </div>
+                </>
+            )}
+            {/* Staleness Warning Banner (with git-based Update vs Regenerate when available) */}
+            {staleness && (staleness.isStale || staleness.gitDecision?.action !== 'none') && activeTab === 'diagram' && (
                 <StalenessWarningBanner
                     severity={staleness.severity === 'none' ? 'minor' : staleness.severity}
                     reason={staleness.reason}
                     onRefresh={handleRefreshDiagram}
                     isRefreshing={isRefreshing}
+                    gitDecision={staleness.gitDecision}
                 />
             )}
 
             {activeTab === 'diagram' && (
+                hasWorkflow && diagramViewMode === 'workflow' ? (
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                        <AtlaflowView workflow={workflow ?? { nodes: [], connections: {} }} />
+                    </div>
+                ) : (
                 <DiagramViewer
                     diagram={diagram}
                     compareMode={compareMode}
@@ -199,8 +299,93 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                     showHistory={showHistory}
                     setShowHistory={setShowHistory}
                 />
+                )
             )}
             {activeTab === 'logs' && <DiagramLogs />}
+        </div>
+    );
+}
+
+/**
+ * Atlaflow view - Visual workflow builder powered by workflow loader.
+ */
+function AtlaflowView() {
+    const app = useAtomValue(currentAppAtom);
+    const setChatInput = useSetAtom(chatInputValueAtom);
+    const setHomeInput = useSetAtom(homeChatInputValueAtom);
+    const activeChatId = useAtomValue(activeChatIdAtom);
+    const [initialWorkflow, setInitialWorkflow] = useState<{ nodes: any[]; connections: any } | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const load = async () => {
+            if (!app?.id || !app.path) return;
+            setLoading(true);
+            try {
+                const result = await IpcClient.getInstance().loadWorkflow({
+                    appId: app.id,
+                    workspacePath: app.path,
+                });
+                if (result.success && result.workflow) {
+                    setInitialWorkflow({
+                        nodes: (result.workflow.nodes as any[]) ?? [],
+                        connections: (result.workflow.connections as any) ?? {},
+                    });
+                } else {
+                    setInitialWorkflow({ nodes: [], connections: {} });
+                }
+            } catch (err) {
+                console.error("[AtlaflowView] Failed to load workflow:", err);
+                setInitialWorkflow({ nodes: [], connections: {} });
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, [app?.id, app?.path]);
+
+    const handleExport = useCallback((exported: { nodes: unknown[]; connections: unknown }) => {
+        const json = JSON.stringify(exported, null, 2);
+        navigator.clipboard.writeText(json);
+        toast.success('Atlaflow JSON copied to clipboard.');
+    }, []);
+
+    const handleGenerateCode = useCallback(
+        (workflow: { nodes: unknown[]; connections: unknown }) => {
+            const json = JSON.stringify(workflow, null, 2);
+            if (activeChatId) {
+                setChatInput(json);
+            } else {
+                setHomeInput(json);
+            }
+            toast.success('Atlaflow copied to input. Send to generate code.');
+        },
+        [setChatInput, setHomeInput, activeChatId]
+    );
+
+    if (!app) {
+        return (
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                No workspace selected.
+            </div>
+        );
+    }
+
+    if (loading && !initialWorkflow) {
+        return (
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                Loading workflow from project...
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col min-h-[600px] w-full">
+            <AtlaflowEditor
+                initialWorkflow={initialWorkflow}
+                onExport={handleExport}
+                onGenerateCode={handleGenerateCode}
+            />
         </div>
     );
 }
@@ -212,12 +397,15 @@ function StalenessWarningBanner({
     severity,
     reason,
     onRefresh,
-    isRefreshing
+    isRefreshing,
+    gitDecision,
 }: {
     severity: 'minor' | 'moderate' | 'major';
     reason: string;
     onRefresh: () => void;
     isRefreshing: boolean;
+    /** When workspace is git: update vs regenerate decision for button label */
+    gitDecision?: GitDiagramDecision | null;
 }) {
     const colors = {
         minor: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30',
@@ -230,6 +418,12 @@ function StalenessWarningBanner({
         moderate: 'Project structure has changed.',
         major: 'Significant changes detected!',
     };
+
+    const buttonLabel = gitDecision?.action === 'update'
+        ? (isRefreshing ? 'Updating...' : 'Update Diagram')
+        : gitDecision?.action === 'regenerate'
+            ? (isRefreshing ? 'Regenerating...' : 'Regenerate Diagram')
+            : (isRefreshing ? 'Refreshing...' : 'Refresh Diagram');
 
     return (
         <div className={cn(
@@ -246,25 +440,40 @@ function StalenessWarningBanner({
                     disabled={isRefreshing}
                     className={cn(
                         "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors shrink-0",
-                        severity === 'major'
+                        severity === 'major' || gitDecision?.action === 'regenerate'
                             ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             : "bg-primary text-primary-foreground hover:bg-primary/90",
                         isRefreshing && "opacity-50 cursor-not-allowed"
                     )}
                 >
                     <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
-                    {isRefreshing ? 'Refreshing...' : 'Refresh Diagram'}
+                    {buttonLabel}
                 </button>
             </div>
             <div className="flex items-start gap-2 text-xs opacity-80">
                 <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <span>
-                    Refreshing helps the AI understand your current project structure accurately.
-                    {severity === 'major' && ' Outdated diagrams may cause incorrect suggestions.'}
+                    {gitDecision ? reason : 'Refreshing helps the AI understand your current project structure accurately.'}
+                    {!gitDecision && severity === 'major' && ' Outdated diagrams may cause incorrect suggestions.'}
+                    {gitDecision && gitDecision.totalFiles > 0 && (
+                        <span className="block mt-1">
+                            {gitDecision.totalFiles} file(s) changed (+{gitDecision.linesAdded}/-{gitDecision.linesDeleted} lines).
+                        </span>
+                    )}
                 </span>
             </div>
         </div>
     );
+}
+
+/** Treat as Mermaid if type is mermaid/architecture/flowchart/sequence/class or content looks like Mermaid */
+function isMermaidLike(code: string, type: string): boolean {
+    const t = (type || '').toLowerCase();
+    if (['mermaid', 'architecture', 'flowchart', 'sequence', 'class'].includes(t)) return true;
+    const trimmed = (code || '').trim();
+    if (!trimmed) return false;
+    const first = trimmed.split(/\s/)[0]?.toLowerCase() ?? '';
+    return ['graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 'stateDiagram', 'erDiagram', 'journey', 'gantt'].some((kw) => first.startsWith(kw));
 }
 
 /**
@@ -366,16 +575,19 @@ function DiagramViewer({
                         beforeCode={diagram.beforeCode || ''}
                         afterCode={diagram.afterCode || ''}
                     />
-                ) : diagram.type === 'mermaid' || diagram.type === 'architecture' ||
-                    diagram.type === 'flowchart' || diagram.type === 'sequence' ||
-                    diagram.type === 'class' ? (
+                ) : !(displayCode || '').trim() ? (
+                    <div className="flex flex-col items-center justify-center min-h-[300px] text-muted-foreground p-6">
+                        <Layout className="w-12 h-12 mb-3 opacity-50" />
+                        <p className="text-sm">No diagram content yet</p>
+                        <p className="text-xs mt-1">Generate or restore a diagram to see it here.</p>
+                    </div>
+                ) : isMermaidLike(displayCode, diagram.type) ? (
                     <MermaidRenderer
                         code={displayCode}
                         className="min-h-[300px]"
                         onRender={setRenderedSvg}
                     />
                 ) : (
-                    // Unsupported diagram type fallback
                     <UnsupportedDiagramPreview code={displayCode} type={diagram.type} />
                 )}
             </div>

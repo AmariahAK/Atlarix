@@ -11,13 +11,15 @@ import { previewModeAtom, selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
-import { chatInputValueAtom, activeChatIdAtom, chatMessagesByIdAtom, isStreamingByIdAtom, chatStreamCountByIdAtom } from "@/atoms/chatAtoms";
+import { chatInputValueAtom, activeChatIdAtom } from "@/atoms/chatAtoms";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
+import { WorkspacePanelBar } from "@/components/WorkspacePanelBar";
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom } from "@/atoms/sourceAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { useLoadApp } from "@/hooks/useLoadApp";
 import { PanelRightOpen, PanelRightClose } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -70,14 +72,13 @@ function PersistentChatContainer() {
   return (
     <div
       className={cn(
-        "absolute inset-0 flex z-10 bg-background",
+        "absolute inset-0 flex flex-col z-10 bg-background",
         // Show when on home page AND has active chat
-        // Hidden (but still mounted) when navigated away
         !isHomePage && "hidden"
       )}
     >
-      {/* Main Content Area (Chat) */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      {/* Chat header + content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Sticky header with back button and panel toggle */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
           <button
@@ -118,8 +119,7 @@ function PersistentChatContainer() {
         />
       </div>
 
-      {/* Right Panel - Context-aware preview */}
-      {rightPanelVisible && <RightPanel />}
+      {/* Right Panel rendered at layout level for workspace-without-chat case */}
     </div>
   );
 }
@@ -137,6 +137,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   );
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const activeChatId = useAtomValue(activeChatIdAtom);
+  const location = useLocation();
+  // Diagram | Preview | Code bar only on chat (home with active chat, or /chat)
+  const isOnChatPage = (location.pathname === "/" && !!activeChatId) || location.pathname.startsWith("/chat");
+
+  // Load diagram when workspace is selected (even before first prompt)
+  useLoadApp(selectedAppId);
 
   useEffect(() => {
     const zoomLevel = settings?.zoomLevel ?? DEFAULT_ZOOM_LEVEL;
@@ -214,10 +223,32 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
-              {/* Persistent chat - stays mounted across navigation */}
-              <PersistentChatContainer />
-              {/* Route content */}
-              {children}
+              {/* Top-right panel toggle: always visible when workspace or chat active */}
+              {(selectedAppId || activeChatId) && (
+                <button
+                  type="button"
+                  onClick={() => setRightPanelVisible(!rightPanelVisible)}
+                  className="absolute top-2 right-2 z-20 p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title={rightPanelVisible ? "Hide panel" : "Show panel"}
+                  aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}
+                >
+                  {rightPanelVisible ? (
+                    <PanelRightClose className="w-5 h-5" />
+                  ) : (
+                    <PanelRightOpen className="w-5 h-5" />
+                  )}
+                </button>
+              )}
+              {/* Main content: chat when active, else route content */}
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Workspace panel bar: Diagram | Preview | Code - only on chat page */}
+                {selectedAppId && isOnChatPage && <WorkspacePanelBar />}
+                {/* Chat overlay when active, else route content */}
+                <PersistentChatContainer />
+                {!activeChatId && children}
+              </div>
+              {/* Right panel: show when workspace or chat active (view diagram without first prompt) */}
+              {rightPanelVisible && (activeChatId || selectedAppId) && <RightPanel />}
             </div>
             <Toaster richColors />
           </SidebarProvider>

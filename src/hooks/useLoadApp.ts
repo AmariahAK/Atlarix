@@ -3,7 +3,7 @@ import { useQuery, QueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
 import { currentAppAtom } from "@/atoms/appAtoms";
-import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
+import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom, diagramStalenessAtom, pinnedPanelAtom, type DiagramStalenessWarning } from "@/atoms/sourceAtoms";
 import { App } from "@/ipc/ipc_types";
 
 export function useLoadApp(appId: number | null) {
@@ -12,6 +12,7 @@ export function useLoadApp(appId: number | null) {
   const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
+  const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const loadedAppIdRef = useRef<number | null>(null);
 
   // Fetch app data
@@ -51,45 +52,26 @@ export function useLoadApp(appId: number | null) {
           if (result.success && result.diagrams.length > 0) {
             // Get the most recent diagram
             const latestDiagram = result.diagrams[0];
+            const meta = latestDiagram.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
             setDiagramState({
               id: latestDiagram.id,
               code: latestDiagram.content || '',
               type: latestDiagram.type || 'mermaid',
               title: latestDiagram.title,
               compareMode: 'current',
+              workflow: meta?.workflow,
             });
-            // Auto-open right panel with diagram tab
+            // Auto-open toolbar right panel (code-preview) with Diagram tab selected
+            setPinnedPanel('code-preview');
             setRightPanelVisible(true);
             setPreviewTab('diagram');
             console.log(`[useLoadApp] Loaded diagram for workspace ${appId}: ${latestDiagram.title}`);
 
-            // Check if diagram is stale (external changes detected)
-            if (appData?.path) {
-              try {
-                const stalenessResult = await IpcClient.getInstance().checkDiagramStaleness({
-                  diagramId: latestDiagram.id,
-                  workspacePath: appData.path,
-                });
-
-                if (stalenessResult.success && stalenessResult.staleness) {
-                  const staleness = stalenessResult.staleness;
-                  if (staleness.isStale) {
-                    console.log(`[useLoadApp] Diagram is stale: ${staleness.reason}`);
-                    setDiagramStaleness({
-                      diagramId: latestDiagram.id,
-                      isStale: staleness.isStale,
-                      severity: staleness.severity,
-                      reason: staleness.reason,
-                      recommendation: staleness.recommendation,
-                    });
-                  } else {
-                    setDiagramStaleness(null);
-                  }
-                }
-              } catch (stalenessErr) {
-                console.warn('[useLoadApp] Failed to check diagram staleness:', stalenessErr);
-              }
-            }
+            // Do NOT check staleness on load. Staleness is session-based only: we show the
+            // "diagram is stale" banner when the main process sends diagram:staleness-detected
+            // after file changes in this session (or mid-chat). This avoids showing "stale"
+            // just because the project differs from the diagram's saved git/fingerprint on open.
+            setDiagramStaleness(null);
           } else {
             console.log(`[useLoadApp] No saved diagram for workspace ${appId}. Auto-generating...`);
             setDiagramStaleness(null);
@@ -103,13 +85,17 @@ export function useLoadApp(appId: number | null) {
                 });
 
                 if (generateResult.success && generateResult.diagram) {
+                  const d = generateResult.diagram;
+                  const meta = d.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                   setDiagramState({
-                    id: generateResult.diagram.id,
-                    code: generateResult.diagram.content || '',
-                    type: generateResult.diagram.type || 'mermaid',
-                    title: generateResult.diagram.title || 'Architecture Diagram',
+                    id: d.id,
+                    code: d.content || '',
+                    type: d.type || 'mermaid',
+                    title: d.title || 'Architecture Diagram',
                     compareMode: 'current',
+                    workflow: meta?.workflow,
                   });
+                  setPinnedPanel('code-preview');
                   setRightPanelVisible(true);
                   setPreviewTab('diagram');
                   console.log(`[useLoadApp] Auto-generated diagram for workspace ${appId}`);
@@ -128,7 +114,7 @@ export function useLoadApp(appId: number | null) {
 
       loadDiagram();
     }
-  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness, setRightPanelVisible, setPreviewTab]);
+  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness, setRightPanelVisible, setPreviewTab, setPinnedPanel]);
 
   return { app: appData, loading, error, refreshApp };
 }

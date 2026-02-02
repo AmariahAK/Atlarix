@@ -17,10 +17,22 @@ import { AppChatContext } from "../../lib/schemas";
 import { apps } from "@/db/schema";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
+import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
+import { GitChangeTracker } from "../../lib/diagram/git_change_tracker";
 
 // ============================================
 // TYPES
 // ============================================
+
+/** Git-based diagram decision for Update vs Regenerate (returned with check-staleness when repo is git) */
+export interface GitDiagramDecision {
+    action: "none" | "update" | "regenerate";
+    reason: string;
+    confidence: number;
+    totalFiles: number;
+    linesAdded: number;
+    linesDeleted: number;
+}
 
 export interface DiagramInput {
     workspaceId?: number;
@@ -149,7 +161,19 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             // 6. Generate fingerprint for staleness tracking
             const fingerprint = await generateFingerprint(appPath);
 
-            // 7. Save to DB with fingerprint
+            // 6b. Infer workflow from project (for Diagram tab Workflow mode)
+            let workflowMetadata: { nodes?: unknown[]; connections?: unknown } | undefined;
+            try {
+                const { inferWorkflowFromProject } = await import("../../lib/workflow/project_to_workflow");
+                const inferred = await inferWorkflowFromProject(appPath);
+                if (inferred) {
+                    workflowMetadata = { nodes: inferred.nodes, connections: inferred.connections };
+                }
+            } catch (e) {
+                console.warn("[diagram:generate-ai] Workflow inference skipped:", e);
+            }
+
+            // 7. Save to DB with fingerprint and optional workflow
             const [diagram] = await db
                 .insert(diagrams)
                 .values({
@@ -157,7 +181,10 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     type: "mermaid",
                     title: title || `${app.name} Architecture (AI)`,
                     content,
-                    metadata: { focus: "ai-generated" },
+                    metadata: {
+                        focus: "ai-generated",
+                        ...(workflowMetadata && { workflow: workflowMetadata }),
+                    },
                     fingerprintHash: fingerprint.hash,
                     fingerprintData: fingerprint,
                     createdFromFileCount: fingerprint.fileCount,
@@ -167,11 +194,21 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
             return { success: true, diagram };
 
-        } catch (error) {
+        } catch (error: unknown) {
             console.error("[diagram:generate-ai] Error:", error);
+            let message = error instanceof Error ? error.message : "Unknown error";
+            if (typeof (error as { statusCode?: number })?.statusCode === "number") {
+                const code = (error as { statusCode: number }).statusCode;
+                if (code === 401) message = "API key invalid or user not found. Check your OpenRouter (or selected provider) API key in Settings.";
+                else if (code >= 400 && code < 500) message = `API error (${code}). Check your API key and model in Settings.`;
+            }
+            const msgLower = String(message).toLowerCase();
+            if (msgLower.includes("user not found") || msgLower.includes("401")) {
+                message = "API key invalid or user not found. Check your OpenRouter (or selected provider) API key in Settings.";
+            }
             return {
                 success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
+                error: message,
             };
         }
     }
@@ -216,11 +253,18 @@ ipcMain.handle(
 
 ipcMain.handle(
     "diagram:check-staleness",
-    async (_, { diagramId, workspacePath }: { diagramId: number; workspacePath: string }): Promise<{ success: boolean; staleness?: StalenessCheck; error?: string }> => {
+    async (
+        _,
+        { diagramId, workspacePath }: { diagramId: number; workspacePath: string }
+    ): Promise<{
+        success: boolean;
+        staleness?: StalenessCheck;
+        gitDecision?: GitDiagramDecision;
+        error?: string;
+    }> => {
         try {
             console.log(`📊 [diagram:check-staleness] Checking diagram ${diagramId}`);
 
-            // Get stored diagram
             const [diagram] = await db
                 .select()
                 .from(diagrams)
@@ -230,16 +274,42 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
-            // Check staleness
             const staleness = await checkDiagramStaleness(
                 diagram.fingerprintData,
                 diagram.createdFromFileCount,
                 workspacePath
             );
 
+            // Git-based decision when diagram has last commit and workspace is git
+            let gitDecision: GitDiagramDecision | undefined;
+            const meta = diagram.metadata as { gitCommit?: string } | null | undefined;
+            const lastDiagramCommit = meta?.gitCommit;
+            if (lastDiagramCommit && workspacePath) {
+                try {
+                    const tracker = new GitChangeTracker(workspacePath);
+                    if (await tracker.isGitRepo()) {
+                        const strategy = new DiagramUpdateStrategy(workspacePath);
+                        const decision = await strategy.decideDiagramAction(lastDiagramCommit);
+                        if (decision.action !== "none") {
+                            gitDecision = {
+                                action: decision.action,
+                                reason: decision.reason,
+                                confidence: decision.confidence,
+                                totalFiles: decision.changes.totalFiles,
+                                linesAdded: decision.changes.linesAdded,
+                                linesDeleted: decision.changes.linesDeleted,
+                            };
+                            console.log(`📊 [diagram:check-staleness] Git decision: ${decision.action} (${decision.reason})`);
+                        }
+                    }
+                } catch (gitErr) {
+                    console.warn("[diagram:check-staleness] Git decision skipped:", gitErr);
+                }
+            }
+
             console.log(`📊 [diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
 
-            return { success: true, staleness };
+            return { success: true, staleness, gitDecision };
         } catch (error) {
             console.error("[diagram:check-staleness] Error:", error);
             return {

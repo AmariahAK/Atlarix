@@ -7,14 +7,19 @@ All notable changes to Atlarix will be documented in this file.
 - Context bar with auto-summarize on fill (Claude Code style)
 - Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
 - IDE-like file tree in sidebar
+- **Atlaflow implementation** – Extractors (project → AppMap per language), codegen (AppMap → project), live sync; diagram workflow = your project (see docs/ATLAFLOW_VISION.md).
+
+### Atlaflow round-trip (2026-02-02)
+- **AppMap pipeline** – Language-agnostic spec (entry points, data sources, flows, screens) for project ↔ workflow ↔ diagram. `app_map_types.ts`, `app_map_to_atlaflow.ts`, `atlaflow_to_app_map.ts`.
+- **Docs** – `docs/ATLAFLOW_ROUNDTRIP.md` (pipeline), `docs/ATLAFLOW_VISION.md` (n8n-level detail, polyproject, live sync).
+- **Diagram staleness** – Session-based only; no staleness check on load (banner only after in-session file changes).
+- **Regenerate diagram** – User-friendly API error toasts; 401 → “Check API key in Settings.”
+- **Atlaflow page** – Scroller on Diagram tab when View = Atlaflow; entry/data/screen node types and labels.
+- **Right panel toggle** – Button in top-right when workspace or chat active (layout).
 
 ### Fixes (2026-02-01)
 - **MCP list-servers** – Fixed `SqliteError: no such column: "scope"` by adding a one-time schema fix in DB init: if `mcp_servers` exists without `scope`/`app_id`, columns are added before Drizzle runs.
 - **Right panel in chats** – Chat page header button now toggles the **toolbar right panel** (7-tab: Preview, Code, Diagram, etc.) via `rightPanelVisibleAtom`; button remains chat-only (home with active chat + workspace `/chat`).
-
-### Next session (see TODO.md)
-- Diagram & Atlaflow: add in-app notes (Architecture vs Atlaflow; Generate Code can update diagram after AI detects big changes).
-- Refine git diagram system: replace current tracking with simple-git–based GitChangeTracker + DiagramUpdateStrategy for accurate update vs regenerate decisions.
 
 ---
 

@@ -50,32 +50,32 @@ This file tracks upcoming features, improvements, and known issues.
 
 ## 📋 Next Session – Diagram & Atlaflow + Git Diagram System
 
-### Diagram & Atlaflow – In-app notes
-- [ ] Add in-app notes in Diagram/Atlaflow UI explaining:
+### Diagram & Atlaflow – In-app notes ✅
+- [x] Add in-app notes in Diagram/Atlaflow UI explaining:
   - **Architecture** = Mermaid diagram (project structure, components, data flow).
   - **Atlaflow** = workflow canvas (nodes, triggers, actions).
   - **Generate Code** from Atlaflow can update the Architecture diagram **after the AI has detected big changes** (not on every small edit).
 
-### Refine Git diagram system (replace current tracking)
-- [ ] **Problem:** Current system tracks files & changes like git for diagram updates, but it’s inaccurate and often wrong.
-- [ ] **Approach:** Use **simple-git** for a proper git-based diagram system.
+### Refine Git diagram system (replace current tracking) ✅
+- [x] **Problem:** Current system tracks files & changes like git for diagram updates, but it’s inaccurate and often wrong.
+- [x] **Approach:** Use **simple-git** for a proper git-based diagram system.
   - **Why simple-git:** Lightweight, no native deps, full Git (diff, log, status, blame), Electron-compatible, TypeScript, 7M+ weekly downloads.
   - **Install:** `npm install simple-git`
-- [ ] **Step 1:** Create `src/lib/diagram/git_change_tracker.ts` – `GitChangeTracker` class:
+- [x] **Step 1:** Create `src/lib/diagram/git_change_tracker.ts` – `GitChangeTracker` class:
   - `analyzeChanges(sinceCommit?)` → `ChangeAnalysis` (totalFiles, filesAdded/Modified/Deleted, linesAdded/Deleted, changePercentage, isArchitecturalChange, changes[]).
   - Parse uncommitted (status) + committed since baseline (diffSummary); `FileChange` type: path, type A|M|D|R, insertions, deletions, binary.
   - Helpers: `getDetailedChanges(filePath)`, `getRecentCommits(count)`.
-- [ ] **Step 2:** Create `src/lib/diagram/diagram_update_strategy.ts` – `DiagramUpdateStrategy`:
+- [x] **Step 2:** Create `src/lib/diagram/diagram_update_strategy.ts` – `DiagramUpdateStrategy`:
   - Thresholds: &lt;5% = minor (skip), 5–15% = update, 15–30% = update with caution, &gt;30% or architectural = regenerate.
   - `decideDiagramAction(lastDiagramCommit?)` → `DiagramDecision` (action: none | update | regenerate, reason, confidence, changes).
   - Architectural indicators: package.json change, new folders, config/routes/index changes, &gt;20% files.
   - `generateUpdatePrompt(changes)` for AI update (use modify_diagram, not generate_diagram).
-- [ ] **Step 3:** Integrate with existing DiagramManager:
+- [x] **Step 3:** Integrate with existing DiagramManager:
   - `shouldUpdateDiagram(appPath, lastDiagramTimestamp)` using strategy; store/read `lastDiagramCommit` in diagram metadata.
   - In `_generateDiagram`: if decision action none → return latest; if update → updateExistingDiagram(updatePrompt); else regenerate.
   - `saveDiagramVersion` with `metadata.gitCommit`, `metadata.updateType`.
-- [ ] **Step 4:** DiagramPanel staleness UI: show decision banner (update vs regenerate), file counts, “Update Diagram” / “Regenerate Diagram” button.
-- [ ] **Outcome:** Bug fixes/typos don’t trigger diagram refresh; real architectural changes trigger regenerate; moderate changes get smart updates.
+- [x] **Step 4:** DiagramPanel staleness UI: show decision banner (update vs regenerate), file counts, “Update Diagram” / “Regenerate Diagram” button.
+- [x] **Outcome:** Bug fixes/typos don’t trigger diagram refresh; real architectural changes trigger regenerate; moderate changes get smart updates.
 
 ---
 
@@ -147,15 +147,16 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] ReactFlow integration in Diagram tab
 - [x] Node library (Webhook, Postgres, Stripe, OpenAI, SendGrid, etc.)
 - [x] Visual editor – drag nodes, connect, Export/Import JSON
+- [x] AppMap pipeline – `AppMap` types, `appMapToAtlaflow`, `atlaflowToAppMap`; docs ATLAFLOW_ROUNDTRIP.md, ATLAFLOW_VISION.md
+- [x] Multi-language fallback nodes (React App, Python App, Go, Rust, etc.) so every workspace gets at least one node
+- [x] Staleness session-based only; Regenerate error toasts; Atlaflow page scroller; top-right panel toggle
 
-### Phase 3: Diff-Based Updates (v2.3)
-- [ ] Workflow version tracking
-- [ ] Change detection algorithm
-- [ ] Auto-generate update prompts
-
-### Phase 4: Template Library (v2.4)
-- [ ] Pre-built workflow templates
-- [ ] Import from URL
+### Phase 3: Atlaflow implementation (project → workflow → code)
+- [ ] **Extractors** (per language) – project → AppMap with n8n-level detail (triggers, entry points, data sources, APIs, flows). Start: Node/Express, then Python/FastAPI, then others.
+- [ ] **Codegen** (per language) – AppMap → create/update project files (routes, DB, screens). Start: Node/Express.
+- [ ] **Live sync** – On file save or “Refresh workflow”: re-run extractors, update canvas. On “Apply” from canvas: codegen → update diagram.
+- [ ] **Polyproject** – Two repos in workspace: two workflows on same screen or one workflow with frontend/backend groups.
+- [ ] (Later) Workflow version tracking, template library, import from URL.
 
 ### Right Panel UX (Before Workflow) ✅
 - [x] Show right panel when workspace selected (before first prompt)

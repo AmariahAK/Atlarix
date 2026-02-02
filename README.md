@@ -33,7 +33,8 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **"Mini-Git" Functionality** - Tracks live file changes *before* you commit
 - **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
 - **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
-- **Planned:** Git-based diagram system (simple-git) for accurate update vs regenerate; in-app notes for Diagram vs Atlaflow (see TODO.md)
+- **Git-based diagram system** – simple-git for update vs regenerate; in-app notes for Architecture vs Atlaflow (see TODO.md)
+- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. See `docs/ATLAFLOW_ROUNDTRIP.md` and `docs/ATLAFLOW_VISION.md`.
 
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats
@@ -162,6 +163,7 @@ This ensures you see:
 - **Context Bar** - Claude Code-style fillable context; auto-summarize on fill, continue session
 - **Smart Model Routing** - 3-tier favorites (Fast/Balanced/Deep), provider prefs, task-based selection
 - **IDE-like Workspace** - File tree in sidebar, click file → Code tab, collapse on switch
+- **Atlaflow implementation** - Extractors (project → n8n-level workflow per language), codegen (workflow → code), live sync (prompt → workflow refresh). Diagram workflow = your project. See `docs/ATLAFLOW_VISION.md`.
 - **Command Chaining UI** - Visual dependency graph, partial approvals, rollback hints
 
 ---

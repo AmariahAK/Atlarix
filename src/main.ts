@@ -41,6 +41,10 @@ const logger = log.scope("main");
 // Load environment variables from .env file
 dotenv.config();
 
+// Mitigate GPU SharedImageManager::ProduceSkia errors (Chromium/Electron on some systems)
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+app.commandLine.appendSwitch("disable-software-rasterizer");
+
 // Register IPC handlers before app is ready
 registerIpcHandlers();
 
