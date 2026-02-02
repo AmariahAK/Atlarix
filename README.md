@@ -34,7 +34,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
 - **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
 - **Git-based diagram system** – simple-git for update vs regenerate; in-app notes for Architecture vs Atlaflow (see TODO.md)
-- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. See `docs/ATLAFLOW_ROUNDTRIP.md` and `docs/ATLAFLOW_VISION.md`.
+- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. Node/Bun + Python extractors and codegen; polyproject splits; conditionals (type + round-trip). Up next: conditionals from code, workflow template library.
 
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats
@@ -163,7 +163,7 @@ This ensures you see:
 - **Context Bar** - Claude Code-style fillable context; auto-summarize on fill, continue session
 - **Smart Model Routing** - 3-tier favorites (Fast/Balanced/Deep), provider prefs, task-based selection
 - **IDE-like Workspace** - File tree in sidebar, click file → Code tab, collapse on switch
-- **Atlaflow implementation** - Extractors (project → n8n-level workflow per language), codegen (workflow → code), live sync (prompt → workflow refresh). Diagram workflow = your project. See `docs/ATLAFLOW_VISION.md`.
+- **Atlaflow implementation** – Extractors (project → n8n-level workflow per language), codegen (workflow → code), live sync (prompt → workflow refresh). Diagram workflow = your project.
 - **Command Chaining UI** - Visual dependency graph, partial approvals, rollback hints
 
 ---

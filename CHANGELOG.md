@@ -7,11 +7,12 @@ All notable changes to Atlarix will be documented in this file.
 - Context bar with auto-summarize on fill (Claude Code style)
 - Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
 - IDE-like file tree in sidebar
-- **Atlaflow implementation** – Extractors (project → AppMap per language), codegen (AppMap → project), live sync; diagram workflow = your project (see docs/ATLAFLOW_VISION.md).
+- **Atlaflow implementation** – Extractors (project → AppMap per language), codegen (AppMap → project), live sync; diagram workflow = your project.
+- **Atlaflow (next)** – Conditionals from code (extract if/else around routes into AppMap conditionals); workflow template library (save/load workflow templates).
 
 ### Atlaflow round-trip (2026-02-02)
 - **AppMap pipeline** – Language-agnostic spec (entry points, data sources, flows, screens) for project ↔ workflow ↔ diagram. `app_map_types.ts`, `app_map_to_atlaflow.ts`, `atlaflow_to_app_map.ts`.
-- **Docs** – `docs/ATLAFLOW_ROUNDTRIP.md` (pipeline), `docs/ATLAFLOW_VISION.md` (n8n-level detail, polyproject, live sync).
+- **Atlaflow** – Full support for Node/Bun and Python (extractors + codegen); other runtimes use inference/ecosystem fallback. Polyproject splits; conditionals; diagram-from-AppMap fallback.
 - **Diagram staleness** – Session-based only; no staleness check on load (banner only after in-session file changes).
 - **Regenerate diagram** – User-friendly API error toasts; 401 → “Check API key in Settings.”
 - **Atlaflow page** – Scroller on Diagram tab when View = Atlaflow; entry/data/screen node types and labels.

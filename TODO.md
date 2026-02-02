@@ -147,16 +147,18 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] ReactFlow integration in Diagram tab
 - [x] Node library (Webhook, Postgres, Stripe, OpenAI, SendGrid, etc.)
 - [x] Visual editor – drag nodes, connect, Export/Import JSON
-- [x] AppMap pipeline – `AppMap` types, `appMapToAtlaflow`, `atlaflowToAppMap`; docs ATLAFLOW_ROUNDTRIP.md, ATLAFLOW_VISION.md
+- [x] AppMap pipeline – `AppMap` types, `appMapToAtlaflow`, `atlaflowToAppMap`; round-trip and vision implemented
 - [x] Multi-language fallback nodes (React App, Python App, Go, Rust, etc.) so every workspace gets at least one node
 - [x] Staleness session-based only; Regenerate error toasts; Atlaflow page scroller; top-right panel toggle
 
-### Phase 3: Atlaflow implementation (project → workflow → code)
-- [ ] **Extractors** (per language) – project → AppMap with n8n-level detail (triggers, entry points, data sources, APIs, flows). Start: Node/Express, then Python/FastAPI, then others.
-- [ ] **Codegen** (per language) – AppMap → create/update project files (routes, DB, screens). Start: Node/Express.
-- [ ] **Live sync** – On file save or “Refresh workflow”: re-run extractors, update canvas. On “Apply” from canvas: codegen → update diagram.
-- [ ] **Polyproject** – Two repos in workspace: two workflows on same screen or one workflow with frontend/backend groups.
-- [ ] (Later) Workflow version tracking, template library, import from URL.
+### Phase 3: Atlaflow implementation (project → workflow → code) ✅
+- [x] **Extractors** (per language) – Node/Express (routes + data sources), Python (FastAPI/Django/Flask). Others: add when needed.
+- [x] **Codegen** (Node/Express) – AppMap → atlaflow.generated.routes.js, atlaflow.generated.data.js; optional package.json deps. “Generate Code” runs codegen when workspace selected.
+- [x] **Live sync** – “Refresh workflow” button reloads from project; after “Generate Code” success, diagram marked stale (banner suggests refresh).
+- [x] **Polyproject** – detectPolyproject (frontend/backend, packages/*, apps/*); inferWorkflowForWorkspace merges workflows with x-offset and _group label.
+- [x] **Optional** – workflowVersion in diagram metadata; appMapToMermaid for diagram-from-AppMap; Import from URL in Atlaflow (Fetch URL).
+- [ ] **Conditionals from code** – Extract if/else (or branching) around routes/handlers into AppMap conditionals so canvas shows branch nodes from source.
+- [ ] **Template library** – Save/load workflow templates (e.g. “API + DB”, “Webhook → Slack”); apply template to workspace or new project.
 
 ### Right Panel UX (Before Workflow) ✅
 - [x] Show right panel when workspace selected (before first prompt)
