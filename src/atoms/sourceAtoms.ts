@@ -227,18 +227,32 @@ export interface DiagramState {
     beforeCode?: string;
     afterCode?: string;
     title?: string;
+    /** Inferred workflow (n8n-style) from project - for Diagram tab Workflow mode */
+    workflow?: { nodes: unknown[]; connections: unknown };
 }
 
 /** Current diagram state */
 export const diagramStateAtom = atom<DiagramState | null>(null);
 
 /** Diagram staleness warning - shown when external changes detected */
+/** Git-based decision for Update vs Regenerate (when workspace is git) */
+export interface GitDiagramDecision {
+    action: 'none' | 'update' | 'regenerate';
+    reason: string;
+    confidence: number;
+    totalFiles: number;
+    linesAdded: number;
+    linesDeleted: number;
+}
+
 export interface DiagramStalenessWarning {
     diagramId: number;
     isStale: boolean;
     severity: 'none' | 'minor' | 'moderate' | 'major';
     reason: string;
     recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
+    /** When workspace is git: whether to update existing diagram or regenerate */
+    gitDecision?: GitDiagramDecision;
 }
 
 export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);

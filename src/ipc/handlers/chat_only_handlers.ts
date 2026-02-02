@@ -176,7 +176,17 @@ export async function handleChatOnlyStream(
             ephemeralChats.set(req.chatId, chat);
         }
 
-        // Create user message (in-memory only)
+        // Phase 1 (v2+): Detect workflow JSON (n8n/Zapier) for AI
+        const { processPromptForWorkflow } = await import("../../lib/workflow/workflow_parser");
+        const workflowResult = await processPromptForWorkflow(req.prompt);
+        const workflowEffectivePrompt = workflowResult.wasWorkflow ? workflowResult.prompt : null;
+        if (workflowResult.wasWorkflow && workflowResult.parsed) {
+            logger.log(
+                `Workflow detected (ephemeral): ${workflowResult.parsed.nodes.length} nodes, stack: ${workflowResult.parsed.suggestedStack.backend}`
+            );
+        }
+
+        // Create user message (in-memory only) - store original for display
         const userMessage: Message = {
             id: Date.now(), // Use timestamp as ID
             chatId: req.chatId,
@@ -234,11 +244,15 @@ export async function handleChatOnlyStream(
             };
         }
 
-        // Prepare message history
-        const messageHistory = chat.messages.map((msg) => ({
-            role: msg.role as "user" | "assistant" | "system",
-            content: msg.content,
-        }));
+        // Prepare message history - use workflow-enhanced prompt for AI when detected
+        const lastUserIdx = [...chat.messages].map((m, i) => (m.role === "user" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+        const messageHistory = chat.messages.map((msg, idx) => {
+            let content = msg.content;
+            if (workflowEffectivePrompt && msg.role === "user" && idx === lastUserIdx) {
+                content = workflowEffectivePrompt;
+            }
+            return { role: msg.role as "user" | "assistant" | "system", content };
+        });
 
         // Get session memory for conversation continuity
         // For ephemeral workspace chats, use appId so memory persists across mode switches

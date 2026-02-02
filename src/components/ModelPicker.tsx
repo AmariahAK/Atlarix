@@ -44,6 +44,10 @@ export function ModelPicker() {
   };
 
   const [open, setOpen] = useState(false);
+  const [providersPage, setProvidersPage] = useState(0);
+  const [modelsExpandedProviders, setModelsExpandedProviders] = useState<Set<string>>(new Set());
+  const PROVIDERS_PER_PAGE = 5;
+  const MODELS_PER_PAGE = 25;
 
   // Cloud models from providers
   const { data: modelsByProviders, isLoading: modelsByProvidersLoading } =
@@ -71,16 +75,30 @@ export function ModelPicker() {
   // Favorite OpenRouter models
   const { data: favoriteModelIds = [] } = useFavoriteOpenRouterModels();
 
-  // Load local models when dropdown opens
+  // Local provider favorites (Ollama, LM Studio)
+  const ollamaFavorites =
+    (settings?.providerSettings?.ollama as { favoriteModelIds?: string[] })
+      ?.favoriteModelIds ?? [];
+  const lmStudioFavorites =
+    (settings?.providerSettings?.lmstudio as { favoriteModelIds?: string[] })
+      ?.favoriteModelIds ?? [];
+
+  // Load local models when dropdown opens; reset pagination when closes
   useEffect(() => {
     if (open) {
       loadOllamaModels();
       loadLMStudioModels();
+    } else {
+      setProvidersPage(0);
+      setModelsExpandedProviders(new Set());
     }
   }, [open, loadOllamaModels, loadLMStudioModels]);
 
   // Get display name for the selected model
   const getModelDisplayName = () => {
+    if (selectedModel.provider === "auto") {
+      return "Auto";
+    }
     if (selectedModel.provider === "ollama") {
       return (
         ollamaModels.find(
@@ -167,6 +185,13 @@ export function ModelPicker() {
   if (settings && isAtlarixProEnabled(settings)) {
     primaryProviders.unshift(["auto", TURBO_MODELS]);
   }
+  const allPrimary = primaryProviders;
+  const primaryProvidersPaginated = allPrimary.slice(
+    0,
+    (providersPage + 1) * PROVIDERS_PER_PAGE
+  );
+  const hasMoreProviders =
+    allPrimary.length > primaryProvidersPaginated.length;
   const secondaryProviders = providerEntries.filter(([providerId, models]) => {
     if (models.length === 0) return false;
     const provider = providers?.find((p) => p.id === providerId);
@@ -200,12 +225,45 @@ export function ModelPicker() {
           <TooltipContent>{modelDisplayName}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent
-          className="w-64"
+          className="w-64 max-h-[min(80vh,500px)] flex flex-col"
           align="start"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <DropdownMenuLabel>Cloud Models</DropdownMenuLabel>
+          <DropdownMenuLabel>Select Model</DropdownMenuLabel>
           <DropdownMenuSeparator />
+
+          {/* Auto option - always visible; Pro enables smart routing, else uses first available model */}
+          {settings && (
+            <>
+              <DropdownMenuItem
+                className={
+                  selectedModel.provider === "auto" ? "bg-secondary" : ""
+                }
+                onClick={() => {
+                  const firstAuto = autoModels[0];
+                  // Pro: use turbo/smart routing; non-Pro: use first auto model or "free" for OpenRouter free tier
+                  const modelName =
+                    firstAuto?.apiName ??
+                    (isAtlarixProEnabled(settings) ? "turbo" : "free");
+                  onModelSelect({
+                    name: modelName,
+                    provider: "auto",
+                  });
+                  setOpen(false);
+                }}
+              >
+                <div className="flex flex-col items-start">
+                  <span>Auto</span>
+                  <span className="text-xs text-muted-foreground">
+                    {isAtlarixProEnabled(settings)
+                      ? "Smart model routing"
+                      : "Use default model"}
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
 
           {/* Cloud models - loading state */}
           {loading ? (
@@ -271,8 +329,8 @@ export function ModelPicker() {
                 </>
               )}
 
-              {/* Primary providers */}
-              {primaryProviders.map(([providerId, models]) => {
+              {/* Primary providers (paginated) */}
+              {primaryProvidersPaginated.map(([providerId, models]) => {
                 // Special handling for OpenRouter
                 if (providerId === "openrouter") {
                   // Get favorite models
@@ -294,43 +352,52 @@ export function ModelPicker() {
                             </span>
                           </div>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56 max-h-100 overflow-y-auto">
+                        <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                           <DropdownMenuLabel>Favorite Models</DropdownMenuLabel>
                           <DropdownMenuSeparator />
 
-                          {favoriteModels.map((model) => (
-                            <Tooltip key={`openrouter-fav-${model.apiName}`}>
-                              <TooltipTrigger asChild>
-                                <DropdownMenuItem
-                                  className={
-                                    selectedModel.provider === "openrouter" &&
-                                      selectedModel.name === model.apiName
-                                      ? "bg-secondary"
-                                      : ""
-                                  }
-                                  onClick={() => {
-                                    onModelSelect({
-                                      name: model.apiName,
-                                      provider: "openrouter",
-                                    });
-                                    setOpen(false);
-                                  }}
-                                >
-                                  <div className="flex justify-between items-start w-full">
-                                    <span className="flex flex-col items-start">
-                                      <span>{model.displayName}</span>
-                                    </span>
-                                    <div className="flex items-center gap-1.5">
-                                      <PriceBadge dollarSigns={model.dollarSigns} />
+                          {favoriteModels.map((model, idx) => {
+                            const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                            const tierLabel = idx < 3 ? tierLabels[idx] : null;
+                            return (
+                              <Tooltip key={`openrouter-fav-${model.apiName}`}>
+                                <TooltipTrigger asChild>
+                                  <DropdownMenuItem
+                                    className={
+                                      selectedModel.provider === "openrouter" &&
+                                        selectedModel.name === model.apiName
+                                        ? "bg-secondary"
+                                        : ""
+                                    }
+                                    onClick={() => {
+                                      onModelSelect({
+                                        name: model.apiName,
+                                        provider: "openrouter",
+                                      });
+                                      setOpen(false);
+                                    }}
+                                  >
+                                    <div className="flex justify-between items-start w-full">
+                                      <span className="flex flex-col items-start gap-0.5">
+                                        <span>{model.displayName}</span>
+                                        {tierLabel && (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            {tierLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        <PriceBadge dollarSigns={model.dollarSigns} />
+                                      </div>
                                     </div>
-                                  </div>
-                                </DropdownMenuItem>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">
-                                {model.description}
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
+                                  </DropdownMenuItem>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  {model.description}
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
 
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -409,12 +476,15 @@ export function ModelPicker() {
                         </span>
                       </div>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-56 max-h-100 overflow-y-auto">
+                    <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                       <DropdownMenuLabel>
                         {providerDisplayName + " Models"}
                       </DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      {models.map((model) => (
+                      {(modelsExpandedProviders.has(providerId)
+                        ? models
+                        : models.slice(0, MODELS_PER_PAGE)
+                      ).map((model) => (
                         <Tooltip key={`${providerId}-${model.apiName}`}>
                           <TooltipTrigger asChild>
                             <DropdownMenuItem
@@ -451,10 +521,32 @@ export function ModelPicker() {
                           </TooltipContent>
                         </Tooltip>
                       ))}
+                      {!modelsExpandedProviders.has(providerId) &&
+                        models.length > MODELS_PER_PAGE && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setModelsExpandedProviders((s) =>
+                                new Set(s).add(providerId)
+                              );
+                            }}
+                            className="font-medium text-muted-foreground justify-center"
+                          >
+                            Show more ({models.length - MODELS_PER_PAGE} more)
+                          </DropdownMenuItem>
+                        )}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 );
               })}
+              {hasMoreProviders && (
+                <DropdownMenuItem
+                  onClick={() => setProvidersPage((p) => p + 1)}
+                  className="font-medium text-muted-foreground justify-center"
+                >
+                  Show more providers ({allPrimary.length - primaryProvidersPaginated.length} more)
+                </DropdownMenuItem>
+              )}
 
               {/* Secondary providers grouped under Other AI providers */}
               {secondaryProviders.length > 0 && (
@@ -467,7 +559,7 @@ export function ModelPicker() {
                       </span>
                     </div>
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56">
+                  <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                     <DropdownMenuLabel>Other AI providers</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {secondaryProviders.map(([providerId, models]) => {
@@ -491,13 +583,16 @@ export function ModelPicker() {
                               </span>
                             </div>
                           </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent className="w-56">
+                          <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                             <DropdownMenuLabel>
                               {(provider?.name ?? providerId) + " Models"}
                             </DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            {models.map((model) => (
-                              <Tooltip key={`${providerId}-${model.apiName}`}>
+                            {(modelsExpandedProviders.has(providerId)
+                              ? models
+                              : models.slice(0, MODELS_PER_PAGE)
+                            ).map((model) => (
+                              <Tooltip key={`sec-${providerId}-${model.apiName}`}>
                                 <TooltipTrigger asChild>
                                   <DropdownMenuItem
                                     className={
@@ -534,6 +629,20 @@ export function ModelPicker() {
                                 </TooltipContent>
                               </Tooltip>
                             ))}
+                            {!modelsExpandedProviders.has(providerId) &&
+                              models.length > MODELS_PER_PAGE && (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setModelsExpandedProviders((s) =>
+                                      new Set(s).add(providerId)
+                                    );
+                                  }}
+                                  className="font-medium text-muted-foreground justify-center"
+                                >
+                                  Show more ({models.length - MODELS_PER_PAGE} more)
+                                </DropdownMenuItem>
+                              )}
                           </DropdownMenuSubContent>
                         </DropdownMenuSub>
                       );
@@ -555,84 +664,117 @@ export function ModelPicker() {
                 </span>
               </div>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
+            <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
               {/* Ollama Models SubMenu */}
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger
-                  disabled={ollamaLoading && !hasOllamaModels} // Disable if loading and no models yet
+                  disabled={ollamaLoading && !hasOllamaModels}
                   className="w-full font-normal"
                 >
                   <div className="flex flex-col items-start">
                     <span>Ollama</span>
                     {ollamaLoading ? (
-                      <span className="text-xs text-muted-foreground">
-                        Loading...
-                      </span>
+                      <span className="text-xs text-muted-foreground">Loading...</span>
                     ) : ollamaError ? (
                       <span className="text-xs text-red-500">Error loading</span>
                     ) : !hasOllamaModels ? (
-                      <span className="text-xs text-muted-foreground">
-                        None available
-                      </span>
+                      <span className="text-xs text-muted-foreground">None available</span>
                     ) : (
                       <span className="text-xs text-muted-foreground">
-                        {ollamaModels.length} models
+                        {ollamaFavorites.length > 0
+                          ? `${ollamaFavorites.length} favorites`
+                          : `${ollamaModels.length} models`}
                       </span>
                     )}
                   </div>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-56 max-h-100 overflow-y-auto">
+                <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                   <DropdownMenuLabel>Ollama Models</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-
-                  {ollamaLoading && ollamaModels.length === 0 ? ( // Show loading only if no models are loaded yet
+                  {ollamaLoading && ollamaModels.length === 0 ? (
                     <div className="text-xs text-center py-2 text-muted-foreground">
                       Loading models...
                     </div>
                   ) : ollamaError ? (
                     <div className="px-2 py-1.5 text-sm text-red-600">
-                      <div className="flex flex-col">
-                        <span>Error loading models</span>
-                        <span className="text-xs text-muted-foreground">
-                          Is Ollama running?
-                        </span>
-                      </div>
+                      <span>Error loading models. Is Ollama running?</span>
                     </div>
                   ) : !hasOllamaModels ? (
                     <div className="px-2 py-1.5 text-sm">
-                      <div className="flex flex-col">
-                        <span>No local models found</span>
-                        <span className="text-xs text-muted-foreground">
-                          Ensure Ollama is running and models are pulled.
-                        </span>
-                      </div>
+                      <span>No models found. Ensure Ollama is running.</span>
                     </div>
                   ) : (
-                    ollamaModels.map((model: LocalModel) => (
-                      <DropdownMenuItem
-                        key={`ollama-${model.modelName}`}
-                        className={
-                          selectedModel.provider === "ollama" &&
-                            selectedModel.name === model.modelName
-                            ? "bg-secondary"
-                            : ""
-                        }
-                        onClick={() => {
-                          onModelSelect({
-                            name: model.modelName,
-                            provider: "ollama",
-                          });
-                          setOpen(false);
-                        }}
-                      >
-                        <div className="flex flex-col">
-                          <span>{model.displayName}</span>
-                          <span className="text-xs text-muted-foreground truncate">
-                            {model.modelName}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
+                    <>
+                      {ollamaFavorites
+                        .map((id) => ollamaModels.find((m) => m.modelName === id))
+                        .filter(Boolean)
+                        .map((model, idx) => {
+                          const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                          return (
+                            <DropdownMenuItem
+                              key={`ollama-fav-${model!.modelName}`}
+                              className={
+                                selectedModel.provider === "ollama" &&
+                                selectedModel.name === model!.modelName
+                                  ? "bg-secondary"
+                                  : ""
+                              }
+                              onClick={() => {
+                                onModelSelect({
+                                  name: model!.modelName,
+                                  provider: "ollama",
+                                });
+                                setOpen(false);
+                              }}
+                            >
+                              <div className="flex flex-col gap-0.5">
+                                <span>{model!.displayName}</span>
+                                {idx < 3 && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {tierLabels[idx]}
+                                  </span>
+                                )}
+                              </div>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      {ollamaFavorites.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                            All models
+                          </div>
+                        </>
+                      )}
+                      {ollamaModels
+                        .filter((m) => !ollamaFavorites.includes(m.modelName))
+                        .slice(0, 100)
+                        .map((model: LocalModel) => (
+                          <DropdownMenuItem
+                            key={`ollama-${model.modelName}`}
+                            className={
+                              selectedModel.provider === "ollama" &&
+                              selectedModel.name === model.modelName
+                                ? "bg-secondary"
+                                : ""
+                            }
+                            onClick={() => {
+                              onModelSelect({
+                                name: model.modelName,
+                                provider: "ollama",
+                              });
+                              setOpen(false);
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span>{model.displayName}</span>
+                              <span className="text-xs text-muted-foreground truncate">
+                                {model.modelName}
+                              </span>
+                            </div>
+                          </DropdownMenuItem>
+                        ))}
+                    </>
                   )}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -640,82 +782,113 @@ export function ModelPicker() {
               {/* LM Studio Models SubMenu */}
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger
-                  disabled={lmStudioLoading && !hasLMStudioModels} // Disable if loading and no models yet
+                  disabled={lmStudioLoading && !hasLMStudioModels}
                   className="w-full font-normal"
                 >
                   <div className="flex flex-col items-start">
                     <span>LM Studio</span>
                     {lmStudioLoading ? (
-                      <span className="text-xs text-muted-foreground">
-                        Loading...
-                      </span>
+                      <span className="text-xs text-muted-foreground">Loading...</span>
                     ) : lmStudioError ? (
                       <span className="text-xs text-red-500">Error loading</span>
                     ) : !hasLMStudioModels ? (
-                      <span className="text-xs text-muted-foreground">
-                        None available
-                      </span>
+                      <span className="text-xs text-muted-foreground">None available</span>
                     ) : (
                       <span className="text-xs text-muted-foreground">
-                        {lmStudioModels.length} models
+                        {lmStudioFavorites.length > 0
+                          ? `${lmStudioFavorites.length} favorites`
+                          : `${lmStudioModels.length} models`}
                       </span>
                     )}
                   </div>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-56 max-h-100 overflow-y-auto">
+                <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
                   <DropdownMenuLabel>LM Studio Models</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-
-                  {lmStudioLoading && lmStudioModels.length === 0 ? ( // Show loading only if no models are loaded yet
+                  {lmStudioLoading && lmStudioModels.length === 0 ? (
                     <div className="text-xs text-center py-2 text-muted-foreground">
                       Loading models...
                     </div>
                   ) : lmStudioError ? (
                     <div className="px-2 py-1.5 text-sm text-red-600">
-                      <div className="flex flex-col">
-                        <span>Error loading models</span>
-                        <span className="text-xs text-muted-foreground">
-                          {lmStudioError.message} {/* Display specific error */}
-                        </span>
-                      </div>
+                      <span>Error loading models. {lmStudioError.message}</span>
                     </div>
                   ) : !hasLMStudioModels ? (
                     <div className="px-2 py-1.5 text-sm">
-                      <div className="flex flex-col">
-                        <span>No loaded models found</span>
-                        <span className="text-xs text-muted-foreground">
-                          Ensure LM Studio is running and models are loaded.
-                        </span>
-                      </div>
+                      <span>No models found. Ensure LM Studio is running.</span>
                     </div>
                   ) : (
-                    lmStudioModels.map((model: LocalModel) => (
-                      <DropdownMenuItem
-                        key={`lmstudio-${model.modelName}`}
-                        className={
-                          selectedModel.provider === "lmstudio" &&
-                            selectedModel.name === model.modelName
-                            ? "bg-secondary"
-                            : ""
-                        }
-                        onClick={() => {
-                          onModelSelect({
-                            name: model.modelName,
-                            provider: "lmstudio",
-                          });
-                          setOpen(false);
-                        }}
-                      >
-                        <div className="flex flex-col">
-                          {/* Display the user-friendly name */}
-                          <span>{model.displayName}</span>
-                          {/* Show the path as secondary info */}
-                          <span className="text-xs text-muted-foreground truncate">
-                            {model.modelName}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
+                    <>
+                      {lmStudioFavorites
+                        .map((id) => lmStudioModels.find((m) => m.modelName === id))
+                        .filter(Boolean)
+                        .map((model, idx) => {
+                          const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                          return (
+                            <DropdownMenuItem
+                              key={`lmstudio-fav-${model!.modelName}`}
+                              className={
+                                selectedModel.provider === "lmstudio" &&
+                                selectedModel.name === model!.modelName
+                                  ? "bg-secondary"
+                                  : ""
+                              }
+                              onClick={() => {
+                                onModelSelect({
+                                  name: model!.modelName,
+                                  provider: "lmstudio",
+                                });
+                                setOpen(false);
+                              }}
+                            >
+                              <div className="flex flex-col gap-0.5">
+                                <span>{model!.displayName}</span>
+                                {idx < 3 && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {tierLabels[idx]}
+                                  </span>
+                                )}
+                              </div>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      {lmStudioFavorites.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                            All models
+                          </div>
+                        </>
+                      )}
+                      {lmStudioModels
+                        .filter((m) => !lmStudioFavorites.includes(m.modelName))
+                        .slice(0, 100)
+                        .map((model: LocalModel) => (
+                          <DropdownMenuItem
+                            key={`lmstudio-${model.modelName}`}
+                            className={
+                              selectedModel.provider === "lmstudio" &&
+                              selectedModel.name === model.modelName
+                                ? "bg-secondary"
+                                : ""
+                            }
+                            onClick={() => {
+                              onModelSelect({
+                                name: model.modelName,
+                                provider: "lmstudio",
+                              });
+                              setOpen(false);
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span>{model.displayName}</span>
+                              <span className="text-xs text-muted-foreground truncate">
+                                {model.modelName}
+                              </span>
+                            </div>
+                          </DropdownMenuItem>
+                        ))}
+                    </>
                   )}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>

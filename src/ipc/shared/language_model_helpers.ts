@@ -10,11 +10,11 @@ import {
   CLOUD_PROVIDERS,
   PROVIDER_TO_ENV_VAR,
 } from "./language_model_constants";
-import { getModelsFromModelsDev } from "../../../lib/models_dev";
+import { getModelsFromModelsDev } from "@/lib/models_dev";
 import {
   fetchModelsFromProvider,
   supportsProviderNativeFetch,
-} from "../../../lib/provider_model_fetchers";
+} from "@/lib/provider_model_fetchers";
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
 
@@ -150,10 +150,10 @@ export async function getLanguageModels({
       // DB not available (e.g. renderer process)
     }
 
-    if (
-      apiKey &&
-      supportsProviderNativeFetch(providerId)
-    ) {
+    if (!apiKey) {
+      // No API key: return 0 models (like OpenRouter). Do not show hardcoded models.
+      cloudModels = [];
+    } else if (supportsProviderNativeFetch(providerId)) {
       try {
         cloudModels = await fetchModelsFromProvider(providerId, apiKey);
       } catch (error) {
@@ -161,10 +161,18 @@ export async function getLanguageModels({
           `[${providerId}] Native fetch failed, falling back to models.dev:`,
           error,
         );
+        // Fallback to models.dev only when we have a key but native fetch failed
+        try {
+          cloudModels = await getModelsFromModelsDev(providerId);
+        } catch (devError) {
+          console.warn(
+            `[models.dev] Failed to fetch models for "${providerId}":`,
+            devError,
+          );
+        }
       }
-    }
-
-    if (cloudModels.length === 0) {
+    } else {
+      // Has key but no native fetch - use models.dev
       try {
         cloudModels = await getModelsFromModelsDev(providerId);
       } catch (error) {

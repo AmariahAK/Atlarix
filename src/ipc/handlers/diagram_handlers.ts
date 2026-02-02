@@ -4,7 +4,7 @@
  * Handle diagram CRUD operations, version history, and export
  */
 
-import { ipcMain } from "electron";
+import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
 import { diagrams, diagramVersions } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
@@ -158,14 +158,28 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             }
             content = content.trim();
 
+            // 5b. Fallback: if AI returned empty or invalid, generate from AppMap
+            if (!content || content.length < 10) {
+                try {
+                    const { extractAppMap } = await import("../../lib/workflow/extractors");
+                    const { appMapToMermaid } = await import("../../lib/workflow/app_map_to_mermaid");
+                    const appMap = await extractAppMap(appPath);
+                    if (appMap && ((appMap.entryPoints?.length ?? 0) > 0 || (appMap.dataSources?.length ?? 0) > 0)) {
+                        content = appMapToMermaid(appMap);
+                    }
+                } catch (e) {
+                    console.warn("[diagram:generate-ai] AppMap fallback skipped:", e);
+                }
+            }
+
             // 6. Generate fingerprint for staleness tracking
             const fingerprint = await generateFingerprint(appPath);
 
             // 6b. Infer workflow from project (for Diagram tab Workflow mode)
             let workflowMetadata: { nodes?: unknown[]; connections?: unknown } | undefined;
             try {
-                const { inferWorkflowFromProject } = await import("../../lib/workflow/project_to_workflow");
-                const inferred = await inferWorkflowFromProject(appPath);
+                const { inferWorkflowForWorkspace } = await import("../../lib/workflow/project_to_workflow");
+                const inferred = await inferWorkflowForWorkspace(appPath);
                 if (inferred) {
                     workflowMetadata = { nodes: inferred.nodes, connections: inferred.connections };
                 }
@@ -317,6 +331,27 @@ ipcMain.handle(
                 error: error instanceof Error ? error.message : "Unknown error",
             };
         }
+    }
+);
+
+// ============================================
+// DIAGRAM:MARK-STALE - Notify renderer that diagram may need refresh (e.g. after codegen)
+// ============================================
+
+ipcMain.handle(
+    "diagram:mark-stale",
+    async (_, { workspaceId }: { workspaceId: number }) => {
+        const payload = {
+            diagramId: workspaceId,
+            isStale: true,
+            severity: "moderate" as const,
+            reason: "Workflow code was generated. Refresh diagram to reflect changes.",
+            recommendation: "suggest-refresh" as const,
+        };
+        for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send("diagram:staleness-detected", payload);
+        }
+        return { success: true };
     }
 );
 

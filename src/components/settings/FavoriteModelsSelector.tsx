@@ -8,7 +8,7 @@ import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProvide
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const MAX_FAVORITES = 7;
+const MAX_FAVORITES = 3;
 
 export function FavoriteModelsSelector() {
     const [favorites, setFavorites] = useState<string[]>([]);
@@ -127,9 +127,11 @@ export function FavoriteModelsSelector() {
                         Your Favorite Models
                     </div>
                     <div className="border rounded-lg p-3 bg-primary/5 space-y-2 max-h-[200px] overflow-y-auto">
-                        {favorites.map((modelId) => {
+                        {favorites.map((modelId, idx) => {
                             const model = openrouterModels.find((m) => m.apiName === modelId);
                             if (!model) return null;
+                            const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                            const tierLabel = idx < 3 ? tierLabels[idx] : null;
 
                             return (
                                 <div
@@ -138,6 +140,9 @@ export function FavoriteModelsSelector() {
                                 >
                                     <div className="flex-1 min-w-0">
                                         <p className="font-medium text-sm truncate">{model.displayName}</p>
+                                        {tierLabel && (
+                                            <p className="text-[10px] text-muted-foreground">{tierLabel}</p>
+                                        )}
                                         {model.description && (
                                             <p className="text-xs text-muted-foreground line-clamp-1">
                                                 {model.description}

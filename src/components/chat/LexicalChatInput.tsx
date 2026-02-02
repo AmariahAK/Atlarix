@@ -27,6 +27,7 @@ import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { MENTION_REGEX, parseAppMentions } from "@/shared/parse_mention_apps";
 import { useLoadApp } from "@/hooks/useLoadApp";
+import { useMcp } from "@/hooks/useMcp";
 
 // Define the theme for mentions
 const beautifulMentionsTheme: BeautifulMentionsTheme = {
@@ -39,9 +40,11 @@ const CustomMenuItem = forwardRef<
   HTMLLIElement,
   BeautifulMentionsMenuItemProps
 >(({ selected, item, ...props }, ref) => {
-  const isPrompt = item.data?.type === "prompt";
-  const isApp = item.data?.type === "app";
-  const label = isPrompt ? "Prompt" : isApp ? "App" : "File";
+  const type = (item as any)?.data?.type ?? (item as any)?.type;
+  const isPrompt = type === "prompt";
+  const isApp = type === "app";
+  const isMcp = type === "mcp";
+  const label = isPrompt ? "Prompt" : isApp ? "App" : isMcp ? "MCP" : "File";
   const value = (item as any)?.value;
   return (
     <li
@@ -58,7 +61,9 @@ const CustomMenuItem = forwardRef<
             ? "bg-purple-500 text-white"
             : isApp
               ? "bg-primary text-primary-foreground"
-              : "bg-blue-600 text-white"
+              : isMcp
+                ? "bg-teal-600 text-white"
+                : "bg-blue-600 text-white"
             }`}
         >
           {label}
@@ -165,13 +170,14 @@ function ExternalValueSyncPlugin({
 
   useEffect(() => {
     // Derive the display text that should appear in the editor (@Name) from the
-    // internal value representation (@app:Name)
+    // internal value representation (@app:Name, @prompt:id, @mcp:Name)
     let displayText = (value || "").replace(MENTION_REGEX, "@$1");
     displayText = displayText.replace(/@prompt:(\d+)/g, (_m, idStr) => {
       const id = Number(idStr);
       const title = promptsById[id];
       return title ? `@${title}` : _m;
     });
+    displayText = displayText.replace(/@mcp:([^\s]+)/g, "@$1");
 
     const currentText = editor.getEditorState().read(() => {
       const root = $getRoot();
@@ -188,10 +194,10 @@ function ExternalValueSyncPlugin({
 
       const paragraph = $createParagraphNode();
 
-      // Build nodes from internal value, turning @app:Name and @prompt:<id> into mention nodes
+      // Build nodes from internal value: @app:Name, @prompt:<id>, @file:path, @mcp:Name
       let lastIndex = 0;
       let match: RegExpExecArray | null;
-      const combined = /@app:([a-zA-Z0-9_-]+)|@prompt:(\d+)|@file:([^\s]+)/g;
+      const combined = /@app:([a-zA-Z0-9_-]+)|@prompt:(\d+)|@file:([^\s]+)|@mcp:([^\s]+)/g;
       while ((match = combined.exec(value)) !== null) {
         const start = match.index;
         const full = match[0];
@@ -209,6 +215,9 @@ function ExternalValueSyncPlugin({
         } else if (match[3]) {
           const filePath = match[3];
           paragraph.append($createBeautifulMentionNode("@", filePath));
+        } else if (match[4]) {
+          const mcpName = match[4];
+          paragraph.append($createBeautifulMentionNode("@", mcpName));
         }
         lastIndex = start + full.length;
       }
@@ -256,6 +265,7 @@ export function LexicalChatInput({
 }: LexicalChatInputProps) {
   const { apps } = useLoadApps();
   const { prompts } = usePrompts();
+  const { servers: mcpServers = [] } = useMcp();
   const [shouldClear, setShouldClear] = useState(false);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const { app } = useLoadApp(selectedAppId);
@@ -304,10 +314,17 @@ export function LexicalChatInput({
       type: "file",
     }));
 
+    // MCP servers: use in chat as @mcp name (live filter by current value)
+    const mcpItems = (mcpServers || []).map((s: { id: number; name: string }) => ({
+      value: s.name,
+      type: "mcp",
+      id: s.id,
+    }));
+
     return {
-      "@": [...appMentions, ...promptItems, ...fileItems],
+      "@": [...appMentions, ...promptItems, ...fileItems, ...mcpItems],
     };
-  }, [apps, selectedAppId, value, excludeCurrentApp, prompts, appFiles]);
+  }, [apps, selectedAppId, value, excludeCurrentApp, prompts, appFiles, mcpServers]);
 
   const initialConfig = {
     namespace: "ChatInput",
@@ -359,11 +376,17 @@ export function LexicalChatInput({
             const fileRegex = new RegExp(`@(${escapedDisplay})(?![\\w-])`, "g");
             textContent = textContent.replace(fileRegex, `@file:${fullPath}`);
           }
+          // Convert @McpName to @mcp:Name for MCP server mentions
+          for (const s of mcpServers || []) {
+            const escapedName = s.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const mcpRegex = new RegExp(`@(${escapedName})(?![\\w-])`, "g");
+            textContent = textContent.replace(mcpRegex, `@mcp:${s.name}`);
+          }
         }
         onChange(textContent);
       });
     },
-    [onChange, apps, prompts, appFiles],
+    [onChange, apps, prompts, appFiles, mcpServers],
   );
 
   const handleSubmit = useCallback(() => {

@@ -74,6 +74,13 @@ Priority: **CLI → Template → Manual**
 
 ---
 
+## Session Memory
+
+- **Auto-compaction** – Long sessions are summarized in the background (OpenCode style).
+- **Ollama/LMStudio** – Smaller context (4K–32K); compaction runs often. For 50+ turn sessions, prefer cloud models.
+
+---
+
 ## Critical Rules
 
 1. **Match existing code style** (indent, quotes, naming)

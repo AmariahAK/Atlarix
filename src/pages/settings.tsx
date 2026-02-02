@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useTheme } from "../contexts/ThemeContext";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
@@ -14,13 +13,13 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
-import { AutoUpdateSwitch } from "@/components/AutoUpdateSwitch";
-import { ZoomSelector } from "@/components/ZoomSelector";
 import { SearchSettings } from "@/components/settings/SearchSettings";
-import { ToolsMcpSettings } from "@/components/settings/ToolsMcpSettings";
-import { TokenBudgetSettings } from "@/components/settings/TokenBudgetSettings";
+import { AutoProviderOrderList } from "@/components/settings/AutoProviderOrderList";
+import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
+import { useNavigate } from "@tanstack/react-router";
+import { Server, ChevronRight } from "lucide-react";
 
 export default function SettingsPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -85,20 +84,9 @@ export default function SettingsPage() {
             <SearchSettings />
           </div>
 
-          {/* MCP Servers */}
-          <div
-            id="mcp"
-            className="bg-card rounded-xl shadow-sm p-6 border border-border"
-          >
-            <h2 className="text-lg font-medium text-foreground mb-4">
-              MCP Servers
-            </h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Connect Model Context Protocol servers to extend Atlarix with
-              additional tools. Free: 1 server. Pro: unlimited. Test connection
-              to verify each server is valid.
-            </p>
-            <ToolsMcpSettings />
+          {/* MCP Servers - clickable card like AI providers */}
+          <div id="mcp" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <McpServersCard />
           </div>
 
           {/* Danger Zone */}
@@ -147,9 +135,31 @@ export default function SettingsPage() {
   );
 }
 
-export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
-  const { theme, setTheme } = useTheme();
+function McpServersCard() {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate({ to: "/settings/mcp" })}
+      className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
+    >
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-md bg-primary/10 text-primary">
+          <Server className="h-5 w-5" />
+        </div>
+        <div>
+          <h2 className="text-lg font-medium text-foreground">MCP Servers</h2>
+          <p className="text-sm text-muted-foreground">
+            Add and categorize MCP servers. Use @mcp name in chat. Global (5 max) and per-workspace (5 max).
+          </p>
+        </div>
+      </div>
+      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
+    </button>
+  );
+}
 
+export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   return (
     <div
       id="general"
@@ -158,49 +168,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
       <h2 className="text-lg font-medium text-foreground mb-4">
         General Settings
       </h2>
-
-      <div className="space-y-4 mb-4">
-        <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-muted-foreground">
-            Theme
-          </label>
-
-          <div className="relative bg-muted rounded-lg p-1 flex">
-            {(["system", "light", "dark"] as const).map((option) => (
-              <button
-                key={option}
-                onClick={() => setTheme(option)}
-                className={`
-                px-4 py-1.5 text-sm font-medium rounded-md
-                transition-all duration-200
-                ${theme === option
-                    ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm"
-                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                  }
-`}
-              >
-                {option.charAt(0).toUpperCase() + option.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <ZoomSelector />
-      </div>
-
-      <div className="space-y-1 mt-4">
-        <AutoUpdateSwitch />
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          This will automatically update the app when new versions are
-          available.
-        </div>
-      </div>
-
-      {/* Hidden for cleaner UI: ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector */}
-
-      <div className="flex items-center text-sm text-muted-foreground mt-4">
+      <div className="flex items-center text-sm text-muted-foreground">
         <span className="mr-2 font-medium">App Version:</span>
         <span className="bg-muted px-2 py-0.5 rounded text-foreground font-mono">
           {appVersion ? appVersion : "-"}
@@ -245,6 +213,8 @@ export function WorkflowSettings() {
 export function AISettings() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { settings, updateSettings } = useSettings();
+  const { data: providers } = useLanguageModelProviders();
 
   const handleRefreshModels = async () => {
     setIsRefreshing(true);
@@ -280,11 +250,20 @@ export function AISettings() {
         <MaxChatTurnsSelector />
       </div>
 
+      <p className="text-xs text-muted-foreground mt-2">
+        Token budget caps are configured per provider in each provider&apos;s
+        settings.
+      </p>
+
       <div className="mt-6">
         <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-          Token Budget (Optional)
+          Auto provider order
         </h3>
-        <TokenBudgetSettings />
+        <AutoProviderOrderList
+          order={settings?.autoProviderOrder ?? []}
+          onOrderChange={(order) => updateSettings({ autoProviderOrder: order })}
+          allProviderIds={providers?.map((p: { id: string }) => p.id) ?? []}
+        />
       </div>
 
       <div className="mt-6">

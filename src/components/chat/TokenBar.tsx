@@ -69,8 +69,12 @@ export function TokenBar({ chatId }: TokenBarProps) {
           }`}
         >
           {isCritical
-            ? "Token limit nearly reached — consider starting a new chat"
-            : "Approaching token limit"}
+            ? settings?.enableContextAutoSummarize !== false
+              ? "Context nearly full — auto-summarize will run on next message"
+              : "Token limit nearly reached — consider starting a new chat"
+            : settings?.enableContextAutoSummarize !== false
+              ? "Approaching limit — session will auto-summarize when full"
+              : "Approaching token limit"}
         </div>
       )}
       <TooltipProvider>

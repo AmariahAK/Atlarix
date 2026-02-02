@@ -41,6 +41,10 @@ export function useLanguageModelProviders() {
     if (queryResult.isLoading) {
       return false;
     }
+    // Ollama & LM Studio don't need API keys - always "ready"
+    if (provider === "ollama" || provider === "lmstudio") {
+      return true;
+    }
     // Vertex uses service account credentials instead of an API key
     if (provider === "vertex") {
       const vertexSettings = providerSettings as VertexProviderSetting;

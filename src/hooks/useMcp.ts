@@ -11,14 +11,16 @@ import type {
 
 export type Transport = "stdio" | "http";
 
-export function useMcp() {
+export type McpListFilter = { scope?: "global" | "workspace"; appId?: number };
+
+export function useMcp(filter?: McpListFilter) {
   const queryClient = useQueryClient();
 
   const serversQuery = useQuery<McpServer[], Error>({
-    queryKey: ["mcp", "servers"],
+    queryKey: ["mcp", "servers", filter?.scope ?? "all", filter?.appId ?? null],
     queryFn: async () => {
       const ipc = IpcClient.getInstance();
-      const list = await ipc.listMcpServers();
+      const list = await ipc.listMcpServers(filter);
       return (list || []) as McpServer[];
     },
     meta: { showErrorToast: true },
@@ -66,10 +68,7 @@ export function useMcp() {
       return ipc.createMcpServer(params);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["mcp", "servers"] });
-      await queryClient.invalidateQueries({
-        queryKey: ["mcp", "tools-by-server"],
-      });
+      await queryClient.invalidateQueries({ queryKey: ["mcp"] });
     },
     meta: { showErrorToast: true },
   });
@@ -94,10 +93,7 @@ export function useMcp() {
       return ipc.deleteMcpServer(id);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["mcp", "servers"] });
-      await queryClient.invalidateQueries({
-        queryKey: ["mcp", "tools-by-server"],
-      });
+      await queryClient.invalidateQueries({ queryKey: ["mcp"] });
     },
     meta: { showErrorToast: true },
   });

@@ -29,24 +29,24 @@ import { createFallback } from "./fallback_ai_model";
 
 const dyadEngineUrl = process.env.DYAD_ENGINE_URL;
 
+/** Default model per provider when using "Auto" (matches AI Providers grid). */
 const AUTO_MODELS = [
-  {
-    provider: "google",
-    name: "gemini-2.5-flash",
-  },
-  {
-    provider: "openrouter",
-    name: "qwen/qwen3-coder:free",
-  },
-  {
-    provider: "anthropic",
-    name: "claude-sonnet-4-20250514",
-  },
-  {
-    provider: "openai",
-    name: "gpt-4.1",
-  },
+  { provider: "google", name: "gemini-2.5-flash" },
+  { provider: "openrouter", name: "qwen/qwen3-coder:free" },
+  { provider: "anthropic", name: "claude-sonnet-4-20250514" },
+  { provider: "openai", name: "gpt-4.1" },
+  { provider: "xai", name: "grok-2-1212" },
+  { provider: "togetherai", name: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+  { provider: "groq", name: "llama-3.3-70b-versatile" },
+  { provider: "mistral", name: "mistral-large-latest" },
+  { provider: "ollama", name: "llama3.2" },
+  { provider: "lmstudio", name: "local" },
 ];
+
+const DEFAULT_AUTO_PROVIDER_ORDER = AUTO_MODELS.map((m) => m.provider);
+const AUTO_MODEL_BY_PROVIDER = new Map(
+  AUTO_MODELS.map((m) => [m.provider, m.name] as const)
+);
 
 export interface ModelClient {
   model: LanguageModelV2;
@@ -125,7 +125,7 @@ export async function getModelClient(
       // Fall through to regular provider logic if gateway prefix is missing
     }
   }
-  // Handle 'auto' provider by trying each model in AUTO_MODELS until one works
+  // Handle 'auto' provider by trying each provider in user's preferred order (or default)
   if (model.provider === "auto") {
     if (model.name === "free") {
       const openRouterProvider = allProviders.find(
@@ -151,33 +151,31 @@ export async function getModelClient(
         isEngineEnabled: false,
       };
     }
-    for (const autoModel of AUTO_MODELS) {
-      const providerInfo = allProviders.find(
-        (p) => p.id === autoModel.provider,
-      );
-      const envVarName = providerInfo?.envVarName;
-
+    const order =
+      settings.autoProviderOrder?.length > 0
+        ? settings.autoProviderOrder
+        : DEFAULT_AUTO_PROVIDER_ORDER;
+    for (const providerId of order) {
+      const modelName = AUTO_MODEL_BY_PROVIDER.get(providerId);
+      if (!modelName) continue; // only try providers with a default Auto model
+      const providerInfo = allProviders.find((p) => p.id === providerId);
+      if (!providerInfo) continue;
+      const envVarName = providerInfo.envVarName;
       const apiKey =
-        settings.providerSettings?.[autoModel.provider]?.apiKey?.value ||
+        settings.providerSettings?.[providerId]?.apiKey?.value ||
         (envVarName ? getEnvVar(envVarName) : undefined);
-
       if (apiKey) {
         logger.log(
-          `Using provider: ${autoModel.provider} model: ${autoModel.name}`,
+          `Using provider: ${providerId} model: ${modelName} (Auto order)`,
         );
-        // Recursively call with the specific model found
         return await getModelClient(
-          {
-            provider: autoModel.provider,
-            name: autoModel.name,
-          },
+          { provider: providerId, name: modelName },
           settings,
         );
       }
     }
-    // If no models have API keys, throw an error
     throw new Error(
-      "No API keys available for any model supported by the 'auto' provider.",
+      "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or reorder providers.",
     );
   }
   return await getRegularModelClient(model, settings, providerConfig);

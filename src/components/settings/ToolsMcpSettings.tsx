@@ -285,7 +285,21 @@ function EnvVarsEditor({
   );
 }
 
-export function ToolsMcpSettings() {
+export function ToolsMcpSettings({
+  maxServers,
+  scope = "global",
+  appId,
+}: {
+  maxServers?: number;
+  scope?: "global" | "workspace";
+  appId?: number | null;
+} = {}) {
+  const filter =
+    scope === "workspace" && appId != null
+      ? { scope: "workspace" as const, appId }
+      : scope === "global"
+        ? { scope: "global" as const }
+        : undefined;
   const {
     servers,
     toolsByServer,
@@ -297,11 +311,13 @@ export function ToolsMcpSettings() {
     updateServer,
     isUpdatingServer,
     refetchAll,
-  } = useMcp();
+  } = useMcp(filter);
   const { userBudget } = useUserBudgetInfo();
   const { handleUpgrade } = useUpgrade();
   const isPro = (userBudget?.totalCredits ?? 0) > 0;
   const mcpAtFreeLimit = !isPro && servers.length >= 1;
+  const atMaxServers = maxServers != null && servers.length >= maxServers;
+  const countLabel = maxServers != null ? `${servers.length}/${maxServers}` : null;
 
   const [consents, setConsents] = useState<Record<string, any>>({});
   const [name, setName] = useState("");
@@ -365,6 +381,8 @@ export function ToolsMcpSettings() {
         args: parsedArgs,
         url: url || null,
         enabled,
+        scope: scope ?? "global",
+        appId: scope === "workspace" ? appId ?? null : null,
       });
       setName("");
       setCommand("");
@@ -409,6 +427,11 @@ export function ToolsMcpSettings() {
 
   return (
     <div className="space-y-6">
+      {countLabel != null && (
+        <div className="text-sm font-medium text-muted-foreground">
+          MCP servers: <span className="text-foreground">{countLabel}</span>
+        </div>
+      )}
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -481,10 +504,15 @@ export function ToolsMcpSettings() {
         <div>
           <Button
             onClick={onCreate}
-            disabled={!name.trim() || mcpAtFreeLimit}
+            disabled={!name.trim() || mcpAtFreeLimit || atMaxServers}
           >
             Add Server
           </Button>
+          {atMaxServers && maxServers != null && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Maximum {maxServers} {scope} MCP server{maxServers !== 1 ? "s" : ""} reached.
+            </p>
+          )}
         </div>
       </div>
 

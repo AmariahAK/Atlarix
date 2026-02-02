@@ -1,8 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen, FileCode2 } from "lucide-react";
 import { Trash2 } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import {
+  selectedErrorFileForCodeAtom,
+  rightPanelVisibleAtom,
+  aiPanelIntentAtom,
+  previewTabAtom,
+} from "@/atoms/sourceAtoms";
+import { WorkspaceFileTree } from "@/components/workspace/WorkspaceFileTree";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -25,6 +32,8 @@ interface WorkspaceWithChats {
   path: string;
   chats: { id: number; title: string | null; createdAt: Date }[];
   isExpanded: boolean;
+  files?: string[];
+  filesLoading?: boolean;
 }
 
 export function AppList({ show }: { show?: boolean }) {
@@ -32,6 +41,10 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
+  const setSelectedErrorFileForCode = useSetAtom(selectedErrorFileForCodeAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
+  const setPreviewTab = useSetAtom(previewTabAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
 
   // Auth hook for checking plan/workspace limits
@@ -63,8 +76,10 @@ export function AppList({ show }: { show?: boolean }) {
               id: app.id,
               name: app.name,
               path: app.path || '',
-              chats: chats.slice(0, 10), // Limit to 10 most recent
+              chats: chats.slice(0, 10),
               isExpanded: app.id === selectedAppId,
+              files: undefined,
+              filesLoading: false,
             };
           } catch {
             return {
@@ -73,6 +88,8 @@ export function AppList({ show }: { show?: boolean }) {
               path: app.path || '',
               chats: [],
               isExpanded: false,
+              files: undefined,
+              filesLoading: false,
             };
           }
         })
@@ -82,6 +99,36 @@ export function AppList({ show }: { show?: boolean }) {
 
     loadChats();
   }, [apps, selectedAppId]);
+
+  // Load files when workspace is expanded
+  useEffect(() => {
+    const expanded = workspaces.find((w) => w.isExpanded && !w.files && !w.filesLoading);
+    if (!expanded) return;
+
+    const loadFiles = async () => {
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === expanded.id ? { ...w, filesLoading: true } : w
+        )
+      );
+      try {
+        const appData = await IpcClient.getInstance().getApp(expanded.id);
+        const files = appData.files ?? [];
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === expanded.id ? { ...w, files, filesLoading: false } : w
+          )
+        );
+      } catch {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === expanded.id ? { ...w, files: [], filesLoading: false } : w
+          )
+        );
+      }
+    };
+    loadFiles();
+  }, [workspaces]);
 
   const allApps = useMemo(
     () =>
@@ -117,11 +164,26 @@ export function AppList({ show }: { show?: boolean }) {
       setSelectedAppId(workspaceId);
       setSelectedChatId(chatId);
       navigate({ to: `/chat/${chatId}` });
-      // Refresh workspaces to show new chat
       refreshApps?.();
     } catch (error) {
       console.error('Failed to create chat:', error);
     }
+  };
+
+  const handleFileClick = (workspaceId: number, filePath: string) => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    setSelectedAppId(workspaceId);
+    if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
+    setSelectedErrorFileForCode(filePath);
+    // Open right panel and switch to Code tab for IDE-like editing
+    setRightPanelVisible(true);
+    setPreviewTab("code");
+    setAIPanelIntent({
+      intent: 'show-preview',
+      timestamp: Date.now(),
+      source: 'user',
+    });
+    setPreviewTab('code');
   };
 
   const handleWorkspaceSelect = async (path: string) => {
@@ -376,6 +438,27 @@ export function AppList({ show }: { show?: boolean }) {
                         </button>
                       </div>
                     </div>
+
+                    {/* File tree (IDE-style) - when expanded */}
+                    {ws.isExpanded && (
+                      <div className="pl-6 pr-2 pt-1">
+                        {ws.filesLoading ? (
+                          <div className="text-[10px] text-muted-foreground py-1">Loading files...</div>
+                        ) : ws.files && ws.files.length > 0 ? (
+                          <>
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              <FileCode2 className="h-3 w-3" />
+                              Files
+                            </div>
+                            <WorkspaceFileTree
+                              files={ws.files}
+                              onFileClick={(path) => handleFileClick(ws.id, path)}
+                              maxHeight="140px"
+                            />
+                          </>
+                        ) : null}
+                      </div>
+                    )}
 
                     {/* Chats List (Collapsible) */}
                     {ws.isExpanded && ws.chats.length > 0 && (

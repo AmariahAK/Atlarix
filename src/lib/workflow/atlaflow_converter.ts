@@ -29,6 +29,7 @@ const ATLAFLOW_GENERIC_LABELS: Record<string, string> = {
   "atlaflow.entryPoint": "Entry Point",
   "atlaflow.dataSource": "Data Source",
   "atlaflow.screen": "Screen",
+  "atlaflow.branch": "Branch",
 };
 
 function nodeTypeToLabel(nodeType: string): string {

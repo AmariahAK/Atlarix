@@ -1,7 +1,7 @@
 /**
  * WorkflowLoader - load or infer Atlaflow workflow for a workspace
  * ===============================================================
- * Uses existing inferWorkflowFromProject + GitChangeTracker + diagram metadata.
+ * Uses inferWorkflowForWorkspace (polyproject-aware) + GitChangeTracker + diagram metadata.
  *
  * Goal:
  * - Existing projects always get a best-effort workflow (no blank Atlaflow).
@@ -14,7 +14,7 @@ import { db } from "@/db";
 import { diagrams } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { GitChangeTracker } from "../diagram/git_change_tracker";
-import { inferWorkflowFromProject } from "./project_to_workflow";
+import { inferWorkflowForWorkspace, getWorkflowSplits } from "./project_to_workflow";
 import type { AtlaflowWorkflow } from "./atlaflow_converter";
 
 const logger = log.scope("workflow-loader");
@@ -25,6 +25,11 @@ export interface WorkflowLoadResult {
   source: "diagram" | "inferred" | "empty";
   /** Whether the persisted workflow looks stale vs current git state */
   isStale: boolean;
+}
+
+export interface WorkflowSplit {
+  label: string;
+  workflow: AtlaflowWorkflow;
 }
 
 class WorkflowLoader {
@@ -54,7 +59,7 @@ class WorkflowLoader {
       logger.log(
         `[WorkflowLoader] Stored workflow looks stale for workspace ${workspaceId}, re-inferring...`,
       );
-      const refreshed = await this.inferAndPersist(workspaceId, workspacePath, latestDiagram?.id);
+      const refreshed = await this.inferAndPersistWithWorkspace(workspaceId, workspacePath, latestDiagram?.id);
       if (refreshed) {
         return {
           workflow: refreshed,
@@ -72,7 +77,7 @@ class WorkflowLoader {
 
     // 2) No stored workflow → infer from project
     logger.log(`[WorkflowLoader] No stored workflow for workspace ${workspaceId}, inferring...`);
-    const inferred = await this.inferAndPersist(workspaceId, workspacePath, latestDiagram?.id);
+    const inferred = await this.inferAndPersistWithWorkspace(workspaceId, workspacePath, latestDiagram?.id);
 
     if (inferred) {
       return {
@@ -93,6 +98,18 @@ class WorkflowLoader {
     };
   }
 
+  /** Load workflow splits for polyproject (two workflows on one screen). */
+  async loadSplits(workspaceId: number, workspacePath: string): Promise<{ splits: WorkflowSplit[] }> {
+    const result = await this.load(workspaceId, workspacePath);
+    const splitsFromProject = await getWorkflowSplits(workspacePath);
+    if (splitsFromProject.length > 1) {
+      return {
+        splits: splitsFromProject.map((s) => ({ label: s.label, workflow: s.workflow })),
+      };
+    }
+    return { splits: [{ label: "default", workflow: result.workflow }] };
+  }
+
   private async isWorkflowStale(
     workspacePath: string,
     lastCommit?: string,
@@ -111,13 +128,13 @@ class WorkflowLoader {
     }
   }
 
-  private async inferAndPersist(
+  private async inferAndPersistWithWorkspace(
     workspaceId: number,
     workspacePath: string,
     existingDiagramId?: number,
   ): Promise<AtlaflowWorkflow | null> {
     try {
-      const inferred = await inferWorkflowFromProject(workspacePath);
+      const inferred = await inferWorkflowForWorkspace(workspacePath);
       if (!inferred || !Array.isArray(inferred.nodes) || inferred.nodes.length === 0) {
         return null;
       }
@@ -137,6 +154,7 @@ class WorkflowLoader {
           const nextMeta: Record<string, unknown> = {
             ...(meta ?? {}),
             workflow: inferred,
+            workflowVersion: Date.now(),
             ...(gitCommit && { gitCommit }),
           };
 

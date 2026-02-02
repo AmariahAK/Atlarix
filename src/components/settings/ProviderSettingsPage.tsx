@@ -22,6 +22,13 @@ import { ApiKeyConfiguration } from "./ApiKeyConfiguration";
 import { ProviderApiKeyInput } from "./ProviderApiKeyInput";
 import { FavoriteModelsSelector } from "./FavoriteModelsSelector";
 import { ModelsSection } from "./ModelsSection";
+import { TokenBudgetInput } from "./TokenBudgetInput";
+import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector";
+
+const PROVIDERS_WITH_TOKEN_BUDGET = [
+  "openai", "anthropic", "google", "openrouter",
+  "groq", "togetherai", "mistral", "xai",
+];
 
 interface ProviderSettingsPageProps {
   provider: string;
@@ -276,7 +283,11 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
       <div className="max-w-4xl mx-auto px-8 py-4 pb-20">
         <ProviderSettingsHeader
           providerDisplayName={providerDisplayName}
-          isConfigured={isConfigured}
+          isConfigured={
+            provider === "ollama" || provider === "lmstudio"
+              ? true
+              : isConfigured
+          }
           isLoading={settingsLoading}
           hasFreeTier={hasFreeTier}
           providerWebsiteUrl={providerWebsiteUrl}
@@ -297,8 +308,35 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           </Alert>
         ) : (
           <>
-            {/* Use new database-backed API key component for OpenRouter */}
-            {provider === "openrouter" ? (
+            {/* Ollama / LM Studio: Favorites only (no API key) */}
+            {provider === "ollama" || provider === "lmstudio" ? (
+              <div className="mt-6 space-y-4">
+                <div>
+                  <h3 className="font-medium mb-1">Favorite Models</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select 3 models for Fast ⚡ / Balanced ⚖️ / Deep 🧠.
+                  </p>
+                </div>
+                <LocalProviderFavoritesSelector
+                  providerId={provider as "ollama" | "lmstudio"}
+                  favorites={
+                    (settings?.providerSettings?.[provider] as { favoriteModelIds?: string[] })
+                      ?.favoriteModelIds ?? []
+                  }
+                  onFavoritesChange={async (ids) => {
+                    await updateSettings({
+                      providerSettings: {
+                        ...settings?.providerSettings,
+                        [provider]: {
+                          ...(settings?.providerSettings?.[provider] as object),
+                          favoriteModelIds: ids,
+                        },
+                      },
+                    });
+                  }}
+                />
+              </div>
+            ) : provider === "openrouter" ? (
               <>
                 <ProviderApiKeyInput
                   providerId={provider}
@@ -311,28 +349,35 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   <div>
                     <h3 className="font-medium mb-1">Favorite Models</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select up to 7 models to show first in the model picker (max 7)
+                      Select 3 models for Fast ⚡ / Balanced ⚖️ / Deep 🧠 (max 3).
                     </p>
                   </div>
                   <FavoriteModelsSelector />
                 </div>
+
+                <TokenBudgetInput providerId="openrouter" />
               </>
             ) : (
-              <ApiKeyConfiguration
-                provider={provider}
-                providerDisplayName={providerDisplayName}
-                settings={settings}
-                envVars={envVars}
-                envVarName={envVarName}
-                isSaving={isSaving}
-                saveError={saveError}
-                apiKeyInput={apiKeyInput}
-                onApiKeyInputChange={setApiKeyInput}
-                onSaveKey={handleSaveKey}
-                onDeleteKey={handleDeleteKey}
-                isAtlarix={isAtlarix}
-                updateSettings={updateSettings}
-              />
+              <>
+                <ApiKeyConfiguration
+                  provider={provider}
+                  providerDisplayName={providerDisplayName}
+                  settings={settings}
+                  envVars={envVars}
+                  envVarName={envVarName}
+                  isSaving={isSaving}
+                  saveError={saveError}
+                  apiKeyInput={apiKeyInput}
+                  onApiKeyInputChange={setApiKeyInput}
+                  onSaveKey={handleSaveKey}
+                  onDeleteKey={handleDeleteKey}
+                  isAtlarix={isAtlarix}
+                  updateSettings={updateSettings}
+                />
+                {PROVIDERS_WITH_TOKEN_BUDGET.includes(provider) && (
+                  <TokenBudgetInput providerId={provider} />
+                )}
+              </>
             )}
           </>
         )}

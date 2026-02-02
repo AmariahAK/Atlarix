@@ -7,7 +7,7 @@ import { eq, asc } from "drizzle-orm";
 import { db } from "./index";
 import { openrouterFavorites } from "./schema";
 
-const MAX_FAVORITES = 7;
+const MAX_FAVORITES = 3;
 
 /**
  * Get all favorite OpenRouter model IDs in display order
@@ -19,13 +19,13 @@ export async function getFavoriteOpenRouterModels(): Promise<string[]> {
         .orderBy(asc(openrouterFavorites.displayOrder))
         .all();
 
-    return favorites.map((f) => f.modelId);
+    return favorites.map((f) => f.modelId).slice(0, MAX_FAVORITES);
 }
 
 /**
  * Set favorite OpenRouter models
  * Replaces all existing favorites with the provided list
- * @param modelIds - Array of model IDs (max 7)
+ * @param modelIds - Array of model IDs (max 3: Fast/Balanced/Deep)
  */
 export async function setFavoriteOpenRouterModels(modelIds: string[]): Promise<void> {
     if (modelIds.length > MAX_FAVORITES) {

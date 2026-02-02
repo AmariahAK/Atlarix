@@ -37,6 +37,8 @@ import { type SourceItem, browserErrorsAtom, diagramStateAtom, selectedErrorFile
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
+import { FileEditor } from './FileEditor';
+import { DiagramPanel } from './DiagramPanel';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
 
 interface CodePreviewPanelProps {
@@ -86,6 +88,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     file={currentFile}
                     errors={errorsData}
                     workspacePath={workspacePath}
+                    appId={currentAppId}
                     selectedErrorFile={selectedErrorFile}
                     onSelectedErrorFileConsumed={() => setSelectedErrorFile(null)}
                 />
@@ -116,7 +119,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 />
             )}
             {activeTab === 'diagram' && (
-                <DiagramTab appId={currentAppId} />
+                <DiagramPanel data={data as any} activeTab="diagram" />
             )}
         </div>
     );
@@ -371,21 +374,70 @@ function PreviewTab({ url }: { url?: string }) {
 
 /**
  * Code Tab - Current file view or Error File Editor
- * Shows Monaco-based editor when there are errors with file paths
+ * Shows Monaco-based editor when there are errors with file paths.
+ * When selectedErrorFile is set (e.g. from sidebar file tree), loads and displays that file.
  */
 function CodeTab({
     file,
     errors = [],
     workspacePath = '',
+    appId = null,
     selectedErrorFile = null,
     onSelectedErrorFileConsumed = () => {},
 }: {
     file?: { path: string; content: string };
     errors?: ParsedError[];
     workspacePath?: string;
+    appId?: number | null;
     selectedErrorFile?: string | null;
     onSelectedErrorFileConsumed?: () => void;
 }) {
+    const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
+    const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
+    const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
+
+    // Clear sidebar file when workspace is deselected
+    useEffect(() => {
+        if (!workspacePath && !appId) setSidebarFile(null);
+    }, [workspacePath, appId]);
+
+    // Load file when selectedErrorFile is set (from sidebar file tree click)
+    useEffect(() => {
+        if (!selectedErrorFile) return;
+        // Prefer readAppFile (handles path resolution) when we have appId
+        if (appId) {
+            setSidebarFileLoading(true);
+            IpcClient.getInstance()
+                .readAppFile(appId, selectedErrorFile)
+                .then((content) => {
+                    setSidebarFile({ path: selectedErrorFile, content });
+                    onSelectedErrorFileConsumed();
+                })
+                .catch(() => setSidebarFile(null))
+                .finally(() => setSidebarFileLoading(false));
+            return;
+        }
+        // Fallback: use readFileContent with absolute path when we have workspacePath
+        if (!workspacePath) return;
+        const base = workspacePath.replace(/\\/g, '/').replace(/\/$/, '');
+        const rel = selectedErrorFile.replace(/^[/\\]/, '').replace(/\\/g, '/');
+        const absolutePath = `${base}/${rel}`.replace(/\/+/g, '/');
+
+        setSidebarFileLoading(true);
+        IpcClient.getInstance()
+            .readFileContent(absolutePath)
+            .then((result) => {
+                if (result.success && result.content !== undefined) {
+                    setSidebarFile({ path: selectedErrorFile, content: result.content });
+                    onSelectedErrorFileConsumed();
+                } else {
+                    setSidebarFile(null);
+                }
+            })
+            .catch(() => setSidebarFile(null))
+            .finally(() => setSidebarFileLoading(false));
+    }, [selectedErrorFile, workspacePath, appId, onSelectedErrorFileConsumed]);
+
     // Check if we have errors with file paths - show editor for those
     const filesWithErrors = errors.filter(e => e.file);
 
@@ -401,23 +453,64 @@ function CodeTab({
         );
     }
 
-    // Otherwise show read-only file view
-    if (!file) {
+    // File from sidebar click (or explicit file prop)
+    const displayFile = file || sidebarFile;
+    if (sidebarFileLoading) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Code2 className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No file selected</p>
-                <p className="text-xs">Select a file to view its code</p>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3" />
+                <p className="text-sm">Loading file...</p>
+            </div>
+        );
+    }
+    if (!displayFile) {
+        return (
+            <div className="flex flex-col h-full min-h-0">
+                {/* Codebase search in Code tab (search your codebase here, not in Web tab) */}
+                {appId && (
+                    <div className="p-3 border-b border-border bg-muted/10 flex-shrink-0">
+                        <CodebaseSearchBox
+                            appId={appId}
+                            placeholder="Search codebase... e.g. 'authentication logic'"
+                            onResults={(results, query) => setCodeSearchResults({ results, query })}
+                        />
+                        {codeSearchResults && (
+                            <div className="mt-2 space-y-2 font-mono text-xs max-h-[200px] overflow-y-auto">
+                                {codeSearchResults.results.slice(0, 8).map((r: any, i: number) => (
+                                    <div key={i} className="rounded border border-border bg-card p-2">
+                                        <div className="text-primary mb-1">{r.file?.split(/[/\\]/).pop()}:{r.line}</div>
+                                        <pre className="whitespace-pre-wrap text-muted-foreground overflow-x-auto">
+                                            {[...(r.contextBefore || []), r.content, ...(r.contextAfter || [])].join('\n')}
+                                        </pre>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+                <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
+                    <Code2 className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-sm">No file selected</p>
+                    <p className="text-xs">Click a file in the sidebar or select from errors</p>
+                </div>
             </div>
         );
     }
 
-    const fileName = file.path.split('/').pop();
-    const lineCount = file.content.split('\n').length;
+    // Use Monaco FileEditor so user can edit and save (Cmd/Ctrl+S)
+    if (appId) {
+        return (
+            <div className="flex flex-col h-full min-h-0">
+                <FileEditor appId={appId} filePath={displayFile.path} />
+            </div>
+        );
+    }
 
+    // Fallback when no appId (e.g. non-workspace context): read-only view
+    const fileName = displayFile.path.split('/').pop();
+    const lineCount = displayFile.content.split('\n').length;
     return (
         <div className="flex flex-col h-full">
-            {/* File Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
                 <div className="flex items-center gap-2">
                     <Code2 className="w-4 h-4 text-muted-foreground" />
@@ -425,11 +518,9 @@ function CodeTab({
                 </div>
                 <span className="text-xs text-muted-foreground">{lineCount} lines</span>
             </div>
-
-            {/* Code Content */}
             <div className="flex-1 overflow-auto">
                 <pre className="p-4 text-xs font-mono text-foreground leading-relaxed">
-                    {file.content.split('\n').map((line, i) => (
+                    {displayFile.content.split('\n').map((line, i) => (
                         <div key={i} className="flex">
                             <span className="w-8 text-right pr-4 text-muted-foreground select-none">
                                 {i + 1}
@@ -956,44 +1047,13 @@ function PermissionsTab({ chatId }: { chatId?: number }) {
 }
 
 /**
- * Search Tab - Codebase search + web search results
- * CodebaseSearchBox with Recent Searches; results shown in context
+ * Search Tab - Web search results only (codebase search lives in Code tab)
  */
-function SearchTab({ sources, appId }: { sources: SourceItem[]; appId: number | null }) {
-    const [codeResults, setCodeResults] = useState<{ results: any[]; query: string } | null>(null);
-
+function SearchTab({ sources }: { sources: SourceItem[]; appId: number | null }) {
     return (
         <div className="flex flex-col h-full bg-background">
-            {/* Codebase Search (natural language, recent searches) */}
-            <div className="p-3 border-b border-border bg-muted/10">
-                <CodebaseSearchBox
-                    appId={appId}
-                    placeholder="Search codebase... e.g. 'authentication logic'"
-                    onResults={(results, query) => setCodeResults({ results, query })}
-                />
-            </div>
-
-            {/* Code search results (in context with ±3 lines) */}
-            {codeResults && (
-                <div className="flex-1 overflow-y-auto p-3 border-b border-border min-h-0">
-                    <h4 className="text-xs font-medium text-muted-foreground mb-2">
-                        Code: &quot;{codeResults.query}&quot; ({codeResults.results.length} matches)
-                    </h4>
-                    <div className="space-y-3 font-mono text-xs">
-                        {codeResults.results.slice(0, 10).map((r, i) => (
-                            <div key={i} className="rounded border border-border bg-card p-2">
-                                <div className="text-primary mb-1">{r.file?.split(/[/\\]/).pop()}:{r.line}</div>
-                                <pre className="whitespace-pre-wrap text-muted-foreground overflow-x-auto">
-                                    {[...(r.contextBefore || []), r.content, ...(r.contextAfter || [])].join('\n')}
-                                </pre>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* Web Search Results Header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20 flex-shrink-0">
                 <Globe className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium">Web Results</span>
                 <span className="ml-auto text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
@@ -1052,100 +1112,6 @@ function SearchTab({ sources, appId }: { sources: SourceItem[]; appId: number | 
                         </div>
                     </a>
                 ))}
-            </div>
-        </div>
-    );
-}
-
-/**
- * Diagram Tab - Shows current diagram + previous versions
- */
-function DiagramTab({ appId }: { appId: number | null }) {
-    const diagramState = useAtomValue(diagramStateAtom);
-    const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-    const [versionDiagram, setVersionDiagram] = useState<string | null>(null);
-
-    const { data: timeline } = useQuery({
-        queryKey: ['diagram-timeline', appId],
-        queryFn: async () => {
-            if (!appId) return { snapshots: [] };
-            return IpcClient.getInstance().getDiagramTimeline({ appId, timeRange: 'all' });
-        },
-        enabled: !!appId,
-    });
-
-    const versions = timeline?.snapshots ?? [];
-
-    useEffect(() => {
-        if (!selectedVersionId) {
-            setVersionDiagram(null);
-            return;
-        }
-        IpcClient.getInstance().getDiagramSnapshot(selectedVersionId).then((snapshot) => {
-            setVersionDiagram(snapshot?.architecture ?? null);
-        });
-    }, [selectedVersionId]);
-
-    const displayCode = selectedVersionId ? versionDiagram : diagramState?.code;
-    const displayTitle = selectedVersionId
-        ? `Version ${versions.find((v: any) => v.id === selectedVersionId)?.id ?? selectedVersionId}`
-        : diagramState?.title;
-
-    const hasCurrent = diagramState?.code;
-    const hasVersions = versions.length > 0;
-    if (!hasCurrent && !selectedVersionId && !hasVersions) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <Code2 className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
-                <p className="text-sm text-center max-w-[250px]">
-                    Generate an architecture diagram from the sidebar to visualize your project structure.
-                </p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col h-full">
-            {/* Header + Version selector */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20 flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{displayTitle || 'Architecture Diagram'}</span>
-                </div>
-                {hasVersions && (
-                    <div className="flex items-center gap-1.5">
-                        <History className="w-3.5 h-3.5 text-muted-foreground" />
-                        <select
-                            value={selectedVersionId ?? ''}
-                            onChange={(e) => setSelectedVersionId(e.target.value ? Number(e.target.value) : null)}
-                            className="text-xs rounded border border-border bg-background px-2 py-1"
-                        >
-                            <option value="">Current</option>
-                            {versions.map((v: { id: number; createdAt: Date }) => (
-                                <option key={v.id} value={v.id}>
-                                    {new Date(v.createdAt).toLocaleDateString()}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-            </div>
-
-            {/* Diagram */}
-            <div className="flex-1 overflow-auto p-4">
-                {displayCode ? (
-                    <MermaidRenderer
-                        code={displayCode}
-                        className="min-h-[300px]"
-                    />
-                ) : selectedVersionId ? (
-                    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-                        Loading...
-                    </div>
-                ) : null}
             </div>
         </div>
     );

@@ -497,12 +497,17 @@ export interface McpServer {
   envJson?: Record<string, string> | null;
   url?: string | null;
   enabled: boolean;
+  scope?: "global" | "workspace";
+  appId?: number | null;
   createdAt: number;
   updatedAt: number;
 }
 
 export interface CreateMcpServer
-  extends Omit<McpServer, "id" | "createdAt" | "updatedAt"> { }
+  extends Omit<McpServer, "id" | "createdAt" | "updatedAt"> {
+  scope?: "global" | "workspace";
+  appId?: number | null;
+}
 export type McpServerUpdate = Partial<McpServer> & Pick<McpServer, "id">;
 export type McpToolConsentType = "ask" | "always" | "denied";
 

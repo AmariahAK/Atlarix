@@ -15,28 +15,84 @@ const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
 
 const MCP_FREE_TIER_LIMIT = 1;
+const MCP_GLOBAL_MAX = 5;
+const MCP_WORKSPACE_MAX = 5;
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
 export function registerMcpHandlers() {
-  // CRUD for MCP servers
-  handle("mcp:list-servers", async () => {
-    return await db.select().from(mcpServers);
-  });
+  // List MCP servers (optional filter by scope / appId)
+  handle(
+    "mcp:list-servers",
+    async (
+      _event: IpcMainInvokeEvent,
+      filter?: { scope?: "global" | "workspace"; appId?: number }
+    ) => {
+      if (!filter?.scope) {
+        return await db.select().from(mcpServers);
+      }
+      if (filter.scope === "global") {
+        return await db
+          .select()
+          .from(mcpServers)
+          .where(eq(mcpServers.scope, "global"));
+      }
+      if (filter.scope === "workspace" && filter.appId != null) {
+        return await db
+          .select()
+          .from(mcpServers)
+          .where(
+            and(
+              eq(mcpServers.scope, "workspace"),
+              eq(mcpServers.appId, filter.appId)
+            )
+          );
+      }
+      return [];
+    }
+  );
 
   handle(
     "mcp:create-server",
     async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => {
-      const existing = await db.select().from(mcpServers);
-      if (existing.length >= MCP_FREE_TIER_LIMIT) {
-        const budget = await fetchUserBudget();
-        const isPro = budget != null && budget.totalCredits > 0;
-        if (!isPro) {
+      const scope = params.scope ?? "global";
+      const appId = params.appId ?? null;
+
+      const budget = await fetchUserBudget();
+      const isPro = budget != null && budget.totalCredits > 0;
+
+      if (scope === "global") {
+        const globalCount = await db
+          .select()
+          .from(mcpServers)
+          .where(eq(mcpServers.scope, "global"));
+        if (globalCount.length >= MCP_GLOBAL_MAX) {
           throw new Error(
-            "Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited MCP servers.",
+            `Maximum ${MCP_GLOBAL_MAX} global MCP servers. Remove one to add another.`
+          );
+        }
+        if (!isPro && globalCount.length >= MCP_FREE_TIER_LIMIT) {
+          throw new Error(
+            "Free tier is limited to 1 MCP server. Upgrade to Pro for more."
+          );
+        }
+      } else if (scope === "workspace" && appId != null) {
+        const workspaceCount = await db
+          .select()
+          .from(mcpServers)
+          .where(
+            and(
+              eq(mcpServers.scope, "workspace"),
+              eq(mcpServers.appId, appId)
+            )
+          );
+        if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+          throw new Error(
+            `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`
           );
         }
       }
+
       const { name, transport, command, args, envJson, url, enabled } = params;
       const result = await db
         .insert(mcpServers)
@@ -48,6 +104,8 @@ export function registerMcpHandlers() {
           envJson: envJson || null,
           url: url || null,
           enabled: !!enabled,
+          scope,
+          appId,
         })
         .returning();
       return result[0];

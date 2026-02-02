@@ -97,6 +97,14 @@ import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
 import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
+import {
+  shouldCompact,
+  runCompaction,
+  getContextSummary,
+  schedulePostTurnCompaction,
+  pruneToolOutputsInMessages,
+} from "../../lib/context-compaction";
+import { estimateTokens } from "../utils/token_utils";
 
 
 
@@ -574,6 +582,16 @@ ${componentSnippet}
         }
       }
 
+      // Phase 1 (v2+): Detect workflow JSON (n8n/Zapier) and convert to structured prompt for AI
+      const { processPromptForWorkflow } = await import("../../lib/workflow/workflow_parser");
+      const workflowResult = await processPromptForWorkflow(userPrompt);
+      const workflowEffectivePrompt = workflowResult.wasWorkflow ? workflowResult.prompt : null;
+      if (workflowResult.wasWorkflow && workflowResult.parsed) {
+        logger.log(
+          `Workflow detected: ${workflowResult.parsed.nodes.length} nodes, stack: ${workflowResult.parsed.suggestedStack.backend} + ${workflowResult.parsed.suggestedStack.integrations.join(", ")}`
+        );
+      }
+
       // Check if this is an ephemeral workspace chat (skip DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
@@ -885,10 +903,18 @@ ${componentSnippet}
           // Prepare message history for the AI
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
-          const messageHistory = updatedChat.messages.map((message) => {
+          const lastUserIdx = [...updatedChat.messages]
+            .map((m: any, i: number) => (m.role === "user" ? i : -1))
+            .filter((i: number) => i >= 0)
+            .pop() ?? -1;
+          const messageHistory = updatedChat.messages.map((message, idx) => {
+            let content = message.content || "";
+            if (workflowEffectivePrompt && message.role === "user" && idx === lastUserIdx) {
+              content = workflowEffectivePrompt; // Use structured workflow prompt for AI
+            }
             const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
               role: message.role as "user" | "assistant" | "system",
-              content: message.content || "", // Ensure content is never undefined
+              content,
             };
 
             // Only include commit hash fields if they're defined (DB messages have them, ephemeral don't)
@@ -905,48 +931,90 @@ ${componentSnippet}
           });
 
 
-          // For Atlarix Pro + Deep Context, we set to 200 chat turns (+1)
-          // this is to enable more cache hits. Practically, users should
-          // rarely go over this limit because they will hit the model's
-          // context window limit.
-          //
-          // Limit chat history based on maxChatTurnsInContext setting
-          // We add 1 because the current prompt counts as a turn.
-          const maxChatTurns = isDeepContextEnabled
-            ? 201
-            : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
+          // Phase 6: Context bar + auto-summarize OR fallback to turn truncation
+          const useAutoSummarize =
+            settings.enableContextAutoSummarize !== false &&
+            req.chatId > 0 &&
+            !isEphemeralWorkspace;
 
-          // If we need to limit the context, we take only the most recent turns
           let limitedMessageHistory = messageHistory;
-          if (messageHistory.length > maxChatTurns * 2) {
-            // Each turn is a user + assistant pair
-            // Calculate how many messages to keep (maxChatTurns * 2)
-            let recentMessages = messageHistory
-              .filter((msg) => msg.role !== "system")
-              .slice(-maxChatTurns * 2);
+          let contextSummaryForSystem: string | null = null;
 
-            // Ensure the first message is a user message
-            if (recentMessages.length > 0 && recentMessages[0].role !== "user") {
-              // Find the first user message
-              const firstUserIndex = recentMessages.findIndex(
-                (msg) => msg.role === "user",
+          if (useAutoSummarize) {
+            const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
+            const messageHistoryTokens = msgList.reduce(
+              (acc, m) => acc + estimateTokens(m.content || ""),
+              0
+            );
+            const systemPromptEstimate = 6000; // Conservative: base + diagram + session memory
+            const inputTokens = estimateTokens(userPrompt);
+
+            // Check for existing summary
+            const existingSummary = await getContextSummary(req.chatId);
+            if (existingSummary) {
+              contextSummaryForSystem = existingSummary.summaryText;
+              const afterSummary = msgList.filter((m) => m.id > existingSummary.lastMessageId);
+              limitedMessageHistory = afterSummary.map((m) => ({
+                role: m.role as "user" | "assistant" | "system",
+                content: m.content || "",
+              }));
+              logger.log(
+                `Using context summary + ${afterSummary.length} messages (after msg ${existingSummary.lastMessageId})`,
               );
-              if (firstUserIndex > 0) {
-                // Drop assistant messages before the first user message
-                recentMessages = recentMessages.slice(firstUserIndex);
-              } else if (firstUserIndex === -1) {
-                logger.warn(
-                  "No user messages found in recent history, set recent messages to empty",
+            } else if (
+              await shouldCompact({
+                chatId: req.chatId,
+                messageHistoryTokens,
+                systemPromptTokens: systemPromptEstimate,
+                inputTokens,
+                providerId: settings.selectedModel?.provider,
+              })
+            ) {
+              // Run compaction when over threshold
+              const compactionResult = await runCompaction({
+                chatId: req.chatId,
+                chatMessages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
+                systemPromptTokens: systemPromptEstimate,
+                inputTokens,
+                providerId: settings.selectedModel?.provider,
+              });
+              if (compactionResult) {
+                contextSummaryForSystem = compactionResult.summaryText;
+                limitedMessageHistory = compactionResult.messagesAfterSummary.map((m) => ({
+                  role: m.role as "user" | "assistant" | "system",
+                  content: m.content || "",
+                }));
+                logger.log(
+                  `Compaction complete: ${compactionResult.messagesAfterSummary.length} messages after summary`,
                 );
-                recentMessages = [];
               }
             }
+          }
 
-            limitedMessageHistory = [...recentMessages];
+          // Fallback: turn-based truncation (when auto-summarize off or for ephemeral)
+          if (!useAutoSummarize) {
+            const maxChatTurns = isDeepContextEnabled
+              ? 201
+              : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
 
-            logger.log(
-              `Limiting chat history from ${messageHistory.length} to ${limitedMessageHistory.length} messages (max ${maxChatTurns} turns)`,
-            );
+            if (messageHistory.length > maxChatTurns * 2) {
+              let recentMessages = messageHistory
+                .filter((msg) => msg.role !== "system")
+                .slice(-maxChatTurns * 2);
+
+              if (recentMessages.length > 0 && recentMessages[0].role !== "user") {
+                const firstUserIndex = recentMessages.findIndex((msg) => msg.role === "user");
+                if (firstUserIndex > 0) {
+                  recentMessages = recentMessages.slice(firstUserIndex);
+                } else if (firstUserIndex === -1) {
+                  recentMessages = [];
+                }
+              }
+              limitedMessageHistory = [...recentMessages];
+              logger.log(
+                `Limiting chat history from ${messageHistory.length} to ${limitedMessageHistory.length} messages (max ${maxChatTurns} turns)`,
+              );
+            }
           }
 
           let systemPrompt = constructSystemPrompt({
@@ -994,6 +1062,12 @@ ${componentSnippet}
             }
           } catch (error) {
             logger.warn("Failed to inject workspace context:", error);
+          }
+
+          // Phase 6: Inject context summary (compacted earlier conversation)
+          if (contextSummaryForSystem) {
+            systemPrompt += `\n\n## Session Summary (earlier conversation)\n${contextSummaryForSystem}`;
+            logger.info("Injected context summary from auto-compaction");
           }
 
           // Inject session memory (last 5 exchanges for conversation continuity)
@@ -1143,6 +1217,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 },
               ] as const)
               : [];
+
+          // Prune long tool outputs to prevent context bloat (OpenCode style)
+          limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
 
           const limitedHistoryChatMessages = limitedMessageHistory.map((msg) => {
             const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
@@ -1337,6 +1414,15 @@ This conversation includes one or more image attachments. When the user uploads 
                   logger.log(
                     `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${maxTokensUsed}`,
                   );
+
+                  // Post-turn compaction (OpenCode style): compact proactively so next user message is instant
+                  if (!isEphemeralWorkspace && req.chatId > 0) {
+                    schedulePostTurnCompaction({
+                      chatId: req.chatId,
+                      totalTokensUsed: maxTokensUsed,
+                      providerId: settings.selectedModel?.provider,
+                    });
+                  }
                 } else {
                   logger.log("Total tokens used: unknown");
                 }

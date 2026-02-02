@@ -299,6 +299,7 @@ function getDataForType(
                 sources: state.sources,
                 workspacePath: state.workspacePath,
                 appId: state.appId,
+                ...state.diagramState,
                 ...state.aiContext
             };
         default:

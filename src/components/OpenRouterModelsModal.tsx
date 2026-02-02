@@ -16,7 +16,7 @@ interface OpenRouterModelsModalProps {
     currentModelName?: string;
 }
 
-const MODELS_PER_PAGE = 7;
+const MODELS_PER_PAGE = 20;
 
 export function OpenRouterModelsModal({
     isOpen,

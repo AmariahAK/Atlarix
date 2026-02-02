@@ -243,6 +243,31 @@ Requirements:
         // Generate fingerprint for staleness tracking
         const fingerprint = await generateFingerprint(appPath);
 
+        // Git commit for diagram update strategy (update vs regenerate)
+        let gitCommit: string | undefined;
+        let updateType: "regenerate" | "update" | undefined = "regenerate";
+        try {
+            const { GitChangeTracker } = await import("./diagram/git_change_tracker");
+            const tracker = new GitChangeTracker(appPath);
+            if (await tracker.isGitRepo()) {
+                gitCommit = await tracker.getCurrentCommitHash();
+            }
+        } catch (e) {
+            logger.warn("[_generateDiagram] Git commit capture skipped:", e);
+        }
+
+        // Infer workflow from project (Diagram tab Workflow mode)
+        let workflowMetadata: { nodes?: unknown[]; connections?: unknown } | undefined;
+        try {
+            const { inferWorkflowForWorkspace } = await import("./workflow/project_to_workflow");
+            const inferred = await inferWorkflowForWorkspace(appPath);
+            if (inferred) {
+                workflowMetadata = { nodes: inferred.nodes, connections: inferred.connections };
+            }
+        } catch (e) {
+            logger.warn("[_generateDiagram] Workflow inference skipped:", e);
+        }
+
         // Check for existing diagram and update or create
         const existingDiagram = await db.query.diagrams.findFirst({
             where: eq(diagrams.workspaceId, workspaceId),
@@ -252,15 +277,23 @@ Requirements:
 
         if (existingDiagram) {
             // Update existing diagram
+            const meta = (existingDiagram.metadata as Record<string, unknown>) || {};
+            const updatePayload: Record<string, unknown> = {
+                content,
+                fingerprintHash: fingerprint.hash,
+                fingerprintData: fingerprint,
+                createdFromFileCount: fingerprint.fileCount,
+                updatedAt: new Date(),
+                metadata: {
+                    ...meta,
+                    ...(workflowMetadata && { workflow: workflowMetadata }),
+                    ...(gitCommit && { gitCommit }),
+                    updateType,
+                },
+            };
             const [updated] = await db
                 .update(diagrams)
-                .set({
-                    content,
-                    fingerprintHash: fingerprint.hash,
-                    fingerprintData: fingerprint,
-                    createdFromFileCount: fingerprint.fileCount,
-                    updatedAt: new Date(),
-                })
+                .set(updatePayload)
                 .where(eq(diagrams.id, existingDiagram.id))
                 .returning();
 
@@ -275,7 +308,12 @@ Requirements:
                     type: "mermaid",
                     title: `${app.name} Architecture`,
                     content,
-                    metadata: { focus: "auto-generated" },
+                    metadata: {
+                        focus: "auto-generated",
+                        ...(workflowMetadata && { workflow: workflowMetadata }),
+                        ...(gitCommit && { gitCommit }),
+                        updateType,
+                    },
                     fingerprintHash: fingerprint.hash,
                     fingerprintData: fingerprint,
                     createdFromFileCount: fingerprint.fileCount,

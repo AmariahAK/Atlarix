@@ -1,12 +1,15 @@
 /**
  * Project → Workflow - Infer n8n-style workflow from existing codebase
- * Supports all languages Atlarix handles. Prefers detailed inference (Tree-sitter–
- * style: functions, classes, calls, modules) so the canvas shows a real n8n-like
- * workflow you can see and modify; falls back to ecosystem app nodes when needed.
+ * Supports all languages Atlarix handles. Prefers AppMap extractors (Node.js routes +
+ * data sources) when available, then detailed inference (Tree-sitter–style), then
+ * ecosystem app nodes when needed.
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import { extractAppMap } from "./extractors";
+import { appMapToAtlaflow } from "./app_map_to_atlaflow";
+import { detectPolyproject, mergeWorkflows } from "./polyproject";
 
 /** package name → n8n node type (Node.js) */
 const DEP_TO_NODE: Record<string, string> = {
@@ -318,12 +321,23 @@ async function inferDetailedWorkflowFromProject(
 }
 
 /**
- * Infer workflow from project — detailed (n8n-like) first, then ecosystem fallback.
- * Supports all Atlarix languages; shows functions, classes, and structure when possible.
+ * Infer workflow from project — AppMap extractors first, then detailed inference, then ecosystem fallback.
+ * Node.js: routes + data sources → AppMap → Atlaflow. Other languages: detailed or generic app nodes.
  */
 export async function inferWorkflowFromProject(
   appPath: string
 ): Promise<InferredWorkflow | null> {
+  // 1) Prefer AppMap pipeline when available (Node.js: routes + data sources)
+  const appMap = await extractAppMap(appPath);
+  if (
+    appMap &&
+    ((appMap.entryPoints?.length ?? 0) > 0 || (appMap.dataSources?.length ?? 0) > 0)
+  ) {
+    const workflow = appMapToAtlaflow(appMap);
+    return workflow as InferredWorkflow;
+  }
+
+  // 2) Detailed inference (Tree-sitter–style: modules, functions, classes)
   const detailed = await inferDetailedWorkflowFromProject(appPath);
   if (detailed && detailed.nodes.length > 0) return detailed;
 
@@ -397,4 +411,57 @@ export async function inferWorkflowFromProject(
     nodes,
     connections: buildLinearConnections(nodes),
   };
+}
+
+/**
+ * Infer workflow for a workspace; when polyproject (frontend + backend, monorepo) is detected,
+ * infers per root and merges into one workflow with grouped layout.
+ */
+export async function inferWorkflowForWorkspace(
+  workspacePath: string
+): Promise<InferredWorkflow | null> {
+  const roots = await detectPolyproject(workspacePath);
+  if (!roots || roots.length <= 1) {
+    return inferWorkflowFromProject(workspacePath);
+  }
+
+  const items: Array<{ label: string; workflow: InferredWorkflow }> = [];
+  for (const root of roots) {
+    const workflow = await inferWorkflowFromProject(root.path);
+    if (workflow && workflow.nodes.length > 0) {
+      items.push({ label: root.label, workflow });
+    }
+  }
+
+  if (items.length === 0) return inferWorkflowFromProject(workspacePath);
+  if (items.length === 1) return items[0].workflow;
+
+  return mergeWorkflows(items);
+}
+
+/**
+ * Return workflow splits for polyproject (two workflows on one screen).
+ * When polyproject: one item per root; otherwise single item with merged/single workflow.
+ */
+export async function getWorkflowSplits(
+  workspacePath: string
+): Promise<Array<{ label: string; workflow: InferredWorkflow }>> {
+  const roots = await detectPolyproject(workspacePath);
+  if (!roots || roots.length <= 1) {
+    const w = await inferWorkflowFromProject(workspacePath);
+    if (!w) return [];
+    return [{ label: "default", workflow: w }];
+  }
+  const items: Array<{ label: string; workflow: InferredWorkflow }> = [];
+  for (const root of roots) {
+    const workflow = await inferWorkflowFromProject(root.path);
+    if (workflow && workflow.nodes.length > 0) {
+      items.push({ label: root.label, workflow });
+    }
+  }
+  if (items.length === 0) {
+    const w = await inferWorkflowFromProject(workspacePath);
+    if (w) return [{ label: "default", workflow: w }];
+  }
+  return items;
 }

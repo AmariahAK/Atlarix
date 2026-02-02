@@ -242,6 +242,8 @@ export const UserSettingsSchema = z.object({
   experiments: ExperimentsSchema.optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),
+  /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
+  enableContextAutoSummarize: z.boolean().optional(),
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   enableProLazyEditsMode: z.boolean().optional(),
   proLazyEditsMode: z.enum(["off", "v1", "v2"]).optional(),
@@ -256,6 +258,9 @@ export const UserSettingsSchema = z.object({
 
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
+
+  /** When "Auto" is selected, AI providers are tried in this order (drag-and-drop in Settings). */
+  autoProviderOrder: z.array(z.string()).optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),

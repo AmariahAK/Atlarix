@@ -314,28 +314,47 @@ function AtlaflowView() {
     const setChatInput = useSetAtom(chatInputValueAtom);
     const setHomeInput = useSetAtom(homeChatInputValueAtom);
     const activeChatId = useAtomValue(activeChatIdAtom);
+    const staleness = useAtomValue(diagramStalenessAtom);
     const [initialWorkflow, setInitialWorkflow] = useState<{ nodes: any[]; connections: any } | null>(null);
+    const [splits, setSplits] = useState<Array<{ label: string; workflow: { nodes: any[]; connections: any } }>>([]);
+    const [activeSplitIndex, setActiveSplitIndex] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [generatingCode, setGeneratingCode] = useState(false);
+    const [workflowKey, setWorkflowKey] = useState(0);
+    const [refreshingWorkflow, setRefreshingWorkflow] = useState(false);
 
     useEffect(() => {
         const load = async () => {
             if (!app?.id || !app.path) return;
             setLoading(true);
             try {
-                const result = await IpcClient.getInstance().loadWorkflow({
+                const result = await IpcClient.getInstance().loadWorkflowSplits({
                     appId: app.id,
                     workspacePath: app.path,
                 });
-                if (result.success && result.workflow) {
+                if (result.success && result.splits?.length) {
+                    setSplits(result.splits.map((s) => ({
+                        label: s.label,
+                        workflow: { nodes: (s.workflow?.nodes as any[]) ?? [], connections: (s.workflow?.connections as any) ?? {} },
+                    })));
                     setInitialWorkflow({
-                        nodes: (result.workflow.nodes as any[]) ?? [],
-                        connections: (result.workflow.connections as any) ?? {},
+                        nodes: (result.splits[0]?.workflow?.nodes as any[]) ?? [],
+                        connections: (result.splits[0]?.workflow?.connections as any) ?? {},
                     });
+                    setActiveSplitIndex(0);
                 } else {
-                    setInitialWorkflow({ nodes: [], connections: {} });
+                    const fallback = await IpcClient.getInstance().loadWorkflow({ appId: app.id, workspacePath: app.path });
+                    if (fallback.success && fallback.workflow) {
+                        setSplits([{ label: 'default', workflow: { nodes: (fallback.workflow.nodes as any[]) ?? [], connections: (fallback.workflow.connections as any) ?? {} } }]);
+                        setInitialWorkflow({ nodes: (fallback.workflow.nodes as any[]) ?? [], connections: (fallback.workflow.connections as any) ?? {} });
+                    } else {
+                        setSplits([]);
+                        setInitialWorkflow({ nodes: [], connections: {} });
+                    }
                 }
             } catch (err) {
                 console.error("[AtlaflowView] Failed to load workflow:", err);
+                setSplits([]);
                 setInitialWorkflow({ nodes: [], connections: {} });
             } finally {
                 setLoading(false);
@@ -344,6 +363,40 @@ function AtlaflowView() {
         load();
     }, [app?.id, app?.path]);
 
+    const handleRefreshWorkflow = useCallback(async () => {
+        if (!app?.id || !app.path) return;
+        setRefreshingWorkflow(true);
+        try {
+            const result = await IpcClient.getInstance().loadWorkflowSplits({
+                appId: app.id,
+                workspacePath: app.path,
+            });
+            if (result.success && result.splits?.length) {
+                setSplits(result.splits.map((s) => ({
+                    label: s.label,
+                    workflow: { nodes: (s.workflow?.nodes as any[]) ?? [], connections: (s.workflow?.connections as any) ?? {} },
+                })));
+                setInitialWorkflow({
+                    nodes: (result.splits[activeSplitIndex]?.workflow?.nodes as any[]) ?? result.splits[0]?.workflow?.nodes ?? [],
+                    connections: (result.splits[activeSplitIndex]?.workflow?.connections as any) ?? result.splits[0]?.workflow?.connections ?? {},
+                });
+                setWorkflowKey((k) => k + 1);
+                toast.success('Workflow reloaded from project.');
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Failed to refresh workflow.');
+        } finally {
+            setRefreshingWorkflow(false);
+        }
+    }, [app?.id, app?.path, activeSplitIndex]);
+
+    // Auto-refresh workflow when diagram staleness is detected (e.g. file save)
+    useEffect(() => {
+        if (!staleness || !app?.id || !app.path) return;
+        const t = setTimeout(() => handleRefreshWorkflow(), 1800);
+        return () => clearTimeout(t);
+    }, [staleness?.reason, app?.id, app?.path, handleRefreshWorkflow]);
+
     const handleExport = useCallback((exported: { nodes: unknown[]; connections: unknown }) => {
         const json = JSON.stringify(exported, null, 2);
         navigator.clipboard.writeText(json);
@@ -351,7 +404,35 @@ function AtlaflowView() {
     }, []);
 
     const handleGenerateCode = useCallback(
-        (workflow: { nodes: unknown[]; connections: unknown }) => {
+        async (workflow: { nodes: unknown[]; connections: unknown }) => {
+            if (app?.path) {
+                setGeneratingCode(true);
+                try {
+                    const result = await IpcClient.getInstance().generateCodeFromWorkflow({
+                        workspacePath: app.path,
+                        workflow,
+                        appId: app.id,
+                    });
+                    if (result.success) {
+                        const files = [...(result.filesCreated ?? []), ...(result.filesUpdated ?? [])];
+                        let detail = files.length ? ` ${files.join(', ')}` : '';
+                        if (result.diff && (result.diff.addedEntryPoints > 0 || result.diff.addedDataSources > 0)) {
+                            detail += ` (+${result.diff.addedEntryPoints} routes, +${result.diff.addedDataSources} data)`;
+                        }
+                        toast.success(result.message + detail);
+                        if (app?.id) {
+                            IpcClient.getInstance().markDiagramStale({ workspaceId: app.id }).catch(() => {});
+                        }
+                    } else {
+                        toast.error(result.message || result.error || 'Generate code failed.');
+                    }
+                } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Generate code failed.');
+                } finally {
+                    setGeneratingCode(false);
+                }
+                return;
+            }
             const json = JSON.stringify(workflow, null, 2);
             if (activeChatId) {
                 setChatInput(json);
@@ -360,7 +441,7 @@ function AtlaflowView() {
             }
             toast.success('Atlaflow copied to input. Send to generate code.');
         },
-        [setChatInput, setHomeInput, activeChatId]
+        [app?.path, app?.id, setChatInput, setHomeInput, activeChatId]
     );
 
     if (!app) {
@@ -379,12 +460,43 @@ function AtlaflowView() {
         );
     }
 
+    const currentWorkflow = splits.length > 1 && splits[activeSplitIndex]
+        ? splits[activeSplitIndex].workflow
+        : initialWorkflow;
+
     return (
         <div className="flex flex-col min-h-[600px] w-full">
+            {splits.length > 1 && (
+                <div className="flex gap-1 px-2 py-1.5 border-b border-border bg-muted/20">
+                    {splits.map((s, i) => (
+                        <button
+                            key={s.label}
+                            type="button"
+                            onClick={() => {
+                                setActiveSplitIndex(i);
+                                setInitialWorkflow(s.workflow);
+                                setWorkflowKey((k) => k + 1);
+                            }}
+                            className={cn(
+                                'px-3 py-1.5 text-xs rounded-md transition-colors',
+                                i === activeSplitIndex
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            )}
+                        >
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
+            )}
             <AtlaflowEditor
-                initialWorkflow={initialWorkflow}
+                key={`atlaflow-${app?.id}-${workflowKey}-${activeSplitIndex}`}
+                initialWorkflow={currentWorkflow ?? initialWorkflow}
                 onExport={handleExport}
                 onGenerateCode={handleGenerateCode}
+                isGeneratingCode={generatingCode}
+                onRefreshWorkflow={handleRefreshWorkflow}
+                isRefreshingWorkflow={refreshingWorkflow}
             />
         </div>
     );
