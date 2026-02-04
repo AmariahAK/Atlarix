@@ -35,19 +35,19 @@ import {
     browserErrorsAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
-import { currentAppAtom } from '@/atoms/appAtoms';
+import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],
-    'diagram': ['diagram', 'logs'],
+    'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram', 'vault'],
+    'diagram': ['diagram', 'logs', 'vault'],
     'terminal': ['terminal'],
-    'file-diff': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],  // Same as code-preview
+    'file-diff': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram', 'vault'],  // Same as code-preview
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram'],  // Same as code-preview
+    'permission': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram', 'vault'],  // Same as code-preview
     'empty': [],
 };
 
@@ -88,6 +88,8 @@ export function useRightPanelContext(): RightPanelContextResult {
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
     const currentApp = useAtomValue(currentAppAtom);
+    const selectedAppId = useAtomValue(selectedAppIdAtom);
+    const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
@@ -191,12 +193,13 @@ export function useRightPanelContext(): RightPanelContextResult {
                 toolTimeline,
                 devServerUrl,
                 browserErrors,
-                workspacePath: currentApp?.path || '',
-                appId: currentApp?.id ?? null,
+                // Use selected workspace when currentApp not yet loaded (e.g. sidebar file click)
+                workspacePath: currentApp?.path || selectedWorkspaceInfo?.path || '',
+                appId: currentApp?.id ?? selectedAppId ?? null,
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {

@@ -2,13 +2,56 @@
 
 All notable changes to Atlarix will be documented in this file.
 
-## [Unreleased] - v2.0
-### Phase 6 - Planned
-- Context bar with auto-summarize on fill (Claude Code style)
-- Smart Model Routing (3-tier favorites, provider prefs, task-based selection)
-- IDE-like file tree in sidebar
-- **Atlaflow implementation** – Extractors (project → AppMap per language), codegen (AppMap → project), live sync; diagram workflow = your project.
-### Atlaflow: Conditionals from code & Template library (2026-02-02)
+## [v2.0.0] - 2026-02-02
+
+### Live diagram ↔ Blueprint diagram ↔ Code (Phase 7)
+
+Architecture is now a two-way system: **Live** (code → diagram, read-only) and **Blueprint** (diagram → code, additive).
+
+- **Live View** – Diagram is extracted/regenerated from your codebase (Mermaid). View only; no edits to repo from the diagram.
+- **Blueprint Mode** – In the Diagram tab, toggle **Live | Blueprint**. In Blueprint mode you add **rooms** (e.g. Auth API, Worker, DB), **functions** per room (API, Webhook, Function, Feature), and **edges** between rooms. Stored as Architecture JSON per workspace (`blueprints` table).
+- **Vault** – Right panel **Vault** tab: manage environment variables per workspace; syncs to `.env.local`. Env keys can be referenced by name in the Blueprint (no values in diagram).
+- **Codegen** – From Blueprint delta: new stub files (`src/<room>.ts`) and merge of env refs into `.env.local`. **Generate code** button in Blueprint editor; AI tool `generate_from_blueprint`. Additive only (skips existing files).
+- **Re-extract after refactor** – After AI file writes/moves, the permission interceptor runs `evaluateDiagramRefresh()`; when structural change is detected, background diagram regeneration runs so the Live diagram stays in sync.
+- **New-project flow** – Create workspace (empty or from template) → Diagram → Blueprint mode → design → **Generate code** to scaffold. Same codegen supports additive (existing project) and full scaffold (new project).
+- **Implementation plan** – `.atlarix/PLAN.md` via `read_implementation_plan` / `write_implementation_plan`; compare Blueprint to Live → plan tasks → implement exchange-by-exchange with user review.
+
+### Phase 6 – Smart Model Routing & IDE
+
+- **3-tier favorites** – Fast ⚡ / Balanced ⚖️ / Deep 🧠 in ModelPicker and Settings for OpenRouter, Ollama, LM Studio.
+- **Auto fallback** – When provider is "Auto", a fallback chain is built; if the first provider fails (e.g. rate limit), the next is tried automatically.
+- **IDE-like workspace** – File tree in sidebar; click file → Code tab; collapse previous workspace on switch.
+- **Context bar + auto-summarize** – Fillable context; post-turn compaction; real token tracking; tool output pruning; OpenCode-style continuation.
+
+### Already in app (documented as v2.0)
+
+- **Token budget** – Per-provider caps in Settings; real-time TokenBar; 80%/90% warnings.
+- **Dangerous command UX** – "I understand" for risky commands; plain-English explanation; audit log.
+- **Themes** – Light / Dark / System (ThemeContext); diagram and code views follow theme.
+- **Compare mode** – Diagram tab: current / before / after / side-by-side diagram comparison.
+- **Persistent memory** – `.atlarix/MEMORY.md` written on compaction; injected into workspace system prompt.
+
+### Blueprint UX – Phases A–D (2026-02-03)
+
+Blueprint room detail is now a hybrid list + flow with credentials linking.
+
+- **Phase A** – **Type differentiation**: Each function in “Edit room details” shows type (API, Webhook, Function, Feature) with icon (Lucide) and expandable config (description, provider, credential key, trigger). **List | Flow** toggle per room.
+- **Phase B** – **Creds in Diagram**: Diagram panel tabs include **Vault** (key icon). In the function list, API/Webhook rows show a **Key** field (e.g. `OPENROUTER_API_KEY`) and **Edit in Creds** opens the Vault tab. Optional `credentialKey`, `provider`, `trigger` on `BlueprintFunction`.
+- **Phase C** – **Flow view**: For each room, **Flow** shows a mini React Flow canvas: nodes = room functions (same type icons), edges from `room.flowEdges`. Click a node to select that function and switch back to List with it expanded.
+- **Phase D** – **Editable flow edges**: In Flow view, drag from node handles to connect; Backspace/Delete removes an edge. Edges stored as `BlueprintRoom.flowEdges` and kept in the in-memory blueprint (codegen/AI can use them when generating “connected” code).
+
+**Left for later (optional):** AI/codegen reading `flowEdges` when generating code; “View code” / “Edit” actions in the function list; inferring flow edges from code analysis.
+
+### Phase 8 – Internal diagram git (simple-git for all projects)
+
+- **DiagramGitTracker** – Per-workspace internal git repo under `userData/diagram-git/<workspaceId>`. Each snapshot is a commit of workspace file hashes (one small file per project file); no dependency on the project having git.
+- **captureSnapshot** – After each diagram generation, we write the current workspace state into the internal repo and commit; the commit hash is stored in `diagram.metadata.diagramGitCommit`.
+- **analyzeChanges** – On staleness check, we write the current workspace snapshot (no commit) and run `simple-git` diff against `diagramGitCommit` to get file-level changes; same thresholds (e.g. &lt;5% skip, 5–15% update, &gt;30% regenerate) drive update vs regenerate. Reduces unnecessary refreshes and works for repo, monorepo, polyrepo, and non-repo.
+- **check-staleness** – Use only internal diagram git when `diagramGitCommit` is present; no fallback to project git (older diagrams use fingerprint-based staleness).
+
+---
+
+### (Prior: Atlaflow conditionals & template library – 2026-02-02)
 
 #### Conditionals from code
 - **Source → AppMap** – Node and Python extractors detect `if`/`else` (and equivalent branching) around route handlers and API logic. Each branch is represented in the AppMap as an `AppMapConditional` with synthetic entry points for "then" and "else" paths.

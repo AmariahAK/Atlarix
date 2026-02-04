@@ -22,13 +22,14 @@ import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
+import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound
 } from 'lucide-react';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
@@ -59,6 +60,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     permission: { icon: Shield, label: 'Permission' },
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
+    vault: { icon: KeyRound, label: 'Vault' },
 };
 
 // Primary mode categories for the toolbar
@@ -300,7 +302,7 @@ Please fix these errors in priority order (structural/build errors first, then r
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} fallbackChatId={routeChatId} />
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
             </div>
         </div>
     );
@@ -314,12 +316,14 @@ function PanelContent({
     onSolveWithAI,
     onSolveAllWithAI,
     onSwitchToCode,
+    setActiveTab,
     fallbackChatId
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
     onSwitchToCode?: () => void;
+    setActiveTab?: (tab: import('@/atoms/sourceAtoms').PanelTab) => void;
     fallbackChatId?: number;
 }) {
     // For file-diff and permission types, route based on activeTab
@@ -343,12 +347,14 @@ function PanelContent({
                     />
                 );
             case 'diagram':
-                return <DiagramPanel data={context.data} activeTab="diagram" />;
+                return <DiagramPanel data={context.data} activeTab="diagram" setActiveTab={setActiveTab} />;
             case 'terminal':
                 return <TerminalPanel data={context.data} />;
             case 'search':
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
+            case 'vault':
+                return <VaultPanel appId={context.data?.appId ?? null} />;
             default:
                 // Default to permission queue
                 return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
@@ -360,6 +366,9 @@ function PanelContent({
             return <SourcePreviewPanel data={context.data} activeTab={context.activeTab} />;
 
         case 'code-preview':
+            if (context.activeTab === 'vault') {
+                return <VaultPanel appId={context.data?.appId ?? null} />;
+            }
             return (
                 <CodePreviewPanel
                     data={context.data}
@@ -371,7 +380,7 @@ function PanelContent({
             );
 
         case 'diagram':
-            return <DiagramPanel data={context.data} activeTab={context.activeTab} />;
+            return <DiagramPanel data={context.data} activeTab={context.activeTab} setActiveTab={setActiveTab} />;
 
         case 'terminal':
             return <TerminalPanel data={context.data} />;

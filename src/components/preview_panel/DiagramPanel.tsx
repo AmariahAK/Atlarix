@@ -10,14 +10,14 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { diagramStateAtom, diagramStalenessAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
-import { chatInputValueAtom, homeChatInputValueAtom, activeChatIdAtom } from '@/atoms/chatAtoms';
+import { diagramStateAtom, diagramStalenessAtom, diagramViewModeAtom, blueprintStateAtom, blueprintAiEditingAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
+import { BlueprintEditor } from '@/components/preview_panel/BlueprintEditor';
 import { IpcClient } from '@/ipc/ipc_client';
+import { createEmptyBlueprint } from '@/shared/blueprint-types';
 import { toast } from 'sonner';
-import { AtlaflowEditor } from "@/components/atlaflow";
 import {
     GitCompare,
     Download,
@@ -34,11 +34,16 @@ import {
     RefreshCw,
     Sparkles,
     Info,
+    Box,
+    Bot,
 } from 'lucide-react';
+import { VaultPanel } from '@/components/preview_panel/VaultPanel';
+import type { PanelTab } from '@/atoms/sourceAtoms';
 
 interface DiagramPanelProps {
     data: DiagramState | null;
     activeTab: string;
+    setActiveTab?: (tab: PanelTab) => void;
 }
 
 type CompareMode = 'current' | 'before' | 'after' | 'side-by-side';
@@ -59,17 +64,38 @@ interface DiagramRecord {
     metadata?: unknown;
 }
 
-export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
+export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProps) {
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
     const [staleness, setStaleness] = useAtom(diagramStalenessAtom);
+    const [viewMode, setViewMode] = useAtom(diagramViewModeAtom);
+    const [blueprint, setBlueprint] = useAtom(blueprintStateAtom);
+    const [aiEditing, setAiEditing] = useAtom(blueprintAiEditingAtom);
     const app = useAtomValue(currentAppAtom);
     const [compareMode, setCompareMode] = useState<CompareMode>('current');
     const [versions, setVersions] = useState<DiagramVersion[]>([]);
     const [showHistory, setShowHistory] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadingDiagram, setLoadingDiagram] = useState(false);
-    const [diagramViewMode, setDiagramViewMode] = useState<'architecture' | 'workflow'>('architecture');
+    const [loadingBlueprint, setLoadingBlueprint] = useState(false);
+    const [savingBlueprint, setSavingBlueprint] = useState(false);
     const [allDiagrams, setAllDiagrams] = useState<DiagramRecord[]>([]);
+
+    // Subscribe to "AI is editing blueprint" for visual indicator
+    useEffect(() => {
+        const unsub = IpcClient.getInstance().onBlueprintAiEditing((payload) => {
+            setAiEditing(payload);
+            setTimeout(() => setAiEditing(null), 8000);
+        });
+        return unsub;
+    }, [setAiEditing]);
+
+    // When AI (or backend) updates the blueprint, refresh UI
+    useEffect(() => {
+        const unsub = IpcClient.getInstance().onBlueprintUpdated((payload) => {
+            if (app?.id === payload.workspaceId) setBlueprint(payload.blueprint);
+        });
+        return unsub;
+    }, [app?.id, setBlueprint]);
 
     // Prefer diagramState when we have loaded allDiagrams for this workspace so selector and display stay in sync
     const diagram = useMemo(() => {
@@ -98,7 +124,6 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                         ? diagrams.find((d) => d.id === (diagram as any).id)
                         : null;
                     const toShow = currentInList || diagrams[0];
-                    const meta = toShow.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                     setDiagramState({
                         id: toShow.id,
                         code: toShow.content ?? '',
@@ -106,7 +131,6 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                         title: toShow.title,
                         compareMode: 'current',
                         workspaceId: app.id,
-                        workflow: meta?.workflow,
                     } as DiagramState);
                 } else {
                     setAllDiagrams([]);
@@ -124,8 +148,21 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
         loadExistingDiagrams();
     }, [app?.id, setDiagramState]);
 
+    // Load blueprint when workspace changes and in Blueprint mode
+    useEffect(() => {
+        if (!app?.id || viewMode !== 'blueprint') return;
+        setLoadingBlueprint(true);
+        IpcClient.getInstance()
+            .getBlueprint({ workspaceId: app.id })
+            .then((res) => {
+                if (res.success && res.blueprint) setBlueprint(res.blueprint);
+                else setBlueprint(createEmptyBlueprint());
+            })
+            .catch(() => setBlueprint(createEmptyBlueprint()))
+            .finally(() => setLoadingBlueprint(false));
+    }, [app?.id, viewMode, setBlueprint]);
+
     const handleSelectDiagram = useCallback((record: DiagramRecord) => {
-        const meta = record.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
         setDiagramState({
             id: record.id,
             code: record.content ?? '',
@@ -133,7 +170,6 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
             title: record.title,
             compareMode: 'current',
             workspaceId: app?.id ?? null,
-            workflow: meta?.workflow,
         } as DiagramState);
     }, [app?.id, setDiagramState]);
 
@@ -162,14 +198,12 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
             });
             if (result.success && result.diagram) {
                 const d = result.diagram;
-                const meta = d.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                 setDiagramState({
                     id: d.id,
                     code: d.content,
                     type: d.type || 'mermaid',
                     title: d.title,
                     compareMode: 'current',
-                    workflow: meta?.workflow,
                 });
                 setStaleness(null); // Clear staleness warning
                 toast.success('Diagram regenerated');
@@ -194,37 +228,44 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
         );
     }
 
-    if (!diagram) {
+    // When Blueprint mode, we don't require a Live diagram
+    const showNoDiagram = !diagram && viewMode === 'live';
+    if (showNoDiagram) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <Code2 className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
-                <p className="text-sm text-center mb-4">
-                    Generate an architecture diagram from the sidebar to visualize your project structure.
-                </p>
-                {app?.id && (
-                    <button
-                        onClick={handleRefreshDiagram}
-                        disabled={isRefreshing}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50"
-                    >
-                        {isRefreshing ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                            <Sparkles className="w-4 h-4" />
-                        )}
-                        {isRefreshing ? 'Generating...' : 'Generate Diagram'}
-                    </button>
+            <div className="flex flex-col h-full">
+                {activeTab === 'diagram' && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/5">
+                        <span className="text-xs text-muted-foreground">View:</span>
+                        <div className="flex rounded-md border border-border overflow-hidden">
+                            <button type="button" onClick={() => setViewMode('live')} className="px-3 py-1 text-xs font-medium bg-primary text-primary-foreground">Live</button>
+                            <button type="button" onClick={() => setViewMode('blueprint')} className="px-3 py-1 text-xs font-medium bg-background text-muted-foreground hover:bg-muted">Blueprint</button>
+                        </div>
+                    </div>
                 )}
+                <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
+                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                        <Code2 className="w-8 h-8 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
+                    <p className="text-sm text-center mb-4">
+                        Generate an architecture diagram from the sidebar to visualize your project structure, or switch to <strong>Blueprint</strong> to plan rooms and functions.
+                    </p>
+                    {app?.id && (
+                        <button
+                            onClick={handleRefreshDiagram}
+                            disabled={isRefreshing}
+                            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {isRefreshing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            {isRefreshing ? 'Generating...' : 'Generate Diagram'}
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
 
-    const hasCompareData = !!(diagram.beforeCode && diagram.afterCode);
-    const workflow = (diagram as DiagramState & { workflow?: { nodes: unknown[]; connections: unknown } }).workflow;
-    const hasWorkflow = true; // Always show Atlaflow tab - build from scratch or edit inferred
+    const hasCompareData = !!(diagram?.beforeCode && diagram?.afterCode);
 
     return (
         <div className="flex flex-col h-full">
@@ -249,29 +290,54 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                     </select>
                 </div>
             )}
-            {/* Single view selector (Architecture vs Atlaflow) + in-app notes */}
-            {hasWorkflow && activeTab === 'diagram' && (
-                <>
-                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/10">
-                        <span className="text-xs text-muted-foreground">View:</span>
-                        <select
-                            value={diagramViewMode}
-                            onChange={(e) => setDiagramViewMode(e.target.value as 'architecture' | 'workflow')}
-                            className="text-xs rounded-md border border-border bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+            {/* Live vs Blueprint mode toggle */}
+            {activeTab === 'diagram' && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/5">
+                    <span className="text-xs text-muted-foreground">View:</span>
+                    <div className="flex rounded-md border border-border overflow-hidden">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('live')}
+                            className={cn(
+                                "px-3 py-1 text-xs font-medium transition-colors",
+                                viewMode === 'live'
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-background text-muted-foreground hover:bg-muted"
+                            )}
                         >
-                            <option value="architecture">Architecture</option>
-                            <option value="workflow">Atlaflow</option>
-                        </select>
+                            Live
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('blueprint')}
+                            className={cn(
+                                "px-3 py-1 text-xs font-medium transition-colors",
+                                viewMode === 'blueprint'
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-background text-muted-foreground hover:bg-muted"
+                            )}
+                        >
+                            Blueprint
+                        </button>
                     </div>
-                    {/* In-app notes: Architecture vs Atlaflow */}
-                    <div className="px-3 py-2 border-b border-border/50 bg-muted/5 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground/90 mb-1">About these views</p>
-                        <ul className="list-disc list-inside space-y-0.5">
-                            <li><strong>Architecture</strong> — Mermaid diagram of project structure, components, and data flow.</li>
-                            <li><strong>Atlaflow</strong> — Workflow canvas (nodes, triggers, actions). Edit and &quot;Generate Code&quot; to apply changes; the Architecture diagram can be updated after the AI detects big changes.</li>
-                        </ul>
-                    </div>
-                </>
+                    <span className="text-xs text-muted-foreground">
+                        {viewMode === 'live' ? 'Mermaid from code' : 'Rooms & functions'}
+                    </span>
+                </div>
+            )}
+            {/* AI is editing blueprint indicator (Cursor/Antigravity-style) */}
+            {activeTab === 'diagram' && viewMode === 'blueprint' && aiEditing && app?.id === aiEditing.workspaceId && (
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-primary/30 bg-primary/10 text-primary">
+                    <Bot className="w-4 h-4 animate-pulse" />
+                    <span className="text-sm font-medium">AI is editing the blueprint…</span>
+                    <span className="text-xs opacity-80">{aiEditing.action}</span>
+                </div>
+            )}
+            {/* Live mode hint */}
+            {activeTab === 'diagram' && viewMode === 'live' && (
+                <div className="px-3 py-1.5 border-b border-border/50 bg-muted/5 text-xs text-muted-foreground">
+                    <p>Architecture diagram: project structure, components, and data flow. Edit in chat or regenerate to sync with code.</p>
+                </div>
             )}
             {/* Staleness Warning Banner (with git-based Update vs Regenerate when available) */}
             {staleness && (staleness.isStale || staleness.gitDecision?.action !== 'none') && activeTab === 'diagram' && (
@@ -284,12 +350,29 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                 />
             )}
 
-            {activeTab === 'diagram' && (
-                hasWorkflow && diagramViewMode === 'workflow' ? (
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                        <AtlaflowView workflow={workflow ?? { nodes: [], connections: {} }} />
-                    </div>
-                ) : (
+            {activeTab === 'vault' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                    <VaultPanel appId={app?.id ?? null} />
+                </div>
+            )}
+            {activeTab === 'diagram' && viewMode === 'blueprint' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                    {loadingBlueprint ? (
+                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
+                            <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
+                            <p className="text-sm">Loading blueprint…</p>
+                        </div>
+                    ) : (
+                        <BlueprintEditor
+                            blueprint={blueprint ?? createEmptyBlueprint()}
+                            onSave={(b) => setBlueprint(b)}
+                            isSaving={savingBlueprint}
+                            onOpenCreds={setActiveTab ? () => setActiveTab('vault') : undefined}
+                        />
+                    )}
+                </div>
+            )}
+            {activeTab === 'diagram' && viewMode === 'live' && (
                 <DiagramViewer
                     diagram={diagram}
                     compareMode={compareMode}
@@ -299,205 +382,8 @@ export function DiagramPanel({ data, activeTab }: DiagramPanelProps) {
                     showHistory={showHistory}
                     setShowHistory={setShowHistory}
                 />
-                )
             )}
             {activeTab === 'logs' && <DiagramLogs />}
-        </div>
-    );
-}
-
-/**
- * Atlaflow view - Visual workflow builder powered by workflow loader.
- */
-function AtlaflowView() {
-    const app = useAtomValue(currentAppAtom);
-    const setChatInput = useSetAtom(chatInputValueAtom);
-    const setHomeInput = useSetAtom(homeChatInputValueAtom);
-    const activeChatId = useAtomValue(activeChatIdAtom);
-    const staleness = useAtomValue(diagramStalenessAtom);
-    const [initialWorkflow, setInitialWorkflow] = useState<{ nodes: any[]; connections: any } | null>(null);
-    const [splits, setSplits] = useState<Array<{ label: string; workflow: { nodes: any[]; connections: any } }>>([]);
-    const [activeSplitIndex, setActiveSplitIndex] = useState(0);
-    const [loading, setLoading] = useState(false);
-    const [generatingCode, setGeneratingCode] = useState(false);
-    const [workflowKey, setWorkflowKey] = useState(0);
-    const [refreshingWorkflow, setRefreshingWorkflow] = useState(false);
-
-    useEffect(() => {
-        const load = async () => {
-            if (!app?.id || !app.path) return;
-            setLoading(true);
-            try {
-                const result = await IpcClient.getInstance().loadWorkflowSplits({
-                    appId: app.id,
-                    workspacePath: app.path,
-                });
-                if (result.success && result.splits?.length) {
-                    setSplits(result.splits.map((s) => ({
-                        label: s.label,
-                        workflow: { nodes: (s.workflow?.nodes as any[]) ?? [], connections: (s.workflow?.connections as any) ?? {} },
-                    })));
-                    setInitialWorkflow({
-                        nodes: (result.splits[0]?.workflow?.nodes as any[]) ?? [],
-                        connections: (result.splits[0]?.workflow?.connections as any) ?? {},
-                    });
-                    setActiveSplitIndex(0);
-                } else {
-                    const fallback = await IpcClient.getInstance().loadWorkflow({ appId: app.id, workspacePath: app.path });
-                    if (fallback.success && fallback.workflow) {
-                        setSplits([{ label: 'default', workflow: { nodes: (fallback.workflow.nodes as any[]) ?? [], connections: (fallback.workflow.connections as any) ?? {} } }]);
-                        setInitialWorkflow({ nodes: (fallback.workflow.nodes as any[]) ?? [], connections: (fallback.workflow.connections as any) ?? {} });
-                    } else {
-                        setSplits([]);
-                        setInitialWorkflow({ nodes: [], connections: {} });
-                    }
-                }
-            } catch (err) {
-                console.error("[AtlaflowView] Failed to load workflow:", err);
-                setSplits([]);
-                setInitialWorkflow({ nodes: [], connections: {} });
-            } finally {
-                setLoading(false);
-            }
-        };
-        load();
-    }, [app?.id, app?.path]);
-
-    const handleRefreshWorkflow = useCallback(async () => {
-        if (!app?.id || !app.path) return;
-        setRefreshingWorkflow(true);
-        try {
-            const result = await IpcClient.getInstance().loadWorkflowSplits({
-                appId: app.id,
-                workspacePath: app.path,
-            });
-            if (result.success && result.splits?.length) {
-                setSplits(result.splits.map((s) => ({
-                    label: s.label,
-                    workflow: { nodes: (s.workflow?.nodes as any[]) ?? [], connections: (s.workflow?.connections as any) ?? {} },
-                })));
-                setInitialWorkflow({
-                    nodes: (result.splits[activeSplitIndex]?.workflow?.nodes as any[]) ?? result.splits[0]?.workflow?.nodes ?? [],
-                    connections: (result.splits[activeSplitIndex]?.workflow?.connections as any) ?? result.splits[0]?.workflow?.connections ?? {},
-                });
-                setWorkflowKey((k) => k + 1);
-                toast.success('Workflow reloaded from project.');
-            }
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to refresh workflow.');
-        } finally {
-            setRefreshingWorkflow(false);
-        }
-    }, [app?.id, app?.path, activeSplitIndex]);
-
-    // Auto-refresh workflow when diagram staleness is detected (e.g. file save)
-    useEffect(() => {
-        if (!staleness || !app?.id || !app.path) return;
-        const t = setTimeout(() => handleRefreshWorkflow(), 1800);
-        return () => clearTimeout(t);
-    }, [staleness?.reason, app?.id, app?.path, handleRefreshWorkflow]);
-
-    const handleExport = useCallback((exported: { nodes: unknown[]; connections: unknown }) => {
-        const json = JSON.stringify(exported, null, 2);
-        navigator.clipboard.writeText(json);
-        toast.success('Atlaflow JSON copied to clipboard.');
-    }, []);
-
-    const handleGenerateCode = useCallback(
-        async (workflow: { nodes: unknown[]; connections: unknown }) => {
-            if (app?.path) {
-                setGeneratingCode(true);
-                try {
-                    const result = await IpcClient.getInstance().generateCodeFromWorkflow({
-                        workspacePath: app.path,
-                        workflow,
-                        appId: app.id,
-                    });
-                    if (result.success) {
-                        const files = [...(result.filesCreated ?? []), ...(result.filesUpdated ?? [])];
-                        let detail = files.length ? ` ${files.join(', ')}` : '';
-                        if (result.diff && (result.diff.addedEntryPoints > 0 || result.diff.addedDataSources > 0)) {
-                            detail += ` (+${result.diff.addedEntryPoints} routes, +${result.diff.addedDataSources} data)`;
-                        }
-                        toast.success(result.message + detail);
-                        if (app?.id) {
-                            IpcClient.getInstance().markDiagramStale({ workspaceId: app.id }).catch(() => {});
-                        }
-                    } else {
-                        toast.error(result.message || result.error || 'Generate code failed.');
-                    }
-                } catch (err) {
-                    toast.error(err instanceof Error ? err.message : 'Generate code failed.');
-                } finally {
-                    setGeneratingCode(false);
-                }
-                return;
-            }
-            const json = JSON.stringify(workflow, null, 2);
-            if (activeChatId) {
-                setChatInput(json);
-            } else {
-                setHomeInput(json);
-            }
-            toast.success('Atlaflow copied to input. Send to generate code.');
-        },
-        [app?.path, app?.id, setChatInput, setHomeInput, activeChatId]
-    );
-
-    if (!app) {
-        return (
-            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                No workspace selected.
-            </div>
-        );
-    }
-
-    if (loading && !initialWorkflow) {
-        return (
-            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                Loading workflow from project...
-            </div>
-        );
-    }
-
-    const currentWorkflow = splits.length > 1 && splits[activeSplitIndex]
-        ? splits[activeSplitIndex].workflow
-        : initialWorkflow;
-
-    return (
-        <div className="flex flex-col min-h-[600px] w-full">
-            {splits.length > 1 && (
-                <div className="flex gap-1 px-2 py-1.5 border-b border-border bg-muted/20">
-                    {splits.map((s, i) => (
-                        <button
-                            key={s.label}
-                            type="button"
-                            onClick={() => {
-                                setActiveSplitIndex(i);
-                                setInitialWorkflow(s.workflow);
-                                setWorkflowKey((k) => k + 1);
-                            }}
-                            className={cn(
-                                'px-3 py-1.5 text-xs rounded-md transition-colors',
-                                i === activeSplitIndex
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                            )}
-                        >
-                            {s.label}
-                        </button>
-                    ))}
-                </div>
-            )}
-            <AtlaflowEditor
-                key={`atlaflow-${app?.id}-${workflowKey}-${activeSplitIndex}`}
-                initialWorkflow={currentWorkflow ?? initialWorkflow}
-                onExport={handleExport}
-                onGenerateCode={handleGenerateCode}
-                isGeneratingCode={generatingCode}
-                onRefreshWorkflow={handleRefreshWorkflow}
-                isRefreshingWorkflow={refreshingWorkflow}
-            />
         </div>
     );
 }

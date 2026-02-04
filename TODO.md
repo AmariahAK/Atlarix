@@ -48,13 +48,11 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 📋 Next Session – Diagram & Atlaflow + Git Diagram System
+## 📋 Next Session – Diagram & Git Diagram System (Atlaflow Removed)
 
-### Diagram & Atlaflow – In-app notes ✅
-- [x] Add in-app notes in Diagram/Atlaflow UI explaining:
-  - **Architecture** = Mermaid diagram (project structure, components, data flow).
-  - **Atlaflow** = workflow canvas (nodes, triggers, actions).
-  - **Generate Code** from Atlaflow can update the Architecture diagram **after the AI has detected big changes** (not on every small edit).
+### Diagram – In-app notes ✅
+- [x] Diagram tab shows **Architecture** only (Mermaid: project structure, components, data flow).
+- [x] Atlaflow (n8n-style workflow canvas) has been **removed**; replaced by **Additive Blueprint** (see Phase 7 below).
 
 ### Refine Git diagram system (replace current tracking) ✅
 - [x] **Problem:** Current system tracks files & changes like git for diagram updates, but it’s inaccurate and often wrong.
@@ -93,11 +91,11 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] Collapse previous workspace when switching
 
 ### 2. Smart Model Routing
-- [ ] 3-tier favorites per provider (Fast ⚡ / Balanced ⚖️ / Deep 🧠)
+- [x] 3-tier favorites per provider (Fast ⚡ / Balanced ⚖️ / Deep 🧠) – ModelPicker + LocalProviderFavoritesSelector show tier labels
 - [ ] Provider preference order (drag to reorder)
 - [ ] Task-based routing (coding→Anthropic, research→Gemini, etc.)
-- [ ] Auto = smart selection + fallback on provider failure
-- [ ] Favorites for Ollama and LMStudio (like OpenRouter)
+- [x] Auto = smart selection + fallback on provider failure (createFallback in get_model_client)
+- [x] Favorites for Ollama and LMStudio (like OpenRouter)
 
 ### 3. Context Bar + Auto-Summarize (Claude Code style) ✅
 - [x] Replace fixed exchange limits with fillable context bar
@@ -119,7 +117,140 @@ This file tracks upcoming features, improvements, and known issues.
 
 ---
 
-## 🚧 Workflow-as-Prompt (v2+) – n8n-style
+## 🚧 Phase 7 – Additive Blueprint (Deep Mermaid) – v2.x
+
+**Goal:** Diagram is the single source of truth for *intent* and *new* structure. Code stays authoritative for existing implementation; we add on top, not rewrite in place.
+
+### Mental model
+
+| Mode | Direction | Use case |
+|------|-----------|----------|
+| **Live View** | Code → Diagram | Read-only. Diagram is extracted/regenerated from code (current behavior). User sees architecture; no edits to repo from diagram. |
+| **Blueprint Mode** | Diagram → Code | Editable. User/AI edits diagram (rooms, edges, annotations); *only new* rooms/edges/env refs are codegen’d and merged into repo. |
+
+- **Existing projects:** Blueprint Mode is **additive only** – add new rooms, connections, env refs; codegen *new* files/routes/env entries. We do **not** remodel/refactor existing code from diagram edits (see “Editing existing structure” below).
+- **New projects:** Blueprint Mode can be **full** – create diagram from scratch, then codegen entire scaffold (routes, modules, env stub) into a new repo.
+
+### Architecture JSON (single source for Blueprint Mode)
+
+Structured JSON that the app (and codegen) use. Stored per workspace; derived from Mermaid for display, or edited in a future “Blueprint editor”.
+
+- **Rooms:** Nodes (services, apps, DBs, queues). Each has: `id`, `label`, `type`, optional `path` (existing module path if mapped), **intent** (short description of what this room does / should do).
+- **Edges:** Directed links between rooms (e.g. `API → DB`, `Worker → Queue`). Metadata: `from`, `to`, optional `label` (e.g. “reads”, “writes”).
+- **Annotations:** Per-room or per-edge notes, env var references (e.g. `DATABASE_URL`), secrets refs (by name only, not value).
+- **Intent per room:** Drives codegen and AI context – e.g. “Auth API”, “User read/write”, “Sends email via SendGrid”.
+
+Mermaid view is a **render** of this JSON (and vice versa for round-trip where we allow diagram edits).
+
+### Vault (env / secrets)
+
+- **Dedicated UI** for environment variables and secrets (e.g. Settings → Vault, or per-workspace).
+- **Storage:** Local only, e.g. `.env` in workspace (or user-chosen path); **never** embed secret values in diagram or Architecture JSON.
+- **Diagram reference:** Rooms/edges can reference env by **name** (e.g. `DATABASE_URL`, `SENDGRID_API_KEY`). Codegen and AI use these names; values stay in Vault/.env.
+
+### Codegen (from Architecture JSON delta)
+
+- **Input:** Delta of Architecture JSON – e.g. “new rooms A, B” and “new edges A→B”.
+- **Output:** Scaffold only for *new* parts: new files, new routes, new env keys (merged into existing `.env` or Vault), new dependencies if needed.
+- **Merge:** Generated code is written into the repo; user can edit. No automatic refactor of existing files from diagram edits (additive only for existing projects).
+
+### Editing existing structure (strategy)
+
+**Recommendation: defer** full “remodeling” of existing code via diagram edits. Reason: diagram → bulk refactor of existing modules is ambiguous (many ways to map one diagram change to code) and risky.
+
+**Preferred approaches:**
+
+1. **Additive only (now):** Diagram edits only add new rooms/edges/env refs; codegen adds new code. Existing code is left as-is; diagram is re-extracted/updated from code so Live View stays in sync.
+2. **Chat-led refactor (later):** User describes changes in chat (“split auth into two services”, “move DB access to a repository”). AI performs refactor with existing tools; when done, diagram is **re-extracted** from code (not the other way around). Diagram follows code.
+3. **Strict 1:1 room ↔ module (later, optional):** If we ever allow “remodeling” from diagram, limit it to a **strict 1:1** mapping: one diagram room = one package/module/folder. Rename/move/merge only at that boundary (e.g. “rename room X” → rename module X). No fuzzy “this diagram change means refactor these 5 files.”
+
+**Summary:** For existing projects, treat diagram as the place to *add* intent and new structure; use chat + tools + re-extraction for changing existing structure. For new projects, diagram-first → full codegen is in scope.
+
+### Current context (RAG) & memory – for Blueprint design
+
+- **Diagram + workspace analysis:** For workspace chats, `getWorkspaceContext(appPath)` is always called. Its output (`systemPromptAddition`: diagram + structure summary) is injected into the system prompt. So the **Live diagram** (and analysis) is always there to guide the model and make it easy to understand the codebase at scale. This is the primary “RAG” for the repo.
+- **User prompts:** Global/workspace prompts (Library) are inlined into the **user message** when the user references them (e.g. `@prompt:5`). So if set, they are part of the request context.
+- **Session summary & remembering (Claude Code / OpenCode style):** Implemented as follows:
+  - **Post-turn compaction:** When context exceeds ~75% of the model’s budget, the oldest messages are summarized by the AI; the summary is injected as “Session Summary (earlier conversation)” on the next request. Uses real token counts from the API; compaction prompt is OpenCode-style (project overview, accomplished, current state, next steps).
+  - **Session memory (rolling):** Last 10 exchanges (truncated) are injected per request for workspace chats (keyed by `appId`), so the model keeps recent conversation context across turns and mode switches.
+  - **Persistent memory tools:** `recall_memory` (daily logs + diagram versions) and `search_memory` (semantic search over daily logs). `save_learning` was removed; learnings are not currently persisted by the AI.
+  - **Tool output pruning:** Old tool results are truncated (e.g. 8K chars each) to avoid context bloat.
+- **Project-level MEMORY.md:** Implemented. When compaction runs, the summary is written to `<workspace>/.atlarix/MEMORY.md`. When building the system prompt for a workspace chat, MEMORY.md is read (if present) and injected as “Project memory (cross-session)”. Single rolling summary per project; truncated to ~3K chars when injected.
+
+So: the AI has diagram-first RAG, session compaction, rolling session memory, persistent memory tools, **project-level MEMORY.md**, and **implementation plan** (`.atlarix/PLAN.md` via `read_implementation_plan` / `write_implementation_plan`). Flow: compare Blueprint to Live → write plan → implement in exchanges with review gates.
+
+### Blueprint Edit Mode: task-based implementation (existing & large projects)
+
+To support **editing existing structure** and large projects without “one big edit,” we can make Blueprint Mode **task-based** and plan-led:
+
+1. **Always-on RAG:** Keep current behavior: user prompts (if set) + **Live diagram** (and workspace analysis) are used so the model can explore and understand the system. The diagram is always there to guide search and understanding at scale.
+2. **When user asks to “generate code” from Blueprint:**  
+   - **Compare:** Live diagram (current code) vs Blueprint diagram (desired). Optionally compare in code as well (what exists vs what needs to change: functions, classes, routes, APIs, webhooks).  
+   - **Break into tasks:** Give the model 1–2 minutes (or a dedicated “planning” phase) to turn the **diff** (Live vs Blueprint, and code-level gaps) into an ordered **task list** by workspace (mono vs poly). Flow: understand repo → inspect code (APIs, routes, etc.) → consider user request from Blueprint → output tasks.
+3. **Implementation plan file:** Allow the AI to create/update an **implementation plan** (its “todo list”) in the project:  
+   - **Monorepo:** one plan at project root, e.g. `Atlarix_Plan.md` (or `.atlarix/PLAN.md`).  
+   - **Polyrepo / multi-workspace:** one plan per workspace root (e.g. frontend root, backend root).  
+   - **Permission:** Request user approval to create or alter this file (e.g. “Allow Atlarix to create/update `Atlarix_Plan.md` in this project?”).
+4. **Execute after plan:** When the plan is ready, the model says it’s ready and then codes **according to the plan** (one task or batch at a time), using existing file/codegen tools. Compaction and session memory keep context so the model remembers the plan and progress.
+
+**Why this helps editing existing structure:**  
+- Avoids “do everything in one go”: the model explicitly plans before coding.  
+- Live diagram + comparison gives a clear diff (what to add/change), and code-level comparison clarifies concrete gaps.  
+- A durable `Atlarix_Plan.md` (or equivalent) gives the model and user a shared todo list; the model can tick off tasks and stay aligned on scope.  
+- Fits the existing stack: diagram-first RAG + compaction + session memory already support long, structured work; the plan file and comparison step add structure without replacing them.
+
+**Execute in exchanges (one task per phase):** The AI does **not** have to do all tasks in one go. It can do them **exchange by exchange** (one user query → one AI response):
+
+- After completing the **first task**, the AI asks the user for **review/test** (e.g. “Please run tests / try the flow and tell me if anything fails”).
+- When the user confirms (or reports issues), the AI says when it’s **ready for the next phase** (next task) and proceeds in the next exchange.
+- Repeat until all tasks from the plan are done. Each phase = one exchange (or a short back-and-forth for that task only).
+
+This **review gate** between tasks gives the user control, keeps changes incremental, and works for both **additive** and **editing** blueprints on any project size (mono, poly, small, large). It completes the Blueprint idea: plan → tasks → execute in exchanges with review gates → next task.
+
+**Implementation checklist (task-based Blueprint):**
+
+- [x] **Live vs Blueprint comparison** – `compare_blueprint_to_live` tool returns Live diagram + Blueprint + diff summary.
+- [x] **Planning phase** – Agent guidance: model uses comparison + user request to produce ordered task list (documented in AGENTS).
+- [x] **Atlarix_Plan.md (or .atlarix/PLAN.md)** – `.atlarix/PLAN.md`; `read_implementation_plan` and `write_implementation_plan` tools; permission via existing write_file flow.
+- [x] **Execute in exchanges** – Agent guidance: after each task, ask for user review/test; when ready, proceed to next task.
+- [x] **Agent guidance** – AGENTS.md / AGENTS_COMPACT.md updated: compare → plan file → announce ready → code in exchanges with review gates.
+
+### Implementation checklist (Phase 7)
+
+- [x] **Architecture JSON schema** – Blueprint types in `shared/blueprint-types.ts`; persisted in DB table `blueprints` (one per workspace).
+- [x] **Mermaid ↔ Architecture JSON** – Blueprint editor renders to Mermaid via `blueprintToMermaid()`; Live stays from code.
+- [x] **Blueprint editor (minimal)** – Diagram tab Blueprint mode: add/edit rooms, functions (api/webhook/function/feature), edges; renders to Mermaid preview.
+- [x] **Vault UI** – Right panel "Vault" tab: list/add/edit/delete env keys per workspace; sync to `.env.local`; dedicated VaultPanel component.
+- [x] **Codegen pipeline** – `lib/blueprint/codegen.ts`: from Blueprint delta → new stub files (`src/<room>.ts`), merge envRefs into `.env.local`; `generate_from_blueprint` tool + blueprint:codegen IPC; "Generate code" button in Blueprint editor.
+- [x] **New-project flow** – “New from Blueprint”: Create workspace (empty or template) → Diagram → Blueprint mode → "Generate code" runs full scaffold; same codegen supports additive and new-project.
+- [x] **Re-extract after chat refactor** – After AI operations complete, `evaluateDiagramRefresh()` in interceptor runs `decideDiagramAction(workspaceId, executedOperations)` and triggers `diagram:regenerate-background` when action is generate/refresh (diagram-refresh-engine).
+
+### Blueprint UX – Phases A–D (2026-02-03) ✅
+
+- [x] **Phase A** – Type differentiation (icons + labels per API/Webhook/Function/Feature), expandable config per row, List | Flow toggle.
+- [x] **Phase B** – Vault tab in Diagram panel; Key field + “Edit in Creds” in function list; `credentialKey` / `provider` / `trigger` on BlueprintFunction.
+- [x] **Phase C** – Flow view inside a room: mini React Flow, nodes = functions, edges from `room.flowEdges`; click node → switch to List with that function expanded.
+- [x] **Phase D** – User-editable flow edges (connect/disconnect in Flow); persisted on `BlueprintRoom.flowEdges`; cleanup on function remove.
+
+**Left for later (optional):**
+
+- [ ] **Codegen/AI use flowEdges** – When generating from Blueprint, optionally use `room.flowEdges` so generated code reflects “A calls B” (e.g. webhook → function → API).
+- [ ] **View code / Edit in list** – Wire “View code” and “Edit” buttons in the function list (e.g. open file from `description` path or editor).
+- [ ] **Inferred flow edges** – Optional pass that infers “this webhook calls this function” from code and pre-fills `flowEdges`.
+
+---
+
+## ✅ Phase 8 – Internal diagram git (simple-git for all projects)
+
+- [x] **DiagramGitTracker** – Per-workspace internal repo at `userData/diagram-git/<workspaceId>`. Snapshots = commits of workspace file hashes (one tiny file per project file). Uses simple-git; works for repo, monorepo, polyrepo, and non-repo.
+- [x] **captureSnapshot** – After diagram generation, write workspace state and commit; store hash in `diagram.metadata.diagramGitCommit`.
+- [x] **analyzeChanges** – On staleness check, write current snapshot and diff against `diagramGitCommit`; same thresholds (e.g. &lt;5% skip, &gt;30% regenerate) for accurate update vs regenerate and fewer unnecessary refreshes.
+- [x] **check-staleness** – Use only internal diagram git when `diagramGitCommit` is present; no fallback to project git (older diagrams rely on fingerprint-based staleness).
+- [x] **DiagramUpdateStrategy.decideFromChangeAnalysis** – Shared threshold logic for internal diagram git.
+
+---
+
+## 🚧 Workflow-as-Prompt (v2+) – n8n-style [SUPERSEDED by Phase 7 Additive Blueprint]
 
 **Concept:** Instead of long text prompts, users create **node-based workflows** (like n8n) that encode intent. The AI reads the workflow (structure + nodes + connections) as the "prompt," reducing tokens and improving clarity.
 
@@ -263,11 +394,6 @@ This file tracks upcoming features, improvements, and known issues.
 - [x] **SearxNG for web_search**: Added fallback when API rate limits hit (v0.9.2)
 - [x] **"Other AI Providers" section**: Settings UI implemented
 
-### Known Bugs (Investigate ASAP)
-- [ ] **Logout Not Deleting Workspaces**: Sign out handler updated with manual cleanup of dependent records (prompts, chats, diagrams) but still may fail in some edge cases. Monitor logs.
-- [ ] **Library Page Workspaces Not Showing (Prod Build Only)**: `npm start` correctly shows workspaces in Library "Workspace Prompts" section, but the bundled production app (`npm run make`) does NOT show them. Same database path logic is used. Cause unknown - possibly a rendering issue or stale bundle cache.
-
-
 ---
 
 ## 🔮 Future Versions (v1.1+)
@@ -350,11 +476,6 @@ All 4 bugs fixed and verified on 2026-01-09.
 - [x] Added right panel tabs list
 - [x] Added Mermaid clarification
 - [x] Added port warning
-
-### Known Diagram Limitations (TBD v1.0)
-- [ ] **Retry button** only re-renders same code (doesn't call AI to fix syntax)
-- [ ] **Staleness detection** may not trigger on all workspace changes
-- [ ] Consider adding "Fix with AI" button for diagram errors
 
 ---
 
@@ -767,31 +888,16 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 
 ## 🚀 Roadmap: Future Versions
 
-### v2.0 - Premium Features
-- [ ] **Command Chaining UI**: Group related commands (e.g., create-vite → cd → npm install)
-  - Show dependency graph
-  - Partial approval (approve some, reject others)
-  - Handle middle command failures
-- [ ] **Token Budget System**: Adaptive token allocation based on provider
-  - Ollama (8K), LMStudio (16K), OpenRouter (128K+)
-  - Dynamic adjustment based on real-world user feedback
-- [ ] **Dangerous Command UX**: Enhanced security for risky commands
-  - Require "I understand" checkbox for rm -rf, sudo, etc.
-  - Show command explanation in plain English
-  - Log all dangerous command approvals
-- [ ] **Persistent Memory (MEMORY.md)**: Claude Code-style file-based memory that persists across sessions
-  - `.atlarix/MEMORY.md` - AI-summarized session memory
-  - `.atlarix/PROJECT.md` - User-defined project context
-  - Auto-updated on session end
-- [ ] **Chat Themes**: Light/Dark/Auto, custom colors, font sizes
-- [ ] **Voice Input**: Speech-to-text for prompts
-- [ ] **Code Playground**: Run code snippets inline
-- [ ] **Usage Stats**: Prompts used, most used tools, token consumption
-- [ ] **Timeline Export**: Animated GIF of architecture evolution
-- [ ] **Compare Mode**: Side-by-side diagram comparison
-- [ ] **Multiple Diagram Types**: Class diagrams, Function maps, Sequence diagrams, ER diagrams
-  - AI generates different views of the same codebase
-  - Type selector dropdown in diagram header
+### v2.0 - Shipped (2026-02)
+- [x] **Live ↔ Blueprint ↔ Code** – See Phase 7 section: Live diagram (code → diagram), Blueprint mode (diagram → code), Vault, codegen, re-extract after refactor.
+- [x] **Token Budget System**: Per-provider caps in Settings; real-time TokenBar; warnings at 80%/90%.
+- [x] **Dangerous Command UX**: "I understand" for risky commands; plain-English explanation; audit log.
+- [x] **Chat Themes**: Light/Dark/System (ThemeContext); diagram/code theme-aware.
+- [x] **Compare Mode**: Diagram tab – current / before / after / side-by-side diagram comparison.
+- [x] **Persistent Memory (MEMORY.md)**: `.atlarix/MEMORY.md` on compaction; injected into workspace system prompt.
+- [ ] **Command Chaining UI**: Visual dependency graph, partial approvals, mid-chain rollback (future).
+- [ ] **Voice Input**, **Code Playground**, **Usage Stats**, **Timeline Export (GIF)**, **Multiple Diagram Types** (future).
+- [ ] **Workspace Templates (Pro)**: Save workspace config as template; apply to new workspace; visual previews before clone (future).
 
 ### v3.0 - Advanced AI
 - [ ] **Multi-Agent**: Parallel AI queries for complex tasks
@@ -800,5 +906,5 @@ Goal: Make AGENTS.md the single source of truth for AI guidance (StackSense appr
 
 ---
 
-**Last Updated**: 2026-02-02
-**Version**: v1.8.0 (Phase 5 Complete)
+**Last Updated**: 2026-02-03
+**Version**: v2.0.0 (Phase 6 & Phase 7 Complete; Blueprint UX Phases A–D Complete – List | Flow | Creds | flowEdges)

@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v1.8.0 · v2.0 (Phase 6) in progress*
+*Current: v2.0.0*
 
 ---
 
@@ -23,20 +23,18 @@ Atlarix is your premium AI coding copilot - a powerful desktop application that 
 - **Session Persistence** - Stay logged in across restarts (file-based storage)
 - **Deep Linking** - Seamless redirect handling (`atlarix://`)
 
-### 📊 AI Diagram System (NEW in v0.9.4!)
-- **Real AI Generation** - Diagrams created by analyzing your actual codebase
-- **Pan/Zoom Controls** - Drag to pan, scroll to zoom, control buttons (+, -, Reset, Center)
-- **Version History** - Browse and restore previous diagram versions
-- **Professional UX** - Like Figma/Excalidraw for architecture diagrams
+### 📊 Live diagram ↔ Blueprint diagram ↔ Code (v2.0)
+- **Live View** – Diagram is extracted from your codebase (Mermaid). Read-only: view architecture; no edits to repo from the diagram.
+- **Blueprint Mode** – Toggle **Live | Blueprint** in the Diagram tab. Add **rooms** (e.g. Auth API, Worker, DB), **functions** per room (API, Webhook, Function, Feature), and **edges**. Stored per workspace as Architecture JSON (in-memory; not persisted to DB).
+- **Blueprint UX (Phases A–D)** – **List view**: each function shows type (API, Webhook, Function, Feature) with icon and expandable config (provider, credential key, trigger). **Flow view**: per-room mini flowchart; same functions as nodes; drag handles to connect (e.g. “Webhook → Function → API”); connections persisted as `flowEdges`. Click a node in Flow to jump back to List with that function expanded. **Creds**: Diagram tab includes **Vault** (key icon); in List view, set env key per API/Webhook and use **Edit in Creds** to open Vault.
+- **Vault** – Right panel **Vault** tab (and Diagram tab when in Blueprint): manage env vars per workspace; syncs to `.env.local`. Reference env keys by name in the Blueprint; “Edit in Creds” from function config opens Vault.
+- **Codegen** – From Blueprint: **Generate code** creates new stub files and merges env refs into `.env.local`. Additive only. Use for new projects (design in Blueprint → generate scaffold) or to add new parts to an existing repo.
+- **Re-extract after refactor** – After AI file changes, diagram refresh runs in the background so the Live diagram stays in sync with code.
+- **Compare mode** – Diagram tab: current / before / after / side-by-side. Version history and restore.
+- **Pan/Zoom** – Drag to pan, scroll to zoom; control buttons (+, -, Reset, Center).
 
-### 🧠 Session Change Tracking (NEW in v0.9.17!)
-- **"Mini-Git" Functionality** - Tracks live file changes *before* you commit
-- **Smart Staleness** - AI knows when the architecture diagram is outdated (<5%, 5-15%, >15% drift)
-- **Auto-Update Suggestions** - Proactively suggests updating diagrams after major refactors
-- **Git-based diagram system** – simple-git for update vs regenerate; in-app notes for Architecture vs Atlaflow (see TODO.md)
-- **Atlaflow round-trip** – Workflow = your project: project → AppMap → Atlaflow canvas; edit workflow → codegen + diagram. Node/Bun + Python extractors and codegen; polyproject splits.
-- **Conditionals from code** – Extractors detect if/else (and branching) around route handlers; conditionals appear as **Branch** nodes on the Atlaflow canvas so the diagram reflects routing logic from source.
-- **Workflow template library** – In the Atlaflow editor: **Save as template** (name + optional description) stores the current canvas; **Load template** lists saved templates, load one onto the canvas or delete it (with confirmation). Stored in DB (`workflow_templates`); reusable across workspaces (e.g. "API + DB", "Webhook → Slack").
+### 🧠 Session change tracking (v0.9.17+)
+- **Mini-git** – Tracks file changes before commit; smart staleness (<5%, 5–15%, >15% drift); git-based update vs regenerate.
 
 ### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
 - **Custom AI Instructions** - Define behavior rules that persist across chats
@@ -161,12 +159,10 @@ This ensures you see:
 - ~~**PlantUML Code Shown** - Raw code visible in DiagramPanel~~ **FIXED**
 - ~~**Workspace Delete Lag** - UI didn't update after deletion~~ **FIXED**
 
-### 🔮 Coming in v2.0 (Phase 6)
-- **Context Bar** - Claude Code-style fillable context; auto-summarize on fill, continue session
-- **Smart Model Routing** - 3-tier favorites (Fast/Balanced/Deep), provider prefs, task-based selection
-- **IDE-like Workspace** - File tree in sidebar, click file → Code tab, collapse on switch
-- **Atlaflow implementation** – Extractors (project → n8n-level workflow per language), codegen (workflow → code), live sync (prompt → workflow refresh). Diagram workflow = your project.
-- **Command Chaining UI** - Visual dependency graph, partial approvals, rollback hints
+### 🔮 Coming later (post-v2.0)
+- **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints
+- **Voice input**, **Code playground**, **Usage stats**, **Timeline export (GIF)**, **Multiple diagram types**
+- **Workspace templates (Pro)** – Save workspace config as template; apply to new workspace; visual previews before clone
 
 ---
 
