@@ -243,30 +243,20 @@ Requirements:
         // Generate fingerprint for staleness tracking
         const fingerprint = await generateFingerprint(appPath);
 
-        // Git commit for diagram update strategy (update vs regenerate)
-        let gitCommit: string | undefined;
-        let updateType: "regenerate" | "update" | undefined = "regenerate";
+        // Phase 8: Internal diagram git – capture snapshot for accurate update vs regenerate (all projects)
+        let diagramGitCommit: string | undefined;
         try {
-            const { GitChangeTracker } = await import("./diagram/git_change_tracker");
-            const tracker = new GitChangeTracker(appPath);
-            if (await tracker.isGitRepo()) {
-                gitCommit = await tracker.getCurrentCommitHash();
+            const { DiagramGitTracker } = await import("./diagram/diagram_git_tracker");
+            const diagramGit = new DiagramGitTracker(workspaceId);
+            diagramGitCommit = await diagramGit.captureSnapshot(appPath);
+            if (diagramGitCommit) {
+                logger.info(`[_generateDiagram] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
             }
         } catch (e) {
-            logger.warn("[_generateDiagram] Git commit capture skipped:", e);
+            logger.warn("[_generateDiagram] Diagram git capture skipped:", e);
         }
 
-        // Infer workflow from project (Diagram tab Workflow mode)
-        let workflowMetadata: { nodes?: unknown[]; connections?: unknown } | undefined;
-        try {
-            const { inferWorkflowForWorkspace } = await import("./workflow/project_to_workflow");
-            const inferred = await inferWorkflowForWorkspace(appPath);
-            if (inferred) {
-                workflowMetadata = { nodes: inferred.nodes, connections: inferred.connections };
-            }
-        } catch (e) {
-            logger.warn("[_generateDiagram] Workflow inference skipped:", e);
-        }
+        const updateType: "regenerate" | "update" | undefined = "regenerate";
 
         // Check for existing diagram and update or create
         const existingDiagram = await db.query.diagrams.findFirst({
@@ -286,8 +276,7 @@ Requirements:
                 updatedAt: new Date(),
                 metadata: {
                     ...meta,
-                    ...(workflowMetadata && { workflow: workflowMetadata }),
-                    ...(gitCommit && { gitCommit }),
+                    ...(diagramGitCommit && { diagramGitCommit }),
                     updateType,
                 },
             };
@@ -310,8 +299,7 @@ Requirements:
                     content,
                     metadata: {
                         focus: "auto-generated",
-                        ...(workflowMetadata && { workflow: workflowMetadata }),
-                        ...(gitCommit && { gitCommit }),
+                        ...(diagramGitCommit && { diagramGitCommit }),
                         updateType,
                     },
                     fingerprintHash: fingerprint.hash,

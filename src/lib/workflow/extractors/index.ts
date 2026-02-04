@@ -1,6 +1,6 @@
 /**
  * Extractors - project → AppMap (per language)
- * Used for: project → Atlaflow (n8n-level detail)
+ * Used for: project → Mermaid diagram (structure only; diagram-first, no workflow nodes)
  */
 
 import * as fs from "fs/promises";

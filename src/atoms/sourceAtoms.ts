@@ -23,7 +23,7 @@ export type PanelType =
     | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault';
 
 export interface PanelContext {
     type: PanelType;
@@ -227,8 +227,8 @@ export interface DiagramState {
     beforeCode?: string;
     afterCode?: string;
     title?: string;
-    /** Inferred workflow (n8n-style) from project - for Diagram tab Workflow mode */
-    workflow?: { nodes: unknown[]; connections: unknown };
+    /** Workspace this diagram belongs to (for selector sync) */
+    workspaceId?: number | null;
 }
 
 /** Current diagram state */
@@ -256,6 +256,16 @@ export interface DiagramStalenessWarning {
 }
 
 export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
+
+/** Diagram tab view: Live (Mermaid from code) or Blueprint (editable rooms/functions) */
+export type DiagramViewMode = 'live' | 'blueprint';
+export const diagramViewModeAtom = atom<DiagramViewMode>('live');
+
+/** Current workspace blueprint (for Blueprint mode) */
+export const blueprintStateAtom = atom<import('@/shared/blueprint-types').Blueprint | null>(null);
+
+/** When AI is editing the blueprint (show indicator in Diagram tab) */
+export const blueprintAiEditingAtom = atom<{ workspaceId: number; action: string } | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

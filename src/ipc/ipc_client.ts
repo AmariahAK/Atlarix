@@ -1896,98 +1896,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("diagram:export", params);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Workflow / Atlaflow
-  // ─────────────────────────────────────────────────────────────
-
-  public async loadWorkflow(params: {
-    appId: number;
-    workspacePath: string;
-  }): Promise<{
-    success: boolean;
-    workflow: { nodes: unknown[]; connections: unknown };
-    source: "diagram" | "inferred" | "empty";
-    isStale: boolean;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("workflow:load", params);
-  }
-
-  public async loadWorkflowMessages(params: {
-    appId: number;
-  }): Promise<{
-    success: boolean;
-    messages: Array<{ nodeId: string; message: string; createdAt: number; updatedAt: number }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("workflow:load-messages", params);
-  }
-
-  public async saveWorkflowMessages(params: {
-    appId: number;
-    messages: Array<{ nodeId: string; message: string; createdAt: number; updatedAt: number }>;
-  }): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("workflow:save-messages", params);
-  }
-
-  /** Load workflow splits for polyproject (two workflows on one screen). */
-  public async loadWorkflowSplits(params: {
-    appId: number;
-    workspacePath: string;
-  }): Promise<{ success: boolean; splits: Array<{ label: string; workflow: { nodes: unknown[]; connections: unknown } }>; error?: string }> {
-    return this.ipcRenderer.invoke("workflow:load-splits", params);
-  }
-
-  /** Generate code from Atlaflow workflow (Apply / Generate Code). Writes to project files. */
-  public async generateCodeFromWorkflow(params: {
-    workspacePath: string;
-    workflow: { nodes: unknown[]; connections: unknown };
-    appId?: number;
-  }): Promise<{
-    success: boolean;
-    filesCreated: string[];
-    filesUpdated: string[];
-    message: string;
-    error?: string;
-    diff?: { addedEntryPoints: number; removedEntryPoints: number; addedDataSources: number };
-  }> {
-    return this.ipcRenderer.invoke("workflow:generate-code", params);
-  }
-
-  /** Save current workflow as a named template. */
-  public async saveWorkflowTemplate(params: {
-    name: string;
-    description?: string;
-    workflow: { nodes: unknown[]; connections: unknown };
-  }): Promise<{ success: boolean; id: number | null; error?: string }> {
-    return this.ipcRenderer.invoke("workflow:template-save", params);
-  }
-
-  /** List saved workflow templates. */
-  public async listWorkflowTemplates(): Promise<{
-    success: boolean;
-    templates: Array<{ id: number; name: string; description: string | null; createdAt: Date }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("workflow:template-list");
-  }
-
-  /** Get a template's workflow by id. */
-  public async getWorkflowTemplate(id: number): Promise<{
-    success: boolean;
-    workflow: { nodes: unknown[]; connections: unknown } | null;
-    name?: string;
-    description?: string | null;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("workflow:template-get", { id });
-  }
-
-  /** Delete a workflow template. */
-  public async deleteWorkflowTemplate(id: number): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("workflow:template-delete", { id });
-  }
-
   public async checkDiagramStaleness(params: {
     diagramId: number;
     workspacePath: string;
@@ -2022,6 +1930,43 @@ export class IpcClient {
   /** Mark diagram as stale (e.g. after workflow codegen) so user sees refresh banner */
   public async markDiagramStale(params: { workspaceId: number }): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("diagram:mark-stale", params);
+  }
+
+  // --- Blueprint (Phase 7 Additive Blueprint) ---
+  public async getBlueprint(params: { workspaceId: number }): Promise<{
+    success: boolean;
+    blueprint?: import("@/shared/blueprint-types").Blueprint;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:get", params);
+  }
+
+  public async setBlueprint(params: {
+    workspaceId: number;
+    blueprint: import("@/shared/blueprint-types").Blueprint;
+  }): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:set", params);
+  }
+
+  /** Generate scaffold from Blueprint delta (new files + .env.local keys) */
+  public async blueprintCodegen(params: {
+    workspaceId: number;
+    delta: { rooms: Array<{ id: string; label: string; type?: string; intent?: string; functions: any[] }>; edges: Array<{ from: string; to: string; label?: string }>; envRefs: string[] };
+  }): Promise<{ success: boolean; result?: { filesCreated: string[]; envKeysAdded: string[]; errors: string[] }; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:codegen", params);
+  }
+
+  public onBlueprintAiEditing(listener: (payload: { workspaceId: number; action: string }) => void): () => void {
+    const handler = (_: unknown, payload: { workspaceId: number; action: string }) => listener(payload);
+    this.ipcRenderer.on("blueprint:ai-editing", handler);
+    return () => this.ipcRenderer.removeListener("blueprint:ai-editing", handler);
+  }
+
+  /** When AI or main process updates the blueprint, sync to UI */
+  public onBlueprintUpdated(listener: (payload: { workspaceId: number; blueprint: import("@/shared/blueprint-types").Blueprint }) => void): () => void {
+    const handler = (_: unknown, payload: { workspaceId: number; blueprint: import("@/shared/blueprint-types").Blueprint }) => listener(payload);
+    this.ipcRenderer.on("blueprint:updated", handler);
+    return () => this.ipcRenderer.removeListener("blueprint:updated", handler);
   }
 
   /** Get diagram timeline (workspace snapshots for version history) */

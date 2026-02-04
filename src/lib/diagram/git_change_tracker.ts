@@ -1,8 +1,9 @@
 /**
- * GitChangeTracker - Git-based change analysis for diagram decisions
- * ===================================================================
- * Uses simple-git to analyze diffs since a baseline commit.
- * Enables accurate update vs regenerate decisions (bug fixes don't trigger refresh).
+ * GitChangeTracker - Optional project-git change analysis (not used for diagram staleness)
+ * =====================================================================================
+ * Uses the project's git repo (when present) to analyze diffs since a baseline commit.
+ * Diagram staleness uses only the internal diagram git (DiagramGitTracker); this class
+ * is available for DiagramUpdateStrategy.decideDiagramAction if needed elsewhere.
  */
 
 import simpleGit, { SimpleGit, StatusResult } from "simple-git";

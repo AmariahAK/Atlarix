@@ -35,11 +35,24 @@ export class DiagramUpdateStrategy {
     constructor(private workspacePath: string) {}
 
     /**
-     * Decide diagram action from git analysis since last diagram commit
+     * Decide diagram action from a precomputed ChangeAnalysis (e.g. from DiagramGitTracker).
+     * Use this when using internal diagram git (Phase 8) so the same thresholds apply.
+     */
+    static decideFromChangeAnalysis(changes: ChangeAnalysis): DiagramDecision {
+        const strategy = new DiagramUpdateStrategy("");
+        return strategy.decideFromChanges(changes);
+    }
+
+    /**
+     * Decide diagram action from project git analysis (optional; diagram staleness uses internal diagram git only).
      */
     async decideDiagramAction(lastDiagramCommit?: string): Promise<DiagramDecision> {
         const tracker = new GitChangeTracker(this.workspacePath);
         const changes = await tracker.analyzeChanges(lastDiagramCommit);
+        return this.decideFromChanges(changes);
+    }
+
+    private decideFromChanges(changes: ChangeAnalysis): DiagramDecision {
 
         // No changes
         if (changes.totalFiles === 0) {

@@ -41,6 +41,7 @@ Atlarix uses **automatic context compaction** when the session gets long:
 1. **Post-turn compaction** – After each AI response, we check real token usage. If over ~75% of the model’s context budget, we summarize the conversation in the background so the next turn stays responsive.
 2. **Pre-request check** – When building the next request, we use existing summaries (what we did, what we’re doing, next steps) so the model keeps full session context without resending everything.
 3. **Tool output pruning** – Old tool results are truncated to avoid context bloat; recent results are kept.
+4. **Project memory (cross-session)** – When compaction runs, the summary is written to `.atlarix/MEMORY.md` in the workspace. On the next chat (or new session), that file is read and injected as “Project memory (cross-session)” so the model remembers prior work across sessions.
 
 **For Ollama & LMStudio** (4K–32K context):
 - Compaction runs more often than with 128K models.
@@ -979,6 +980,92 @@ update_diagram(
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | flow_name | string | ✅ | Name of flow to diagram |
+
+---
+
+## 📐 Blueprint Tools (Phase 7 – Additive Blueprint)
+
+The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint** (editable rooms and functions). The Blueprint is the desired architecture; use these tools to read and update it. When you edit the Blueprint, the user sees an "AI is editing the blueprint" indicator in the Diagram tab.
+
+**Flow for implementing from Blueprint:** (1) `compare_blueprint_to_live` to see desired vs current. (2) Break differences into tasks (optionally create `Atlarix_Plan.md`). (3) Implement **exchange-by-exchange**: after each task, ask the user to review/test; when ready, proceed to the next task.
+
+### get_blueprint
+
+**Purpose:** Read the current Blueprint (rooms, functions per room, edges). Use before making changes.
+
+**Parameters:** `workspaceId` (number, required – auto-injected).
+
+**When to Use:** Before adding rooms/functions, or to show the user the current Blueprint.
+
+---
+
+### compare_blueprint_to_live
+
+**Purpose:** Compare Blueprint (desired) to Live diagram (current code). Returns both and a short diff for planning.
+
+**Parameters:** `workspaceId` (number, required – auto-injected).
+
+**When to Use:** Before generating code from the Blueprint; use the result to create an implementation plan (tasks) and then implement in exchanges with user review.
+
+---
+
+### add_blueprint_room
+
+**Purpose:** Add a new room to the Blueprint. Room names are user-facing; what matters are the functions/APIs/webhooks inside.
+
+**Parameters:** `workspaceId`, `label` (room name), `intent` (optional), `type` (optional: api, db, worker, frontend).
+
+**When to Use:** User or you decide to add a new component (e.g. "Auth API", "Worker", "DB").
+
+---
+
+### add_blueprint_function
+
+**Purpose:** Add a function/API/webhook/feature to a room.
+
+**Parameters:** `workspaceId`, `roomId` (from get_blueprint), `name`, `kind` (api | webhook | function | feature), `description` (optional).
+
+**When to Use:** After adding a room, or when the user wants a new API/webhook/feature in an existing room.
+
+---
+
+### add_blueprint_edge
+
+**Purpose:** Add a connection between two rooms (e.g. API → DB).
+
+**Parameters:** `workspaceId`, `fromRoomId`, `toRoomId`, `label` (optional).
+
+---
+
+### update_blueprint
+
+**Purpose:** Replace the entire Blueprint (rooms, edges). Use when doing many changes at once.
+
+**Parameters:** `workspaceId`, `blueprint` (object: rooms, edges, envRefs).
+
+**When to Use:** Bulk updates; otherwise prefer add_blueprint_room / add_blueprint_function / add_blueprint_edge.
+
+---
+
+### read_implementation_plan
+
+**Purpose:** Read the implementation plan file (`.atlarix/PLAN.md`) if it exists. Use to refresh context on the current task list.
+
+**Parameters:** `workspace` (auto-injected).
+
+**When to Use:** At the start of a turn to recall the plan, or after the user says they're ready for the next task.
+
+---
+
+### write_implementation_plan
+
+**Purpose:** Create or update the implementation plan file (`.atlarix/PLAN.md`) with the task list. Use after `compare_blueprint_to_live` to write the plan. Requires user approval.
+
+**Parameters:** `content` (full markdown of the plan), `description` (optional). `workspace` auto-injected.
+
+**When to Use:** After comparing Blueprint to Live; write ordered tasks, then implement exchange-by-exchange with user review between tasks.
+
+**⚠️ Permission Required:** User must approve creating/updating `.atlarix/PLAN.md`.
 
 ---
 

@@ -86,9 +86,19 @@ export function CodebaseSearchBox({
         maxResults: 15,
       })) as SearchResponse;
 
-      if (res.success && res.results) {
+      if (res.success) {
         addToRecent(q);
-        onResults?.(res.results, q);
+        const results = res.results ?? [];
+        const filesSearched = (res as { files_searched?: number }).files_searched;
+        onResults?.(results, q);
+        if (results.length === 0) {
+          const hint = typeof filesSearched === "number"
+            ? `Searched ${filesSearched} file(s), no matches. Try different keywords (e.g. 'login', 'auth', 'api').`
+            : "No matches found. Try different keywords (e.g. 'login', 'auth', 'api').";
+          setLastError(hint);
+        } else {
+          setLastError(null);
+        }
       } else {
         setLastError(res.error || "Search failed");
       }

@@ -1,11 +1,15 @@
 /**
- * SessionTracker - AI's Mini-Git
- * ===============================
- * Tracks file changes the AI makes during a session to:
- * - Know when diagram needs updating (threshold-based)
- * - Provide AI with session awareness via get_session_changes tool
- * - Replace fingerprint-based staleness detection with live tracking
- * 
+ * SessionTracker - Diagram system's session state (works for any project)
+ * ========================================================================
+ * Tracks file changes during a session so the diagram system knows when to
+ * update or regenerate. Does NOT rely on the project having git (monorepo,
+ * polyrepo, single repo, or non-repo all work).
+ *
+ * - Baseline: file-hash snapshot at init (or when diagram last synced).
+ * - recordChange() called after each AI file op (and can be used for Code tab saves).
+ * - getDiagramStatus() / getRecommendedAction() drive staleness UI and refresh.
+ * - markDiagramSynced() after diagram regeneration clears changes (state = "current").
+ *
  * Created: v0.9.16 (2026-01-09)
  * Enhanced: v1.0.0 (2026-01-14) - Added file-hash snapshotting
  */

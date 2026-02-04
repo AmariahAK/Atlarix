@@ -206,16 +206,6 @@ const validInvokeChannels = [
   "diagram:restore",
   "diagram:check-staleness",
   "diagram:mark-stale",
-  // Workflow / Atlaflow
-  "workflow:load",
-  "workflow:load-messages",
-  "workflow:save-messages",
-  "workflow:generate-code",
-  "workflow:load-splits",
-  "workflow:template-save",
-  "workflow:template-list",
-  "workflow:template-get",
-  "workflow:template-delete",
   // Dev Server (Live Preview)
   "dev-server:is-frontend",
   "dev-server:start",
@@ -234,6 +224,10 @@ const validInvokeChannels = [
   "diagram:queue-capture",
   "diagram:flush-pending",
   "diagram:capture-initial",
+  // Blueprint (Phase 7 Additive Blueprint)
+  "blueprint:get",
+  "blueprint:set",
+  "blueprint:codegen",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
@@ -292,6 +286,9 @@ const validReceiveChannels = [
   "chat:iteration:warning",     // Warning: task running long, continue?
   "chat:iteration:limit-reached", // Hit max iterations
   "chat:iteration:timeout",     // Hit time limit (10 min)
+  // Blueprint: AI editing indicator (Diagram tab)
+  "blueprint:ai-editing",
+  "blueprint:updated",
   // OAuth callback from main process
   "oauth-callback-success",
 ] as const;

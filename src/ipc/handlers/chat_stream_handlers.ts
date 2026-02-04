@@ -104,6 +104,7 @@ import {
   schedulePostTurnCompaction,
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
+import { readMemoryMd, writeMemoryMd } from "../../lib/project-memory";
 import { estimateTokens } from "../utils/token_utils";
 
 
@@ -582,16 +583,6 @@ ${componentSnippet}
         }
       }
 
-      // Phase 1 (v2+): Detect workflow JSON (n8n/Zapier) and convert to structured prompt for AI
-      const { processPromptForWorkflow } = await import("../../lib/workflow/workflow_parser");
-      const workflowResult = await processPromptForWorkflow(userPrompt);
-      const workflowEffectivePrompt = workflowResult.wasWorkflow ? workflowResult.prompt : null;
-      if (workflowResult.wasWorkflow && workflowResult.parsed) {
-        logger.log(
-          `Workflow detected: ${workflowResult.parsed.nodes.length} nodes, stack: ${workflowResult.parsed.suggestedStack.backend} + ${workflowResult.parsed.suggestedStack.integrations.join(", ")}`
-        );
-      }
-
       // Check if this is an ephemeral workspace chat (skip DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
@@ -903,15 +894,8 @@ ${componentSnippet}
           // Prepare message history for the AI
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
-          const lastUserIdx = [...updatedChat.messages]
-            .map((m: any, i: number) => (m.role === "user" ? i : -1))
-            .filter((i: number) => i >= 0)
-            .pop() ?? -1;
-          const messageHistory = updatedChat.messages.map((message, idx) => {
-            let content = message.content || "";
-            if (workflowEffectivePrompt && message.role === "user" && idx === lastUserIdx) {
-              content = workflowEffectivePrompt; // Use structured workflow prompt for AI
-            }
+          const messageHistory = updatedChat.messages.map((message) => {
+            const content = message.content || "";
             const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
               role: message.role as "user" | "assistant" | "system",
               content,
@@ -987,6 +971,12 @@ ${componentSnippet}
                 logger.log(
                   `Compaction complete: ${compactionResult.messagesAfterSummary.length} messages after summary`,
                 );
+                // Persist to .atlarix/MEMORY.md for cross-session memory
+                if (hasWorkspace && appPath) {
+                  writeMemoryMd(appPath, compactionResult.summaryText).catch((err) =>
+                    logger.warn("Failed to write MEMORY.md:", err)
+                  );
+                }
               }
             }
           }
@@ -1062,6 +1052,19 @@ ${componentSnippet}
             }
           } catch (error) {
             logger.warn("Failed to inject workspace context:", error);
+          }
+
+          // Project-level MEMORY.md (cross-session) – Claude Code style
+          if (hasWorkspace && appPath) {
+            try {
+              const memoryMd = await readMemoryMd(appPath);
+              if (memoryMd) {
+                systemPrompt += `\n\n## Project memory (cross-session)\n${memoryMd}`;
+                logger.info("Injected MEMORY.md");
+              }
+            } catch (memErr) {
+              logger.warn("Failed to read MEMORY.md:", memErr);
+            }
           }
 
           // Phase 6: Inject context summary (compacted earlier conversation)
@@ -1583,6 +1586,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     const execResult = await ToolRegistry.execute(tool.name, {
                       ...args,
                       workspace: resolveAppPath(updatedChat.app.path),
+                      workspaceId: updatedChat.app.id,
                     });
 
                     // Return formatted result for display
@@ -1676,10 +1680,11 @@ If the user requests modifications, politely explain that Ask mode is for explor
                 description: tool.function.description,
                 parameters: tool.function.parameters,
                 execute: async (args: any) => {
-                  // Execute tool via registry, inject workspace path AND chatMode
+                  // Execute tool via registry, inject workspace path, workspaceId, and chatMode
                   const result = await ToolRegistry.execute(tool.function.name, {
                     ...args,
                     workspace: workspacePath || undefined,
+                    workspaceId: req.appId ?? undefined,
                     chatMode: "build", // Pass chatMode so handlers can check permissions
                   });
 
@@ -1894,6 +1899,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
                         const argsWithWorkspace = {
                           ...tc.args,
                           workspace: workspacePath || undefined,
+                          workspaceId: req.appId ?? undefined,
                           chatMode: "build",
                         };
                         try {
@@ -1927,6 +1933,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
                         const argsWithWorkspace = {
                           ...toolCall.args,
                           workspace: workspacePath || undefined,
+                          workspaceId: req.appId ?? undefined,
                           chatMode: "build",
                         };
                         toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);

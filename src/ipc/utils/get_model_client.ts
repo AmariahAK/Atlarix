@@ -125,7 +125,7 @@ export async function getModelClient(
       // Fall through to regular provider logic if gateway prefix is missing
     }
   }
-  // Handle 'auto' provider by trying each provider in user's preferred order (or default)
+  // Handle 'auto' provider: build fallback chain so we try next provider on failure (Phase 6)
   if (model.provider === "auto") {
     if (model.name === "free") {
       const openRouterProvider = allProviders.find(
@@ -155,28 +155,44 @@ export async function getModelClient(
       settings.autoProviderOrder?.length > 0
         ? settings.autoProviderOrder
         : DEFAULT_AUTO_PROVIDER_ORDER;
+    const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
     for (const providerId of order) {
       const modelName = AUTO_MODEL_BY_PROVIDER.get(providerId);
-      if (!modelName) continue; // only try providers with a default Auto model
+      if (!modelName) continue;
       const providerInfo = allProviders.find((p) => p.id === providerId);
       if (!providerInfo) continue;
       const envVarName = providerInfo.envVarName;
       const apiKey =
         settings.providerSettings?.[providerId]?.apiKey?.value ||
         (envVarName ? getEnvVar(envVarName) : undefined);
-      if (apiKey) {
-        logger.log(
-          `Using provider: ${providerId} model: ${modelName} (Auto order)`,
-        );
-        return await getModelClient(
+      if (!apiKey) continue;
+      try {
+        const { modelClient } = await getModelClient(
           { provider: providerId, name: modelName },
           settings,
         );
+        models.push(modelClient.model);
+      } catch (err) {
+        logger.warn(
+          `Skip ${providerId} for Auto fallback: ${err instanceof Error ? err.message : err}`,
+        );
       }
     }
-    throw new Error(
-      "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or reorder providers.",
+    if (models.length === 0) {
+      throw new Error(
+        "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or reorder providers.",
+      );
+    }
+    logger.log(
+      `Auto: using fallback chain of ${models.length} provider(s). First: ${order[0]}`,
     );
+    return {
+      modelClient: {
+        model: createFallback({ models }),
+        builtinProviderId: order[0],
+      },
+      isEngineEnabled: false,
+    };
   }
   return await getRegularModelClient(model, settings, providerConfig);
 }

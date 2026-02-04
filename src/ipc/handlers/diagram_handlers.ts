@@ -18,7 +18,6 @@ import { apps } from "@/db/schema";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
 import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
-import { GitChangeTracker } from "../../lib/diagram/git_change_tracker";
 
 // ============================================
 // TYPES
@@ -175,19 +174,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             // 6. Generate fingerprint for staleness tracking
             const fingerprint = await generateFingerprint(appPath);
 
-            // 6b. Infer workflow from project (for Diagram tab Workflow mode)
-            let workflowMetadata: { nodes?: unknown[]; connections?: unknown } | undefined;
-            try {
-                const { inferWorkflowForWorkspace } = await import("../../lib/workflow/project_to_workflow");
-                const inferred = await inferWorkflowForWorkspace(appPath);
-                if (inferred) {
-                    workflowMetadata = { nodes: inferred.nodes, connections: inferred.connections };
-                }
-            } catch (e) {
-                console.warn("[diagram:generate-ai] Workflow inference skipped:", e);
-            }
-
-            // 7. Save to DB with fingerprint and optional workflow
+            // 7. Save to DB with fingerprint (diagram-first: Mermaid is the single source of truth)
             const [diagram] = await db
                 .insert(diagrams)
                 .values({
@@ -197,7 +184,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     content,
                     metadata: {
                         focus: "ai-generated",
-                        ...(workflowMetadata && { workflow: workflowMetadata }),
                     },
                     fingerprintHash: fingerprint.hash,
                     fingerprintData: fingerprint,
@@ -294,30 +280,33 @@ ipcMain.handle(
                 workspacePath
             );
 
-            // Git-based decision when diagram has last commit and workspace is git
+            // Phase 8: Use only internal diagram git (simple-git snapshot in userData/diagram-git/<workspaceId>).
+            // No fallback to project git – we do not use the project's repo for diagram decisions.
             let gitDecision: GitDiagramDecision | undefined;
-            const meta = diagram.metadata as { gitCommit?: string } | null | undefined;
-            const lastDiagramCommit = meta?.gitCommit;
-            if (lastDiagramCommit && workspacePath) {
+            const meta = diagram.metadata as { diagramGitCommit?: string } | null | undefined;
+            const diagramGitCommit = meta?.diagramGitCommit;
+            const workspaceId = diagram.workspaceId;
+
+            if (workspaceId && workspacePath && diagramGitCommit) {
                 try {
-                    const tracker = new GitChangeTracker(workspacePath);
-                    if (await tracker.isGitRepo()) {
-                        const strategy = new DiagramUpdateStrategy(workspacePath);
-                        const decision = await strategy.decideDiagramAction(lastDiagramCommit);
-                        if (decision.action !== "none") {
-                            gitDecision = {
-                                action: decision.action,
-                                reason: decision.reason,
-                                confidence: decision.confidence,
-                                totalFiles: decision.changes.totalFiles,
-                                linesAdded: decision.changes.linesAdded,
-                                linesDeleted: decision.changes.linesDeleted,
-                            };
-                            console.log(`📊 [diagram:check-staleness] Git decision: ${decision.action} (${decision.reason})`);
-                        }
+                    const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
+                    const { DiagramUpdateStrategy } = await import("../../lib/diagram/diagram_update_strategy");
+                    const diagramGit = new DiagramGitTracker(workspaceId);
+                    const changes = await diagramGit.analyzeChanges(workspacePath, diagramGitCommit);
+                    const decision = DiagramUpdateStrategy.decideFromChangeAnalysis(changes);
+                    if (decision.action !== "none") {
+                        gitDecision = {
+                            action: decision.action,
+                            reason: decision.reason,
+                            confidence: decision.confidence,
+                            totalFiles: decision.changes.totalFiles,
+                            linesAdded: decision.changes.linesAdded,
+                            linesDeleted: decision.changes.linesDeleted,
+                        };
+                        console.log(`📊 [diagram:check-staleness] Diagram git decision: ${decision.action} (${decision.reason})`);
                     }
-                } catch (gitErr) {
-                    console.warn("[diagram:check-staleness] Git decision skipped:", gitErr);
+                } catch (err) {
+                    console.warn("[diagram:check-staleness] Diagram git skipped:", err);
                 }
             }
 

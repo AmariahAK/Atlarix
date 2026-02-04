@@ -47,9 +47,11 @@ export function registerCodebaseSearchHandlers() {
                 return {
                     success: true,
                     query: result.query,
-                    results: result.results,
+                    results: result.results ?? [],
                     formatted_with_context: result.formatted_with_context,
-                    total_matches: result.total_matches,
+                    total_matches: result.total_matches ?? 0,
+                    files_searched: result.files_searched,
+                    workspace_path: result.workspace_path,
                 };
             } catch (err) {
                 console.error("[search-codebase]", err);

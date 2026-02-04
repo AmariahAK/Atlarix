@@ -1,6 +1,6 @@
 /**
- * App Map - Language-agnostic spec for project ↔ Atlaflow ↔ diagram round-trip
- * Used by: project → Atlaflow, Atlaflow → project, modify Atlaflow → project + diagram
+ * App Map - Language-agnostic spec for project → diagram (structure only)
+ * Used by: project → AppMap → Mermaid diagram (diagram-first; no workflow nodes)
  */
 
 export type Runtime =
@@ -26,7 +26,7 @@ export interface AppMapEntryPoint {
   handlerFile?: string;
   handlerSymbol?: string;
   summary?: string;
-  /** For Atlaflow round-trip: node id in workflow */
+  /** Node id in flow (for diagram / structure) */
   nodeId?: string;
 }
 

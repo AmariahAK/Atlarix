@@ -172,6 +172,12 @@ export function registerMcpHandlers() {
       serverId: number,
     ): Promise<McpTool[]> => {
       try {
+        // Avoid "HTTP MCP requires url" when server is HTTP but URL is not set
+        const [server] = await db.select().from(mcpServers).where(eq(mcpServers.id, serverId)).limit(1);
+        if (server?.transport === "http" && !server?.url?.trim()) {
+          logger.debug("mcp:list-tools skipped – HTTP server has no URL configured");
+          return [];
+        }
         const client = await mcpManager.getClient(serverId);
         const remoteTools = await client.tools();
         const tools = await Promise.all(

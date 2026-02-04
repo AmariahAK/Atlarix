@@ -52,14 +52,13 @@ export function useLoadApp(appId: number | null) {
           if (result.success && result.diagrams.length > 0) {
             // Get the most recent diagram
             const latestDiagram = result.diagrams[0];
-            const meta = latestDiagram.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
             setDiagramState({
               id: latestDiagram.id,
               code: latestDiagram.content || '',
               type: latestDiagram.type || 'mermaid',
               title: latestDiagram.title,
               compareMode: 'current',
-              workflow: meta?.workflow,
+              workspaceId: appId,
             });
             // Auto-open toolbar right panel (code-preview) with Diagram tab selected
             setPinnedPanel('code-preview');
@@ -86,14 +85,13 @@ export function useLoadApp(appId: number | null) {
 
                 if (generateResult.success && generateResult.diagram) {
                   const d = generateResult.diagram;
-                  const meta = d.metadata as { workflow?: { nodes: unknown[]; connections: unknown } } | undefined;
                   setDiagramState({
                     id: d.id,
                     code: d.content || '',
                     type: d.type || 'mermaid',
                     title: d.title || 'Architecture Diagram',
                     compareMode: 'current',
-                    workflow: meta?.workflow,
+                    workspaceId: appId,
                   });
                   setPinnedPanel('code-preview');
                   setRightPanelVisible(true);

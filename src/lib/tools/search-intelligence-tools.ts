@@ -52,11 +52,28 @@ ToolRegistry.register({
             // For now, use enhanced grep + keyword matching
             // TODO: Integrate with OpenAI embeddings or local model
 
-            const workspace = params.workspace || process.cwd();
+            const rawWorkspace = params.workspace || process.cwd();
+            const workspace = path.isAbsolute(rawWorkspace) ? path.normalize(rawWorkspace) : path.resolve(process.cwd(), rawWorkspace);
             const maxResults = params.max_results || 10;
 
-            // Extract keywords from query
-            const keywords = extractKeywords(params.query);
+            // Ensure workspace exists and is a directory
+            try {
+                const stat = await fs.stat(workspace);
+                if (!stat.isDirectory()) {
+                    return { success: false, error: `Workspace path is not a directory: ${workspace}` };
+                }
+            } catch (e) {
+                return {
+                    success: false,
+                    error: `Workspace not found: ${workspace}. Check that the project path is correct.`,
+                };
+            }
+
+            // Extract keywords; if none (e.g. very short or all stop words), use raw query as single keyword
+            let keywords = extractKeywords(params.query);
+            if (keywords.length === 0 && params.query.trim().length > 0) {
+                keywords = [params.query.trim().toLowerCase()];
+            }
 
             // Search for keywords in code
             const results: any[] = [];
@@ -90,6 +107,13 @@ ToolRegistry.register({
             results.sort((a, b) => b.score - a.score);
             const topResults = results.slice(0, maxResults);
 
+            if (files.length === 0) {
+                return {
+                    success: false,
+                    error: `No code files found in workspace (${workspace}). Check that the project contains .ts, .tsx, .js, .jsx, or .py files.`,
+                };
+            }
+
             // Format for AI with ±3 lines context
             const formatted = topResults
                 .map((r) => {
@@ -112,6 +136,8 @@ ToolRegistry.register({
                 results: topResults,
                 total_matches: results.length,
                 formatted_with_context: formatted || "No matches found.",
+                files_searched: files.length,
+                workspace_path: workspace,
             };
         } catch (error) {
             return {
@@ -389,8 +415,12 @@ ToolRegistry.register({
 // ============================================
 
 function extractKeywords(query: string): string[] {
-    // Remove common words and extract meaningful keywords
-    const stopWords = new Set(["the", "a", "an", "in", "on", "at", "to", "for", "of", "with"]);
+    // Remove common words and extract meaningful keywords (natural language: "where is X", "find Y")
+    const stopWords = new Set([
+        "the", "a", "an", "in", "on", "at", "to", "for", "of", "with",
+        "where", "is", "are", "find", "get", "show", "me", "my", "that", "this",
+        "and", "or", "it", "can", "how", "what", "which", "from", "by",
+    ]);
     return query
         .toLowerCase()
         .split(/\s+/)

@@ -571,5 +571,26 @@ export const workflowTemplates = sqliteTable("workflow_templates", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
-
+});// --- Blueprint (Phase 7 Additive Blueprint) ---
+// One blueprint per workspace: rooms, edges, functions per room
+export const blueprints = sqliteTable(
+  "blueprints",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    content: text("content", { mode: "json" })
+      .$type<{ rooms: unknown[]; edges: unknown[]; envRefs?: string[] }>()
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [unique("blueprints_workspace_unique").on(table.workspaceId)]
+);export const blueprintsRelations = relations(blueprints, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [blueprints.workspaceId],
+    references: [apps.id],
+  }),
+}));

@@ -74,12 +74,35 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
     logger.error("Error fixing mcp_servers schema (non-fatal, continuing):", error);
   }
 
+  // PRE-MIGRATION FIX: Ensure blueprints table exists (avoids "no such table: blueprints")
+  try {
+    ensureBlueprintsTableIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring blueprints table (non-fatal, continuing):", error);
+  }
+
   _db = drizzle(sqlite, { schema });
 
   try {
-    const migrationsFolder = path.join(__dirname, "..", "..", "drizzle");
-    if (!fs.existsSync(migrationsFolder)) {
-      logger.error("Migrations folder not found:", migrationsFolder);
+    // In dev builds (Vite/Electron), __dirname often points at ".vite/build",
+    // so "..../drizzle" does not exist. Prefer the project-root drizzle folder
+    // when available, with a fallback to the bundled path.
+    const candidateFolders = [
+      // Project root (when running from source)
+      path.join(process.cwd(), "drizzle"),
+      // Bundled path (packaged app)
+      path.join(__dirname, "..", "..", "drizzle"),
+    ];
+
+    const migrationsFolder = candidateFolders.find((folder) =>
+      fs.existsSync(folder),
+    );
+
+    if (!migrationsFolder) {
+      logger.error(
+        "Migrations folder not found. Tried:",
+        candidateFolders.join(", "),
+      );
     } else {
       logger.log("Running migrations from:", migrationsFolder);
       migrate(_db, { migrationsFolder });
@@ -185,6 +208,29 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
     sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN app_id INTEGER");
     logger.log("[Schema Fix] mcp_servers: added app_id column");
   }
+}
+
+/**
+ * Ensure blueprints table exists (Phase 7 Additive Blueprint).
+ * Fixes "SqliteError: no such table: blueprints" when migration 0028 wasn't applied.
+ */
+function ensureBlueprintsTableIfNeeded(sqlite: Database.Database): void {
+  const tableExists = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'"
+  ).get();
+  if (tableExists) {
+    return;
+  }
+  logger.log("[Schema Fix] Creating blueprints table");
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS blueprints (
+      id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+      workspace_id integer NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      content text NOT NULL,
+      updated_at integer DEFAULT (unixepoch()) NOT NULL
+    )
+  `);
+  sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS blueprints_workspace_unique ON blueprints (workspace_id)");
 }
 
 /**

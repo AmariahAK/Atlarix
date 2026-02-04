@@ -173,7 +173,7 @@ export function AppList({ show }: { show?: boolean }) {
   const handleFileClick = (workspaceId: number, filePath: string) => {
     const ws = workspaces.find((w) => w.id === workspaceId);
     setSelectedAppId(workspaceId);
-    if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
+    if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name, path: ws.path });
     setSelectedErrorFileForCode(filePath);
     // Open right panel and switch to Code tab for IDE-like editing
     setRightPanelVisible(true);
@@ -183,7 +183,6 @@ export function AppList({ show }: { show?: boolean }) {
       timestamp: Date.now(),
       source: 'user',
     });
-    setPreviewTab('code');
   };
 
   const handleWorkspaceSelect = async (path: string) => {

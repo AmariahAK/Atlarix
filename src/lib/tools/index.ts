@@ -25,6 +25,7 @@ import "./request-tools";
 import "./git-tools";
 import "./analysis-tools";
 import "./diagram-tools";
+import "./blueprint-tools"; // Phase 7 Additive Blueprint
 import "./testing-tools";
 import "./refactoring-tools";
 import "./project-structure-tools"; // Multi-Layer Fallback System

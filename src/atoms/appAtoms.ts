@@ -4,8 +4,8 @@ import type { UserSettings } from "@/lib/schemas";
 
 export const currentAppAtom = atom<App | null>(null);
 export const selectedAppIdAtom = atom<number | null>(null);
-// Store workspace info (id + name) for reliable display when apps list is stale
-export const selectedWorkspaceInfoAtom = atom<{ id: number; name: string } | null>(null);
+// Store workspace info (id + name + path) for reliable display and Code tab when apps list is stale
+export const selectedWorkspaceInfoAtom = atom<{ id: number; name: string; path?: string } | null>(null);
 export const appsListAtom = atom<App[]>([]);
 export const appBasePathAtom = atom<string>("");
 export const versionsListAtom = atom<Version[]>([]);

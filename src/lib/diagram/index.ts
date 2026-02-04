@@ -3,6 +3,7 @@
  */
 
 export { GitChangeTracker, type FileChange, type FileChangeType, type ChangeAnalysis } from "./git_change_tracker";
+export { DiagramGitTracker } from "./diagram_git_tracker";
 export {
     DiagramUpdateStrategy,
     type DiagramDecision,
