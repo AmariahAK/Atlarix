@@ -82,6 +82,14 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
   sendToAllWindows("blueprint:updated", { workspaceId, blueprint: b });
 }
 
+/**
+ * Invalidate blueprint cache for a workspace. Next getBlueprintForWorkspace will re-infer from code.
+ * Call when diagram is regenerated or code structure changes.
+ */
+export function invalidateBlueprintCache(workspaceId: number): void {
+  blueprintCache.delete(workspaceId);
+}
+
 export function registerBlueprintHandlers() {
   ipcMain.handle(
     "blueprint:get",
@@ -111,6 +119,25 @@ export function registerBlueprintHandlers() {
   );
 
   // blueprint:codegen - generate scaffold from Blueprint delta (new files + env stub)
+  // blueprint:refresh-from-code - Invalidate cache, re-infer from workspace, emit blueprint:updated
+  ipcMain.handle(
+    "blueprint:refresh-from-code",
+    async (_, { workspaceId }: { workspaceId: number }): Promise<{ success: boolean; blueprint?: Blueprint; error?: string }> => {
+      try {
+        blueprintCache.delete(workspaceId);
+        const blueprint = await getBlueprintForWorkspace(workspaceId);
+        sendToAllWindows("blueprint:updated", { workspaceId, blueprint });
+        return { success: true, blueprint };
+      } catch (error) {
+        logger.error("blueprint:refresh-from-code error:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }
+  );
+
   ipcMain.handle(
     "blueprint:codegen",
     async (

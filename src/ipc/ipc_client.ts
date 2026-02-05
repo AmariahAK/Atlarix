@@ -1948,6 +1948,15 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:set", params);
   }
 
+  /** Refresh blueprint from code (invalidate cache, re-infer from workspace) */
+  public async refreshBlueprintFromCode(params: { workspaceId: number }): Promise<{
+    success: boolean;
+    blueprint?: import("@/shared/blueprint-types").Blueprint;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:refresh-from-code", params);
+  }
+
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */
   public async blueprintCodegen(params: {
     workspaceId: number;

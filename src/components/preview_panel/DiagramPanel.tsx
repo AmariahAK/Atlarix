@@ -40,6 +40,17 @@ import {
 import { VaultPanel } from '@/components/preview_panel/VaultPanel';
 import type { PanelTab } from '@/atoms/sourceAtoms';
 
+/** Humanize blueprint tool action names for display */
+function humanizeBlueprintAction(action: string): string {
+    const map: Record<string, string> = {
+        add_blueprint_room: "Adding room…",
+        add_blueprint_function: "Adding function…",
+        add_blueprint_edge: "Adding connection…",
+        update_blueprint: "Updating blueprint…",
+    };
+    return map[action] ?? action.replace(/_/g, " ");
+}
+
 interface DiagramPanelProps {
     data: DiagramState | null;
     activeTab: string;
@@ -325,12 +336,16 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     </span>
                 </div>
             )}
-            {/* AI is editing blueprint indicator (Cursor/Antigravity-style) */}
+            {/* AI is editing blueprint indicator (Cursor/Antigravity-style) - prominent sticky bar */}
             {activeTab === 'diagram' && viewMode === 'blueprint' && aiEditing && app?.id === aiEditing.workspaceId && (
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-primary/30 bg-primary/10 text-primary">
-                    <Bot className="w-4 h-4 animate-pulse" />
-                    <span className="text-sm font-medium">AI is editing the blueprint…</span>
-                    <span className="text-xs opacity-80">{aiEditing.action}</span>
+                <div className="flex items-center gap-3 px-4 py-3 border-b-2 border-primary/50 bg-primary/15 text-primary sticky top-0 z-10 shadow-sm ring-1 ring-primary/20">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20">
+                        <Bot className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold">AI is editing the blueprint</span>
+                        <span className="text-xs opacity-90">{humanizeBlueprintAction(aiEditing.action)}</span>
+                    </div>
                 </div>
             )}
             {/* Live mode hint */}

@@ -3,6 +3,11 @@
  * ============================================
  * AI can read and update the blueprint (rooms, functions, edges).
  * When the AI edits the blueprint, we emit blueprint:ai-editing for the Diagram tab indicator.
+ *
+ * Blueprint updates can use:
+ * - Detailed ASCII architecture diagrams (AI outputs structured text)
+ * - Tree-sitter + regex parsing for code analysis (workspace-analyzer)
+ * Each plan (ATLARIX_PLAN.md) must be detailed, accurate, and thorough.
  */
 
 import { ToolRegistry, ToolCategory, createParameters, stringParam } from "./registry";
@@ -20,7 +25,8 @@ import {
 
 ToolRegistry.register({
   name: "get_blueprint",
-  description: "Read the current Blueprint for the workspace (rooms, functions per room, edges). Use before making changes.",
+  description:
+    "Read the current Blueprint (rooms, functions per room, edges). Blueprint can be updated from detailed ASCII diagrams or code analysis (tree-sitter/regex). Use before making changes.",
   category: ToolCategory.DIAGRAM,
   cost: 1,
   requiresWorkspace: true,
@@ -190,7 +196,8 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "update_blueprint",
-  description: "Replace the entire Blueprint with a new structure (rooms, edges). Use when doing many changes at once.",
+  description:
+    "Replace the entire Blueprint (rooms, edges). Can ingest detailed ASCII architecture output or structured room/function data. Use when doing many changes at once.",
   category: ToolCategory.DIAGRAM,
   cost: 5,
   requiresWorkspace: true,
@@ -225,7 +232,7 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "compare_blueprint_to_live",
-  description: "Compare the Blueprint (desired) to the Live diagram (current code). Returns both and a short diff so you can plan tasks. Use before generating code from the Blueprint.",
+  description: "Compare Blueprint (desired) to Live (current code). Call FIRST when Blueprint edits are done. Returns diff for planning. Break into tasks, then implement one task per exchange with review gates.",
   category: ToolCategory.DIAGRAM,
   cost: 3,
   requiresWorkspace: true,
@@ -256,7 +263,85 @@ ToolRegistry.register({
       live_mermaid: liveMermaid || "(none)",
       blueprint,
       summary: diff,
-      recommendation: "Use the Blueprint to create an implementation plan (tasks), then implement exchange-by-exchange with user review between tasks.",
+      recommendation:
+        "Call get_plan_scope to determine where to put ATLARIX_PLAN.md. Then create plan (write_implementation_plan). Implement one task per exchange. After each task: ask user to review/test, fix bugs, then move to next when ready. Quality over quantity.",
+    };
+  },
+});
+
+// ═══════════════════════════════════════════════════════════
+// GET PLAN SCOPE (where to put ATLARIX_PLAN.md)
+// Uses git + structure to suggest plan placement.
+// ═══════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+  name: "get_plan_scope",
+  description:
+    "Determine where to put ATLARIX_PLAN.md. Uses git (if present) and project structure. Returns suggested targetPaths. Call before write_implementation_plan for multi-repo/polyproject.",
+  category: ToolCategory.DIAGRAM,
+  cost: 2,
+  requiresWorkspace: true,
+  isCore: false,
+  isReadOnly: true,
+  parameters: createParameters(
+    { workspace: stringParam("Workspace root path (auto-injected)") },
+    []
+  ),
+  handler: async ({ workspace }: { workspace?: string }) => {
+    if (!workspace) return { success: false, error: "Workspace path required" };
+    const pathMod = await import("path");
+    const fs = await import("fs/promises");
+
+    const structure: { type: "single" | "monorepo" | "polyproject"; suggestedPaths: string[]; hasGit: boolean; modules: string[] } = {
+      type: "single",
+      suggestedPaths: [],
+      hasGit: false,
+      modules: [],
+    };
+
+    try {
+      // Check for git at root
+      try {
+        await fs.access(pathMod.join(workspace, ".git"));
+        structure.hasGit = true;
+      } catch {
+        structure.hasGit = false;
+      }
+
+      // List top-level dirs and files
+      const entries = await fs.readdir(workspace, { withFileTypes: true });
+      const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name);
+
+      // Monorepo patterns: packages/, apps/, frontend/, backend/
+      const monorepoDirs = ["packages", "apps", "frontend", "backend", "web", "api", "server", "client"];
+      const found = dirs.filter((d) => monorepoDirs.includes(d));
+
+      if (found.length >= 2) {
+        structure.type = "monorepo";
+        structure.modules = found;
+        // Single plan at root with sections, or one per module - suggest root for now
+        structure.suggestedPaths = [""];
+      } else if (found.length === 1) {
+        structure.type = "polyproject";
+        structure.modules = found;
+        structure.suggestedPaths = ["", ...found];
+      } else {
+        structure.type = "single";
+        structure.suggestedPaths = [""];
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? String(err) };
+    }
+
+    return {
+      success: true,
+      ...structure,
+      guidance:
+        structure.type === "single"
+          ? "Single project: use targetPath omitted (plan at root)."
+          : structure.type === "monorepo"
+            ? "Monorepo: one ATLARIX_PLAN.md at root with ## Frontend, ## Backend sections. Or one per module if user scope is narrow."
+            : "Polyproject: use targetPath for each module being updated (e.g. 'frontend', 'backend'). Only create plans in repos user asked to change.",
     };
   },
 });
@@ -312,33 +397,49 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// IMPLEMENTATION PLAN (Atlarix_Plan.md / .atlarix/PLAN.md)
+// IMPLEMENTATION PLAN (ATLARIX_PLAN.md at project root)
+// Like claude.md / cursor.md - stored in project, version-controllable.
+// For multi-repo: optional targetPath (e.g. "frontend") → frontend/ATLARIX_PLAN.md
 // ═══════════════════════════════════════════════════════════
 
-const PLAN_PATH = ".atlarix/PLAN.md";
+export const PLAN_FILENAME = "ATLARIX_PLAN.md";
+
+function getPlanPath(targetPath?: string): string {
+  return targetPath ? `${targetPath}/${PLAN_FILENAME}` : PLAN_FILENAME;
+}
 
 ToolRegistry.register({
   name: "read_implementation_plan",
-  description: "Read the implementation plan file (.atlarix/PLAN.md) if it exists. Use to refresh context on the current task list.",
+  description:
+    "Read ATLARIX_PLAN.md (project root, like claude.md). Use at start of turn or when user says ready for next task. One exchange = one task. Optional targetPath for subprojects (e.g. 'frontend').",
   category: ToolCategory.DIAGRAM,
   cost: 1,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: true,
   parameters: createParameters(
-    { workspace: stringParam("Workspace root path (auto-injected)") },
+    {
+      workspace: stringParam("Workspace root path (auto-injected)"),
+      targetPath: {
+        type: "string",
+        description:
+          "Optional. For multi-repo/polyproject: subpath (e.g. 'frontend', 'packages/api'). Omit for single project.",
+        required: false,
+      },
+    },
     []
   ),
-  handler: async ({ workspace }: { workspace?: string }) => {
+  handler: async ({ workspace, targetPath }: { workspace?: string; targetPath?: string }) => {
     if (!workspace) return { success: false, error: "Workspace path required" };
-    const path = await import("path");
+    const pathMod = await import("path");
     const fs = await import("fs/promises");
-    const fullPath = path.join(workspace, PLAN_PATH);
+    const planPath = getPlanPath(targetPath);
+    const fullPath = pathMod.join(workspace, planPath);
     try {
       const content = await fs.readFile(fullPath, "utf8");
-      return { success: true, content, path: PLAN_PATH };
+      return { success: true, content, path: planPath };
     } catch (err: any) {
-      if (err?.code === "ENOENT") return { success: true, content: null, path: PLAN_PATH, message: "No plan file yet." };
+      if (err?.code === "ENOENT") return { success: true, content: null, path: planPath, message: "No plan file yet." };
       return { success: false, error: err?.message ?? String(err) };
     }
   },
@@ -346,7 +447,8 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "write_implementation_plan",
-  description: "Create or update the implementation plan file (.atlarix/PLAN.md). Use after compare_blueprint_to_live to write the task list. Requires user approval.",
+  description:
+    "Create/update ATLARIX_PLAN.md at project root (like claude.md). Use after compare_blueprint_to_live. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. Requires user approval.",
   category: ToolCategory.DIAGRAM,
   cost: 3,
   requiresWorkspace: true,
@@ -355,8 +457,14 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       workspace: stringParam("Workspace root path (auto-injected)"),
-      content: stringParam("Full markdown content of the plan (tasks, order, notes)"),
+      content: stringParam("Full markdown content of the plan (tasks, order, notes). Be detailed and thorough."),
       description: stringParam("Brief description of what this plan does"),
+      targetPath: {
+        type: "string",
+        description:
+          "Optional. For multi-repo: subpath where plan goes (e.g. 'frontend', 'packages/api'). Omit for single project.",
+        required: false,
+      },
       chatMode: { type: "string", description: "Build or ask (auto-injected)", required: false },
     },
     ["content"]
@@ -365,11 +473,13 @@ ToolRegistry.register({
     workspace,
     content,
     description,
+    targetPath,
     chatMode,
   }: {
     workspace?: string;
     content: string;
     description?: string;
+    targetPath?: string;
     chatMode?: string;
   }) => {
     if (chatMode === "ask") {
@@ -380,9 +490,10 @@ ToolRegistry.register({
       };
     }
     if (!workspace) return { success: false, error: "Workspace path required" };
-    const path = await import("path");
+    const pathMod = await import("path");
     const fs = await import("fs/promises");
-    const fullPath = path.join(workspace, PLAN_PATH);
+    const planPath = getPlanPath(targetPath);
+    const fullPath = pathMod.join(workspace, planPath);
     let fileType: "create" | "update" = "create";
     let oldContent: string | undefined;
     try {
@@ -396,14 +507,14 @@ ToolRegistry.register({
       __permission_required: true,
       operation: "write_file",
       preview: {
-        path: PLAN_PATH,
+        path: planPath,
         content,
         ...(oldContent !== undefined && { oldContent }),
         description: description ?? "Implementation plan (tasks from Blueprint comparison)",
         type: fileType,
         lines: content.split("\n").length,
       },
-      reasoning: `${fileType === "update" ? "Updating" : "Creating"} ${PLAN_PATH}: ${description ?? "implementation plan"}`,
+      reasoning: `${fileType === "update" ? "Updating" : "Creating"} ${planPath}: ${description ?? "implementation plan"}`,
     };
   },
 });

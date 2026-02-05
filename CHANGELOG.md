@@ -2,6 +2,60 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [Unreleased] — v2.2.0 Blueprint Intelligence System
+
+### Overview
+
+Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately.
+
+### Planned Features
+
+#### Progressive Extraction (Phase 1-4)
+- **Framework detection** – Auto-detect Express, Next.js, FastAPI, Django, Flask, NestJS from code patterns
+- **Framework patterns** – Deterministic pattern matching for APIs, webhooks, middleware, models
+- **Dependency graph** – Module-level dependency visualization
+- **Progressive loading** – Fast initial load (~2s), detail extracted on-demand when user clicks rooms
+- **Blueprint cache** – Persist extracted architecture to `~/.atlarix/blueprints/`; load instantly on next session
+
+#### Cognee Knowledge Graph (Phase 3)
+- **Relationship-aware memory** – Index rooms, APIs, functions, models as entities with relationships
+- **Query API** – "What connects to Auth?" / "If I change User model, what breaks?"
+- **Persistent learning** – Blueprint serves as compressed project memory across sessions
+
+#### Motia-Style Visual UI (Phase 5)
+- **Step types** – `[API]`, `[WH]`, `[FN]`, `[CLS]`, `[IF]`, `[CRON]`, `[AI]`, `[DB]`, `[3P]`, `[STREAM]`
+- **Node cards** – Type badge, name, description, route/schedule info, credential reference
+- **Connectors** – Dashed (async/event), solid (direct call), arrows showing direction
+- **Click to expand** – Detail panel with editable fields, inputs/outputs, logic steps
+- **Full element support** – APIs, webhooks, functions, classes, conditionals, third-party, credentials (via Vault)
+
+#### Guided Natural Language (Phase 6)
+- **Natural input** – Users describe behavior in plain English
+- **Structured preview** – "We understood: Trigger [click] on [button] → Action [navigate] to [page]"
+- **Refinement** – Edit parsed elements inline before generating
+
+#### AI Blueprint Editing (Phase 7)
+- **Tool calls** – `add_blueprint_step`, `update_blueprint_step`, `connect_steps`
+- **Diff preview** – AI proposes changes, user reviews before applying
+- **Real-time updates** – Canvas updates as AI edits with prominent indicator
+
+#### Blueprint-Driven Planning (Phase 8)
+- **Compare blueprint to live** – Identify additions, orphaned code, modifications
+- **Task generation** – Ordered tasks with dependencies and complexity estimates
+- **ATLARIX_PLAN.md** – Version-controllable plan at project root
+  - Monorepo: one file with sections (## Frontend, ## Backend)
+  - Polyrepo: one file per workspace
+  - Sections: Overview, per-domain tasks, Completed
+- **Exchange-by-exchange** – One task per AI response, review gate before next
+- **Quality over quantity** – Fix bugs before proceeding to next task
+
+### In Progress (2026-02-05)
+
+#### Blueprint UI & accuracy
+- **Blueprint cache invalidation** – Blueprint cache is invalidated when diagram is regenerated (diagram:generate-ai, diagram:regenerate-background, DiagramManager) so the blueprint stays in sync with code.
+- **Refresh from code** – New "Refresh from code" button in BlueprintEditor re-infers blueprint from current workspace; `blueprint:refresh-from-code` IPC handler.
+- **AI editing indicator** – More prominent sticky bar when AI edits the blueprint; humanized action names ("Adding room…", "Adding function…", etc.).
+
 ## [v2.0.0] - 2026-02-02
 
 ### Live diagram ↔ Blueprint diagram ↔ Code (Phase 7)
@@ -14,7 +68,7 @@ Architecture is now a two-way system: **Live** (code → diagram, read-only) and
 - **Codegen** – From Blueprint delta: new stub files (`src/<room>.ts`) and merge of env refs into `.env.local`. **Generate code** button in Blueprint editor; AI tool `generate_from_blueprint`. Additive only (skips existing files).
 - **Re-extract after refactor** – After AI file writes/moves, the permission interceptor runs `evaluateDiagramRefresh()`; when structural change is detected, background diagram regeneration runs so the Live diagram stays in sync.
 - **New-project flow** – Create workspace (empty or from template) → Diagram → Blueprint mode → design → **Generate code** to scaffold. Same codegen supports additive (existing project) and full scaffold (new project).
-- **Implementation plan** – `.atlarix/PLAN.md` via `read_implementation_plan` / `write_implementation_plan`; compare Blueprint to Live → plan tasks → implement exchange-by-exchange with user review.
+- **Implementation plan** – `ATLARIX_PLAN.md` at project root (like claude.md), version-controllable. `get_plan_scope` determines placement for multi-repo. `read_implementation_plan` / `write_implementation_plan` support optional `targetPath`. Compare Blueprint to Live → plan tasks → implement exchange-by-exchange with user review.
 
 ### Phase 6 – Smart Model Routing & IDE
 

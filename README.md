@@ -1,172 +1,172 @@
-# 🌌 Atlarix
+# Atlarix
 
 **Atlas + Axis + Intelligence**
 
-Atlarix is your premium AI coding copilot - a powerful desktop application that brings together 57 intelligent tools for modern software development.
+Atlarix is your premium AI coding copilot — a powerful desktop application that combines intelligent code understanding with visual architecture design.
 
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.0.0*
+*Current: v2.0.0 | Next: v2.2.0 (Blueprint Intelligence System)*
 
 ---
 
-## ✨ Features
+## What's New in v2.2 — Blueprint Intelligence System
 
-### 🚀 Smart Scaffolding (v0.9.2+)
+Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns your project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately.
+
+### Core Concept
+
+The Blueprint is not just a visualization—it's a compressed, AI-readable representation of your project that serves as persistent memory.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  TRADITIONAL AI CODING                                      │
+│  User asks question -> AI scans codebase -> Answers         │
+│  Problem: Expensive, slow, no learning                      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  ATLARIX 2.2                                                │
+│  First session: Build blueprint progressively               │
+│  Next session: Load cached blueprint -> AI already "knows"  │
+│  Code changes: Invalidate affected sections, update on use  │
+│                                                             │
+│  No code stored. Blueprint = compressed understanding.      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Features (v2.2)
+
+| Feature | Description |
+|---------|-------------|
+| **Progressive Extraction** | Fast initial load (~2s), detail extracted on-demand |
+| **Framework Patterns** | Auto-detect APIs, webhooks, models in Express, Next.js, FastAPI, Django |
+| **Cognee Knowledge Graph** | Relationship-aware memory: "What connects to Auth?" |
+| **Motia-Style Visual UI** | Nodes with descriptions, connectors, click-to-expand |
+| **Guided Natural Language** | Describe features in plain English, AI structures them |
+| **Blueprint-Driven Planning** | Compare desired vs actual, generate tasks via `ATLARIX_PLAN.md` |
+
+### Step Types
+
+```
+[API]    HTTP endpoint (GET, POST, PUT, DELETE)
+[WH]     Webhook handler (Stripe, GitHub, etc.)
+[FN]     Function (utility, business logic)
+[CLS]    Class (OOP container with methods)
+[IF]     Conditional branch (routing logic)
+[CRON]   Scheduled job
+[AI]     AI agent (LLM-powered processing)
+[DB]     Database operation
+[3P]     Third-party service
+[STREAM] WebSocket/SSE
+```
+
+### Planning with ATLARIX_PLAN.md
+
+When you design in Blueprint and click "Generate," the AI:
+1. Compares Blueprint (desired) to Live (actual)
+2. Generates ordered tasks in `ATLARIX_PLAN.md`
+3. Implements one task per exchange (user message -> AI response)
+4. Waits for your review before proceeding
+5. Quality over quantity: fixes bugs before moving on
+
+```markdown
+# ATLARIX_PLAN.md
+
+## Overview
+Building user authentication with JWT tokens.
+
+## Backend
+- [ ] Create /api/auth/login endpoint
+- [ ] Add JWT token generation
+- [ ] Add refresh token logic
+
+## Frontend
+- [ ] Create login form component
+- [ ] Add auth context provider
+
+## Completed
+- [x] Set up project structure (2026-02-05)
+```
+
+---
+
+## Features
+
+### Live Diagram <-> Blueprint <-> Code (v2.0)
+- **Live View** – Diagram extracted from your codebase (Mermaid). Read-only architecture visualization.
+- **Blueprint Mode** – Toggle **Live | Blueprint**. Add **rooms** (Auth API, Worker, DB), **functions** per room (API, Webhook, Function, Feature), and **edges**.
+- **Vault** – Manage environment variables per workspace; syncs to `.env.local`. Reference env keys by name in Blueprint.
+- **Codegen** – **Generate code** creates stub files and merges env refs. Additive only.
+- **Compare Mode** – Current / before / after / side-by-side diagram comparison.
+
+### Smart Scaffolding
 - **CLI-First Approach** - AI uses `npx create-vite`, `npx create-next-app` etc. instead of writing files manually
 - **25+ Framework Support** - React, Next.js, Vue, Svelte, Astro, Express, NestJS, Electron, and more
 - **Template Fallback** - Falls back to SearxNG template search when GitHub API is rate-limited
 
-### 🔐 Authentication & Security (v0.9.18+)
+### Authentication & Security
 - **Google OAuth** - Secure sign-in with your Google account
-- **Session Persistence** - Stay logged in across restarts (file-based storage)
+- **Session Persistence** - Stay logged in across restarts
 - **Deep Linking** - Seamless redirect handling (`atlarix://`)
 
-### 📊 Live diagram ↔ Blueprint diagram ↔ Code (v2.0)
-- **Live View** – Diagram is extracted from your codebase (Mermaid). Read-only: view architecture; no edits to repo from the diagram.
-- **Blueprint Mode** – Toggle **Live | Blueprint** in the Diagram tab. Add **rooms** (e.g. Auth API, Worker, DB), **functions** per room (API, Webhook, Function, Feature), and **edges**. Stored per workspace as Architecture JSON (in-memory; not persisted to DB).
-- **Blueprint UX (Phases A–D)** – **List view**: each function shows type (API, Webhook, Function, Feature) with icon and expandable config (provider, credential key, trigger). **Flow view**: per-room mini flowchart; same functions as nodes; drag handles to connect (e.g. “Webhook → Function → API”); connections persisted as `flowEdges`. Click a node in Flow to jump back to List with that function expanded. **Creds**: Diagram tab includes **Vault** (key icon); in List view, set env key per API/Webhook and use **Edit in Creds** to open Vault.
-- **Vault** – Right panel **Vault** tab (and Diagram tab when in Blueprint): manage env vars per workspace; syncs to `.env.local`. Reference env keys by name in the Blueprint; “Edit in Creds” from function config opens Vault.
-- **Codegen** – From Blueprint: **Generate code** creates new stub files and merges env refs into `.env.local`. Additive only. Use for new projects (design in Blueprint → generate scaffold) or to add new parts to an existing repo.
-- **Re-extract after refactor** – After AI file changes, diagram refresh runs in the background so the Live diagram stays in sync with code.
-- **Compare mode** – Diagram tab: current / before / after / side-by-side. Version history and restore.
-- **Pan/Zoom** – Drag to pan, scroll to zoom; control buttons (+, -, Reset, Center).
+### Session Change Tracking
+- **Mini-git** – Tracks file changes before commit
+- **Smart Staleness** – <5%, 5-15%, >15% drift detection
+- **Git-based Updates** – Smart update vs regenerate decisions
 
-### 🧠 Session change tracking (v0.9.17+)
-- **Mini-git** – Tracks file changes before commit; smart staleness (<5%, 5–15%, >15% drift); git-based update vs regenerate.
+### Context Management
+- **Context Bar** – Real-time token usage visualization
+- **Auto-Summarize** – Long conversations compressed automatically
+- **Project Memory** – `.atlarix/MEMORY.md` persists across sessions
+- **ATLARIX_PLAN.md** – Version-controllable implementation plan
 
-### 📝 Global & Workspace Prompts (NEW in v0.9.6!)
-- **Custom AI Instructions** - Define behavior rules that persist across chats
-- **Global Prompts** - Apply to all incognito/general chats
-- **Workspace Prompts** - Project-specific AI context and guidelines
-- **Library Page** - Easy management with character counter
-
-### 📋 Smart Diff Preview (v1.5.0)
+### Smart Diff Preview
 - **Hunk View** - Changed sections with ±3 lines of context
 - **Expand All** - Toggle full diff for large files
 - **AI Summary** - Change description at top of each file diff
-- **Permission Queue** - Integrated SmartDiffView for write_file, replace_code, insert_code, delete_lines
+- **Permission Queue** - Approve/reject AI changes before execution
 
-### 🔍 Codebase Search Upgrade (v1.5.0)
-- **Natural Language** - "Find the authentication logic" style queries
-- **Results in Context** - ±3 lines of surrounding code per match
-- **Recent Searches** - Dropdown with up to 10 previous queries
-- **Search Tab** - CodebaseSearchBox in Right Panel Search tab
-
-### 💰 Token Budget System (v1.7.5)
-- **Per-provider caps** - Optional token limits in Settings to control API costs
-- **Real-time display** - Color-coded bar (amber 70%+, red 90%+)
-- **Warnings** - "Approaching token limit" at 80%, critical message at 90%
-
-### 📊 Diagram Refinements (v1.7.5)
-- **Smarter tracking** - Fewer refreshes for bug fixes; ±3 files often skip
-- **Version history** - Previous versions dropdown in Diagram tab
-
-### 🛠️ Right Panel Refinements (v1.5.0)
-- **Code Tab** - Edit button opens correct file when switching from Errors tab
-- **Errors Tab** - No stacking; build errors replace, runtime errors preserved
-- **Terminal** - Multi-tab support for backend + frontend dev servers
-
-### 🔐 Permission System (v0.9.0+)
-- **Tool Approval Flow** - AI proposes changes, you approve before execution
-- **FileDiffPanel** - Preview file changes with syntax highlighting
-- **Batch Approval** - Approve All / Reject All / Execute Selected buttons
-- **Sound Notifications** - Hear when new proposals arrive after batch approval
-
-### 🎭 Incognito Chat Mode
-- **Ephemeral Chats** - Ask anything without saving to database
-- **Privacy-First** - Chats disappear when you close/leave
-- **In-Memory Only** - Lightning-fast, truly private
-- **Session Persistence** - Chats survive navigation to Settings and back
-
-### 🔍 Ask Mode with Smart Tools
-- **Read-Only Exploration** - 21 safe tools for exploring any workspace
-- **Claude-Style Tool Display** - Grouped tool badges
-- **Workspace Aware** - Tools automatically resolve paths
-
-### 🤖 Multi-Provider AI Support
-8 cloud providers with native model fetch + tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **OpenRouter**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local models. Model name displayed per response.
-
-### 🧠 Smart Context System (NEW in v0.9.14!)
-- **AGENTS.md Reference** - Single source of truth for all 57 tools
-- **Model-Aware Loading** - Full guidance for 32K+, compact for 8K models
-- **~80% Prompt Reduction** - system_prompt.ts stripped from 770 to 153 lines
-- **Small Model Support** - Actually fits in Ollama 8K context now!
-
-### 🛠️ 57 Intelligent Tools
+### 57 Intelligent Tools
 **File Operations** - Read, write, search, modify files  
 **Code Intelligence** - Semantic search, architecture diagrams  
 **Web & Research** - web_search, deep_search, read_url  
 **Development** - Command execution, template scaffolding
 
-### 📊 Diagram Timeline System
-- **Project Evolution** - Visualize architecture changes over time
-- **Smart Snapshots** - Auto-capture when code changes
-- **Time Drill-Down** - Navigate from "All Time" to hourly
-### 🛡️ Hybrid Error Detection (v0.9.11)
-Atlarix uses multiple strategies to ensure no error is missed:
-1.  **Terminal Parser**: Reads output from your dev server (Vite, Next.js) to catch build errors.
-2.  **Type Watcher (LSP-Lite)**: Runs `tsc --watch` in the background to catch type errors.
-3.  **CDP Browser Debugger**: Uses Electron's debugger API to capture runtime errors (filters out Atlarix's own errors).
+### Multi-Provider AI Support
+8 cloud providers with native model fetch + tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **OpenRouter**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local models.
 
-This ensures you see:
-*   Build Errors (Syntax)
-*   Type Errors (Missing imports/props)
-*   Runtime Errors (Crashes)
+### Token Budget System
+- **Per-provider caps** - Optional token limits in Settings to control API costs
+- **Real-time display** - Color-coded bar (amber 70%+, red 90%+)
+- **Warnings** - "Approaching token limit" at 80%, critical message at 90%
 
-### 🧩 Smart Error Actions (NEW in v0.9.11!)
-- **Fix with AI**: One-click button to pre-fill chat with error context
-- **Suggest Button**: Add your own notes/suggestions when sending errors to AI
-- **Clean Prompts**: Simplified format without redundant markdown
-
-### 📝 Live Code Editor (NEW in v0.9.12!)
-- **Monaco Editor**: Edit error files directly in the Code tab
-- **Error Underlines**: Red/yellow squiggly lines at exact error locations
-- **File List**: Collapsible list of files with error counts
-- **Save Shortcut**: Cmd/Ctrl+S saves changes directly
-- **Auto-Focus**: Cursor positions at first error automatically
-
-
-### 🎯 AI-Controlled Right Panel (NEW in v0.9.5!)
-- **Explicit AI Intent** - AI tells the panel what to show (no more heuristic guessing)
-- **Permission Panel** - Dedicated view for showing pending tool approvals
-- **Priority System** - AI state → User pinned → Heuristic fallback
-
-### 🌐 Live Preview (NEW in v0.9.7!)
+### Live Preview
 - **Lovable-Style Preview** - Auto-starts dev server for frontend projects
 - **Responsive Iframe** - Mobile, tablet, desktop viewport controls
 - **Framework Detection** - Vite, Next.js, Create React App, Nuxt, Astro
-- **Backend Fallback** - Auto-shows diagram panel for backend projects
 
-### 💰 Token-Saving Stop Button (NEW in v0.9.7!)
-- **Instant Cancel** - Stop AI mid-response to save API tokens
-- **Backend Abort** - Actually cancels the API call, not just UI
-- **App Quit Cleanup** - All active streams aborted on close
+### Hybrid Error Detection
+1. **Terminal Parser** - Reads output from dev server to catch build errors
+2. **Type Watcher (LSP-Lite)** - Runs `tsc --watch` for type errors
+3. **CDP Browser Debugger** - Captures runtime errors via Electron debugger API
 
-### 🔧 Unified Permission Queue (NEW in v0.9.8!)
-- **Merged into FileDiffPanel** - Permissions show in Approve tab alongside file changes
-- **Real-time Updates** - IPC events populate queue as AI requests arrive
-- **Simplified Routing** - Single panel handles both files and permissions
+### Live Code Editor
+- **Monaco Editor** - Edit error files directly in the Code tab
+- **Error Underlines** - Red/yellow squiggly lines at exact error locations
+- **Save Shortcut** - Cmd/Ctrl+S saves changes directly
+- **Auto-Focus** - Cursor positions at first error automatically
 
-### 🗑️ Instant Workspace Delete (NEW in v0.9.8!)
-- **Optimistic UI** - Workspace disappears immediately before backend confirms
-- **Auto-Navigate** - Returns to home when current workspace deleted
-- **Graceful Errors** - "Already deleted" scenarios handled silently
-
-### ⚠️ Known Issues (v0.9.8)
-- ~~**AI Prompt Error** - Message format incompatibility~~ **FIXED**
-- ~~**PlantUML Code Shown** - Raw code visible in DiagramPanel~~ **FIXED**
-- ~~**Workspace Delete Lag** - UI didn't update after deletion~~ **FIXED**
-
-### 🔮 Coming later (post-v2.0)
-- **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints
-- **Voice input**, **Code playground**, **Usage stats**, **Timeline export (GIF)**, **Multiple diagram types**
-- **Workspace templates (Pro)** – Save workspace config as template; apply to new workspace; visual previews before clone
+### Permission System
+- **Tool Approval Flow** - AI proposes changes, you approve before execution
+- **FileDiffPanel** - Preview file changes with syntax highlighting
+- **Batch Approval** - Approve All / Reject All / Execute Selected buttons
+- **Sound Notifications** - Hear when new proposals arrive
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 - **Node.js 20+**
@@ -184,9 +184,7 @@ npm start
 
 ---
 
----
-
-## 🎯 Pricing
+## Pricing
 
 ### Free Tier
 - Unlimited non-workspace chats
@@ -201,11 +199,21 @@ npm start
 
 ---
 
-## 📜 License
+## Coming Soon (v2.2+)
 
-PROPRIETARY - All Rights Reserved.  
-Copyright © 2024-2025 NorahLabs.
+- **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints
+- **Voice Input** – Speak your instructions
+- **Code Playground** – Test snippets in isolation
+- **Timeline Export (GIF)** – Animated architecture evolution
+- **Workspace Templates (Pro)** – Save workspace config as template
 
 ---
 
-**Built with ❤️ by NorahLabs**
+## License
+
+PROPRIETARY - All Rights Reserved.  
+Copyright 2024-2026 NorahLabs.
+
+---
+
+**Built with care by NorahLabs**

@@ -227,6 +227,7 @@ const validInvokeChannels = [
   // Blueprint (Phase 7 Additive Blueprint)
   "blueprint:get",
   "blueprint:set",
+  "blueprint:refresh-from-code",
   "blueprint:codegen",
   // File operations (Live Code Editor)
   "file:read-content",

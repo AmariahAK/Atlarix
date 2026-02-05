@@ -19,6 +19,7 @@ import { extractCodebase } from "@/utils/codebase";
 import { readSettings } from "@/main/settings";
 import { generateFingerprint } from "./analysis/fingerprint";
 import type { AppChatContext } from "./schemas";
+import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
 import log from "electron-log";
 
 const logger = log.scope("DiagramManager");
@@ -288,6 +289,7 @@ Requirements:
 
             diagram = updated as Diagram;
             logger.info(`[_generateDiagram] Updated diagram ${existingDiagram.id}`);
+            invalidateBlueprintCache(workspaceId);
         } else {
             // Create new diagram
             const [created] = await db
@@ -310,6 +312,7 @@ Requirements:
 
             diagram = created as Diagram;
             logger.info(`[_generateDiagram] Created new diagram ${created.id}`);
+            invalidateBlueprintCache(workspaceId);
         }
 
         return diagram;

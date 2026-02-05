@@ -987,7 +987,19 @@ update_diagram(
 
 The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint** (editable rooms and functions). The Blueprint is the desired architecture; use these tools to read and update it. When you edit the Blueprint, the user sees an "AI is editing the blueprint" indicator in the Diagram tab.
 
-**Flow for implementing from Blueprint:** (1) `compare_blueprint_to_live` to see desired vs current. (2) Break differences into tasks (optionally create `Atlarix_Plan.md`). (3) Implement **exchange-by-exchange**: after each task, ask the user to review/test; when ready, proceed to the next task.
+### Blueprint Implementation Workflow (IMPORTANT)
+
+**Trigger:** When the user or you has finished modifying the Blueprint (e.g. user says "implement this" or "generate from blueprint"), you MUST:
+
+1. **Compare** – Call `compare_blueprint_to_live` to see desired (Blueprint) vs current (Live diagram / code).
+2. **Plan** – Call `get_plan_scope` to determine where to put the plan. Identify what needs to be added. Break it into **detailed, ordered tasks**. Use `write_implementation_plan` to create `ATLARIX_PLAN.md` at project root (like claude.md). Be detailed, accurate, thorough.
+3. **Implement exchange-by-exchange** – One exchange = one user prompt = one AI response. Focus on **one task per exchange**. Do NOT try to do everything in one prompt.
+4. **Review gate** – After completing a task, ask the user to **review and test**. Fix any bugs for that feature before moving on. When the user says they're ready, proceed to the next task.
+5. **Quality over quantity** – Fix bugs on each feature before advancing. Avoid building everything at once and failing at the end.
+
+**Plan placement (ATLARIX_PLAN.md):** Stored at project root (like claude.md). For multi-repo: call `get_plan_scope` first. If workspace has git + multiple modules, use `targetPath` only for the modules the user asked to change. If no git, use diagram/blueprint structure to infer placement. Each plan must be detailed, accurate, thorough.
+
+**Summary:** Compare → get_plan_scope (if multi-repo) → Plan → One task per exchange → Review & test → Fix bugs → Next task when ready.
 
 ### get_blueprint
 
@@ -1005,7 +1017,7 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 **Parameters:** `workspaceId` (number, required – auto-injected).
 
-**When to Use:** Before generating code from the Blueprint; use the result to create an implementation plan (tasks) and then implement in exchanges with user review.
+**When to Use:** Call this FIRST when the user or you has finished modifying the Blueprint and is ready to implement. Use the result to identify what needs to be added, break into tasks, then implement one task per exchange with review gates.
 
 ---
 
@@ -1047,25 +1059,35 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ---
 
-### read_implementation_plan
+### get_plan_scope
 
-**Purpose:** Read the implementation plan file (`.atlarix/PLAN.md`) if it exists. Use to refresh context on the current task list.
+**Purpose:** Determine where to put `ATLARIX_PLAN.md`. Uses git and project structure. Returns suggested targetPaths.
 
 **Parameters:** `workspace` (auto-injected).
 
-**When to Use:** At the start of a turn to recall the plan, or after the user says they're ready for the next task.
+**When to Use:** Call before `write_implementation_plan` for multi-repo/polyproject. Single project: omit targetPath. Multi-repo: use targetPath for each module being updated (e.g. "frontend", "backend").
+
+---
+
+### read_implementation_plan
+
+**Purpose:** Read `ATLARIX_PLAN.md` (project root, like claude.md) if it exists. Use to refresh context on the current task list.
+
+**Parameters:** `workspace` (auto-injected), `targetPath` (optional – for subprojects, e.g. "frontend").
+
+**When to Use:** At the start of a turn to recall the plan and pick the next task, or when the user says they're ready for the next task. One exchange = one task; use this to stay on track.
 
 ---
 
 ### write_implementation_plan
 
-**Purpose:** Create or update the implementation plan file (`.atlarix/PLAN.md`) with the task list. Use after `compare_blueprint_to_live` to write the plan. Requires user approval.
+**Purpose:** Create or update `ATLARIX_PLAN.md` at project root (like claude.md). Use after `compare_blueprint_to_live` and `get_plan_scope`. Requires user approval.
 
-**Parameters:** `content` (full markdown of the plan), `description` (optional). `workspace` auto-injected.
+**Parameters:** `content` (full markdown – be detailed, accurate, thorough), `description` (optional), `targetPath` (optional – for multi-repo subpaths). `workspace` auto-injected.
 
-**When to Use:** After comparing Blueprint to Live; write ordered tasks, then implement exchange-by-exchange with user review between tasks.
+**When to Use:** After comparing Blueprint to Live; call `get_plan_scope` first for multi-repo. Break the diff into detailed, ordered tasks. Then implement one task per exchange—after each task, ask the user to review/test, fix bugs, and only move on when they say ready.
 
-**⚠️ Permission Required:** User must approve creating/updating `.atlarix/PLAN.md`.
+**⚠️ Permission Required:** User must approve creating/updating `ATLARIX_PLAN.md`.
 
 ---
 
@@ -1435,6 +1457,19 @@ search_templates("React dashboard")
 4. `search_code` - Pattern matching
 
 **NEVER tell the user "I cannot help without a diagram"**
+
+---
+
+## Blueprint Implementation (Exchange-by-Exchange)
+
+When the user or you has finished modifying the Blueprint and is ready to implement:
+
+1. **Compare** – `compare_blueprint_to_live` → see desired vs current
+2. **Scope** – `get_plan_scope` (if multi-repo) → where to put ATLARIX_PLAN.md
+3. **Plan** – Break diff into detailed tasks → `write_implementation_plan` (project root, like claude.md)
+4. **One task per exchange** – 1 user prompt = 1 AI response. Do NOT do everything in one go.
+5. **Review gate** – After each task: ask user to review/test → fix bugs → only then move to next when they say ready
+6. **Quality over quantity** – Fix bugs on each feature before advancing
 
 ---
 

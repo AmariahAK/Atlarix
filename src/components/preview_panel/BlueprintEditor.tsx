@@ -32,6 +32,7 @@ import {
   ChevronRight,
   List,
   GitBranch,
+  RefreshCw,
 } from "lucide-react";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
 import { BlueprintRoomFlowView } from "@/components/preview_panel/BlueprintRoomFlowView";
@@ -198,6 +199,12 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const [selectedFunctionId, setSelectedFunctionId] = useState<string | null>(null);
   const [roomDetailViewMode, setRoomDetailViewMode] = useState<Record<string, "list" | "flow">>({});
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Sync local state when blueprint prop changes (e.g. from refresh-from-code or AI update)
+  useEffect(() => {
+    setLocal(blueprint);
+  }, [blueprint]);
 
   const handleRoomSelect = useCallback((roomId: string) => {
     setSelectedRoomId(roomId);
@@ -217,6 +224,24 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
     [updateRoom]
   );
 
+  const handleRefreshFromCode = useCallback(async () => {
+    if (!app?.id) return;
+    setIsRefreshing(true);
+    try {
+      const res = await IpcClient.getInstance().refreshBlueprintFromCode({ workspaceId: app.id });
+      if (res.success) {
+        toast.success("Blueprint synced from code");
+        // Backend emits blueprint:updated → parent updates → useEffect syncs local
+      } else {
+        toast.error(res.error ?? "Refresh failed");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refresh failed");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [app?.id]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden flex-1 min-h-0">
       {/* Visual canvas: rooms as nodes, drag to connect */}
@@ -224,6 +249,16 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-xs text-muted-foreground">Drag rooms; connect with edges from handles.</span>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefreshFromCode}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border disabled:opacity-50"
+              title="Re-infer blueprint from current codebase"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
+              Refresh from code
+            </button>
             <button
               type="button"
               onClick={handleSave}

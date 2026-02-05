@@ -18,6 +18,7 @@ import { apps } from "@/db/schema";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
 import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
+import { invalidateBlueprintCache } from "./blueprint_handlers";
 
 // ============================================
 // TYPES
@@ -192,6 +193,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 .returning();
 
             console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
+            invalidateBlueprintCache(workspaceId);
             return { success: true, diagram };
 
         } catch (error: unknown) {
@@ -673,6 +675,7 @@ Requirements:
                     .where(eq(diagrams.id, existingDiagram.id));
 
                 console.log(`📊 [diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
+                invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'updated', diagramId: existingDiagram.id };
             } else {
                 const [diagram] = await db
@@ -690,6 +693,7 @@ Requirements:
                     .returning();
 
                 console.log(`📊 [diagram:regenerate-background] Created new diagram ${diagram.id}`);
+                invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'created', diagramId: diagram.id };
             }
 
