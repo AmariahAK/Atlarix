@@ -706,18 +706,18 @@ export function registerAppHandlers() {
       throw new Error("App not found");
     }
 
-    // Get app files
+    // Get app files; check path existence (v2.1 workspace sync)
     const appPath = getAtlarixAppPath(app.path);
+    const pathExists = fs.existsSync(appPath);
     let files: string[] = [];
 
-    try {
-      files = getFilesRecursively(appPath, appPath);
-      // Normalize the path to use forward slashes so file tree (UI)
-      // can parse it more consistently across platforms.
-      files = files.map((path) => normalizePath(path));
-    } catch (error) {
-      logger.error(`Error reading files for app ${appId}:`, error);
-      // Return app even if files couldn't be read
+    if (pathExists) {
+      try {
+        files = getFilesRecursively(appPath, appPath);
+        files = files.map((p) => normalizePath(p));
+      } catch (error) {
+        logger.error(`Error reading files for app ${appId}:`, error);
+      }
     }
 
     let supabaseProjectName: string | null = null;
@@ -738,6 +738,7 @@ export function registerAppHandlers() {
       files,
       supabaseProjectName,
       vercelTeamSlug,
+      pathExists,
     };
   });
 
@@ -745,8 +746,12 @@ export function registerAppHandlers() {
     const allApps = await db.query.apps.findMany({
       orderBy: [desc(apps.createdAt)],
     });
+    const appsWithPathExists = allApps.map((a) => ({
+      ...a,
+      pathExists: fs.existsSync(getAtlarixAppPath(a.path)),
+    }));
     return {
-      apps: allApps,
+      apps: appsWithPathExists,
       appBasePath: getAtlarixAppPath("$APP_BASE_PATH"),
     };
   });

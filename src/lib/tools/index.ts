@@ -30,6 +30,8 @@ import "./testing-tools";
 import "./refactoring-tools";
 import "./project-structure-tools"; // Multi-Layer Fallback System
 import "./meta-tools"; // Phase 3: New meta-tools
+import "./agent-tools"; // v2.1: delegate_to_agent
+import "./mode-tools"; // request_mode_change (Ask/Build/Auto)
 
 
 // Re-export registry for convenience

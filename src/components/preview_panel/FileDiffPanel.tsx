@@ -206,7 +206,7 @@ function FilesTab({
 
     // Operation icons
     const opIcons: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-        create: { icon: FilePlus, color: 'text-green-500', label: '✨' },
+        create: { icon: FilePlus, color: 'text-green-500', label: 'New' },
         modify: { icon: FileEdit, color: 'text-yellow-500', label: '📝' },
         delete: { icon: Trash2, color: 'text-red-500', label: '🗑️' },
         rename: { icon: FileEdit, color: 'text-blue-500', label: '📝' },

@@ -107,6 +107,7 @@ const validInvokeChannels = [
   "set-context-paths",
   "get-app-upgrades",
   "execute-app-upgrade",
+  "respond-mode-change",
   "is-capacitor",
   "sync-capacitor",
   "open-ios",
@@ -267,6 +268,7 @@ const validReceiveChannels = [
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
+  "mode_change_requested",
   "terminal-output",
   "operation-status",         // Permission queue status updates
   "auto-recovery-needed",     // AI self-healing on failures
@@ -287,6 +289,8 @@ const validReceiveChannels = [
   "chat:iteration:warning",     // Warning: task running long, continue?
   "chat:iteration:limit-reached", // Hit max iterations
   "chat:iteration:timeout",     // Hit time limit (10 min)
+  // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
+  "chat:activity",
   // Blueprint: AI editing indicator (Diagram tab)
   "blueprint:ai-editing",
   "blueprint:updated",

@@ -4,7 +4,7 @@ import { Trash2 } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import {
-  selectedErrorFileForCodeAtom,
+  selectedErrorForCodeAtom,
   rightPanelVisibleAtom,
   aiPanelIntentAtom,
   previewTabAtom,
@@ -41,7 +41,7 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
-  const setSelectedErrorFileForCode = useSetAtom(selectedErrorFileForCodeAtom);
+  const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
@@ -174,7 +174,7 @@ export function AppList({ show }: { show?: boolean }) {
     const ws = workspaces.find((w) => w.id === workspaceId);
     setSelectedAppId(workspaceId);
     if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name, path: ws.path });
-    setSelectedErrorFileForCode(filePath);
+    setSelectedErrorForCode({ filePath });
     // Open right panel and switch to Code tab for IDE-like editing
     setRightPanelVisible(true);
     setPreviewTab("code");

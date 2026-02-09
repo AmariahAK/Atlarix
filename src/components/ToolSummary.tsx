@@ -47,24 +47,24 @@ interface ToolSummaryProps {
     defaultExpanded?: boolean;
 }
 
-// Tool icons for compact display
-const toolIcons: Record<string, string> = {
-    read_file: '📄',
-    list_files: '📁',
-    find_file: '🔍',
-    search_code: '🔎',
-    web_search: '🌐',
-    deep_search: '🌐',
-    read_url: '🔗',
-    get_diagram: '📊',
-    git_status: '📋',
-    git_diff: '📋',
-    recall_memory: '💾',
-    search_memory: '🔍',
-    run_command: '⚡',
-    ask_user: '💬',
-    parse_code_structure: '🏗️',
-    health_check: '✅',
+// Tool icons for compact display (Lucide only, no emoji)
+const toolIcons: Record<string, React.ElementType> = {
+    read_file: FileText,
+    list_files: FolderOpen,
+    find_file: Search,
+    search_code: Search,
+    web_search: Globe,
+    deep_search: Globe,
+    read_url: Globe,
+    get_diagram: BarChart3,
+    git_status: GitBranch,
+    git_diff: GitBranch,
+    recall_memory: Database,
+    search_memory: Search,
+    run_command: Terminal,
+    ask_user: MessageSquare,
+    parse_code_structure: BarChart3,
+    health_check: CheckCircle2,
 };
 
 // Format args for display
@@ -108,7 +108,7 @@ export function ToolSummary({ toolCalls, defaultExpanded = false }: ToolSummaryP
             count: calls.length,
             errors: calls.filter(c => c.status === 'error').length,
             running: calls.some(c => c.status === 'running' || c.status === 'pending'),
-            icon: toolIcons[name] || '🔧',
+            Icon: toolIcons[name] || Wrench,
         }));
     }, [grouped]);
 
@@ -138,7 +138,7 @@ export function ToolSummary({ toolCalls, defaultExpanded = false }: ToolSummaryP
 
                 {/* Badge list - grouped */}
                 <div className="flex gap-1.5 flex-wrap flex-1">
-                    {stats.map(({ name, count, errors, running, icon }) => (
+                    {stats.map(({ name, count, errors, running, Icon }) => (
                         <span
                             key={name}
                             className={cn(
@@ -150,7 +150,7 @@ export function ToolSummary({ toolCalls, defaultExpanded = false }: ToolSummaryP
                                         : "bg-emerald-500/20 text-emerald-400"
                             )}
                         >
-                            <span>{icon}</span>
+                            <Icon className="h-3 w-3 shrink-0" />
                             <span>{name.replace(/_/g, '_')}</span>
                             {count > 1 && <span>×{count}</span>}
                             {running && <Loader2 className="h-3 w-3 animate-spin" />}

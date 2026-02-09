@@ -2,11 +2,51 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [2.1.0] — 2026-02-08
+
+### Scope release: MCP, Auto mode, Model picker, Workspace sync, Right panel, Full-screen pages, Errors, Tools
+
+- **MCP workspace limiting:** No workspace → only global MCPs in Config and at runtime. In workspace → global + that workspace's MCPs. Same filter used in chat/run context.
+- **Auto mode:** Removed Auto provider order from Settings. New settings: single Auto provider + 3 models (Fast/Medium/Thinking). Config → Configure Auto (provider + 3 models). Backend uses these when Auto is ON.
+- **Model picker:** "Change model" opens in a Sheet (no more popover close). Selected model displayed clearly.
+- **Right panel:** Panel and toggle shown only on home/chat page (`/` or `/chat`). Hidden on Settings, Tools, Library, etc.
+- **Workspace sync:** `get-app` and `list-apps` return `pathExists`. When folder is missing, UI shows "Workspace not found" with Remove from list; Diagram/Code/Preview and panel bar hidden until path is valid.
+- **Errors:** Per-error "Mark done" (removes from list). "View code" opens exact file and line in Code tab (and in full-screen Code page). FileEditor/ErrorFileEditor accept `initialLine` for scroll-to-line.
+- **Full-screen Code page:** Route `/code` with optional `appId`. Left: file tree; center: single-file editor; right: Chat (same session), Errors, Terminal. "Code full screen" in workspace bar.
+- **Full-screen Diagram page:** Route `/diagram` with optional `appId`. When opened with appId, right panel shows Chat (same session). "Diagram full screen" in workspace bar.
+- **Tools page:** Redesigned: 4 features per view, search bar, category filters, short descriptions, steps, "How it works", and in-app links (Settings, Home, Library). Setup models section with link to Settings.
+
+---
+
+## [Unreleased] — v2.1.0 Agent System and Project Understanding (prior)
+
+### Overview
+
+v2.1 adds a three-tier agent system, built-in specialists, project instruction files, self-review and Agent Lightning, Activity Stream, and reorganized AI Configuration.
+
+### Features
+
+- **Agent modes:** Direct (no agents), Guided (flat delegation; default), Autonomous (nested delegation with depth limit).
+- **Permission:** Ask (read-only tools) vs Build (can write/run), independent of mode.
+- **Built-in agents:** Research, Architect, Builder, Reviewer — each with dedicated tool set; `delegate_to_agent` tool for main model.
+- **Project instructions:** `.atlarix/ATLARIX.md`, `AI_RULES.md`, workspace prompts, `~/.atlarix/ATLARIX.md`, bundle AGENTS.md — precedence order in system prompt; context window from resolved model.
+- **Summarization model:** Fast/same/custom for compaction and chat title generation.
+- **Chat UI:** Mode selector (Direct/Guided/Autonomous), Permission (Ask/Build), Auto toggle, active context bar.
+- **Activity Stream:** Right-panel tab; events for delegation, compaction, self-review, turn summary (Lucide icons only).
+- **Self-review:** Runtime stub (Activity Stream when enabled); settings schema.
+- **Autonomous:** Nested delegation with configurable max depth.
+- **Agent Lightning:** Trace collection to `.atlarix/training_data/` when enabled; training entry point (placeholder).
+- **Token:** Turn summary in Activity Stream; per-provider budget in schema.
+
+v2.2 (Blueprint Intelligence) will build on v2.1 systems.
+
+---
+
 ## [Unreleased] — v2.2.0 Blueprint Intelligence System
 
 ### Overview
 
-Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately.
+Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately. v2.2 will be updated to build on v2.1 (agents, project instructions).
 
 ### Planned Features
 
@@ -17,7 +57,7 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 - **Progressive loading** – Fast initial load (~2s), detail extracted on-demand when user clicks rooms
 - **Blueprint cache** – Persist extracted architecture to `~/.atlarix/blueprints/`; load instantly on next session
 
-#### Cognee Knowledge Graph (Phase 3)
+#### Blueprint cache + future memory (Phase 3)
 - **Relationship-aware memory** – Index rooms, APIs, functions, models as entities with relationships
 - **Query API** – "What connects to Auth?" / "If I change User model, what breaks?"
 - **Persistent learning** – Blueprint serves as compressed project memory across sessions

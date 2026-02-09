@@ -10,6 +10,7 @@ import { chatContextSummaries, messages } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { readSettings } from "../main/settings";
 import { getModelClient } from "../ipc/utils/get_model_client";
+import { getSummarizationModel } from "./summarization_model";
 import { estimateTokens, getEffectiveBudget } from "../ipc/utils/token_utils";
 import {
   CONTEXT_COMPACTION_SYSTEM,
@@ -141,10 +142,8 @@ export async function runCompaction(params: {
   const userPrompt = CONTEXT_COMPACTION_USER_PREFIX + formatted;
 
   try {
-    const { modelClient } = await getModelClient(
-      settings.selectedModel ?? { provider: "openrouter", name: "google/gemma-2-9b-it:free" },
-      settings
-    );
+    const summarizationModel = getSummarizationModel(settings);
+    const { modelClient } = await getModelClient(summarizationModel, settings);
 
     const result = await generateText({
       model: modelClient.model,

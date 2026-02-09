@@ -74,43 +74,41 @@ function extractKeywords(text: string): string[] {
     return keywords;
 }
 
+const TITLE_SYSTEM_PROMPT = `Generate a concise, descriptive chat title (max 5 words) based on the conversation below.
+Focus on the main topic or task. Return ONLY the title, no quotes or extra text.`;
+
 /**
- * Generate AI-powered chat name based on conversation context
- * @param messages - Array of messages (user and assistant)
- * @param fallbackName - Simple keyword-based name to use if AI fails
+ * Generate AI-powered chat name based on conversation context.
+ * Uses v2.1 summarization model (Fast recommended) from AI Configuration.
  */
 export async function generateAIChatName(
     messages: { role: string; content: string }[],
     fallbackName: string
 ): Promise<string> {
     try {
-        // TODO: Integrate with actual AI model
-        // For now, this is a placeholder that returns the fallback
-        logger.info("AI chat naming not yet implemented, using fallback");
-        return fallbackName;
-
-        /* 
-        // Future implementation:
         const { generateText } = await import("ai");
-        const { openrouter } = await import("@openrouter/ai-sdk-provider");
-        
-        const systemPrompt = `Generate a concise, descriptive chat title (max 5 words) based on the conversation below. 
-        Focus on the main topic or task. Return ONLY the title, no quotes or extra text.`;
-        
+        const { readSettings } = await import("../main/settings");
+        const { getSummarizationModel } = await import("../lib/summarization_model");
+        const { getModelClient } = await import("../ipc/utils/get_model_client");
+
+        const settings = readSettings();
+        const summarizationModel = getSummarizationModel(settings);
+        const { modelClient } = await getModelClient(summarizationModel, settings);
+
         const conversationSummary = messages
-          .slice(0, 6) // Use first 3 exchanges (up to 6 messages)
-          .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
-          .join("\n");
-        
+            .slice(0, 6)
+            .map((m) => `${m.role}: ${(m.content || "").slice(0, 200)}`)
+            .join("\n");
+
         const result = await generateText({
-          model: openrouter("google/gemini-2.0-flash-exp:free"),
-          prompt: `${systemPrompt}\n\n${conversationSummary}`,
-          maxTokens: 30,
+            model: modelClient.model,
+            system: TITLE_SYSTEM_PROMPT,
+            messages: [{ role: "user" as const, content: conversationSummary }],
+            maxTokens: 30,
         });
-        
+
         const aiName = result.text.trim().replace(/['"]/g, "");
         return aiName || fallbackName;
-        */
     } catch (error) {
         logger.error("AI chat naming failed:", error);
         return fallbackName;

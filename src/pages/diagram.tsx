@@ -1,10 +1,14 @@
 /**
  * Diagrams Page
  * =============
- * View, generate, and manage workspace architecture diagrams
+ * View, generate, and manage workspace architecture diagrams.
+ * When opened with ?appId= (full screen), shows Chat panel on the right (same session).
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearch } from "@tanstack/react-router";
+import { useAtomValue } from "jotai";
+import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { App } from "@/ipc/ipc_types";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -50,6 +54,9 @@ interface DiagramVersion {
 }
 
 export default function DiagramPage() {
+    const search = useSearch({ from: "/diagram", strict: false }) as { appId?: number };
+    const appIdFromRoute = search?.appId;
+    const activeChatId = useAtomValue(activeChatIdAtom);
     const { apps, loading: isLoading } = useLoadApps();
     const [selectedWorkspace, setSelectedWorkspace] = useState<App | null>(null);
     const [diagrams, setDiagrams] = useState<Diagram[]>([]);
@@ -63,12 +70,16 @@ export default function DiagramPage() {
     const [versions, setVersions] = useState<DiagramVersion[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
 
-    // Auto-select first workspace
+    // Auto-select workspace: from route appId or first
     useEffect(() => {
-        if (apps && apps.length > 0 && !selectedWorkspace) {
-            setSelectedWorkspace(apps[0]);
+        if (!apps || apps.length === 0) return;
+        if (appIdFromRoute != null) {
+            const match = apps.find((a) => a.id === appIdFromRoute);
+            if (match) setSelectedWorkspace(match);
+            return;
         }
-    }, [apps, selectedWorkspace]);
+        if (!selectedWorkspace) setSelectedWorkspace(apps[0]);
+    }, [apps, selectedWorkspace, appIdFromRoute]);
 
     // Load diagrams when workspace changes
     useEffect(() => {
@@ -237,10 +248,13 @@ export default function DiagramPage() {
         );
     }
 
+    const showChatPanel = appIdFromRoute != null;
+
     return (
         <div className="flex-1 flex bg-background h-screen">
+            <div className={cn("flex flex-1 min-w-0", showChatPanel && "flex-row")}>
             {/* Workspace Selector Sidebar */}
-            <div className="w-64 border-r border-border flex flex-col">
+            <div className="w-64 flex-shrink-0 border-r border-border flex flex-col">
                 <div className="p-4 border-b border-border flex items-center justify-between">
                     <h3 className="font-semibold text-foreground">Workspaces</h3>
                     <Button
@@ -547,6 +561,76 @@ export default function DiagramPage() {
                     </div>
                 )}
             </div>
+
+            {/* Right Chat panel (full-screen mode: same session as main) */}
+            {showChatPanel && (
+                <div className="w-96 flex-shrink-0 border-l border-border flex flex-col bg-[#1e1e1e]">
+                    <div className="px-3 py-2 border-b border-zinc-800 text-sm font-medium text-zinc-300">
+                        Chat
+                    </div>
+                    <DiagramPageChatTab chatId={activeChatId} />
+                </div>
+            )}
+            </div>
+        </div>
+    );
+}
+
+function DiagramPageChatTab({ chatId }: { chatId: number | null }) {
+    const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
+    const [loading, setLoading] = useState(!!chatId);
+
+    useEffect(() => {
+        if (!chatId) {
+            setMessages([]);
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
+        IpcClient.getInstance()
+            .getChat(chatId)
+            .then((chat) => {
+                setMessages(
+                    (chat.messages ?? []).map((m) => ({
+                        role: m.role,
+                        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+                    }))
+                );
+            })
+            .catch(() => setMessages([]))
+            .finally(() => setLoading(false));
+    }, [chatId]);
+
+    if (!chatId) {
+        return (
+            <div className="p-4 text-center text-sm text-zinc-500">
+                No active chat. Start a conversation on the home page.
+            </div>
+        );
+    }
+    if (loading) {
+        return (
+            <div className="p-4 text-center text-sm text-zinc-500">
+                Loading…
+            </div>
+        );
+    }
+    return (
+        <div className="p-3 space-y-3 overflow-auto flex-1">
+            {messages.map((m, i) => (
+                <div
+                    key={i}
+                    className={cn(
+                        "rounded-md px-3 py-2 text-sm",
+                        m.role === "user"
+                            ? "bg-primary/10 text-primary-foreground"
+                            : "bg-zinc-800 text-zinc-200"
+                    )}
+                >
+                    <div className="font-medium text-xs text-zinc-400 mb-1">{m.role}</div>
+                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                </div>
+            ))}
         </div>
     );
 }

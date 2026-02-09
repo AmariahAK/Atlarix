@@ -11,7 +11,7 @@ import type {
 
 export type Transport = "stdio" | "http";
 
-export type McpListFilter = { scope?: "global" | "workspace"; appId?: number };
+export type McpListFilter = { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number };
 
 export function useMcp(filter?: McpListFilter) {
   const queryClient = useQueryClient();

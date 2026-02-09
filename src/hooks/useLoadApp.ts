@@ -45,6 +45,12 @@ export function useLoadApp(appId: number | null) {
 
       setApp(appData);
 
+      // If workspace path was deleted outside app, skip diagram/code/preview
+      if (appData.pathExists === false) {
+        loadedAppIdRef.current = appId;
+        return;
+      }
+
       // Load diagram for this workspace
       const loadDiagram = async () => {
         try {

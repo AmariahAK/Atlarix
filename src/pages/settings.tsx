@@ -14,7 +14,6 @@ import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
-import { AutoProviderOrderList } from "@/components/settings/AutoProviderOrderList";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
@@ -254,17 +253,6 @@ export function AISettings() {
         Token budget caps are configured per provider in each provider&apos;s
         settings.
       </p>
-
-      <div className="mt-6">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-          Auto provider order
-        </h3>
-        <AutoProviderOrderList
-          order={settings?.autoProviderOrder ?? []}
-          onOrderChange={(order) => updateSettings({ autoProviderOrder: order })}
-          allProviderIds={providers?.map((p: { id: string }) => p.id) ?? []}
-        />
-      </div>
 
       <div className="mt-6">
         <div className="flex items-center justify-between mb-3">

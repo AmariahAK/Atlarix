@@ -1,8 +1,26 @@
 # Atlarix TODO
 
 **Current Version:** v2.0.0  
+**Next Version:** v2.1.0 — Agent System and Project Understanding  
 **Target Version:** v2.2.0 — Blueprint Intelligence System  
-**Last Updated:** 2026-02-05
+**Last Updated:** 2026-02-08
+
+---
+
+## v2.1 — Agent System and Project Understanding (implemented)
+
+- **Schema and settings:** Agent mode, permission mode (Ask/Build), Auto, three favorites per provider, AI Configuration options.
+- **Project instructions:** Load/save `.atlarix/ATLARIX.md` and `~/.atlarix/ATLARIX.md`; precedence in system prompt; context window from resolved model.
+- **Summarization model:** Fast/same/custom for compaction and title generation.
+- **Built-in agents and delegate_to_agent:** Research, Architect, Builder, Reviewer; Guided flat delegation; Autonomous nested with depth limit.
+- **Chat UI:** Mode (Direct/Guided/Autonomous) + Permission (Ask/Build); Auto toggle; active context bar.
+- **Activity Stream:** Right-panel tab; events for delegation, compaction, self-review, turn summary.
+- **Self-review:** Runtime stub (Activity Stream); settings schema in place.
+- **Autonomous mode:** Nested delegation with max depth; shared context and approval modal can be extended later.
+- **Agent Lightning:** Trace collection to `.atlarix/training_data/`; training entry point (placeholder).
+- **Token budget:** Turn summary in Activity Stream; per-provider budget in schema.
+
+v2.2 will be updated to build on v2.1 systems (e.g. Architect/Builder for Blueprint, project instructions).
 
 ---
 
@@ -16,7 +34,7 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 
 1. **Progressive Extraction** — Fast initial load, detail on demand
 2. **Framework-Aware Patterns** — Accurate detection of APIs, webhooks, models
-3. **Cognee Knowledge Graph** — Relationship-aware memory that persists
+3. **Blueprint cache + future memory** — Relationship-aware memory that persists
 4. **Motia-Style Visual UI** — Nodes with descriptions, connectors, click-to-expand
 5. **Guided Natural Language** — Users describe in plain English, AI structures
 6. **Blueprint-Driven Planning** — Compare desired vs actual, generate tasks via `ATLARIX_PLAN.md`
@@ -89,14 +107,13 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 
 ---
 
-## Phase 3: Cognee Knowledge Graph Integration
+## Phase 3: Blueprint Memory / Knowledge Graph
 
-**Goal:** Enable relationship-aware queries and persistent "memory" of the project.
+**Goal:** Enable relationship-aware queries and persistent "memory" of the project (Blueprint cache + future memory; v2.2 will be updated to build on v2.1).
 
-### 3.1 Cognee Setup
-- [ ] Install Cognee: `npm install cognee`
-- [ ] Create `~/.atlarix/cognee/{projectHash}/` for graph storage
-- [ ] Create `src/lib/cognee/blueprint-memory.ts`
+### 3.1 Graph / memory setup
+- [ ] Create `~/.atlarix/blueprints/{projectHash}/` or similar for graph storage
+- [ ] Create `src/lib/blueprint-memory.ts` (or equivalent)
 
 ### 3.2 Indexing Pipeline
 - [ ] Create `src/lib/cognee/indexer.ts`

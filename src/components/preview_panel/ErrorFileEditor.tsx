@@ -32,6 +32,8 @@ interface ErrorFileEditorProps {
     onErrorResolved?: (error: ParsedError) => void;
     /** When switching from Errors tab, pass the file to open */
     initialFilePath?: string;
+    /** When set, scroll to this line after file loads (from Errors "View code") */
+    initialLine?: number;
     onInitialFilePathConsumed?: () => void;
 }
 
@@ -41,7 +43,7 @@ interface FileWithErrors {
     errors: ParsedError[];
 }
 
-export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initialFilePath, onInitialFilePathConsumed }: ErrorFileEditorProps) {
+export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initialFilePath, initialLine, onInitialFilePathConsumed }: ErrorFileEditorProps) {
     const [filesExpanded, setFilesExpanded] = useState(true);
     const [selectedFile, setSelectedFile] = useState<FileWithErrors | null>(null);
     const [fileContent, setFileContent] = useState<string>('');
@@ -278,14 +280,18 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initia
             // Set markers on the model
             monaco.editor.setModelMarkers(model, 'error-file-editor', markers);
 
-            // Jump to first error line - ONLY on initial load (not during typing)
-            const firstError = validErrors[0];
-            if (firstError && firstError.line && firstError.line > 0) {
-                editor.revealLineInCenter(firstError.line);
-                // Also position cursor at the error
+            // Jump to line: prefer initialLine (from Errors "View code"), else first error line - ONLY on initial load
+            const lineToReveal = (typeof initialLine === 'number' && initialLine > 0)
+                ? initialLine
+                : (validErrors[0]?.line && validErrors[0].line > 0 ? validErrors[0].line : null);
+            const columnToReveal = (typeof initialLine === 'number' && initialLine > 0 && validErrors[0]?.column)
+                ? validErrors[0].column
+                : validErrors[0]?.column || 1;
+            if (lineToReveal) {
+                editor.revealLineInCenter(lineToReveal);
                 editor.setPosition({
-                    lineNumber: firstError.line,
-                    column: Math.max(1, firstError.column || 1)
+                    lineNumber: lineToReveal,
+                    column: Math.max(1, columnToReveal)
                 });
             }
         };
@@ -311,7 +317,7 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initia
             }
         };
         // FIX 3: Remove fileContent from deps, use isInitialLoad instead
-    }, [selectedFile, isLoading, isInitialLoad]);
+    }, [selectedFile, isLoading, isInitialLoad, initialLine]);
 
     // Get file extension for language detection
     const getLanguage = (filePath: string): string => {

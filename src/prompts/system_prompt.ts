@@ -2,7 +2,8 @@
  * Atlarix System Prompt
  * ======================
  * Minimal system prompt that loads AGENTS.md as the primary guidance.
- * 
+ * v2.1: Supports project instruction precedence (ATLARIX.md, AI_RULES.md, workspace, global, bundle).
+ *
  * - AGENTS.md: Full reference (55 tools) for 32K+ models
  * - AGENTS_COMPACT.md: Essential guidance (~100 lines) for 8K models
  */
@@ -10,6 +11,10 @@
 import path from "node:path";
 import fs from "node:fs";
 import log from "electron-log";
+import {
+  loadInstructionLayers,
+  buildInstructionsFromLayers,
+} from "../lib/project-instructions";
 
 const logger = log.scope("system_prompt");
 
@@ -73,19 +78,33 @@ const DEFAULT_AI_RULES = `# Tech Stack
 // CONSTRUCT SYSTEM PROMPT
 // ═══════════════════════════════════════════════════════════
 
+export interface ConstructSystemPromptParams {
+    aiRules?: string | undefined;
+    chatMode?: "build" | "ask";
+    userPrompt?: string | null;
+    contextSize?: number;
+    /** v2.1: When set, use as base (project instruction precedence already applied). */
+    optionalProjectInstructions?: string;
+    /** Legacy: unused in builder, kept for call-site compatibility. */
+    enableTurboEditsV2?: boolean;
+}
+
 export const constructSystemPrompt = ({
     aiRules,
     chatMode = "build",
     userPrompt,
     contextSize = 32000,
-}: {
-    aiRules: string | undefined;
-    chatMode?: "build" | "ask";
-    userPrompt?: string | null;
-    contextSize?: number;
-}) => {
-    // Start with AGENTS.md (sized for model)
-    let prompt = getAgentsMdForContextSize(contextSize);
+    optionalProjectInstructions,
+}: ConstructSystemPromptParams) => {
+    // v2.1: Use full instruction layers when provided; else AGENTS.md + tech stack
+    let prompt = optionalProjectInstructions ?? getAgentsMdForContextSize(contextSize);
+    if (!optionalProjectInstructions) {
+        prompt += `
+
+# Tech Stack
+${aiRules || DEFAULT_AI_RULES}
+`;
+    }
 
     // Add mode-specific instruction
     if (chatMode === "ask") {
@@ -98,11 +117,11 @@ export const constructSystemPrompt = ({
 You are in **Ask mode** - explanation and guidance only.
 
 **CRITICAL RULES:**
-- ❌ Do NOT write code
-- ❌ Do NOT use write_file, replace_code, run_command
-- ✅ Explain concepts, answer questions
-- ✅ Describe approaches without code examples
-- ✅ Use read_file, search_code, web_search (read-only tools)
+- Do NOT write code
+- Do NOT use write_file, replace_code, run_command
+- Explain concepts, answer questions
+- Describe approaches without code examples
+- Use read_file, search_code, web_search (read-only tools)
 
 If user asks to create/modify code, tell them to switch to Build mode.
 `;
@@ -120,12 +139,12 @@ When you have FULLY completed a task and ALL features work:
 1. Test that everything actually works
 2. Output EXACTLY: <task_complete>Task finished successfully</task_complete>
 
-✅ Use <task_complete> when:
+Use <task_complete> when:
 - Created all requested files and they compile/run without errors
 - All tests pass
 - All features work as described
 
-❌ Do NOT use <task_complete> if:
+Do NOT use <task_complete> if:
 - Waiting for user approval of file changes
 - Encountered an error that blocks progress
 - Need more information from the user
@@ -134,13 +153,6 @@ When you have FULLY completed a task and ALL features work:
 If unsure, do NOT output <task_complete>. It's better to continue than stop prematurely.
 `;
     }
-
-    // Add tech stack rules
-    prompt += `
-
-# Tech Stack
-${aiRules || DEFAULT_AI_RULES}
-`;
 
     // Add user customization if present
     if (userPrompt && userPrompt.trim().length > 0) {
@@ -154,6 +166,33 @@ ${userPrompt.trim()}
 
     return prompt;
 };
+
+/**
+ * v2.1: Build system prompt with project instruction precedence (ATLARIX.md, AI_RULES.md, workspace, global, bundle).
+ * Use when workspacePath is available for full layer loading.
+ */
+export async function buildSystemPromptWithProjectInstructions(params: {
+    workspacePath: string;
+    workspacePromptContent: string | null;
+    contextSize: number;
+    chatMode: "build" | "ask";
+    userPrompt?: string | null;
+}): Promise<string> {
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, userPrompt } = params;
+    const bundleContent = getAgentsMdForContextSize(contextSize);
+    const layers = await loadInstructionLayers({
+        workspacePath,
+        workspacePromptContent,
+        bundleAgentsContent: bundleContent,
+    });
+    const optionalProjectInstructions = buildInstructionsFromLayers(layers);
+    return constructSystemPrompt({
+        contextSize,
+        chatMode,
+        userPrompt,
+        optionalProjectInstructions,
+    });
+}
 
 // ═══════════════════════════════════════════════════════════
 // READ AI RULES FROM WORKSPACE

@@ -6,7 +6,7 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Loader2, Clock } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Bot, Wrench } from "lucide-react";
 
 export interface ToolExecutionProgress {
     toolName: string;
@@ -45,8 +45,9 @@ export function ToolProgressDisplay({
                             <Loader2 className="w-4 h-4 animate-spin" />
                         </div>
                         <div>
-                            <div className="text-sm font-medium text-blue-400 mb-1">
-                                🤖 AI Thoughts
+                            <div className="text-sm font-medium text-blue-400 mb-1 flex items-center gap-1.5">
+                                <Bot className="w-4 h-4" />
+                                AI Thoughts
                             </div>
                             <div className="text-xs text-muted-foreground leading-relaxed">
                                 {aiThoughts}
@@ -59,8 +60,9 @@ export function ToolProgressDisplay({
             {/* Tools Section */}
             {tools.length > 0 && (
                 <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
-                    <div className="text-sm font-medium text-foreground mb-2">
-                        🔧 Tools Used ({tools.filter((t) => t.status === "complete").length}/
+                    <div className="text-sm font-medium text-foreground mb-2 flex items-center gap-1.5">
+                        <Wrench className="w-4 h-4" />
+                        Tools Used ({tools.filter((t) => t.status === "complete").length}/
                         {tools.length})
                     </div>
 

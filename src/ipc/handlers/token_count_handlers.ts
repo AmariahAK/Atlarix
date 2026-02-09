@@ -59,9 +59,11 @@ export function registerTokenCountHandlers() {
       const mentionedAppNames = parseAppMentions(req.input);
 
       // Count system prompt tokens
+      const contextSize = Math.min(await getContextWindow(), 128_000);
       let systemPrompt = constructSystemPrompt({
-        aiRules: await readAiRules(getAtlarixAppPath(chat.app.path)),
-        chatMode: settings.selectedChatMode,
+        aiRules: await readAiRules(chat.app ? getAtlarixAppPath(chat.app.path) : ""),
+        chatMode: settings.selectedChatMode === "agent" ? "build" : settings.selectedChatMode,
+        contextSize,
         enableTurboEditsV2: isTurboEditsV2Enabled(settings),
       });
       let supabaseContext = "";

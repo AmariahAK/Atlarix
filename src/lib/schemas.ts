@@ -148,6 +148,97 @@ export type RuntimeMode2 = z.infer<typeof RuntimeMode2Schema>;
 export const ChatModeSchema = z.enum(["build", "ask", "agent"]);
 export type ChatMode = z.infer<typeof ChatModeSchema>;
 
+/** v2.1: Agent mode (Direct / Guided / Autonomous). */
+export const AgentModeSchema = z.enum(["direct", "guided", "autonomous"]);
+export type AgentMode = z.infer<typeof AgentModeSchema>;
+
+/** v2.1: Permission mode (read-only Ask vs allow edits Build). */
+export const PermissionModeSchema = z.enum(["ask", "build"]);
+export type PermissionMode = z.infer<typeof PermissionModeSchema>;
+
+/** v2.1: Guided mode config. */
+export const GuidedConfigSchema = z.object({
+  maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
+  agentModel: z.enum(["same", "fast", "custom"]).default("fast"),
+  customAgentModel: LargeLanguageModelSchema.optional(),
+});
+export type GuidedConfig = z.infer<typeof GuidedConfigSchema>;
+
+/** v2.1: Autonomous mode config (opt-in, higher token usage). */
+export const AutonomousConfigSchema = z.object({
+  maxDelegationDepth: z.number().min(1).max(5).default(2),
+  maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
+  tokenBudgetPerTurn: z.number().default(50_000),
+  requireApprovalForNested: z.boolean().default(true),
+});
+export type AutonomousConfig = z.infer<typeof AutonomousConfigSchema>;
+
+/** v2.1: Self-review config. */
+export const SelfReviewConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  strategy: z.enum(["runtime", "agentLightning", "both"]).default("both"),
+  maxIterations: z.number().min(1).max(3).default(2),
+  qualityThreshold: z.number().min(0.7).max(0.95).default(0.85),
+  reviewModel: z.enum(["same", "fast", "custom"]).default("fast"),
+  customReviewModel: LargeLanguageModelSchema.optional(),
+  criteria: z.array(z.string()).default(["completeness", "correctness", "clarity", "safety", "best_practices"]),
+  showInActivityStream: z.boolean().default(true),
+});
+export type SelfReviewConfig = z.infer<typeof SelfReviewConfigSchema>;
+
+/** v2.1: Agent Lightning (offline training) config. */
+export const AgentLightningConfigSchema = z.object({
+  collectData: z.boolean().default(false),
+  schedule: z.enum(["every_10_sessions", "daily", "weekly", "manual"]).default("weekly"),
+  optimizationTarget: z.enum(["quality", "token_efficiency", "speed", "balanced"]).default("balanced"),
+});
+export type AgentLightningConfig = z.infer<typeof AgentLightningConfigSchema>;
+
+/** v2.1: Context and summarization config. */
+export const ContextSummarizationConfigSchema = z.object({
+  summarizationModel: z.enum(["fast", "same", "custom"]).default("fast"),
+  customSummarizationModel: LargeLanguageModelSchema.optional(),
+  compactionThreshold: z.number().min(0.6).max(0.9).default(0.75),
+  adaptiveThreshold: z.boolean().default(true),
+  summarizationStrategy: z.enum(["preserve_details", "balanced", "aggressive"]).default("balanced"),
+  adaptivePromptSizing: z.boolean().default(true),
+});
+export type ContextSummarizationConfig = z.infer<typeof ContextSummarizationConfigSchema>;
+
+/** v2.1: Project understanding (ATLARIX.md) config. */
+export const ProjectUnderstandingConfigSchema = z.object({
+  autoUpdateAtlarixMd: z.boolean().default(false),
+  updateTriggers: z.object({
+    afterArchitectureDecisions: z.boolean().default(true),
+    afterSummarization: z.boolean().default(true),
+    afterEverySession: z.boolean().default(false),
+  }).default({}),
+  updateModel: z.enum(["fast", "same", "custom"]).default("fast"),
+  requireApprovalForUpdates: z.enum(["always", "auto_approve_minor", "never"]).default("always"),
+});
+export type ProjectUnderstandingConfig = z.infer<typeof ProjectUnderstandingConfigSchema>;
+
+/** v2.1: Activity stream config. */
+export const ActivityStreamConfigSchema = z.object({
+  position: z.enum(["right_panel", "overlay", "bottom_bar"]).default("right_panel"),
+  autoCollapseAfterMs: z.union([z.literal(3000), z.literal(10000), z.literal(0)]).default(10000),
+  showTokenCosts: z.enum(["always", "autonomous_only", "never"]).default("always"),
+  detailLevel: z.enum(["minimal", "standard", "verbose"]).default("standard"),
+});
+export type ActivityStreamConfig = z.infer<typeof ActivityStreamConfigSchema>;
+
+/** v2.1: AI Configuration (agents, self-review, context, project understanding). */
+export const AIConfigurationSchema = z.object({
+  guided: GuidedConfigSchema.optional(),
+  autonomous: AutonomousConfigSchema.optional(),
+  selfReview: SelfReviewConfigSchema.optional(),
+  agentLightning: AgentLightningConfigSchema.optional(),
+  contextSummarization: ContextSummarizationConfigSchema.optional(),
+  projectUnderstanding: ProjectUnderstandingConfigSchema.optional(),
+  activityStream: ActivityStreamConfigSchema.optional(),
+});
+export type AIConfiguration = z.infer<typeof AIConfigurationSchema>;
+
 export const GitHubSecretsSchema = z.object({
   accessToken: SecretSchema.nullable(),
 });
@@ -253,14 +344,23 @@ export const UserSettingsSchema = z.object({
   selectedTemplateId: z.string(),
   enableSupabaseWriteSqlMigration: z.boolean().optional(),
   selectedChatMode: ChatModeSchema.optional(),
+  /** v2.1: Agent mode (Direct / Guided / Autonomous). Default guided. */
+  agentMode: AgentModeSchema.optional(),
+  /** v2.1: When true, hide model picker and route to Fast/Medium/Thinking by complexity. */
+  autoModelRouting: z.boolean().optional(),
+  /** v2.1: When Auto is ON, single provider for Fast/Medium/Thinking (must have API key). */
+  autoProviderId: z.string().nullable().optional(),
+  /** v2.1: When Auto is ON, [Fast, Medium, Thinking] model names for autoProviderId. */
+  autoModelIds: z.tuple([z.string(), z.string(), z.string()]).optional(),
+  /** Intent: ask (read-only) | build (full access) | auto (model may switch). */
+  intentMode: z.enum(["ask", "build", "auto"]).optional(),
+  /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
+  aiConfiguration: AIConfigurationSchema.optional(),
   acceptedCommunityCode: z.boolean().optional(),
   zoomLevel: ZoomLevelSchema.optional(),
 
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
-
-  /** When "Auto" is selected, AI providers are tried in this order (drag-and-drop in Settings). */
-  autoProviderOrder: z.array(z.string()).optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),

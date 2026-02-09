@@ -7,7 +7,7 @@ import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
-import { previewModeAtom, selectedAppIdAtom } from "@/atoms/appAtoms";
+import { previewModeAtom, selectedAppIdAtom, currentAppAtom } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
@@ -17,6 +17,7 @@ import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
 import { WorkspacePanelBar } from "@/components/WorkspacePanelBar";
+import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom } from "@/atoms/sourceAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useLoadApp } from "@/hooks/useLoadApp";
@@ -137,12 +138,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   );
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const currentApp = useAtomValue(currentAppAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
   // Diagram | Preview | Code bar only on chat (home with active chat, or /chat)
   const isOnChatPage = (location.pathname === "/" && !!activeChatId) || location.pathname.startsWith("/chat");
+  const showWorkspacePanel = currentApp?.pathExists !== false;
 
   // Load diagram when workspace is selected (even before first prompt)
   useLoadApp(selectedAppId);
@@ -223,8 +226,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
-              {/* Top-right panel toggle: always visible when workspace or chat active */}
-              {(selectedAppId || activeChatId) && (
+              {/* Top-right panel toggle: only on home/chat page when workspace or chat active and path exists */}
+              {isOnChatPage && showWorkspacePanel && (selectedAppId || activeChatId) && (
                 <button
                   type="button"
                   onClick={() => setRightPanelVisible(!rightPanelVisible)}
@@ -241,14 +244,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               )}
               {/* Main content: chat when active, else route content */}
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                {/* Workspace panel bar: Diagram | Preview | Code - only on chat page */}
-                {selectedAppId && isOnChatPage && <WorkspacePanelBar />}
+                {/* Workspace panel bar: Diagram | Preview | Code - only on chat page when path exists */}
+                {selectedAppId && isOnChatPage && showWorkspacePanel && <WorkspacePanelBar />}
+                {/* Workspace folder missing (deleted outside app) */}
+                {isOnChatPage && <WorkspaceNotFoundBanner />}
                 {/* Chat overlay when active, else route content */}
                 <PersistentChatContainer />
                 {!activeChatId && children}
               </div>
-              {/* Right panel: show when workspace or chat active (view diagram without first prompt) */}
-              {rightPanelVisible && (activeChatId || selectedAppId) && <RightPanel />}
+              {/* Right panel: only on home/chat page when visible, workspace or chat active, and path exists */}
+              {rightPanelVisible && (activeChatId || selectedAppId) && isOnChatPage && showWorkspacePanel && <RightPanel />}
             </div>
             <Toaster richColors />
           </SidebarProvider>

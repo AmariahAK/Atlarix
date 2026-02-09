@@ -128,6 +128,7 @@ export class IpcClient {
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
   private permissionHandlers: Map<number, (payload: any) => void>;
+  private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
   private diagramHandlers: Map<number, (payload: any) => void>;
   private terminalHandlers: Map<number, (payload: any) => void>;
   private constructor() {
@@ -290,6 +291,13 @@ export class IpcClient {
         } else {
           console.warn(`[IPC] No permission handler for chat ${chatId}`);
         }
+      }
+    });
+
+    // Mode change request (Ask -> Build; user approval required)
+    this.ipcRenderer.on("mode_change_requested", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload && this.modeChangeHandler) {
+        this.modeChangeHandler(payload);
       }
     });
 
@@ -912,7 +920,7 @@ export class IpcClient {
   }
 
   // --- MCP Client Methods ---
-  public async listMcpServers(filter?: { scope?: "global" | "workspace"; appId?: number }) {
+  public async listMcpServers(filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }) {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);
   }
 
@@ -1077,6 +1085,26 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-pending-permissions", {
       chatId,
     });
+  }
+
+  /**
+   * Register a handler for mode change request (Ask -> Build approval).
+   * Returns unsubscribe function.
+   */
+  public onModeChangeRequest(
+    handler: (payload: { chatId: number; requestedMode: string; reason: string }) => void
+  ): () => void {
+    this.modeChangeHandler = handler;
+    return () => {
+      this.modeChangeHandler = null;
+    };
+  }
+
+  /**
+   * Respond to a mode change request (approve or deny).
+   */
+  public async respondModeChange(chatId: number, approve: boolean): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("respond-mode-change", { chatId, approve });
   }
 
   /**

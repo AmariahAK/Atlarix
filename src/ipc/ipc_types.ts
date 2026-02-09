@@ -123,6 +123,8 @@ export interface App {
   installCommand: string | null;
   startCommand: string | null;
   isFavorite: boolean;
+  /** v2.1: true if the workspace folder exists on disk; false if deleted outside app */
+  pathExists?: boolean;
 }
 
 export interface Version {

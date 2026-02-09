@@ -117,6 +117,16 @@ export class ToolRegistry {
     }
 
     /**
+     * Get tools for no-workspace (chat-only) mode: read-only only, no workspace required.
+     * No file writes, no commands, no delegation. Code can be shown in responses but no write/run tools.
+     */
+    static getToolsForNoWorkspace(): ToolMetadata[] {
+        return this.getAll().filter(
+            (tool) => tool.isReadOnly === true && !tool.requiresWorkspace
+        );
+    }
+
+    /**
      * Get all optional workspace tools (for dynamic loading)
      * @returns Tools that can be requested via request_tools
      */
@@ -183,6 +193,10 @@ export class ToolRegistry {
             // If this is a permission request, return it directly (unwrapped)
             // so the interceptor can detect __permission_required flag
             if (result && typeof result === 'object' && result.__permission_required) {
+                return result;
+            }
+            // If this is a mode change request (Ask -> Build), return raw so stream handler can emit and wait
+            if (result && typeof result === 'object' && result.__mode_change_requested) {
                 return result;
             }
 

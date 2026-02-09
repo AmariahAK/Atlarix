@@ -22,11 +22,12 @@ type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
 export function registerMcpHandlers() {
   // List MCP servers (optional filter by scope / appId)
+  // scope: global = only global; workspace + appId = only that workspace; globalAndWorkspace + appId = global + workspace for app
   handle(
     "mcp:list-servers",
     async (
       _event: IpcMainInvokeEvent,
-      filter?: { scope?: "global" | "workspace"; appId?: number }
+      filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }
     ) => {
       if (!filter?.scope) {
         return await db.select().from(mcpServers);
@@ -47,6 +48,26 @@ export function registerMcpHandlers() {
               eq(mcpServers.appId, filter.appId)
             )
           );
+      }
+      if (filter.scope === "globalAndWorkspace" && filter.appId != null) {
+        const [globalList, workspaceList] = await Promise.all([
+          db.select().from(mcpServers).where(eq(mcpServers.scope, "global")),
+          db
+            .select()
+            .from(mcpServers)
+            .where(
+              and(
+                eq(mcpServers.scope, "workspace"),
+                eq(mcpServers.appId, filter.appId)
+              )
+            ),
+        ]);
+        const seen = new Set<number>();
+        return [...globalList, ...workspaceList].filter((s) => {
+          if (seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
       }
       return [];
     }

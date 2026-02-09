@@ -205,9 +205,9 @@ export async function handleChatOnlyStream(
             settings
         );
 
-        // Get chat-only tools (5 core tools + workspace tools)
-        const availableTools = ToolRegistry.getToolsForContext(false);
-        logger.log(`Ephemeral chat-only mode: ${availableTools.length} tools available`);
+        // No workspace = read-only only (no write/run/delegation)
+        const availableTools = ToolRegistry.getToolsForNoWorkspace();
+        logger.log(`Chat-only mode (read-only): ${availableTools.length} tools available`);
 
         // Track sources from tool calls
         const collectedSources: any[] = [];

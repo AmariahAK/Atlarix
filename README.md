@@ -7,7 +7,24 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.0.0 | Next: v2.2.0 (Blueprint Intelligence System)*
+*Current: v2.1.0*
+
+---
+
+## What's New in v2.1 — Agent System and Project Understanding
+
+v2.1 adds a three-tier agent system, built-in specialists, project instruction files, and reorganized AI configuration.
+
+- **Modes:** Direct (no agents), Guided (flat delegation; default), Autonomous (agents can spawn sub-agents; higher token usage).
+- **Permission:** Separate Ask (read-only tools) vs Build (can write/run), independent of mode.
+- **Built-in agents:** Research, Architect, Builder, Reviewer — each with a dedicated tool set and icon (no emojis; Lucide icons).
+- **Project instructions:** `.atlarix/ATLARIX.md`, `AI_RULES.md`, workspace prompts, `~/.atlarix/ATLARIX.md`, bundle AGENTS.md — loaded in precedence order for the system prompt.
+- **Self-review and Agent Lightning:** Optional runtime self-review (score, threshold); offline trace collection for future training.
+- **Activity Stream:** Right-panel tab showing model selection, delegation, compaction, tool use, and turn summary (Lucide icons only).
+- **Auto routing:** When Auto is ON, model picker is hidden; complexity-based routing uses Fast/Medium/Thinking (when configured).
+- **AI Configuration:** Settings reorganized with provider/model setup, agent config, quality control, context and summarization, project understanding.
+
+v2.2 (Blueprint Intelligence) will build on these systems (e.g. Architect and Builder agents, project instructions).
 
 ---
 
@@ -42,7 +59,7 @@ The Blueprint is not just a visualization—it's a compressed, AI-readable repre
 |---------|-------------|
 | **Progressive Extraction** | Fast initial load (~2s), detail extracted on-demand |
 | **Framework Patterns** | Auto-detect APIs, webhooks, models in Express, Next.js, FastAPI, Django |
-| **Cognee Knowledge Graph** | Relationship-aware memory: "What connects to Auth?" |
+| **Blueprint cache + future memory** | Relationship-aware memory: "What connects to Auth?" (v2.2) |
 | **Motia-Style Visual UI** | Nodes with descriptions, connectors, click-to-expand |
 | **Guided Natural Language** | Describe features in plain English, AI structures them |
 | **Blueprint-Driven Planning** | Compare desired vs actual, generate tasks via `ATLARIX_PLAN.md` |

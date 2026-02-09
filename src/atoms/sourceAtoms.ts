@@ -23,7 +23,7 @@ export type PanelType =
     | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity';
 
 export interface PanelContext {
     type: PanelType;
@@ -167,6 +167,27 @@ export interface ToolExecution {
 
 /** Tool execution history for timeline display */
 export const toolTimelineAtom = atom<ToolExecution[]>([]);
+
+/** v2.1: Activity Stream items (model selection, delegation, compaction, tool use) */
+export interface ActivityStreamItem {
+  id: string;
+  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change';
+  label: string;
+  status: 'running' | 'done' | 'error' | 'active';
+  tokens?: number;
+  cost?: number;
+  timestamp: number;
+  detail?: string;
+  parentId?: string;
+  /** Delegation: agent id, task snippet, depth; for pipeline/graph */
+  agent?: string;
+  task?: string;
+  depth?: number;
+  result?: string;
+  duration?: number;
+  tools?: string[];
+}
+export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);
 
 // ═══════════════════════════════════════════════════════════
 // PANEL STATE ATOMS
@@ -316,8 +337,13 @@ export type BrowserError = ParsedError;
 /** Browser errors captured from the live preview iframe */
 export const browserErrorsAtom = atom<ParsedError[]>([]);
 
-/** When user clicks "Edit" on an error, this file path is set so Code tab opens that file */
-export const selectedErrorFileForCodeAtom = atom<string | null>(null);
+/** When user clicks "View code" on an error, open this file in Code tab and optionally scroll to line */
+export interface SelectedErrorForCode {
+  filePath: string;
+  line?: number;
+  column?: number;
+}
+export const selectedErrorForCodeAtom = atom<SelectedErrorForCode | null>(null);
 
 /** Recent codebase search queries (max 10, for "Recent Searches" dropdown) */
 export const recentCodeSearchesAtom = atom<string[]>([]);

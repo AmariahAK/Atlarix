@@ -151,10 +151,46 @@ export async function getModelClient(
         isEngineEnabled: false,
       };
     }
-    const order =
-      settings.autoProviderOrder?.length > 0
-        ? settings.autoProviderOrder
-        : DEFAULT_AUTO_PROVIDER_ORDER;
+    // v2.1: When user configured one provider + 3 models (Fast/Medium/Thinking), use that
+    const autoProviderId = settings.autoProviderId ?? null;
+    const autoModelIds = settings.autoModelIds;
+    if (
+      autoProviderId &&
+      Array.isArray(autoModelIds) &&
+      autoModelIds.length === 3
+    ) {
+      const providerInfo = allProviders.find((p) => p.id === autoProviderId);
+      if (providerInfo) {
+        const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
+        for (const modelName of autoModelIds) {
+          try {
+            const { modelClient } = await getModelClient(
+              { provider: autoProviderId, name: modelName },
+              settings,
+            );
+            models.push(modelClient.model);
+          } catch (err) {
+            logger.warn(
+              `Skip ${autoProviderId}/${modelName} for Auto: ${err instanceof Error ? err.message : err}`,
+            );
+          }
+        }
+        if (models.length > 0) {
+          logger.log(
+            `Auto: using provider ${autoProviderId} with ${models.length} model(s) (Fast/Medium/Thinking)`,
+          );
+          return {
+            modelClient: {
+              model: createFallback({ models }),
+              builtinProviderId: autoProviderId,
+            },
+            isEngineEnabled: false,
+          };
+        }
+      }
+    }
+    // Fallback: default provider order
+    const order = DEFAULT_AUTO_PROVIDER_ORDER;
     const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
     for (const providerId of order) {
       const modelName = AUTO_MODEL_BY_PROVIDER.get(providerId);
@@ -180,7 +216,7 @@ export async function getModelClient(
     }
     if (models.length === 0) {
       throw new Error(
-        "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or reorder providers.",
+        "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or configure Auto provider + 3 models in Config.",
       );
     }
     logger.log(

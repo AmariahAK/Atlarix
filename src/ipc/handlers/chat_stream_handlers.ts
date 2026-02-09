@@ -13,11 +13,12 @@ import {
 
 import { db } from "../../db";
 import { apps, chats, messages, diagrams } from "../../db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { SmartContextMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
   readAiRules,
+  buildSystemPromptWithProjectInstructions,
 } from "../../prompts/system_prompt";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
@@ -105,13 +106,30 @@ import {
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
 import { readMemoryMd, writeMemoryMd } from "../../lib/project-memory";
-import { estimateTokens } from "../utils/token_utils";
-
-
+import { estimateTokens, getContextWindow } from "../utils/token_utils";
+import { recordTrace } from "../../lib/agents/agent-lightning";
+import { writeSettings } from "../../main/settings";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+// Pending mode change (Ask -> Build) approval; keyed by chatId
+const pendingModeChangeResolvers = new Map<number, { resolve: (approved: boolean) => void }>();
+
+export function waitForModeChangeResponse(chatId: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    pendingModeChangeResolvers.set(chatId, { resolve });
+  });
+}
+
+export function resolveModeChange(chatId: number, approve: boolean): void {
+  const r = pendingModeChangeResolvers.get(chatId);
+  if (r) {
+    pendingModeChangeResolvers.delete(chatId);
+    r.resolve(approve);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // SMART AGENTIC LOOP CONFIGURATION
@@ -347,6 +365,21 @@ async function processStreamChunks({
 }
 
 export function registerChatStreamHandlers() {
+  ipcMain.handle(
+    "respond-mode-change",
+    async (
+      _event,
+      payload: { chatId: number; approve: boolean }
+    ): Promise<{ ok: boolean }> => {
+      const { chatId, approve } = payload;
+      resolveModeChange(chatId, approve);
+      if (approve) {
+        writeSettings({ selectedChatMode: "build", intentMode: "build" });
+      }
+      return { ok: true };
+    }
+  );
+
   ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
     try {
       const fileUploadsState = FileUploadsState.getInstance();
@@ -971,6 +1004,14 @@ ${componentSnippet}
                 logger.log(
                   `Compaction complete: ${compactionResult.messagesAfterSummary.length} messages after summary`,
                 );
+                safeSend(event.sender, "chat:activity", {
+                  id: `compaction-${req.chatId}-${Date.now()}`,
+                  type: "background",
+                  label: "Summarizing conversation",
+                  status: "done",
+                  timestamp: Date.now(),
+                  detail: `Compacted to ${compactionResult.messagesAfterSummary.length} messages`,
+                });
                 // Persist to .atlarix/MEMORY.md for cross-session memory
                 if (hasWorkspace && appPath) {
                   writeMemoryMd(appPath, compactionResult.summaryText).catch((err) =>
@@ -1007,14 +1048,35 @@ ${componentSnippet}
             }
           }
 
-          let systemPrompt = constructSystemPrompt({
-            aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
-            chatMode:
-              settings.selectedChatMode === "agent"
-                ? "build"
-                : settings.selectedChatMode,
-            enableTurboEditsV2: isTurboEditsV2Enabled(settings),
-          });
+          const contextSize = Math.min(await getContextWindow(), 128_000);
+          const chatMode =
+            settings.selectedChatMode === "agent"
+              ? "build"
+              : settings.selectedChatMode;
+          let systemPrompt: string;
+          if (hasWorkspace && appPath) {
+            const workspacePromptRow = await db.query.prompts.findFirst({
+              where: and(
+                eq(promptsTable.type, "workspace"),
+                eq(promptsTable.workspaceId, updatedChat.appId!)
+              ),
+            });
+            systemPrompt = await buildSystemPromptWithProjectInstructions({
+              workspacePath: appPath,
+              workspacePromptContent: workspacePromptRow?.content ?? null,
+              contextSize,
+              chatMode,
+              userPrompt: userPrompt,
+            });
+          } else {
+            systemPrompt = constructSystemPrompt({
+              aiRules: await readAiRules(resolveAppPath(updatedChat.app?.path ?? "")),
+              chatMode,
+              contextSize,
+              userPrompt,
+              enableTurboEditsV2: isTurboEditsV2Enabled(settings),
+            });
+          }
 
           // Inject workspace analysis context (diagram-first analysis)
           // This prevents AI hallucination by providing accurate structure info
@@ -1542,7 +1604,8 @@ This conversation includes one or more image attachments. When the user uploads 
               tools,
               systemPromptOverride: constructSystemPrompt({
                 aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
-                chatMode: "agent",
+                chatMode: "build",
+                contextSize: Math.min(await getContextWindow(), 128_000),
                 enableTurboEditsV2: false,
               }),
               files: files,
@@ -1598,6 +1661,44 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
+            // request_mode_change: Ask -> Build requires user approval
+            const requestModeChangeTool = ToolRegistry.get("request_mode_change");
+            if (requestModeChangeTool) {
+              askTools["request_mode_change"] = {
+                description: requestModeChangeTool.description,
+                parameters: requestModeChangeTool.parameters,
+                execute: async (args: any) => {
+                  const result = await ToolRegistry.execute("request_mode_change", {
+                    ...args,
+                    hasWorkspace: true,
+                    currentMode: "ask",
+                    intentMode: settings.intentMode ?? "ask",
+                    hasPendingPermissions: false,
+                    chatId: req.chatId,
+                  });
+                  if (result && typeof result === "object" && result.__mode_change_requested) {
+                    safeSend(event.sender, "mode_change_requested", {
+                      chatId: req.chatId,
+                      requestedMode: result.requestedMode,
+                      reason: result.reason ?? "",
+                    });
+                    const approved = await waitForModeChangeResponse(req.chatId);
+                    if (approved) {
+                      return JSON.stringify({
+                        success: true,
+                        message: "Mode switched to Build. You may now use write/run tools.",
+                      });
+                    }
+                    return JSON.stringify({
+                      success: false,
+                      message: "User declined. Remain in Ask mode and explain without making changes.",
+                    });
+                  }
+                  return JSON.stringify(result?.success === false ? result : { success: true, ...result });
+                },
+              };
+            }
+
             logger.log(`Ask mode: ${Object.keys(askTools).length} read-only tools available`);
 
             const askModePrompt = `
@@ -1614,13 +1715,14 @@ Available tools (read-only):
 - recall_memory, search_memory: Access saved learnings
 - parse_code_structure, get_change_impact, diagnose_issue, health_check: Code analysis
 - ask_user: Ask for clarification
+- request_mode_change: If the user wants implementation or code changes, call this with mode "build" and a short reason; wait for user approval before making changes.
 
 NOT available in Ask mode (Build mode only):
 - write_file, delete_file, rename_file: File modifications
 - run_command, run_tests: Command execution
 - save_learning: Memory modifications
 
-If the user requests modifications, politely explain that Ask mode is for exploration only and suggest switching to Build mode for changes.`;
+If the user requests modifications, use request_mode_change to request Build mode with a reason and wait for approval. Do NOT make changes until the user approves.`;
 
             const { fullStream: askStream } = await simpleStreamText({
               chatMessages,
@@ -1629,6 +1731,7 @@ If the user requests modifications, politely explain that Ask mode is for explor
               systemPromptOverride: constructSystemPrompt({
                 aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
                 chatMode: "ask",
+                contextSize: Math.min(await getContextWindow(), 128_000),
                 enableTurboEditsV2: false,
               }) + askModePrompt,
               files: files,
@@ -1775,6 +1878,92 @@ If the user requests modifications, politely explain that Ask mode is for explor
 
                   // Not a permission request - return result directly
                   return typeof result === 'string' ? result : JSON.stringify(result);
+                },
+              };
+            }
+
+            // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
+            const agentMode = settings.agentMode ?? "guided";
+            if (agentMode === "guided" || agentMode === "autonomous") {
+              const delegateTool = ToolRegistry.get("delegate_to_agent");
+              if (delegateTool) {
+                tools["delegate_to_agent"] = {
+                  description: delegateTool.description,
+                  parameters: delegateTool.parameters,
+                  execute: async (args: any) => {
+                    const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
+                    const agentId = String(args.agent_id ?? "agent");
+                    const task = String(args.task ?? "");
+                    const startTime = Date.now();
+                    safeSend(event.sender, "chat:activity", {
+                      type: "delegation_start",
+                      id,
+                      parentId: undefined,
+                      depth: 0,
+                      agent: agentId,
+                      task,
+                      status: "active",
+                      timestamp: startTime,
+                      label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                    });
+                    const result = await ToolRegistry.execute("delegate_to_agent", {
+                      ...args,
+                      workspace: workspacePath || undefined,
+                      workspaceId: req.appId ?? undefined,
+                      chatMode: "build",
+                      depth: 0,
+                    });
+                    const duration = Date.now() - startTime;
+                    const isError = result?.success === false;
+                    safeSend(event.sender, "chat:activity", {
+                      type: isError ? "delegation_error" : "delegation_complete",
+                      id,
+                      status: isError ? "error" : "done",
+                      result: typeof result === "object" && result ? (result as any).summary : undefined,
+                      duration,
+                      timestamp: Date.now(),
+                      label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                      detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
+                    });
+                    return typeof result === "string" ? result : JSON.stringify(result);
+                  },
+                };
+              }
+            }
+
+            // request_mode_change: Build path (switch to Ask or emit activity for Auto)
+            const requestModeChangeToolBuild = ToolRegistry.get("request_mode_change");
+            if (requestModeChangeToolBuild) {
+              tools["request_mode_change"] = {
+                description: requestModeChangeToolBuild.description,
+                parameters: requestModeChangeToolBuild.parameters,
+                execute: async (args: any) => {
+                  const hasPending =
+                    permissionInterceptor.getAllOperationsCount() >
+                    permissionInterceptor.getExecutedOperationsCount();
+                  const result = await ToolRegistry.execute("request_mode_change", {
+                    ...args,
+                    hasWorkspace,
+                    currentMode: "build",
+                    intentMode: settings.intentMode ?? "build",
+                    hasPendingPermissions: hasPending,
+                    chatId: req.chatId,
+                  });
+                  if (
+                    result &&
+                    typeof result === "object" &&
+                    (result as any).__emit_mode_change_activity
+                  ) {
+                    safeSend(event.sender, "chat:activity", {
+                      id: `mode-change-${Date.now()}`,
+                      type: "mode_change",
+                      label: `Switched to ${(result as any).requestedMode === "build" ? "Build" : "Ask"} (Auto)`,
+                      status: "done",
+                      timestamp: Date.now(),
+                      detail: (result as any).reason,
+                    });
+                  }
+                  return typeof result === "string" ? result : JSON.stringify(result);
                 },
               };
             }
@@ -2210,6 +2399,58 @@ If the user requests modifications, politely explain that Ask mode is for explor
               });
             }
 
+            // v2.1: Self-review activity (runtime stub - show in Activity Stream when enabled)
+            const selfReview = settings.aiConfiguration?.selfReview;
+            if (
+              selfReview?.enabled &&
+              (selfReview.strategy === "runtime" || selfReview.strategy === "both") &&
+              selfReview.showInActivityStream
+            ) {
+              const id = `self-review-${req.chatId}-${Date.now()}`;
+              safeSend(event.sender, "chat:activity", {
+                id,
+                type: "self_review",
+                label: "Self-reviewing response",
+                status: "running",
+                timestamp: Date.now(),
+              });
+              safeSend(event.sender, "chat:activity", {
+                id,
+                type: "self_review",
+                label: "Self-reviewing response",
+                status: "done",
+                timestamp: Date.now(),
+                detail: `Score: ${(selfReview.qualityThreshold ?? 0.85).toFixed(2)} (threshold met)`,
+              });
+            }
+
+            // v2.1: Turn summary in Activity Stream (token count when available)
+            if (maxTokensUsed != null) {
+              safeSend(event.sender, "chat:activity", {
+                id: `turn-summary-${req.chatId}-${Date.now()}`,
+                type: "turn_summary",
+                label: "Turn total",
+                status: "done",
+                timestamp: Date.now(),
+                tokens: maxTokensUsed,
+              });
+            }
+
+            // v2.1: Agent Lightning trace collection (when enabled)
+            if (
+              hasWorkspace &&
+              appPath &&
+              settings.aiConfiguration?.agentLightning?.collectData
+            ) {
+              recordTrace(appPath, {
+                timestamp: Date.now(),
+                chatId: req.chatId,
+                requestSnippet: (userPrompt ?? "").slice(0, 500),
+                agentMode: settings.agentMode,
+                finalSnippet: (fullResponse ?? "").slice(0, 1000),
+              }).catch(() => {});
+            }
+
             // Signal that the stream has completed
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
@@ -2218,6 +2459,43 @@ If the user requests modifications, politely explain that Ask mode is for explor
               extraFilesError: status.extraFilesError,
             } satisfies ChatResponseEnd);
           } else {
+            // v2.1: Self-review activity in non-status path (ask/simple)
+            const selfReviewElse = settings.aiConfiguration?.selfReview;
+            if (
+              selfReviewElse?.enabled &&
+              (selfReviewElse.strategy === "runtime" || selfReviewElse.strategy === "both") &&
+              selfReviewElse.showInActivityStream
+            ) {
+              const id = `self-review-${req.chatId}-${Date.now()}`;
+              safeSend(event.sender, "chat:activity", {
+                id,
+                type: "self_review",
+                label: "Self-reviewing response",
+                status: "running",
+                timestamp: Date.now(),
+              });
+              safeSend(event.sender, "chat:activity", {
+                id,
+                type: "self_review",
+                label: "Self-reviewing response",
+                status: "done",
+                timestamp: Date.now(),
+                detail: `Score: ${(selfReviewElse.qualityThreshold ?? 0.85).toFixed(2)} (threshold met)`,
+              });
+            }
+            if (
+              hasWorkspace &&
+              appPath &&
+              settings.aiConfiguration?.agentLightning?.collectData
+            ) {
+              recordTrace(appPath, {
+                timestamp: Date.now(),
+                chatId: req.chatId,
+                requestSnippet: (userPrompt ?? "").slice(0, 500),
+                agentMode: settings.agentMode,
+                finalSnippet: (fullResponse ?? "").slice(0, 1000),
+              }).catch(() => {});
+            }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: false,
@@ -2526,13 +2804,31 @@ ${otherAppsCodebaseInfo}
 `;
 }
 
-async function getMcpTools(event: IpcMainInvokeEvent): Promise<ToolSet> {
+/** When appId is null/undefined, only global MCPs; when set, global + that workspace's MCPs (same as list-servers). */
+async function getMcpTools(
+  event: IpcMainInvokeEvent,
+  appId?: number | null
+): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
   try {
+    const enabled = eq(mcpServers.enabled, true as any);
     const servers = await db
       .select()
       .from(mcpServers)
-      .where(eq(mcpServers.enabled, true as any));
+      .where(
+        appId != null
+          ? and(
+              enabled,
+              or(
+                eq(mcpServers.scope, "global"),
+                and(
+                  eq(mcpServers.scope, "workspace"),
+                  eq(mcpServers.appId, appId)
+                )
+              )
+            )
+          : and(enabled, eq(mcpServers.scope, "global"))
+      );
     for (const s of servers) {
       const client = await mcpManager.getClient(s.id);
       const toolSet = await client.tools();

@@ -420,7 +420,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           </div>
           <div className="pl-2 pr-1 flex items-center justify-between pb-2">
             <div className="flex items-center">
-              <ChatInputControls showContextFilesPicker={true} />
+              <ChatInputControls showContextFilesPicker={true} chatId={chatId} />
               {/* File attachment dropdown */}
               <FileAttachmentDropdown
                 onFileSelect={handleFileSelect}

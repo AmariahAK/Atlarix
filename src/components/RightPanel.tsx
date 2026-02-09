@@ -25,11 +25,12 @@ import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
+import { ActivityDisplay } from './ActivityDisplay';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, Activity
 } from 'lucide-react';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
@@ -61,6 +62,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
     vault: { icon: KeyRound, label: 'Vault' },
+    activity: { icon: Activity, label: 'Activity' },
 };
 
 // Primary mode categories for the toolbar
@@ -99,18 +101,18 @@ export function RightPanel() {
     // Handle "Solve with AI" button click - appends error context to existing chat input
     const handleSolveWithAI = useCallback((error: { message: string; file?: string; line?: number; stack?: string }) => {
         // Check if message already includes user suggestion (from Suggest button)
-        const hasSuggestion = error.message.includes("💡 User's suggestion:");
+        const hasSuggestion = error.message.includes("User's suggestion:");
 
         let errorContext: string;
         if (hasSuggestion) {
-            // Split message and suggestion
-            const [errorPart, suggestionPart] = error.message.split("\n\n💡 User's suggestion:");
+            // Split message and suggestion (supports "User's suggestion:" or legacy "💡 User's suggestion:")
+            const [errorPart, suggestionPart] = error.message.split(/\n\n(?:💡 )?User's suggestion:/);
             errorContext = `Please identify the issue and provide a fix.
 
 Error: ${errorPart}${error.file ? `
 File: ${error.file}${error.line ? `:${error.line}` : ''}` : ''}
 
-💡 User's suggestion:${suggestionPart}`;
+User's suggestion:${suggestionPart}`;
         } else {
             errorContext = `Please identify the issue and provide a fix.
 
@@ -355,6 +357,8 @@ function PanelContent({
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             case 'vault':
                 return <VaultPanel appId={context.data?.appId ?? null} />;
+            case 'activity':
+                return <ActivityDisplay />;
             default:
                 // Default to permission queue
                 return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
@@ -368,6 +372,9 @@ function PanelContent({
         case 'code-preview':
             if (context.activeTab === 'vault') {
                 return <VaultPanel appId={context.data?.appId ?? null} />;
+            }
+            if (context.activeTab === 'activity') {
+                return <ActivityDisplay />;
             }
             return (
                 <CodePreviewPanel

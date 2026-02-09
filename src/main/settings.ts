@@ -30,6 +30,10 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableProLazyEditsMode: true,
   enableProSmartFilesContextMode: true,
   selectedChatMode: "build",
+  agentMode: "guided",
+  autoModelRouting: false,
+  autoProviderId: null,
+  autoModelIds: undefined,
   enableAutoFixProblems: false,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   enableAutoUpdate: true,

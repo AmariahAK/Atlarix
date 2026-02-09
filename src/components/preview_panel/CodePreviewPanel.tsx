@@ -29,11 +29,13 @@ import {
     Globe,
     ExternalLink as LinkIcon,
     Sparkles,
-    History
+    History,
+    Lightbulb,
+    Check
 } from 'lucide-react';
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
-import { type SourceItem, browserErrorsAtom, diagramStateAtom, selectedErrorFileForCodeAtom } from '@/atoms/sourceAtoms';
+import { type SourceItem, browserErrorsAtom, diagramStateAtom, selectedErrorForCodeAtom } from '@/atoms/sourceAtoms';
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
@@ -68,7 +70,8 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
 };
 
 export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
-    const [selectedErrorFile, setSelectedErrorFile] = useAtom(selectedErrorFileForCodeAtom);
+    const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
+    const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const currentAppId = (data as { appId?: number })?.appId ?? null;
     const previewUrl = data?.url;
     const currentFile = data?.file;
@@ -89,8 +92,8 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     errors={errorsData}
                     workspacePath={workspacePath}
                     appId={currentAppId}
-                    selectedErrorFile={selectedErrorFile}
-                    onSelectedErrorFileConsumed={() => setSelectedErrorFile(null)}
+                    selectedErrorForCode={selectedErrorForCode}
+                    onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
                 />
             )}
             {activeTab === 'terminal' && (
@@ -103,10 +106,11 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     onSolveWithAI={onSolveWithAI}
                     onSolveAllWithAI={onSolveAllWithAI}
                     onSwitchToCode={onSwitchToCode}
-                    onEditErrorFile={(filePath) => {
-                        setSelectedErrorFile(filePath);
+                    onEditErrorFile={(filePath, line, column) => {
+                        setSelectedErrorForCode({ filePath, line, column });
                         onSwitchToCode?.();
                     }}
+                    onMarkDone={(error) => setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id))}
                 />
             )}
             {activeTab === 'permissions' && (
@@ -382,15 +386,15 @@ function CodeTab({
     errors = [],
     workspacePath = '',
     appId = null,
-    selectedErrorFile = null,
-    onSelectedErrorFileConsumed = () => {},
+    selectedErrorForCode = null,
+    onSelectedErrorForCodeConsumed = () => {},
 }: {
     file?: { path: string; content: string };
     errors?: ParsedError[];
     workspacePath?: string;
     appId?: number | null;
-    selectedErrorFile?: string | null;
-    onSelectedErrorFileConsumed?: () => void;
+    selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
+    onSelectedErrorForCodeConsumed?: () => void;
 }) {
     const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
     const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
@@ -401,17 +405,18 @@ function CodeTab({
         if (!workspacePath && !appId) setSidebarFile(null);
     }, [workspacePath, appId]);
 
-    // Load file when selectedErrorFile is set (from sidebar file tree click)
+    const selectedFilePath = selectedErrorForCode?.filePath ?? null;
+    // Load file when selectedErrorForCode is set (from Errors tab "View code")
     useEffect(() => {
-        if (!selectedErrorFile) return;
+        if (!selectedFilePath) return;
         // Prefer readAppFile (handles path resolution) when we have appId
         if (appId) {
             setSidebarFileLoading(true);
             IpcClient.getInstance()
-                .readAppFile(appId, selectedErrorFile)
+                .readAppFile(appId, selectedFilePath)
                 .then((content) => {
-                    setSidebarFile({ path: selectedErrorFile, content });
-                    onSelectedErrorFileConsumed();
+                    setSidebarFile({ path: selectedFilePath, content });
+                    onSelectedErrorForCodeConsumed();
                 })
                 .catch(() => setSidebarFile(null))
                 .finally(() => setSidebarFileLoading(false));
@@ -420,7 +425,7 @@ function CodeTab({
         // Fallback: use readFileContent with absolute path when we have workspacePath
         if (!workspacePath) return;
         const base = workspacePath.replace(/\\/g, '/').replace(/\/$/, '');
-        const rel = selectedErrorFile.replace(/^[/\\]/, '').replace(/\\/g, '/');
+        const rel = selectedFilePath.replace(/^[/\\]/, '').replace(/\\/g, '/');
         const absolutePath = `${base}/${rel}`.replace(/\/+/g, '/');
 
         setSidebarFileLoading(true);
@@ -428,15 +433,15 @@ function CodeTab({
             .readFileContent(absolutePath)
             .then((result) => {
                 if (result.success && result.content !== undefined) {
-                    setSidebarFile({ path: selectedErrorFile, content: result.content });
-                    onSelectedErrorFileConsumed();
+                    setSidebarFile({ path: selectedFilePath, content: result.content });
+                    onSelectedErrorForCodeConsumed();
                 } else {
                     setSidebarFile(null);
                 }
             })
             .catch(() => setSidebarFile(null))
             .finally(() => setSidebarFileLoading(false));
-    }, [selectedErrorFile, workspacePath, appId, onSelectedErrorFileConsumed]);
+    }, [selectedFilePath, workspacePath, appId, onSelectedErrorForCodeConsumed]);
 
     // Check if we have errors with file paths - show editor for those
     const filesWithErrors = errors.filter(e => e.file);
@@ -447,8 +452,9 @@ function CodeTab({
             <ErrorFileEditor
                 errors={errors}
                 workspacePath={workspacePath}
-                initialFilePath={selectedErrorFile || undefined}
-                onInitialFilePathConsumed={onSelectedErrorFileConsumed}
+                initialFilePath={selectedFilePath || undefined}
+                initialLine={selectedErrorForCode?.line}
+                onInitialFilePathConsumed={onSelectedErrorForCodeConsumed}
             />
         );
     }
@@ -501,7 +507,11 @@ function CodeTab({
     if (appId) {
         return (
             <div className="flex flex-col h-full min-h-0">
-                <FileEditor appId={appId} filePath={displayFile.path} />
+                <FileEditor
+                    appId={appId}
+                    filePath={displayFile.path}
+                    initialLine={selectedErrorForCode?.line}
+                />
             </div>
         );
     }
@@ -689,13 +699,15 @@ function ErrorsTab({
     onSolveAllWithAI,
     onSwitchToCode,
     onEditErrorFile,
+    onMarkDone,
 }: {
     errors: ParsedError[];
     onClear?: () => void;
     onSolveWithAI?: (error: ParsedError) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
     onSwitchToCode?: () => void;
-    onEditErrorFile?: (filePath: string) => void;
+    onEditErrorFile?: (filePath: string, line?: number, column?: number) => void;
+    onMarkDone?: (error: ParsedError) => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showFixAllDialog, setShowFixAllDialog] = useState(false);
@@ -907,24 +919,39 @@ function ErrorsTab({
                                                             }}
                                                             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
                                                         >
-                                                            <span>✨ Fix with AI</span>
+                                                            <Sparkles className="w-3 h-3" />
+                                                            <span>Fix with AI</span>
                                                         </button>
-                                                        {/* Edit button - switches to Code tab and opens this file */}
+                                                        {/* View code - opens exact file and line in Code tab */}
                                                         {(onEditErrorFile || onSwitchToCode) && error.file && (
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     if (onEditErrorFile) {
-                                                                        onEditErrorFile(error.file!);
+                                                                        onEditErrorFile(error.file!, error.line, error.column);
                                                                     } else {
                                                                         onSwitchToCode?.();
                                                                     }
                                                                 }}
                                                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-700/30 text-zinc-300 hover:bg-zinc-700/50 border border-zinc-700/50 transition-colors"
-                                                                title="Edit this file in Code tab"
+                                                                title="Open this file at line in Code tab"
                                                             >
                                                                 <Code2 className="w-3 h-3" />
-                                                                <span>Edit</span>
+                                                                <span>View code</span>
+                                                            </button>
+                                                        )}
+                                                        {/* Mark done - remove from list */}
+                                                        {onMarkDone && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onMarkDone(error);
+                                                                }}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-700/30 text-zinc-300 hover:bg-zinc-700/50 border border-zinc-700/50 transition-colors"
+                                                                title="Mark as done and remove from list"
+                                                            >
+                                                                <Check className="w-3 h-3" />
+                                                                <span>Mark done</span>
                                                             </button>
                                                         )}
                                                         <button
@@ -943,7 +970,8 @@ function ErrorsTab({
                                                                 : 'bg-zinc-700/30 text-zinc-400 hover:bg-zinc-700/50 border-zinc-700/50'
                                                                 }`}
                                                         >
-                                                            <span>💡 Suggest</span>
+                                                            <Lightbulb className="w-3 h-3" />
+                                                            <span>Suggest</span>
                                                         </button>
                                                     </div>
 
@@ -962,7 +990,7 @@ function ErrorsTab({
                                                                         // Create enhanced error with user's suggestion
                                                                         onSolveWithAI({
                                                                             ...error,
-                                                                            message: `${error.message}\n\n💡 User's suggestion: ${suggestNotes}`
+                                                                            message: `${error.message}\n\nUser's suggestion: ${suggestNotes}`
                                                                         });
                                                                         setSuggestingErrorId(null);
                                                                         setSuggestNotes('');
@@ -975,7 +1003,7 @@ function ErrorsTab({
                                                                         if (suggestNotes.trim()) {
                                                                             onSolveWithAI({
                                                                                 ...error,
-                                                                                message: `${error.message}\n\n💡 User's suggestion: ${suggestNotes}`
+                                                                                message: `${error.message}\n\nUser's suggestion: ${suggestNotes}`
                                                                             });
                                                                             setSuggestingErrorId(null);
                                                                             setSuggestNotes('');

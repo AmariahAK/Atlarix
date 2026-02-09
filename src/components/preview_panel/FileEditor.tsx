@@ -20,6 +20,8 @@ import { getLanguage } from "@/utils/get_language";
 interface FileEditorProps {
   appId: number | null;
   filePath: string;
+  /** When set (e.g. from Errors "View code"), scroll to this line after load */
+  initialLine?: number;
 }
 
 interface BreadcrumbProps {
@@ -86,7 +88,7 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({
   );
 };
 
-export const FileEditor = ({ appId, filePath }: FileEditorProps) => {
+export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) => {
   const { content, loading, error } = useLoadAppFile(appId, filePath);
   const { theme } = useTheme();
   const [value, setValue] = useState<string | undefined>(undefined);
@@ -130,6 +132,9 @@ export const FileEditor = ({ appId, filePath }: FileEditorProps) => {
   // Handle editor mount
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
+    if (typeof initialLine === "number" && initialLine >= 1) {
+      editor.revealLineInCenter(initialLine, 1);
+    }
 
     // Listen for model content change events
     editor.onDidBlurEditorText(() => {
