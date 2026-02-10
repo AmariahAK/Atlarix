@@ -127,15 +127,31 @@ jobs:
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%%\{*}"
           echo "Upload base URL: ${UPLOAD_URL:0:60}..."
-          for f in $(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \)); do
-            BASENAME=$(basename "$f")
-            ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BASENAME'))")
-            echo "Uploading $BASENAME..."
-            curl -sS -X POST \
-              -H "Authorization: token $RELEASES_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$f" \
-              "${UPLOAD_URL}?name=${ENCODED}"
+          
+          # Find and upload .exe files
+          find out/make -type f -name "*.exe" | while read -r f; do
+            if [ -f "$f" ]; then
+              BASENAME=$(basename "$f")
+              echo "Uploading $BASENAME..."
+              curl -sS -X POST \
+                -H "Authorization: token $RELEASES_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$f" \
+                "${UPLOAD_URL}?name=${BASENAME}"
+            fi
+          done
+          
+          # Find and upload .nupkg files (optional, for auto-updates)
+          find out/make -type f -name "*.nupkg" | while read -r f; do
+            if [ -f "$f" ]; then
+              BASENAME=$(basename "$f")
+              echo "Uploading $BASENAME..."
+              curl -sS -X POST \
+                -H "Authorization: token $RELEASES_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$f" \
+                "${UPLOAD_URL}?name=${BASENAME}"
+            fi
           done
 
   build-linux:
