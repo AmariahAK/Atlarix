@@ -14,7 +14,50 @@ permissions:
   contents: write
 
 jobs:
+  create-draft:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Set tag name
+        id: set_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ inputs.version || 'v0.0.0-manual' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create draft release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.set_tag.outputs.tag }}
+          name: Atlarix ${{ steps.set_tag.outputs.tag }}
+          body: |
+            ## Atlarix ${{ steps.set_tag.outputs.tag }}
+
+            ### Downloads
+            - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
+            - **macOS (Intel)**: `Atlarix-*-x64.dmg`
+            - **Windows**: `Atlarix-*-Setup.exe`
+            - **Linux**: `.deb`, `.rpm`, or `.AppImage`
+
+            ### Installation Notes
+            - **macOS**: Right-click → Open (to bypass Gatekeeper)
+            - **Windows**: Click "More info" → "Run anyway" if SmartScreen blocks
+            - **Linux**: `chmod +x Atlarix.AppImage && ./Atlarix.AppImage`
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          repository: AmariahAK/atlarix-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+
   build-macos:
+    needs: create-draft
     runs-on: macos-latest
     strategy:
       matrix:
@@ -37,18 +80,25 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}
-          path: |
-            out/make/**/*.dmg
-            out/make/**/*.zip
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 9
+      - name: Upload macOS assets to release
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          for f in out/make/**/*.dmg out/make/**/*.zip; do
+            [ -f "$f" ] || continue
+            echo "Uploading $(basename "$f")..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")"
+          done
 
   build-windows:
+    needs: create-draft
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -68,18 +118,23 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x64
-          path: |
-            out/make/**/*.exe
-            out/make/**/*.nupkg
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 9
+      - name: Upload Windows assets to release
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          $uploadUrl = ("${{ needs.create-draft.outputs.upload_url }}") -replace '\{.*', ''
+          Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
+            Write-Host "Uploading $($_.Name)..."
+            curl.exe -sS -X POST `
+              -H "Authorization: token $env:RELEASES_TOKEN" `
+              -H "Content-Type: application/octet-stream" `
+              --data-binary "@$($_.FullName)" `
+              "$uploadUrl?name=$($_.Name)"
+          }
 
   build-linux:
+    needs: create-draft
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -104,62 +159,35 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-x64
-          path: |
-            out/make/**/*.deb
-            out/make/**/*.rpm
-            out/make/**/*.AppImage
-          if-no-files-found: warn
-          retention-days: 1
-          compression-level: 9
+      - name: Upload Linux assets to release
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          export UPLOAD_URL RELEASES_TOKEN
+          find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | while IFS= read -r -d '' f; do
+            echo "Uploading $(basename "$f")..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")"
+          done
 
-  release:
-    needs: [build-macos, build-windows, build-linux]
+  publish-release:
+    needs: [create-draft, build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f | head -50
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: Atlarix ${{ github.ref_name }}
-          body: |
-            ## Atlarix ${{ github.ref_name }}
-
-            ### Downloads
-            - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
-            - **macOS (Intel)**: `Atlarix-*-x64.dmg`
-            - **Windows**: `Atlarix-*-Setup.exe`
-            - **Linux**: `.deb`, `.rpm`, or `.AppImage`
-
-            ### Installation Notes
-            - **macOS**: Right-click → Open (to bypass Gatekeeper)
-            - **Windows**: Click "More info" → "Run anyway" if SmartScreen blocks
-            - **Linux**: `chmod +x Atlarix.AppImage && ./Atlarix.AppImage`
-
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-          files: |
-            artifacts/**/*.dmg
-            artifacts/**/*.zip
-            artifacts/**/*.exe
-            artifacts/**/*.deb
-            artifacts/**/*.rpm
-            artifacts/**/*.AppImage
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          repository: AmariahAK/atlarix-releases
-          token: ${{ secrets.RELEASES_TOKEN }}
+      - name: Publish draft release
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          curl -sS -X PATCH \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{"draft":false}' \
+            "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
