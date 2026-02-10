@@ -123,7 +123,8 @@ jobs:
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          $uploadUrl = ("${{ needs.create-draft.outputs.upload_url }}") -replace '\{.*', ''
+          $rawUrl = "${{ needs.create-draft.outputs.upload_url }}"
+          $uploadUrl = $rawUrl.Split('{')[0]
           Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
             Write-Host "Uploading $($_.Name)..."
             curl.exe -sS -X POST `
