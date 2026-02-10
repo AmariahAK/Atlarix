@@ -120,24 +120,23 @@ jobs:
 
       - name: Upload Windows assets to release
         if: success()
+        shell: bash
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          $rawUrl = "${{ needs.create-draft.outputs.upload_url }}".Trim()
-          $anchor = "assets"
-          $i = $rawUrl.IndexOf($anchor)
-          $baseUrl = if ($i -ge 0) { $rawUrl.Substring(0, $i + $anchor.Length) } else { $rawUrl }
-          Write-Host "Base URL (first 60 chars): $($baseUrl.Substring(0, [Math]::Min(60, $baseUrl.Length)))..."
-          Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
-            $nameEncoded = [System.Uri]::EscapeDataString($_.Name)
-            $url = "$baseUrl?name=$nameEncoded"
-            Write-Host "Uploading $($_.Name) (URL query name=$nameEncoded)..."
-            curl.exe -sS -X POST `
-              -H "Authorization: token $env:RELEASES_TOKEN" `
-              -H "Content-Type: application/octet-stream" `
-              --data-binary "@$($_.FullName)" `
-              $url
-          }
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%%\{*}"
+          echo "Upload base URL: ${UPLOAD_URL:0:60}..."
+          for f in $(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \)); do
+            BASENAME=$(basename "$f")
+            ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BASENAME'))")
+            echo "Uploading $BASENAME..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "${UPLOAD_URL}?name=${ENCODED}"
+          done
 
   build-linux:
     needs: create-draft
