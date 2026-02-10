@@ -1,4 +1,4 @@
-name: Build & Release
+name: Build & Release (GitHub CLI)
 
 on:
   push:
@@ -14,50 +14,7 @@ permissions:
   contents: write
 
 jobs:
-  create-draft:
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Set tag name
-        id: set_tag
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ inputs.version || 'v0.0.0-manual' }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create draft release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.set_tag.outputs.tag }}
-          name: Atlarix ${{ steps.set_tag.outputs.tag }}
-          body: |
-            ## Atlarix ${{ steps.set_tag.outputs.tag }}
-
-            ### Downloads
-            - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
-            - **macOS (Intel)**: `Atlarix-*-x64.dmg`
-            - **Windows**: `Atlarix-*-Setup.exe`
-            - **Linux**: `.deb`, `.rpm`, or `.AppImage`
-
-            ### Installation Notes
-            - **macOS**: Right-click → Open (to bypass Gatekeeper)
-            - **Windows**: Click "More info" → "Run anyway" if SmartScreen blocks
-            - **Linux**: `chmod +x Atlarix.AppImage && ./Atlarix.AppImage`
-
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-          draft: true
-          prerelease: false
-          generate_release_notes: true
-          repository: AmariahAK/atlarix-releases
-          token: ${{ secrets.RELEASES_TOKEN }}
-
   build-macos:
-    needs: create-draft
     runs-on: macos-latest
     strategy:
       matrix:
@@ -80,25 +37,16 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload macOS assets to release
-        if: success()
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%\{*}"
-          for f in out/make/**/*.dmg out/make/**/*.zip; do
-            [ -f "$f" ] || continue
-            echo "Uploading $(basename "$f")..."
-            curl -sS -X POST \
-              -H "Authorization: token $RELEASES_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$f" \
-              "$UPLOAD_URL?name=$(basename "$f")"
-          done
+      - name: Upload macOS build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
+          retention-days: 1
 
   build-windows:
-    needs: create-draft
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -118,44 +66,16 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload Windows assets to release
-        if: success()
-        shell: bash
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%%\{*}"
-          echo "Upload base URL: ${UPLOAD_URL:0:60}..."
-          
-          # Find and upload .exe files
-          find out/make -type f -name "*.exe" | while read -r f; do
-            if [ -f "$f" ]; then
-              BASENAME=$(basename "$f")
-              echo "Uploading $BASENAME..."
-              curl -sS -X POST \
-                -H "Authorization: token $RELEASES_TOKEN" \
-                -H "Content-Type: application/octet-stream" \
-                --data-binary "@$f" \
-                "${UPLOAD_URL}?name=${BASENAME}"
-            fi
-          done
-          
-          # Find and upload .nupkg files (optional, for auto-updates)
-          find out/make -type f -name "*.nupkg" | while read -r f; do
-            if [ -f "$f" ]; then
-              BASENAME=$(basename "$f")
-              echo "Uploading $BASENAME..."
-              curl -sS -X POST \
-                -H "Authorization: token $RELEASES_TOKEN" \
-                -H "Content-Type: application/octet-stream" \
-                --data-binary "@$f" \
-                "${UPLOAD_URL}?name=${BASENAME}"
-            fi
-          done
+      - name: Upload Windows build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+          retention-days: 1
 
   build-linux:
-    needs: create-draft
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -180,35 +100,84 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Upload Linux assets to release
-        if: success()
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      - name: Upload Linux build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            out/make/**/*.deb
+            out/make/**/*.rpm
+            out/make/**/*.AppImage
+          retention-days: 1
+
+  create-release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts/
+
+      - name: Set tag name
+        id: set_tag
         run: |
-          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%\{*}"
-          export UPLOAD_URL RELEASES_TOKEN
-          find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | while IFS= read -r -d '' f; do
-            echo "Uploading $(basename "$f")..."
-            curl -sS -X POST \
-              -H "Authorization: token $RELEASES_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$f" \
-              "$UPLOAD_URL?name=$(basename "$f")"
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ inputs.version || 'v0.0.0-manual' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release with GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_REPO: AmariahAK/atlarix-releases
+        run: |
+          TAG="${{ steps.set_tag.outputs.tag }}"
+          
+          # Create release
+          gh release create "$TAG" \
+            --draft \
+            --title "Atlarix $TAG" \
+            --notes "## Atlarix $TAG
+
+          ### Downloads
+          - **macOS (Apple Silicon)**: \`Atlarix-*-arm64.dmg\`
+          - **macOS (Intel)**: \`Atlarix-*-x64.dmg\`
+          - **Windows**: \`Atlarix-*-Setup.exe\`
+          - **Linux**: \`.deb\`, \`.rpm\`, or \`.AppImage\`
+
+          ### Installation Notes
+          - **macOS**: Right-click → Open (to bypass Gatekeeper)
+          - **Windows**: Click \"More info\" → \"Run anyway\" if SmartScreen blocks
+          - **Linux**: \`chmod +x Atlarix.AppImage && ./Atlarix.AppImage\`
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_REPO: AmariahAK/atlarix-releases
+        run: |
+          TAG="${{ steps.set_tag.outputs.tag }}"
+          
+          # Upload all artifacts
+          find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.nupkg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) | while read -r file; do
+            echo "Uploading $(basename "$file")..."
+            gh release upload "$TAG" "$file" --clobber
           done
 
-  publish-release:
-    needs: [create-draft, build-macos, build-windows, build-linux]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Publish draft release
+      - name: Publish release (if tagged)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_REPO: AmariahAK/atlarix-releases
         run: |
-          curl -sS -X PATCH \
-            -H "Authorization: token $RELEASES_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            -d '{"draft":false}' \
-            "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
+          TAG="${{ steps.set_tag.outputs.tag }}"
+          gh release edit "$TAG" --draft=false
