@@ -124,8 +124,9 @@ jobs:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           $rawUrl = "${{ needs.create-draft.outputs.upload_url }}".Trim()
-          $idx = $rawUrl.IndexOf([char]0x7B)
-          $baseUrl = if ($idx -ge 0) { $rawUrl.Substring(0, $idx) } else { $rawUrl }
+          $anchor = "assets"
+          $i = $rawUrl.IndexOf($anchor)
+          $baseUrl = if ($i -ge 0) { $rawUrl.Substring(0, $i + $anchor.Length) } else { $rawUrl }
           Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
             $url = "$baseUrl?name=$($_.Name)"
             Write-Host "Uploading $($_.Name)..."
