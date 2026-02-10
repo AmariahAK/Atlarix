@@ -88,8 +88,8 @@ jobs:
         run: |
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%\{*}"
-          for f in out/make/**/*.dmg out/make/**/*.zip; do
-            [ -f "$f" ] || continue
+          export UPLOAD_URL RELEASES_TOKEN
+          find out/make -type f \( -name "*.dmg" -o -name "*.zip" \) -print0 | while IFS= read -r -d '' f; do
             echo "Uploading $(basename "$f")..."
             curl -sS -X POST \
               -H "Authorization: token $RELEASES_TOKEN" \
