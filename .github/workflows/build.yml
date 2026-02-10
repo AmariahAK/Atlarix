@@ -123,15 +123,17 @@ jobs:
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          $rawUrl = "${{ needs.create-draft.outputs.upload_url }}"
-          $uploadUrl = $rawUrl.Split('{')[0]
+          $rawUrl = "${{ needs.create-draft.outputs.upload_url }}".Trim()
+          $idx = $rawUrl.IndexOf([char]0x7B)
+          $baseUrl = if ($idx -ge 0) { $rawUrl.Substring(0, $idx) } else { $rawUrl }
           Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
+            $url = "$baseUrl?name=$($_.Name)"
             Write-Host "Uploading $($_.Name)..."
             curl.exe -sS -X POST `
               -H "Authorization: token $env:RELEASES_TOKEN" `
               -H "Content-Type: application/octet-stream" `
               --data-binary "@$($_.FullName)" `
-              "$uploadUrl?name=$($_.Name)"
+              $url
           }
 
   build-linux:
