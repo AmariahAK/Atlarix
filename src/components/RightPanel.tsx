@@ -227,7 +227,7 @@ Please fix these errors in priority order (structural/build errors first, then r
         <div
             ref={panelRef}
             className={cn(
-                "relative flex flex-col h-full bg-background border-l border-border flex-none",
+                "relative flex flex-col h-full bg-background border-l border-border flex-none z-10",
                 !isDragging && "animate-slide-in-right"
             )}
             style={{ width: `${width}px`, minWidth: '280px', maxWidth: '700px' }}

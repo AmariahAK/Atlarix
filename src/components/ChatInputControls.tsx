@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ContextFilesPicker } from "./ContextFilesPicker";
-import { ModelPicker } from "./ModelPicker";
+import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
 import { McpToolsPickerContent } from "@/components/McpToolsPicker";
@@ -112,7 +112,7 @@ export function ChatInputControls({
             <SheetHeader>
               <SheetTitle>Change model</SheetTitle>
             </SheetHeader>
-            <ModelPicker />
+            <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
           </SheetContent>
         </Sheet>
 

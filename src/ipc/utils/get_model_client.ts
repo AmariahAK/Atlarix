@@ -242,20 +242,19 @@ async function getRegularModelClient(
   backupModelClients: ModelClient[];
 }> {
   // Get API key for the specific provider
-  // Priority: settings -> env var -> database
+  // Priority: settings -> database -> env (so UI/database key wins over .env)
   let apiKey =
-    settings.providerSettings?.[model.provider]?.apiKey?.value ||
-    (providerConfig.envVarName
-      ? getEnvVar(providerConfig.envVarName)
-      : undefined);
+    settings.providerSettings?.[model.provider]?.apiKey?.value;
 
-  // Fallback to database if no key found in settings/env
   if (!apiKey) {
     const dbApiKey = await getProviderApiKey(model.provider);
     if (dbApiKey) {
       apiKey = dbApiKey;
       logger.info(`[API Key] Loaded ${model.provider} API key from database`);
     }
+  }
+  if (!apiKey && providerConfig.envVarName) {
+    apiKey = getEnvVar(providerConfig.envVarName);
   }
 
   const providerId = providerConfig.id;

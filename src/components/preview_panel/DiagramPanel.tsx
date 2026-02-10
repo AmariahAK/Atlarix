@@ -9,6 +9,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { diagramStateAtom, diagramStalenessAtom, diagramViewModeAtom, blueprintStateAtom, blueprintAiEditingAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
@@ -36,6 +37,7 @@ import {
     Info,
     Box,
     Bot,
+    Maximize2,
 } from 'lucide-react';
 import { VaultPanel } from '@/components/preview_panel/VaultPanel';
 import type { PanelTab } from '@/atoms/sourceAtoms';
@@ -76,6 +78,7 @@ interface DiagramRecord {
 }
 
 export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProps) {
+    const navigate = useNavigate();
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
     const [staleness, setStaleness] = useAtom(diagramStalenessAtom);
     const [viewMode, setViewMode] = useAtom(diagramViewModeAtom);
@@ -334,6 +337,16 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     <span className="text-xs text-muted-foreground">
                         {viewMode === 'live' ? 'Mermaid from code' : 'Rooms & functions'}
                     </span>
+                    {app?.id && (
+                        <button
+                            type="button"
+                            onClick={() => navigate({ to: '/diagram', search: { appId: app.id } })}
+                            className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
+                        >
+                            <Maximize2 className="h-3.5 w-3.5" />
+                            Open in full screen
+                        </button>
+                    )}
                 </div>
             )}
             {/* AI is editing blueprint indicator (Cursor/Antigravity-style) - prominent sticky bar */}

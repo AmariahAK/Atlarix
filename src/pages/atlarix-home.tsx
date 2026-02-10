@@ -33,8 +33,6 @@ import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 import { RightPanel } from '@/components/RightPanel';
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { PanelRightOpen, PanelRightClose } from 'lucide-react';
-
 // Current datetime for AI context
 const getCurrentDateTime = () => {
     return new Date().toLocaleString('en-US', {

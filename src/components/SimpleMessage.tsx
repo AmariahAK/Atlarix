@@ -38,37 +38,66 @@ export function SimpleMessage({ message, isStreaming = false }: SimpleMessagePro
     const isUser = message.role === "user";
     const isAssistant = message.role === "assistant";
 
-    // Get display name for the model
+    // Get display name for the model (supports object { provider, name } or legacy string)
     const getModelDisplayName = () => {
-        const model = settings?.selectedModel;
-        // Check if model exists and is a string before calling .split()
-        if (!model || typeof model !== 'string') return 'Atlarix AI';
+        const model = settings?.selectedModel as { provider?: string; name?: string } | string | undefined;
+        if (!model) return 'Atlarix AI';
 
-        // Parse model name for display (e.g., "openai/gpt-4o" -> "GPT-4o")
-        const parts = model.split('/');
-        const modelName = parts[parts.length - 1];
+        if (typeof model === 'string') {
+            const parts = model.split('/');
+            const modelName = parts[parts.length - 1];
+            return formatModelName(modelName);
+        }
 
-        // Capitalize and format common model names
-        const formatted = modelName
+        if (model.provider === 'auto') {
+            const ids = settings?.autoModelIds;
+            if (Array.isArray(ids) && ids.length === 3 && ids.every(Boolean)) {
+                const [fast, medium, thinking] = ids;
+                const short = (s: string) => s.split('/').pop()?.replace(/-/g, ' ') ?? s;
+                return `Auto (${short(fast)} / ${short(medium)} / ${short(thinking)})`;
+            }
+            return 'Auto (Fast / Medium / Thinking)';
+        }
+
+        const name = model.name ?? '';
+        const parts = name.split('/');
+        const modelName = parts[parts.length - 1] || name;
+        return formatModelName(modelName);
+    };
+
+    function formatModelName(modelName: string): string {
+        return modelName
             .replace(/-/g, ' ')
             .replace(/\b\w/g, c => c.toUpperCase())
             .replace(/Gpt/g, 'GPT')
             .replace(/Deepseek/g, 'DeepSeek')
             .replace(/Claude/g, 'Claude')
             .replace(/Gemini/g, 'Gemini')
-            .replace(/Qwen/g, 'Qwen');
-
-        return formatted;
-    };
+            .replace(/Qwen/g, 'Qwen')
+            .replace(/Pony/g, 'Pony')
+            .replace(/Minimax/g, 'MiniMax');
+    }
 
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}>
                 {/* Model name header for assistant messages */}
                 {isAssistant && (
-                    <div className="flex items-center gap-1.5 mb-1.5 text-xs text-muted-foreground">
-                        <Bot className="h-3.5 w-3.5" />
-                        <span className="font-medium">{getModelDisplayName()}</span>
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                            <Bot className="h-3.5 w-3.5 shrink-0" />
+                            <span className="font-medium">{getModelDisplayName()}</span>
+                        </span>
+                        {settings?.agentMode === "guided" && (
+                            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium" title="Guided: sub-agents can be used for complex tasks">
+                                Guided
+                            </span>
+                        )}
+                        {settings?.agentMode === "autonomous" && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium" title="Autonomous: agents can act with approval">
+                                Autonomous
+                            </span>
+                        )}
                     </div>
                 )}
 

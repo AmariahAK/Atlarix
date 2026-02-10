@@ -9,6 +9,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { useSetAtom, useAtomValue, useAtom } from 'jotai';
 import { IpcClient } from '@/ipc/ipc_client';
 import { cn } from '@/lib/utils';
@@ -70,6 +71,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
 };
 
 export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
+    const navigate = useNavigate();
     const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const currentAppId = (data as { appId?: number })?.appId ?? null;
@@ -87,14 +89,30 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 <PreviewTab url={previewUrl} />
             )}
             {activeTab === 'code' && (
-                <CodeTab
-                    file={currentFile}
-                    errors={errorsData}
-                    workspacePath={workspacePath}
-                    appId={currentAppId}
-                    selectedErrorForCode={selectedErrorForCode}
-                    onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
-                />
+                <div className="flex flex-col h-full min-h-0">
+                    {currentAppId && (
+                        <div className="flex items-center justify-end px-2 py-1.5 border-b border-border/50 bg-muted/5 flex-shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => navigate({ to: '/code', search: { appId: currentAppId } })}
+                                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
+                            >
+                                <Maximize2 className="h-3.5 w-3.5" />
+                                Open in full screen
+                            </button>
+                        </div>
+                    )}
+                    <div className="flex-1 min-h-0">
+                        <CodeTab
+                            file={currentFile}
+                            errors={errorsData}
+                            workspacePath={workspacePath}
+                            appId={currentAppId}
+                            selectedErrorForCode={selectedErrorForCode}
+                            onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
+                        />
+                    </div>
+                </div>
             )}
             {activeTab === 'terminal' && (
                 <TerminalTab data={terminalData} terminalOutputs={data?.terminalOutputs} />

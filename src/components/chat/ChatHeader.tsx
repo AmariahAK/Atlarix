@@ -1,11 +1,10 @@
 import {
-  PanelRightOpen,
   History,
   PlusCircle,
   GitBranch,
   Info,
 } from "lucide-react";
-import { PanelRightClose } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAtom, useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useVersions } from "@/hooks/useVersions";
@@ -209,9 +208,9 @@ export function ChatHeader({
           className="cursor-pointer p-2 hover:bg-(--background-lightest) rounded-md"
         >
           {isPreviewOpen ? (
-            <PanelRightClose size={20} />
+            <ChevronRight size={20} aria-hidden />
           ) : (
-            <PanelRightOpen size={20} />
+            <ChevronLeft size={20} aria-hidden />
           )}
         </button>
       </div>

@@ -89,6 +89,10 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 - **Exchange-by-exchange** – One task per AI response, review gate before next
 - **Quality over quantity** – Fix bugs before proceeding to next task
 
+### Planned bug fixes (v2.2)
+
+- **Animations (Guided & Autonomous)** — Fix animation bugs in Activity Stream and agent delegation for both Guided and Autonomous modes so progress and delegation states are clearly visible.
+
 ### In Progress (2026-02-05)
 
 #### Blueprint UI & accuracy

@@ -24,6 +24,12 @@ v2.2 will be updated to build on v2.1 systems (e.g. Architect/Builder for Bluepr
 
 ---
 
+## v2.2 — Bug fixes (planned)
+
+- **Animations (Guided & Autonomous):** Fix animation bugs in Activity Stream / agent delegation for both Guided and Autonomous modes so progress and delegation states are clearly visible.
+
+---
+
 ## Overview: Atlarix 2.2 — Blueprint Intelligence System
 
 Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately.

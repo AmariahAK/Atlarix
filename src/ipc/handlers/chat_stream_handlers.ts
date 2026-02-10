@@ -381,30 +381,33 @@ export function registerChatStreamHandlers() {
   );
 
   ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
-    try {
-      const fileUploadsState = FileUploadsState.getInstance();
-      let dyadRequestId: string | undefined;
-      // Create an AbortController for this stream
-      const abortController = new AbortController();
-      activeStreams.set(req.chatId, abortController);
+    const abortController = new AbortController();
+    activeStreams.set(req.chatId, abortController);
 
-      // Check if this is an ephemeral (incognito) chat BEFORE querying database
-      const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
+    const runStream = async () => {
+      try {
+        const fileUploadsState = FileUploadsState.getInstance();
+        let dyadRequestId: string | undefined;
 
-      if (isEphemeralChatId(req.chatId)) {
-        // Check if this ephemeral chat is associated with a workspace
-        const ephemeralAppId = getEphemeralChatAppId(req.chatId);
+        // Check if this is an ephemeral (incognito) chat BEFORE querying database
+        const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
 
-        if (ephemeralAppId) {
-          // This is an ephemeral WORKSPACE chat - has workspace context
-          logger.log(`Chat ${req.chatId} is ephemeral workspace chat for app: ${ephemeralAppId}`);
-          // Continue below to use workspace-aware handler with the ephemeral appId
-        } else {
-          // This is a pure chat-only (no workspace) - use simplified handler
-          logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
-          return await handleChatOnlyStream(event, req, abortController);
+        if (isEphemeralChatId(req.chatId)) {
+          // Check if this ephemeral chat is associated with a workspace
+          const ephemeralAppId = getEphemeralChatAppId(req.chatId);
+
+          if (ephemeralAppId) {
+            // This is an ephemeral WORKSPACE chat - has workspace context
+            logger.log(`Chat ${req.chatId} is ephemeral workspace chat for app: ${ephemeralAppId}`);
+            // Continue below to use workspace-aware handler with the ephemeral appId
+          } else {
+            // This is a pure chat-only (no workspace) - use simplified handler with global MCP tools
+            logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
+            const mcpTools = await getMcpTools(event, null);
+            await handleChatOnlyStream(event, req, abortController, mcpTools);
+            return;
+          }
         }
-      }
 
       // Get app for ephemeral workspace chats or regular DB chats
       let chat: any;
@@ -452,10 +455,12 @@ export function registerChatStreamHandlers() {
           throw new Error(`Chat not found: ${req.chatId}`);
         }
 
-        // Chat-only mode: route to simplified handler (no workspace/codebase)
+        // Chat-only mode: route to simplified handler (no workspace/codebase) with global MCP tools
         if (!chat.app) {
           logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
-          return await handleChatOnlyStream(event, req, abortController);
+          const mcpTools = await getMcpTools(event, null);
+          await handleChatOnlyStream(event, req, abortController, mcpTools);
+          return;
         }
 
         appData = chat.app;
@@ -1598,6 +1603,10 @@ This conversation includes one or more image attachments. When the user uploads 
               execute: async () => "",
             };
 
+            // Merge global + workspace MCP tools for Agent mode
+            const agentMcpTools = await getMcpTools(event, updatedChat.app?.id ?? null);
+            Object.assign(tools, agentMcpTools);
+
             const { fullStream } = await simpleStreamText({
               chatMessages: limitedHistoryChatMessages,
               modelClient,
@@ -1699,7 +1708,10 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            logger.log(`Ask mode: ${Object.keys(askTools).length} read-only tools available`);
+            // Merge global + workspace MCP tools so workspace chats can use MCP (e.g. GitHub)
+            const askMcpTools = await getMcpTools(event, updatedChat.app.id);
+            Object.assign(askTools, askMcpTools);
+            logger.log(`Ask mode: ${Object.keys(askTools).length} read-only tools available (incl. MCP)`);
 
             const askModePrompt = `
 IMPORTANT: You are in ASK mode - a read-only assistant for exploring this codebase.
@@ -1881,6 +1893,10 @@ If the user requests modifications, use request_mode_change to request Build mod
                 },
               };
             }
+
+            // Merge global + workspace MCP tools so workspace Build chats can use MCP (e.g. GitHub)
+            const buildMcpTools = await getMcpTools(event, updatedChat.app?.id ?? null);
+            Object.assign(tools, buildMcpTools);
 
             // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
             const agentMode = settings.agentMode ?? "guided";
@@ -2525,20 +2541,20 @@ If the user requests modifications, use request_mode_change to request Build mod
         }
       }
 
-      // Return the chat ID for backwards compatibility
-      return req.chatId;
-    } catch (error) {
-      logger.error("Error calling LLM:", error);
-      safeSend(event.sender, "chat:response:error", {
-        chatId: req.chatId,
-        error: `Sorry, there was an error processing your request: ${error}`,
-      });
-      // Clean up the abort controller
-      activeStreams.delete(req.chatId);
-      // Clean up file uploads state on error
-      FileUploadsState.getInstance().clear(req.chatId);
-      return "error";
-    }
+        // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
+      } catch (error) {
+        logger.error("Error calling LLM:", error);
+        safeSend(event.sender, "chat:response:error", {
+          chatId: req.chatId,
+          error: `Sorry, there was an error processing your request: ${error}`,
+        });
+        activeStreams.delete(req.chatId);
+        FileUploadsState.getInstance().clear(req.chatId);
+      }
+    };
+
+    void runStream();
+    return undefined; // Reply immediately so renderer does not get "reply was never sent"
   });
 
   // Handler to cancel an ongoing stream

@@ -45,6 +45,8 @@ jobs:
             out/make/**/*.dmg
             out/make/**/*.zip
           if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
 
   build-windows:
     runs-on: windows-latest
@@ -74,6 +76,8 @@ jobs:
             out/make/**/*.exe
             out/make/**/*.nupkg
           if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
 
   build-linux:
     runs-on: ubuntu-latest
@@ -109,6 +113,8 @@ jobs:
             out/make/**/*.rpm
             out/make/**/*.AppImage
           if-no-files-found: warn
+          retention-days: 1
+          compression-level: 9
 
   release:
     needs: [build-macos, build-windows, build-linux]

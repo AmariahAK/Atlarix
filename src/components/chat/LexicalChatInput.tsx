@@ -39,7 +39,7 @@ const beautifulMentionsTheme: BeautifulMentionsTheme = {
 const CustomMenuItem = forwardRef<
   HTMLLIElement,
   BeautifulMentionsMenuItemProps
->(({ selected, item, ...props }, ref) => {
+>(({ selected, item, itemValue: _itemValue, label: _label, ...props }, ref) => {
   const type = (item as any)?.data?.type ?? (item as any)?.type;
   const isPrompt = type === "prompt";
   const isApp = type === "app";

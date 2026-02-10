@@ -153,10 +153,14 @@ After creating a workspace, you'll gain access to file tools (read_file, write_f
 /**
  * Handle chat-only stream request (ephemeral/incognito - no database)
  */
+/** Optional: global MCP toolset (when appId is null). Passed from stream handler to avoid circular deps. */
+export type McpToolSet = Record<string, { description?: string; parameters?: object; execute: (args: any, ctx?: any) => Promise<unknown> }>;
+
 export async function handleChatOnlyStream(
     event: IpcMainInvokeEvent,
     req: ChatStreamParams,
-    abortController: AbortController
+    abortController: AbortController,
+    mcpTools?: McpToolSet
 ): Promise<string> {
     logger.log("Starting ephemeral chat-only stream for chat:", req.chatId);
 
@@ -199,15 +203,24 @@ export async function handleChatOnlyStream(
             messages: [...chat.messages],
         });
 
+        // Log which model is being used (helps verify Auto vs single model)
+        const sel = settings.selectedModel as { provider?: string; name?: string } | undefined;
+        if (sel?.provider === "auto") {
+            const ids = settings.autoModelIds;
+            logger.log(`Chat-only model: Auto (provider=${settings.autoProviderId ?? "default"}, models=${Array.isArray(ids) ? ids.join(", ") : "default chain"})`);
+        } else {
+            logger.log(`Chat-only model: ${sel?.provider ?? "?"}/${sel?.name ?? "?"}`);
+        }
+
         // Get model client
         const { modelClient } = await getModelClient(
             settings.selectedModel,
             settings
         );
 
-        // No workspace = read-only only (no write/run/delegation)
+        // No workspace = read-only only (no write/run/delegation) + global MCP tools when provided
         const availableTools = ToolRegistry.getToolsForNoWorkspace();
-        logger.log(`Chat-only mode (read-only): ${availableTools.length} tools available`);
+        logger.log(`Chat-only mode (read-only): ${availableTools.length} built-in tools available`);
 
         // Track sources from tool calls
         const collectedSources: any[] = [];
@@ -232,6 +245,14 @@ export async function handleChatOnlyStream(
                     return result;
                 },
             };
+        }
+
+        // Merge global MCP tools (GitHub, etc.) so chat-only can use them
+        if (mcpTools && Object.keys(mcpTools).length > 0) {
+            for (const [name, tool] of Object.entries(mcpTools)) {
+                tools[name] = tool as any;
+            }
+            logger.log(`Chat-only mode: +${Object.keys(mcpTools).length} MCP tools (total ${Object.keys(tools).length})`);
         }
 
         // Prepare message history
