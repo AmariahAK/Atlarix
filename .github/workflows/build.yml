@@ -127,9 +127,11 @@ jobs:
           $anchor = "assets"
           $i = $rawUrl.IndexOf($anchor)
           $baseUrl = if ($i -ge 0) { $rawUrl.Substring(0, $i + $anchor.Length) } else { $rawUrl }
+          Write-Host "Base URL (first 60 chars): $($baseUrl.Substring(0, [Math]::Min(60, $baseUrl.Length)))..."
           Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg | ForEach-Object {
-            $url = "$baseUrl?name=$($_.Name)"
-            Write-Host "Uploading $($_.Name)..."
+            $nameEncoded = [System.Uri]::EscapeDataString($_.Name)
+            $url = "$baseUrl?name=$nameEncoded"
+            Write-Host "Uploading $($_.Name) (URL query name=$nameEncoded)..."
             curl.exe -sS -X POST `
               -H "Authorization: token $env:RELEASES_TOKEN" `
               -H "Content-Type: application/octet-stream" `
