@@ -16,89 +16,40 @@ All notable changes to Atlarix will be documented in this file.
 - **Full-screen Diagram page:** Route `/diagram` with optional `appId`. When opened with appId, right panel shows Chat (same session). "Diagram full screen" in workspace bar.
 - **Tools page:** Redesigned: 4 features per view, search bar, category filters, short descriptions, steps, "How it works", and in-app links (Settings, Home, Library). Setup models section with link to Settings.
 
----
+### 2.1 fixes and polish (2026-02-12)
 
-## [Unreleased] — v2.1.0 Agent System and Project Understanding (prior)
-
-### Overview
-
-v2.1 adds a three-tier agent system, built-in specialists, project instruction files, self-review and Agent Lightning, Activity Stream, and reorganized AI Configuration.
-
-### Features
-
-- **Agent modes:** Direct (no agents), Guided (flat delegation; default), Autonomous (nested delegation with depth limit).
-- **Permission:** Ask (read-only tools) vs Build (can write/run), independent of mode.
-- **Built-in agents:** Research, Architect, Builder, Reviewer — each with dedicated tool set; `delegate_to_agent` tool for main model.
-- **Project instructions:** `.atlarix/ATLARIX.md`, `AI_RULES.md`, workspace prompts, `~/.atlarix/ATLARIX.md`, bundle AGENTS.md — precedence order in system prompt; context window from resolved model.
-- **Summarization model:** Fast/same/custom for compaction and chat title generation.
-- **Chat UI:** Mode selector (Direct/Guided/Autonomous), Permission (Ask/Build), Auto toggle, active context bar.
-- **Activity Stream:** Right-panel tab; events for delegation, compaction, self-review, turn summary (Lucide icons only).
-- **Self-review:** Runtime stub (Activity Stream when enabled); settings schema.
-- **Autonomous:** Nested delegation with configurable max depth.
-- **Agent Lightning:** Trace collection to `.atlarix/training_data/` when enabled; training entry point (placeholder).
-- **Token:** Turn summary in Activity Stream; per-provider budget in schema.
-
-v2.2 (Blueprint Intelligence) will build on v2.1 systems.
+- **Auto mode fix:** When Auto is ON, backend uses effective model (Fast/Medium/Thinking chain) for the chosen provider; supports all providers (OpenRouter, Ollama, LM Studio) with 2–3 favorite models.
+- **Auto UI:** When Auto ON: show provider selection only (providers with ≥2 favorites); hide model picker. When Auto OFF: show model picker; hide Auto provider dropdown.
+- **Diagram 404 fix:** Diagram generation uses Auto chain when Auto is ON; deprecated OpenRouter models (e.g. Pony Alpha) mapped to a working model; on 404/model not found, retry with fallback model.
+- **Website (atlarix-launchpad):** Privacy Policy and Terms of Service pages at `/privacy` and `/terms`; footer links; sitemap updated; dependencies added for anime.js and Three.js/react-three-fiber for future animations.
+- **Right panel:** Prefer code-preview (9 tabs) when dev server is running; tab bar uses flex-nowrap and min-w-0 for horizontal scroll.
+- **Full-screen Code/Diagram:** Narrower left column (file tree w-48, diagram sidebar w-56) to give editor/diagram more room.
+- **Errors tab:** Dismissed errors stored by signature; "Mark done" adds signature; when the same error recurs, it is re-shown.
+- **Setup guide:** Copy updated to list all supported providers and MCP configuration (Settings / "Manage MCP tools", `@mcp name`).
+- **Thinking card:** Streaming assistant turns show a "Thinking…" card above the response with live animation until the task is done.
+- **Context progress bar:** Horizontal bar beside the context line showing context usage (tokens); updates after each AI response.
+- **Changelog:** 2.1 items marked done; duplicate Unreleased v2.1.0 section removed.
 
 ---
 
-## [Unreleased] — v2.2.0 Blueprint Intelligence System
+## [2.2.0] — 2026-02-12
 
-### Overview
+### Blueprint Intelligence (RTE + RAG + Combined Blueprints)
 
-Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately. v2.2 will be updated to build on v2.1 (agents, project instructions).
+Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** powered by **Round-Trip Engineering (RTE)** and **Retrieval-Augmented Generation (RAG)**. v2.2 builds on v2.1 (agents, project instructions).
 
-### Planned Features
+- **RTE parsing** – One-time parsing per project; TypeScript and Python parsers; framework detection; single-project Blueprint from RTE (rooms, edges).
+- **Blueprint cache and combined blueprints** – `~/.atlarix/blueprints/{projectHash}/`; manifest, blueprint.json; save/load, staleness; CombinedBlueprint schema (projects, cross_project_edges); findProjects, generateCombinedBlueprint, detectCrossProjectEdges.
+- **AI-selected blueprinting** – Activity scoring; "Generate Blueprints" modal with project list and recommendations; AI prompt for blueprint/diagram selection.
+- **Blueprint as RAG and file watcher** – queryBlueprint, getCodeForNodes; chat integration; incremental Blueprint update on file change.
+- **Parent-aggregated permissions** – Batch mode (planId); single PermissionRequest and approval modal; execute all on approve.
+- **Motia-style UI and ATLARIX_PLAN flow** – React Flow canvas; node types (API, WH, FN, CLS, DB, 3P, AI, STREAM, CRON); drag-and-drop, Cmd+K; Blueprint-driven planning; blueprint cache invalidation on diagram regen; "Refresh from code"; AI editing indicator.
 
-#### Progressive Extraction (Phase 1-4)
-- **Framework detection** – Auto-detect Express, Next.js, FastAPI, Django, Flask, NestJS from code patterns
-- **Framework patterns** – Deterministic pattern matching for APIs, webhooks, middleware, models
-- **Dependency graph** – Module-level dependency visualization
-- **Progressive loading** – Fast initial load (~2s), detail extracted on-demand when user clicks rooms
-- **Blueprint cache** – Persist extracted architecture to `~/.atlarix/blueprints/`; load instantly on next session
+---
 
-#### Blueprint cache + future memory (Phase 3)
-- **Relationship-aware memory** – Index rooms, APIs, functions, models as entities with relationships
-- **Query API** – "What connects to Auth?" / "If I change User model, what breaks?"
-- **Persistent learning** – Blueprint serves as compressed project memory across sessions
+## [Unreleased] — v2.5.0 PIVOT
 
-#### Motia-Style Visual UI (Phase 5)
-- **Step types** – `[API]`, `[WH]`, `[FN]`, `[CLS]`, `[IF]`, `[CRON]`, `[AI]`, `[DB]`, `[3P]`, `[STREAM]`
-- **Node cards** – Type badge, name, description, route/schedule info, credential reference
-- **Connectors** – Dashed (async/event), solid (direct call), arrows showing direction
-- **Click to expand** – Detail panel with editable fields, inputs/outputs, logic steps
-- **Full element support** – APIs, webhooks, functions, classes, conditionals, third-party, credentials (via Vault)
-
-#### Guided Natural Language (Phase 6)
-- **Natural input** – Users describe behavior in plain English
-- **Structured preview** – "We understood: Trigger [click] on [button] → Action [navigate] to [page]"
-- **Refinement** – Edit parsed elements inline before generating
-
-#### AI Blueprint Editing (Phase 7)
-- **Tool calls** – `add_blueprint_step`, `update_blueprint_step`, `connect_steps`
-- **Diff preview** – AI proposes changes, user reviews before applying
-- **Real-time updates** – Canvas updates as AI edits with prominent indicator
-
-#### Blueprint-Driven Planning (Phase 8)
-- **Compare blueprint to live** – Identify additions, orphaned code, modifications
-- **Task generation** – Ordered tasks with dependencies and complexity estimates
-- **ATLARIX_PLAN.md** – Version-controllable plan at project root
-  - Monorepo: one file with sections (## Frontend, ## Backend)
-  - Polyrepo: one file per workspace
-  - Sections: Overview, per-domain tasks, Completed
-- **Exchange-by-exchange** – One task per AI response, review gate before next
-- **Quality over quantity** – Fix bugs before proceeding to next task
-
-### Planned bug fixes (v2.2)
-
-- **Animations (Guided & Autonomous)** — Fix animation bugs in Activity Stream and agent delegation for both Guided and Autonomous modes so progress and delegation states are clearly visible.
-
-### In Progress (2026-02-05)
-
-#### Blueprint UI & accuracy
-- **Blueprint cache invalidation** – Blueprint cache is invalidated when diagram is regenerated (diagram:generate-ai, diagram:regenerate-background, DiagramManager) so the blueprint stays in sync with code.
-- **Refresh from code** – New "Refresh from code" button in BlueprintEditor re-infers blueprint from current workspace; `blueprint:refresh-from-code` IPC handler.
-- **AI editing indicator** – More prominent sticky bar when AI edits the blueprint; humanized action names ("Adding room…", "Adding function…", etc.).
+Atlarix 2.5 PIVOT (planned) introduces the Pivot Engine (ANTLR4 parsing, structure extraction, SQLite graph storage, AI clustering, analysis layer), Canvas/Containers/Beacons UI, Live vs Blueprint comparison, and Generate Code from architecture. Full specification is in TODO.md; implementation to begin next session.
 
 ## [v2.0.0] - 2026-02-02
 

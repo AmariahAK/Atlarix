@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.1.0*
+*Current: v2.2.0*
 
 ---
 
@@ -24,32 +24,30 @@ v2.1 adds a three-tier agent system, built-in specialists, project instruction f
 - **Auto routing:** When Auto is ON, model picker is hidden; complexity-based routing uses Fast/Medium/Thinking (when configured).
 - **AI Configuration:** Settings reorganized with provider/model setup, agent config, quality control, context and summarization, project understanding.
 
-v2.2 (Blueprint Intelligence) will build on these systems (e.g. Architect and Builder agents, project instructions).
+v2.2 (Blueprint Intelligence) built on these systems (e.g. Architect and Builder agents, project instructions).
 
 ---
 
-## What's New in v2.2 — Blueprint Intelligence System
+## What's New in v2.2 — Blueprint Intelligence (RTE + RAG)
 
-Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** that progressively learns your project architecture, remembers it across sessions, and uses that understanding to plan and implement changes accurately.
+Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowledge system** powered by **Round-Trip Engineering (RTE)** and **Retrieval-Augmented Generation (RAG)**.
 
 ### Core Concept
 
-The Blueprint is not just a visualization—it's a compressed, AI-readable representation of your project that serves as persistent memory.
+**Parse once, query forever.** Instead of progressively learning your codebase, Atlarix parses it fully (RTE parsers per language), generates a Blueprint, and uses it as a RAG knowledge base so the AI answers from the graph and only loads relevant code.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  TRADITIONAL AI CODING                                      │
-│  User asks question -> AI scans codebase -> Answers         │
+│  User asks question -> AI scans codebase -> 100K tokens     │
 │  Problem: Expensive, slow, no learning                      │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│  ATLARIX 2.2                                                │
-│  First session: Build blueprint progressively               │
-│  Next session: Load cached blueprint -> AI already "knows"  │
-│  Code changes: Invalidate affected sections, update on use  │
-│                                                             │
-│  No code stored. Blueprint = compressed understanding.      │
+│  ATLARIX 2.2 (RTE + RAG)                                    │
+│  Parse once -> Blueprint cached -> Query graph -> 5K tokens │
+│  Code changes: File watcher re-parses affected files only   │
+│  Full understanding from session 1; no code stored.          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -57,12 +55,14 @@ The Blueprint is not just a visualization—it's a compressed, AI-readable repre
 
 | Feature | Description |
 |---------|-------------|
-| **Progressive Extraction** | Fast initial load (~2s), detail extracted on-demand |
-| **Framework Patterns** | Auto-detect APIs, webhooks, models in Express, Next.js, FastAPI, Django |
-| **Blueprint cache + future memory** | Relationship-aware memory: "What connects to Auth?" (v2.2) |
-| **Motia-Style Visual UI** | Nodes with descriptions, connectors, click-to-expand |
-| **Guided Natural Language** | Describe features in plain English, AI structures them |
-| **Blueprint-Driven Planning** | Compare desired vs actual, generate tasks via `ATLARIX_PLAN.md` |
+| **One-Time RTE Parsing** | Complete project understanding in &lt;30s; TypeScript, Python, optional others |
+| **Blueprint as RAG** | Query graph ("What connects to Auth?"); inject only relevant code into LLM context |
+| **Incremental Updates** | File watcher updates affected Blueprint nodes automatically |
+| **Combined Blueprints** | Polyrepo/monorepo: one view with frontend/backend/mobile markers and cross-project edges |
+| **AI-Selected Blueprinting** | AI chooses which projects to blueprint/diagram (activity, intent); confirmation modal |
+| **Parent-Aggregated Permissions** | One approval for entire feature (not per-tool) |
+| **Motia-Style Visual UI** | React Flow; nodes (API, WH, FN, CLS, DB, etc.); drag-and-drop, Cmd+K |
+| **Blueprint-Driven Planning** | Compare desired vs actual, generate `ATLARIX_PLAN.md`, implement with review gates |
 
 ### Step Types
 
@@ -216,8 +216,11 @@ npm start
 
 ---
 
-## Coming Soon (v2.2+)
+## Coming Soon (v2.5+)
 
+v2.2 is complete. Next up:
+
+- **Atlarix 2.5 PIVOT** – From Code to Canvas, Canvas to Code: ANTLR4 parsing, SQLite graph storage, Canvas/Containers/Beacons UI, Live vs Blueprint comparison, and AI-powered code generation from architecture.
 - **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints
 - **Voice Input** – Speak your instructions
 - **Code Playground** – Test snippets in isolation
