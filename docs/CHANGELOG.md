@@ -47,9 +47,31 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 
 ---
 
-## [Unreleased] — v2.5.0 PIVOT
+## [2.5.0] — 2026-02-14
 
-Atlarix 2.5 PIVOT (planned) introduces the Pivot Engine (ANTLR4 parsing, structure extraction, SQLite graph storage, AI clustering, analysis layer), Canvas/Containers/Beacons UI, Live vs Blueprint comparison, and Generate Code from architecture. Full specification is in TODO.md; implementation to begin next session.
+### PIVOT foundation, UI refinements, and model routing
+
+- **Right panel:** Activity tab removed to reduce clutter. Vault tab kept for env keys (e.g. STRIPE_API_KEY, RESEND_API_KEY) referenced in Blueprint/beacons.
+- **Thinking + agent in chat:** Agent delegation (Guided pipeline / Autonomous graph) and activity stream are now shown in the AI response section, combined with the Thinking card, so users see task delegation and reassurance during long tasks without opening a separate tab.
+- **Model selection by mode and role (Auto):** Direct and Guided main requests use Balanced (second tier); Autonomous main uses Thinking (or deepest when provider has no third tier). Guided agents (Architect, Builder, Reviewer) use Fast; Autonomous agents use Balanced at depth 0 and Fast for subagents. Optional complexity bump (settings) can promote Guided agents to Balanced for heavy tasks. Thinking fallback uses provider’s deepest favorite when no Thinking model is configured.
+- **Agent animations on Blueprint canvas:** When Architect runs, container (room) nodes show a “forming” animation; when Builder runs, nodes show a “beacon highlight” glow; when Reviewer runs, edges pulse green. Activity stream drives the phase so the Diagram tab reflects the active agent.
+- **PIVOT foundation:** New `src/lib/pivot/` with types (Container, Beacon, PivotBlueprint), SQLite schema (nodes, edges, containers, beacons, blueprint_snapshots), and placeholder API for future ANTLR4 parsing, clustering, and persistence. Beacon/container descriptions support env key references; Vault remains the source of truth for values.
+- **atlarix-releases repo:** README, SECURITY.md, and LICENSE added in `atlarix-releases-repo-content/` for copying into the official release repository (atlarix.dev, Norah Labs, Issues/Discussions). Enable Issues (and optionally Discussions) in the releases repo and remove obsolete content as needed.
+
+---
+
+## [2.6.0] — 2026-02-14
+
+### Containers & Beacons UX, docs, and polish
+
+- **Ephemeral session fix:** Persist partial session on abort; fix duplicate user message on ephemeral sessions.
+- **Permission sounds:** Sound on first and subsequent permission batches when approvals are ready.
+- **Delegate and Blueprint docs:** AGENTS.md, AGENTS_COMPACT.md, and agent-tools documentation for delegate_to_agent and Blueprint/containers & beacons tools.
+- **chat:activity for native tools:** Thinking/agent flow now emits chat:activity for native tool start/end so the UI reflects tool usage.
+- **Containers & Beacons UI rename:** Diagram and Blueprint editor use "Containers" and "Beacons" (replacing "rooms" and "functions" in UI labels); "Add room" → "Add container".
+- **Blueprint UX:** Delete container/beacon and delete selected container; entire node draggable; Summary Card and Edit Internals with Back button; onboarding tooltip; "Always show beacons" setting; AI-generated flag and badge on nodes; Flow zoom/pan.
+- **Blueprint tools:** add_blueprint_function and update_blueprint support aiGenerated; get_blueprint, compare_blueprint_to_live, add_blueprint_room, add_blueprint_function, add_blueprint_edge, update_blueprint documented and available to agents.
+- **Capability comparison:** README/docs updated with capability comparison for users.
 
 ## [v2.0.0] - 2026-02-02
 

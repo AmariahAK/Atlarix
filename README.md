@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.2.0*
+*Current: v2.6.0*
 
 ---
 
@@ -113,7 +113,7 @@ Building user authentication with JWT tokens.
 
 ### Live Diagram <-> Blueprint <-> Code (v2.0)
 - **Live View** – Diagram extracted from your codebase (Mermaid). Read-only architecture visualization.
-- **Blueprint Mode** – Toggle **Live | Blueprint**. Add **rooms** (Auth API, Worker, DB), **functions** per room (API, Webhook, Function, Feature), and **edges**.
+- **Blueprint Mode** – Toggle **Live | Blueprint**. Add **containers** (Auth API, Worker, DB), **beacons** per container (API, Webhook, Function, Feature), and **edges**.
 - **Vault** – Manage environment variables per workspace; syncs to `.env.local`. Reference env keys by name in Blueprint.
 - **Codegen** – **Generate code** creates stub files and merges env refs. Additive only.
 - **Compare Mode** – Current / before / after / side-by-side diagram comparison.
@@ -150,6 +150,9 @@ Building user authentication with JWT tokens.
 **Code Intelligence** - Semantic search, architecture diagrams  
 **Web & Research** - web_search, deep_search, read_url  
 **Development** - Command execution, template scaffolding
+
+### Capability comparison
+Atlarix supports **code generation and modification**, **session/context summarization** (auto-compaction, project memory), **web search** (`web_search`, `read_url`), **tool calls** (with a permission layer for writes and commands), and **agent delegation** (Guided/Autonomous modes with specialist agents: research, architect, builder, reviewer). These capabilities are comparable to or stronger than those in [claude-code](https://github.com/anthropics/claude-code) and [opencode](https://github.com/anomalyco/opencode): code gen and tool use are on par or better due to explicit permission UI; session summarization and web search are on par; agent delegation is a differentiator with a structured delegate-to-specialist model. See those projects for their exact feature sets.
 
 ### Multi-Provider AI Support
 8 cloud providers with native model fetch + tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **OpenRouter**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local models.
@@ -216,11 +219,11 @@ npm start
 
 ---
 
-## Coming Soon (v2.5+)
+## Coming Soon (v2.7+)
 
-v2.2 is complete. Next up:
+v2.6 adds Containers & Beacons UX (delete, drag, Summary Card, Edit Internals, onboarding, "Always show beacons", AI-generated badge, Flow zoom/pan), delegate_to_agent and Blueprint tool docs, chat:activity for native tools, and permission sounds. Next up:
 
-- **Atlarix 2.5 PIVOT** – From Code to Canvas, Canvas to Code: ANTLR4 parsing, SQLite graph storage, Canvas/Containers/Beacons UI, Live vs Blueprint comparison, and AI-powered code generation from architecture.
+- **Full PIVOT** – ANTLR4 parsing, SQLite persistence, AI clustering into containers/beacons, Live vs Blueprint comparison, and Generate Code from architecture.
 - **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints
 - **Voice Input** – Speak your instructions
 - **Code Playground** – Test snippets in isolation

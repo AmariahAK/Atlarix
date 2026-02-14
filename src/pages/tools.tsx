@@ -145,6 +145,24 @@ const FEATURES: ToolFeature[] = [
     howItWorks: "Credentials stored securely; AI can generate SQL and migrations.",
     link: { label: "Settings", to: "/settings" },
   },
+  {
+    id: "agent-delegation",
+    title: "Agent Delegation (delegate_to_agent)",
+    shortDescription: "Hand off to Research, Architect, Builder, or Reviewer. Guided (flat) or Autonomous (nested) delegation.",
+    category: "ai",
+    steps: ["Select Guided or Autonomous mode in chat", "Ask for research, architecture, or implementation", "AI delegates to the right agent; see activity in the response"],
+    howItWorks: "In Guided mode the main model delegates once to a specialist. In Autonomous mode agents can delegate to each other up to a depth limit.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "blueprint-containers-beacons",
+    title: "Blueprint — Containers & Beacons",
+    shortDescription: "Design architecture with containers and beacons. get_blueprint, compare_blueprint_to_live, add/update rooms, functions, edges. Generate code from Blueprint.",
+    category: "diagram",
+    steps: ["Open Diagram tab, switch to Blueprint mode", "Add containers and beacons manually or ask AI (add_blueprint_room, add_blueprint_function, add_blueprint_edge)", "Use compare_blueprint_to_live to see desired vs actual", "Generate code from Blueprint delta when ready"],
+    howItWorks: "Blueprint tools (get_blueprint, add_blueprint_room, add_blueprint_function, add_blueprint_edge, update_blueprint, compare_blueprint_to_live) let the AI or you design the architecture; then compare to live and generate code.",
+    link: { label: "Diagram tab → Blueprint", to: "/" },
+  },
 ];
 
 const PER_PAGE = 4;

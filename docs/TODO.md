@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v2.2.0  
-**Next Version:** v2.5.0 — PIVOT (From Code to Canvas, Canvas to Code)  
-**Last Updated:** 2026-02-12
+**Current Version:** v2.6.0  
+**Next Version:** v2.7+ (PIVOT full implementation)  
+**Last Updated:** 2026-02-14
 
 ---
 
@@ -38,21 +38,26 @@
 
 ---
 
-## v2.5 — PIVOT (planned)
+## v2.5 — PIVOT (released 2026-02-14)
 
 **Tagline:** From Code to Canvas, Canvas to Code — Architecture Made Simple
 
-**Core:** Three-state system: Live Diagram (current code) ↔ Blueprint (desired state) → Generated Code. **Containers** = high-level architectural components (e.g. Auth API, Payment Service). **Beacons** = individual functionality inside a container (e.g. Login, Signup, Send Email).
+**Done in v2.5:** Right panel simplified (Activity removed, Vault kept); Thinking + agent delegation combined in chat; Auto model selection by mode/role (Direct/Guided → Balanced main, agents Fast; Autonomous → Thinking main, agents Balanced, subagents Fast); agent-phase animations on Blueprint canvas (Architect/Builder/Reviewer); PIVOT foundation (`src/lib/pivot/` types, SQLite schema, placeholders); atlarix-releases repo content (README, SECURITY, LICENSE).
 
-**Pivot Engine (high level):**
+---
+
+## Done: v2.6 — Containers & Beacons UX and docs (released 2026-02-14)
+
+- **Ephemeral session fix;** permission sounds on approval batches.
+- **Docs:** AGENTS.md, AGENTS_COMPACT.md, agent-tools for delegate_to_agent and Blueprint (get_blueprint, compare_blueprint_to_live, add_blueprint_room/function/edge, update_blueprint).
+- **chat:activity** for native tool start/end; Containers & Beacons UI rename (Diagram/Blueprint).
+- **Blueprint UX:** Delete container/beacon, drag nodes, Summary Card, Edit Internals, Back, onboarding, "Always show beacons", AI-generated badge, Flow zoom/pan; aiGenerated in add_blueprint_function/update_blueprint.
+- **Capability comparison** in README.
+
+**Remaining for full PIVOT:**
 - **Stage 1 — ANTLR4 parsing:** TS/JS, Python, Java, Go, C/C++, Rust; ASTs from language grammars.
-- **Stage 2 — Structure extraction:** Nodes (functions, classes, APIs, DB, webhooks) and edges (calls, imports, inherits); framework detection (Express, Next.js, FastAPI, etc.).
-- **Stage 3 — SQLite graph storage:** nodes, edges, containers, beacons, container_nodes, container_edges, beacon_edges, blueprint_snapshots, analysis_issues, runtime_traces; recursive CTEs for traversal.
-- **Stage 4 — Clustering & visualization:** AI clustering of nodes into 5–8 containers; beacon description generation; canvas structure output.
-- **Stage 5 — Analysis layer:** SonarQube (quality), Semgrep (security), SCIP (code intelligence), Jaeger/Zipkin (runtime traces).
-
-**UI levels:** Canvas (Level 1: containers) → Container view (Level 2: beacons) → Beacon editor (Level 3: prompt + connections). Comparison view (Live vs Blueprint), Generate Code workflow (task breakdown → apply changes), undo/history, onboarding and sample project.
-
-**Roadmap (reference only):** Phase 1 Foundation (Weeks 1–4), Phase 2 Clustering & Analysis (Weeks 5–8), Phase 3 Blueprint Editing (Weeks 9–12), Phase 4 Polish & Testing (Weeks 13–16). Full specification in PIVOT spec; implementation to follow in next session.
-
-**v2.5 (planned) structure:** Implementation will follow the PIVOT spec (e.g. `src/lib/pivot/`, ANTLR4 grammars, SQLite schema from spec). No implementation tasks listed here until work begins.
+- **Stage 2 — Structure extraction:** Nodes and edges; framework detection (Express, Next.js, FastAPI, etc.).
+- **Stage 3 — SQLite persistence:** Wire schema to extractors and blueprint snapshots.
+- **Stage 4 — Clustering & visualization:** AI clustering into 5–8 containers; beacon descriptions; canvas output.
+- **Stage 5 — Analysis layer:** SonarQube, Semgrep, SCIP, traces.
+- **UI levels:** Canvas (containers) → Container view (beacons) → Beacon editor (prompt + connections). Live vs Blueprint comparison, Generate Code workflow, undo/history.
