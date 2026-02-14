@@ -362,6 +362,9 @@ export const UserSettingsSchema = z.object({
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
 
+  /** When true, selecting a container opens Edit Internals (beacon view) directly instead of Summary Card. */
+  blueprintAlwaysShowBeacons: z.boolean().optional(),
+
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   enableAutoUpdate: z.boolean(),

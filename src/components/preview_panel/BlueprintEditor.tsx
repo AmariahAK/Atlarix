@@ -7,7 +7,9 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAtomValue } from "jotai";
+import { useSettings } from "@/hooks/useSettings";
 import { currentAppAtom } from "@/atoms/appAtoms";
+import { agentPhaseFromActivityAtom } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { toast } from "sonner";
 import {
@@ -27,6 +29,7 @@ import {
   Plus,
   Trash2,
   ArrowRight,
+  ArrowLeft,
   Code2,
   ChevronDown,
   ChevronRight,
@@ -34,6 +37,7 @@ import {
   GitBranch,
   RefreshCw,
   Layers,
+  Settings2,
 } from "lucide-react";
 import { GenerateBlueprintsModal } from "@/components/preview_panel/GenerateBlueprintsModal";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
@@ -53,6 +57,7 @@ interface BlueprintEditorProps {
 
 export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEditorProps) {
   const app = useAtomValue(currentAppAtom);
+  const agentPhaseState = useAtomValue(agentPhaseFromActivityAtom);
   const [local, setLocal] = useState<Blueprint>(blueprint);
   const [showMermaidPreview, setShowMermaidPreview] = useState(true);
   const mermaidCode = blueprintToMermaid(local);
@@ -63,7 +68,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
       ...prev,
       rooms: [
         ...prev.rooms,
-        { id, label: `Room ${prev.rooms.length + 1}`, functions: [] },
+        { id, label: `Container ${prev.rooms.length + 1}`, functions: [] },
       ],
     }));
   }, []);
@@ -167,7 +172,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const handleGenerateCode = useCallback(async () => {
     if (!app?.id) return;
     if (local.rooms.length === 0) {
-      toast.error("Add at least one room to generate code");
+      toast.error("Add at least one container to generate code");
       return;
     }
     setIsGenerating(true);
@@ -198,11 +203,14 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
 
   const [showList, setShowList] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  /** When set, bottom panel shows beacon view (Edit Internals) for this room; when null, show Summary Card or hint */
+  const [beaconViewForRoomId, setBeaconViewForRoomId] = useState<string | null>(null);
   const [selectedFunctionId, setSelectedFunctionId] = useState<string | null>(null);
   const [roomDetailViewMode, setRoomDetailViewMode] = useState<Record<string, "list" | "flow">>({});
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [generateBlueprintsOpen, setGenerateBlueprintsOpen] = useState(false);
+  const { settings, updateSettings } = useSettings();
 
   // Sync local state when blueprint prop changes (e.g. from refresh-from-code or AI update)
   useEffect(() => {
@@ -212,7 +220,12 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const handleRoomSelect = useCallback((roomId: string) => {
     setSelectedRoomId(roomId);
     setShowList(true);
-  }, []);
+    if (settings?.blueprintAlwaysShowBeacons) {
+      setBeaconViewForRoomId(roomId);
+    } else {
+      setBeaconViewForRoomId(null);
+    }
+  }, [settings?.blueprintAlwaysShowBeacons]);
 
   useEffect(() => {
     if (selectedRoomId && showList && selectedRoomRef.current) {
@@ -250,8 +263,25 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
       {/* Visual canvas: rooms as nodes, drag to connect */}
       <div className="flex-1 min-h-[280px] p-3 flex flex-col">
         <div className="flex items-center justify-between gap-2 mb-2">
-          <span className="text-xs text-muted-foreground">Drag rooms; connect with edges from handles.</span>
+          <span className="text-xs text-muted-foreground" title="Click a container to see its summary and steps inside">
+            {selectedRoomId ? "Drag containers; connect with edges from handles." : "Drag containers; connect with edges from handles. Click a container to see its summary and steps inside."}
+          </span>
           <div className="flex items-center gap-2">
+            {selectedRoomId && (
+              <button
+                type="button"
+                onClick={() => {
+                  removeRoom(selectedRoomId);
+                  setSelectedRoomId(null);
+                  setBeaconViewForRoomId(null);
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-destructive hover:bg-destructive/15 border border-destructive/40"
+                title="Delete selected container"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete container
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setGenerateBlueprintsOpen(true)}
@@ -296,6 +326,8 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             workspaceId={app?.id ?? null}
             onAddRoom={addRoom}
             onRoomSelect={handleRoomSelect}
+            agentPhase={agentPhaseState.phase}
+            agentPhaseActive={agentPhaseState.active}
             className="flex-1 min-h-0"
           />
         <GenerateBlueprintsModal
@@ -306,7 +338,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
         />
       </div>
 
-      {/* Collapsible list for editing room labels and functions */}
+      {/* Container details: Summary Card or Edit Internals (beacon view) with Back */}
       <div className="border-t border-border">
         <button
           type="button"
@@ -314,117 +346,188 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50"
         >
           {showList ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          Edit room details (labels, functions)
+          Container details
         </button>
         {showList && (
-          <div className="p-3 pt-0 space-y-4 max-h-[240px] overflow-auto">
-            {local.rooms.map((room) => (
-        <div
-          key={room.id}
-          ref={selectedRoomId === room.id ? selectedRoomRef : undefined}
-          className={cn(
-            "rounded-lg border p-3 space-y-2 transition-colors",
-            selectedRoomId === room.id ? "border-primary ring-1 ring-primary/30 bg-primary/5" : "border-border bg-card"
-          )}
-        >
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              type="text"
-              value={room.label}
-              onChange={(e) => updateRoom(room.id, { label: e.target.value })}
-              placeholder="Room name"
-              className="flex-1 min-w-[120px] px-2 py-1 text-sm rounded border border-border bg-background"
-            />
-            <input
-              type="text"
-              value={room.intent ?? ""}
-              onChange={(e) => updateRoom(room.id, { intent: e.target.value || undefined })}
-              placeholder="Intent (optional)"
-              className="flex-1 min-w-[100px] px-2 py-1 text-xs rounded border border-border bg-background text-muted-foreground"
-            />
-            <button
-              type="button"
-              onClick={() => removeRoom(room.id)}
-              className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-              title="Remove room"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {FUNCTION_KINDS.map((kind) => {
-              const { label, Icon } = FUNCTION_KIND_CONFIG[kind];
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => addFunction(room.id, kind)}
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted hover:bg-muted/80"
-                >
-                  <Icon className="w-3 h-3" />
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {room.functions.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "list" }))}
-                  className={cn(
-                    "flex items-center gap-1 rounded px-1.5 py-0.5",
-                    roomDetailViewMode[room.id] !== "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
-                  )}
-                  title="List view"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  List
-                </button>
-                <span className="text-border">|</span>
-                <button
-                  type="button"
-                  onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "flow" }))}
-                  className={cn(
-                    "flex items-center gap-1 rounded px-1.5 py-0.5",
-                    roomDetailViewMode[room.id] === "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
-                  )}
-                  title="Flow view: connect functions"
-                >
-                  <GitBranch className="w-3.5 h-3.5" />
-                  Flow
-                </button>
-              </div>
-              {roomDetailViewMode[room.id] === "flow" ? (
-                <BlueprintRoomFlowView
-                  room={room}
-                  onFlowEdgesChange={handleFlowEdgesChange}
-                  onSelectFunction={setSelectedFunctionId}
-                  onSwitchToList={() => {
-                    setRoomDetailViewMode((m) => ({ ...m, [room.id]: "list" }));
-                  }}
-                />
-              ) : (
-                <ul className="space-y-2 list-none pl-0">
-                  {room.functions.map((fn) => (
-                    <li key={fn.id}>
-                      <BlueprintFunctionListItem
-                        fn={fn}
-                        roomId={room.id}
-                        onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
-                        onRemove={(fnId) => removeFunction(room.id, fnId)}
-                        onOpenCreds={onOpenCreds}
-                        defaultExpanded={selectedFunctionId === fn.id}
+          <div className="p-3 pt-0 space-y-4 max-h-[320px] overflow-auto">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!settings?.blueprintAlwaysShowBeacons}
+                onChange={(e) => updateSettings({ blueprintAlwaysShowBeacons: e.target.checked })}
+                className="rounded border-border"
+              />
+              Always open Edit Internals when selecting a container
+            </label>
+            {!selectedRoomId ? (
+              <p className="text-xs text-muted-foreground py-2" title="Click a container on the canvas">
+                Click a container on the canvas to see its summary and steps inside.
+              </p>
+            ) : beaconViewForRoomId === selectedRoomId ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBeaconViewForRoomId(null)}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                    title="Back to summary"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back
+                  </button>
+                </div>
+                {(() => {
+                  const room = local.rooms.find((r) => r.id === selectedRoomId);
+                  if (!room) return null;
+                  return (
+                    <div
+                      ref={selectedRoomRef}
+                      className="rounded-lg border border-primary/30 ring-1 ring-primary/20 bg-primary/5 p-3 space-y-2"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="text"
+                          value={room.label}
+                          onChange={(e) => updateRoom(room.id, { label: e.target.value })}
+                          placeholder="Container name"
+                          className="flex-1 min-w-[120px] px-2 py-1 text-sm rounded border border-border bg-background"
+                        />
+                        <input
+                          type="text"
+                          value={room.intent ?? ""}
+                          onChange={(e) => updateRoom(room.id, { intent: e.target.value || undefined })}
+                          placeholder="Intent (optional)"
+                          className="flex-1 min-w-[100px] px-2 py-1 text-xs rounded border border-border bg-background text-muted-foreground"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRoom(room.id);
+                            setSelectedRoomId(null);
+                            setBeaconViewForRoomId(null);
+                          }}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Remove container"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {FUNCTION_KINDS.map((kind) => {
+                          const { label, Icon } = FUNCTION_KIND_CONFIG[kind];
+                          return (
+                            <button
+                              key={kind}
+                              type="button"
+                              onClick={() => addFunction(room.id, kind)}
+                              className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted hover:bg-muted/80"
+                            >
+                              <Icon className="w-3 h-3" />
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {room.functions.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <button
+                              type="button"
+                              onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "list" }))}
+                              className={cn(
+                                "flex items-center gap-1 rounded px-1.5 py-0.5",
+                                roomDetailViewMode[room.id] !== "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
+                              )}
+                              title="List view"
+                            >
+                              <List className="w-3.5 h-3.5" />
+                              List
+                            </button>
+                            <span className="text-border">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "flow" }))}
+                              className={cn(
+                                "flex items-center gap-1 rounded px-1.5 py-0.5",
+                                roomDetailViewMode[room.id] === "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
+                              )}
+                              title="Flow view: connect functions"
+                            >
+                              <GitBranch className="w-3.5 h-3.5" />
+                              Flow
+                            </button>
+                          </div>
+                          {roomDetailViewMode[room.id] === "flow" ? (
+                            <BlueprintRoomFlowView
+                              room={room}
+                              onFlowEdgesChange={handleFlowEdgesChange}
+                              onSelectFunction={setSelectedFunctionId}
+                              onSwitchToList={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "list" }))}
+                            />
+                          ) : (
+                            <ul className="space-y-2 list-none pl-0">
+                              {room.functions.map((fn) => (
+                                <li key={fn.id}>
+                                  <BlueprintFunctionListItem
+                                    fn={fn}
+                                    roomId={room.id}
+                                    onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
+                                    onRemove={(fnId) => removeFunction(room.id, fnId)}
+                                    onOpenCreds={onOpenCreds}
+                                    defaultExpanded={selectedFunctionId === fn.id}
+                                  />
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
+            ) : (
+              (() => {
+                const room = local.rooms.find((r) => r.id === selectedRoomId);
+                if (!room) return null;
+                return (
+                  <div
+                    ref={selectedRoomRef}
+                    className="rounded-lg border border-primary/30 ring-1 ring-primary/20 bg-primary/5 p-3 space-y-3"
+                  >
+                    <div className="text-sm font-medium text-foreground">{room.label || "Unnamed container"}</div>
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                      {room.intent || "No description. Add intent above or click Edit Internals to add beacons."}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="text"
+                        value={room.label}
+                        onChange={(e) => updateRoom(room.id, { label: e.target.value })}
+                        placeholder="Container name"
+                        className="flex-1 min-w-[120px] px-2 py-1 text-sm rounded border border-border bg-background"
                       />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+                      <input
+                        type="text"
+                        value={room.intent ?? ""}
+                        onChange={(e) => updateRoom(room.id, { intent: e.target.value || undefined })}
+                        placeholder="Describe for AI (e.g. Handles Stripe, Auth, Users)"
+                        className="flex-1 min-w-[140px] px-2 py-1 text-xs rounded border border-border bg-background text-muted-foreground"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBeaconViewForRoomId(selectedRoomId)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      Edit Internals
+                    </button>
+                  </div>
+                );
+              })()
+            )}
             {local.rooms.length >= 2 && (
               <div className="rounded-lg border border-border bg-card p-3 space-y-2">
                 <h3 className="text-xs font-medium text-muted-foreground">Connections</h3>

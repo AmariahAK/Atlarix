@@ -38,7 +38,7 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
 import log from "electron-log";
 import {
   getSupabaseContext,
@@ -731,15 +731,11 @@ ${componentSnippet}
       } else {
         // Ephemeral workspace chat - no DB operations
         logger.log(`Ephemeral workspace chat ${req.chatId} - skipping DB operations`);
-        // For ephemeral chats, add message to in-memory store
         const { addEphemeralMessage, getEphemeralChat } = await import("./chat_only_handlers");
-        addEphemeralMessage(req.chatId, { role: "user", content: userPrompt });
-
-        // Get existing messages from ephemeral store to include full history
+        // Build from current store WITHOUT adding the new user message yet to avoid duplication
         const ephemeralChat = getEphemeralChat(req.chatId);
         const existingMessages = ephemeralChat?.messages || [];
 
-        // Create the new user message and placeholder assistant
         const newUserMessage = {
           id: Date.now(),
           chatId: req.chatId,
@@ -759,14 +755,7 @@ ${componentSnippet}
           commitHash: null,
         };
 
-        // Include ALL previous messages plus the new exchange
-        // Filter out the current user message if already added to avoid duplication
-        const previousMessages = existingMessages.filter(
-          (m: any) => m.id !== newUserMessage.id
-        );
-        updatedChat.messages = [...previousMessages, newUserMessage, placeholderMessage];
-
-        // Update placeholderAssistantMessage so token logging uses correct ID
+        updatedChat.messages = [...existingMessages, newUserMessage, placeholderMessage];
         placeholderAssistantMessage = placeholderMessage;
       }
 
@@ -775,6 +764,12 @@ ${componentSnippet}
         chatId: req.chatId,
         messages: updatedChat.messages,
       });
+
+      // After building and sending, persist the new user message for ephemeral so next request sees it
+      if (req.chatId < 0) {
+        const { addEphemeralMessage } = await import("./chat_only_handlers");
+        addEphemeralMessage(req.chatId, { role: "user", content: userPrompt });
+      }
 
       let fullResponse = "";
       let maxTokensUsed: number | undefined;
@@ -794,8 +789,12 @@ ${componentSnippet}
       } else {
         // Normal AI processing for non-test prompts
         const effectiveModel = getEffectiveModel(settings);
+        const mainOptions: GetModelClientOptions = {
+          agentMode: settings.agentMode ?? "guided",
+          delegationRole: "main",
+        };
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
-          await getModelClient(effectiveModel, settings);
+          await getModelClient(effectiveModel, settings, mainOptions);
 
         // Chat-only mode: no app/workspace
         const hasWorkspace = !!updatedChat.app;
@@ -1803,15 +1802,25 @@ If the user requests modifications, use request_mode_change to request Build mod
                 description: tool.function.description,
                 parameters: tool.function.parameters,
                 execute: async (args: any) => {
-                  // Execute tool via registry, inject workspace path, workspaceId, and chatMode
-                  const result = await ToolRegistry.execute(tool.function.name, {
-                    ...args,
-                    workspace: workspacePath || undefined,
-                    workspaceId: req.appId ?? undefined,
-                    chatMode: "build", // Pass chatMode so handlers can check permissions
+                  const toolActivityId = `tool-${tool.function.name}-${Date.now()}`;
+                  let activityStatus: "done" | "error" = "done";
+                  safeSend(event.sender, "chat:activity", {
+                    id: toolActivityId,
+                    type: "tool_use",
+                    label: tool.function.name,
+                    status: "running",
+                    timestamp: Date.now(),
                   });
+                  try {
+                    // Execute tool via registry, inject workspace path, workspaceId, and chatMode
+                    const result = await ToolRegistry.execute(tool.function.name, {
+                      ...args,
+                      workspace: workspacePath || undefined,
+                      workspaceId: req.appId ?? undefined,
+                      chatMode: "build", // Pass chatMode so handlers can check permissions
+                    });
 
-                  // Check if this is a permission request (object or string)
+                    // Check if this is a permission request (object or string)
                   if (permissionInterceptor.isPermissionRequest(result)) {
                     const permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
@@ -1896,8 +1905,20 @@ If the user requests modifications, use request_mode_change to request Build mod
                     }
                   }
 
-                  // Not a permission request - return result directly
-                  return typeof result === 'string' ? result : JSON.stringify(result);
+                    // Not a permission request - return result directly
+                    return typeof result === 'string' ? result : JSON.stringify(result);
+                  } catch (err) {
+                    activityStatus = "error";
+                    throw err;
+                  } finally {
+                    safeSend(event.sender, "chat:activity", {
+                      id: toolActivityId,
+                      type: "tool_use",
+                      label: tool.function.name,
+                      status: activityStatus,
+                      timestamp: Date.now(),
+                    });
+                  }
                 },
               };
             }
@@ -2318,21 +2339,24 @@ If the user requests modifications, use request_mode_change to request Build mod
                 // If we have a partial response, save it to the database
                 if (partialResponse) {
                   try {
-                    // Update the placeholder assistant message with the partial content and cancellation note
-                    // Only for non-ephemeral chats
+                    const cancelledContent = `${partialResponse}
+
+[Response cancelled by user]`;
                     if (!isEphemeralWorkspace) {
                       await db
                         .update(messages)
                         .set({
-                          content: `${partialResponse}
-
-[Response cancelled by user]`,
+                          content: cancelledContent,
                         })
                         .where(eq(messages.id, placeholderAssistantMessage.id));
 
                       logger.log(
                         `Updated cancelled response for placeholder message ${placeholderAssistantMessage.id} in chat ${chatId}`,
                       );
+                    } else {
+                      const { addEphemeralMessage } = await import("./chat_only_handlers");
+                      addEphemeralMessage(req.chatId, { role: "assistant", content: cancelledContent });
+                      logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
                     }
                     partialResponses.delete(req.chatId);
                   } catch (error) {

@@ -44,6 +44,11 @@ function BlueprintFunctionNodeComponent({ data, selected }: FunctionNodeProps) {
           <div className="text-xs font-medium text-foreground truncate" title={fn.name}>
             {fn.name || "(unnamed)"}
           </div>
+          {fn.aiGenerated && (
+            <div className="text-[9px] text-muted-foreground italic truncate" title="Created by AI from container prompt">
+              (AI-generated)
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -69,13 +69,13 @@ export const ROOM_STYLES: Record<RoomTypeKey, RoomTypeStyle> = {
   module: {
     bg: "bg-slate-500/10",
     border: "border-slate-500/60",
-    label: "Module",
+    label: "Container",
     badgeClass: "bg-slate-500/20 text-slate-400 border-slate-500/40",
   },
   default: {
     bg: "bg-muted/50",
     border: "border-border",
-    label: "Module",
+    label: "Container",
     badgeClass: "bg-muted text-muted-foreground border-border",
   },
 };

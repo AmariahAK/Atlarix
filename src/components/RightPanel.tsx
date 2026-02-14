@@ -25,12 +25,11 @@ import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
-import { ActivityDisplay } from './ActivityDisplay';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, Activity
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound
 } from 'lucide-react';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
@@ -62,7 +61,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
     vault: { icon: KeyRound, label: 'Vault' },
-    activity: { icon: Activity, label: 'Activity' },
+    activity: { icon: Workflow, label: 'Activity' },  // Deprecated: Activity moved to chat; kept for PanelTab type
 };
 
 // Primary mode categories for the toolbar
@@ -358,8 +357,6 @@ function PanelContent({
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             case 'vault':
                 return <VaultPanel appId={context.data?.appId ?? null} />;
-            case 'activity':
-                return <ActivityDisplay />;
             default:
                 // Default to permission queue
                 return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
@@ -373,9 +370,6 @@ function PanelContent({
         case 'code-preview':
             if (context.activeTab === 'vault') {
                 return <VaultPanel appId={context.data?.appId ?? null} />;
-            }
-            if (context.activeTab === 'activity') {
-                return <ActivityDisplay />;
             }
             return (
                 <CodePreviewPanel

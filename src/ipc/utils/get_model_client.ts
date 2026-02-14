@@ -180,11 +180,51 @@ export interface ModelClient {
   builtinProviderId?: string;
 }
 
+/** v2.5: Mode/role-aware tier selection for Auto (Fast=0, Balanced=1, Thinking=2). */
+export interface GetModelClientOptions {
+  agentMode?: "direct" | "guided" | "autonomous";
+  /** Main chat request vs delegated agent vs nested subagent */
+  delegationRole?: "main" | "agent" | "subagent";
+  /** For Autonomous: 0 = architect/builder, 1+ = subagent */
+  delegationDepth?: number;
+  /** When true, bump agent tier (e.g. Guided agent Fast -> Balanced for heavy tasks) */
+  complexityBump?: boolean;
+}
+
+/**
+ * Returns the tier index (0=Fast, 1=Balanced, 2=Thinking) to use as the first model in the Auto chain.
+ * v2.5: Direct/Guided main -> Balanced; Autonomous main -> Thinking (fallback to deepest if no 3rd);
+ * Guided agents -> Fast; Autonomous agents (depth 0) -> Balanced; subagents -> Fast.
+ */
+function getAutoTierIndex(
+  settings: UserSettings,
+  options: GetModelClientOptions | undefined,
+): number {
+  const mode = options?.agentMode ?? "guided";
+  const role = options?.delegationRole ?? "main";
+  const depth = options?.delegationDepth ?? 0;
+  const autoModelIds = settings.autoModelIds;
+  const hasThinking = Array.isArray(autoModelIds) && autoModelIds.length >= 3;
+
+  if (role === "main") {
+    if (mode === "direct" || mode === "guided") return 1; // Balanced
+    if (mode === "autonomous") return hasThinking ? 2 : 1; // Thinking, or deepest (1) if only 2 models
+    return 1;
+  }
+  if (role === "agent") {
+    if (mode === "guided") return options?.complexityBump ? 1 : 0; // Fast, or Balanced when bumped
+    if (mode === "autonomous" && depth === 0) return 1; // Balanced
+    return 0;
+  }
+  // subagent
+  return 0; // Fast
+}
+
 const logger = log.scope("getModelClient");
 export async function getModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
-  // files?: File[],
+  options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
   isEngineEnabled?: boolean;
@@ -290,9 +330,14 @@ export async function getModelClient(
     ) {
       const providerInfo = allProviders.find((p) => p.id === autoProviderId);
       if (providerInfo) {
-        const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
         const modelNames = autoModelIds.slice(0, 3); // support 2 or 3
-        for (const modelName of modelNames) {
+        const firstTier = getAutoTierIndex(settings, options);
+        const orderedNames = [
+          modelNames[firstTier],
+          ...modelNames.filter((_, i) => i !== firstTier),
+        ];
+        const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
+        for (const modelName of orderedNames) {
           try {
             const { modelClient } = await getModelClient(
               { provider: autoProviderId, name: modelName },
@@ -307,7 +352,7 @@ export async function getModelClient(
         }
         if (models.length > 0) {
           logger.log(
-            `Auto: using provider ${autoProviderId} with ${models.length} model(s) (Fast/Medium/Thinking)`,
+            `Auto: using provider ${autoProviderId} with ${models.length} model(s), first tier=${firstTier} (0=Fast,1=Balanced,2=Thinking)`,
           );
           return {
             modelClient: {

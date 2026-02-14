@@ -138,6 +138,7 @@ ToolRegistry.register({
       name: name.trim(),
       kind: (kind as BlueprintFunctionKind) || "function",
       description: description?.trim(),
+      aiGenerated: true,
     };
     room.functions.push(fn);
     await setBlueprintForWorkspace(workspaceId, blueprint);
@@ -216,8 +217,12 @@ ToolRegistry.register({
   ),
   handler: async ({ workspaceId, blueprint: input }: { workspaceId: number; blueprint: Blueprint }) => {
     emitBlueprintAiEditing(workspaceId, "update_blueprint");
+    const rooms = Array.isArray(input.rooms) ? input.rooms : [];
     const blueprint: Blueprint = {
-      rooms: Array.isArray(input.rooms) ? input.rooms : [],
+      rooms: rooms.map((room) => ({
+        ...room,
+        functions: (room.functions ?? []).map((fn) => ({ ...fn, aiGenerated: fn.aiGenerated ?? true })),
+      })),
       edges: Array.isArray(input.edges) ? input.edges : [],
       envRefs: input.envRefs ?? [],
     };

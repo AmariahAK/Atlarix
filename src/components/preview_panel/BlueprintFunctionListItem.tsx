@@ -1,5 +1,5 @@
 /**
- * Single function row in Edit room details: type icon + label, name, expandable config.
+ * Single function row in Edit container details: type icon + label, name, expandable config.
  * Phase A: differentiate API / Webhook / Function / Feature with icons and expandable details.
  */
 
@@ -74,6 +74,11 @@ export function BlueprintFunctionListItem({
           placeholder={configHint}
           className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-border bg-background"
         />
+        {fn.aiGenerated && (
+          <span className="shrink-0 text-[10px] text-muted-foreground italic" title="Created by AI from container prompt">
+            (AI-generated)
+          </span>
+        )}
         <button
           type="button"
           onClick={(e) => {

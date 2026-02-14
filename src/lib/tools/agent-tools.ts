@@ -13,8 +13,7 @@ import {
 } from "./registry";
 import { getBuiltinAgent } from "../agents/builtin";
 import { readSettings } from "../../main/settings";
-import { getSummarizationModelAsync } from "../summarization_model";
-import { getModelClient } from "../../ipc/utils/get_model_client";
+import { getModelClient, getEffectiveModel } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
 
 const logger = log.scope("agent-tools");
@@ -61,8 +60,14 @@ async function runDelegation(args: DelegateArgs): Promise<{
   const workspaceId = args.workspaceId;
 
   try {
-    const summarizationModel = await getSummarizationModelAsync(settings);
-    const { modelClient } = await getModelClient(summarizationModel, settings);
+    // v2.5: Mode/role-aware model for delegation (Guided: Fast; Autonomous depth 0: Balanced; depth > 0: Fast)
+    const effectiveModel = getEffectiveModel(settings);
+    const delegationOptions = {
+      agentMode: agentMode as "direct" | "guided" | "autonomous",
+      delegationRole: depth > 0 ? ("subagent" as const) : ("agent" as const),
+      delegationDepth: depth,
+    };
+    const { modelClient } = await getModelClient(effectiveModel, settings, delegationOptions);
 
     const allTools = ToolRegistry.getAll();
     const agentToolNames = new Set(agent.toolSet);
@@ -140,7 +145,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
 ToolRegistry.register({
   name: "delegate_to_agent",
   description:
-    "Delegate a task to a specialist agent (research, architect, builder, reviewer). Use when the task fits that specialist. Returns the agent's summary and findings. In Autonomous mode, agents can delegate to other agents (nested).",
+    "You have this tool in Guided and Autonomous modes. Delegate a task to a specialist agent (research, architect, builder, reviewer) when the task fits that specialist—e.g. research for lookups, architect for design, builder for implementation, reviewer for code review. Returns the agent's summary and findings so you can continue. In Autonomous mode, agents can delegate to other agents (nested). Use it when a specialist would do the job better.",
   category: ToolCategory.TASK,
   cost: 2,
   requiresWorkspace: false,

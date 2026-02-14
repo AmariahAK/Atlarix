@@ -335,7 +335,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                         </button>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                        {viewMode === 'live' ? 'Mermaid from code' : 'Rooms & functions'}
+                        {viewMode === 'live' ? 'Mermaid from code' : 'Containers & beacons'}
                     </span>
                     {app?.id && (
                         <button

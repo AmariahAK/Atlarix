@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 
 export type RoomNodeData = {
   room: BlueprintRoom;
+  /** v2.5: Agent phase for canvas animations */
+  agentPhase?: "architect" | "builder" | "reviewer";
+  agentPhaseActive?: boolean;
 };
 
 interface RoomNodeProps {
@@ -20,9 +23,12 @@ interface RoomNodeProps {
 }
 
 function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
-  const { room } = data;
+  const { room, agentPhase, agentPhaseActive } = data;
   const count = room.functions?.length ?? 0;
   const style = getRoomStyle(room);
+  const active = agentPhaseActive === true;
+  const architectOn = agentPhase === "architect" && active;
+  const builderOn = agentPhase === "builder" && active;
 
   return (
     <div
@@ -30,7 +36,9 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
         "relative min-w-[140px] rounded-lg border px-3 py-2 pl-6 shadow-sm transition-all cursor-pointer",
         style.bg,
         style.border,
-        selected ? "ring-2 ring-offset-2 ring-offset-background ring-muted-foreground shadow-md scale-[1.02]" : "hover:shadow-md hover:scale-[1.01]"
+        selected ? "ring-2 ring-offset-2 ring-offset-background ring-muted-foreground shadow-md scale-[1.02]" : "hover:shadow-md hover:scale-[1.01]",
+        architectOn && "atlarix-container-forming",
+        builderOn && "atlarix-beacon-highlight"
       )}
     >
       <div
@@ -50,11 +58,11 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
         </span>
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm truncate text-foreground" title={room.label}>
-            {room.label || "Room"}
+            {room.label || "Container"}
           </div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
             <FileCode className="h-3 w-3 shrink-0" />
-            <span>{count} function{count !== 1 ? "s" : ""}</span>
+            <span>{count} beacon{count !== 1 ? "s" : ""}</span>
           </div>
         </div>
       </div>

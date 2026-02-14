@@ -983,9 +983,30 @@ update_diagram(
 
 ---
 
+## Agent delegation
+
+In **Guided** and **Autonomous** modes you have access to the **delegate_to_agent** tool. Use it to hand off work to specialist agents when the task fits:
+
+- **research** – Web search, gathering information, comparing options
+- **architect** – High-level design, structure, technology choices
+- **builder** – Implementation, code generation, file edits
+- **reviewer** – Code review, testing, finding issues
+
+**Guided** = the user approves steps (e.g. permissions for writes/commands). **Autonomous** = you can chain steps; in addition, agents can call `delegate_to_agent` themselves (nested delegation) up to a depth limit. Whether to delegate is **your decision**; there is no automatic delegation. Prefer delegating when a specialist would do the job better (e.g. research for "find best practices for X", architect for "design the API").
+
+### delegate_to_agent
+
+**Purpose:** Delegate a task to a specialist agent. You have this tool in Guided and Autonomous modes; use it when the task clearly fits one specialist.
+
+**Parameters:** `agent_id` (research | architect | builder | reviewer), `task` (clear description), `context` (optional – file paths, previous findings).
+
+**When to Use:** Research for lookups and comparisons; architect for design/structure; builder for implementation; reviewer for code review or testing. Returns the agent's summary and findings so you can continue in the main chat.
+
+---
+
 ## 📐 Blueprint Tools (Phase 7 – Additive Blueprint)
 
-The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint** (editable rooms and functions). The Blueprint is the desired architecture; use these tools to read and update it. When you edit the Blueprint, the user sees an "AI is editing the blueprint" indicator in the Diagram tab.
+The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint** (editable containers & beacons). The Blueprint is the desired architecture; use these tools to read and update it. When you edit the Blueprint, the user sees an "AI is editing the blueprint" indicator in the Diagram tab.
 
 ### Blueprint Implementation Workflow (IMPORTANT)
 
@@ -1003,11 +1024,11 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ### get_blueprint
 
-**Purpose:** Read the current Blueprint (rooms, functions per room, edges). Use before making changes.
+**Purpose:** Read the current Blueprint (containers, beacons per container, edges). Use before making changes.
 
 **Parameters:** `workspaceId` (number, required – auto-injected).
 
-**When to Use:** Before adding rooms/functions, or to show the user the current Blueprint.
+**When to Use:** Before adding containers/beacons, or to show the user the current Blueprint.
 
 ---
 
@@ -1023,9 +1044,9 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ### add_blueprint_room
 
-**Purpose:** Add a new room to the Blueprint. Room names are user-facing; what matters are the functions/APIs/webhooks inside.
+**Purpose:** Add a new container to the Blueprint. Container names are user-facing; what matters are the beacons (APIs/webhooks/functions) inside.
 
-**Parameters:** `workspaceId`, `label` (room name), `intent` (optional), `type` (optional: api, db, worker, frontend).
+**Parameters:** `workspaceId`, `label` (container name), `intent` (optional), `type` (optional: api, db, worker, frontend).
 
 **When to Use:** User or you decide to add a new component (e.g. "Auth API", "Worker", "DB").
 
@@ -1033,17 +1054,17 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ### add_blueprint_function
 
-**Purpose:** Add a function/API/webhook/feature to a room.
+**Purpose:** Add a beacon (function/API/webhook/feature) to a container.
 
-**Parameters:** `workspaceId`, `roomId` (from get_blueprint), `name`, `kind` (api | webhook | function | feature), `description` (optional).
+**Parameters:** `workspaceId`, `roomId` (from get_blueprint – container id), `name`, `kind` (api | webhook | function | feature), `description` (optional).
 
-**When to Use:** After adding a room, or when the user wants a new API/webhook/feature in an existing room.
+**When to Use:** After adding a container, or when the user wants a new API/webhook/feature in an existing container.
 
 ---
 
 ### add_blueprint_edge
 
-**Purpose:** Add a connection between two rooms (e.g. API → DB).
+**Purpose:** Add a connection between two containers (e.g. API → DB).
 
 **Parameters:** `workspaceId`, `fromRoomId`, `toRoomId`, `label` (optional).
 
@@ -1051,7 +1072,7 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ### update_blueprint
 
-**Purpose:** Replace the entire Blueprint (rooms, edges). Use when doing many changes at once.
+**Purpose:** Replace the entire Blueprint (containers, edges). Use when doing many changes at once.
 
 **Parameters:** `workspaceId`, `blueprint` (object: rooms, edges, envRefs).
 

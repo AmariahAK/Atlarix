@@ -461,6 +461,31 @@ body[data-scroll-locked] .app-region-drag {
   padding-left: 1rem;
 }
 
+/* v2.5: Blueprint canvas agent animations (Architect → containers, Builder → beacons, Reviewer → edges) */
+@keyframes atlarix-container-forming {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { opacity: 0.95; box-shadow: 0 0 12px 2px rgba(16, 185, 129, 0.35); }
+}
+.atlarix-container-forming {
+  animation: atlarix-container-forming 1.2s ease-in-out infinite;
+}
+
+@keyframes atlarix-beacon-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 14px 3px rgba(245, 158, 11, 0.4); }
+}
+.atlarix-beacon-highlight {
+  animation: atlarix-beacon-glow 1s ease-in-out infinite;
+}
+
+@keyframes atlarix-edge-pulse-green {
+  0%, 100% { stroke: hsl(var(--muted-foreground)); opacity: 0.8; }
+  50% { stroke: #10B981; opacity: 1; }
+}
+.atlarix-edge-reviewer-pulse path {
+  animation: atlarix-edge-pulse-green 1s ease-in-out infinite;
+}
+
 /* ═══════════════════════════════════════════════════════════
    PANEL ANIMATIONS
    ═══════════════════════════════════════════════════════════ */

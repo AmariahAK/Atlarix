@@ -113,14 +113,14 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         >
           {message.role === "assistant" && isLastMessage && isStreaming ? (
             <>
-              {/* Agent animation placeholder: full animation is in the Activity tab (Guided/Autonomous) */}
+              {/* Lightweight placeholder; full thinking + agent delegation appears in message content below */}
               <motion.div
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-3 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 flex items-center gap-2"
               >
                 <span className="text-sm font-medium text-muted-foreground">
-                  {isAgentAnimationMode ? "Agent running — see Activity tab" : "Thinking…"}
+                  {isAgentAnimationMode ? "Agent working…" : "Thinking…"}
                 </span>
                 <div className="flex items-center gap-1">
                   <motion.div

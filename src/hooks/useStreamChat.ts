@@ -218,9 +218,13 @@ export function useStreamChat({
 
               const combined = [...prev, ...newProposals];
 
-              // If we had proposals before and got more, play sound to alert user
-              if (prev.length > 0 && newProposals.length > 0) {
-                playRemaining();
+              // Play sound whenever new permission requests arrive (first batch or additional)
+              if (newProposals.length > 0) {
+                if (prev.length > 0) {
+                  playRemaining();
+                } else {
+                  playNotify();
+                }
               }
 
               return combined;

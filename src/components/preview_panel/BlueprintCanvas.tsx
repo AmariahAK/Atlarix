@@ -26,6 +26,7 @@ import { generateBlueprintId } from "@/shared/blueprint-types";
 import { BlueprintRoomNode, type RoomNodeData } from "./BlueprintRoomNode";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { AgentPhase } from "@/atoms/sourceAtoms";
 
 const NODE_TYPE = "room";
 const GRID_COLS = 4;
@@ -33,9 +34,11 @@ const NODE_WIDTH = 160;
 const NODE_HEIGHT = 80;
 const GAP = 24;
 
-const DRAG_HANDLE_CLASS = "room-drag-handle";
-
-function blueprintToNodesAndEdges(blueprint: Blueprint): { nodes: Node<RoomNodeData>[]; edges: Edge[] } {
+function blueprintToNodesAndEdges(
+  blueprint: Blueprint,
+  agentPhase?: AgentPhase | null,
+  agentPhaseActive?: boolean
+): { nodes: Node<RoomNodeData>[]; edges: Edge[] } {
   const rooms = blueprint.rooms ?? [];
   const nodes: Node<RoomNodeData>[] = rooms.map((room, i) => {
     const col = i % GRID_COLS;
@@ -44,16 +47,20 @@ function blueprintToNodesAndEdges(blueprint: Blueprint): { nodes: Node<RoomNodeD
       id: room.id,
       type: NODE_TYPE,
       position: { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) },
-      data: { room },
-      dragHandle: `.${DRAG_HANDLE_CLASS}`,
+      data: { room, agentPhase: agentPhase ?? undefined, agentPhaseActive: agentPhaseActive ?? false },
     };
   });
+  const edgeClassName =
+    agentPhase === "reviewer" && agentPhaseActive
+      ? "atlarix-edge-reviewer-pulse"
+      : undefined;
   const edges: Edge[] = (blueprint.edges ?? []).map((e, i) => ({
     id: `e-${e.from}-${e.to}-${i}`,
     source: e.from,
     target: e.to,
     label: e.label,
     type: "smoothstep",
+    className: edgeClassName,
   }));
   return { nodes, edges };
 }
@@ -76,6 +83,8 @@ interface BlueprintCanvasInnerProps {
   workspaceId: number | null;
   onAddRoom: () => void;
   onRoomSelect?: (roomId: string) => void;
+  agentPhase?: AgentPhase | null;
+  agentPhaseActive?: boolean;
   className?: string;
 }
 
@@ -85,9 +94,15 @@ function BlueprintCanvasInner({
   workspaceId,
   onAddRoom,
   onRoomSelect,
+  agentPhase,
+  agentPhaseActive,
   className,
 }: BlueprintCanvasInnerProps) {
-  const { nodes: initialNodes, edges: initialEdges } = blueprintToNodesAndEdges(blueprint);
+  const { nodes: initialNodes, edges: initialEdges } = blueprintToNodesAndEdges(
+    blueprint,
+    agentPhase,
+    agentPhaseActive
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const workspaceIdRef = useRef(workspaceId);
@@ -96,25 +111,38 @@ function BlueprintCanvasInner({
   useEffect(() => {
     if (workspaceIdRef.current !== workspaceId) {
       workspaceIdRef.current = workspaceId;
-      const { nodes: n, edges: e } = blueprintToNodesAndEdges(blueprint);
+      const { nodes: n, edges: e } = blueprintToNodesAndEdges(blueprint, agentPhase, agentPhaseActive);
       setNodes(n);
       setEdges(e);
     }
-  }, [workspaceId, blueprint, setNodes, setEdges]);
+  }, [workspaceId, blueprint, agentPhase, agentPhaseActive, setNodes, setEdges]);
 
-  // When blueprint.rooms change from list edits, update node data (keep positions)
+  // When blueprint.rooms or agent phase change, update node data (keep positions)
   useEffect(() => {
     const rooms = blueprint.rooms ?? [];
-    setNodes((prev) => {
-      const next = prev.map((node) => {
+    setNodes((prev) =>
+      prev.map((node) => {
         const room = rooms.find((r) => r.id === node.id);
-        if (room && room !== node.data.room) return { ...node, data: { room } };
-        return node;
-      });
-      const changed = next.some((n, i) => n.data.room !== prev[i]?.data.room);
-      return changed ? next : prev;
-    });
-  }, [blueprint.rooms, setNodes]);
+        const nextData: RoomNodeData = {
+          room: room ?? node.data.room,
+          agentPhase: agentPhase ?? undefined,
+          agentPhaseActive: agentPhaseActive ?? false,
+        };
+        return node.data.room !== nextData.room || node.data.agentPhase !== nextData.agentPhase || node.data.agentPhaseActive !== nextData.agentPhaseActive
+          ? { ...node, data: nextData }
+          : node;
+      })
+    );
+  }, [blueprint.rooms, agentPhase, agentPhaseActive, setNodes]);
+
+  // When reviewer phase is active, add pulse class to edges
+  useEffect(() => {
+    const edgeClassName =
+      agentPhase === "reviewer" && agentPhaseActive ? "atlarix-edge-reviewer-pulse" : undefined;
+    setEdges((prev) =>
+      prev.map((e) => (e.className !== edgeClassName ? { ...e, className: edgeClassName } : e))
+    );
+  }, [agentPhase, agentPhaseActive, setEdges]);
 
   const onConnect = useCallback(
     (conn: Connection) => {
@@ -134,7 +162,7 @@ function BlueprintCanvasInner({
 
   const handleAddRoom = useCallback(() => {
     const id = generateBlueprintId();
-    const room: BlueprintRoom = { id, label: "New room", functions: [] };
+    const room: BlueprintRoom = { id, label: "New container", functions: [] };
     const col = nodes.length % GRID_COLS;
     const row = Math.floor(nodes.length / GRID_COLS);
     setNodes((prev) => [
@@ -144,7 +172,6 @@ function BlueprintCanvasInner({
         type: NODE_TYPE,
         position: { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) },
         data: { room },
-        dragHandle: `.${DRAG_HANDLE_CLASS}`,
       },
     ]);
   }, [nodes.length, setNodes]);
@@ -177,7 +204,7 @@ function BlueprintCanvasInner({
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            Add room
+            Add container
           </button>
         </Panel>
       </ReactFlow>
@@ -191,6 +218,9 @@ export interface BlueprintCanvasProps {
   workspaceId: number | null;
   onAddRoom: () => void;
   onRoomSelect?: (roomId: string) => void;
+  /** v2.5: Agent phase for canvas animations (architect/builder/reviewer) */
+  agentPhase?: AgentPhase | null;
+  agentPhaseActive?: boolean;
   className?: string;
 }
 

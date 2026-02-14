@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoModelIds: undefined,
   enableAutoFixProblems: false,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
+  blueprintAlwaysShowBeacons: false,
   enableAutoUpdate: true,
   releaseChannel: "stable",
   selectedTemplateId: DEFAULT_TEMPLATE_ID,

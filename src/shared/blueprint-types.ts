@@ -17,6 +17,8 @@ export interface BlueprintFunction {
   provider?: string;
   /** Webhook trigger (e.g. POST /api/send-email). */
   trigger?: string;
+  /** When true, this beacon was created by AI from a container-level prompt; devs can modify or remove. */
+  aiGenerated?: boolean;
 }
 
 /** Edge between two functions within a room (Phase C/D: flow view) */

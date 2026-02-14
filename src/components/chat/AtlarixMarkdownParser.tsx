@@ -33,6 +33,7 @@ import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
 import { ThinkingCard } from "./ThinkingSection";
+import { ActivityDisplay } from "../ActivityDisplay";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -287,6 +288,13 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
           thoughts={thoughts}
           toolCalls={toolCalls}
         />
+      )}
+
+      {/* Agent delegation (Guided pipeline / Autonomous graph) - combined with thinking in chat */}
+      {isStreaming && (
+        <div className="mt-2 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+          <ActivityDisplay />
+        </div>
       )}
 
       {/* CARD 2: Response - The actual answer, completely separate */}

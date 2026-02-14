@@ -8,13 +8,14 @@ import {
   ReactFlow,
   useNodesState,
   useEdgesState,
+  Controls,
+  Background,
+  BackgroundVariant,
+  ReactFlowProvider,
   type NodeTypes,
   type Connection,
   type Node,
   type Edge,
-  Background,
-  BackgroundVariant,
-  ReactFlowProvider,
   type EdgeChange,
 } from "@xyflow/react";
 // @ts-expect-error - CSS import has no type declarations
@@ -144,6 +145,7 @@ function BlueprintRoomFlowViewInner({
         nodesDraggable
       >
         <Background variant={BackgroundVariant.Dots} gap={10} size={0.8} className="bg-background" />
+        <Controls className="!shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
       </ReactFlow>
     </div>
   );

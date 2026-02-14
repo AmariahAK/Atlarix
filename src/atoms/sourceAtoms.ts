@@ -189,6 +189,22 @@ export interface ActivityStreamItem {
 }
 export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);
 
+/** v2.5: Current agent phase from activity stream for canvas animations (architect → containers, builder → beacons, reviewer → edges). */
+export type AgentPhase = "architect" | "builder" | "reviewer" | null;
+export const agentPhaseFromActivityAtom = atom<{ phase: AgentPhase; active: boolean }>((get) => {
+  const items = get(activityStreamItemsAtom);
+  const delegation = [...items].reverse().find(
+    (i) =>
+      (i.type === "delegation_start" || i.type === "delegation_complete" || i.type === "delegation_error") &&
+      typeof i.agent === "string" &&
+      ["architect", "builder", "reviewer"].includes(i.agent)
+  );
+  if (!delegation) return { phase: null, active: false };
+  const phase = delegation.agent as AgentPhase;
+  const active = delegation.type === "delegation_start" || delegation.status === "running";
+  return { phase, active };
+});
+
 // ═══════════════════════════════════════════════════════════
 // PANEL STATE ATOMS
 // ═══════════════════════════════════════════════════════════
