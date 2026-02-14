@@ -1,10 +1,6 @@
 pipeline {
-    agent {
-        docker {
-            image 'node:20'
-            reuseNode true
-        }
-    }
+    agent any
+    tools { nodejs 'Node 20' }
     stages {
         stage('Checkout') {
             steps {
