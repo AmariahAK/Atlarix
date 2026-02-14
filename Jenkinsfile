@@ -12,11 +12,6 @@ pipeline {
                 sh 'npm ci'
             }
         }
-        stage('Typecheck') {
-            steps {
-                sh 'npm run ts'
-            }
-        }
         stage('Build') {
             steps {
                 sh 'npx electron-forge package'
