@@ -37,11 +37,11 @@ import {
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 
-// Tab configurations for each panel type
+// Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
     'code-preview': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram', 'activity', 'vault'],
-    'diagram': ['diagram', 'logs', 'vault'],
+    'diagram': ['diagram'],
     'terminal': ['terminal'],
     'file-diff': ['preview', 'code', 'terminal', 'errors', 'permissions', 'search', 'diagram', 'activity', 'vault'],  // Same as code-preview
     'files': ['files'],
@@ -123,33 +123,36 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'web-search';
         }
 
-        // Priority 3: Diagram generation
-        if (diagramState && lastToolCall?.name === 'generate_diagram') {
-            return 'diagram';
-        }
-
-        // Priority 4: Terminal output
+        // Priority 3: Terminal output (explicit terminal intent)
         if (terminalOutput && lastToolCall?.name === 'run_command') {
             return 'terminal';
         }
 
-        // Priority 5: Live preview (dev server running)
+        // Priority 4: Workspace chat – always full tabs (preview, code, terminal, errors, diagram, etc.)
+        if (currentApp ?? selectedAppId) {
+            return 'code-preview';
+        }
+
+        // Priority 5: Live preview (dev server running, non-workspace) – full tabs
         if (devServerUrl) {
             return 'code-preview';
         }
 
-        // Priority 6: Check for any recent sources
+        // Priority 6: Check for any recent sources (non-workspace)
         if (sources.length > 0) {
             return 'web-search';
         }
 
-        // Priority 7: Check for any diagram
+        // Priority 7: Diagram only (non-workspace with diagram state)
+        if (diagramState && lastToolCall?.name === 'generate_diagram') {
+            return 'diagram';
+        }
         if (diagramState) {
             return 'diagram';
         }
 
         return 'empty';
-    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl, hasPendingPermissions]);
+    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
 
     // ═══════════════════════════════════════════════════════════
     // LAYER 1: AI Intent Mapping

@@ -47,14 +47,28 @@ function PersistentChatContainer() {
   // Determine if we're on the home page
   const isHomePage = location.pathname === '/';
 
-  // Handle continuing the chat conversation 
-  const handleContinueChat = useCallback((prompt: string) => {
+  // Handle continuing the chat conversation (verify workspace path before send)
+  const handleContinueChat = useCallback(async (prompt: string) => {
     if (!activeChatId || !prompt.trim()) return;
-    streamMessage({
-      prompt,
-      chatId: activeChatId,
-      attachments: [],
-    });
+    try {
+      const chat = await IpcClient.getInstance().getChat(activeChatId);
+      if (chat.appId != null) {
+        const app = await IpcClient.getInstance().getApp(chat.appId);
+        if (app.pathExists === false) {
+          const { showError } = await import("@/lib/toast");
+          showError("Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.");
+          return;
+        }
+      }
+      streamMessage({
+        prompt,
+        chatId: activeChatId,
+        attachments: [],
+      });
+    } catch (e) {
+      console.error("Continue chat check failed:", e);
+      streamMessage({ prompt, chatId: activeChatId, attachments: [] });
+    }
   }, [activeChatId, streamMessage]);
 
   // Handle new chat - reset to home state
@@ -150,6 +164,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   );
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
@@ -161,6 +176,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
   // Load diagram when workspace is selected (even before first prompt)
   useLoadApp(selectedAppId);
+
+  // Re-check workspace path when loading a chat: sync selectedAppId from chat so useLoadApp refetches and banner shows if path missing
+  useEffect(() => {
+    if (activeChatId == null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const chat = await IpcClient.getInstance().getChat(activeChatId);
+        if (cancelled || chat.appId == null) return;
+        setSelectedAppId(chat.appId);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChatId, setSelectedAppId]);
 
   useEffect(() => {
     const zoomLevel = settings?.zoomLevel ?? DEFAULT_ZOOM_LEVEL;

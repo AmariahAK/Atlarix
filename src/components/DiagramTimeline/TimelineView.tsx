@@ -51,13 +51,14 @@ export function TimelineView({
     const fetchTimeline = async () => {
         setLoading(true);
         try {
+            if (!window.electron?.ipcRenderer) return;
             const result = await window.electron.ipcRenderer.invoke(
                 detailedRange ? "diagram:get-detailed-timeline" : "diagram:get-timeline",
                 detailedRange
                     ? { appId, detailedRange }
                     : { appId, timeRange }
             );
-            setSnapshots(result.snapshots || []);
+            setSnapshots(((result as { snapshots?: Snapshot[] })?.snapshots) ?? []);
         } catch (error) {
             console.error("Failed to fetch timeline:", error);
             setSnapshots([]);
@@ -102,7 +103,7 @@ export function TimelineView({
         setCapturing(true);
         try {
             const annotation = window.prompt("Add a note for this snapshot (optional):");
-            await window.electron.ipcRenderer.invoke("diagram:capture-snapshot", {
+            await window.electron?.ipcRenderer.invoke("diagram:capture-snapshot", {
                 appId,
                 trigger: "user_request",
                 annotation: annotation || undefined,
@@ -126,7 +127,7 @@ export function TimelineView({
         if (!window.confirm("Delete this snapshot?")) return;
 
         try {
-            await window.electron.ipcRenderer.invoke("diagram:delete-snapshot", snapshotId);
+            await window.electron?.ipcRenderer.invoke("diagram:delete-snapshot", snapshotId);
             await fetchTimeline();
             if (selectedSnapshotId === snapshotId) {
                 setSelectedSnapshotId(null);
@@ -142,7 +143,7 @@ export function TimelineView({
         if (!annotation) return;
 
         try {
-            await window.electron.ipcRenderer.invoke("diagram:annotate-snapshot", {
+            await window.electron?.ipcRenderer.invoke("diagram:annotate-snapshot", {
                 snapshotId,
                 annotation,
             });

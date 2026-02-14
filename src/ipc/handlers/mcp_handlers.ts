@@ -14,6 +14,19 @@ import { fetchUserBudget } from "./pro_handlers";
 const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
 
+/** Log MCP errors without full stack when the connection closed (expected after server exit / idle). */
+export function logMcpError(context: string, e: unknown): void {
+  const message = e instanceof Error ? e.message : String(e);
+  const isConnectionClosed =
+    /connection closed|Connection closed|MCPClientError/i.test(message) ||
+    (e instanceof Error && e.name?.includes("MCP"));
+  if (isConnectionClosed) {
+    logger.warn(`${context}: ${message}`);
+  } else {
+    logger.error(context, e);
+  }
+}
+
 const MCP_FREE_TIER_LIMIT = 1;
 const MCP_GLOBAL_MAX = 5;
 const MCP_WORKSPACE_MAX = 5;
@@ -142,7 +155,7 @@ export function registerMcpHandlers() {
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        logger.error("MCP test connection failed", e);
+        logMcpError("MCP test connection failed", e);
         return { ok: false, error: message };
       }
     },
@@ -210,7 +223,7 @@ export function registerMcpHandlers() {
         );
         return tools;
       } catch (e) {
-        logger.error("Failed to list tools", e);
+        logMcpError("Failed to list MCP tools (connection may have closed)", e);
         return [];
       }
     },

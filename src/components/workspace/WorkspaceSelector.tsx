@@ -44,9 +44,9 @@ export function WorkspaceSelector({
             // Use Electron's dialog API to show folder picker
             const result = await window.electron?.ipcRenderer.invoke(
                 "dialog:openDirectory"
-            );
+            ) as { canceled?: boolean; filePaths?: string[] } | undefined;
 
-            if (result && !result.canceled && result.filePaths[0]) {
+            if (result && !result.canceled && result.filePaths?.[0]) {
                 const selectedPath = result.filePaths[0];
                 onWorkspaceSelect(selectedPath);
 

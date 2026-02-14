@@ -204,6 +204,7 @@ const validInvokeChannels = [
   "diagram:update",
   "diagram:delete",
   "diagram:history",
+  "diagram:history-from-git",
   "diagram:restore",
   "diagram:check-staleness",
   "diagram:mark-stale",
@@ -229,6 +230,8 @@ const validInvokeChannels = [
   "blueprint:get",
   "blueprint:set",
   "blueprint:refresh-from-code",
+  "blueprint:analyze-workspace",
+  "blueprint:generate-combined",
   "blueprint:codegen",
   // File operations (Live Code Editor)
   "file:read-content",
@@ -304,6 +307,9 @@ type ValidReceiveChannel = (typeof validReceiveChannels)[number];
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld("electron", {
+  minimize: () => ipcRenderer.invoke("window:minimize"),
+  maximize: () => ipcRenderer.invoke("window:maximize"),
+  close: () => ipcRenderer.invoke("window:close"),
   ipcRenderer: {
     invoke: (channel: ValidInvokeChannel, ...args: unknown[]) => {
       if (validInvokeChannels.includes(channel)) {

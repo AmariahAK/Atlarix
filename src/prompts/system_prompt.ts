@@ -75,6 +75,15 @@ const DEFAULT_AI_RULES = `# Tech Stack
 `;
 
 // ═══════════════════════════════════════════════════════════
+// BUILD SYSTEM SENTINELS (e2e snapshot normalization)
+// ═══════════════════════════════════════════════════════════
+
+/** Sentinel string that starts the build/system instruction block in the prompt. Replaced in e2e with "\n${BUILD_SYSTEM_PREFIX}" for stable snapshots. */
+export const BUILD_SYSTEM_PREFIX = "\n---\n";
+/** Sentinel string that ends the build/system instruction block. Replaced in e2e with "${BUILD_SYSTEM_POSTFIX}" for stable snapshots. */
+export const BUILD_SYSTEM_POSTFIX = "\n---\n";
+
+// ═══════════════════════════════════════════════════════════
 // CONSTRUCT SYSTEM PROMPT
 // ═══════════════════════════════════════════════════════════
 

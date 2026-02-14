@@ -55,8 +55,8 @@ export function HomeChatInput({
 
     // REQUIREMENT: Must select model before sending (like StackSense/LM Studio)
     const hasModel = settings?.selectedModel ||
-      settings?.providerSettings?.ollama?.models?.length > 0 ||
-      settings?.providerSettings?.lmstudio?.models?.length > 0;
+      ((settings?.providerSettings?.ollama as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0 ||
+      ((settings?.providerSettings?.lmstudio as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
 
     if (!hasModel) {
       // Dynamically import to avoid circular deps

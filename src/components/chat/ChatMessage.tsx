@@ -18,6 +18,8 @@ import { formatDistanceToNow, format } from "date-fns";
 import { useVersions } from "@/hooks/useVersions";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { activeChatIdAtom, lastTurnHadToolCallsByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { useSettings } from "@/hooks/useSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import {
@@ -34,7 +36,21 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const { isStreaming } = useStreamChat();
+  const { settings } = useSettings();
   const appId = useAtomValue(selectedAppIdAtom);
+  const activeChatId = useAtomValue(activeChatIdAtom);
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const currentChatId = activeChatId ?? selectedChatId;
+  const lastTurnHadToolCallsByChatId = useAtomValue(lastTurnHadToolCallsByChatIdAtom);
+  const agentMode = settings?.agentMode ?? "guided";
+  const isAgentAnimationMode = agentMode === "guided" || agentMode === "autonomous";
+  const showNoActionsThisTurn =
+    isLastMessage &&
+    !isStreaming &&
+    message.role === "assistant" &&
+    isAgentAnimationMode &&
+    currentChatId != null &&
+    lastTurnHadToolCallsByChatId[currentChatId] === false;
   const { versions: liveVersions } = useVersions(appId);
   //handle copy chat
   const { copyMessageContent, copied } = useCopyToClipboard();
@@ -95,44 +111,84 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             message.role === "assistant" ? "" : "ml-24 bg-(--sidebar-accent)"
           }`}
         >
-          {message.role === "assistant" &&
-          !message.content &&
-          isStreaming &&
-          isLastMessage ? (
-            <div className="flex h-6 items-center space-x-2 p-2">
+          {message.role === "assistant" && isLastMessage && isStreaming ? (
+            <>
+              {/* Agent animation placeholder: full animation is in the Activity tab (Guided/Autonomous) */}
               <motion.div
-                className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                animate={{ y: [0, -12, 0] }}
-                transition={{
-                  repeat: Number.POSITIVE_INFINITY,
-                  duration: 0.4,
-                  ease: "easeOut",
-                  repeatDelay: 1.2,
-                }}
-              />
-              <motion.div
-                className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                animate={{ y: [0, -12, 0] }}
-                transition={{
-                  repeat: Number.POSITIVE_INFINITY,
-                  duration: 0.4,
-                  ease: "easeOut",
-                  delay: 0.4,
-                  repeatDelay: 1.2,
-                }}
-              />
-              <motion.div
-                className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                animate={{ y: [0, -12, 0] }}
-                transition={{
-                  repeat: Number.POSITIVE_INFINITY,
-                  duration: 0.4,
-                  ease: "easeOut",
-                  delay: 0.8,
-                  repeatDelay: 1.2,
-                }}
-              />
-            </div>
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-3 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 flex items-center gap-2"
+              >
+                <span className="text-sm font-medium text-muted-foreground">
+                  {isAgentAnimationMode ? "Agent running — see Activity tab" : "Thinking…"}
+                </span>
+                <div className="flex items-center gap-1">
+                  <motion.div
+                    className="h-1.5 w-1.5 rounded-full bg-primary"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut" }}
+                  />
+                  <motion.div
+                    className="h-1.5 w-1.5 rounded-full bg-primary"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut", delay: 0.2 }}
+                  />
+                  <motion.div
+                    className="h-1.5 w-1.5 rounded-full bg-primary"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut", delay: 0.4 }}
+                  />
+                </div>
+              </motion.div>
+              {!message.content ? (
+                <div className="flex h-6 items-center space-x-2 p-2">
+                  <motion.div
+                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
+                    animate={{ y: [0, -12, 0] }}
+                    transition={{
+                      repeat: Number.POSITIVE_INFINITY,
+                      duration: 0.4,
+                      ease: "easeOut",
+                      repeatDelay: 1.2,
+                    }}
+                  />
+                  <motion.div
+                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
+                    animate={{ y: [0, -12, 0] }}
+                    transition={{
+                      repeat: Number.POSITIVE_INFINITY,
+                      duration: 0.4,
+                      ease: "easeOut",
+                      delay: 0.4,
+                      repeatDelay: 1.2,
+                    }}
+                  />
+                  <motion.div
+                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
+                    animate={{ y: [0, -12, 0] }}
+                    transition={{
+                      repeat: Number.POSITIVE_INFINITY,
+                      duration: 0.4,
+                      ease: "easeOut",
+                      delay: 0.8,
+                      repeatDelay: 1.2,
+                    }}
+                  />
+                </div>
+              ) : (
+                <div
+                  className="prose dark:prose-invert prose-headings:mb-2 prose-p:my-1 prose-pre:my-0 max-w-none break-words"
+                  suppressHydrationWarning
+                >
+                  <AtlarixMarkdownParser content={message.content} />
+                  <div className="mt-4 ml-4 relative w-5 h-5 animate-spin">
+                    <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full"></div>
+                    <div className="absolute bottom-0 left-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-80"></div>
+                    <div className="absolute bottom-0 right-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-60"></div>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div
               className="prose dark:prose-invert prose-headings:mb-2 prose-p:my-1 prose-pre:my-0 max-w-none break-words"
@@ -147,6 +203,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                       <div className="absolute bottom-0 left-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-80"></div>
                       <div className="absolute bottom-0 right-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-60"></div>
                     </div>
+                  )}
+                  {showNoActionsThisTurn && (
+                    <div className="mt-2 text-xs text-muted-foreground">No actions this turn.</div>
                   )}
                 </>
               ) : (

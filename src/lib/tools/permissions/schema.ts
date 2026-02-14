@@ -76,6 +76,8 @@ export const PermissionOperationType = z.enum([
     "rename_file",
     "run_command",
     "batch_refactor",
+    // Parent-aggregated: one approval for a full plan (v2.2)
+    "batch_plan",
     // Surgical edit tools
     "replace_code",
     "insert_code",
@@ -83,6 +85,21 @@ export const PermissionOperationType = z.enum([
     // AI-controlled diagram update
     "update_diagram",
 ]);
+
+/** Single operation inside a batch_plan (file or command) */
+export const BatchPlanItemSchema = z.union([
+    FileOperationPreviewSchema,
+    CommandOperationPreviewSchema,
+]);
+export type BatchPlanItem = z.infer<typeof BatchPlanItemSchema>;
+
+/** Preview for batch_plan: title + list of operations */
+export const BatchPlanPreviewSchema = z.object({
+    title: z.string().describe("Short title for the plan (e.g. 'Building auth system')"),
+    summary: z.string().optional().describe("One-line summary (e.g. '3 files to create, 1 to modify')"),
+    operations: z.array(BatchPlanItemSchema).describe("Ordered list of file or command operations"),
+});
+export type BatchPlanPreview = z.infer<typeof BatchPlanPreviewSchema>;
 
 export type PermissionOperationType = z.infer<typeof PermissionOperationType>;
 
@@ -94,6 +111,7 @@ export const PermissionRequestSchema = z.object({
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
         DiagramUpdatePreviewSchema,
+        BatchPlanPreviewSchema,
     ]),
     metadata: PermissionMetadataSchema.optional(),
 });

@@ -17,7 +17,7 @@ import { selectedAppIdAtom } from '@/atoms/appAtoms';
 import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput, browserErrorsAtom } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
-import { deduplicateErrors } from '@/lib/devServerErrorParser';
+import { deduplicateErrors, type ParsedError } from '@/lib/devServerErrorParser';
 import { TerminalIntelligence } from '@/lib/terminal-intelligence';
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {

@@ -11,10 +11,11 @@
 
 import { useEffect } from 'react';
 import { useSetAtom } from 'jotai';
-import { browserErrorsAtom, type BrowserError } from '@/atoms/sourceAtoms';
+import { browserErrorsAtom, dismissedErrorSignaturesAtom, getErrorSignature, type BrowserError } from '@/atoms/sourceAtoms';
 
 export function useBrowserErrorListener() {
     const setErrors = useSetAtom(browserErrorsAtom);
+    const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
 
     useEffect(() => {
         /**
@@ -192,6 +193,11 @@ export function useBrowserErrorListener() {
                     timestamp: payload.timestamp || Date.now(),
                 };
 
+                setDismissedSignatures((prev) => {
+                    const next = new Set(prev);
+                    next.delete(getErrorSignature(error));
+                    return next;
+                });
                 setErrors((prev) => {
                     // Avoid duplicates using normalized comparison
                     if (isDuplicateError(error, prev)) return prev;
@@ -290,6 +296,11 @@ export function useBrowserErrorListener() {
                         timestamp: payload.timestamp || Date.now(),
                     };
 
+                    setDismissedSignatures((prev) => {
+                        const next = new Set(prev);
+                        next.delete(getErrorSignature(error));
+                        return next;
+                    });
                     setErrors((prev) => {
                         // Avoid duplicates using normalized comparison
                         if (isDuplicateError(error, prev)) {
@@ -317,6 +328,11 @@ export function useBrowserErrorListener() {
                         timestamp: Date.now(),
                     };
 
+                    setDismissedSignatures((prev) => {
+                        const next = new Set(prev);
+                        next.delete(getErrorSignature(error));
+                        return next;
+                    });
                     setErrors((prev) => {
                         // Avoid duplicates using normalized comparison
                         if (isDuplicateError(error, prev)) return prev;
@@ -337,6 +353,11 @@ export function useBrowserErrorListener() {
                             timestamp: Date.now(),
                         };
 
+                        setDismissedSignatures((prev) => {
+                            const next = new Set(prev);
+                            next.delete(getErrorSignature(error));
+                            return next;
+                        });
                         setErrors((prev) => {
                             const isDuplicate = prev.some(
                                 e => e.message === error.message &&
@@ -382,6 +403,11 @@ export function useBrowserErrorListener() {
                     timestamp: Date.now(),
                 };
 
+                setDismissedSignatures((prev) => {
+                    const next = new Set(prev);
+                    next.delete(getErrorSignature(error));
+                    return next;
+                });
                 setErrors((prev) => {
                     const isDuplicate = prev.some(
                         e => e.message === error.message &&
@@ -403,7 +429,7 @@ export function useBrowserErrorListener() {
             ipcRenderer?.removeListener?.('operation-status', handleOperationStatus);
             ipcRenderer?.removeListener?.('browser-console-cleared', handleBufferCleared);
         };
-    }, [setErrors]);
+    }, [setErrors, setDismissedSignatures]);
 }
 
 export default useBrowserErrorListener;

@@ -12,12 +12,14 @@ import {
   type Connection,
   type Node,
   type Edge,
+  type NodeTypes,
   Controls,
   Background,
   BackgroundVariant,
   ReactFlowProvider,
   Panel,
 } from "@xyflow/react";
+// @ts-expect-error - CSS import has no type declarations
 import "@xyflow/react/dist/style.css";
 import type { Blueprint, BlueprintRoom, BlueprintEdge } from "@/shared/blueprint-types";
 import { generateBlueprintId } from "@/shared/blueprint-types";
@@ -61,12 +63,12 @@ function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint 
   const blueprintEdges: BlueprintEdge[] = edges.map((e) => ({
     from: e.source,
     to: e.target,
-    label: e.label,
+    label: typeof e.label === "string" ? e.label : undefined,
   }));
   return { rooms, edges: blueprintEdges, envRefs: [] };
 }
 
-const nodeTypes = { [NODE_TYPE]: BlueprintRoomNode };
+const nodeTypes: NodeTypes = { [NODE_TYPE]: BlueprintRoomNode as NodeTypes[string] };
 
 interface BlueprintCanvasInnerProps {
   blueprint: Blueprint;

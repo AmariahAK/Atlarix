@@ -400,7 +400,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     )}
                 </div>
             )}
-            {activeTab === 'diagram' && viewMode === 'live' && (
+            {activeTab === 'diagram' && viewMode === 'live' && diagram && (
                 <DiagramViewer
                     diagram={diagram}
                     compareMode={compareMode}

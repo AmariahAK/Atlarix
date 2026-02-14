@@ -205,13 +205,13 @@ export function AppList({ show }: { show?: boolean }) {
     try {
       const ipcRenderer = window.electron?.ipcRenderer;
       if (ipcRenderer?.invoke) {
-        const limitCheck = await ipcRenderer.invoke('auth:check-workspace-limit');
+        const limitCheck = await ipcRenderer.invoke('auth:check-workspace-limit') as { allowed?: boolean; reason?: string };
         if (!limitCheck.allowed) {
           // Show upgrade prompt instead of importing
           import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
             triggerUpgrade();
           });
-          alert(`Workspace limit reached. ${limitCheck.reason || 'Upgrade to Pro for unlimited workspaces.'}`);
+          alert(`Workspace limit reached. ${limitCheck.reason ?? 'Upgrade to Pro for unlimited workspaces.'}`);
           return;
         }
       }

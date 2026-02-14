@@ -253,8 +253,8 @@ export default function DiagramPage() {
     return (
         <div className="flex-1 flex bg-background h-screen">
             <div className={cn("flex flex-1 min-w-0", showChatPanel && "flex-row")}>
-            {/* Workspace Selector Sidebar */}
-            <div className="w-64 flex-shrink-0 border-r border-border flex flex-col">
+            {/* Workspace Selector Sidebar (slim to give diagram canvas more room) */}
+            <div className="w-56 flex-shrink-0 border-r border-border flex flex-col">
                 <div className="p-4 border-b border-border flex items-center justify-between">
                     <h3 className="font-semibold text-foreground">Workspaces</h3>
                     <Button

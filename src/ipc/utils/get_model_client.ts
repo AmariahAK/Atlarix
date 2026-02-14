@@ -14,6 +14,133 @@ import type {
   VertexProviderSetting,
   AzureProviderSetting,
 } from "../../lib/schemas";
+
+/**
+ * When Auto is ON and user has configured a provider with at least 2 favorite models,
+ * returns { provider: 'auto', name: 'auto' } so getModelClient builds the Fast/Medium/Thinking chain.
+ * Otherwise returns the selected model for manual mode.
+ */
+export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
+  if (
+    settings.autoModelRouting &&
+    settings.autoProviderId &&
+    Array.isArray(settings.autoModelIds) &&
+    settings.autoModelIds.length >= 2
+  ) {
+    return { provider: "auto", name: "auto" };
+  }
+  return settings.selectedModel;
+}
+
+/**
+ * Returns the model to use for token/temperature options (must resolve to a real model).
+ * When Auto is ON, uses the first model in the auto chain; otherwise selectedModel.
+ */
+export function getEffectiveModelForOptions(settings: UserSettings): LargeLanguageModel {
+  if (
+    settings.autoModelRouting &&
+    settings.autoProviderId &&
+    Array.isArray(settings.autoModelIds) &&
+    settings.autoModelIds.length >= 2
+  ) {
+    return {
+      provider: settings.autoProviderId,
+      name: settings.autoModelIds[0],
+    };
+  }
+  return settings.selectedModel;
+}
+
+/** OpenRouter model IDs that return 404 (moved/renamed). Map to user's first favorite or a known-good model. */
+const DEPRECATED_OPENROUTER_MODEL_IDS = new Set([
+  "pony-alpha",
+  "openrouter/pony-alpha",
+  "z-ai/pony-alpha",
+]);
+
+/**
+ * Returns the "fast" model for the current provider: Auto's first model, or manual's first favorite.
+ * Used for summarization, diagram fallback, and any flow that should use the user's chosen fast model.
+ * Pass openRouterFavoriteIds when caller has them (e.g. diagram handler); for OpenRouter manual mode.
+ */
+export function getFastModelForCurrentProvider(
+  settings: UserSettings,
+  openRouterFavoriteIds?: string[],
+): LargeLanguageModel | null {
+  if (
+    settings.autoModelRouting &&
+    settings.autoProviderId &&
+    Array.isArray(settings.autoModelIds) &&
+    settings.autoModelIds.length >= 1 &&
+    settings.autoModelIds[0]
+  ) {
+    return { provider: settings.autoProviderId, name: settings.autoModelIds[0] };
+  }
+  const effective = settings.selectedModel;
+  if (!effective?.provider) return null;
+  if (effective.provider === "openrouter" && openRouterFavoriteIds?.length) {
+    return { provider: "openrouter", name: openRouterFavoriteIds[0] };
+  }
+  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "ollama" && ollamaFavs?.length) {
+    return { provider: "ollama", name: ollamaFavs[0] };
+  }
+  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "lmstudio" && lmStudioFavs?.length) {
+    return { provider: "lmstudio", name: lmStudioFavs[0] };
+  }
+  return null;
+}
+
+/**
+ * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain;
+ * when manual and OpenRouter model is known-deprecated, uses first OpenRouter favorite if provided.
+ */
+export function getDiagramModelConfig(
+  settings: UserSettings,
+  openRouterFavoriteIds?: string[],
+): LargeLanguageModel {
+  const effective = getEffectiveModel(settings);
+  if (effective.provider === "openrouter" && typeof effective.name === "string") {
+    const name = effective.name.split("/").pop() ?? effective.name;
+    if (DEPRECATED_OPENROUTER_MODEL_IDS.has(effective.name) || DEPRECATED_OPENROUTER_MODEL_IDS.has(name)) {
+      if (openRouterFavoriteIds?.length) {
+        return { provider: "openrouter", name: openRouterFavoriteIds[0] };
+      }
+      return effective;
+    }
+  }
+  return effective;
+}
+
+/**
+ * Returns a fallback model for diagram generation when the current model returns 404.
+ * Uses user's chosen "fast" model for current provider (Auto first model, or first favorite for OpenRouter/Ollama/LM Studio).
+ */
+export function getDiagramFallbackModel(
+  settings: UserSettings,
+  openRouterFavoriteIds?: string[],
+): LargeLanguageModel | null {
+  if (
+    settings.autoModelRouting &&
+    settings.autoProviderId &&
+    Array.isArray(settings.autoModelIds) &&
+    settings.autoModelIds.length >= 2
+  ) {
+    return { provider: "auto", name: "auto" };
+  }
+  return getFastModelForCurrentProvider(settings, openRouterFavoriteIds);
+}
+
+/** True if the error indicates model not found (404) so diagram can retry with fallback. */
+export function isDiagramModelNotFoundError(error: unknown): boolean {
+  const code =
+    (error as { statusCode?: number })?.statusCode ??
+    (error as { status?: number })?.status;
+  if (code === 404) return true;
+  const msg = String((error as Error)?.message ?? "").toLowerCase();
+  return msg.includes("not found") || msg.includes("404") || msg.includes("model not found");
+}
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
 import { FREE_OPENROUTER_MODEL_NAMES } from "../shared/language_model_constants";
@@ -137,13 +264,15 @@ export async function getModelClient(
       return {
         modelClient: {
           model: createFallback({
-            models: FREE_OPENROUTER_MODEL_NAMES.map(
-              (name: string) =>
-                getRegularModelClient(
+            models: await Promise.all(
+              FREE_OPENROUTER_MODEL_NAMES.map(async (name: string) => {
+                const { modelClient } = await getRegularModelClient(
                   { provider: "openrouter", name },
                   settings,
                   openRouterProvider,
-                ).modelClient.model,
+                );
+                return modelClient.model;
+              }),
             ),
           }),
           builtinProviderId: "openrouter",
@@ -151,18 +280,19 @@ export async function getModelClient(
         isEngineEnabled: false,
       };
     }
-    // v2.1: When user configured one provider + 3 models (Fast/Medium/Thinking), use that
+    // v2.1: When user configured one provider + 2 or 3 models (Fast/Medium/Thinking), use that
     const autoProviderId = settings.autoProviderId ?? null;
     const autoModelIds = settings.autoModelIds;
     if (
       autoProviderId &&
       Array.isArray(autoModelIds) &&
-      autoModelIds.length === 3
+      autoModelIds.length >= 2
     ) {
       const providerInfo = allProviders.find((p) => p.id === autoProviderId);
       if (providerInfo) {
         const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
-        for (const modelName of autoModelIds) {
+        const modelNames = autoModelIds.slice(0, 3); // support 2 or 3
+        for (const modelName of modelNames) {
           try {
             const { modelClient } = await getModelClient(
               { provider: autoProviderId, name: modelName },

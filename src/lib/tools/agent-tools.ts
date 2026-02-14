@@ -13,7 +13,7 @@ import {
 } from "./registry";
 import { getBuiltinAgent } from "../agents/builtin";
 import { readSettings } from "../../main/settings";
-import { getSummarizationModel } from "../summarization_model";
+import { getSummarizationModelAsync } from "../summarization_model";
 import { getModelClient } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
 
@@ -61,7 +61,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
   const workspaceId = args.workspaceId;
 
   try {
-    const summarizationModel = getSummarizationModel(settings);
+    const summarizationModel = await getSummarizationModelAsync(settings);
     const { modelClient } = await getModelClient(summarizationModel, settings);
 
     const allTools = ToolRegistry.getAll();

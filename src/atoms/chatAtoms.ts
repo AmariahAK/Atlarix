@@ -26,3 +26,6 @@ export const chatStreamCountByIdAtom = atom<Map<number, number>>(new Map());
 export const recentStreamChatIdsAtom = atom<Set<number>>(new Set<number>());
 
 export const attachmentsAtom = atom<FileAttachment[]>([]);
+
+/** Per-chat: whether the last completed turn had tool runs or a permission request. Used to show "No actions this turn" when false in agent mode. */
+export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({});

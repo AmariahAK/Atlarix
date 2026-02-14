@@ -23,6 +23,7 @@ import {
     FileOperationPreview,
     CommandOperationPreview,
     DiagramUpdatePreview,
+    BatchPlanPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
@@ -445,6 +446,10 @@ export class PermissionInterceptor extends EventEmitter {
                 // AI-controlled diagram update
                 case "update_diagram":
                     await this.executeUpdateDiagram(request);
+                    break;
+                // Parent-aggregated: execute each sub-operation in order (v2.2)
+                case "batch_plan":
+                    await this.executeBatchPlan(operationId, request);
                     break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
@@ -872,6 +877,40 @@ export class PermissionInterceptor extends EventEmitter {
      * Execute diagram update when user approves the AI's request.
      * Calls DiagramManager.regenerateForWorkspace with focus components.
      */
+    /**
+     * Execute a batch_plan: run each file or command operation in order.
+     * Used for parent-aggregated permissions (one approval for full plan).
+     */
+    private async executeBatchPlan(operationId: string, request: PermissionRequest): Promise<void> {
+        const batch = request.preview as BatchPlanPreview;
+        if (!batch.operations || !Array.isArray(batch.operations)) {
+            throw new Error("batch_plan requires preview.operations array");
+        }
+        for (let i = 0; i < batch.operations.length; i++) {
+            const op = batch.operations[i];
+            const subId = `${operationId}_${i}`;
+            if ("command" in op && typeof op.command === "string") {
+                const cmdRequest: PermissionRequest = {
+                    __permission_required: true,
+                    operation: "run_command",
+                    preview: op as CommandOperationPreview,
+                };
+                await this.executeRunCommand(subId, cmdRequest);
+            } else if ("path" in op && typeof op.path === "string") {
+                const filePreview = op as FileOperationPreview;
+                const opType = filePreview.type === "delete" ? "delete_file" : filePreview.type === "rename" ? "rename_file" : "write_file";
+                const fileRequest: PermissionRequest = {
+                    __permission_required: true,
+                    operation: opType,
+                    preview: filePreview,
+                };
+                if (opType === "delete_file") await this.executeDeleteFile(fileRequest);
+                else if (opType === "rename_file") await this.executeRenameFile(fileRequest);
+                else await this.executeWriteFile(fileRequest);
+            }
+        }
+    }
+
     private async executeUpdateDiagram(request: PermissionRequest): Promise<void> {
         const preview = request.preview as DiagramUpdatePreview;
 

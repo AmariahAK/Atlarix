@@ -1,6 +1,9 @@
 /**
  * Config for Blueprint function kinds (API, Webhook, Function, Feature).
  * Used in Edit room details list: icon + label + style per type (Phase A).
+ *
+ * Motia-style step types (v2.2): [API], [WH], [FN], [CLS], [DB], [3P], [AI], [STREAM], [CRON].
+ * This config covers the primary four; others map to "function" for display.
  */
 
 import type { LucideIcon } from "lucide-react";

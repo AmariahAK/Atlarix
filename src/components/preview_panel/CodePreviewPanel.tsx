@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
-import { type SourceItem, browserErrorsAtom, diagramStateAtom, selectedErrorForCodeAtom } from '@/atoms/sourceAtoms';
+import { type SourceItem, type TerminalOutput, browserErrorsAtom, dismissedErrorSignaturesAtom, visibleBrowserErrorsAtom, getErrorSignature, diagramStateAtom, selectedErrorForCodeAtom } from '@/atoms/sourceAtoms';
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
@@ -49,6 +49,7 @@ interface CodePreviewPanelProps {
         url?: string;
         file?: { path: string; content: string };
         terminal?: { output: string[]; running: boolean };
+        terminalOutputs?: Map<string, TerminalOutput>;
         errors?: ParsedError[];
         sources?: SourceItem[];  // Web search sources for search tab
         chatId?: number;         // For permissions tab
@@ -74,11 +75,13 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
     const navigate = useNavigate();
     const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
+    const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
+    const visibleErrors = useAtomValue(visibleBrowserErrorsAtom);
     const currentAppId = (data as { appId?: number })?.appId ?? null;
     const previewUrl = data?.url;
     const currentFile = data?.file;
     const terminalData = data?.terminal;
-    const errorsData = data?.errors || [];
+    const errorsData = data?.errors !== undefined ? visibleErrors : (data?.errors || []);
     const sourcesData = data?.sources || [];
     const chatId = data?.chatId;
     const workspacePath = data?.workspacePath || '';
@@ -128,7 +131,10 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                         setSelectedErrorForCode({ filePath, line, column });
                         onSwitchToCode?.();
                     }}
-                    onMarkDone={(error) => setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id))}
+                    onMarkDone={(error) => {
+                        setDismissedSignatures((prev) => new Set(prev).add(getErrorSignature(error)));
+                        setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id));
+                    }}
                 />
             )}
             {activeTab === 'permissions' && (
@@ -199,9 +205,10 @@ function PreviewTab({ url }: { url?: string }) {
                     }, '*');
                 };
 
-                // Override console.error in iframe
-                const originalError = iframeWin.console.error;
-                iframeWin.console.error = function (...args: any[]) {
+                // Override console.error in iframe (contentWindow may be typed without console in some envs)
+                const win = iframeWin as Window & { console: Console };
+                const originalError = win.console.error.bind(win.console);
+                win.console.error = function (...args: unknown[]) {
                     const message = args.map(arg => {
                         if (arg instanceof Error) {
                             return arg.message + (arg.stack ? '\n' + arg.stack : '');
@@ -210,15 +217,15 @@ function PreviewTab({ url }: { url?: string }) {
                     }).join(' ');
 
                     sendError('console-error', message);
-                    return originalError.apply(iframeWin.console, args);
+                    return originalError(...args);
                 };
 
                 // Global error handler in iframe
-                iframeWin.onerror = function (message, source, lineno, colno, error) {
+                win.onerror = function (message: string | Event, source?: string | null, lineno?: number, colno?: number, error?: Error | null) {
                     sendError(
                         'error',
                         String(message),
-                        source,
+                        source ?? undefined,
                         lineno,
                         error?.stack
                     );

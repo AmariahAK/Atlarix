@@ -33,6 +33,7 @@ export interface ListAppsResponse {
 
 export interface ChatStreamParams {
   chatId: number;
+  appId?: number | null;
   prompt: string;
   redo?: boolean;
   attachments?: Array<{
@@ -51,6 +52,8 @@ export interface ChatResponseEnd {
   extraFilesError?: string;
   totalTokens?: number;
   contextWindow?: number;
+  /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
+  hadToolCallsOrPermissions?: boolean;
 }
 
 export interface ChatProblemsEvent {
@@ -84,6 +87,7 @@ export interface Message {
   createdAt?: Date | string;
   requestId?: string | null;
   totalTokens?: number | null;
+  toolCalls?: Array<{ id: string; name: string; arguments?: string }>;
   sources?: Array<{
     title: string;
     url: string;
@@ -94,6 +98,7 @@ export interface Message {
 
 export interface Chat {
   id: number;
+  appId?: number | null;
   title: string;
   messages: Message[];
   initialCommitHash?: string | null;

@@ -220,7 +220,7 @@ export function ChatPanel({
     // Inject error context into chat and trigger AI to fix
     const fixPrompt = `The previous command failed:\n\`\`\`\n${cmd.command}\n\`\`\`\n\nError output:\n\`\`\`\n${cmd.output || 'No output'}\n\`\`\`\n\nPlease analyze this error and suggest a fix.`;
 
-    streamMessage(chatId, fixPrompt);
+    streamMessage({ chatId, prompt: fixPrompt });
   }, [chatId, streamMessage]);
 
   const handleRetry = useCallback(async (operationId: string, command: string) => {
@@ -229,7 +229,7 @@ export function ChatPanel({
     // Re-run the same command
     const retryPrompt = `Please run this command again:\n\`\`\`bash\n${command}\n\`\`\``;
 
-    streamMessage(chatId, retryPrompt);
+    streamMessage({ chatId, prompt: retryPrompt });
   }, [chatId, streamMessage]);
 
   const handleIgnore = useCallback((operationId: string) => {

@@ -93,7 +93,8 @@ export function RightPanel() {
     let routeChatId: number | undefined;
     try {
         const searchParams = useSearch({ from: '/chat', strict: false });
-        routeChatId = (searchParams as any)?.id;
+        const id = (searchParams as { id?: number | string })?.id;
+        routeChatId = id != null ? Number(id) : undefined;
     } catch {
         // Not on chat route, that's fine
     }
@@ -271,7 +272,7 @@ Please fix these errors in priority order (structural/build errors first, then r
             {/* Tab Navigation - Always visible */}
             {context.tabs.length > 0 && (
                 <TooltipProvider>
-                    <div className="flex items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0">
+                    <div className="flex flex-nowrap items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0 min-w-0">
                         {context.tabs.map((tab) => {
                             const tabConfig = TAB_ICONS[tab];
                             const Icon = tabConfig?.icon || Code2;

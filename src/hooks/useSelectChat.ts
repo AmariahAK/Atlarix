@@ -9,9 +9,9 @@ export function useSelectChat() {
   const navigate = useNavigate();
 
   return {
-    selectChat: ({ chatId, appId }: { chatId: number; appId: number }) => {
+    selectChat: ({ chatId, appId }: { chatId: number; appId: number | null }) => {
       setSelectedChatId(chatId);
-      setSelectedAppId(appId);
+      setSelectedAppId(appId ?? null);
       navigate({
         to: "/chat",
         search: { id: chatId },

@@ -26,7 +26,7 @@ import {
 ToolRegistry.register({
   name: "get_blueprint",
   description:
-    "Read the current Blueprint (rooms, functions per room, edges). Blueprint can be updated from detailed ASCII diagrams or code analysis (tree-sitter/regex). Use before making changes.",
+    "Read the current Blueprint (rooms, functions per room, edges). Blueprint can be updated from detailed ASCII diagrams or code analysis (tree-sitter/regex). Use before making changes. When suggesting which projects to blueprint or which scope to use for a live diagram, consider recent activity and user focus; explain your reasoning (e.g. 'I'm blueprinting the frontend and backend because they were edited recently; skipping X since it has been inactive for 30+ days').",
   category: ToolCategory.DIAGRAM,
   cost: 1,
   requiresWorkspace: true,
@@ -400,6 +400,7 @@ ToolRegistry.register({
 // IMPLEMENTATION PLAN (ATLARIX_PLAN.md at project root)
 // Like claude.md / cursor.md - stored in project, version-controllable.
 // For multi-repo: optional targetPath (e.g. "frontend") → frontend/ATLARIX_PLAN.md
+// v2.2: Blueprint may be RTE-generated (get_blueprint returns cached/RTE result); compare desired vs actual, one task per exchange.
 // ═══════════════════════════════════════════════════════════
 
 export const PLAN_FILENAME = "ATLARIX_PLAN.md";

@@ -8,6 +8,7 @@ import {
   ReactFlow,
   useNodesState,
   useEdgesState,
+  type NodeTypes,
   type Connection,
   type Node,
   type Edge,
@@ -16,6 +17,7 @@ import {
   ReactFlowProvider,
   type EdgeChange,
 } from "@xyflow/react";
+// @ts-expect-error - CSS import has no type declarations
 import "@xyflow/react/dist/style.css";
 import type { BlueprintRoom, BlueprintRoomFlowEdge } from "@/shared/blueprint-types";
 import { BlueprintFunctionNode, type FunctionNodeData } from "./BlueprintFunctionNode";
@@ -57,7 +59,7 @@ function roomToNodesAndEdges(room: BlueprintRoom): { nodes: Node<FunctionNodeDat
   return { nodes, edges };
 }
 
-const nodeTypes = { [NODE_TYPE]: BlueprintFunctionNode };
+const nodeTypes: NodeTypes = { [NODE_TYPE]: BlueprintFunctionNode as NodeTypes[string] };
 
 interface BlueprintRoomFlowViewProps {
   room: BlueprintRoom;

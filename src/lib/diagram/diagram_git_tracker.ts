@@ -115,21 +115,30 @@ export class DiagramGitTracker {
         return count;
     }
 
+    /** Filename for stored diagram content in the internal repo (storage-based history). */
+    static readonly DIAGRAM_FILE = "diagram.mermaid";
+
     /**
-     * Capture current workspace state as a commit in the internal repo.
+     * Capture current workspace state (and optionally diagram content) as a commit in the internal repo.
      * Call after generating a diagram; store returned hash in diagram.metadata.diagramGitCommit.
+     * When diagramContent is provided, writes it to diagram.mermaid so "previous diagrams" = git history.
      */
-    async captureSnapshot(workspacePath: string): Promise<string | undefined> {
+    async captureSnapshot(workspacePath: string, diagramContent?: string): Promise<string | undefined> {
         try {
             await this.init();
             await this.writeSnapshot(workspacePath);
+            if (diagramContent != null && diagramContent.trim()) {
+                const diagramPath = path.join(this.internalRepoPath, DiagramGitTracker.DIAGRAM_FILE);
+                await fs.writeFile(diagramPath, diagramContent.trim(), "utf8");
+            }
             await this.git.add(".");
             const status = await this.git.status();
             if (status.files.length === 0 && status.staged.length === 0) {
                 const log = await this.git.log({ maxCount: 1 });
                 return log.latest?.hash;
             }
-            const commitHash = await this.git.commit(`snapshot ${new Date().toISOString()}`);
+            const msg = diagramContent != null ? `Diagram update ${new Date().toISOString()}` : `snapshot ${new Date().toISOString()}`;
+            const commitHash = await this.git.commit(msg);
             return commitHash?.commit;
         } catch (e) {
             logger.warn("[DiagramGitTracker] captureSnapshot failed:", e);
@@ -146,6 +155,40 @@ export class DiagramGitTracker {
             return log.latest?.hash;
         } catch {
             return undefined;
+        }
+    }
+
+    /**
+     * Get diagram version history from git (storage-based). Returns commits that touch diagram.mermaid
+     * with date and optional content for "previous diagrams" and AI comparison.
+     */
+    async getDiagramHistory(maxCount: number = 50): Promise<Array<{ commit: string; date: string; message: string; content?: string }>> {
+        try {
+            await this.init();
+            const isRepo = await this.git.checkIsRepo();
+            if (!isRepo) return [];
+
+            const log = await this.git.log({ maxCount });
+            const entries: Array<{ commit: string; date: string; message: string; content?: string }> = [];
+            for (const entry of log.all) {
+                const date = entry.date ? new Date(entry.date).toISOString() : "";
+                let content: string | undefined;
+                try {
+                    content = await this.git.show([`${entry.hash}:${DiagramGitTracker.DIAGRAM_FILE}`]);
+                } catch {
+                    // file not in this commit (e.g. older snapshot-only commits)
+                }
+                entries.push({
+                    commit: entry.hash,
+                    date,
+                    message: entry.message || "",
+                    content: content?.trim() || undefined,
+                });
+            }
+            return entries;
+        } catch (e) {
+            logger.warn("[DiagramGitTracker] getDiagramHistory failed:", e);
+            return [];
         }
     }
 

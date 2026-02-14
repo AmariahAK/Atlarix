@@ -198,7 +198,7 @@ export function ChatList({ show }: { show?: boolean }) {
                         onClick={() =>
                           handleChatClick({
                             chatId: chat.id,
-                            appId: chat.appId,
+                            appId: chat.appId ?? 0,
                           })
                         }
                         className={`justify-start w-full text-left py-3 pr-1 hover:bg-sidebar-accent/80 ${selectedChatId === chat.id

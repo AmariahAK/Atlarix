@@ -39,7 +39,7 @@ export function WorkspaceSnapshotButton() {
   const queryClient = useQueryClient();
 
   const isPro = settings?.enableAtlarixPro === true;
-  const messages = (chatId && messagesById.get(chatId)) ?? [];
+  const messages = (chatId != null ? messagesById.get(chatId) : undefined) ?? [];
   const chatMessages = messages.map((m) => ({
     role: m.role,
     content: m.content,

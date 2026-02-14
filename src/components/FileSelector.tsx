@@ -55,16 +55,16 @@ export function FileSelector({
                         { name: "Code", extensions: ["js", "ts", "tsx", "jsx", "py", "java", "cpp", "go", "rs"] },
                     ],
                 }
-            );
+            ) as { canceled?: boolean; filePaths?: string[] } | undefined;
 
-            if (result && !result.canceled && result.filePaths.length > 0) {
+            if (result && !result.canceled && result.filePaths?.length) {
                 // Get file info for each selected file
                 const filePromises = result.filePaths.slice(0, maxFiles).map(async (path: string) => {
-                    const stats = await window.electron?.ipcRenderer.invoke("fs:getFileStats", path);
+                    const stats = await window.electron?.ipcRenderer.invoke("fs:getFileStats", path) as { size?: number } | undefined;
                     return {
                         path,
                         name: path.split("/").pop() || path.split("\\").pop() || "Unknown",
-                        size: stats?.size || 0,
+                        size: stats?.size ?? 0,
                         type: getFileType(path),
                     };
                 });

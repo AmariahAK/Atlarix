@@ -129,7 +129,7 @@ export function ChatSearchDialog({
               <CommandItem
                 key={chat.id}
                 onSelect={() =>
-                  onSelectChat({ chatId: chat.id, appId: chat.appId })
+                  onSelectChat({ chatId: chat.id, appId: chat.appId ?? 0 })
                 }
                 value={
                   (chat.title || "Untitled Chat") +

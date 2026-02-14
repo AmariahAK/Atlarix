@@ -14,7 +14,13 @@ import { db } from "@/db";
 import { diagrams, apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { generateText } from "ai";
-import { getModelClient } from "@/ipc/utils/get_model_client";
+import {
+    getModelClient,
+    getDiagramModelConfig,
+    getDiagramFallbackModel,
+    isDiagramModelNotFoundError,
+} from "@/ipc/utils/get_model_client";
+import { getFavoriteOpenRouterModels } from "@/db/openrouter_favorites";
 import { extractCodebase } from "@/utils/codebase";
 import { readSettings } from "@/main/settings";
 import { generateFingerprint } from "./analysis/fingerprint";
@@ -182,6 +188,7 @@ export class DiagramManager {
         }
 
         const settings = readSettings();
+        const openRouterFavorites = await getFavoriteOpenRouterModels();
 
         // Extract codebase context
         const chatContext: AppChatContext = {
@@ -196,9 +203,9 @@ export class DiagramManager {
             chatContext,
         });
 
-        // Prepare AI client
-        const modelConfig = settings.selectedModel;
-        const { modelClient } = await getModelClient(modelConfig, settings);
+        // Prepare AI client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
+        let modelConfig = getDiagramModelConfig(settings, openRouterFavorites);
+        let modelClientResult = await getModelClient(modelConfig, settings);
 
         // Build system prompt with optional focus from AI
         let systemPrompt = `You are an expert software architect.
@@ -226,12 +233,41 @@ Requirements:
 
         const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 
-        logger.debug(`[_generateDiagram] Sending prompt to model ${modelConfig.name}`);
-        const result = await generateText({
-            model: modelClient.model,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userPrompt }],
-        });
+        let result: Awaited<ReturnType<typeof generateText>>;
+        try {
+            logger.debug(`[_generateDiagram] Sending prompt to model ${modelConfig.name}`);
+            result = await generateText({
+                model: modelClientResult.modelClient.model,
+                system: systemPrompt,
+                messages: [{ role: 'user', content: userPrompt }],
+            });
+        } catch (genError) {
+            const modelNotFoundMessage = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose a model from Settings → OpenRouter → Favorite Models, then try again.";
+            if (isDiagramModelNotFoundError(genError)) {
+                const fallback = getDiagramFallbackModel(settings, openRouterFavorites);
+                if (fallback) {
+                    try {
+                        logger.warn(`[_generateDiagram] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
+                        modelConfig = fallback;
+                        modelClientResult = await getModelClient(fallback, settings);
+                        result = await generateText({
+                            model: modelClientResult.modelClient.model,
+                            system: systemPrompt,
+                            messages: [{ role: 'user', content: userPrompt }],
+                        });
+                    } catch (fallbackError) {
+                        if (isDiagramModelNotFoundError(fallbackError)) {
+                            throw new Error(modelNotFoundMessage);
+                        }
+                        throw fallbackError;
+                    }
+                } else {
+                    throw new Error(modelNotFoundMessage);
+                }
+            } else {
+                throw genError;
+            }
+        }
 
         // Parse output
         let content = result.text;
@@ -244,12 +280,12 @@ Requirements:
         // Generate fingerprint for staleness tracking
         const fingerprint = await generateFingerprint(appPath);
 
-        // Phase 8: Internal diagram git – capture snapshot for accurate update vs regenerate (all projects)
+        // Phase 8: Internal diagram git – capture snapshot + diagram content (storage-based history)
         let diagramGitCommit: string | undefined;
         try {
             const { DiagramGitTracker } = await import("./diagram/diagram_git_tracker");
             const diagramGit = new DiagramGitTracker(workspaceId);
-            diagramGitCommit = await diagramGit.captureSnapshot(appPath);
+            diagramGitCommit = await diagramGit.captureSnapshot(appPath, content);
             if (diagramGitCommit) {
                 logger.info(`[_generateDiagram] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
             }

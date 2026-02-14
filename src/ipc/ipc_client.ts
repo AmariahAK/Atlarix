@@ -1910,6 +1910,18 @@ export class IpcClient {
     return this.ipcRenderer.invoke("diagram:history", { diagramId });
   }
 
+  /** Storage-based diagram history from internal git (real dates, for previous diagrams / AI comparison). */
+  public async getDiagramHistoryFromGit(params: {
+    workspaceId: number;
+    maxCount?: number;
+  }): Promise<{
+    success: boolean;
+    versions: Array<{ commit: string; date: string; message: string; content?: string }>;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("diagram:history-from-git", params);
+  }
+
   public async restoreDiagramVersion(params: {
     diagramId: number;
     versionId: number;
@@ -1983,6 +1995,28 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("blueprint:refresh-from-code", params);
+  }
+
+  /** Analyze workspace for blueprint: list projects with activity and recommendation */
+  public async analyzeWorkspaceForBlueprint(params: { workspaceId: number }): Promise<{
+    success: boolean;
+    projects?: import("@/lib/blueprint/project-selector").ProjectCandidate[];
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:analyze-workspace", params);
+  }
+
+  /** Generate combined blueprint from selected project IDs; sets single-project blueprint when one selected */
+  public async generateCombinedBlueprint(params: {
+    workspaceId: number;
+    projectIds: string[];
+  }): Promise<{
+    success: boolean;
+    combined?: import("@/shared/blueprint-types").CombinedBlueprint;
+    blueprint?: import("@/shared/blueprint-types").Blueprint;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:generate-combined", params);
   }
 
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */

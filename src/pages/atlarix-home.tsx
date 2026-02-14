@@ -234,9 +234,13 @@ export default function AtlarixHome() {
         try {
             let chatId: number;
 
-            // If an app/workspace is selected, create a workspace-bound chat
-            // Otherwise, create an ephemeral (incognito) chat
+            // If an app/workspace is selected, verify path still exists before creating chat
             if (selectedAppId) {
+                const app = await IpcClient.getInstance().getApp(selectedAppId);
+                if (app.pathExists === false) {
+                    showError('Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.');
+                    return;
+                }
                 // Workspace-bound chat - persisted to DB
                 chatId = await IpcClient.getInstance().createChat(selectedAppId);
                 console.log(`Created workspace chat ${chatId} for app ${selectedAppId}`);
@@ -275,13 +279,26 @@ export default function AtlarixHome() {
     };
 
     // Handler for continuing chat conversation
-    const handleContinueChat = (prompt: string) => {
+    const handleContinueChat = async (prompt: string) => {
         if (!activeChatId || !prompt.trim()) return;
-        streamMessage({
-            prompt,
-            chatId: activeChatId,
-            attachments: [],
-        });
+        try {
+            const chat = await IpcClient.getInstance().getChat(activeChatId);
+            if (chat.appId != null) {
+                const app = await IpcClient.getInstance().getApp(chat.appId);
+                if (app.pathExists === false) {
+                    showError('Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.');
+                    return;
+                }
+            }
+            streamMessage({
+                prompt,
+                chatId: activeChatId,
+                attachments: [],
+            });
+        } catch (e) {
+            console.error('Continue chat check failed:', e);
+            streamMessage({ prompt, chatId: activeChatId, attachments: [] });
+        }
     };
 
     // Loading state

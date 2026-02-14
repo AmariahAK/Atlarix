@@ -76,7 +76,7 @@ export function registerChatHandlers() {
         title: ephemeralChat.title,
         messages: ephemeralChat.messages,
         createdAt: ephemeralChat.createdAt,
-        appId: null,
+        appId: ephemeralChat.appId ?? null,
       };
     }
 

@@ -6,11 +6,13 @@
 
 export { PermissionInterceptor } from "./interceptor";
 export * from "./handlers";
-export {
+export type {
     PermissionRequest,
     PermissionResult,
     FileOperationPreview,
     CommandOperationPreview,
+} from "@/lib/tools/permissions/schema";
+export {
     createFilePermissionRequest,
     createBatchPermissionRequest,
     createCommandPermissionRequest,

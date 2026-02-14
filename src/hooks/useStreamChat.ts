@@ -11,6 +11,7 @@ import {
   chatStreamCountByIdAtom,
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
+  lastTurnHadToolCallsByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
@@ -111,6 +112,7 @@ export function useStreamChat({
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const setPermissionQueue = useSetAtom(permissionQueueAtom);
+  const setLastTurnHadToolCallsByChatId = useSetAtom(lastTurnHadToolCallsByChatIdAtom);
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -288,8 +290,7 @@ export function useStreamChat({
                   ? payload.command.substring(0, 50) + '...'
                   : payload.command;
                 showError(
-                  `Command failed: ${shortCmd}`,
-                  payload.output || `Exit code: ${payload.exitCode ?? 'unknown'}`
+                  `Command failed: ${shortCmd}\n\n${payload.output || `Exit code: ${payload.exitCode ?? 'unknown'}`}`
                 );
               }
 
@@ -437,8 +438,16 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Play notification sound when AI response completes
-            playNotify();
+            // Play notification sound only when the turn had tool runs or a permission request
+            if (response.hadToolCallsOrPermissions) {
+              playNotify();
+            }
+
+            // Store for ChatMessage so we can show "No actions this turn" when false in agent mode
+            setLastTurnHadToolCallsByChatId((prev) => ({
+              ...prev,
+              [response.chatId]: response.hadToolCallsOrPermissions === true,
+            }));
 
             onSettled?.();
           },
@@ -494,6 +503,7 @@ export function useStreamChat({
       selectedAppId,
       refetchUserBudget,
       settings,
+      setLastTurnHadToolCallsByChatId,
     ],
   );
 

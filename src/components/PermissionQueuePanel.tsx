@@ -137,6 +137,8 @@ function OperationCard({
                 return <Trash2 className="w-4 h-4 text-red-400" />;
             case 'update_diagram':
                 return <Map className="w-4 h-4 text-emerald-400" />;
+            case 'batch_plan':
+                return <Wand2 className="w-4 h-4 text-violet-400" />;
             default:
                 return <FileEdit className="w-4 h-4 text-gray-400" />;
         }
@@ -146,13 +148,16 @@ function OperationCard({
     const isDiagramUpdate = operation.operation === 'update_diagram';
     const diagramPreview = isDiagramUpdate ? JSON.parse(operation.preview || '{}') : null;
 
+    const isBatchPlan = operation.operation === 'batch_plan';
     const displayName = isDiagramUpdate
         ? 'Diagram Update Request'
-        : operation.command
-            ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
-            : operation.path
-                ? operation.path.split('/').pop()
-                : `${operation.operation} operation`;
+        : isBatchPlan
+            ? (operation.batchPlanTitle || 'Plan') + (operation.batchPlanOperationsCount != null ? ` (${operation.batchPlanOperationsCount} operations)` : '')
+            : operation.command
+                ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
+                : operation.path
+                    ? operation.path.split('/').pop()
+                    : `${operation.operation} operation`;
 
     // Full path for tooltip
     const fullPath = operation.path || operation.command || '';
@@ -314,6 +319,17 @@ function OperationCard({
                         </pre>
                     )}
 
+                    {/* Batch plan preview (parent-aggregated permissions) */}
+                    {isBatchPlan && (operation.batchPlanTitle || operation.batchPlanSummary) && (
+                        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg p-3 space-y-2">
+                            <div className="font-medium text-violet-300">{operation.batchPlanTitle || 'Plan'}</div>
+                            {operation.batchPlanSummary && <p className="text-sm text-muted-foreground">{operation.batchPlanSummary}</p>}
+                            {operation.batchPlanOperationsCount != null && (
+                                <p className="text-xs text-muted-foreground">{operation.batchPlanOperationsCount} operation(s) — Approve to run all</p>
+                            )}
+                        </div>
+                    )}
+
                     {/* Diagram update preview */}
                     {isDiagramUpdate && diagramPreview && (
                         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-2">
@@ -420,6 +436,11 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
                             status: 'pending',
                             isDangerous: preview?.isDangerous,
                             dangerExplanation: preview?.dangerExplanation,
+                            ...(request.operation === 'batch_plan' && {
+                                batchPlanTitle: preview?.title,
+                                batchPlanSummary: preview?.summary,
+                                batchPlanOperationsCount: Array.isArray(preview?.operations) ? preview.operations.length : 0,
+                            }),
                         }));
                     });
             } catch (err) {
@@ -444,6 +465,11 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
                 status: 'pending',
                 isDangerous: preview?.isDangerous,
                 dangerExplanation: preview?.dangerExplanation,
+                ...(request.operation === 'batch_plan' && {
+                    batchPlanTitle: preview?.title,
+                    batchPlanSummary: preview?.summary,
+                    batchPlanOperationsCount: Array.isArray(preview?.operations) ? preview.operations.length : 0,
+                }),
             }));
         });
 
@@ -633,6 +659,7 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
                     <div className="flex flex-col items-center justify-center h-full text-slate-500">
                         <CheckCircle2 className="w-12 h-12 mb-2" />
                         <p className="text-sm">No pending operations</p>
+                        <p className="text-xs text-slate-400 mt-1">You&apos;ll hear a sound when the AI requests approval.</p>
                     </div>
                 )}
             </div>

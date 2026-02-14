@@ -232,6 +232,9 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
             fontFamily: "monospace",
             fontSize: 13,
             lineNumbers: "on",
+            lineNumbersMinChars: 3,
+            glyphMargin: false,
+            padding: { top: 8, bottom: 8 },
           }}
         />
       </div>

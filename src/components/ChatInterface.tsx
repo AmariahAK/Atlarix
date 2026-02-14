@@ -191,7 +191,7 @@ function MessageBubble({ message }: { message: Message }) {
                 ) : (
                     <div
                         dangerouslySetInnerHTML={{
-                            __html: marked(message.content),
+                            __html: typeof message.content === "string" ? (marked(message.content) as string) : String(message.content),
                         }}
                     />
                 )}

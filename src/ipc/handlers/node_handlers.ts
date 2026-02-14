@@ -19,15 +19,21 @@ export function registerNodeHandlers() {
       "and arch:",
       arch(),
     );
-    // Run checks in parallel
+    // Run checks in parallel. Treat pnpm as optional: do not run global npm install on failure (avoids E401 from registry auth).
     const [nodeVersion, pnpmVersion] = await Promise.all([
       runShellCommand("node --version"),
-      // First, check if pnpm is installed.
-      // If not, try to install it using corepack.
-      // If both fail, then pnpm is not available.
-      runShellCommand(
-        "pnpm --version || (corepack enable pnpm && pnpm --version) || (npm install -g pnpm@latest-10 && pnpm --version)",
-      ),
+      (async (): Promise<string | null> => {
+        try {
+          return await runShellCommand("pnpm --version");
+        } catch {
+          try {
+            return await runShellCommand("corepack enable pnpm && pnpm --version");
+          } catch {
+            logger.warn("pnpm not available; install manually if needed (e.g. corepack enable pnpm)");
+            return null;
+          }
+        }
+      })(),
     ]);
     // Default to mac download url.
     let nodeDownloadUrl = "https://nodejs.org/dist/v22.14.0/node-v22.14.0.pkg";

@@ -88,11 +88,11 @@ export async function generateAIChatName(
     try {
         const { generateText } = await import("ai");
         const { readSettings } = await import("../main/settings");
-        const { getSummarizationModel } = await import("../lib/summarization_model");
+        const { getSummarizationModelAsync } = await import("../lib/summarization_model");
         const { getModelClient } = await import("../ipc/utils/get_model_client");
 
         const settings = readSettings();
-        const summarizationModel = getSummarizationModel(settings);
+        const summarizationModel = await getSummarizationModelAsync(settings);
         const { modelClient } = await getModelClient(summarizationModel, settings);
 
         const conversationSummary = messages

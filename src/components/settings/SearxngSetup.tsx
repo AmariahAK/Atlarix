@@ -19,17 +19,6 @@ import {
 } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 
-// Type declaration for Electron's preload-exposed API
-declare global {
-    interface Window {
-        electron: {
-            ipcRenderer: {
-                invoke: (channel: string, ...args: any[]) => Promise<any>;
-            };
-        };
-    }
-}
-
 interface DockerStatus {
     installed: boolean;
     running: boolean;
@@ -62,11 +51,11 @@ export function SearxngSetup() {
     async function checkStatus() {
         setIsChecking(true);
         try {
-            const docker = await window.electron.ipcRenderer.invoke("searxng:check-docker") as DockerStatus;
+            const docker = await window.electron?.ipcRenderer.invoke("searxng:check-docker") as DockerStatus;
             setDockerStatus(docker);
 
             if (docker.running) {
-                const container = await window.electron.ipcRenderer.invoke("searxng:check-status") as ContainerStatus;
+                const container = await window.electron?.ipcRenderer.invoke("searxng:check-status") as ContainerStatus;
                 setContainerStatus(container);
 
                 // If running, update in-memory config for search tools
@@ -95,7 +84,7 @@ export function SearxngSetup() {
         setMessageType("info");
 
         try {
-            const result = await window.electron.ipcRenderer.invoke("searxng:setup") as SetupResult;
+            const result = await window.electron?.ipcRenderer.invoke("searxng:setup") as SetupResult;
 
             if (result.success) {
                 setMessageType("success");
@@ -131,7 +120,7 @@ export function SearxngSetup() {
         setMessageType("info");
 
         try {
-            const result = await window.electron.ipcRenderer.invoke("searxng:stop") as SetupResult;
+            const result = await window.electron?.ipcRenderer.invoke("searxng:stop") as SetupResult;
             if (result.success) {
                 setMessageType("success");
                 setMessage("SearxNG stopped");

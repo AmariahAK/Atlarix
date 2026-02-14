@@ -11,13 +11,17 @@ export type OperationStatus = 'pending' | 'queued' | 'running' | 'completed' | '
 
 export interface QueuedOperation {
     id: string;
-    operation: 'run_command' | 'write_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'update_diagram' | 'unknown';
+    operation: 'run_command' | 'write_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'update_diagram' | 'batch_plan' | 'unknown';
     command?: string;
     path?: string;
     content?: string;       // File content for write_file
     oldContent?: string;    // Original content for diff view
     description?: string;   // AI-generated change summary
     preview?: string;
+    /** For batch_plan: title and summary */
+    batchPlanTitle?: string;
+    batchPlanSummary?: string;
+    batchPlanOperationsCount?: number;
     status: OperationStatus;
     progress?: number;      // 0-100 for running commands
     duration?: number;      // ms

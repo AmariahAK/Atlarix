@@ -43,6 +43,7 @@ export function useLoadApp(appId: number | null) {
       if (loadedAppIdRef.current === appId) return;
       loadedAppIdRef.current = appId;
 
+      if (!appData) return;
       setApp(appData);
 
       // If workspace path was deleted outside app, skip diagram/code/preview

@@ -33,7 +33,9 @@ import {
   List,
   GitBranch,
   RefreshCw,
+  Layers,
 } from "lucide-react";
+import { GenerateBlueprintsModal } from "@/components/preview_panel/GenerateBlueprintsModal";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
 import { BlueprintRoomFlowView } from "@/components/preview_panel/BlueprintRoomFlowView";
 import { FUNCTION_KIND_CONFIG } from "@/lib/blueprint/function-kind-config";
@@ -200,6 +202,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const [roomDetailViewMode, setRoomDetailViewMode] = useState<Record<string, "list" | "flow">>({});
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [generateBlueprintsOpen, setGenerateBlueprintsOpen] = useState(false);
 
   // Sync local state when blueprint prop changes (e.g. from refresh-from-code or AI update)
   useEffect(() => {
@@ -251,6 +254,15 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setGenerateBlueprintsOpen(true)}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border"
+              title="Analyze workspace and generate blueprints for selected projects"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Generate Blueprints
+            </button>
+            <button
+              type="button"
               onClick={handleRefreshFromCode}
               disabled={isRefreshing}
               className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border disabled:opacity-50"
@@ -286,6 +298,12 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             onRoomSelect={handleRoomSelect}
             className="flex-1 min-h-0"
           />
+        <GenerateBlueprintsModal
+          open={generateBlueprintsOpen}
+          onOpenChange={setGenerateBlueprintsOpen}
+          workspaceId={app?.id ?? null}
+          onGenerated={() => {}}
+        />
       </div>
 
       {/* Collapsible list for editing room labels and functions */}

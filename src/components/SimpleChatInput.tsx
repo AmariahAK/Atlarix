@@ -49,8 +49,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
         // Check model is selected
         const hasModel = settings?.selectedModel ||
-            settings?.providerSettings?.ollama?.models?.length > 0 ||
-            settings?.providerSettings?.lmstudio?.models?.length > 0;
+            ((settings?.providerSettings?.ollama as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0 ||
+            ((settings?.providerSettings?.lmstudio as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
 
         if (!hasModel) {
             import("@/lib/toast").then(({ showError }) => {

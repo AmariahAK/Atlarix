@@ -55,7 +55,7 @@ export function UpgradePrompt({
     const handleUpgrade = (plan: "monthly" | "annual") => {
         // TODO: Open checkout page with pre-filled email
         const checkoutUrl = `https://atlarix.com/pricing?plan=${plan}`;
-        window.electron?.shell.openExternal(checkoutUrl);
+        window.electron?.shell?.openExternal(checkoutUrl);
     };
 
     return (

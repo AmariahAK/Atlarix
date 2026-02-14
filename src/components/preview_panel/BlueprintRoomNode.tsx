@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import { FileCode, GripVertical } from "lucide-react";
 import type { BlueprintRoom } from "@/shared/blueprint-types";
 import { getRoomStyle } from "@/lib/blueprint/room_colors";
@@ -14,7 +14,12 @@ export type RoomNodeData = {
   room: BlueprintRoom;
 };
 
-function BlueprintRoomNodeComponent({ data, selected }: NodeProps<RoomNodeData>) {
+interface RoomNodeProps {
+  data: RoomNodeData;
+  selected?: boolean;
+}
+
+function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
   const { room } = data;
   const count = room.functions?.length ?? 0;
   const style = getRoomStyle(room);

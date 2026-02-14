@@ -9,7 +9,14 @@ import { db } from "@/db";
 import { diagrams, diagramVersions } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { generateText } from "ai";
-import { getModelClient } from "../utils/get_model_client";
+import {
+    getModelClient,
+    getEffectiveModel,
+    getDiagramModelConfig,
+    getDiagramFallbackModel,
+    isDiagramModelNotFoundError,
+} from "../utils/get_model_client";
+import { getFavoriteOpenRouterModels } from "../../db/openrouter_favorites";
 import { extractCodebase } from "../../utils/codebase";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
@@ -102,6 +109,7 @@ ipcMain.handle(
             // For created apps, app.path is also set correctly
             const appPath = app.path;
             const settings = readSettings();
+            const openRouterFavorites = await getFavoriteOpenRouterModels();
 
             // 2. Extract Codebase Context
             // Use default context settings (empty paths = include all non-ignored)
@@ -117,12 +125,11 @@ ipcMain.handle(
                 chatContext
             });
 
-            // 3. Prepare AI Client
-            // Use the currently selected model from settings
-            const modelConfig = settings.selectedModel;
-            const { modelClient } = await getModelClient(modelConfig, settings);
+            // 3. Prepare AI Client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
+            let modelConfig = getDiagramModelConfig(settings, openRouterFavorites);
+            let modelClientResult = await getModelClient(modelConfig, settings);
 
-            // 4. Generate Diagram
+            // 4. Generate Diagram (retry once with fallback on 404 / model not found)
             const systemPrompt = `You are an expert software architect.
 Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
 Focus on:
@@ -142,12 +149,33 @@ Requirements:
 
 ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid huge costs/errors if project is massive`;
 
-            console.log(`📊 [diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
-            const result = await generateText({
-                model: modelClient.model,
-                system: systemPrompt,
-                messages: [{ role: 'user', content: userPrompt }],
-            });
+            let result: Awaited<ReturnType<typeof generateText>>;
+            try {
+                console.log(`📊 [diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
+                result = await generateText({
+                    model: modelClientResult.modelClient.model,
+                    system: systemPrompt,
+                    messages: [{ role: 'user', content: userPrompt }],
+                });
+            } catch (genError) {
+                if (isDiagramModelNotFoundError(genError)) {
+                    const fallback = getDiagramFallbackModel(settings, openRouterFavorites);
+                    if (fallback) {
+                        console.warn(`📊 [diagram:generate-ai] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
+                        modelConfig = fallback;
+                        modelClientResult = await getModelClient(fallback, settings);
+                        result = await generateText({
+                            model: modelClientResult.modelClient.model,
+                            system: systemPrompt,
+                            messages: [{ role: 'user', content: userPrompt }],
+                        });
+                    } else {
+                        throw genError;
+                    }
+                } else {
+                    throw genError;
+                }
+            }
 
             // 5. Parse Output
             let content = result.text;
@@ -175,31 +203,88 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             // 6. Generate fingerprint for staleness tracking
             const fingerprint = await generateFingerprint(appPath);
 
-            // 7. Save to DB with fingerprint (diagram-first: Mermaid is the single source of truth)
-            const [diagram] = await db
-                .insert(diagrams)
-                .values({
-                    workspaceId,
-                    type: "mermaid",
-                    title: title || `${app.name} Architecture (AI)`,
-                    content,
-                    metadata: {
-                        focus: "ai-generated",
-                    },
-                    fingerprintHash: fingerprint.hash,
-                    fingerprintData: fingerprint,
-                    createdFromFileCount: fingerprint.fileCount,
-                })
-                .returning();
+            // 7. Internal diagram git – capture snapshot + diagram content (storage-based history)
+            let diagramGitCommit: string | undefined;
+            try {
+                const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
+                const diagramGit = new DiagramGitTracker(workspaceId);
+                diagramGitCommit = await diagramGit.captureSnapshot(appPath, content);
+                if (diagramGitCommit) {
+                    console.log(`📊 [diagram:generate-ai] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
+                }
+            } catch (e) {
+                console.warn("[diagram:generate-ai] Diagram git capture skipped:", e);
+            }
 
-            console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
+            // 8. Update existing diagram or create one (one diagram per workspace – no duplicates)
+            const existingDiagram = await db.query.diagrams.findFirst({
+                where: eq(diagrams.workspaceId, workspaceId),
+            });
+
+            let diagram: typeof diagrams.$inferSelect;
+
+            if (existingDiagram) {
+                // Save previous content to diagram_versions for in-app history
+                await db.insert(diagramVersions).values({
+                    diagramId: existingDiagram.id,
+                    content: existingDiagram.content,
+                    changeDescription: "Regenerated (AI)",
+                    trigger: "auto_sync",
+                }).catch(() => {});
+
+                const meta = (existingDiagram.metadata as Record<string, unknown>) || {};
+                const [updated] = await db
+                    .update(diagrams)
+                    .set({
+                        content,
+                        type: "mermaid",
+                        title: title || existingDiagram.title || `${app.name} Architecture (AI)`,
+                        fingerprintHash: fingerprint.hash,
+                        fingerprintData: fingerprint,
+                        createdFromFileCount: fingerprint.fileCount,
+                        updatedAt: new Date(),
+                        metadata: {
+                            ...meta,
+                            focus: "ai-generated",
+                            ...(diagramGitCommit && { diagramGitCommit }),
+                        },
+                    })
+                    .where(eq(diagrams.id, existingDiagram.id))
+                    .returning();
+
+                diagram = updated;
+                console.log(`📊 [diagram:generate-ai] Updated diagram ${existingDiagram.id}`);
+            } else {
+                const [created] = await db
+                    .insert(diagrams)
+                    .values({
+                        workspaceId,
+                        type: "mermaid",
+                        title: title || `${app.name} Architecture (AI)`,
+                        content,
+                        metadata: {
+                            focus: "ai-generated",
+                            ...(diagramGitCommit && { diagramGitCommit }),
+                        },
+                        fingerprintHash: fingerprint.hash,
+                        fingerprintData: fingerprint,
+                        createdFromFileCount: fingerprint.fileCount,
+                    })
+                    .returning();
+
+                diagram = created;
+                console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
+            }
+
             invalidateBlueprintCache(workspaceId);
             return { success: true, diagram };
 
         } catch (error: unknown) {
             console.error("[diagram:generate-ai] Error:", error);
             let message = error instanceof Error ? error.message : "Unknown error";
-            if (typeof (error as { statusCode?: number })?.statusCode === "number") {
+            if (isDiagramModelNotFoundError(error)) {
+                message = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose a model from Settings → OpenRouter → Favorite Models, then try again.";
+            } else if (typeof (error as { statusCode?: number })?.statusCode === "number") {
                 const code = (error as { statusCode: number }).statusCode;
                 if (code === 401) message = "API key invalid or user not found. Check your OpenRouter (or selected provider) API key in Settings.";
                 else if (code >= 400 && code < 500) message = `API error (${code}). Check your API key and model in Settings.`;
@@ -480,6 +565,30 @@ ipcMain.handle(
 );
 
 // ============================================
+// DIAGRAM:HISTORY-FROM-GIT - Storage-based version history (git log)
+// ============================================
+
+ipcMain.handle(
+    "diagram:history-from-git",
+    async (_, { workspaceId, maxCount }: { workspaceId: number; maxCount?: number }) => {
+        try {
+            const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
+            const diagramGit = new DiagramGitTracker(workspaceId);
+            const history = await diagramGit.getDiagramHistory(maxCount ?? 50);
+            console.log(`📊 [diagram:history-from-git] Found ${history.length} commits for workspace ${workspaceId}`);
+            return { success: true, versions: history };
+        } catch (error) {
+            console.error("[diagram:history-from-git] Error:", error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+                versions: [],
+            };
+        }
+    }
+);
+
+// ============================================
 // DIAGRAM:RESTORE - Restore a previous version
 // ============================================
 
@@ -617,8 +726,8 @@ ipcMain.handle(
                 chatContext
             });
 
-            // 3. Prepare AI Client
-            const modelConfig = settings.selectedModel;
+            // 3. Prepare AI Client (uses Auto chain when autoModelRouting is ON)
+            const modelConfig = getEffectiveModel(settings);
             const { modelClient } = await getModelClient(modelConfig, settings);
 
             // 4. Generate Diagram

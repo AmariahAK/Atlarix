@@ -38,7 +38,7 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, ModelClient } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError } from "../utils/get_model_client";
 import log from "electron-log";
 import {
   getSupabaseContext,
@@ -79,6 +79,7 @@ import { prompts as promptsTable } from "../../db/schema";
 import { inArray } from "drizzle-orm";
 import { replacePromptReference } from "../utils/replacePromptReference";
 import { mcpManager } from "../utils/mcp_manager";
+import { logMcpError } from "./mcp_handlers";
 import z from "zod";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
@@ -388,6 +389,7 @@ export function registerChatStreamHandlers() {
       try {
         const fileUploadsState = FileUploadsState.getInstance();
         let dyadRequestId: string | undefined;
+        let hadToolCallsOrPermissions = false;
 
         // Check if this is an ephemeral (incognito) chat BEFORE querying database
         const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
@@ -791,8 +793,9 @@ ${componentSnippet}
         );
       } else {
         // Normal AI processing for non-test prompts
+        const effectiveModel = getEffectiveModel(settings);
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
-          await getModelClient(settings.selectedModel, settings);
+          await getModelClient(effectiveModel, settings);
 
         // Chat-only mode: no app/workspace
         const hasWorkspace = !!updatedChat.app;
@@ -989,7 +992,7 @@ ${componentSnippet}
                 messageHistoryTokens,
                 systemPromptTokens: systemPromptEstimate,
                 inputTokens,
-                providerId: settings.selectedModel?.provider,
+                providerId: getEffectiveModelForOptions(settings)?.provider,
               })
             ) {
               // Run compaction when over threshold
@@ -998,7 +1001,7 @@ ${componentSnippet}
                 chatMessages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
                 systemPromptTokens: systemPromptEstimate,
                 inputTokens,
-                providerId: settings.selectedModel?.provider,
+                providerId: getEffectiveModelForOptions(settings)?.provider,
               });
               if (compactionResult) {
                 contextSummaryForSystem = compactionResult.summaryText;
@@ -1416,7 +1419,8 @@ This conversation includes one or more image attachments. When the user uploads 
             };
 
             // Conditionally include Google thinking config only for supported models
-            const selectedModelName = settings.selectedModel.name || "";
+            const optionsModel = getEffectiveModelForOptions(settings);
+            const selectedModelName = optionsModel.name || "";
             const providerId = modelClient.builtinProviderId;
             const isVertex = providerId === "vertex";
             const isGoogle = providerId === "google";
@@ -1449,8 +1453,8 @@ This conversation includes one or more image attachments. When the user uploads 
                   "anthropic-beta": "context-1m-2025-08-07",
                 }
                 : undefined,
-              maxOutputTokens: await getMaxTokens(settings.selectedModel),
-              temperature: await getTemperature(settings.selectedModel),
+              maxOutputTokens: await getMaxTokens(optionsModel),
+              temperature: await getTemperature(optionsModel),
               maxRetries: 2,
               model: modelClient.model,
               stopWhen: [stepCountIs(20), hasToolCall("edit-code")],
@@ -1490,7 +1494,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     schedulePostTurnCompaction({
                       chatId: req.chatId,
                       totalTokensUsed: maxTokensUsed,
-                      providerId: settings.selectedModel?.provider,
+                      providerId: modelClient.builtinProviderId ?? optionsModel?.provider,
                     });
                   }
                 } else {
@@ -1498,12 +1502,16 @@ This conversation includes one or more image attachments. When the user uploads 
                 }
               },
               onError: (error: any) => {
+                const modelNotFoundUserMessage = "The selected model was not found for any provider. Please choose a different model in Settings.";
                 let errorMessage = (error as any)?.error?.message;
                 const responseBody = error?.error?.responseBody;
                 if (errorMessage && responseBody) {
                   errorMessage += "\n\nDetails: " + responseBody;
                 }
-                const message = errorMessage || JSON.stringify(error);
+                let message = errorMessage || JSON.stringify(error);
+                if (isDiagramModelNotFoundError(error)) {
+                  message = modelNotFoundUserMessage;
+                }
                 const requestIdPrefix = isEngineEnabled
                   ? `[Request ID: ${dyadRequestId}] `
                   : "";
@@ -2298,6 +2306,8 @@ If the user requests modifications, use request_mode_change to request Build mod
                 hitIterationLimit: agenticIteration >= maxIterations,
                 userExtensions: Math.floor((maxIterations - DEFAULT_AGENTIC_CONFIG.maxIterations) / 10),
               });
+              hadToolCallsOrPermissions =
+                totalToolExecutions > 0 || permissionInterceptor.getAllOperationsCount() > 0;
               // ═══════════════════════════════════════════════════════════════
 
             } catch (streamError) {
@@ -2473,6 +2483,7 @@ If the user requests modifications, use request_mode_change to request Build mod
               updatedFiles: status.updatedFiles ?? false,
               extraFiles: status.extraFiles,
               extraFilesError: status.extraFilesError,
+              hadToolCallsOrPermissions: status.updatedFiles ?? (status.extraFiles?.length ? true : false),
             } satisfies ChatResponseEnd);
           } else {
             // v2.1: Self-review activity in non-status path (ask/simple)
@@ -2515,6 +2526,7 @@ If the user requests modifications, use request_mode_change to request Build mod
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: false,
+              hadToolCallsOrPermissions,
             } satisfies ChatResponseEnd);
           }
         }
@@ -2544,9 +2556,12 @@ If the user requests modifications, use request_mode_change to request Build mod
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
         logger.error("Error calling LLM:", error);
+        const errMessage = isDiagramModelNotFoundError(error)
+          ? "The selected model was not found for any provider. Please choose a different model in Settings."
+          : `Sorry, there was an error processing your request: ${error}`;
         safeSend(event.sender, "chat:response:error", {
           chatId: req.chatId,
-          error: `Sorry, there was an error processing your request: ${error}`,
+          error: errMessage,
         });
         activeStreams.delete(req.chatId);
         FileUploadsState.getInstance().clear(req.chatId);
@@ -2574,6 +2589,7 @@ If the user requests modifications, use request_mode_change to request Build mod
     safeSend(event.sender, "chat:response:end", {
       chatId,
       updatedFiles: false,
+      hadToolCallsOrPermissions: false,
     } satisfies ChatResponseEnd);
 
     // Clean up uploads state for this chat
@@ -2878,7 +2894,7 @@ async function getMcpTools(
       }
     }
   } catch (e) {
-    logger.warn("Failed building MCP toolset", e);
+    logMcpError("Failed building MCP toolset", e);
   }
   return mcpToolSet;
 }

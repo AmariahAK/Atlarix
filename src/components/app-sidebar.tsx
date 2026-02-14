@@ -236,7 +236,7 @@ export function AppSidebar() {
 
                             setShowAuthMenu(false);
 
-                            const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription');
+                            const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription') as { success?: boolean; message?: string; error?: string } | undefined;
                             if (result?.success) {
                               alert(result.message || 'Subscription cancelled. You will retain Pro access until the end of your billing period.');
                             } else {

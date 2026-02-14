@@ -14,7 +14,7 @@
 import { IpcMainInvokeEvent } from "electron";
 import { streamText, ToolSet, stepCountIs } from "ai";
 import { readSettings } from "../../main/settings";
-import { getModelClient } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
 import log from "electron-log";
 import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
@@ -204,7 +204,8 @@ export async function handleChatOnlyStream(
         });
 
         // Log which model is being used (helps verify Auto vs single model)
-        const sel = settings.selectedModel as { provider?: string; name?: string } | undefined;
+        const effectiveModel = getEffectiveModel(settings);
+        const sel = effectiveModel as { provider?: string; name?: string };
         if (sel?.provider === "auto") {
             const ids = settings.autoModelIds;
             logger.log(`Chat-only model: Auto (provider=${settings.autoProviderId ?? "default"}, models=${Array.isArray(ids) ? ids.join(", ") : "default chain"})`);
@@ -212,9 +213,9 @@ export async function handleChatOnlyStream(
             logger.log(`Chat-only model: ${sel?.provider ?? "?"}/${sel?.name ?? "?"}`);
         }
 
-        // Get model client
+        // Get model client (uses Auto chain when autoModelRouting is ON)
         const { modelClient } = await getModelClient(
-            settings.selectedModel,
+            effectiveModel,
             settings
         );
 
@@ -403,8 +404,10 @@ export async function handleChatOnlyStream(
         // Send completion
         const endResponse: ChatResponseEnd = {
             chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
             messages: [...chat.messages],
-        };
+        } as ChatResponseEnd;
         safeSend(event.sender, "chat:response:end", endResponse);
 
         // Clean up

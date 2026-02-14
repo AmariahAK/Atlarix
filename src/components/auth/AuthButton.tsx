@@ -61,8 +61,9 @@ export function AuthButton() {
 
         // Use correct IPC pattern
         const ipcRenderer = window.electron?.ipcRenderer;
+        const listener = (...args: unknown[]) => handleCallback(args[0] as unknown, args[1] as { user: UserSession });
         if (ipcRenderer?.on) {
-            ipcRenderer.on("oauth-callback-success", handleCallback);
+            ipcRenderer.on("oauth-callback-success", listener);
         }
 
         // Check for existing session on mount
@@ -70,7 +71,7 @@ export function AuthButton() {
 
         return () => {
             if (ipcRenderer?.removeListener) {
-                ipcRenderer.removeListener("oauth-callback-success", handleCallback);
+                ipcRenderer.removeListener("oauth-callback-success", listener);
             }
         };
     }, []);
@@ -80,7 +81,7 @@ export function AuthButton() {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) return;
 
-            const result = await ipcRenderer.invoke("auth:get-current-user");
+            const result = await ipcRenderer.invoke("auth:get-current-user") as { user?: UserSession } | undefined;
             if (result?.user) {
                 setUser(result.user);
             }

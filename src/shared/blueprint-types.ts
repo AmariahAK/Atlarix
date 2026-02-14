@@ -76,3 +76,44 @@ export function blueprintToMermaid(b: Blueprint): string {
   }
   return lines.join("\n");
 }
+
+// --- Combined Blueprint (v2.2: polyrepo / monorepo) ---
+
+/** Minimal node shape for combined blueprint (matches RTE BlueprintNode) */
+export interface BlueprintNodeSummary {
+  id: string;
+  type: string;
+  name: string;
+  file: string;
+  line?: number;
+  description?: string;
+  method?: string;
+  path?: string;
+}
+
+export type ProjectMarker = "frontend" | "backend" | "mobile" | "shared" | "api";
+
+export interface ProjectBlueprint {
+  id: string;
+  name: string;
+  path: string;
+  language: string;
+  framework?: string;
+  marker: ProjectMarker;
+  nodes: BlueprintNodeSummary[];
+}
+
+export interface CrossProjectEdge {
+  from: string; // "projectId:nodeId"
+  to: string;   // "projectId:nodeId"
+  type: "api_call" | "imports" | "calls";
+  method?: string;
+  path?: string;
+}
+
+export interface CombinedBlueprint {
+  version: "2.2";
+  type: "combined" | "single";
+  projects: ProjectBlueprint[];
+  cross_project_edges: CrossProjectEdge[];
+}

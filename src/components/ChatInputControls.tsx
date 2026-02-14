@@ -53,14 +53,15 @@ export function ChatInputControls({
         : `${effectiveMode === "ask" ? "Ask" : "Build"} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
 
   let tokenWarning: string | null = null;
+  const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
+  const budgetTokens = tokenResult?.effectiveBudget ?? tokenResult?.contextWindow ?? 0;
+  const contextPercent = budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
+
   if (agentMode === "autonomous" && chatId && tokenResult) {
-    const used = tokenResult.estimatedTotalTokens;
-    const budget = tokenResult.effectiveBudget ?? tokenResult.contextWindow ?? 0;
-    contextLine += ` · ${formatTokens(used)}/${formatTokens(budget)} tokens`;
-    if (budget > 0) {
-      const pct = (used / budget) * 100;
-      if (pct >= 100) tokenWarning = "Token limit reached";
-      else if (pct >= 80) tokenWarning = "Approaching token limit";
+    contextLine += ` · ${formatTokens(usedTokens)}/${formatTokens(budgetTokens)} tokens`;
+    if (budgetTokens > 0) {
+      if (contextPercent >= 100) tokenWarning = "Token limit reached";
+      else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
     }
   }
 
@@ -68,7 +69,7 @@ export function ChatInputControls({
     <div className="flex flex-col gap-1">
       {!appId && <NoWorkspaceBanner className="mb-1" />}
 
-      {/* Compact context line */}
+      {/* Compact context line + non-clickable context usage bar */}
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-0.5 text-xs text-muted-foreground"
         data-testid="active-context-bar"
@@ -78,6 +79,19 @@ export function ChatInputControls({
           <span className="text-amber-600 dark:text-amber-400" title={tokenWarning}>
             ({tokenWarning})
           </span>
+        )}
+        {chatId != null && budgetTokens > 0 && (
+          <div
+            className="flex items-center gap-1.5 min-w-0 flex-1 max-w-[120px]"
+            title={`Context: ${formatTokens(usedTokens)} / ${formatTokens(budgetTokens)} tokens (${contextPercent.toFixed(0)}%)`}
+          >
+            <div className="h-1.5 flex-1 min-w-[40px] rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary/70 transition-[width] duration-300"
+                style={{ width: `${contextPercent}%` }}
+              />
+            </div>
+          </div>
         )}
       </div>
 

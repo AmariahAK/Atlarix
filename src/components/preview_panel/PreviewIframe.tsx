@@ -4,7 +4,7 @@ import {
   appOutputAtom,
   previewErrorMessageAtom,
 } from "@/atoms/appAtoms";
-import { browserErrorsAtom, type BrowserError } from "@/atoms/sourceAtoms";
+import { browserErrorsAtom, dismissedErrorSignaturesAtom, getErrorSignature, type BrowserError } from "@/atoms/sourceAtoms";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -264,6 +264,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   const [reloadKey, setReloadKey] = useState(0);
   const [errorMessage, setErrorMessage] = useAtom(previewErrorMessageAtom);
   const setBrowserErrors = useSetAtom(browserErrorsAtom);
+  const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const { streamMessage } = useStreamChat();
   const { routes: availableRoutes } = useParseRouter(selectedAppId);
@@ -577,19 +578,23 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
             timestamp: Date.now(),
           },
         ]);
-        // Also add to browserErrorsAtom so it shows in Errors Tab
+        // Also add to browserErrorsAtom so it shows in Errors Tab (re-show if same error was previously dismissed)
+        const newError: BrowserError = {
+          id: `iframe-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          type: 'runtime',
+          severity: 'error',
+          framework: 'browser',
+          actionable: true,
+          message: payload?.message || payload?.reason || 'Unknown error',
+          stack: stack,
+          timestamp: Date.now(),
+        };
+        setDismissedSignatures((prev) => {
+          const next = new Set(prev);
+          next.delete(getErrorSignature(newError));
+          return next;
+        });
         setBrowserErrors((prev) => {
-          const newError: BrowserError = {
-            id: `iframe-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            type: 'runtime',
-            severity: 'error',
-            framework: 'browser',
-            actionable: true,
-            message: payload?.message || payload?.reason || 'Unknown error',
-            stack: stack,
-            timestamp: Date.now(),
-          };
-          // Deduplicate by message
           const isDuplicate = prev.some(e => e.message === newError.message && Date.now() - e.timestamp < 5000);
           if (isDuplicate) return prev;
           return [...prev, newError];
@@ -607,20 +612,24 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
             timestamp: Date.now(),
           },
         ]);
-        // Also add to browserErrorsAtom so it shows in Errors Tab
+        // Also add to browserErrorsAtom so it shows in Errors Tab (re-show if same error was previously dismissed)
+        const newError: BrowserError = {
+          id: `build-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          type: 'build',
+          severity: 'error',
+          framework: 'vite',
+          actionable: true,
+          message: payload?.message || 'Build error',
+          file: payload?.file,
+          rawOutput: payload?.frame,
+          timestamp: Date.now(),
+        };
+        setDismissedSignatures((prev) => {
+          const next = new Set(prev);
+          next.delete(getErrorSignature(newError));
+          return next;
+        });
         setBrowserErrors((prev) => {
-          const newError: BrowserError = {
-            id: `build-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            type: 'build',
-            severity: 'error',
-            framework: 'vite',
-            actionable: true,
-            message: payload?.message || 'Build error',
-            file: payload?.file,
-            rawOutput: payload?.frame,
-            timestamp: Date.now(),
-          };
-          // Deduplicate by message
           const isDuplicate = prev.some(e => e.message === newError.message && Date.now() - e.timestamp < 5000);
           if (isDuplicate) return prev;
           return [...prev, newError];

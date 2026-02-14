@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import type { BlueprintFunction, BlueprintFunctionKind } from "@/shared/blueprint-types";
 import { FUNCTION_KIND_CONFIG } from "@/lib/blueprint/function-kind-config";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,12 @@ export type FunctionNodeData = {
   fn: BlueprintFunction;
 };
 
-function BlueprintFunctionNodeComponent({ data, selected }: NodeProps<FunctionNodeData>) {
+interface FunctionNodeProps {
+  data: FunctionNodeData;
+  selected?: boolean;
+}
+
+function BlueprintFunctionNodeComponent({ data, selected }: FunctionNodeProps) {
   const { fn } = data;
   const config = FUNCTION_KIND_CONFIG[fn.kind as BlueprintFunctionKind] ?? FUNCTION_KIND_CONFIG.feature;
   const { Icon, label, borderClass, iconClass } = config;

@@ -337,6 +337,21 @@ export type BrowserError = ParsedError;
 /** Browser errors captured from the live preview iframe */
 export const browserErrorsAtom = atom<ParsedError[]>([]);
 
+/** Stable signature for an error (message + file + line). Used to re-show dismissed errors when the same error recurs. */
+export function getErrorSignature(error: ParsedError): string {
+  return `${error.message}|${error.file ?? ''}|${error.line ?? ''}`;
+}
+
+/** Signatures of errors the user has marked done. When the same error is seen again (same message/file/line), it is re-shown and removed from this set. */
+export const dismissedErrorSignaturesAtom = atom<Set<string>>(new Set<string>());
+
+/** Visible browser errors: current list minus those whose signature is in the dismissed set. */
+export const visibleBrowserErrorsAtom = atom((get) => {
+  const errors = get(browserErrorsAtom);
+  const dismissed = get(dismissedErrorSignaturesAtom);
+  return errors.filter((e) => !dismissed.has(getErrorSignature(e)));
+});
+
 /** When user clicks "View code" on an error, open this file in Code tab and optionally scroll to line */
 export interface SelectedErrorForCode {
   filePath: string;

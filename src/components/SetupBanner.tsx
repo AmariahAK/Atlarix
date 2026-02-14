@@ -124,7 +124,7 @@ export function SetupBanner() {
         return;
       }
 
-      const result = await ipcRenderer.invoke("auth:upgrade");
+      const result = await ipcRenderer.invoke("auth:upgrade") as { success?: boolean; error?: string };
 
       if (!result.success && result.error) {
         // User needs to sign in first
@@ -253,8 +253,11 @@ export function SetupBanner() {
               </div>
             </AccordionTrigger>
             <AccordionContent className="px-4 pt-2 pb-4 bg-white dark:bg-zinc-900 border-t border-inherit">
-              <p className="text-[15px] mb-3">
-                Choose an AI provider below. OpenRouter is recommended for access to 100+ models.
+              <p className="text-[15px] mb-2">
+                Atlarix supports multiple AI providers: OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Together AI, Mistral, xAI, plus Ollama and LM Studio for local models. OpenRouter is a good first choice for 100+ models with a single API key.
+              </p>
+              <p className="text-[13px] text-muted-foreground mb-3">
+                You can configure <strong>MCP servers</strong> in Settings (or &quot;Manage MCP tools&quot; in the chat config dropdown) and use them in chat with <code className="text-xs bg-muted px-1 rounded">@mcp name</code>.
               </p>
               <SetupProviderCard
                 className="w-full"
