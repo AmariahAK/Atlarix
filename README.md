@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.6.0*
+*Current: v2.7.0*
 
 ---
 
@@ -219,9 +219,9 @@ npm start
 
 ---
 
-## Coming Soon (v2.7+)
+## Coming Soon (v2.8+)
 
-v2.6 adds Containers & Beacons UX (delete, drag, Summary Card, Edit Internals, onboarding, "Always show beacons", AI-generated badge, Flow zoom/pan), delegate_to_agent and Blueprint tool docs, chat:activity for native tools, and permission sounds. Next up:
+v2.7 adds AWS Bedrock in Settings → AI → AI Providers and changelog order (newest first). Next up:
 
 - **Full PIVOT** – ANTLR4 parsing, SQLite persistence, AI clustering into containers/beacons, Live vs Blueprint comparison, and Generate Code from architecture.
 - **Command Chaining UI** – Visual dependency graph for commands; partial approvals; rollback hints

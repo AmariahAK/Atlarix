@@ -27,7 +27,7 @@ import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector
 
 const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google", "openrouter",
-  "groq", "togetherai", "mistral", "xai",
+  "groq", "togetherai", "mistral", "xai", "bedrock",
 ];
 
 interface ProviderSettingsPageProps {

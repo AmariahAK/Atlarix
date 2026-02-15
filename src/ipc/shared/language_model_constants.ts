@@ -47,6 +47,7 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   togetherai: "TOGETHER_API_KEY",
   groq: "GROQ_API_KEY",
   mistral: "MISTRAL_API_KEY",
+  bedrock: "AWS_BEARER_TOKEN_BEDROCK",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -105,6 +106,12 @@ export const CLOUD_PROVIDERS: Record<
     displayName: "Mistral AI",
     hasFreeTier: false,
     websiteUrl: "https://console.mistral.ai/api-keys/",
+    gatewayPrefix: "",
+  },
+  bedrock: {
+    displayName: "AWS Bedrock",
+    hasFreeTier: false,
+    websiteUrl: "https://console.aws.amazon.com/bedrock/",
     gatewayPrefix: "",
   },
 };

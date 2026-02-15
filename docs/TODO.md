@@ -1,8 +1,15 @@
 # Atlarix TODO
 
-**Current Version:** v2.6.0  
-**Next Version:** v2.7+ (PIVOT full implementation)  
+**Current Version:** v2.7.0  
+**Next Version:** v2.8+ (PIVOT full implementation)  
 **Last Updated:** 2026-02-14
+
+---
+
+## Done: v2.7 — AWS Bedrock and changelog order (released 2026-02-14)
+
+- **AWS Bedrock:** Added to Settings → AI → AI Providers (cloud list); token budget supported.
+- **Changelog order:** Newest releases now appear at the top.
 
 ---
 
