@@ -7,7 +7,9 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.7.0*
+*Current: v2.9.0*
+
+**Recent (v2.9):** Diagram connections are now visible (stroke on edges in flow and container view); Flow mode supports editing in a side panel without switching to List; connection count shown as a small badge on beacons; flow panel and expanded dialog are larger. Next session: file-tree style layout for beacons and containers (horizontal tree for main nodes, vertical sub-trees for sub-beacons). See `docs/TODO.md` for next-session items.
 
 ---
 

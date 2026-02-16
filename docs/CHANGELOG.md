@@ -2,6 +2,35 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [2.9.0] — 2026-02-16
+
+### Diagram: visible connections, flow side panel, badge, larger panel
+
+- **Visible connection lines:** Flow view and container canvas edges now use explicit `style: { stroke, strokeWidth }` so connector lines are always visible (primary color), making it clear what is connected to what and where data flows.
+- **Flow mode: edit in side panel (Option B):** Clicking a beacon in Flow view no longer switches to List; a side panel opens next to the flow with the selected beacon’s details (name, Connected to, etc.). Close with X to stay in Flow.
+- **Connection badge in flow:** Replaced inline “Connected to” text on flow nodes with a small icon badge (GitBranch + count); list view still has the full “Connected to” section for editing.
+- **Larger flow panel:** Inline flow height increased (180px → 320px); expanded flow dialog is larger horizontally (min-w 85vw, max-w 95vw).
+
+### Telemetry: OpenTelemetry + SQLite (replaces Jaeger)
+
+- **Telemetry:** Replaced Jaeger with OpenTelemetry + SQLite. Lightweight in-process tracing; spans stored in user data directory as `telemetry.db`. New `RuntimeAnalyzer` (in `lib/telemetry/runtime-analyzer.ts`) for call frequency, average latency, call graph, and hot paths. Blueprint `mergeRuntimeData` now accepts a call graph `Map<string, string[]>` (e.g. from `RuntimeAnalyzer.getCallGraph()`) for runtime-derived edges.
+- **Removed:** Jaeger client, trace parser, and Jaeger URL from Settings. All Jaeger-related code and UI removed.
+
+---
+
+## [2.8.0] — 2026-02-16
+
+### Blueprint connection visualization, descriptions, tree view, co-author, website
+
+- **Connection visualization:** RTE parsers (TypeScript, Python) now emit import and call edges; Blueprint canvas and room flow view render edges with type labels (import/call/api) and arrow markers.
+- **Connection UI:** Connection handles on room and function nodes are shown only on hover (or connect mode) so they do not interfere with dragging.
+- **Simple descriptions:** Beacons get human-readable descriptions from JSDoc/docstrings first, then pattern heuristics (e.g. createX, useX, API routes); "Simplify" button uses the user’s AI to generate a one-line description on demand; optional expandable "Technical details" in the list item.
+- **Tree / hierarchical layout:** Diagram toolbar has a Diagram vs Tree layout toggle; Tree uses ELK for a dependency-style layout.
+- **Git co-author:** Commits made through Atlarix include `Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>` by default; Settings → Integrations has a checkbox to disable.
+- **Website (atlarix-launchpad):** Hero and Footer have "As Seen On" (SaaSHub, AlternativeTo); version set to v2.8; IndexNow key file hosted at site root for Bing.
+
+---
+
 ## [2.7.0] — 2026-02-14
 
 ### AWS Bedrock and changelog order

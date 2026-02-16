@@ -18,6 +18,7 @@ import { createLoggedHandler } from "./safe_handle";
 import { deployAllSupabaseFunctions } from "../../supabase_admin/supabase_utils";
 import {
   gitCheckout,
+  getCoAuthorTrailerForCommit,
   gitCommit,
   gitStageToRevert,
   getCurrentCommitHash,
@@ -198,6 +199,7 @@ export function registerVersionHandlers() {
         await gitCommit({
           path: appPath,
           message: `Reverted all changes back to version ${previousVersionId}`,
+          coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
 
         // Find the chat and message associated with the commit hash

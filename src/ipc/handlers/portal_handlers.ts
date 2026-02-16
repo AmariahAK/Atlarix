@@ -5,7 +5,7 @@ import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { spawn } from "child_process";
-import { gitCommit, gitAdd } from "../utils/git_utils";
+import { getCoAuthorTrailerForCommit, gitCommit, gitAdd } from "../utils/git_utils";
 import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils";
 
 const logger = log.scope("portal_handlers");
@@ -119,6 +119,7 @@ export function registerPortalHandlers() {
         const commitHash = await gitCommit({
           path: appPath,
           message: "[dyad] Generate database migration file",
+          coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
 
         logger.info(`Successfully committed migration changes: ${commitHash}`);

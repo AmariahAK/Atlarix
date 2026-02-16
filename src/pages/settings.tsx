@@ -88,6 +88,30 @@ export default function SettingsPage() {
             <McpServersCard />
           </div>
 
+          {/* Integrations */}
+          <div id="integrations" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <h2 className="text-lg font-medium text-foreground mb-4">
+              Integrations
+            </h2>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  id="include-atlarix-co-author"
+                  type="checkbox"
+                  checked={settings?.includeAtlarixCoAuthor !== false}
+                  onChange={(e) => updateSettings({ includeAtlarixCoAuthor: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <label htmlFor="include-atlarix-co-author" className="text-sm text-foreground">
+                  Include Atlarix as co-author in commits
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                When enabled, every commit made through Atlarix will include a Co-authored-by trailer for Atlarix AI Agent.
+              </p>
+            </div>
+          </div>
+
           {/* Danger Zone */}
           <div
             id="danger-zone"

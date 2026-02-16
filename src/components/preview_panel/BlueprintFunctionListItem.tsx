@@ -1,39 +1,85 @@
 /**
  * Single function row in Edit container details: type icon + label, name, expandable config.
- * Phase A: differentiate API / Webhook / Function / Feature with icons and expandable details.
+ * Shows simpleDescription when present; "Simplify" uses AI to generate one; technical details expandable.
  */
 
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Trash2, Code, Pencil, KeyRound } from "lucide-react";
-import type { BlueprintFunction, BlueprintFunctionKind } from "@/shared/blueprint-types";
+import { ChevronDown, ChevronRight, Trash2, Code, Pencil, KeyRound, Sparkles, ArrowRight, Plus } from "lucide-react";
+import type { BlueprintFunction, BlueprintFunctionKind, BlueprintRoomFlowEdge } from "@/shared/blueprint-types";
 import { FUNCTION_KIND_CONFIG } from "@/lib/blueprint/function-kind-config";
 import { cn } from "@/lib/utils";
+import { IpcClient } from "@/ipc/ipc_client";
+import { toast } from "sonner";
 
 interface BlueprintFunctionListItemProps {
   fn: BlueprintFunction;
   roomId: string;
+  workspaceId: number | null;
   onUpdate: (fnId: string, updates: Partial<BlueprintFunction>) => void;
   onRemove: (fnId: string) => void;
   /** Switch right panel to Vault/Creds tab (Phase B) */
   onOpenCreds?: () => void;
   /** When true, start expanded (e.g. after clicking node in Flow view) */
   defaultExpanded?: boolean;
+  /** Sub-beacons (e.g. tool calls, steps) shown nested when expanded */
+  subBeacons?: BlueprintFunction[];
+  /** Flow edges for this room (for "Connected to" section) */
+  flowEdges?: BlueprintRoomFlowEdge[];
+  /** Update flow edges for this room */
+  onFlowEdgesChange?: (edges: BlueprintRoomFlowEdge[]) => void;
+  /** All functions in this room (for add-connection target dropdown) */
+  otherFunctions?: BlueprintFunction[];
 }
 
 export function BlueprintFunctionListItem({
   fn,
-  roomId: _roomId,
+  roomId,
+  workspaceId,
   onUpdate,
   onRemove,
   onOpenCreds,
   defaultExpanded = false,
+  subBeacons = [],
+  flowEdges = [],
+  onFlowEdgesChange,
+  otherFunctions = [],
 }: BlueprintFunctionListItemProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [subExpanded, setSubExpanded] = useState(false);
+  const [simplifying, setSimplifying] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
   useEffect(() => {
     if (defaultExpanded) setExpanded(true);
   }, [defaultExpanded]);
   const config = FUNCTION_KIND_CONFIG[fn.kind as BlueprintFunctionKind] ?? FUNCTION_KIND_CONFIG.feature;
   const { Icon, label, borderClass, iconClass, configHint } = config;
+  const hasSubBeacons = subBeacons.length > 0;
+
+  const handleSimplify = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (workspaceId == null) {
+      toast.error("No workspace selected");
+      return;
+    }
+    setSimplifying(true);
+    try {
+      const res = await IpcClient.getInstance().simplifyBlueprintDescription({
+        workspaceId,
+        roomId,
+        functionId: fn.id,
+      });
+      if (res.success && res.simpleDescription) {
+        onUpdate(fn.id, { simpleDescription: res.simpleDescription, descriptionSource: "ai" });
+        toast.success("Description updated");
+      } else {
+        toast.error(res.error ?? "Could not simplify");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Simplify failed");
+    } finally {
+      setSimplifying(false);
+    }
+  };
 
   return (
     <div
@@ -52,7 +98,7 @@ export function BlueprintFunctionListItem({
           className="p-0.5 rounded text-muted-foreground hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
-            setExpanded((e) => !e);
+            setExpanded((prev) => !prev);
           }}
           aria-expanded={expanded}
         >
@@ -92,14 +138,50 @@ export function BlueprintFunctionListItem({
         </button>
       </div>
 
-      {/* Expanded: description + credential + type-specific config + actions */}
+      {/* Expanded: simple description prominent, Simplify button, technical details expandable */}
       {expanded && (
         <div className="px-2 pb-2 pt-0 border-t border-border/50 mt-0">
           <div className="space-y-2 pt-2">
-            {fn.description && (
+            {fn.simpleDescription ? (
               <div className="flex gap-2 text-xs">
                 <span className="text-muted-foreground shrink-0">Description:</span>
-                <span className="text-foreground/90">{fn.description}</span>
+                <span className="text-foreground/90">{fn.simpleDescription}</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {fn.description && (
+                  <span className="text-muted-foreground truncate max-w-[200px]" title={fn.description}>
+                    {fn.description}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSimplify}
+                  disabled={simplifying}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20",
+                    simplifying && "opacity-60"
+                  )}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {simplifying ? "Simplifying…" : "Simplify"}
+                </button>
+              </div>
+            )}
+            {fn.description && (
+              <div className="text-xs">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShowTechnical((v) => !v); }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {showTechnical ? "Hide" : "Show"} technical details
+                </button>
+                {showTechnical && (
+                  <div className="mt-1 px-2 py-1 rounded bg-muted/50 font-mono text-[10px] break-all">
+                    {fn.description}
+                  </div>
+                )}
               </div>
             )}
             {(fn.kind === "api" || fn.kind === "webhook") && (
@@ -142,11 +224,108 @@ export function BlueprintFunctionListItem({
                 </div>
               </div>
             )}
-            {(fn.kind === "function" || fn.kind === "feature") && !fn.description && (
+            {(fn.kind === "function" || fn.kind === "feature") && !fn.simpleDescription && !fn.description && (
               <div className="flex gap-2 text-xs text-muted-foreground">
                 <span>{configHint}</span>
               </div>
             )}
+            {/* Connected to: show and edit flow edges for this function */}
+            <div className="space-y-1.5 text-xs">
+              <h4 className="font-medium text-muted-foreground flex items-center gap-1">
+                <ArrowRight className="w-3 h-3" />
+                Connected to
+              </h4>
+              {(() => {
+                const outgoing = flowEdges.filter((e) => e.from === fn.id);
+                const incoming = flowEdges.filter((e) => e.to === fn.id);
+                const idToName = new Map(otherFunctions.map((f) => [f.id, f.name || f.id]));
+                if (outgoing.length === 0 && incoming.length === 0 && !onFlowEdgesChange) {
+                  return <span className="text-muted-foreground">No connections</span>;
+                }
+                if (outgoing.length === 0 && incoming.length === 0 && onFlowEdgesChange && otherFunctions.length <= 1) {
+                  return <span className="text-muted-foreground">No connections. Add another function in this container to connect.</span>;
+                }
+                return (
+                  <div className="space-y-1">
+                    {outgoing.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-muted-foreground shrink-0">Out:</span>
+                        {outgoing.map((e) => (
+                          <span
+                            key={`${e.from}-${e.to}`}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted/60"
+                          >
+                            {idToName.get(e.to) ?? e.to}
+                            {onFlowEdgesChange && (
+                              <button
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  onFlowEdgesChange(flowEdges.filter((x) => !(x.from === fn.id && x.to === e.to)));
+                                }}
+                                className="ml-0.5 p-0 rounded text-muted-foreground hover:text-destructive"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {incoming.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-muted-foreground shrink-0">In:</span>
+                        {incoming.map((e) => (
+                          <span
+                            key={`${e.from}-${e.to}`}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted/60"
+                          >
+                            {idToName.get(e.from) ?? e.from}
+                            {onFlowEdgesChange && (
+                              <button
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  onFlowEdgesChange(flowEdges.filter((x) => !(x.from === e.from && x.to === fn.id)));
+                                }}
+                                className="ml-0.5 p-0 rounded text-muted-foreground hover:text-destructive"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {onFlowEdgesChange && otherFunctions.length > 1 && (
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <select
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const toId = e.target.value;
+                            e.target.value = "";
+                            if (!toId || toId === fn.id) return;
+                            if (flowEdges.some((x) => x.from === fn.id && x.to === toId)) return;
+                            onFlowEdgesChange([...flowEdges, { from: fn.id, to: toId }]);
+                          }}
+                          className="px-1.5 py-0.5 text-xs rounded border border-border bg-background"
+                        >
+                          <option value="">Add connection…</option>
+                          {otherFunctions
+                            .filter((f) => f.id !== fn.id && !flowEdges.some((e) => e.from === fn.id && e.to === f.id))
+                            .map((f) => (
+                              <option key={f.id} value={f.id}>
+                                {f.name || f.kind}
+                              </option>
+                            ))}
+                        </select>
+                        <Plus className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
             <div className="flex flex-wrap gap-1">
               <button
                 type="button"
@@ -163,6 +342,37 @@ export function BlueprintFunctionListItem({
                 Edit
               </button>
             </div>
+            {hasSubBeacons && (
+              <div className="mt-2 border-t border-border/50 pt-2">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSubExpanded((v) => !v); }}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {subExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  Sub-beacons ({subBeacons.length})
+                </button>
+                {subExpanded && (
+                  <ul className="mt-1 ml-4 space-y-1 list-none pl-0">
+                    {subBeacons.map((sub) => {
+                      const subConfig = FUNCTION_KIND_CONFIG[sub.kind as BlueprintFunctionKind] ?? FUNCTION_KIND_CONFIG.feature;
+                      return (
+                        <li
+                          key={sub.id}
+                          className={cn(
+                            "flex items-center gap-2 py-1 px-2 rounded border-l-2 border-border bg-muted/30 text-xs",
+                            subConfig.borderClass
+                          )}
+                        >
+                          <subConfig.Icon className={cn("w-3 h-3 shrink-0", subConfig.iconClass)} />
+                          <span className="font-medium truncate">{sub.name || sub.kind}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

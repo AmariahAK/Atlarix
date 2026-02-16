@@ -3,12 +3,13 @@
  * Similar to n8n/Mermaid but card-based; no persistence (blueprint = current state).
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   useNodesState,
   useEdgesState,
   addEdge,
+  MarkerType,
   type Connection,
   type Node,
   type Edge,
@@ -24,6 +25,8 @@ import "@xyflow/react/dist/style.css";
 import type { Blueprint, BlueprintRoom, BlueprintEdge } from "@/shared/blueprint-types";
 import { generateBlueprintId } from "@/shared/blueprint-types";
 import { BlueprintRoomNode, type RoomNodeData } from "./BlueprintRoomNode";
+import { LayoutToggle, type BlueprintLayoutMode } from "./LayoutToggle";
+import { applyElkToReactFlowNodes } from "@/lib/blueprint/layouts/elkLayout";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentPhase } from "@/atoms/sourceAtoms";
@@ -58,9 +61,12 @@ function blueprintToNodesAndEdges(
     id: `e-${e.from}-${e.to}-${i}`,
     source: e.from,
     target: e.to,
-    label: e.label,
+    label: e.label ?? e.type ?? undefined,
     type: "smoothstep",
     className: edgeClassName,
+    markerEnd: { type: MarkerType.ArrowClosed },
+    data: { edgeType: e.type },
+    style: { stroke: "hsl(var(--primary))", strokeWidth: 2 },
   }));
   return { nodes, edges };
 }
@@ -71,6 +77,7 @@ function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint 
     from: e.source,
     to: e.target,
     label: typeof e.label === "string" ? e.label : undefined,
+    type: (e.data as { edgeType?: "import" | "call" | "api" })?.edgeType,
   }));
   return { rooms, edges: blueprintEdges, envRefs: [] };
 }
@@ -98,6 +105,7 @@ function BlueprintCanvasInner({
   agentPhaseActive,
   className,
 }: BlueprintCanvasInnerProps) {
+  const [layoutMode, setLayoutMode] = useState<BlueprintLayoutMode>("diagram");
   const { nodes: initialNodes, edges: initialEdges } = blueprintToNodesAndEdges(
     blueprint,
     agentPhase,
@@ -116,6 +124,34 @@ function BlueprintCanvasInner({
       setEdges(e);
     }
   }, [workspaceId, blueprint, agentPhase, agentPhaseActive, setNodes, setEdges]);
+
+  // When layout is Tree, run ELK to position nodes; when Diagram, use grid when blueprint or mode changes
+  const blueprintLayoutKey = `${blueprint.rooms.length}-${blueprint.rooms.map((r) => r.id).join(",")}`;
+  const prevLayoutKeyRef = useRef<string>("");
+  useEffect(() => {
+    if (layoutMode === "diagram") {
+      if (prevLayoutKeyRef.current !== blueprintLayoutKey) {
+        prevLayoutKeyRef.current = blueprintLayoutKey;
+        setNodes(initialNodes);
+        setEdges(initialEdges);
+      }
+      return;
+    }
+    if (initialNodes.length === 0) return;
+    const key = `tree-${blueprintLayoutKey}`;
+    if (prevLayoutKeyRef.current === key) return;
+    prevLayoutKeyRef.current = key;
+    let cancelled = false;
+    applyElkToReactFlowNodes(initialNodes, initialEdges, {
+      nodeWidth: NODE_WIDTH,
+      nodeHeight: NODE_HEIGHT,
+    }).then((positioned) => {
+      if (!cancelled) setNodes(positioned);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutMode, blueprintLayoutKey, initialNodes, initialEdges, setNodes, setEdges]);
 
   // When blueprint.rooms or agent phase change, update node data (keep positions)
   useEffect(() => {
@@ -197,7 +233,8 @@ function BlueprintCanvasInner({
       >
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} className="bg-background" />
         <Controls className="atlaflow-controls-theme !shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
-        <Panel position="top-right" className="flex gap-1">
+        <Panel position="top-right" className="flex items-center gap-2">
+          <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
           <button
             type="button"
             onClick={handleAddRoom}

@@ -1,5 +1,6 @@
 /**
  * Blueprint cache: persist and load RTE-generated blueprints under ~/.atlarix/blueprints/{projectHash}/
+ * User blueprint (rooms, edges, flowEdges) is stored in user_blueprint.json for persistence across restarts.
  */
 
 import * as fs from "fs/promises";
@@ -7,10 +8,12 @@ import * as path from "path";
 import { getUserDataPath } from "@/paths/paths";
 import { getWorkspaceHash } from "@/lib/analysis/workspace-cache";
 import type { BlueprintCacheContent, BlueprintStaleness } from "@/shared/blueprint-cache-types";
+import type { Blueprint } from "@/shared/blueprint-types";
 
 const BLUEPRINTS_DIR = "blueprints";
 const MANIFEST_FILE = "manifest.json";
 const BLUEPRINT_FILE = "blueprint.json";
+const USER_BLUEPRINT_FILE = "user_blueprint.json";
 
 function getBlueprintCacheRoot(): string {
   return path.join(getUserDataPath(), BLUEPRINTS_DIR);
@@ -99,4 +102,36 @@ export async function invalidateBlueprintCacheForProject(projectPath: string): P
   } catch {
     // ignore
   }
+}
+
+/**
+ * Save user's blueprint (rooms, edges, flowEdges) to disk. Survives app restarts.
+ * Stored in same project cache dir as RTE cache.
+ */
+export async function saveUserBlueprint(projectPath: string, blueprint: Blueprint): Promise<void> {
+  const projectHash = await getWorkspaceHash(projectPath);
+  const dir = getProjectCacheDir(projectHash);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, USER_BLUEPRINT_FILE),
+    JSON.stringify(blueprint, null, 2),
+    "utf-8"
+  );
+}
+
+/**
+ * Load user's saved blueprint if present. Returns null if not found or invalid.
+ */
+export async function loadUserBlueprint(projectPath: string): Promise<Blueprint | null> {
+  const projectHash = await getWorkspaceHash(projectPath);
+  const dir = getProjectCacheDir(projectHash);
+  const filePath = path.join(dir, USER_BLUEPRINT_FILE);
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    const data = JSON.parse(raw) as Blueprint;
+    if (data && Array.isArray(data.rooms)) return data;
+  } catch {
+    // not found or invalid
+  }
+  return null;
 }

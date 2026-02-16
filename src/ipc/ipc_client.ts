@@ -2019,6 +2019,15 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:generate-combined", params);
   }
 
+  /** Simplify beacon description with AI (fast model); updates blueprint and emits blueprint:updated */
+  public async simplifyBlueprintDescription(params: {
+    workspaceId: number;
+    roomId: string;
+    functionId: string;
+  }): Promise<{ success: boolean; simpleDescription?: string; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:simplify-description", params);
+  }
+
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */
   public async blueprintCodegen(params: {
     workspaceId: number;

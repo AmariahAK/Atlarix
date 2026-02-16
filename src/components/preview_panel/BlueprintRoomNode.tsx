@@ -1,9 +1,9 @@
 /**
  * Custom React Flow node: room card with type-based color, label, function count, handles.
- * Click to select; type colors: API, Backend, Frontend, DB, Webhook, DevOps, etc.
+ * Connection handles shown only on hover to avoid accidental edges when dragging.
  */
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { FileCode, GripVertical } from "lucide-react";
 import type { BlueprintRoom } from "@/shared/blueprint-types";
@@ -23,6 +23,7 @@ interface RoomNodeProps {
 }
 
 function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
+  const [showHandles, setShowHandles] = useState(false);
   const { room, agentPhase, agentPhaseActive } = data;
   const count = room.functions?.length ?? 0;
   const style = getRoomStyle(room);
@@ -40,6 +41,8 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
         architectOn && "atlarix-container-forming",
         builderOn && "atlarix-beacon-highlight"
       )}
+      onMouseEnter={() => setShowHandles(true)}
+      onMouseLeave={() => setShowHandles(false)}
     >
       <div
         className={cn("room-drag-handle absolute left-1 top-1.5 p-0.5 rounded cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none")}
@@ -47,10 +50,14 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
       >
         <GripVertical className="h-3.5 w-3.5" />
       </div>
-      <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-muted-foreground/70" />
-      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-muted-foreground/70" />
-      <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-muted-foreground/70" />
-      <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-muted-foreground/70" />
+      {showHandles && (
+        <>
+          <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-muted-foreground/70" />
+          <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-muted-foreground/70" />
+          <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-muted-foreground/70" />
+          <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-muted-foreground/70" />
+        </>
+      )}
 
       <div className="flex items-start gap-2">
         <span className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border", style.badgeClass)}>

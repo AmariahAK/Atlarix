@@ -11,7 +11,7 @@ import {
   extractClassPrefixes,
 } from "../../../../utils/style-utils";
 import git from "isomorphic-git";
-import { gitCommit } from "../../../../ipc/utils/git_utils";
+import { getCoAuthorTrailerForCommit, gitCommit } from "../../../../ipc/utils/git_utils";
 import { safeJoin } from "@/ipc/utils/path_utils";
 import {
   AnalyseComponentParams,
@@ -82,6 +82,7 @@ export function registerVisualEditingHandlers() {
             await gitCommit({
               path: appPath,
               message: `Updated ${relativePath}`,
+              coAuthorTrailer: getCoAuthorTrailerForCommit(),
             });
           }
         }

@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "2.7.0",
+  "version": "2.9.0",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {
@@ -139,6 +139,10 @@
     "@vercel/sdk": "^1.18.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.10.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/resources": "^1.27.0",
+    "@opentelemetry/sdk-trace-base": "^1.27.0",
+    "@opentelemetry/sdk-trace-node": "^1.27.0",
     "ai": "^5.0.15",
     "better-sqlite3": "^12.4.1",
     "class-variance-authority": "^0.7.1",
@@ -148,6 +152,7 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.41.0",
     "dugite": "^3.0.0",
+    "elkjs": "^0.9.2",
     "electron-log": "^5.3.3",
     "electron-playwright-helpers": "^1.7.1",
     "electron-squirrel-startup": "^1.0.1",

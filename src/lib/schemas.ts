@@ -365,6 +365,9 @@ export const UserSettingsSchema = z.object({
   /** When true, selecting a container opens Edit Internals (beacon view) directly instead of Summary Card. */
   blueprintAlwaysShowBeacons: z.boolean().optional(),
 
+  /** When true (default), commits made via Atlarix include Co-authored-by: Atlarix AI Agent <agent@atlarix.dev> */
+  includeAtlarixCoAuthor: z.boolean().optional(),
+
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   enableAutoUpdate: z.boolean(),

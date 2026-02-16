@@ -20,6 +20,7 @@ import {
 } from "../../supabase_admin/supabase_utils";
 import { UserSettings } from "../../lib/schemas";
 import {
+  getCoAuthorTrailerForCommit,
   gitCommit,
   gitAdd,
   gitRemove,
@@ -506,6 +507,7 @@ export async function processFullResponseActions(
       let commitHash = await gitCommit({
         path: appPath,
         message,
+        coAuthorTrailer: getCoAuthorTrailerForCommit(),
       });
       logger.log(`Successfully committed changes: ${changes.join(", ")}`);
 
@@ -520,6 +522,7 @@ export async function processFullResponseActions(
             path: appPath,
             message: message + " + extra files edited outside of Atlarix",
             amend: true,
+            coAuthorTrailer: getCoAuthorTrailerForCommit(),
           });
           logger.log(
             `Amend commit with changes outside of dyad: ${uncommittedFiles.join(", ")}`,

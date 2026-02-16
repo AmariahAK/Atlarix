@@ -233,6 +233,7 @@ const validInvokeChannels = [
   "blueprint:analyze-workspace",
   "blueprint:generate-combined",
   "blueprint:codegen",
+  "blueprint:simplify-description",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",

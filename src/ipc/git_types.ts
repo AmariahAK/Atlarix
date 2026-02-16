@@ -14,6 +14,8 @@ export interface GitBaseParams {
 export interface GitCommitParams extends GitBaseParams {
   message: string;
   amend?: boolean;
+  /** Optional Co-authored-by trailer (e.g. "Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>") */
+  coAuthorTrailer?: string;
 }
 export interface GitFileParams extends GitBaseParams {
   filepath: string;

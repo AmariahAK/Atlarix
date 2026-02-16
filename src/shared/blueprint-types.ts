@@ -5,12 +5,18 @@
 
 export type BlueprintFunctionKind = "api" | "webhook" | "function" | "feature";
 
+export type DescriptionSource = "jsdoc" | "pattern" | "ai" | "ollama";
+
 export interface BlueprintFunction {
   id: string;
   name: string;
   kind: BlueprintFunctionKind;
-  /** Optional description or route path */
+  /** Optional description or route path (technical, e.g. file path) */
   description?: string;
+  /** Human-readable one-liner from JSDoc, pattern, or AI */
+  simpleDescription?: string;
+  /** Source of simpleDescription */
+  descriptionSource?: DescriptionSource;
   /** Env key for API/Webhook (e.g. OPENROUTER_API_KEY). Shown in list; edit in Creds/Vault. */
   credentialKey?: string;
   /** API provider (e.g. OpenRouter, Stripe). */
@@ -19,6 +25,8 @@ export interface BlueprintFunction {
   trigger?: string;
   /** When true, this beacon was created by AI from a container-level prompt; devs can modify or remove. */
   aiGenerated?: boolean;
+  /** Optional parent beacon id; when set, this is a sub-beacon (e.g. tool call, step). */
+  parentId?: string;
 }
 
 /** Edge between two functions within a room (Phase C/D: flow view) */
@@ -26,6 +34,8 @@ export interface BlueprintRoomFlowEdge {
   from: string; // function id
   to: string;   // function id
   label?: string;
+  type?: "import" | "call" | "api";
+  weight?: number;
 }
 
 export interface BlueprintRoom {
@@ -37,12 +47,18 @@ export interface BlueprintRoom {
   functions: BlueprintFunction[];
   /** Edges between functions inside this room (calls/triggers). Phase C/D. */
   flowEdges?: BlueprintRoomFlowEdge[];
+  /** Optional parent container id; when set, this is a sub-container. */
+  parentId?: string;
+  /** Optional child container ids for file-tree hierarchy. */
+  children?: string[];
 }
 
 export interface BlueprintEdge {
   from: string;
   to: string;
   label?: string;
+  type?: "import" | "call" | "api";
+  weight?: number;
 }
 
 export interface Blueprint {

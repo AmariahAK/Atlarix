@@ -393,7 +393,17 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     ) : (
                         <BlueprintEditor
                             blueprint={blueprint ?? createEmptyBlueprint()}
-                            onSave={(b) => setBlueprint(b)}
+                            onSave={(b) => {
+                                setBlueprint(b);
+                                if (app?.id) {
+                                    setSavingBlueprint(true);
+                                    IpcClient.getInstance()
+                                        .setBlueprint({ workspaceId: app.id, blueprint: b })
+                                        .then(() => toast.success("Blueprint saved"))
+                                        .catch((e) => toast.error(e?.message ?? "Failed to save blueprint"))
+                                        .finally(() => setSavingBlueprint(false));
+                                }
+                            }}
                             isSaving={savingBlueprint}
                             onOpenCreds={setActiveTab ? () => setActiveTab('vault') : undefined}
                         />

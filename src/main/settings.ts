@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableAutoFixProblems: false,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   blueprintAlwaysShowBeacons: false,
+  includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",
   selectedTemplateId: DEFAULT_TEMPLATE_ID,

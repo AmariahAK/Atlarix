@@ -1,8 +1,18 @@
 # Atlarix TODO
 
-**Current Version:** v2.7.0  
-**Next Version:** v2.8+ (PIVOT full implementation)  
-**Last Updated:** 2026-02-14
+**Current Version:** v2.9.0  
+**Next Version:** v2.10+ (PIVOT full implementation)  
+**Last Updated:** 2026-02-16
+
+---
+
+## Next session (to be done)
+
+- **Diagram: file-tree layout**
+  - Replace grid/ELK with a **hierarchical file-tree style** so users see what is connected to what and how data flows.
+  - **Beacons:** Horizontal tree for main beacons (e.g. DB ←→ API); under each main beacon, a **vertical file tree** for sub-beacons (e.g. User Profile with children Edit, Delete; Signup/Login with OAuth, Manual). Layout should reflect real structure (main beacons with sub-beacons underneath doing tasks).
+  - **Containers:** Same file-tree idea for the container canvas (no sub-containers); main containers in a horizontal or vertical tree so connections and hierarchy are clear.
+- **Optional:** Ensure edge labels or tooltips show what data is sent where when supported by the model.
 
 ---
 

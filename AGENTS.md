@@ -866,6 +866,8 @@ detect_project_languages()
 
 ## 🔀 Git Tools (2 tools)
 
+**Commits via Atlarix:** When the user commits through the app (e.g. after file writes, init, or upgrade flows), each commit includes a `Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>` trailer by default. Users can disable this in Settings → Integrations (“Include Atlarix as co-author in commits”).
+
 ### git_status
 
 **Purpose:** Get current git repository status.
@@ -1008,6 +1010,8 @@ In **Guided** and **Autonomous** modes you have access to the **delegate_to_agen
 
 The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint** (editable containers & beacons). The Blueprint is the desired architecture; use these tools to read and update it. When you edit the Blueprint, the user sees an "AI is editing the blueprint" indicator in the Diagram tab.
 
+**Blueprint behavior:** Edges between containers/beacons can be **import**, **call**, or **api** (from RTE parsing). Beacons have optional **simple descriptions** (from JSDoc/docstrings or pattern heuristics); the user can run “Simplify” for an AI-generated one-liner. The Diagram toolbar has a **Diagram / Tree** layout toggle: Diagram uses the grid; Tree uses a hierarchical (ELK) layout so dependency flow is clear. Runtime telemetry uses OpenTelemetry + SQLite (spans in telemetry.db) for optional Blueprint runtime overlay via mergeRuntimeData and RuntimeAnalyzer.
+
 ### Blueprint Implementation Workflow (IMPORTANT)
 
 **Trigger:** When the user or you has finished modifying the Blueprint (e.g. user says "implement this" or "generate from blueprint"), you MUST:
@@ -1024,7 +1028,7 @@ The **Diagram** tab has two modes: **Live** (Mermaid from code) and **Blueprint*
 
 ### get_blueprint
 
-**Purpose:** Read the current Blueprint (containers, beacons per container, edges). Use before making changes.
+**Purpose:** Read the current Blueprint (containers, beacons per container, edges with optional type: import/call/api). Use before making changes.
 
 **Parameters:** `workspaceId` (number, required – auto-injected).
 

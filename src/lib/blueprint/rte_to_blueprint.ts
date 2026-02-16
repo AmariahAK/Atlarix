@@ -66,6 +66,8 @@ export function rteResultToBlueprint(result: RTEParseResult): Blueprint {
       name: n.name,
       kind: RTE_KIND_TO_BLUEPRINT[n.type] ?? "function",
       description: n.description ?? n.path ?? n.file,
+      simpleDescription: n.simpleDescription,
+      descriptionSource: n.descriptionSource,
     }));
     rooms.push({
       id: roomId,
@@ -74,7 +76,13 @@ export function rteResultToBlueprint(result: RTEParseResult): Blueprint {
       functions,
       flowEdges: edges
         .filter((e) => nodeToRoomId.get(e.from) === roomId && nodeToRoomId.get(e.to) === roomId)
-        .map((e) => ({ from: e.from, to: e.to, label: e.label })),
+        .map((e) => ({
+          from: e.from,
+          to: e.to,
+          label: e.label,
+          type: e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call",
+          weight: undefined,
+        })),
     });
   }
 
@@ -87,7 +95,13 @@ export function rteResultToBlueprint(result: RTEParseResult): Blueprint {
       const key = `${fromRoom}->${toRoom}`;
       if (!seen.has(key)) {
         seen.add(key);
-        roomEdges.push({ from: fromRoom, to: toRoom, label: e.label });
+        roomEdges.push({
+          from: fromRoom,
+          to: toRoom,
+          label: e.label,
+          type: e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call",
+          weight: undefined,
+        });
       }
     }
   }

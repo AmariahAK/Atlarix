@@ -17,6 +17,8 @@ export type BlueprintNodeType =
   | "stream"
   | "conditional";
 
+export type DescriptionSource = "jsdoc" | "pattern" | "ai" | "ollama";
+
 export interface BlueprintNode {
   id: string;
   type: BlueprintNodeType;
@@ -27,6 +29,9 @@ export interface BlueprintNode {
   line?: number;
   /** Optional description or route path */
   description?: string;
+  /** Human-readable one-liner from JSDoc, pattern, or AI */
+  simpleDescription?: string;
+  descriptionSource?: DescriptionSource;
   /** For API: HTTP method */
   method?: string;
   /** For API/Webhook: path or route */

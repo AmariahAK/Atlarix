@@ -14,6 +14,9 @@ import type {
 } from "./types";
 import { typeScriptParser } from "./typescript";
 import { pythonParser } from "./python";
+import { extractImportAndCallEdges } from "./edgeExtractor";
+import { getSimpleDescriptionFromDoc } from "@/lib/blueprint/descriptions/jsdocExtractor";
+import { getSimpleDescriptionFromPattern } from "@/lib/blueprint/descriptions/patternMatcher";
 
 export type { BlueprintNode, RTEBlueprintEdge, RTEParseResult, FrameworkInfo, SupportedLanguage } from "./types";
 
@@ -131,9 +134,71 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
   const nodes = await parser.parse(absolutePaths);
   const framework = await parser.detectFramework(absolutePaths);
 
-  const edges = extractEdgesFromNodes(nodes);
+  await enrichNodesWithDescriptions(projectPath, nodes, language);
+
+  const callEdges = extractEdgesFromNodes(nodes);
+  const importEdges = await extractImportAndCallEdges(projectPath, nodes, language);
+  const edges = [...callEdges, ...importEdges];
 
   return { nodes, edges, framework };
+}
+
+const DOC_LANG: Record<SupportedLanguage, "ts" | "py"> = {
+  typescript: "ts",
+  javascript: "ts",
+  python: "py",
+  go: "ts",
+  rust: "ts",
+  java: "ts",
+  csharp: "ts",
+  ruby: "ts",
+  php: "ts",
+  swift: "ts",
+  kotlin: "ts",
+  elixir: "ts",
+};
+
+async function enrichNodesWithDescriptions(
+  projectPath: string,
+  nodes: BlueprintNode[],
+  language: SupportedLanguage
+): Promise<void> {
+  const docLang = DOC_LANG[language] ?? "ts";
+  const byFile = new Map<string, BlueprintNode[]>();
+  for (const n of nodes) {
+    const f = n.file.replace(/\\/g, "/");
+    if (!byFile.has(f)) byFile.set(f, []);
+    byFile.get(f)!.push(n);
+  }
+  const kindMap = (k: string): "api" | "webhook" | "function" | "feature" | "class" =>
+    k === "api" ? "api" : k === "webhook" ? "webhook" : k === "class" ? "class" : "function";
+  for (const [relPath, fileNodes] of byFile) {
+    const absPath = path.join(projectPath, relPath);
+    let content: string;
+    try {
+      content = await fs.readFile(absPath, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const node of fileNodes) {
+      const line = node.line ?? 1;
+      const fromDoc = getSimpleDescriptionFromDoc(content, line, docLang);
+      if (fromDoc) {
+        node.simpleDescription = fromDoc.trim().slice(0, 120);
+        node.descriptionSource = "jsdoc";
+        continue;
+      }
+      const fromPattern = getSimpleDescriptionFromPattern(
+        node.name,
+        kindMap(node.type),
+        node.path ?? node.file
+      );
+      if (fromPattern) {
+        node.simpleDescription = fromPattern;
+        node.descriptionSource = "pattern";
+      }
+    }
+  }
 }
 
 function extractEdgesFromNodes(nodes: BlueprintNode[]): RTEBlueprintEdge[] {

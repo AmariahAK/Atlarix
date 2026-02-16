@@ -8,7 +8,7 @@ import { db } from "@/db";
 import { eq } from "drizzle-orm";
 
 import { ImportAppParams, ImportAppResult } from "../ipc_types";
-import { gitCommit, gitAdd, gitInit } from "../utils/git_utils";
+import { getCoAuthorTrailerForCommit, gitCommit, gitAdd, gitInit } from "../utils/git_utils";
 
 const logger = log.scope("import-handlers");
 const handle = createLoggedHandler(logger);
@@ -123,6 +123,7 @@ export function registerImportHandlers() {
         await gitCommit({
           path: sourcePath,
           message: "Init Atlarix app",
+          coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
       }
 

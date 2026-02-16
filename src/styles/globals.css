@@ -592,19 +592,48 @@ body[data-scroll-locked] .app-region-drag {
   align-items: center;
 }
 
-/* Atlaflow (React Flow) Controls – visible on light and dark canvas */
+/* Atlaflow (React Flow) Controls – zoom/fit icons visible on light and dark canvas */
 .react-flow__controls.atlaflow-controls-theme {
   --xy-controls-button-background-color: var(--card);
   --xy-controls-button-background-color-hover: var(--muted);
-  --xy-controls-button-color: var(--foreground);
-  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-color: #374151;
+  --xy-controls-button-color-hover: #111827;
   --xy-controls-button-border-color: var(--border);
   --xy-controls-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-.react-flow__controls.atlaflow-controls-theme .react-flow__controls-button svg {
-  fill: var(--foreground);
-  stroke: var(--foreground);
+.react-flow__controls.atlaflow-controls-theme .react-flow__controls-button,
+.react-flow__controls.atlaflow-controls-theme button {
+  color: #374151 !important;
+}
+.react-flow__controls.atlaflow-controls-theme .react-flow__controls-button svg,
+.react-flow__controls.atlaflow-controls-theme button svg {
+  fill: #374151 !important;
+  stroke: #374151 !important;
 }
 .dark .react-flow__controls.atlaflow-controls-theme {
+  --xy-controls-button-color: #e5e7eb;
+  --xy-controls-button-color-hover: #f9fafb;
   --xy-controls-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.dark .react-flow__controls.atlaflow-controls-theme .react-flow__controls-button,
+.dark .react-flow__controls.atlaflow-controls-theme button {
+  color: #e5e7eb !important;
+}
+.dark .react-flow__controls.atlaflow-controls-theme .react-flow__controls-button svg,
+.dark .react-flow__controls.atlaflow-controls-theme button svg {
+  fill: #e5e7eb !important;
+  stroke: #e5e7eb !important;
+}
+
+/* Blueprint / flow diagram edges: ensure connection lines are visible */
+.react-flow__edge-path {
+  stroke: hsl(var(--primary) / 0.8);
+  stroke-width: 2;
+}
+.dark .react-flow__edge-path {
+  stroke: hsl(var(--primary) / 0.9);
+}
+.react-flow__arrowhead polyline {
+  fill: hsl(var(--primary) / 0.9);
+  stroke: hsl(var(--primary) / 0.9);
 }

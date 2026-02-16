@@ -88,20 +88,34 @@ export async function isGitStatusClean({
   }
 }
 
+export const ATLARIX_CO_AUTHOR_TRAILER = "Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>";
+
+/** Returns the co-author trailer when user has not disabled it in settings. */
+export function getCoAuthorTrailerForCommit(): string | undefined {
+  const settings = readSettings();
+  return settings.includeAtlarixCoAuthor !== false ? ATLARIX_CO_AUTHOR_TRAILER : undefined;
+}
+
 export async function gitCommit({
   path,
   message,
   amend,
+  coAuthorTrailer,
 }: GitCommitParams): Promise<string> {
   const settings = readSettings();
+  const finalMessage =
+    coAuthorTrailer && !message.trimEnd().endsWith(coAuthorTrailer)
+      ? `${message}\n\n${coAuthorTrailer}`
+      : message;
+
   if (settings.enableNativeGit) {
     // Get author info to match isomorphic-git behavior
     const author = await getGitAuthor();
-    // Perform the commit using dugite with --author flag
+    // Prefer Git 2.32+ --trailer; fallback: append to message
     const args = [
       "commit",
       "-m",
-      message,
+      finalMessage,
       "--author",
       `${author.name} <${author.email}>`,
     ];
@@ -121,7 +135,7 @@ export async function gitCommit({
     return git.commit({
       fs: fs,
       dir: path,
-      message,
+      message: finalMessage,
       author: await getGitAuthor(),
       amend: amend,
     });

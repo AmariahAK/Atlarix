@@ -10,6 +10,7 @@
 import simpleGit, { SimpleGit } from "simple-git";
 import * as path from "path";
 import * as fs from "fs/promises";
+import * as fsSync from "fs";
 import * as crypto from "crypto";
 import log from "electron-log";
 import { getUserDataPath } from "@/paths/paths";
@@ -44,6 +45,8 @@ export class DiagramGitTracker {
     constructor(workspaceId: number) {
         this.workspaceId = workspaceId;
         this.internalRepoPath = path.join(getUserDataPath(), "diagram-git", String(workspaceId));
+        // Ensure directory exists before simple-git uses it (avoids GitConstructError)
+        fsSync.mkdirSync(this.internalRepoPath, { recursive: true });
         this.git = simpleGit(this.internalRepoPath);
     }
 

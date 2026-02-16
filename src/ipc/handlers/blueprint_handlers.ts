@@ -14,13 +14,14 @@ import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
 import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
-import { loadBlueprintCache, saveBlueprintCache } from "@/lib/cache/blueprint-cache";
+import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint } from "@/lib/cache/blueprint-cache";
 import { generateFromBlueprintDelta, type CodegenDelta, type CodegenResult } from "@/lib/blueprint/codegen";
 import { inferBlueprintFromWorkspace } from "@/lib/blueprint/workspace_to_blueprint";
 import { rteResultToBlueprint } from "@/lib/blueprint/rte_to_blueprint";
 import { generateBlueprint } from "@/lib/blueprint/rte/parsers";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
 import { analyzeWorkspace } from "@/lib/analysis/workspace-analyzer";
+import { simplifyDescriptionWithAI } from "@/lib/blueprint/descriptions/aiSimplifier";
 import log from "electron-log";
 
 const logger = log.scope("blueprint_handlers");
@@ -96,20 +97,39 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
   return inferBlueprintFromWorkspace(analysis);
 }
 
-/** Get blueprint for workspace (cache or infer). Used by IPC and AI tools. */
+/** Get blueprint for workspace (memory, then persisted user blueprint, then infer). Used by IPC and AI tools. */
 export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blueprint> {
   const cached = blueprintCache.get(workspaceId);
   if (cached) return sanitizeBlueprint(cached);
+  const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+  if (app) {
+    const workspacePath = getAtlarixAppPath(app.path);
+    const userBlueprint = await loadUserBlueprint(workspacePath);
+    if (userBlueprint != null) {
+      const sanitized = sanitizeBlueprint(userBlueprint);
+      blueprintCache.set(workspaceId, sanitized);
+      return sanitized;
+    }
+  }
   const inferred = await inferBlueprint(workspaceId);
   const sanitized = sanitizeBlueprint(inferred);
   blueprintCache.set(workspaceId, sanitized);
   return sanitized;
 }
 
-/** Set blueprint for workspace (in-memory only; notifies renderer). Used by AI tools and optional UI. */
+/** Set blueprint for workspace (in-memory + persist to disk); notifies renderer. Used by AI tools and UI save. */
 export async function setBlueprintForWorkspace(workspaceId: number, blueprint: Blueprint): Promise<void> {
   const b = sanitizeBlueprint(blueprint);
   blueprintCache.set(workspaceId, b);
+  const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+  if (app) {
+    try {
+      const workspacePath = getAtlarixAppPath(app.path);
+      await saveUserBlueprint(workspacePath, b);
+    } catch (e) {
+      logger.warn("Failed to persist user blueprint:", e);
+    }
+  }
   sendToAllWindows("blueprint:updated", { workspaceId, blueprint: b });
 }
 
@@ -234,6 +254,51 @@ export function registerBlueprintHandlers() {
         return { success: true, result };
       } catch (error) {
         logger.error("blueprint:codegen error:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "blueprint:simplify-description",
+    async (
+      _,
+      { workspaceId, roomId, functionId }: { workspaceId: number; roomId: string; functionId: string }
+    ): Promise<{ success: boolean; simpleDescription?: string; error?: string }> => {
+      try {
+        const blueprint = await getBlueprintForWorkspace(workspaceId);
+        const room = blueprint.rooms.find((r) => r.id === roomId);
+        const fn = room?.functions.find((f) => f.id === functionId);
+        if (!fn) {
+          return { success: false, error: "Function not found" };
+        }
+        const simpleDescription = await simplifyDescriptionWithAI(
+          fn.name,
+          fn.kind,
+          fn.description
+        );
+        if (!simpleDescription) {
+          return { success: false, error: "Could not generate description" };
+        }
+        const updatedRooms = blueprint.rooms.map((r) =>
+          r.id !== roomId
+            ? r
+            : {
+                ...r,
+                functions: r.functions.map((f) =>
+                  f.id !== functionId
+                    ? f
+                    : { ...f, simpleDescription, descriptionSource: "ai" as const },
+                ),
+              }
+        );
+        await setBlueprintForWorkspace(workspaceId, { ...blueprint, rooms: updatedRooms });
+        return { success: true, simpleDescription };
+      } catch (error) {
+        logger.error("blueprint:simplify-description error:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",

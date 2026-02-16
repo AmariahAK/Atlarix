@@ -30,6 +30,7 @@ import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { clearAllSessionMemories } from "./lib/session-memory";
 import { startModelsDevRefresh } from "./lib/models_dev";
+import { initTelemetry } from "./lib/telemetry/tracer";
 import fs from "fs";
 
 log.errorHandler.startCatching();
@@ -92,6 +93,11 @@ export async function onReady() {
     logger.error("Error initializing backup manager", e);
   }
   initializeDatabase();
+  try {
+    initTelemetry();
+  } catch (e) {
+    logger.warn("Telemetry init failed (non-fatal):", e);
+  }
   const settings = readSettings();
 
   // Check if app was force-closed

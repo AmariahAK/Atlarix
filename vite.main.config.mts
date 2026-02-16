@@ -10,7 +10,13 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: ["better-sqlite3"],
+      external: [
+        "better-sqlite3",
+        "@opentelemetry/api",
+        "@opentelemetry/resources",
+        "@opentelemetry/sdk-trace-base",
+        "@opentelemetry/sdk-trace-node",
+      ],
     },
   },
   plugins: [
