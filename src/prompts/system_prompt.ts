@@ -26,11 +26,20 @@ let AGENTS_MD_FULL = "";
 let AGENTS_MD_COMPACT = "";
 
 const loadAgentsFile = (filename: string): string => {
-    const paths = [
+    const paths: string[] = [
         path.join(process.cwd(), filename),
         path.join(__dirname, "../../", filename),
         path.join(__dirname, "../../../", filename),
     ];
+    // Packaged Electron: app lives in app.asar; getAppPath() points to app root so files are found
+    try {
+        const { app } = require("electron");
+        if (app && typeof app.getAppPath === "function") {
+            paths.unshift(path.join(app.getAppPath(), filename));
+        }
+    } catch {
+        // not in Electron or app not ready
+    }
 
     for (const p of paths) {
         try {
@@ -39,7 +48,9 @@ const loadAgentsFile = (filename: string): string => {
                 logger.info(`Loaded ${filename} from ${p} (${content.length} bytes)`);
                 return content;
             }
-        } catch { /* try next */ }
+        } catch {
+            /* try next */
+        }
     }
 
     logger.warn(`${filename} not found`);
@@ -49,6 +60,18 @@ const loadAgentsFile = (filename: string): string => {
 // Load at startup
 AGENTS_MD_FULL = loadAgentsFile("AGENTS.md");
 AGENTS_MD_COMPACT = loadAgentsFile("AGENTS_COMPACT.md");
+
+// Fallback if both failed (e.g. packaged app layout): minimal prompt so app never runs with empty
+const FALLBACK_AGENTS = `# Atlarix
+You are Atlarix, an AI development assistant. Use tools for operations.
+Use run_command with cwd for working directory. For scaffolding run exactly one run_command.
+`;
+
+if (!AGENTS_MD_FULL && !AGENTS_MD_COMPACT) {
+    logger.error("AGENTS.md and AGENTS_COMPACT.md not found; using fallback minimal prompt");
+    AGENTS_MD_FULL = FALLBACK_AGENTS;
+    AGENTS_MD_COMPACT = FALLBACK_AGENTS;
+}
 
 /**
  * Get AGENTS.md content based on model context size
@@ -107,6 +130,21 @@ export const constructSystemPrompt = ({
 }: ConstructSystemPromptParams) => {
     // v2.1: Use full instruction layers when provided; else AGENTS.md + tech stack
     let prompt = optionalProjectInstructions ?? getAgentsMdForContextSize(contextSize);
+    // Inject current date/time so the model uses it for web_search and time-sensitive answers
+    const currentDateTime = new Date().toLocaleString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+    });
+    prompt += `
+
+# Current date and time
+Today is ${currentDateTime}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.
+`;
     if (!optionalProjectInstructions) {
         prompt += `
 
@@ -142,6 +180,8 @@ If user asks to create/modify code, tell them to switch to Build mode.
 # Mode: Build
 
 Use function-calling tools for ALL operations. Never describe what you would do.
+
+**Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one run_command that creates the project; do not emit multiple create/scaffold commands in the same turn.
 
 ## Task Completion Signal
 When you have FULLY completed a task and ALL features work:

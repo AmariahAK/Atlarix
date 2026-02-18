@@ -22,12 +22,13 @@ import {
 } from "@xyflow/react";
 // @ts-expect-error - CSS import has no type declarations
 import "@xyflow/react/dist/style.css";
-import type { Blueprint, BlueprintRoom, BlueprintEdge } from "@/shared/blueprint-types";
+import type { Blueprint, BlueprintRoom, BlueprintEdge as BlueprintEdgeType } from "@/shared/blueprint-types";
 import { generateBlueprintId } from "@/shared/blueprint-types";
 import { BlueprintRoomNode, type RoomNodeData } from "./BlueprintRoomNode";
-import { LayoutToggle, type BlueprintLayoutMode } from "./LayoutToggle";
-import { applyElkToReactFlowNodes } from "@/lib/blueprint/layouts/elkLayout";
-import { Plus } from "lucide-react";
+import { BlueprintEdge } from "@/components/blueprint/BlueprintEdge";
+import { IpcClient } from "@/ipc/ipc_client";
+import { Plus, LayoutGrid } from "lucide-react";
+import type { EdgeTypes } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import type { AgentPhase } from "@/atoms/sourceAtoms";
 
@@ -40,40 +41,66 @@ const GAP = 24;
 function blueprintToNodesAndEdges(
   blueprint: Blueprint,
   agentPhase?: AgentPhase | null,
-  agentPhaseActive?: boolean
-): { nodes: Node<RoomNodeData>[]; edges: Edge[] } {
-  const rooms = blueprint.rooms ?? [];
-  const nodes: Node<RoomNodeData>[] = rooms.map((room, i) => {
+  agentPhaseActive?: boolean,
+  isRteRunning?: boolean
+): { nodes: Node<RoomNodeData>[]; edges: Edge[]; hiddenRooms: BlueprintRoom[] } {
+  const allRooms = blueprint.rooms ?? [];
+  const visibleRooms = allRooms.filter((r) => !r.hidden);
+  const hiddenRooms = allRooms.filter((r) => r.hidden);
+  const useGrid = (blueprint.edges ?? []).length === 0;
+  const nodes: Node<RoomNodeData>[] = visibleRooms.map((room, i) => {
     const col = i % GRID_COLS;
     const row = Math.floor(i / GRID_COLS);
     return {
       id: room.id,
       type: NODE_TYPE,
-      position: { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) },
+      position: useGrid
+        ? { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) }
+        : { x: 0, y: 0 },
       data: { room, agentPhase: agentPhase ?? undefined, agentPhaseActive: agentPhaseActive ?? false },
     };
+  });
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const blueprintEdges = blueprint.edges ?? [];
+  const validEdges = blueprintEdges.filter((e) => {
+    const valid = nodeIds.has(e.from) && nodeIds.has(e.to);
+    if (!valid) {
+      console.warn("[BlueprintCanvas] Dropping edge with unmatched node ids:", e);
+    }
+    return valid;
   });
   const edgeClassName =
     agentPhase === "reviewer" && agentPhaseActive
       ? "atlarix-edge-reviewer-pulse"
       : undefined;
-  const edges: Edge[] = (blueprint.edges ?? []).map((e, i) => ({
-    id: `e-${e.from}-${e.to}-${i}`,
+  const edges: Edge[] = validEdges.map((e, i) => ({
+    id: e.id ?? `edge-${e.from}-${e.to}-${i}`,
     source: e.from,
     target: e.to,
     label: e.label ?? e.type ?? undefined,
     type: "smoothstep",
     className: edgeClassName,
-    markerEnd: { type: MarkerType.ArrowClosed },
-    data: { edgeType: e.type },
-    style: { stroke: "hsl(var(--primary))", strokeWidth: 2 },
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      color: e.inferred ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))",
+      width: 18,
+      height: 18,
+    },
+    data: { edgeType: e.type, inferred: e.inferred ?? false, isRteRunning: isRteRunning ?? false },
+    style: {
+      stroke: e.inferred ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))",
+      strokeWidth: 2,
+      strokeDasharray: e.inferred ? "6 4" : undefined,
+      opacity: 1,
+    },
+    zIndex: 1000,
   }));
-  return { nodes, edges };
+  return { nodes, edges, hiddenRooms };
 }
 
 function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint {
   const rooms: BlueprintRoom[] = nodes.map((n) => n.data.room);
-  const blueprintEdges: BlueprintEdge[] = edges.map((e) => ({
+  const blueprintEdges: BlueprintEdgeType[] = edges.map((e) => ({
     from: e.source,
     to: e.target,
     label: typeof e.label === "string" ? e.label : undefined,
@@ -83,6 +110,7 @@ function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint 
 }
 
 const nodeTypes: NodeTypes = { [NODE_TYPE]: BlueprintRoomNode as NodeTypes[string] };
+const edgeTypes: EdgeTypes = { smoothstep: BlueprintEdge };
 
 interface BlueprintCanvasInnerProps {
   blueprint: Blueprint;
@@ -92,6 +120,7 @@ interface BlueprintCanvasInnerProps {
   onRoomSelect?: (roomId: string) => void;
   agentPhase?: AgentPhase | null;
   agentPhaseActive?: boolean;
+  isRteRunning?: boolean;
   className?: string;
 }
 
@@ -103,58 +132,116 @@ function BlueprintCanvasInner({
   onRoomSelect,
   agentPhase,
   agentPhaseActive,
+  isRteRunning,
   className,
 }: BlueprintCanvasInnerProps) {
-  const [layoutMode, setLayoutMode] = useState<BlueprintLayoutMode>("diagram");
-  const { nodes: initialNodes, edges: initialEdges } = blueprintToNodesAndEdges(
+  const [hiddenChipOpen, setHiddenChipOpen] = useState(false);
+  const [relayoutCounter, setRelayoutCounter] = useState(0);
+  const { nodes: initialNodes, edges: initialEdges, hiddenRooms } = blueprintToNodesAndEdges(
     blueprint,
     agentPhase,
-    agentPhaseActive
+    agentPhaseActive,
+    isRteRunning
   );
+  const hiddenCount = hiddenRooms.length;
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const workspaceIdRef = useRef(workspaceId);
+  const layoutKeyRef = useRef<string>("");
+  const blueprintLayoutKey = `${blueprint.rooms?.length ?? 0}-${(blueprint.rooms ?? []).filter((r) => !r.hidden).map((r) => r.id).join(",")}-${(blueprint.edges ?? []).length}`;
 
-  // Reset canvas when workspace changes
+  // Reset canvas when workspace or blueprint structure changes (not when only isRteRunning changes).
+  // Merge current flow edges so user-drawn edges are not lost when reset runs before parent re-renders.
   useEffect(() => {
-    if (workspaceIdRef.current !== workspaceId) {
-      workspaceIdRef.current = workspaceId;
-      const { nodes: n, edges: e } = blueprintToNodesAndEdges(blueprint, agentPhase, agentPhaseActive);
-      setNodes(n);
-      setEdges(e);
+    if (workspaceIdRef.current !== workspaceId) workspaceIdRef.current = workspaceId;
+    const key = `${workspaceId}-${blueprintLayoutKey}`;
+    const prevKey = layoutKeyRef.current;
+    if (prevKey !== key) {
+      const { nodes: nextNodes, edges: nextEdgesFromBlueprint } = blueprintToNodesAndEdges(
+        blueprint,
+        agentPhase,
+        agentPhaseActive,
+        isRteRunning
+      );
+      setNodes(nextNodes);
+      setEdges((currentEdges) => {
+        const fromBlueprintKeys = new Set(
+          nextEdgesFromBlueprint.map((e) => `${e.source}-${e.target}`)
+        );
+        const merged = [...nextEdgesFromBlueprint];
+        for (const e of currentEdges) {
+          const edgeKey = `${e.source}-${e.target}`;
+          if (!fromBlueprintKeys.has(edgeKey)) {
+            fromBlueprintKeys.add(edgeKey);
+            merged.push(e);
+          }
+        }
+        return merged;
+      });
+      layoutKeyRef.current = key;
     }
-  }, [workspaceId, blueprint, agentPhase, agentPhaseActive, setNodes, setEdges]);
+  }, [workspaceId, blueprintLayoutKey, blueprint, agentPhase, agentPhaseActive, isRteRunning, setNodes, setEdges]);
 
-  // When layout is Tree, run ELK to position nodes; when Diagram, use grid when blueprint or mode changes
-  const blueprintLayoutKey = `${blueprint.rooms.length}-${blueprint.rooms.map((r) => r.id).join(",")}`;
-  const prevLayoutKeyRef = useRef<string>("");
+  // When RTE running state changes, only update edge data (preserve positions)
   useEffect(() => {
-    if (layoutMode === "diagram") {
-      if (prevLayoutKeyRef.current !== blueprintLayoutKey) {
-        prevLayoutKeyRef.current = blueprintLayoutKey;
-        setNodes(initialNodes);
-        setEdges(initialEdges);
-      }
-      return;
-    }
+    setEdges((prev) =>
+      prev.map((e) => ({
+        ...e,
+        data: { ...e.data, isRteRunning: isRteRunning ?? false },
+      }))
+    );
+  }, [isRteRunning, setEdges]);
+
+  // When nodes have 0,0 positions (ELK needed), run layout via IPC
+  useEffect(() => {
     if (initialNodes.length === 0) return;
-    const key = `tree-${blueprintLayoutKey}`;
-    if (prevLayoutKeyRef.current === key) return;
-    prevLayoutKeyRef.current = key;
+    const needsLayout = initialNodes.every((n) => n.position.x === 0 && n.position.y === 0);
+    if (!needsLayout) return;
+    if (layoutKeyRef.current === blueprintLayoutKey) return;
+    layoutKeyRef.current = blueprintLayoutKey;
+    const visibleRooms = (blueprint.rooms ?? []).filter((r) => !r.hidden);
+    const roomPayload = visibleRooms.map((r) => ({ id: r.id }));
+    const edgePayload = (blueprint.edges ?? []).map((e) => ({
+      id: e.id ?? `edge-${e.from}-${e.to}`,
+      from: e.from,
+      to: e.to,
+    }));
     let cancelled = false;
-    applyElkToReactFlowNodes(initialNodes, initialEdges, {
-      nodeWidth: NODE_WIDTH,
-      nodeHeight: NODE_HEIGHT,
-    }).then((positioned) => {
-      if (!cancelled) setNodes(positioned);
-    });
+    IpcClient.getInstance()
+      .layoutContainerCanvas(roomPayload, edgePayload)
+      .then((positions) => {
+        if (cancelled) return;
+        const posMap = new Map(positions.map((p) => [p.id, p]));
+        setNodes((prev) =>
+          prev.map((n) => ({
+            ...n,
+            position: posMap.get(n.id) ?? n.position,
+          }))
+        );
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [layoutMode, blueprintLayoutKey, initialNodes, initialEdges, setNodes, setEdges]);
+  }, [blueprintLayoutKey, initialNodes, blueprint.rooms, blueprint.edges, setNodes, relayoutCounter]);
 
   // When blueprint.rooms or agent phase change, update node data (keep positions)
+  const roomDataEffectRuns = useRef(0);
   useEffect(() => {
+    roomDataEffectRuns.current += 1;
+    // #region agent log
+    fetch("http://127.0.0.1:7243/ingest/6fa43549-dcc1-439f-bea5-7f67bd27cdf1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hypothesisId: "H3",
+        location: "BlueprintCanvas.tsx:roomDataEffect",
+        message: "Room data effect ran, calling setNodes",
+        data: { run: roomDataEffectRuns.current },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const rooms = blueprint.rooms ?? [];
     setNodes((prev) =>
       prev.map((node) => {
@@ -187,14 +274,34 @@ function BlueprintCanvasInner({
     [setEdges]
   );
 
-  // Sync flow state to parent when nodes or edges change
+  // Sync flow state to parent when nodes or edges change (preserve hidden rooms)
   const prevSync = useRef<string>("");
+  const syncEffectRuns = useRef(0);
   useEffect(() => {
     const key = `${nodes.length}-${edges.length}-${nodes.map((n) => n.id).join(",")}`;
     if (prevSync.current === key) return;
     prevSync.current = key;
-    onBlueprintChange(flowToBlueprint(nodes, edges));
-  }, [nodes, edges, onBlueprintChange]);
+    syncEffectRuns.current += 1;
+    // #region agent log
+    fetch("http://127.0.0.1:7243/ingest/6fa43549-dcc1-439f-bea5-7f67bd27cdf1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hypothesisId: "H2",
+        location: "BlueprintCanvas.tsx:syncEffect",
+        message: "Sync effect calling onBlueprintChange",
+        data: { run: syncEffectRuns.current, nodesLen: nodes.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    const fromFlow = flowToBlueprint(nodes, edges);
+    const hiddenFromBlueprint = (blueprint.rooms ?? []).filter((r) => r.hidden);
+    onBlueprintChange({
+      ...fromFlow,
+      rooms: [...fromFlow.rooms, ...hiddenFromBlueprint],
+    });
+  }, [nodes, edges, blueprint.rooms, onBlueprintChange]);
 
   const handleAddRoom = useCallback(() => {
     const id = generateBlueprintId();
@@ -222,6 +329,7 @@ function BlueprintCanvasInner({
         onConnect={onConnect}
         onNodeClick={(_e, node) => onRoomSelect?.(node.id)}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         defaultEdgeOptions={{ type: "smoothstep" }}
@@ -234,7 +342,19 @@ function BlueprintCanvasInner({
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} className="bg-background" />
         <Controls className="atlaflow-controls-theme !shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
         <Panel position="top-right" className="flex items-center gap-2">
-          <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
+          <button
+            type="button"
+            onClick={() => {
+              setNodes((prev) => prev.map((n) => ({ ...n, position: { x: 0, y: 0 } })));
+              layoutKeyRef.current = "";
+              setRelayoutCounter((c) => c + 1);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"
+            title="Re-run ELK layout"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            Re-layout
+          </button>
           <button
             type="button"
             onClick={handleAddRoom}
@@ -243,6 +363,39 @@ function BlueprintCanvasInner({
             <Plus className="w-3.5 h-3.5" />
             Add container
           </button>
+        </Panel>
+        {hiddenCount > 0 && (
+          <Panel position="bottom-left" className="relative">
+            <button
+              type="button"
+              onClick={() => setHiddenChipOpen((v) => !v)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground shadow-sm"
+            >
+              {hiddenCount} hidden item{hiddenCount !== 1 ? "s" : ""} (deps & config)
+            </button>
+            {hiddenChipOpen && (
+              <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-border bg-card p-2 text-xs shadow-md">
+                {hiddenRooms.map((r) => (
+                  <div key={r.id} className="truncate text-muted-foreground">
+                    {r.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+        )}
+        <Panel position="bottom-right" className="z-50 flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="h-0.5 w-6 bg-primary" />
+            <span className="text-foreground">Confirmed connection</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 border-t-2 border-dashed border-muted-foreground" />
+            <span className="text-muted-foreground">Inferred (refresh to confirm)</span>
+          </div>
+          {isRteRunning && (
+            <div className="mt-1 text-xs text-muted-foreground animate-pulse">Analyzing code...</div>
+          )}
         </Panel>
       </ReactFlow>
     </div>
@@ -258,6 +411,8 @@ export interface BlueprintCanvasProps {
   /** v2.5: Agent phase for canvas animations (architect/builder/reviewer) */
   agentPhase?: AgentPhase | null;
   agentPhaseActive?: boolean;
+  /** When true, RTE is running (show "Analyzing code..." and pulse inferred edges) */
+  isRteRunning?: boolean;
   className?: string;
 }
 

@@ -104,10 +104,8 @@ ipcMain.handle(
             const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
             if (!app) throw new Error("Workspace not found");
 
-            // Use app.path directly - this is the actual location of the workspace
-            // For imported apps, app.path is absolute (e.g., /Users/x/Documents/GitHub/Project)
-            // For created apps, app.path is also set correctly
-            const appPath = app.path;
+            // Resolve path: absolute (imported) used as-is; relative (legacy) → atlarix-apps/name; new workspaces use absolute path.
+            const appPath = getAtlarixAppPath(app.path);
             const settings = readSettings();
             const openRouterFavorites = await getFavoriteOpenRouterModels();
 
@@ -124,6 +122,50 @@ ipcMain.handle(
                 appPath,
                 chatContext
             });
+
+            // 2b. No code / missing dir → return a minimal "No code found" diagram so UI doesn't spam errors
+            const noCode =
+                !formattedOutput ||
+                formattedOutput.startsWith("# Error:") ||
+                formattedOutput.trim().length < 80;
+            if (noCode) {
+                const placeholderContent = "graph TB\n  A[No code found]\n  B[Add files to generate architecture diagram]\n  A --> B";
+                const existingDiagram = await db.query.diagrams.findFirst({
+                    where: eq(diagrams.workspaceId, workspaceId),
+                });
+                if (existingDiagram) {
+                    const [updated] = await db
+                        .update(diagrams)
+                        .set({
+                            content: placeholderContent,
+                            type: "mermaid",
+                            title: "No code found",
+                            updatedAt: new Date(),
+                            metadata: { focus: "no-code-placeholder" },
+                        })
+                        .where(eq(diagrams.id, existingDiagram.id))
+                        .returning();
+                    return {
+                        success: true,
+                        diagram: updated
+                            ? { id: updated.id, content: placeholderContent, type: "mermaid" as const, title: "No code found" }
+                            : undefined,
+                    };
+                }
+                const [created] = await db.insert(diagrams).values({
+                    workspaceId,
+                    type: "mermaid",
+                    title: "No code found",
+                    content: placeholderContent,
+                    metadata: { focus: "no-code-placeholder" },
+                }).returning();
+                return {
+                    success: true,
+                    diagram: created
+                        ? { id: created.id, content: placeholderContent, type: "mermaid" as const, title: "No code found" }
+                        : undefined,
+                };
+            }
 
             // 3. Prepare AI Client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
             let modelConfig = getDiagramModelConfig(settings, openRouterFavorites);
@@ -709,8 +751,7 @@ ipcMain.handle(
                 return { success: false, error: "Workspace not found" };
             }
 
-            // Use app.path directly - this is the actual location of the workspace
-            const appPath = app.path;
+            const appPath = getAtlarixAppPath(app.path);
             const settings = readSettings();
 
             // 2. Extract Codebase Context

@@ -24,7 +24,10 @@ const execAsync = promisify(exec);
 ToolRegistry.register({
     name: "run_command",
     description:
-        "Execute a shell command in the workspace. Shows permission dialog before running.",
+        "Execute a shell command in the workspace. Commands run at the workspace (project) root; do not use paths under atlarix-apps. " +
+        "Shows permission dialog before running. Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
+        "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
+        "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts.",
     category: ToolCategory.EXECUTION,
     cost: 3,
     requiresWorkspace: true,
@@ -33,7 +36,7 @@ ToolRegistry.register({
     parameters: createParameters(
         {
             command: stringParam("Shell command to execute"),
-            cwd: stringParam("Working directory (default: workspace root)"),
+            cwd: stringParam("Working directory (default: workspace root). Prefer this over 'cd <dir> && command'."),
             description: stringParam("What this command does"),
         },
         ["command", "description"]

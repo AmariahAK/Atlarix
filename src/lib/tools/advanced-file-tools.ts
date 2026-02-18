@@ -7,6 +7,7 @@
 import { ToolRegistry, ToolCategory } from "./registry";
 import fs from "fs/promises";
 import path from "path";
+import { safeJoin } from "../../ipc/utils/path_utils";
 
 // ============================================
 // EDIT FILE SECTION
@@ -306,25 +307,65 @@ ToolRegistry.register({
 // CREATE DIRECTORY
 // ============================================
 
+/**
+ * Reject paths that look like absolute paths mistakenly passed as relative
+ * (e.g. "Users/amariah/Documents/..." which would create nested structure).
+ */
+function looksLikeAbsolutePathFragment(dirpath: string): boolean {
+    const normalized = dirpath.replace(/^\/+/, "").replace(/\\/g, "/");
+    return (
+        normalized.startsWith("Users/") ||
+        normalized.startsWith("home/") ||
+        /^[A-Za-z]:[/\\]/.test(dirpath)
+    );
+}
+
 ToolRegistry.register({
     name: "create_directory",
     category: ToolCategory.FILE_ADVANCED,
-    description: "Create a new directory (creates parent directories if needed)",
+    description: "Create a new directory (path is relative to workspace root). Use paths like 'src/components', not absolute paths.",
     parameters: {
         dirpath: {
             type: "string",
-            description: "Path to directory to create",
+            description: "Path to directory to create (relative to workspace, e.g. 'src/components/forms')",
             required: true,
         },
     },
     cost: 2,
-    handler: async (params: { dirpath: string }) => {
+    requiresWorkspace: true,
+    handler: async (params: { dirpath: string; workspace?: string }) => {
         try {
-            await fs.mkdir(params.dirpath, { recursive: true });
+            const dirpath = params.dirpath
+                .replace(/^\/workspace\//, "")
+                .replace(/^workspace\//, "")
+                .replace(/^\/+/, "");
+
+            if (looksLikeAbsolutePathFragment(dirpath)) {
+                return {
+                    success: false,
+                    error: `Invalid path: "${params.dirpath}" looks like an absolute path. Use a path relative to the workspace root (e.g. "src/components").`,
+                };
+            }
+
+            let fullPath: string;
+            if (params.workspace) {
+                fullPath = safeJoin(params.workspace, dirpath);
+            } else {
+                if (!path.isAbsolute(params.dirpath)) {
+                    return {
+                        success: false,
+                        error: "No workspace context. Provide an absolute path or ensure a workspace is active.",
+                    };
+                }
+                fullPath = path.resolve(params.dirpath);
+            }
+
+            await fs.mkdir(fullPath, { recursive: true });
 
             return {
                 success: true,
-                dirpath: params.dirpath,
+                dirpath: dirpath,
+                fullPath,
             };
         } catch (error) {
             return {

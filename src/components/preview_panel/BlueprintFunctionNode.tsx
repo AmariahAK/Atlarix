@@ -3,7 +3,7 @@
  * Connection handles shown only on hover to avoid accidental edges when dragging.
  */
 
-import { memo, useState } from "react";
+import { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
 import type { BlueprintFunction, BlueprintFunctionKind } from "@/shared/blueprint-types";
@@ -24,7 +24,6 @@ interface FunctionNodeProps {
 }
 
 function BlueprintFunctionNodeComponent({ data, selected }: FunctionNodeProps) {
-  const [showHandles, setShowHandles] = useState(false);
   const { fn, connectedOut, connectedIn } = data;
   const config = FUNCTION_KIND_CONFIG[fn.kind as BlueprintFunctionKind] ?? FUNCTION_KIND_CONFIG.feature;
   const { Icon, label, borderClass, iconClass } = config;
@@ -37,46 +36,30 @@ function BlueprintFunctionNodeComponent({ data, selected }: FunctionNodeProps) {
         borderClass,
         selected ? "ring-2 ring-offset-1 ring-offset-background ring-primary" : "hover:shadow-md"
       )}
-      onMouseEnter={() => setShowHandles(true)}
-      onMouseLeave={() => setShowHandles(false)}
     >
-      {showHandles && (
-        <>
-          <Handle type="target" position={Position.Top} className="!w-1.5 !h-1.5 !bg-muted-foreground/70" />
-          <Handle type="source" position={Position.Bottom} className="!w-1.5 !h-1.5 !bg-muted-foreground/70" />
-          <Handle type="target" position={Position.Left} className="!w-1.5 !h-1.5 !bg-muted-foreground/70" />
-          <Handle type="source" position={Position.Right} className="!w-1.5 !h-1.5 !bg-muted-foreground/70" />
-        </>
-      )}
-      <div className="flex items-center gap-1.5">
+      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
+      <div
+        className="flex items-center gap-1.5 min-w-0 flex-1"
+        title={[
+          fn.name || "(unnamed)",
+          hasConnections
+            ? [connectedOut?.length ? `→ ${connectedOut.join(", ")}` : "", connectedIn?.length ? `← ${connectedIn.join(", ")}` : ""].filter(Boolean).join(" · ")
+            : null,
+          fn.aiGenerated ? "AI-generated" : null,
+        ].filter(Boolean).join(" · ")}
+      >
         <Icon className={cn("w-3 h-3 shrink-0", iconClass)} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 flex-wrap">
-            <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground truncate">
-              {label}
-            </div>
-            {hasConnections && (
-              <span
-                className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-primary/15 text-primary text-[9px] font-medium shrink-0"
-                title={[
-                  connectedOut?.length ? `→ ${connectedOut.join(", ")}` : "",
-                  connectedIn?.length ? `← ${connectedIn.join(", ")}` : "",
-                ].filter(Boolean).join(" · ")}
-              >
-                <GitBranch className="w-2.5 h-2.5" />
-                {(connectedOut?.length ?? 0) + (connectedIn?.length ?? 0)}
-              </span>
-            )}
-          </div>
-          <div className="text-xs font-medium text-foreground truncate" title={fn.name}>
-            {fn.name || "(unnamed)"}
-          </div>
-          {fn.aiGenerated && (
-            <div className="text-[9px] text-muted-foreground italic truncate" title="Created by AI from container prompt">
-              (AI-generated)
-            </div>
-          )}
-        </div>
+        <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">{label}</span>
+        <span className="text-xs font-medium text-foreground truncate min-w-0 max-w-[5rem]" title={fn.name || "(unnamed)"}>{fn.name ? (fn.name.length > 12 ? fn.name.slice(0, 11) + "…" : fn.name) : "(unnamed)"}</span>
+        {hasConnections && (
+          <span className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-primary/15 text-primary text-[9px] font-medium">
+            <GitBranch className="w-2.5 h-2.5" />
+            {(connectedOut?.length ?? 0) + (connectedIn?.length ?? 0)}
+          </span>
+        )}
       </div>
     </div>
   );

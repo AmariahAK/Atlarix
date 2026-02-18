@@ -12,6 +12,7 @@ import type {
 } from "../ipc_types";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { getAtlarixAppPath, getUserDataPath } from "../../paths/paths";
 import { ChildProcess, spawn } from "node:child_process";
 import { promises as fsPromises } from "node:fs";
@@ -572,8 +573,14 @@ export function registerAppHandlers() {
       _,
       params: CreateAppParams,
     ): Promise<{ app: any; chatId: number }> => {
-      const appPath = params.name;
-      const fullAppPath = getAtlarixAppPath(appPath);
+      // Prefer targetPath (absolute) so the app lives at project root; atlarix-apps is legacy fallback only.
+      // When targetPath is set and absolute, create there and store it. Otherwise use ~/Documents/Atlarix/{name} (no longer atlarix-apps).
+      const defaultBase = path.join(os.homedir(), "Documents", "Atlarix");
+      const useTargetPath = params.targetPath && path.isAbsolute(params.targetPath);
+      const fullAppPath = useTargetPath
+        ? path.resolve(params.targetPath!)
+        : path.join(defaultBase, params.name);
+      const storedPath = fullAppPath; // Always store absolute path for new apps
       if (fs.existsSync(fullAppPath)) {
         throw new Error(`App already exists at: ${fullAppPath}`);
       }
@@ -582,8 +589,7 @@ export function registerAppHandlers() {
         .insert(apps)
         .values({
           name: params.name,
-          // Use the name as the path for now
-          path: appPath,
+          path: storedPath,
         })
         .returning();
 
@@ -649,7 +655,13 @@ export function registerAppHandlers() {
       }
 
       const originalAppPath = getAtlarixAppPath(originalApp.path);
-      const newAppPath = getAtlarixAppPath(newAppName);
+      // Use absolute path (same default as create-app), not legacy atlarix-apps
+      const defaultCopyBase = path.join(os.homedir(), "Documents", "Atlarix");
+      const newAppPath = path.join(defaultCopyBase, newAppName);
+
+      if (fs.existsSync(newAppPath)) {
+        throw new Error(`Directory already exists at: ${newAppPath}`);
+      }
 
       // 3. Copy the app folder
       try {
@@ -679,12 +691,12 @@ export function registerAppHandlers() {
         });
       }
 
-      // 4. Create a new app entry in the database
+      // 4. Create a new app entry in the database (store absolute path)
       const [newDbApp] = await db
         .insert(apps)
         .values({
           name: newAppName,
-          path: newAppName, // Use the new name for the path
+          path: newAppPath,
           // Explicitly set these to null because we don't want to copy them over.
           // Note: we could just leave them out since they're nullable field, but this
           // is to make it explicit we intentionally don't want to copy them over.

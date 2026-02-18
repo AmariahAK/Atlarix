@@ -89,6 +89,9 @@ export class PermissionInterceptor extends EventEmitter {
     /** Workspace ID for diagram refresh */
     private workspaceId: number | null = null;
 
+    /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
+    private allowedRoots: Set<string> = new Set();
+
     constructor(workspacePath: string, workspaceId?: number) {
         super();
         this.workspacePath = workspacePath;
@@ -141,6 +144,16 @@ export class PermissionInterceptor extends EventEmitter {
      */
     setWorkspaceId(id: number): void {
         this.workspaceId = id;
+    }
+
+    /**
+     * Update workspace path and ID (e.g. after create_workspace in same turn).
+     * Ensures subsequent run_command/write_file in this session use the new project root.
+     */
+    setWorkspace(path: string, id?: number): void {
+        this.workspacePath = path;
+        if (id != null) this.workspaceId = id;
+        logger.log(`[PermissionInterceptor] Workspace updated to: ${path} (id: ${id})`);
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -826,9 +839,35 @@ export class PermissionInterceptor extends EventEmitter {
     // FILE OPERATIONS
     // ════════════════════════════════════════════════════════════════════════════
 
+    /**
+     * Resolve a file path so it is under this.workspacePath or under an allowed root (from run_command absolute cwd).
+     * - Relative paths: joined with workspacePath (current behavior).
+     * - Absolute paths: allowed if inside workspacePath or inside any allowedRoot; otherwise throws.
+     */
+    private resolvePathWithinWorkspace(filePath: string): string {
+        const normalizedWorkspace = path.resolve(this.workspacePath);
+        if (!path.isAbsolute(filePath)) {
+            return path.join(this.workspacePath, filePath);
+        }
+        const normalizedPath = path.resolve(filePath);
+        const relativeToWorkspace = path.relative(normalizedWorkspace, normalizedPath);
+        if (!relativeToWorkspace.startsWith("..") && !path.isAbsolute(relativeToWorkspace)) {
+            return normalizedPath;
+        }
+        for (const root of this.allowedRoots) {
+            const relativeToRoot = path.relative(root, normalizedPath);
+            if (!relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot)) {
+                return normalizedPath;
+            }
+        }
+        throw new Error(
+            `Path is outside workspace: ${filePath}. Import this folder as the project or use "Create app" with a target folder so files and commands use the same location.`
+        );
+    }
+
     private async executeWriteFile(request: PermissionRequest): Promise<void> {
         const preview = request.preview as FileOperationPreview;
-        const fullPath = path.join(this.workspacePath, preview.path);
+        const fullPath = this.resolvePathWithinWorkspace(preview.path);
 
         // Ensure directory exists
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -842,7 +881,7 @@ export class PermissionInterceptor extends EventEmitter {
         const previews = request.preview as FileOperationPreview[];
 
         for (const preview of previews) {
-            const fullPath = path.join(this.workspacePath, preview.path);
+            const fullPath = this.resolvePathWithinWorkspace(preview.path);
             await fs.mkdir(path.dirname(fullPath), { recursive: true });
             await fs.writeFile(fullPath, preview.content || "", "utf-8");
             logger.log(`Wrote file: ${fullPath}`);
@@ -851,7 +890,7 @@ export class PermissionInterceptor extends EventEmitter {
 
     private async executeDeleteFile(request: PermissionRequest): Promise<void> {
         const preview = request.preview as FileOperationPreview;
-        const fullPath = path.join(this.workspacePath, preview.path);
+        const fullPath = this.resolvePathWithinWorkspace(preview.path);
 
         await fs.unlink(fullPath);
         logger.log(`Deleted file: ${fullPath}`);
@@ -863,8 +902,8 @@ export class PermissionInterceptor extends EventEmitter {
             throw new Error("Rename operation requires fromPath and toPath");
         }
 
-        const fromFullPath = path.join(this.workspacePath, preview.fromPath);
-        const toFullPath = path.join(this.workspacePath, preview.toPath);
+        const fromFullPath = this.resolvePathWithinWorkspace(preview.fromPath);
+        const toFullPath = this.resolvePathWithinWorkspace(preview.toPath);
 
         // Ensure destination directory exists
         await fs.mkdir(path.dirname(toFullPath), { recursive: true });
@@ -989,8 +1028,34 @@ export class PermissionInterceptor extends EventEmitter {
                 : path.join(this.workspacePath, preview.workingDirectory)
             : this.workspacePath;
 
+        const normalizedWorkspace = path.resolve(this.workspacePath);
+        const normalizedWorking = path.resolve(workingDir);
+        if (path.isAbsolute(preview.workingDirectory || "") && normalizedWorking !== normalizedWorkspace) {
+            const rel = path.relative(normalizedWorkspace, normalizedWorking);
+            if (rel.startsWith("..") || path.isAbsolute(rel)) {
+                this.allowedRoots.add(normalizedWorking);
+            }
+        }
+        const cdMatch = preview.command.match(/^cd\s+([^\s;&|]+)/);
+        if (cdMatch && path.isAbsolute(cdMatch[1])) {
+            const cdRoot = path.resolve(workingDir, cdMatch[1]);
+            const relCd = path.relative(normalizedWorkspace, cdRoot);
+            if (relCd.startsWith("..") || path.isAbsolute(relCd)) {
+                this.allowedRoots.add(cdRoot);
+            }
+        }
+
+        // Normalize command: strip "cd /workspace && " or "cd /workspace; " so it runs in workingDir (workspace root).
+        // /workspace is a generic path that often doesn't exist on the host; the shell is already in the workspace.
+        let commandToRun = preview.command;
+        const workspaceCdStrip = /^cd\s+\/workspace(?:\/[^\s;&|]*)?\s*(?:&&|;)\s*/;
+        if (workspaceCdStrip.test(preview.command)) {
+            commandToRun = preview.command.replace(workspaceCdStrip, "").trim() || "true";
+            logger.log(`[executeRunCommand] Stripped 'cd /workspace' prefix (shell already in workspace); running: ${commandToRun}`);
+        }
+
         // Detect dev server commands that run indefinitely
-        const isDevServerCommand = this.isDevServerCommand(preview.command);
+        const isDevServerCommand = this.isDevServerCommand(commandToRun);
 
         // Dev servers get 10 seconds to start; regular commands get 5 minutes
         const timeoutMs = isDevServerCommand
@@ -998,17 +1063,17 @@ export class PermissionInterceptor extends EventEmitter {
             : ((preview as any).timeout || 5 * 60 * 1000);
         const startTime = Date.now();
 
-        logger.log(`[executeRunCommand] Running: ${preview.command} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
+        logger.log(`[executeRunCommand] Running: ${commandToRun} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
 
         // Audit log for dangerous commands (rm -rf, sudo, etc.)
         if (preview.isDangerous) {
-            logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${preview.command}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
+            logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
         }
 
-        // Emit that command is starting
+        // Emit that command is starting (use normalized command so UI shows what actually runs)
         this.emit('terminal-output', {
             operationId,
-            command: preview.command,
+            command: commandToRun,
             output: '',
             status: 'running' as const,
         });
@@ -1018,7 +1083,7 @@ export class PermissionInterceptor extends EventEmitter {
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             this.emit('terminal-output', {
                 operationId,
-                command: preview.command,
+                command: commandToRun,
                 output: `Running... ${elapsed}s`,
                 status: 'running' as const,
             });
@@ -1034,7 +1099,7 @@ export class PermissionInterceptor extends EventEmitter {
         try {
             // Race between command execution and timeout
             const result = await Promise.race([
-                runShellCommand(preview.command, workingDir),
+                runShellCommand(commandToRun, workingDir),
                 timeoutPromise
             ]);
 
@@ -1050,7 +1115,7 @@ export class PermissionInterceptor extends EventEmitter {
             // Emit final output
             this.emit('terminal-output', {
                 operationId,
-                command: preview.command,
+                command: commandToRun,
                 output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
                 status: result.success ? 'completed' as const : 'error' as const,
                 exitCode: result.exitCode,
@@ -1058,14 +1123,17 @@ export class PermissionInterceptor extends EventEmitter {
             });
 
             if (result.success) {
-                logger.log(`[executeRunCommand] Success: ${preview.command} (${(duration / 1000).toFixed(1)}s)`);
+                logger.log(`[executeRunCommand] Success: ${commandToRun} (${(duration / 1000).toFixed(1)}s)`);
             } else {
-                logger.error(`[executeRunCommand] Failed: ${preview.command} (exit ${result.exitCode})`);
+                logger.error(`[executeRunCommand] Failed: ${commandToRun} (exit ${result.exitCode})`);
                 if (result.stderr) {
                     logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
                 }
-                // Throw error so executeOperation marks it as failed
-                throw new Error(`Command failed with exit code ${result.exitCode}`);
+                // Include stderr in thrown error so user and logs see the real reason
+                const errDetail = result.stderr
+                    ? `\n\n${result.stderr.slice(0, 500)}`
+                    : (result.stdout ? `\n\n${result.stdout.slice(0, 200)}` : "");
+                throw new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
             }
         } catch (error) {
             clearInterval(progressInterval);
@@ -1075,7 +1143,7 @@ export class PermissionInterceptor extends EventEmitter {
 
             // Dev server timeout = success (server is still running after 10 seconds)
             if (isDevServerCommand && isTimeout) {
-                logger.log(`[executeRunCommand] Dev server started: ${preview.command} (running in background)`);
+                logger.log(`[executeRunCommand] Dev server started: ${commandToRun} (running in background)`);
 
                 // Store success result for AI context
                 this.commandOutputs.set(operationId, {
@@ -1088,7 +1156,7 @@ export class PermissionInterceptor extends EventEmitter {
                 // Emit success for dev server
                 this.emit('terminal-output', {
                     operationId,
-                    command: preview.command,
+                    command: commandToRun,
                     output: 'Dev server started successfully (running in background)',
                     status: 'completed' as const,
                     exitCode: 0,
@@ -1109,14 +1177,14 @@ export class PermissionInterceptor extends EventEmitter {
             // Emit error output
             this.emit('terminal-output', {
                 operationId,
-                command: preview.command,
+                command: commandToRun,
                 output: errorMessage,
                 status: 'error' as const,
                 exitCode: -1,
                 duration,
             });
 
-            logger.error(`[executeRunCommand] Error: ${preview.command} - ${errorMessage}`);
+            logger.error(`[executeRunCommand] Error: ${commandToRun} - ${errorMessage}`);
             throw error;
         }
     }

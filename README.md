@@ -7,9 +7,9 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v2.9.0*
+*Current: v3.0.0*
 
-**Recent (v2.9):** Diagram connections are now visible (stroke on edges in flow and container view); Flow mode supports editing in a side panel without switching to List; connection count shown as a small badge on beacons; flow panel and expanded dialog are larger. Next session: file-tree style layout for beacons and containers (horizontal tree for main nodes, vertical sub-trees for sub-beacons). See `docs/TODO.md` for next-session items.
+**Recent (v3.0):** Workspace storage and path fixes; .atlarix folder with memory.md and spec.md (Claude Code style); create_directory resolves relative to workspace and rejects absolute-path fragments; copy-app stores absolute paths. Updated onboarding video: https://youtu.be/oTlJXBS1azM
 
 ---
 
@@ -138,8 +138,10 @@ Building user authentication with JWT tokens.
 ### Context Management
 - **Context Bar** – Real-time token usage visualization
 - **Auto-Summarize** – Long conversations compressed automatically
-- **Project Memory** – `.atlarix/MEMORY.md` persists across sessions
+- **Project Memory** – `.atlarix/memory.md` (Claude Code style) persists across sessions; compaction writes there
+- **Task Breakdown** – `.atlarix/spec.md` (model-created) for task breakdown; AI reads both when present
 - **ATLARIX_PLAN.md** – Version-controllable implementation plan
+- **Workspace location** – New workspaces are created at project root (e.g. **Choose folder** or ~/Documents/Atlarix). The `~/atlarix-apps` folder is legacy only; to remove old projects there, run `node scripts/cleanup-atlarix-apps.js` (use `--delete` to remove).
 
 ### Smart Diff Preview
 - **Hunk View** - Changed sections with ±3 lines of context

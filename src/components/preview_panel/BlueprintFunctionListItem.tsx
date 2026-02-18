@@ -3,7 +3,7 @@
  * Shows simpleDescription when present; "Simplify" uses AI to generate one; technical details expandable.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Trash2, Code, Pencil, KeyRound, Sparkles, ArrowRight, Plus } from "lucide-react";
 import type { BlueprintFunction, BlueprintFunctionKind, BlueprintRoomFlowEdge } from "@/shared/blueprint-types";
 import { FUNCTION_KIND_CONFIG } from "@/lib/blueprint/function-kind-config";
@@ -21,7 +21,7 @@ interface BlueprintFunctionListItemProps {
   onOpenCreds?: () => void;
   /** When true, start expanded (e.g. after clicking node in Flow view) */
   defaultExpanded?: boolean;
-  /** Sub-beacons (e.g. tool calls, steps) shown nested when expanded */
+  /** Nodes (e.g. tool calls, steps) shown nested when expanded */
   subBeacons?: BlueprintFunction[];
   /** Flow edges for this room (for "Connected to" section) */
   flowEdges?: BlueprintRoomFlowEdge[];
@@ -48,9 +48,15 @@ export function BlueprintFunctionListItem({
   const [subExpanded, setSubExpanded] = useState(false);
   const [simplifying, setSimplifying] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (defaultExpanded) setExpanded(true);
   }, [defaultExpanded]);
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded(true);
+    setTimeout(() => nameInputRef.current?.focus(), 0);
+  };
   const config = FUNCTION_KIND_CONFIG[fn.kind as BlueprintFunctionKind] ?? FUNCTION_KIND_CONFIG.feature;
   const { Icon, label, borderClass, iconClass, configHint } = config;
   const hasSubBeacons = subBeacons.length > 0;
@@ -113,6 +119,7 @@ export function BlueprintFunctionListItem({
           {label}
         </span>
         <input
+          ref={nameInputRef}
           type="text"
           value={fn.name}
           onChange={(e) => onUpdate(fn.id, { name: e.target.value })}
@@ -120,6 +127,11 @@ export function BlueprintFunctionListItem({
           placeholder={configHint}
           className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-border bg-background"
         />
+        {fn.simpleDescription && (
+          <span className="shrink-0 max-w-[120px] truncate text-[10px] text-muted-foreground" title={fn.simpleDescription}>
+            · {fn.simpleDescription}
+          </span>
+        )}
         {fn.aiGenerated && (
           <span className="shrink-0 text-[10px] text-muted-foreground italic" title="Created by AI from container prompt">
             (AI-generated)
@@ -142,12 +154,20 @@ export function BlueprintFunctionListItem({
       {expanded && (
         <div className="px-2 pb-2 pt-0 border-t border-border/50 mt-0">
           <div className="space-y-2 pt-2">
-            {fn.simpleDescription ? (
-              <div className="flex gap-2 text-xs">
-                <span className="text-muted-foreground shrink-0">Description:</span>
-                <span className="text-foreground/90">{fn.simpleDescription}</span>
-              </div>
-            ) : (
+            <div className="space-y-1 text-xs">
+              <label className="flex gap-2 items-center">
+                <span className="text-muted-foreground shrink-0">Short description (for AI):</span>
+                <input
+                  type="text"
+                  value={fn.simpleDescription ?? ""}
+                  onChange={(e) => onUpdate(fn.id, { simpleDescription: e.target.value.trim() || undefined })}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="What this does in one line"
+                  className="flex-1 min-w-0 px-2 py-0.5 rounded border border-border bg-background text-foreground"
+                />
+              </label>
+            </div>
+            {!fn.simpleDescription && (
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 {fn.description && (
                   <span className="text-muted-foreground truncate max-w-[200px]" title={fn.description}>
@@ -164,7 +184,7 @@ export function BlueprintFunctionListItem({
                   )}
                 >
                   <Sparkles className="w-3 h-3" />
-                  {simplifying ? "Simplifying…" : "Simplify"}
+                  {simplifying ? "Simplifying…" : "Simplify with AI"}
                 </button>
               </div>
             )}
@@ -330,13 +350,16 @@ export function BlueprintFunctionListItem({
               <button
                 type="button"
                 className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+                title="Open file in code view"
               >
                 <Code className="w-3 h-3" />
                 View code
               </button>
               <button
                 type="button"
+                onClick={handleEditClick}
                 className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted hover:bg-muted/80 text-muted-foreground"
+                title="Expand to edit name and description"
               >
                 <Pencil className="w-3 h-3" />
                 Edit
@@ -350,7 +373,7 @@ export function BlueprintFunctionListItem({
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {subExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  Sub-beacons ({subBeacons.length})
+                  Nodes ({subBeacons.length})
                 </button>
                 {subExpanded && (
                   <ul className="mt-1 ml-4 space-y-1 list-none pl-0">

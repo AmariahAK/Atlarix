@@ -19,9 +19,11 @@ import { generateFromBlueprintDelta, type CodegenDelta, type CodegenResult } fro
 import { inferBlueprintFromWorkspace } from "@/lib/blueprint/workspace_to_blueprint";
 import { rteResultToBlueprint } from "@/lib/blueprint/rte_to_blueprint";
 import { generateBlueprint } from "@/lib/blueprint/rte/parsers";
+import { buildBlueprintFromFileTree } from "@/lib/blueprint/fileTreeSource";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
 import { analyzeWorkspace } from "@/lib/analysis/workspace-analyzer";
 import { simplifyDescriptionWithAI } from "@/lib/blueprint/descriptions/aiSimplifier";
+import { layoutContainerCanvas, layoutBeaconFlow } from "@/lib/blueprint/layoutEngine";
 import log from "electron-log";
 
 const logger = log.scope("blueprint_handlers");
@@ -55,35 +57,30 @@ export function emitBlueprintAiEditing(workspaceId: number, action: string) {
   sendToAllWindows("blueprint:ai-editing", { workspaceId, action });
 }
 
+/** Infer blueprint when no user blueprint: RTE cache first, then file-tree (no full RTE). */
 async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (!app) return createEmptyBlueprint();
   const workspacePath = getAtlarixAppPath(app.path);
   const cached = await loadBlueprintCache(workspacePath);
   if (cached && cached.nodes.length > 0) {
-    const b = rteResultToBlueprint({
-      nodes: cached.nodes,
-      edges: cached.edges,
-      framework: { name: cached.manifest.framework, confidence: 0.8 },
-    });
+    const b = rteResultToBlueprint(
+      {
+        nodes: cached.nodes,
+        edges: cached.edges,
+        framework: { name: cached.manifest.framework, confidence: 0.8 },
+      },
+      workspacePath
+    );
     if (b.rooms.length > 0) return b;
   }
   try {
-    const rteResult = await generateBlueprint(workspacePath);
-    if (rteResult && rteResult.nodes.length > 0) {
-      await saveBlueprintCache(workspacePath, {
-        manifest: {
-          projectPath: workspacePath,
-          framework: rteResult.framework.name,
-          language: rteResult.framework.name,
-        },
-        nodes: rteResult.nodes,
-        edges: rteResult.edges,
-      });
-      return rteResultToBlueprint(rteResult);
-    }
+    const { rooms, edges, inferredEdges } = await buildBlueprintFromFileTree(workspacePath);
+    const mergedEdges = [...edges, ...inferredEdges];
+    const blueprint: Blueprint = { rooms, edges: mergedEdges, envRefs: [] };
+    if (rooms.some((r) => !r.hidden && r.functions.length > 0)) return blueprint;
   } catch (e) {
-    logger.warn("RTE blueprint infer failed, falling back to workspace analysis:", e);
+    logger.warn("File-tree blueprint failed, falling back to workspace analysis:", e);
   }
   let analysis = (await getCachedAnalysis(workspacePath))?.analysis ?? null;
   if (!analysis) {
@@ -106,15 +103,45 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
     const workspacePath = getAtlarixAppPath(app.path);
     const userBlueprint = await loadUserBlueprint(workspacePath);
     if (userBlueprint != null) {
-      const sanitized = sanitizeBlueprint(userBlueprint);
-      blueprintCache.set(workspaceId, sanitized);
-      return sanitized;
+      const base = sanitizeBlueprint(userBlueprint);
+      const merged = await mergeInferredEdges(workspaceId, base);
+      blueprintCache.set(workspaceId, merged);
+      return merged;
     }
   }
   const inferred = await inferBlueprint(workspaceId);
   const sanitized = sanitizeBlueprint(inferred);
   blueprintCache.set(workspaceId, sanitized);
   return sanitized;
+}
+
+/** Merge inferred flow/cross-room edges from file tree into an existing blueprint so users can see and edit connections. */
+async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Promise<Blueprint> {
+  const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+  if (!app) return blueprint;
+  try {
+    const workspacePath = getAtlarixAppPath(app.path);
+    const { rooms: inferredRooms, inferredEdges } = await buildBlueprintFromFileTree(workspacePath);
+    const roomIds = new Set((blueprint.rooms ?? []).map((r) => r.id));
+    const existingEdgeKeys = new Set((blueprint.edges ?? []).map((e) => `${e.from}\t${e.to}`));
+    const newCrossRoom = (inferredEdges ?? []).filter(
+      (e) => roomIds.has(e.from) && roomIds.has(e.to) && !existingEdgeKeys.has(`${e.from}\t${e.to}`)
+    );
+    const inferredByRoomId = new Map(inferredRooms.map((r) => [r.id, r]));
+    const rooms = (blueprint.rooms ?? []).map((room) => {
+      const inferredRoom = inferredByRoomId.get(room.id);
+      if (!inferredRoom?.flowEdges?.length) return room;
+      const existingFlowKeys = new Set((room.flowEdges ?? []).map((e) => `${e.from}\t${e.to}`));
+      const added = inferredRoom.flowEdges.filter((e) => !existingFlowKeys.has(`${e.from}\t${e.to}`));
+      if (added.length === 0) return room;
+      return { ...room, flowEdges: [...(room.flowEdges ?? []), ...added] };
+    });
+    const edges = [...(blueprint.edges ?? []), ...newCrossRoom];
+    return { ...blueprint, rooms, edges };
+  } catch (e) {
+    logger.warn("mergeInferredEdges failed (non-fatal):", e);
+    return blueprint;
+  }
 }
 
 /** Set blueprint for workspace (in-memory + persist to disk); notifies renderer. Used by AI tools and UI save. */
@@ -169,17 +196,72 @@ export function registerBlueprintHandlers() {
     }
   );
 
-  // blueprint:codegen - generate scaffold from Blueprint delta (new files + env stub)
-  // blueprint:refresh-from-code - Invalidate cache, re-infer from workspace, emit blueprint:updated
+  // blueprint:refresh-from-code - Run full RTE, merge with current (keep positions, replace inferred edges), save, emit
   ipcMain.handle(
     "blueprint:refresh-from-code",
-    async (_, { workspaceId }: { workspaceId: number }): Promise<{ success: boolean; blueprint?: Blueprint; error?: string }> => {
+    async (
+      _,
+      { workspaceId }: { workspaceId: number }
+    ): Promise<{ success: boolean; blueprint?: Blueprint; newConnectionsCount?: number; error?: string }> => {
       try {
-        blueprintCache.delete(workspaceId);
-        const blueprint = await getBlueprintForWorkspace(workspaceId);
-        sendToAllWindows("blueprint:updated", { workspaceId, blueprint });
-        return { success: true, blueprint };
+        sendToAllWindows("blueprint:rte-running", { workspaceId, running: true });
+        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (!app) {
+          sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
+          return { success: false, error: "Workspace not found" };
+        }
+        const workspacePath = getAtlarixAppPath(app.path);
+        const current = blueprintCache.get(workspaceId) ?? (await loadUserBlueprint(workspacePath)) ?? createEmptyBlueprint();
+        let merged: Blueprint;
+        try {
+          const rteResult = await generateBlueprint(workspacePath);
+          if (rteResult && rteResult.nodes.length > 0) {
+            await saveBlueprintCache(workspacePath, {
+              manifest: {
+                projectPath: workspacePath,
+                framework: rteResult.framework.name,
+                language: rteResult.framework.name,
+              },
+              nodes: rteResult.nodes,
+              edges: rteResult.edges,
+            });
+            const fromRte = rteResultToBlueprint(rteResult, workspacePath);
+            const nonInferredEdges = (current.edges ?? []).filter((e) => !e.inferred);
+            const edgeMap = new Map<string, Blueprint["edges"][0]>();
+            for (const e of nonInferredEdges) edgeMap.set(`${e.from}\t${e.to}`, e);
+            for (const e of fromRte.edges) edgeMap.set(`${e.from}\t${e.to}`, { ...e, inferred: false });
+            const added = fromRte.edges.filter(
+              (e) => !(current.edges ?? []).some((c) => c.from === e.from && c.to === e.to)
+            );
+            merged = {
+              rooms: fromRte.rooms.map((r) => {
+                const existing = current.rooms.find((er) => er.id === r.id);
+                return existing ? { ...r, ...(existing.path && { path: existing.path }) } : r;
+              }),
+              edges: Array.from(edgeMap.values()),
+              envRefs: current.envRefs ?? [],
+            };
+            blueprintCache.set(workspaceId, merged);
+            await saveUserBlueprint(workspacePath, merged);
+            sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
+            sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
+            return { success: true, blueprint: merged, newConnectionsCount: added.length };
+          }
+        } catch (e) {
+          logger.warn("RTE refresh failed, falling back to file-tree:", e);
+        }
+        const fileTree = await buildBlueprintFromFileTree(workspacePath);
+        merged = {
+          rooms: fileTree.rooms,
+          edges: [...fileTree.edges, ...fileTree.inferredEdges],
+          envRefs: current.envRefs ?? [],
+        };
+        blueprintCache.set(workspaceId, merged);
+        sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
+        sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
+        return { success: true, blueprint: merged, newConnectionsCount: 0 };
       } catch (error) {
+        sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
         logger.error("blueprint:refresh-from-code error:", error);
         return {
           success: false,
@@ -221,9 +303,10 @@ export function registerBlueprintHandlers() {
         const combined = await generateCombinedBlueprint(selected);
         let blueprintToSet: Blueprint = createEmptyBlueprint();
         if (combined.projects.length === 1) {
-          const rteResult = await generateBlueprint(selected[0].path);
+          const projectPath = selected[0].path;
+          const rteResult = await generateBlueprint(projectPath);
           if (rteResult && rteResult.nodes.length > 0) {
-            blueprintToSet = rteResultToBlueprint(rteResult);
+            blueprintToSet = rteResultToBlueprint(rteResult, projectPath);
             setBlueprintForWorkspace(workspaceId, blueprintToSet);
           }
         }
@@ -304,6 +387,20 @@ export function registerBlueprintHandlers() {
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }
+    }
+  );
+
+  ipcMain.handle(
+    "blueprint:layout-containers",
+    async (_, { rooms, edges }: { rooms: Array<{ id: string }>; edges: Array<{ id: string; from: string; to: string }> }) => {
+      return layoutContainerCanvas(rooms, edges, rooms.length);
+    }
+  );
+
+  ipcMain.handle(
+    "blueprint:layout-beacons",
+    async (_, { beacons, flowEdges }: { beacons: Array<{ id: string }>; flowEdges: Array<{ id: string; from: string; to: string }> }) => {
+      return layoutBeaconFlow(beacons, flowEdges);
     }
   );
 }

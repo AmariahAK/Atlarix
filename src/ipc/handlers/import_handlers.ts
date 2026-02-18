@@ -42,7 +42,7 @@ export function registerImportHandlers() {
   });
 
   // Handler for checking if an app name is already taken
-  // Since we no longer copy to atlarix-apps, just check database
+  // Imports use absolute path; atlarix-apps not used. Just check database.
   handle("check-app-name", async (_, { appName }: { appName: string }) => {
     const existingApp = await db.query.apps.findFirst({
       where: eq(apps.name, appName),
@@ -119,10 +119,11 @@ export function registerImportHandlers() {
         // Stage all files
         await gitAdd({ path: sourcePath, filepath: "." });
 
-        // Create initial commit
+        // Create initial commit (allowEmpty so empty folders get a commit and HEAD exists)
         await gitCommit({
           path: sourcePath,
           message: "Init Atlarix app",
+          allowEmpty: true,
           coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
       }

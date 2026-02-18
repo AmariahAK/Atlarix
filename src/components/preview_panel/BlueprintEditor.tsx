@@ -81,7 +81,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           ...prev.rooms,
           {
             id,
-            label: parentId ? `Sub-container ${count}` : `Container ${count}`,
+            label: parentId ? `Packet ${count}` : `Container ${count}`,
             functions: [],
             ...(parentId && { parentId }),
           },
@@ -226,6 +226,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const [flowExpandRoomId, setFlowExpandRoomId] = useState<string | null>(null);
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRteRunning, setIsRteRunning] = useState(false);
   const [generateBlueprintsOpen, setGenerateBlueprintsOpen] = useState(false);
   const { settings, updateSettings } = useSettings();
 
@@ -233,6 +234,15 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   useEffect(() => {
     setLocal(blueprint);
   }, [blueprint]);
+
+  // Listen for RTE-running state (for legend and edge pulse)
+  useEffect(() => {
+    if (!app?.id) return;
+    const unsubscribe = IpcClient.getInstance().onBlueprintRteRunning((payload: { workspaceId: number; running: boolean }) => {
+      if (payload.workspaceId === app.id) setIsRteRunning(payload.running);
+    });
+    return unsubscribe;
+  }, [app?.id]);
 
   const handleRoomSelect = useCallback((roomId: string) => {
     setSelectedRoomId(roomId);
@@ -263,8 +273,12 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
     try {
       const res = await IpcClient.getInstance().refreshBlueprintFromCode({ workspaceId: app.id });
       if (res.success) {
-        toast.success("Blueprint synced from code");
-        // Backend emits blueprint:updated → parent updates → useEffect syncs local
+        const count = (res as { newConnectionsCount?: number }).newConnectionsCount;
+        if (count !== undefined && count > 0) {
+          toast.success(`Connections updated from code — ${count} new connection${count !== 1 ? "s" : ""} found`);
+        } else {
+          toast.success("Blueprint synced from code");
+        }
       } else {
         toast.error(res.error ?? "Refresh failed");
       }
@@ -275,15 +289,108 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
     }
   }, [app?.id]);
 
+  const selectedRoom = selectedRoomId ? local.rooms.find((r) => r.id === selectedRoomId) : null;
+
   return (
     <div className="flex flex-col h-full overflow-hidden flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 min-w-0">
+        {/* Sidebar: add/delete containers and beacons */}
+        <div className="w-[160px] flex-shrink-0 border-r border-border flex flex-col bg-muted/10 overflow-hidden">
+          <div className="px-2 py-1.5 border-b border-border">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Containers</span>
+          </div>
+          <div className="flex-1 overflow-auto min-h-0">
+            <button
+              type="button"
+              onClick={() => addRoom()}
+              className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground rounded-md mt-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add container
+            </button>
+            {local.rooms.filter((r) => !r.hidden).map((room) => (
+              <div
+                key={room.id}
+                className={cn(
+                  "flex items-center gap-1 group rounded-md mt-0.5",
+                  selectedRoomId === room.id && "bg-primary/10"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleRoomSelect(room.id)}
+                  className="flex-1 min-w-0 text-left px-2 py-1 text-xs truncate rounded-md hover:bg-muted/80"
+                  title={room.label}
+                >
+                  {room.label || "Container"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeRoom(room.id);
+                    if (selectedRoomId === room.id) {
+                      setSelectedRoomId(null);
+                      setBeaconViewForRoomId(null);
+                    }
+                  }}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100"
+                  title="Delete container"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {selectedRoom && (
+            <>
+              <div className="px-2 py-1.5 border-t border-border">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Beacons</span>
+              </div>
+              <div className="px-2 pb-2 space-y-0.5">
+                {FUNCTION_KINDS.map((kind) => {
+                  const { label, Icon } = FUNCTION_KIND_CONFIG[kind];
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => addFunction(selectedRoom.id, kind)}
+                      className="w-full flex items-center gap-1.5 px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
+                    >
+                      <Icon className="w-3 h-3" />
+                      + {label}
+                    </button>
+                  );
+                })}
+                {selectedRoom.functions.map((fn) => (
+                  <div key={fn.id} className="flex items-center gap-1 group rounded-md">
+                    <span className="flex-1 min-w-0 truncate text-xs px-2 py-0.5" title={fn.name}>
+                      {fn.name || "(unnamed)"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFunction(selectedRoom.id, fn.id)}
+                      className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100"
+                      title="Delete beacon"
+                    >
+                      <Trash2 className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Visual canvas + container details */}
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">
       {/* Visual canvas: rooms as nodes, drag to connect */}
       <div className="flex-1 min-h-[280px] p-3 flex flex-col">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <span className="text-xs text-muted-foreground" title="Click a container to see its summary and steps inside">
-            {selectedRoomId ? "Drag containers; connect with edges from handles." : "Drag containers; connect with edges from handles. Click a container to see its summary and steps inside."}
+        <div className="flex items-center justify-between gap-1.5 mb-2 flex-wrap">
+          <span className="text-[10px] text-muted-foreground shrink-0" title="Click a container to see its summary and steps inside">
+            Drag containers; connect from handles. Click a container for details.
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {selectedRoomId && (
               <button
                 type="button"
@@ -292,36 +399,37 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
                   setSelectedRoomId(null);
                   setBeaconViewForRoomId(null);
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-destructive hover:bg-destructive/15 border border-destructive/40"
+                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-destructive/40 text-destructive hover:bg-destructive/15"
                 title="Delete selected container"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete container
+                <Trash2 className="w-3 h-3" />
+                Delete
               </button>
             )}
             <button
               type="button"
               onClick={() => setGenerateBlueprintsOpen(true)}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border"
-              title="Analyze workspace and generate blueprints for selected projects"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Analyze workspace and generate blueprints"
             >
-              <Layers className="w-3.5 h-3.5" />
-              Generate Blueprints
+              <Layers className="w-3 h-3" />
+              Blueprints
             </button>
             <button
               type="button"
               onClick={handleRefreshFromCode}
               disabled={isRefreshing}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border disabled:opacity-50"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               title="Re-infer blueprint from current codebase"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
-              Refresh from code
+              <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+              Refresh
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Save blueprint"
             >
               Update
             </button>
@@ -329,11 +437,11 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
               type="button"
               onClick={handleGenerateCode}
               disabled={isGenerating || local.rooms.length === 0}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-amber-600/80 text-amber-100 hover:bg-amber-600/90 border border-amber-500/30 disabled:opacity-50"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-amber-500/30 bg-amber-600/80 hover:bg-amber-600/90 text-amber-100 disabled:opacity-50"
               title="Generate stub files and env keys from this Blueprint"
             >
-              <Code2 className="w-3.5 h-3.5" />
-              {isGenerating ? "Generating..." : "Generate code"}
+              <Code2 className="w-3 h-3" />
+              {isGenerating ? "…" : "Generate"}
             </button>
           </div>
         </div>
@@ -345,6 +453,7 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             onRoomSelect={handleRoomSelect}
             agentPhase={agentPhaseState.phase}
             agentPhaseActive={agentPhaseState.active}
+            isRteRunning={isRteRunning}
             className="flex-1 min-h-0"
           />
         <GenerateBlueprintsModal
@@ -363,15 +472,54 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             {flowExpandRoomId && (() => {
               const room = local.rooms.find((r) => r.id === flowExpandRoomId);
               if (!room) return null;
+              const selectedInThisRoom = selectedFunctionId && (room.functions ?? []).some((f) => f.id === selectedFunctionId);
               return (
-                <div className="flex-1 min-h-[70vh] rounded-lg overflow-hidden border border-border bg-muted/10">
-                  <BlueprintRoomFlowView
-                    room={room}
-                    onFlowEdgesChange={handleFlowEdgesChange}
-                    onSelectFunction={setSelectedFunctionId}
-                    onSwitchToList={() => setFlowExpandRoomId(null)}
-                    className="h-[70vh] w-full"
-                  />
+                <div className="flex gap-3 flex-1 min-h-[70vh] min-w-0">
+                  <div className="flex-1 min-w-0 rounded-lg overflow-hidden border border-border bg-muted/10">
+                    <BlueprintRoomFlowView
+                      room={room}
+                      onFlowEdgesChange={handleFlowEdgesChange}
+                      onSelectFunction={setSelectedFunctionId}
+                      className="h-[70vh] w-full"
+                    />
+                  </div>
+                  {selectedInThisRoom && selectedFunctionId && (() => {
+                    const fn = (room.functions ?? []).find((f) => f.id === selectedFunctionId);
+                    if (!fn) return null;
+                    return (
+                      <div className="w-72 shrink-0 flex flex-col rounded-lg border border-border bg-card overflow-hidden">
+                        <div className="flex items-center justify-between px-2 py-1.5 border-b border-border bg-muted/30">
+                          <span className="text-xs font-medium text-foreground">Edit beacon</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFunctionId(null)}
+                            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                            title="Close"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-2 min-h-0">
+                          <BlueprintFunctionListItem
+                            fn={fn}
+                            roomId={room.id}
+                            workspaceId={app?.id ?? null}
+                            onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
+                            onRemove={(fnId) => {
+                              removeFunction(room.id, fnId);
+                              setSelectedFunctionId(null);
+                            }}
+                            onOpenCreds={onOpenCreds}
+                            defaultExpanded={true}
+                            subBeacons={(room.functions ?? []).filter((f) => f.parentId === fn.id)}
+                            flowEdges={room.flowEdges ?? []}
+                            onFlowEdgesChange={(edges) => handleFlowEdgesChange(room.id, edges)}
+                            otherFunctions={room.functions ?? []}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -380,17 +528,17 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
       </div>
 
       {/* Container details: Summary Card or Edit Internals (beacon view) with Back */}
-      <div className="border-t border-border">
+      <div className="border-t border-border flex-shrink-0">
         <button
           type="button"
           onClick={() => setShowList((v) => !v)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50"
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50"
         >
           {showList ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           Container details
         </button>
         {showList && (
-          <div className="p-3 pt-0 space-y-4 max-h-[320px] overflow-auto">
+          <div className="p-3 pt-0 space-y-4 max-h-[200px] overflow-auto">
             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
               <input
                 type="checkbox"
@@ -475,10 +623,10 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
                           type="button"
                           onClick={() => addRoom(room.id)}
                           className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted hover:bg-muted/80 text-muted-foreground"
-                          title="Add sub-container"
+                          title="Add packet"
                         >
                           <Layers className="w-3 h-3" />
-                          Add sub-container
+                          Add packet
                         </button>
                       </div>
                       {room.functions.length > 0 && (
@@ -683,6 +831,8 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             )}
           </div>
         )}
+      </div>
+        </div>
       </div>
     </div>
   );

@@ -4,10 +4,8 @@ import { IS_TEST_BUILD } from "../ipc/utils/test_utils";
 
 /**
  * Gets the full path for an app.
- * - If appPath is ABSOLUTE (starts with /), returns it as-is (new behavior for direct path registration)
- * - If appPath is RELATIVE (legacy), resolves via ~/atlarix-apps/{appPath}
- * 
- * This allows workspaces to be registered by their original location without copying.
+ * - If appPath is ABSOLUTE, returns it as-is (user-chosen project root; new workspaces use this).
+ * - If appPath is RELATIVE (legacy), resolves via ~/atlarix-apps/{appPath}. atlarix-apps is legacy storage only; new workspaces should use absolute paths (user-chosen project root).
  */
 export function getAtlarixAppPath(appPath: string): string {
   // NEW: If path is absolute, use it directly (no copying to atlarix-apps)

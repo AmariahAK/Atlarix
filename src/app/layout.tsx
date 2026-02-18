@@ -33,6 +33,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 function PersistentChatContainer() {
   const location = useLocation();
   const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
+  const currentApp = useAtomValue(currentAppAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
@@ -105,6 +106,14 @@ function PersistentChatContainer() {
           </button>
           <div className="flex items-center gap-2">
             <span className="font-medium">Atlarix</span>
+            {currentApp && (
+              <span
+                className="text-xs text-muted-foreground font-normal truncate max-w-[180px]"
+                title={`Commands run in this workspace. Path: ${currentApp.path}`}
+              >
+                Workspace: {currentApp.name}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {/* Source count badge – click to open right panel and show Sources tab */}

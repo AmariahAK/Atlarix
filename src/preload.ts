@@ -234,6 +234,8 @@ const validInvokeChannels = [
   "blueprint:generate-combined",
   "blueprint:codegen",
   "blueprint:simplify-description",
+  "blueprint:layout-containers",
+  "blueprint:layout-beacons",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
@@ -298,6 +300,8 @@ const validReceiveChannels = [
   // Blueprint: AI editing indicator (Diagram tab)
   "blueprint:ai-editing",
   "blueprint:updated",
+  "blueprint:rte-running",
+  "blueprint:edges-updated",
   // OAuth callback from main process
   "oauth-callback-success",
 ] as const;

@@ -106,7 +106,7 @@ import {
   schedulePostTurnCompaction,
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
-import { readMemoryMd, writeMemoryMd } from "../../lib/project-memory";
+import { readMemoryMd, readSpecMd, writeMemoryMd } from "../../lib/project-memory";
 import { estimateTokens, getContextWindow } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
@@ -796,16 +796,26 @@ ${componentSnippet}
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
 
-        // Chat-only mode: no app/workspace
-        const hasWorkspace = !!updatedChat.app;
+        // Resolve effective workspace: sidebar selection (req.appId) overrides when present and different from chat's app
+        let effectiveApp = updatedChat.app;
+        if (req.appId != null && req.appId !== updatedChat.app?.id) {
+          const overrideApp = await db.query.apps.findFirst({
+            where: eq(apps.id, req.appId),
+          });
+          if (overrideApp) effectiveApp = overrideApp;
+        }
+        const hasWorkspace = !!effectiveApp;
+        let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
+        const effectiveAppId = effectiveApp?.id;
+        logger.log(
+          `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
+        );
 
-        let appPath = "";
         let codebaseInfo = "";
         let files: any[] = [];
         let chatContext: any = { contextPaths: [], smartContextAutoIncludes: [] };
 
         if (hasWorkspace) {
-          appPath = resolveAppPath(updatedChat.app.path);
           // When we don't have smart context enabled, we
           // only include the selected components' files for codebase context.
           //
@@ -821,7 +831,7 @@ ${componentSnippet}
                 })),
                 smartContextAutoIncludes: [],
               }
-              : validateChatContext(updatedChat.app.chatContext);
+              : validateChatContext(effectiveApp!.chatContext);
 
           // --- DIAGRAM-FIRST CONTEXT SYSTEM ---
           // Instead of extracting full codebase (168K+ tokens), we:
@@ -859,7 +869,7 @@ ${componentSnippet}
         // Extract codebases for mentioned apps
         const mentionedAppsCodebases = await extractMentionedAppsCodebases(
           mentionedAppNames,
-          updatedChat.app!.id, // Exclude current app
+          effectiveAppId ?? 0, // Exclude current effective app
         );
 
         const isDeepContextEnabled =
@@ -900,7 +910,7 @@ ${componentSnippet}
           // COLD START: Background diagram generation for new workspaces
           // Start non-blocking generation if no diagram exists yet
           // ═══════════════════════════════════════════════════════════════
-          const workspaceId = updatedChat.app?.id;
+          const workspaceId = effectiveAppId;
           if (workspaceId) {
             try {
               const { DiagramManager } = await import("../../lib/DiagramManager");
@@ -1019,10 +1029,10 @@ ${componentSnippet}
                   timestamp: Date.now(),
                   detail: `Compacted to ${compactionResult.messagesAfterSummary.length} messages`,
                 });
-                // Persist to .atlarix/MEMORY.md for cross-session memory
+                // Persist to .atlarix/memory.md for cross-session memory
                 if (hasWorkspace && appPath) {
                   writeMemoryMd(appPath, compactionResult.summaryText).catch((err) =>
-                    logger.warn("Failed to write MEMORY.md:", err)
+                    logger.warn("Failed to write .atlarix/memory.md:", err)
                   );
                 }
               }
@@ -1061,11 +1071,11 @@ ${componentSnippet}
               ? "build"
               : settings.selectedChatMode;
           let systemPrompt: string;
-          if (hasWorkspace && appPath) {
+          if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
               where: and(
                 eq(promptsTable.type, "workspace"),
-                eq(promptsTable.workspaceId, updatedChat.appId!)
+                eq(promptsTable.workspaceId, effectiveAppId),
               ),
             });
             systemPrompt = await buildSystemPromptWithProjectInstructions({
@@ -1106,14 +1116,14 @@ ${componentSnippet}
                   // For ephemeral chats (negative IDs), don't save chatId (FK constraint would fail)
                   const isEphemeralChat = req.chatId < 0;
                   await db.insert(diagrams).values({
-                    workspaceId: req.appId,
+                    workspaceId: effectiveAppId ?? req.appId ?? null,
                     chatId: isEphemeralChat ? null : req.chatId,
                     type: "architecture",
                     title: `Architecture - ${workspaceContext.summary}`,
                     content: workspaceContext.diagram,
                     metadata: { summary: workspaceContext.summary },
                   });
-                  logger.info(`Saved workspace diagram to database for appId: ${req.appId}`);
+                  logger.info(`Saved workspace diagram to database for appId: ${effectiveAppId ?? req.appId}`);
                 } catch (dbError) {
                   logger.warn("Failed to save diagram to database:", dbError);
                 }
@@ -1123,16 +1133,21 @@ ${componentSnippet}
             logger.warn("Failed to inject workspace context:", error);
           }
 
-          // Project-level MEMORY.md (cross-session) – Claude Code style
+          // Project-level .atlarix/memory.md and .atlarix/spec.md – Claude Code style
           if (hasWorkspace && appPath) {
             try {
               const memoryMd = await readMemoryMd(appPath);
               if (memoryMd) {
                 systemPrompt += `\n\n## Project memory (cross-session)\n${memoryMd}`;
-                logger.info("Injected MEMORY.md");
+                logger.info("Injected .atlarix/memory.md");
+              }
+              const specMd = await readSpecMd(appPath);
+              if (specMd) {
+                systemPrompt += `\n\n## Task breakdown (spec.md)\n${specMd}`;
+                logger.info("Injected .atlarix/spec.md");
               }
             } catch (memErr) {
-              logger.warn("Failed to read MEMORY.md:", memErr);
+              logger.warn("Failed to read .atlarix/memory.md or spec.md:", memErr);
             }
           }
 
@@ -1168,7 +1183,6 @@ ${componentSnippet}
           if (isSecurityReviewIntent) {
             systemPrompt = SECURITY_REVIEW_SYSTEM_PROMPT;
             try {
-              const appPath = resolveAppPath(updatedChat.app.path);
               const rulesPath = path.join(appPath, "SECURITY_RULES.md");
               let securityRules = "";
 
@@ -1186,7 +1200,7 @@ ${componentSnippet}
           }
 
           if (
-            updatedChat.app?.supabaseProjectId &&
+            effectiveApp?.supabaseProjectId &&
             settings.supabase?.accessToken?.value
           ) {
             systemPrompt +=
@@ -1194,11 +1208,11 @@ ${componentSnippet}
               SUPABASE_AVAILABLE_SYSTEM_PROMPT +
               "\n\n" +
               (await getSupabaseContext({
-                supabaseProjectId: updatedChat.app.supabaseProjectId,
+                supabaseProjectId: effectiveApp.supabaseProjectId,
               }));
           } else if (
             // Neon projects don't need Supabase.
-            !updatedChat.app?.neonProjectId &&
+            !effectiveApp?.neonProjectId &&
             // If in security review mode, we don't need to mention supabase is available.
             !isSecurityReviewIntent
           ) {
@@ -1395,7 +1409,7 @@ This conversation includes one or more image attachments. When the user uploads 
             // Build provider options with correct Google/Vertex thinking config gating
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
-                dyadAppId: updatedChat.app.id,
+                dyadAppId: effectiveAppId ?? updatedChat.app?.id,
                 dyadRequestId,
                 dyadDisableFiles,
                 dyadSmartContextMode: smartContextMode,
@@ -1542,10 +1556,10 @@ This conversation includes one or more image attachments. When the user uploads 
           }) => {
             if (
               fullResponse.includes("$$SUPABASE_CLIENT_CODE$$") &&
-              updatedChat.app?.supabaseProjectId
+              effectiveApp?.supabaseProjectId
             ) {
               const supabaseClientCode = await getSupabaseClientCode({
-                projectId: updatedChat.app?.supabaseProjectId,
+                projectId: effectiveApp.supabaseProjectId,
               });
               fullResponse = fullResponse.replace(
                 "$$SUPABASE_CLIENT_CODE$$",
@@ -1584,8 +1598,7 @@ This conversation includes one or more image attachments. When the user uploads 
           };
 
           if (settings.selectedChatMode === "agent") {
-            // Workspace-aware tool filtering
-            const hasWorkspace = !!updatedChat.app;
+            // Workspace-aware tool filtering (uses effective workspace from outer scope)
             const workspaceFilteredTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
 
             // Convert to tool set format expected by AI SDK
@@ -1611,7 +1624,7 @@ This conversation includes one or more image attachments. When the user uploads 
             };
 
             // Merge global + workspace MCP tools for Agent mode
-            const agentMcpTools = await getMcpTools(event, updatedChat.app?.id ?? null);
+            const agentMcpTools = await getMcpTools(event, effectiveAppId ?? null);
             Object.assign(tools, agentMcpTools);
 
             const { fullStream } = await simpleStreamText({
@@ -1619,7 +1632,7 @@ This conversation includes one or more image attachments. When the user uploads 
               modelClient,
               tools,
               systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
+                aiRules: await readAiRules(appPath),
                 chatMode: "build",
                 contextSize: Math.min(await getContextWindow(), 128_000),
                 enableTurboEditsV2: false,
@@ -1647,7 +1660,7 @@ This conversation includes one or more image attachments. When the user uploads 
           }
 
           // Ask mode with workspace: use read-only tools for exploration
-          if (settings.selectedChatMode === "ask" && updatedChat.app) {
+          if (settings.selectedChatMode === "ask" && effectiveApp) {
             logger.log("Ask mode with workspace - enabling read-only tools");
 
             // Get read-only tools for Ask mode
@@ -1661,11 +1674,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 parameters: tool.parameters,
                 execute: async (args: any) => {
                   try {
-                    // Execute tool via registry
+                    // Execute tool via registry (use effective workspace)
                     const execResult = await ToolRegistry.execute(tool.name, {
                       ...args,
-                      workspace: resolveAppPath(updatedChat.app.path),
-                      workspaceId: updatedChat.app.id,
+                      workspace: appPath,
+                      workspaceId: effectiveAppId!,
                     });
 
                     // Return formatted result for display
@@ -1716,7 +1729,7 @@ This conversation includes one or more image attachments. When the user uploads 
             }
 
             // Merge global + workspace MCP tools so workspace chats can use MCP (e.g. GitHub)
-            const askMcpTools = await getMcpTools(event, updatedChat.app.id);
+            const askMcpTools = await getMcpTools(event, effectiveAppId!);
             Object.assign(askTools, askMcpTools);
             logger.log(`Ask mode: ${Object.keys(askTools).length} read-only tools available (incl. MCP)`);
 
@@ -1748,7 +1761,7 @@ If the user requests modifications, use request_mode_change to request Build mod
               modelClient,
               tools: askTools,
               systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(resolveAppPath(updatedChat.app.path)),
+                aiRules: await readAiRules(appPath),
                 chatMode: "ask",
                 contextSize: Math.min(await getContextWindow(), 128_000),
                 enableTurboEditsV2: false,
@@ -1771,12 +1784,16 @@ If the user requests modifications, use request_mode_change to request Build mod
             // Permission interceptor buffers write operations for user approval
             logger.log("Build mode with native tool calling + permission system");
 
-            const hasWorkspace = !!updatedChat.app;
-            const workspacePath = updatedChat.app?.path ? resolveAppPath(updatedChat.app.path) : "";
+            const workspacePath = appPath;
+            /** After create_workspace in this turn, use this so run_command/write_file run in the new project. */
+            let workspaceOverride: { path: string; id: number } | null = null;
             const buildModeTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
 
             // Create permission interceptor for this session
-            const permissionInterceptor = new PermissionInterceptor(workspacePath);
+            const permissionInterceptor = new PermissionInterceptor(
+              workspacePath,
+              effectiveAppId ?? undefined,
+            );
 
             // Register interceptor for IPC handlers (so UI can approve/reject)
             registerInterceptor(req.chatId, permissionInterceptor);
@@ -1812,13 +1829,33 @@ If the user requests modifications, use request_mode_change to request Build mod
                     timestamp: Date.now(),
                   });
                   try {
+                    // Use workspace override when create_workspace was just run (same turn)
+                    const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
+                    const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
                     // Execute tool via registry, inject workspace path, workspaceId, and chatMode
                     const result = await ToolRegistry.execute(tool.function.name, {
                       ...args,
-                      workspace: workspacePath || undefined,
-                      workspaceId: req.appId ?? undefined,
+                      workspace: effectivePath || undefined,
+                      workspaceId: effectiveId,
                       chatMode: "build", // Pass chatMode so handlers can check permissions
                     });
+
+                    // If create_workspace succeeded, use new workspace for rest of this turn
+                    if (
+                      tool.function.name === "create_workspace" &&
+                      result &&
+                      typeof result === "object" &&
+                      !permissionInterceptor.isPermissionRequest(result) &&
+                      (result as any).workspace_path != null &&
+                      (result as any).workspace_id != null
+                    ) {
+                      const r = result as { workspace_path: string; workspace_id: number };
+                      workspaceOverride = { path: r.workspace_path, id: r.workspace_id };
+                      permissionInterceptor.setWorkspace(r.workspace_path, r.workspace_id);
+                      logger.log(
+                        `[Build Mode] Switched to new workspace for this turn: ${r.workspace_path} (id: ${r.workspace_id})`,
+                      );
+                    }
 
                     // Check if this is a permission request (object or string)
                   if (permissionInterceptor.isPermissionRequest(result)) {
@@ -1924,7 +1961,7 @@ If the user requests modifications, use request_mode_change to request Build mod
             }
 
             // Merge global + workspace MCP tools so workspace Build chats can use MCP (e.g. GitHub)
-            const buildMcpTools = await getMcpTools(event, updatedChat.app?.id ?? null);
+            const buildMcpTools = await getMcpTools(event, effectiveAppId ?? null);
             Object.assign(tools, buildMcpTools);
 
             // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
@@ -1954,7 +1991,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                     const result = await ToolRegistry.execute("delegate_to_agent", {
                       ...args,
                       workspace: workspacePath || undefined,
-                      workspaceId: req.appId ?? undefined,
+                      workspaceId: effectiveAppId ?? undefined,
                       chatMode: "build",
                       depth: 0,
                     });
@@ -2133,7 +2170,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                         const argsWithWorkspace = {
                           ...tc.args,
                           workspace: workspacePath || undefined,
-                          workspaceId: req.appId ?? undefined,
+                          workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
                         };
                         try {
@@ -2167,7 +2204,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                         const argsWithWorkspace = {
                           ...toolCall.args,
                           workspace: workspacePath || undefined,
-                          workspaceId: req.appId ?? undefined,
+                          workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
                         };
                         toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);
@@ -2633,7 +2670,9 @@ If the user requests modifications, use request_mode_change to request Build mod
       logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
       controller.abort();
       activeStreams.delete(chatId);
-      partialResponses.delete(chatId);
+      // Do NOT delete partialResponses here — the stream's catch block will persist
+      // the partial response to the DB and then clear it, so the user keeps the
+      // cancelled response when they send a follow-up.
       return { success: true, message: 'AI response cancelled' };
     }
     return { success: false, message: 'No active stream for this chat' };

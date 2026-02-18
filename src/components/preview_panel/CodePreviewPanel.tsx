@@ -37,6 +37,8 @@ import {
 import { PermissionQueuePanel } from '../PermissionQueuePanel';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
 import { type SourceItem, type TerminalOutput, browserErrorsAtom, dismissedErrorSignaturesAtom, visibleBrowserErrorsAtom, getErrorSignature, diagramStateAtom, selectedErrorForCodeAtom } from '@/atoms/sourceAtoms';
+import { currentAppAtom } from '@/atoms/appAtoms';
+import { WorkspaceFileTree } from '@/components/workspace/WorkspaceFileTree';
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
@@ -73,6 +75,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
 
 export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
     const navigate = useNavigate();
+    const currentApp = useAtomValue(currentAppAtom);
     const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
@@ -105,12 +108,13 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                             </button>
                         </div>
                     )}
-                    <div className="flex-1 min-h-0">
+                    <div className="flex-1 min-h-0 flex min-w-0">
                         <CodeTab
                             file={currentFile}
                             errors={errorsData}
                             workspacePath={workspacePath}
                             appId={currentAppId}
+                            files={currentAppId && currentApp?.id === currentAppId ? (currentApp?.files ?? []) : undefined}
                             selectedErrorForCode={selectedErrorForCode}
                             onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
                         />
@@ -403,14 +407,15 @@ function PreviewTab({ url }: { url?: string }) {
 
 /**
  * Code Tab - Current file view or Error File Editor
- * Shows Monaco-based editor when there are errors with file paths.
- * When selectedErrorFile is set (e.g. from sidebar file tree), loads and displays that file.
+ * When files is provided, renders miniscreen: file tree sidebar + editor (same size as blueprint).
+ * Otherwise shows single-file view or search/empty state.
  */
 function CodeTab({
     file,
     errors = [],
     workspacePath = '',
     appId = null,
+    files = undefined,
     selectedErrorForCode = null,
     onSelectedErrorForCodeConsumed = () => {},
 }: {
@@ -418,17 +423,36 @@ function CodeTab({
     errors?: ParsedError[];
     workspacePath?: string;
     appId?: number | null;
+    /** When provided, show file tree sidebar and editor (miniscreen mode). */
+    files?: string[] | undefined;
     selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
     onSelectedErrorForCodeConsumed?: () => void;
 }) {
     const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
     const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
     const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
+    const [selectedFilePathFromTree, setSelectedFilePathFromTree] = useState<string | null>(null);
+    const [treeFileContent, setTreeFileContent] = useState<{ path: string; content: string } | null>(null);
+    const [treeFileLoading, setTreeFileLoading] = useState(false);
 
     // Clear sidebar file when workspace is deselected
     useEffect(() => {
         if (!workspacePath && !appId) setSidebarFile(null);
     }, [workspacePath, appId]);
+
+    // Miniscreen: load file when user selects from tree
+    useEffect(() => {
+        if (!selectedFilePathFromTree || !appId) {
+            setTreeFileContent(null);
+            return;
+        }
+        setTreeFileLoading(true);
+        IpcClient.getInstance()
+            .readAppFile(appId, selectedFilePathFromTree)
+            .then((content) => setTreeFileContent({ path: selectedFilePathFromTree, content }))
+            .catch(() => setTreeFileContent(null))
+            .finally(() => setTreeFileLoading(false));
+    }, [selectedFilePathFromTree, appId]);
 
     const selectedFilePath = selectedErrorForCode?.filePath ?? null;
     // Load file when selectedErrorForCode is set (from Errors tab "View code")
@@ -481,6 +505,46 @@ function CodeTab({
                 initialLine={selectedErrorForCode?.line}
                 onInitialFilePathConsumed={onSelectedErrorForCodeConsumed}
             />
+        );
+    }
+
+    // Miniscreen mode: file tree sidebar + editor (same size as blueprint)
+    if (files != null && files.length > 0 && appId) {
+        return (
+            <div className="flex flex-1 min-h-0 min-w-0">
+                <div className="w-[160px] flex-shrink-0 border-r border-border flex flex-col bg-muted/10 overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-border text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Files
+                    </div>
+                    <div className="flex-1 overflow-auto min-h-0">
+                        <WorkspaceFileTree
+                            files={files}
+                            onFileClick={(path) => setSelectedFilePathFromTree(path)}
+                            maxHeight="100%"
+                        />
+                    </div>
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col min-h-0">
+                    {treeFileLoading ? (
+                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3" />
+                            <p className="text-sm">Loading file...</p>
+                        </div>
+                    ) : treeFileContent ? (
+                        <FileEditor
+                            appId={appId}
+                            filePath={treeFileContent.path}
+                            initialLine={selectedErrorForCode?.filePath === treeFileContent.path ? selectedErrorForCode?.line : undefined}
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
+                            <Code2 className="w-12 h-12 mb-3 opacity-50" />
+                            <p className="text-sm">Select a file from the tree</p>
+                            <p className="text-xs">Add, edit, and save with Cmd/Ctrl+S</p>
+                        </div>
+                    )}
+                </div>
+            </div>
         );
     }
 

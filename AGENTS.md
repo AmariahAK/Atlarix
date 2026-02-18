@@ -41,7 +41,7 @@ Atlarix uses **automatic context compaction** when the session gets long:
 1. **Post-turn compaction** – After each AI response, we check real token usage. If over ~75% of the model’s context budget, we summarize the conversation in the background so the next turn stays responsive.
 2. **Pre-request check** – When building the next request, we use existing summaries (what we did, what we’re doing, next steps) so the model keeps full session context without resending everything.
 3. **Tool output pruning** – Old tool results are truncated to avoid context bloat; recent results are kept.
-4. **Project memory (cross-session)** – When compaction runs, the summary is written to `.atlarix/MEMORY.md` in the workspace. On the next chat (or new session), that file is read and injected as “Project memory (cross-session)” so the model remembers prior work across sessions.
+4. **Project memory (cross-session)** – When compaction runs, the summary is written to `.atlarix/memory.md` (and `.atlarix/spec.md` for task breakdown). On the next chat (or new session), that file is read and injected as “Project memory (cross-session)” so the model remembers prior work across sessions.
 
 **For Ollama & LMStudio** (4K–32K context):
 - Compaction runs more often than with 128K models.
@@ -297,17 +297,20 @@ delete_file("src/old-component.tsx")
 
 ### create_directory
 
-**Purpose:** Create a new directory.
+**Purpose:** Create a new directory (path is relative to workspace root).
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| path | string | ✅ | Directory path to create |
+| dirpath | string | ✅ | Path relative to workspace (e.g. `src/components/forms`). Do NOT use absolute paths or path fragments like `Users/...`. |
 
 **Examples:**
 ```
 create_directory("src/components/forms")
+create_directory(".atlarix")
 ```
+
+**Important:** Use paths relative to the workspace root. Never pass absolute paths or path fragments (e.g. `Users/amariah/...`) — that creates incorrect nested folder structures.
 
 ---
 
@@ -691,7 +694,7 @@ get_current_time()
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | command | string | ✅ | Command to run |
-| cwd | string | ❌ | Working directory |
+| cwd | string | ❌ | Working directory (prefer over `cd <dir> && command`) |
 | timeout | number | ❌ | Timeout in ms (default: 60000) |
 
 **Examples:**
@@ -703,7 +706,9 @@ run_command("git status")
 
 **⚠️ CRITICAL RULES:**
 
-1. **Sequential Execution**: WAIT for each command to complete before running the next
+1. **Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one command that creates the project; do not emit multiple create/scaffold commands in the same turn.
+
+2. **Sequential Execution**: WAIT for each command to complete before running the next
    ```
    ❌ WRONG:
    run_command("npm install")
@@ -715,12 +720,14 @@ run_command("git status")
    run_command("npm run dev")
    ```
 
-2. **Check Results**: Always check if command succeeded before proceeding
+3. **Check Results**: Always check if command succeeded before proceeding
 
-3. **Common Fixes:**
+4. **Common Fixes:**
    - `npm install X && npx X` fails → Split into two commands
    - `ERESOLVE` → Try `npm install --legacy-peer-deps`
    - `ENOENT` → Create missing file/folder first
+
+5. **Working directory:** Commands run at the workspace (project) root. Do not assume or refer to an "atlarix-apps" folder; the workspace path is the project root chosen by the user. Prefer the `cwd` parameter over `cd <dir> && command`. Never use `cd /workspace` — the shell already runs in the workspace root; use `cwd: "."` or omit cwd. For scaffolding (e.g. create-vite), pass `--template` and `--no-interactive` so the command runs non-interactively.
 
 **⚠️ Permission Required**
 
@@ -1177,13 +1184,14 @@ search_templates("React dashboard")
 
 ### create_workspace
 
-**Purpose:** Create a new project workspace.
+**Purpose:** Create a new project workspace. Use this when the user asks to build something new (e.g. "make me a recipe site"). The workspace path is stored in the database; diagrams, blueprints, and `.atlarix/memory.md` use that path. When working in a project, create `.atlarix/` with `memory.md` (user guidance) and `spec.md` (task breakdown) as needed. After you call create_workspace, all run_command and write_file calls in the same turn automatically run in the new project—you do not need to pass cwd.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | project_name | string | ❌ | Project name (auto-generated if not provided) |
 | description | string | ❌ | Project description |
+| target_path | string | ❌ | Absolute path for project root; if omitted, uses ~/Documents/Atlarix/{name}. |
 
 ---
 
@@ -1439,7 +1447,7 @@ search_templates("React dashboard")
    ├── Framework has CLI? → run_command("npx create-...")
    │   Examples:
    │   - Next.js: npx create-next-app@latest .
-   │   - React: npx create-vite@latest . --template react-ts
+   │   - React: npx create-vite@latest . -- --template react-ts --no-interactive
    │   - Vue: npm create vue@latest .
    │   - Express: npx express-generator .
    │
@@ -1455,7 +1463,7 @@ search_templates("React dashboard")
 | Framework | CLI Command |
 |-----------|-------------|
 | Next.js | `npx create-next-app@latest .` |
-| React (Vite) | `npx create-vite@latest . --template react-ts` |
+| React (Vite) | `npx create-vite@latest . -- --template react-ts --no-interactive` |
 | Vue | `npm create vue@latest .` |
 | Svelte | `npx sv create .` |
 | Express | `npx express-generator .` |

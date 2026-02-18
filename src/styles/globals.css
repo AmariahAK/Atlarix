@@ -486,6 +486,11 @@ body[data-scroll-locked] .app-region-drag {
   animation: atlarix-edge-pulse-green 1s ease-in-out infinite;
 }
 
+@keyframes blueprint-edge-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 /* ═══════════════════════════════════════════════════════════
    PANEL ANIMATIONS
    ═══════════════════════════════════════════════════════════ */
@@ -625,13 +630,17 @@ body[data-scroll-locked] .app-region-drag {
   stroke: #e5e7eb !important;
 }
 
-/* Blueprint / flow diagram edges: ensure connection lines are visible */
+/* Blueprint / flow diagram edges: ensure path is visible; stroke color comes from component (direction: red/blue/purple) */
 .react-flow__edge-path {
-  stroke: hsl(var(--primary) / 0.8);
+  fill: none;
   stroke-width: 2;
+  stroke-opacity: 1;
 }
-.dark .react-flow__edge-path {
-  stroke: hsl(var(--primary) / 0.9);
+/* Do NOT set stroke here so BlueprintEdge inline stroke (direction colors) wins */
+.atlarix-blueprint-edge-path {
+  fill: none !important;
+  stroke-width: 2 !important;
+  stroke-opacity: 1 !important;
 }
 .react-flow__arrowhead polyline {
   fill: hsl(var(--primary) / 0.9);

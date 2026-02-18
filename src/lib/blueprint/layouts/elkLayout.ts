@@ -3,7 +3,7 @@
  * Produces a top-down tree suitable for dependency visualization.
  */
 
-import ELK from "elkjs/lib/elk.bundled.js";
+import ELK from "elkjs";
 import type { Node, Edge } from "@xyflow/react";
 
 const elk = new ELK();

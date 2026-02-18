@@ -3,7 +3,7 @@
  * Connection handles shown only on hover to avoid accidental edges when dragging.
  */
 
-import { memo, useState } from "react";
+import { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { FileCode, GripVertical } from "lucide-react";
 import type { BlueprintRoom } from "@/shared/blueprint-types";
@@ -23,7 +23,6 @@ interface RoomNodeProps {
 }
 
 function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
-  const [showHandles, setShowHandles] = useState(false);
   const { room, agentPhase, agentPhaseActive } = data;
   const count = room.functions?.length ?? 0;
   const style = getRoomStyle(room);
@@ -34,15 +33,13 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
   return (
     <div
       className={cn(
-        "relative min-w-[140px] rounded-lg border px-3 py-2 pl-6 shadow-sm transition-all cursor-pointer",
+        "relative min-w-[120px] rounded-lg border px-2 py-1.5 pl-5 shadow-sm transition-all cursor-pointer",
         style.bg,
         style.border,
         selected ? "ring-2 ring-offset-2 ring-offset-background ring-muted-foreground shadow-md scale-[1.02]" : "hover:shadow-md hover:scale-[1.01]",
         architectOn && "atlarix-container-forming",
         builderOn && "atlarix-beacon-highlight"
       )}
-      onMouseEnter={() => setShowHandles(true)}
-      onMouseLeave={() => setShowHandles(false)}
     >
       <div
         className={cn("room-drag-handle absolute left-1 top-1.5 p-0.5 rounded cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none")}
@@ -50,34 +47,28 @@ function BlueprintRoomNodeComponent({ data, selected }: RoomNodeProps) {
       >
         <GripVertical className="h-3.5 w-3.5" />
       </div>
-      {showHandles && (
-        <>
-          <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-muted-foreground/70" />
-          <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-muted-foreground/70" />
-          <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-muted-foreground/70" />
-          <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-muted-foreground/70" />
-        </>
-      )}
+      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
 
-      <div className="flex items-start gap-2">
-        <span className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border", style.badgeClass)}>
+      <div
+        className="flex items-center gap-1.5 min-w-0 flex-1"
+        title={[room.label || "Container", count ? `${count} beacon${count !== 1 ? "s" : ""}` : null, room.intent].filter(Boolean).join(" · ")}
+      >
+        <span className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded border", style.badgeClass)}>
           {style.label}
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm truncate text-foreground" title={room.label}>
-            {room.label || "Container"}
-          </div>
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-            <FileCode className="h-3 w-3 shrink-0" />
-            <span>{count} beacon{count !== 1 ? "s" : ""}</span>
-          </div>
-        </div>
+        <span className="font-medium text-xs truncate text-foreground">
+          {room.label || "Container"}
+        </span>
+        {count > 0 && (
+          <span className="shrink-0 flex items-center gap-0.5 text-[10px] text-muted-foreground">
+            <FileCode className="h-2.5 w-2.5" />
+            {count}
+          </span>
+        )}
       </div>
-      {room.intent && (
-        <div className="mt-1 text-[10px] text-muted-foreground truncate" title={room.intent}>
-          {room.intent}
-        </div>
-      )}
     </div>
   );
 }

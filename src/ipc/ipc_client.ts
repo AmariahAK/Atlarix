@@ -459,6 +459,7 @@ export class IpcClient {
       chatId: number;
       redo?: boolean;
       attachments?: FileAttachment[];
+      appId?: number | null;
       onUpdate: (messages: Message[]) => void;
       onEnd: (response: ChatResponseEnd) => void;
       onError: (error: string) => void;
@@ -470,6 +471,7 @@ export class IpcClient {
       redo,
       attachments,
       selectedComponents,
+      appId,
       onUpdate,
       onEnd,
       onError,
@@ -510,6 +512,7 @@ export class IpcClient {
               chatId,
               redo,
               selectedComponents,
+              appId: appId ?? undefined,
               attachments: fileDataArray,
             })
             .catch((err) => {
@@ -533,6 +536,7 @@ export class IpcClient {
           chatId,
           redo,
           selectedComponents,
+          appId: appId ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);
@@ -2028,6 +2032,22 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:simplify-description", params);
   }
 
+  /** Layout container canvas via ELK (main process) */
+  public async layoutContainerCanvas(
+    rooms: Array<{ id: string }>,
+    edges: Array<{ id: string; from: string; to: string }>
+  ): Promise<Array<{ id: string; x: number; y: number; width: number; height: number }>> {
+    return this.ipcRenderer.invoke("blueprint:layout-containers", { rooms, edges });
+  }
+
+  /** Layout beacon flow inside a room via ELK (main process) */
+  public async layoutBeaconFlow(
+    beacons: Array<{ id: string }>,
+    flowEdges: Array<{ id: string; from: string; to: string }>
+  ): Promise<Array<{ id: string; x: number; y: number; width: number; height: number }>> {
+    return this.ipcRenderer.invoke("blueprint:layout-beacons", { beacons, flowEdges });
+  }
+
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */
   public async blueprintCodegen(params: {
     workspaceId: number;
@@ -2047,6 +2067,13 @@ export class IpcClient {
     const handler = (_: unknown, payload: { workspaceId: number; blueprint: import("@/shared/blueprint-types").Blueprint }) => listener(payload);
     this.ipcRenderer.on("blueprint:updated", handler);
     return () => this.ipcRenderer.removeListener("blueprint:updated", handler);
+  }
+
+  /** When RTE is running (e.g. refresh from code), for legend and edge pulse */
+  public onBlueprintRteRunning(listener: (payload: { workspaceId: number; running: boolean }) => void): () => void {
+    const handler = (_: unknown, payload: { workspaceId: number; running: boolean }) => listener(payload);
+    this.ipcRenderer.on("blueprint:rte-running", handler);
+    return () => this.ipcRenderer.removeListener("blueprint:rte-running", handler);
   }
 
   /** Get diagram timeline (workspace snapshots for version history) */

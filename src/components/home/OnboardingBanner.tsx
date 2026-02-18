@@ -17,7 +17,7 @@ export const OnboardingBanner = ({
         onClick={(e) => {
           e.preventDefault();
           IpcClient.getInstance().openExternalUrl(
-            "https://youtu.be/tYYwisgFwpQ",
+            "https://youtu.be/oTlJXBS1azM",
           );
           setIsVisible(false);
         }}

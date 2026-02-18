@@ -1,10 +1,10 @@
 /**
  * Convert RTE parse result (nodes + edges) to Blueprint (rooms + edges).
- * Groups nodes by first path segment (e.g. src/auth -> room "auth"); maps node types to BlueprintFunctionKind.
+ * Groups nodes by directory (room) using getRoomKey when projectRoot is provided.
  */
 
+import * as path from "path";
 import type { Blueprint, BlueprintRoom, BlueprintFunction, BlueprintEdge, BlueprintFunctionKind } from "@/shared/blueprint-types";
-import { generateBlueprintId } from "@/shared/blueprint-types";
 import type { BlueprintNode, RTEBlueprintEdge, RTEParseResult } from "./rte/parsers/types";
 
 const RTE_KIND_TO_BLUEPRINT: Record<string, BlueprintFunctionKind> = {
@@ -21,6 +21,19 @@ const RTE_KIND_TO_BLUEPRINT: Record<string, BlueprintFunctionKind> = {
   conditional: "function",
 };
 
+const GENERIC_ROOTS = new Set([
+  "src", "lib", "app", "pages", "components", "utils", "api", "core", "common", "shared", "modules", "apps",
+]);
+
+function getRoomKey(filePath: string, projectRoot: string): string {
+  const normalizedRoot = projectRoot.replace(/\\/g, "/").replace(/\/$/, "");
+  const rel = filePath.replace(/\\/g, "/").replace(normalizedRoot, "").replace(/^\//, "");
+  const parts = rel.split("/").filter(Boolean);
+  if (parts.length === 0) return "root";
+  if (GENERIC_ROOTS.has(parts[0]) && parts.length > 1) return parts[1];
+  return parts[0];
+}
+
 function roomKeyFromFile(file: string): string {
   const first = file.split("/")[0];
   if (first === "src" || first === "lib" || first === "app" || first === "apps") {
@@ -32,16 +45,22 @@ function roomKeyFromFile(file: string): string {
 
 /**
  * Convert RTE result to Blueprint. Groups nodes by directory (room), maps to rooms and edges.
+ * When projectRoot is provided, uses getRoomKey for consistent room keys with file-tree source.
  */
-export function rteResultToBlueprint(result: RTEParseResult): Blueprint {
+export function rteResultToBlueprint(result: RTEParseResult, projectRoot?: string): Blueprint {
   const { nodes, edges } = result;
   if (nodes.length === 0) {
     return { rooms: [], edges: [], envRefs: [] };
   }
 
+  const getKey = (n: { file: string }) =>
+    projectRoot
+      ? getRoomKey(path.join(projectRoot, n.file), projectRoot)
+      : roomKeyFromFile(n.file);
+
   const roomKeys = new Set<string>();
   for (const n of nodes) {
-    roomKeys.add(roomKeyFromFile(n.file));
+    roomKeys.add(getKey(n));
   }
   const keyToRoomId = new Map<string, string>();
   const roomIdToKey = new Map<string, string>();
@@ -54,13 +73,13 @@ export function rteResultToBlueprint(result: RTEParseResult): Blueprint {
 
   const nodeToRoomId = new Map<string, string>();
   for (const n of nodes) {
-    const key = roomKeyFromFile(n.file);
+    const key = getKey(n);
     nodeToRoomId.set(n.id, keyToRoomId.get(key)!);
   }
 
   const rooms: BlueprintRoom[] = [];
   for (const [key, roomId] of keyToRoomId) {
-    const roomNodes = nodes.filter((n) => roomKeyFromFile(n.file) === key);
+    const roomNodes = nodes.filter((n) => getKey(n) === key);
     const functions: BlueprintFunction[] = roomNodes.map((n) => ({
       id: n.id,
       name: n.name,

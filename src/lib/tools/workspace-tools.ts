@@ -12,11 +12,15 @@ import { eq } from "drizzle-orm";
 import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import os from "node:os";
 import fs from "fs/promises";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { SubscriptionManager } from "../SubscriptionManager";
 
 const execAsync = promisify(exec);
+
+/** Default base for new workspaces when target_path is not provided (no longer atlarix-apps). */
+const DEFAULT_WORKSPACE_BASE = path.join(os.homedir(), "Documents", "Atlarix");
 
 // ============================================
 // CREATE WORKSPACE
@@ -24,12 +28,13 @@ const execAsync = promisify(exec);
 
 /**
  * Create a new workspace (project folder)
- * AI calls this when user wants to build something
+ * AI calls this when user wants to build something.
+ * New workspaces use target_path (absolute) when provided, otherwise ~/Documents/Atlarix/{name}.
  */
 ToolRegistry.register({
     name: "create_workspace",
     category: ToolCategory.FILE,
-    description: "Create a new workspace (project folder) for building an app. Returns workspace ID and path.",
+    description: "Create a new workspace (project folder) for building an app. Returns workspace ID and path. Prefer target_path (absolute) for user-chosen project root; otherwise uses ~/Documents/Atlarix/{name}.",
     cost: 5,
     requiresWorkspace: false, // Called BEFORE workspace exists
     isCore: true, // Always available
@@ -44,10 +49,16 @@ ToolRegistry.register({
             description: "Brief description of what this workspace is for",
             required: false,
         },
+        target_path: {
+            type: "string",
+            description: "Optional: Absolute path for project root. When set, workspace is created there; otherwise ~/Documents/Atlarix/{name}.",
+            required: false,
+        },
     },
     handler: async (params: {
         project_name?: string;
         description?: string;
+        target_path?: string;
         chatId?: number; // Injected by system
     }) => {
         try {
@@ -85,12 +96,21 @@ Would you like to upgrade or delete the existing workspace?`,
             // Generate project name
             const projectName = params.project_name || generateCuteAppName();
 
-            // Create app in database
+            // Resolve project root: target_path (must be absolute) or default ~/Documents/Atlarix/{name}
+            // Only use target_path if it is truly absolute (leading / on Unix, C:\ on Windows).
+            // Paths like "Users/amariah/..." are relative and would create wrong nested structure.
+            const rawTarget = params.target_path?.trim();
+            const useTargetPath = rawTarget && path.isAbsolute(rawTarget);
+            const projectPath = useTargetPath
+                ? path.resolve(rawTarget!)
+                : path.join(DEFAULT_WORKSPACE_BASE, projectName);
+
+            // Create app in database; store absolute path so workspace is at project root (no atlarix-apps)
             const [app] = await db
                 .insert(apps)
                 .values({
                     name: projectName,
-                    path: projectName,
+                    path: projectPath,
                 })
                 .returning();
 
@@ -98,7 +118,6 @@ Would you like to upgrade or delete the existing workspace?`,
             SubscriptionManager.clearWorkspaceCache();
 
             // Create project directory
-            const projectPath = getAtlarixAppPath(app.path);
             await fs.mkdir(projectPath, { recursive: true });
 
             // Initialize git repository

@@ -1,6 +1,6 @@
 /**
  * File-tree style view of containers and beacons.
- * Roots = top-level containers; children = beacons and sub-containers.
+ * Roots = top-level containers; children = beacons and packets.
  */
 
 import { useState } from "react";

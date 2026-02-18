@@ -329,6 +329,7 @@ export function useStreamChat({
           chatId,
           redo,
           attachments,
+          appId: selectedAppId ?? undefined,
           onUpdate: (updatedMessages: Message[]) => {
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {

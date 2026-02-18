@@ -90,10 +90,27 @@ export function registerVersionHandlers() {
       return []; // Valid workspace, just no version history
     }
 
-    const commits = await gitLog({
-      path: appPath,
-      depth: 100_000, // KEEP UP TO DATE WITH ChatHeader.tsx
-    });
+    let commits: GitCommit[];
+    try {
+      commits = await gitLog({
+        path: appPath,
+        depth: 100_000, // KEEP UP TO DATE WITH ChatHeader.tsx
+      });
+    } catch (err: unknown) {
+      // Empty repo / no HEAD / not fully initialized — return [] so UI doesn't throw
+      const msg = err instanceof Error ? err.message : String(err);
+      const name = (err as { name?: string })?.name ?? "";
+      const isNoHead =
+        msg.includes("Could not find HEAD") ||
+        msg.includes("NotFoundError") ||
+        msg.includes("ref not found") ||
+        msg.includes("bad default revision") ||
+        name === "NotFoundError";
+      if (isNoHead) {
+        return [];
+      }
+      throw err;
+    }
 
     // Get all snapshots for this app to match with commits
     const appSnapshots = await db.query.versions.findMany({

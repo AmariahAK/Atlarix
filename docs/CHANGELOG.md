@@ -2,6 +2,19 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## [3.0.0] — 2026-02-18
+
+### Workspace Storage, .atlarix Folder, and Path Bug Fix
+
+- **create_directory:** Now resolves paths relative to workspace root; uses safeJoin; rejects paths that look like absolute fragments (e.g. Users/, home/) to prevent nested folder structures.
+- **create_workspace:** Strict absolute path validation for target_path; only uses target_path when path.isAbsolute() is true.
+- **copy-app:** Stores absolute path in DB (same default as create-app: ~/Documents/Atlarix/{name}); no longer uses legacy atlarix-apps.
+- **.atlarix folder (Claude Code style):** `.atlarix/memory.md` (user guidance) and `.atlarix/spec.md` (model task breakdown); both injected into system prompt when present.
+- **Project memory:** Moved from root MEMORY.md to `.atlarix/memory.md`; backward compatible with root MEMORY.md fallback.
+- **Onboarding video:** Updated to https://youtu.be/oTlJXBS1azM (app and website docs page).
+
+---
+
 ## [2.9.0] — 2026-02-16
 
 ### Diagram: visible connections, flow side panel, badge, larger panel
@@ -140,7 +153,7 @@ Architecture is now a two-way system: **Live** (code → diagram, read-only) and
 - **Dangerous command UX** – "I understand" for risky commands; plain-English explanation; audit log.
 - **Themes** – Light / Dark / System (ThemeContext); diagram and code views follow theme.
 - **Compare mode** – Diagram tab: current / before / after / side-by-side diagram comparison.
-- **Persistent memory** – `.atlarix/MEMORY.md` written on compaction; injected into workspace system prompt.
+- **Persistent memory** – `MEMORY.md` at project root written on compaction; injected into workspace system prompt.
 
 ### Blueprint UX – Phases A–D (2026-02-03)
 

@@ -100,6 +100,7 @@ export async function gitCommit({
   path,
   message,
   amend,
+  allowEmpty,
   coAuthorTrailer,
 }: GitCommitParams): Promise<string> {
   const settings = readSettings();
@@ -122,6 +123,9 @@ export async function gitCommit({
     if (amend) {
       args.push("--amend");
     }
+    if (allowEmpty) {
+      args.push("--allow-empty");
+    }
     await execOrThrow(args, path, "Failed to create commit");
     // Get the new commit hash
     const result = await exec(["rev-parse", "HEAD"], path);
@@ -132,6 +136,7 @@ export async function gitCommit({
     }
     return result.stdout.trim();
   } else {
+    // isomorphic-git has no allowEmpty; empty-folder import relies on native git (--allow-empty)
     return git.commit({
       fs: fs,
       dir: path,

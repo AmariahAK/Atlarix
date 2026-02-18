@@ -25,17 +25,27 @@ export interface BlueprintFunction {
   trigger?: string;
   /** When true, this beacon was created by AI from a container-level prompt; devs can modify or remove. */
   aiGenerated?: boolean;
-  /** Optional parent beacon id; when set, this is a sub-beacon (e.g. tool call, step). */
+  /** Optional parent beacon id; when set, this is a node (e.g. tool call, step). */
   parentId?: string;
+  /** Absolute path to source file (used by file-tree source). */
+  file?: string;
 }
+
+/** Direction of data flow for edge styling (to=red, from=blue, both=purple) */
+export type BlueprintEdgeDirection = "to" | "from" | "both";
 
 /** Edge between two functions within a room (Phase C/D: flow view) */
 export interface BlueprintRoomFlowEdge {
+  id?: string;
   from: string; // function id
   to: string;   // function id
   label?: string;
   type?: "import" | "call" | "api";
   weight?: number;
+  /** When true, edge was inferred from imports (not RTE-confirmed). */
+  inferred?: boolean;
+  /** Data flow direction for path color: to (red), from (blue), both (purple). */
+  direction?: BlueprintEdgeDirection;
 }
 
 export interface BlueprintRoom {
@@ -47,18 +57,23 @@ export interface BlueprintRoom {
   functions: BlueprintFunction[];
   /** Edges between functions inside this room (calls/triggers). Phase C/D. */
   flowEdges?: BlueprintRoomFlowEdge[];
-  /** Optional parent container id; when set, this is a sub-container. */
+  /** Optional parent container id; when set, this is a packet. */
   parentId?: string;
   /** Optional child container ids for file-tree hierarchy. */
   children?: string[];
+  /** When true, room is not shown on canvas (e.g. __deps__). */
+  hidden?: boolean;
 }
 
 export interface BlueprintEdge {
+  id?: string;
   from: string;
   to: string;
   label?: string;
   type?: "import" | "call" | "api";
   weight?: number;
+  /** When true, edge was inferred from imports (not RTE-confirmed). */
+  inferred?: boolean;
 }
 
 export interface Blueprint {

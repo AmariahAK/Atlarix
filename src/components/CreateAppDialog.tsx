@@ -18,9 +18,11 @@ import { NEON_TEMPLATE_IDS, Template } from "@/shared/templates";
 
 import { useRouter } from "@tanstack/react-router";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, FolderOpen } from "lucide-react";
 import { neonTemplateHook } from "@/client_logic/template_hook";
 import { showError } from "@/lib/toast";
+
+declare const window: Window & { electron?: { ipcRenderer: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } } };
 
 interface CreateAppDialogProps {
   open: boolean;
@@ -35,10 +37,18 @@ export function CreateAppDialog({
 }: CreateAppDialogProps) {
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const [appName, setAppName] = useState("");
+  const [targetParentDir, setTargetParentDir] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { createApp } = useCreateApp();
   const { data: nameCheckResult } = useCheckName(appName);
   const router = useRouter();
+
+  const handleChooseFolder = async () => {
+    const result = await window.electron?.ipcRenderer.invoke("dialog:openDirectory") as { canceled?: boolean; filePaths?: string[] };
+    if (result?.canceled || !result?.filePaths?.length) return;
+    setTargetParentDir(result.filePaths[0]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -52,7 +62,10 @@ export function CreateAppDialog({
 
     setIsSubmitting(true);
     try {
-      const result = await createApp({ name: appName.trim() });
+      const targetPath = targetParentDir && appName.trim()
+        ? `${targetParentDir.replace(/\/$/, "")}/${appName.trim()}`
+        : undefined;
+      const result = await createApp({ name: appName.trim(), targetPath });
       if (template && NEON_TEMPLATE_IDS.has(template.id)) {
         await neonTemplateHook({
           appId: result.app.id,
@@ -66,6 +79,7 @@ export function CreateAppDialog({
         search: { id: result.chatId },
       });
       setAppName("");
+      setTargetParentDir(null);
       onOpenChange(false);
     } catch (error) {
       showError(error as any);
@@ -105,6 +119,32 @@ export function CreateAppDialog({
               {nameExists && (
                 <p className="text-sm text-red-500">
                   An app with this name already exists
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label>Create in</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleChooseFolder}
+                  disabled={isSubmitting}
+                  className="flex items-center gap-1"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  {targetParentDir ? "Change folder" : "Choose folder…"}
+                </Button>
+                {targetParentDir && (
+                  <span className="text-sm text-muted-foreground truncate flex-1 self-center" title={targetParentDir}>
+                    {targetParentDir}
+                  </span>
+                )}
+              </div>
+              {!targetParentDir && (
+                <p className="text-xs text-muted-foreground">
+                  Default: Documents/Atlarix
                 </p>
               )}
             </div>

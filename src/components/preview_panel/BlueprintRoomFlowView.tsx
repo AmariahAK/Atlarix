@@ -10,6 +10,7 @@ import {
   useEdgesState,
   MarkerType,
   type NodeTypes,
+  type EdgeTypes,
   type Connection,
   type Node,
   type Edge,
@@ -23,7 +24,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { BlueprintRoom, BlueprintRoomFlowEdge } from "@/shared/blueprint-types";
 import { BlueprintFunctionNode, type FunctionNodeData } from "./BlueprintFunctionNode";
-import { applyElkToReactFlowNodes } from "@/lib/blueprint/layouts/elkLayout";
+import { BlueprintEdge } from "@/components/blueprint/BlueprintEdge";
+import { IpcClient } from "@/ipc/ipc_client";
 import { cn } from "@/lib/utils";
 
 const NODE_TYPE = "function";
@@ -31,10 +33,9 @@ const NODE_WIDTH = 120;
 const NODE_HEIGHT = 48;
 const GAP = 28;
 
-function gridPosition(i: number): { x: number; y: number } {
-  const col = i % 3;
-  const row = Math.floor(i / 3);
-  return { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) };
+/** Vertical stack (one column) for rooms with no edges so it looks like a list/tree, not a flat grid. */
+function gridPositionNoEdges(i: number): { x: number; y: number } {
+  return { x: 0, y: i * (NODE_HEIGHT + GAP) };
 }
 
 function roomToNodesAndEdges(room: BlueprintRoom): { nodes: Node<FunctionNodeData>[]; edges: Edge[] } {
@@ -48,32 +49,58 @@ function roomToNodesAndEdges(room: BlueprintRoom): { nodes: Node<FunctionNodeDat
     return {
       id: fn.id,
       type: NODE_TYPE,
-      position: hasEdges ? { x: 0, y: 0 } : gridPosition(i),
+      position: hasEdges ? { x: 0, y: 0 } : gridPositionNoEdges(i),
       data: { fn, connectedOut, connectedIn },
     };
   });
+  const nodeIds = new Set(functions.map((f) => f.id));
+  const reverseKeys = new Set(flowEdges.map((e) => `${e.to}\t${e.from}`));
   const seen = new Set<string>();
   const edges: Edge[] = flowEdges
     .filter((e) => {
+      const valid = nodeIds.has(e.from) && nodeIds.has(e.to);
+      if (!valid) return false;
       const key = `${e.from}\t${e.to}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .map((e) => ({
-      id: `fe-${e.from}-${e.to}`,
-      source: e.from,
-      target: e.to,
-      label: e.label ?? e.type ?? undefined,
-      type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed },
-      data: { edgeType: e.type },
-      style: { stroke: "hsl(var(--primary))", strokeWidth: 2 },
-    }));
+    .map((e) => {
+      const hasReverse = reverseKeys.has(`${e.to}\t${e.from}`);
+      const direction = e.direction ?? (hasReverse ? "both" : "to");
+      const strokeByDirection =
+        direction === "from"
+          ? "hsl(220, 70%, 55%)"
+          : direction === "both"
+            ? "hsl(270, 60%, 55%)"
+            : "hsl(0, 70%, 52%)";
+      return {
+        id: e.id ?? `fe-${e.from}-${e.to}`,
+        source: e.from,
+        target: e.to,
+        label: e.label ?? e.type ?? undefined,
+        type: "smoothstep",
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: strokeByDirection,
+          width: 18,
+          height: 18,
+        },
+        data: { edgeType: e.type, inferred: e.inferred ?? false, direction },
+        style: {
+          stroke: strokeByDirection,
+          strokeWidth: 2,
+          strokeDasharray: e.inferred ? "6 4" : undefined,
+          opacity: 1,
+        },
+        zIndex: 1000,
+      };
+    });
   return { nodes, edges };
 }
 
 const nodeTypes: NodeTypes = { [NODE_TYPE]: BlueprintFunctionNode as NodeTypes[string] };
+const edgeTypes: EdgeTypes = { smoothstep: BlueprintEdge };
 
 interface BlueprintRoomFlowViewProps {
   room: BlueprintRoom;
@@ -98,25 +125,36 @@ function BlueprintRoomFlowViewInner({
   useEffect(() => {
     const { nodes: n, edges: e } = roomToNodesAndEdges(room);
     setEdges(e);
+    setNodes(n);
     const key = `${room.id}-${room.functions.length}-${(room.flowEdges ?? []).length}`;
     if (e.length > 0) {
       let cancelled = false;
-      applyElkToReactFlowNodes(n, e, { nodeWidth: NODE_WIDTH, nodeHeight: NODE_HEIGHT })
-        .then((positioned) => {
+      const beacons = room.functions.map((f) => ({ id: f.id }));
+      const flowEdges = (room.flowEdges ?? []).map((fe) => ({
+        id: fe.id ?? `fe-${fe.from}-${fe.to}`,
+        from: fe.from,
+        to: fe.to,
+      }));
+      IpcClient.getInstance()
+        .layoutBeaconFlow(beacons, flowEdges)
+        .then((positions) => {
           if (!cancelled) {
             layoutKeyRef.current = key;
-            setNodes(positioned);
+            const posMap = new Map(positions.map((p) => [p.id, p]));
+            setNodes((prev) =>
+              prev.map((node) => ({
+                ...node,
+                position: posMap.get(node.id) ?? node.position,
+              }))
+            );
           }
         })
-        .catch(() => {
-          if (!cancelled) setNodes(n);
-        });
+        .catch(() => {});
       return () => {
         cancelled = true;
       };
     }
     layoutKeyRef.current = key;
-    setNodes(n);
   }, [room.id, room.functions, room.flowEdges, setNodes, setEdges]);
 
   const onConnect = useCallback(
@@ -133,7 +171,9 @@ function BlueprintRoomFlowViewInner({
       const removed = changes.filter((c) => c.type === "remove").map((c) => (c as { id: string }).id);
       if (removed.length > 0) {
         const ids = new Set(removed);
-        const next = (room.flowEdges ?? []).filter((e) => !ids.has(`fe-${e.from}-${e.to}`));
+        const next = (room.flowEdges ?? []).filter(
+          (e) => !ids.has(`fe-${e.from}-${e.to}`) && !ids.has(e.id ?? "")
+        );
         onFlowEdgesChange(room.id, next);
       }
       onEdgesChange(changes);
@@ -158,7 +198,12 @@ function BlueprintRoomFlowViewInner({
   }
 
   return (
-    <div className={cn("h-[320px] w-full rounded-lg overflow-hidden bg-muted/10 border border-border", className)}>
+    <div className={cn("relative h-[320px] w-full rounded-lg overflow-visible bg-muted/10 border border-border", className)}>
+      <div className="absolute left-2 top-1.5 z-10 max-w-[320px] space-y-0.5 text-[10px] text-muted-foreground">
+        <div><strong>What connects the tree:</strong> These lines = flowEdges (beacon↔beacon, beacon↔node, node↔node).</div>
+        <div>Container↔container, container↔packet, packet↔packet = main Blueprint diagram (rooms).</div>
+        <div>Top row has no lines between nodes until you add them: drag from one node handle to another to connect.</div>
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -167,6 +212,7 @@ function BlueprintRoomFlowViewInner({
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         defaultEdgeOptions={{ type: "smoothstep" }}
