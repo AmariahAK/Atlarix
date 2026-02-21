@@ -14,6 +14,18 @@ export default defineConfig({
         "better-sqlite3",
         // elkjs is bundled (use main entry 'elkjs' in code so it bundles without defineProperty issues).
         // OpenTelemetry packages are bundled so the packaged app finds them (no runtime require from node_modules).
+        // Externalize AI SDK packages to avoid "Object.defineProperty called on non-object" when bundled (flow/node exports interop).
+        "ai",
+        "@ai-sdk/provider",
+        "@ai-sdk/openai",
+        "@ai-sdk/anthropic",
+        "@ai-sdk/google",
+        "@ai-sdk/google-vertex",
+        "@ai-sdk/azure",
+        "@ai-sdk/xai",
+        "@ai-sdk/amazon-bedrock",
+        "@ai-sdk/openai-compatible",
+        "@ai-sdk/provider-utils",
       ],
     },
   },
