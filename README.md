@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v3.0.0*
+*Current: v3.1.0*
 
 **Recent (v3.0):** Workspace storage and path fixes; .atlarix folder with memory.md and spec.md (Claude Code style); create_directory resolves relative to workspace and rejects absolute-path fragments; copy-app stores absolute paths. Updated onboarding video: https://youtu.be/oTlJXBS1azM
 

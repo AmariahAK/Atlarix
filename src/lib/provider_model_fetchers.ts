@@ -8,6 +8,7 @@
 
 import log from "electron-log";
 import type { LanguageModel } from "@/ipc/ipc_types";
+import { getEnvVar } from "@/ipc/utils/read_env";
 
 const logger = log.scope("provider_fetchers");
 
@@ -322,6 +323,58 @@ export async function fetchModelsFromXai(
   }
 }
 
+/** Elastic Agent Builder: list agents from Kibana. Uses baseUrl from settings or ELASTIC_AGENT_BUILDER_KIBANA_URL. */
+export async function fetchModelsFromElastic(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  const cached = fromCache("elastic");
+  if (cached) return cached;
+
+  let baseUrl = getEnvVar("ELASTIC_AGENT_BUILDER_KIBANA_URL")?.trim();
+  if (!baseUrl && typeof process !== "undefined" && (process as NodeJS.Process).type === "browser") {
+    try {
+      const { readSettings } = await import("@/main/settings");
+      baseUrl = (readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined)?.baseUrl?.trim();
+    } catch {
+      // ignore
+    }
+  }
+  if (!baseUrl) {
+    logger.warn("[Elastic] Kibana URL not set in Settings or ELASTIC_AGENT_BUILDER_KIBANA_URL; cannot list agents");
+    return [];
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/api/agent_builder/agents`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `ApiKey ${apiKey}`,
+        "kbn-xsrf": "true",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as {
+      data?: Array<{ id: string; name?: string; description?: string }>;
+    };
+    const items = data.data ?? [];
+    const models: LanguageModel[] = items.map((m) => ({
+      apiName: m.id,
+      displayName: m.name ?? m.id,
+      description: m.description ?? "Elastic Agent Builder agent",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    }));
+    sortModels(models);
+    toCache("elastic", models);
+    logger.info(`[Elastic] Fetched ${models.length} agents`);
+    return models;
+  } catch (e) {
+    logger.warn("[Elastic] Fetch failed", e);
+    return [];
+  }
+}
+
 const FETCHERS: Record<
   string,
   (apiKey: string) => Promise<LanguageModel[]>
@@ -334,6 +387,7 @@ const FETCHERS: Record<
   togetherai: fetchModelsFromTogether,
   mistral: fetchModelsFromMistral,
   xai: fetchModelsFromXai,
+  elastic: fetchModelsFromElastic,
 };
 
 export async function fetchModelsFromProvider(

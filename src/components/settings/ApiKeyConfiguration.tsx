@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/accordion";
 import { AzureConfiguration } from "./AzureConfiguration";
 import { VertexConfiguration } from "./VertexConfiguration";
+import { ElasticConfiguration } from "./ElasticConfiguration";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { UserSettings } from "@/lib/schemas";
@@ -65,6 +66,15 @@ export function ApiKeyConfiguration({
   // Special handling for Google Vertex AI which uses service account credentials
   if (provider === "vertex") {
     return <VertexConfiguration />;
+  }
+  // Elastic Agent Builder: Kibana URL + API key + optional space
+  if (provider === "elastic") {
+    return (
+      <ElasticConfiguration
+        settings={settings}
+        updateSettings={updateSettings}
+      />
+    );
   }
 
   const envApiKey = envVarName ? envVars[envVarName] : undefined;

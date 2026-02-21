@@ -27,7 +27,7 @@ import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector
 
 const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google", "openrouter",
-  "groq", "togetherai", "mistral", "xai", "bedrock",
+  "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
 ];
 
 interface ProviderSettingsPageProps {
@@ -114,6 +114,13 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     vertexSettings?.serviceAccountKey?.value,
   );
 
+  const elasticSettings = settings?.providerSettings?.elastic as
+    | { baseUrl?: string; apiKey?: { value?: string } }
+    | undefined;
+  const isElasticConfigured = Boolean(
+    elasticSettings?.baseUrl?.trim() && elasticSettings?.apiKey?.value,
+  );
+
   const isAzureConfigured =
     provider === "azure"
       ? azureHasSavedSettings || azureHasEnvConfiguration
@@ -124,7 +131,9 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
       ? isAzureConfigured
       : provider === "vertex"
         ? isVertexConfigured
-        : isValidUserKey || hasEnvKey; // Configured if either is set
+        : provider === "elastic"
+          ? isElasticConfigured
+          : isValidUserKey || hasEnvKey; // Configured if either is set
 
   // --- Save Handler ---
   const handleSaveKey = async (value: string) => {

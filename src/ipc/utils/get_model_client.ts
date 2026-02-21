@@ -8,6 +8,7 @@ import { LanguageModelV2 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
+import { createElasticAgentBuilderModel } from "./elastic_agent_builder_adapter";
 import type {
   LargeLanguageModel,
   UserSettings,
@@ -612,9 +613,11 @@ async function getRegularModelClient(
     case "bedrock": {
       // AWS Bedrock supports API key authentication using AWS_BEARER_TOKEN_BEDROCK
       // See: https://sdk.vercel.ai/providers/ai-sdk-providers/amazon-bedrock#api-key-authentication
+      const bedrockSettings = settings.providerSettings?.bedrock as { region?: string } | undefined;
+      const region = bedrockSettings?.region || getEnvVar("AWS_REGION") || "us-east-1";
       const provider = createAmazonBedrock({
         apiKey: apiKey,
-        region: getEnvVar("AWS_REGION") || "us-east-1",
+        region,
       });
       return {
         modelClient: {
@@ -661,6 +664,36 @@ async function getRegularModelClient(
       return {
         modelClient: {
           model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "elastic": {
+      const elasticSettings = settings.providerSettings?.elastic as
+        | { apiKey?: { value?: string }; baseUrl?: string; space?: string }
+        | undefined;
+      const baseUrl = elasticSettings?.baseUrl?.trim();
+      if (!baseUrl) {
+        throw new Error(
+          "Elastic Agent Builder requires Kibana URL. Set it in Settings > AI > Provider Settings (Elastic Agent Builder)."
+        );
+      }
+      const elasticApiKey = apiKey || elasticSettings?.apiKey?.value;
+      if (!elasticApiKey) {
+        throw new Error(
+          "Elastic Agent Builder requires an API key. Set it in Settings or set ELASTIC_AGENT_BUILDER_API_KEY."
+        );
+      }
+      const elasticModel = createElasticAgentBuilderModel({
+        baseUrl,
+        apiKey: elasticApiKey,
+        space: elasticSettings?.space?.trim(),
+        agentId: model.name,
+      });
+      return {
+        modelClient: {
+          model: elasticModel,
           builtinProviderId: providerId,
         },
         backupModelClients: [],

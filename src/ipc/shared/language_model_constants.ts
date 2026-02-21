@@ -48,6 +48,7 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   groq: "GROQ_API_KEY",
   mistral: "MISTRAL_API_KEY",
   bedrock: "AWS_BEARER_TOKEN_BEDROCK",
+  elastic: "ELASTIC_AGENT_BUILDER_API_KEY",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -112,6 +113,12 @@ export const CLOUD_PROVIDERS: Record<
     displayName: "AWS Bedrock",
     hasFreeTier: false,
     websiteUrl: "https://console.aws.amazon.com/bedrock/",
+    gatewayPrefix: "",
+  },
+  elastic: {
+    displayName: "Elastic Agent Builder",
+    hasFreeTier: false,
+    websiteUrl: "https://www.elastic.co/docs/explore-analyze/ai-features/elastic-agent-builder",
     gatewayPrefix: "",
   },
 };
