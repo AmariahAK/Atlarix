@@ -23,6 +23,10 @@ const DIRECTION_LABELS: Record<EdgeDirection, string> = {
   both: "⇄",
 };
 
+/** Stagger delays (s) for live-flow particles along the edge path */
+const PARTICLE_BEGINS = ["0s", "1s", "2s"];
+const PARTICLE_DUR = "1.5s";
+
 export function BlueprintEdge({
   id,
   sourceX,
@@ -62,6 +66,7 @@ export function BlueprintEdge({
   const arrowLabel = DIRECTION_LABELS[direction];
   const isRteRunning = data?.isRteRunning === true;
   const inferred = data?.inferred === true;
+  const reverseMotion = direction === "from";
   const pathStyle = {
     fill: "none" as const,
     strokeWidth: 2,
@@ -70,11 +75,12 @@ export function BlueprintEdge({
     ...(isRteRunning && inferred ? { animation: "blueprint-edge-pulse 1.5s ease-in-out infinite" } : {}),
   };
 
+  const pathId = `atlarix-edge-path-${id}`;
   return (
     <g>
       <path
         ref={pathRef}
-        id={id}
+        id={pathId}
         d={edgePath}
         fill="none"
         stroke={strokeColor}
@@ -99,6 +105,67 @@ export function BlueprintEdge({
           {arrowLabel}
         </text>
       ))}
+      {/* Live-flow particles: dots traveling along the edge path */}
+      {direction === "both" ? (
+        <>
+          {/* Forward: source → target */}
+          {PARTICLE_BEGINS.map((begin, i) => (
+            <circle
+              key={`fwd-${i}`}
+              r={3}
+              fill={strokeColor}
+              className="atlarix-edge-particle"
+              style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
+            >
+              <animateMotion calcMode="linear" dur={PARTICLE_DUR} repeatCount="indefinite" begin={begin} keyPoints="0;1" keyTimes="0;1">
+                <mpath href={`#${pathId}`} />
+              </animateMotion>
+            </circle>
+          ))}
+          {/* Reverse: target → source (staggered so both directions visible) */}
+          {PARTICLE_BEGINS.map((begin, i) => (
+            <circle
+              key={`rev-${i}`}
+              r={3}
+              fill={strokeColor}
+              className="atlarix-edge-particle"
+              style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
+            >
+              <animateMotion
+                calcMode="linear"
+                dur={PARTICLE_DUR}
+                repeatCount="indefinite"
+                begin={`${1.5 + i}s`}
+                keyPoints="1;0"
+                keyTimes="0;1"
+              >
+                <mpath href={`#${pathId}`} />
+              </animateMotion>
+            </circle>
+          ))}
+        </>
+      ) : (
+        PARTICLE_BEGINS.map((begin, i) => (
+          <circle
+            key={i}
+            r={3}
+            fill={strokeColor}
+            className="atlarix-edge-particle"
+            style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
+          >
+            <animateMotion
+              calcMode="linear"
+              dur={PARTICLE_DUR}
+              repeatCount="indefinite"
+              begin={begin}
+              keyPoints={reverseMotion ? "1;0" : "0;1"}
+              keyTimes="0;1"
+            >
+              <mpath href={`#${pathId}`} />
+            </animateMotion>
+          </circle>
+        ))
+      )}
       {inferred && (
         <title>Inferred connection — refresh from code to confirm</title>
       )}

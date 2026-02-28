@@ -8,6 +8,7 @@ import * as schema from "./schema";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
 import log from "electron-log";
 
@@ -81,6 +82,20 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
     logger.error("Error ensuring blueprints table (non-fatal, continuing):", error);
   }
 
+  // PRE-MIGRATION FIX: Ensure PIVOT tables exist (pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots)
+  try {
+    ensurePivotTablesIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring PIVOT tables (non-fatal, continuing):", error);
+  }
+
+  // v3.6: Ensure review_patterns table (lightning review memory)
+  try {
+    ensureReviewPatternsTableIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring review_patterns table (non-fatal, continuing):", error);
+  }
+
   _db = drizzle(sqlite, { schema });
 
   try {
@@ -104,6 +119,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         candidateFolders.join(", "),
       );
     } else {
+      // If apps table already exists but __drizzle_migrations is empty/missing,
+      // seed the migrations table so Drizzle skips already-applied migrations.
+      seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
       logger.log("Running migrations from:", migrationsFolder);
       migrate(_db, { migrationsFolder });
     }
@@ -112,6 +130,51 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   }
 
   return _db as any;
+}
+
+/**
+ * If the apps table already exists but __drizzle_migrations is empty or missing,
+ * seed the migrations table with all journal entries (using file hash and when)
+ * so that migrate() skips already-applied migrations and does not fail on CREATE TABLE apps.
+ */
+function seedDrizzleMigrationsIfNeeded(
+  sqlite: Database.Database,
+  migrationsFolder: string,
+): void {
+  const appsExists = sqlite.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps'",
+  ).get();
+  if (!appsExists) return;
+
+  const tableName = "__drizzle_migrations";
+  const createTable = sqlite.prepare(
+    `CREATE TABLE IF NOT EXISTS ${tableName} (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)`,
+  );
+  createTable.run();
+
+  const count = (sqlite.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c: number })?.c ?? 0;
+  if (count > 0) return;
+
+  const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+  if (!fs.existsSync(journalPath)) return;
+
+  const journal = JSON.parse(fs.readFileSync(journalPath, "utf8")) as {
+    entries?: Array<{ tag: string; when: number }>;
+  };
+  const entries = journal?.entries ?? [];
+  if (entries.length === 0) return;
+
+  logger.log("[Schema Fix] Seeding __drizzle_migrations so existing DB is not re-migrated.");
+  const insert = sqlite.prepare(
+    `INSERT INTO ${tableName} (hash, created_at) VALUES (?, ?)`,
+  );
+  for (const entry of entries) {
+    const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
+    if (!fs.existsSync(sqlPath)) continue;
+    const query = fs.readFileSync(sqlPath, "utf8");
+    const hash = crypto.createHash("sha256").update(query).digest("hex");
+    insert.run(hash, entry.when);
+  }
 }
 
 /**
@@ -231,6 +294,117 @@ function ensureBlueprintsTableIfNeeded(sqlite: Database.Database): void {
     )
   `);
   sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS blueprints_workspace_unique ON blueprints (workspace_id)");
+}
+
+/**
+ * v3.6: Ensure review_patterns table exists (lightning review memory).
+ */
+function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
+  const tableExists = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='review_patterns'"
+  ).get();
+  if (tableExists) return;
+  logger.log("[Schema Fix] Creating review_patterns table");
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS review_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      issue_rule TEXT NOT NULL,
+      issue_context TEXT,
+      fix_applied TEXT NOT NULL,
+      accepted INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
+}
+
+/**
+ * Ensure PIVOT tables exist (Full PIVOT implementation).
+ * Creates pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots if missing.
+ */
+function ensurePivotTablesIfNeeded(sqlite: Database.Database): void {
+  const tables = [
+    "pivot_nodes",
+    "pivot_edges",
+    "pivot_containers",
+    "pivot_beacons",
+    "blueprint_snapshots",
+  ];
+  for (const table of tables) {
+    const exists = sqlite.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+    ).get(table);
+    if (exists) continue;
+    logger.log("[Schema Fix] Creating PIVOT table:", table);
+  }
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_nodes'").get()) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS pivot_nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+        external_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        label TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        range_start INTEGER,
+        range_end INTEGER,
+        metadata TEXT
+      )
+    `);
+    sqlite.exec("CREATE INDEX IF NOT EXISTS pivot_nodes_workspace_idx ON pivot_nodes (workspace_id)");
+    sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS pivot_nodes_workspace_external_unique ON pivot_nodes (workspace_id, external_id)");
+  }
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_edges'").get()) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS pivot_edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+        from_id TEXT NOT NULL,
+        to_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        metadata TEXT
+      )
+    `);
+    sqlite.exec("CREATE INDEX IF NOT EXISTS pivot_edges_workspace_idx ON pivot_edges (workspace_id)");
+  }
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_containers'").get()) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS pivot_containers (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        intent TEXT,
+        position TEXT,
+        created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+      )
+    `);
+  }
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_beacons'").get()) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS pivot_beacons (
+        id TEXT PRIMARY KEY NOT NULL,
+        container_id TEXT NOT NULL REFERENCES pivot_containers(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        description TEXT,
+        file_path TEXT,
+        position TEXT
+      )
+    `);
+  }
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='blueprint_snapshots'").get()) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS blueprint_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+        snapshot_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+        blueprint_json TEXT NOT NULL,
+        source TEXT NOT NULL
+      )
+    `);
+    sqlite.exec("CREATE INDEX IF NOT EXISTS blueprint_snapshots_workspace_idx ON blueprint_snapshots (workspace_id)");
+  }
 }
 
 /**

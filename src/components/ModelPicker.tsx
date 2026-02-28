@@ -357,7 +357,7 @@ export function ModelPicker() {
                           <DropdownMenuSeparator />
 
                           {favoriteModels.map((model, idx) => {
-                            const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                            const tierLabels = ["Fast", "Balanced", "Deep"];
                             const tierLabel = idx < 3 ? tierLabels[idx] : null;
                             return (
                               <Tooltip key={`openrouter-fav-${model.apiName}`}>
@@ -709,7 +709,7 @@ export function ModelPicker() {
                         .map((id) => ollamaModels.find((m) => m.modelName === id))
                         .filter(Boolean)
                         .map((model, idx) => {
-                          const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                          const tierLabels = ["Fast", "Balanced", "Deep"];
                           return (
                             <DropdownMenuItem
                               key={`ollama-fav-${model!.modelName}`}
@@ -823,7 +823,7 @@ export function ModelPicker() {
                         .map((id) => lmStudioModels.find((m) => m.modelName === id))
                         .filter(Boolean)
                         .map((model, idx) => {
-                          const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                          const tierLabels = ["Fast", "Balanced", "Deep"];
                           return (
                             <DropdownMenuItem
                               key={`lmstudio-fav-${model!.modelName}`}

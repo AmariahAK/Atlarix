@@ -16,9 +16,9 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useVersions } from "@/hooks/useVersions";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { activeChatIdAtom, lastTurnHadToolCallsByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, lastTurnHadToolCallsByChatIdAtom, responseDoneAnimationAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -28,6 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import AtlarixAnimation from "../atlarix/AtlarixAnimation";
 
 interface ChatMessageProps {
   message: Message;
@@ -42,6 +43,8 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const currentChatId = activeChatId ?? selectedChatId;
   const lastTurnHadToolCallsByChatId = useAtomValue(lastTurnHadToolCallsByChatIdAtom);
+  const doneAnimationState = useAtomValue(responseDoneAnimationAtom);
+  const setDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const agentMode = settings?.agentMode ?? "guided";
   const isAgentAnimationMode = agentMode === "guided" || agentMode === "autonomous";
   const showNoActionsThisTurn =
@@ -86,6 +89,26 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     };
   }, []);
 
+  // Clear "done" animation when time expires (when showing A beneath this message)
+  const showDoneBeneath = Boolean(
+    message.role === "assistant" &&
+      isLastMessage &&
+      !isStreaming &&
+      currentChatId != null &&
+      doneAnimationState?.chatId === currentChatId &&
+      Date.now() < doneAnimationState.until
+  );
+  useEffect(() => {
+    if (!showDoneBeneath || !doneAnimationState) return;
+    const remaining = doneAnimationState.until - Date.now();
+    if (remaining <= 0) {
+      setDoneAnimation(null);
+      return;
+    }
+    const t = setTimeout(() => setDoneAnimation(null), remaining);
+    return () => clearTimeout(t);
+  }, [showDoneBeneath, doneAnimationState, setDoneAnimation]);
+
   // Format the message timestamp
   const formatTimestamp = (timestamp: string | Date) => {
     const now = new Date();
@@ -113,68 +136,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         >
           {message.role === "assistant" && isLastMessage && isStreaming ? (
             <>
-              {/* Lightweight placeholder; full thinking + agent delegation appears in message content below */}
-              <motion.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-3 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 flex items-center gap-2"
-              >
-                <span className="text-sm font-medium text-muted-foreground">
-                  {isAgentAnimationMode ? "Agent working…" : "Thinking…"}
-                </span>
-                <div className="flex items-center gap-1">
-                  <motion.div
-                    className="h-1.5 w-1.5 rounded-full bg-primary"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut" }}
-                  />
-                  <motion.div
-                    className="h-1.5 w-1.5 rounded-full bg-primary"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut", delay: 0.2 }}
-                  />
-                  <motion.div
-                    className="h-1.5 w-1.5 rounded-full bg-primary"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ repeat: Infinity, duration: 0.8, ease: "easeInOut", delay: 0.4 }}
-                  />
-                </div>
-              </motion.div>
+              {/* Content first, then compass beneath (Claude-style) */}
               {!message.content ? (
-                <div className="flex h-6 items-center space-x-2 p-2">
-                  <motion.div
-                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                    animate={{ y: [0, -12, 0] }}
-                    transition={{
-                      repeat: Number.POSITIVE_INFINITY,
-                      duration: 0.4,
-                      ease: "easeOut",
-                      repeatDelay: 1.2,
-                    }}
-                  />
-                  <motion.div
-                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                    animate={{ y: [0, -12, 0] }}
-                    transition={{
-                      repeat: Number.POSITIVE_INFINITY,
-                      duration: 0.4,
-                      ease: "easeOut",
-                      delay: 0.4,
-                      repeatDelay: 1.2,
-                    }}
-                  />
-                  <motion.div
-                    className="h-3 w-3 rounded-full bg-(--primary) dark:bg-blue-500"
-                    animate={{ y: [0, -12, 0] }}
-                    transition={{
-                      repeat: Number.POSITIVE_INFINITY,
-                      duration: 0.4,
-                      ease: "easeOut",
-                      delay: 0.8,
-                      repeatDelay: 1.2,
-                    }}
-                  />
-                </div>
+                <div className="h-4" />
               ) : (
                 <div
                   className="prose dark:prose-invert prose-headings:mb-2 prose-p:my-1 prose-pre:my-0 max-w-none break-words"
@@ -188,6 +152,14 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   </div>
                 </div>
               )}
+              <div className="mt-3 flex items-center gap-3">
+                <div className="shrink-0">
+                  <AtlarixAnimation size="sm" phase="thinking" />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">
+                  {isAgentAnimationMode ? "Agent working…" : "Thinking…"}
+                </span>
+              </div>
             </>
           ) : (
             <div
@@ -197,13 +169,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               {message.role === "assistant" ? (
                 <>
                   <AtlarixMarkdownParser content={message.content} />
-                  {isLastMessage && isStreaming && (
-                    <div className="mt-4 ml-4 relative w-5 h-5 animate-spin">
-                      <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full"></div>
-                      <div className="absolute bottom-0 left-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-80"></div>
-                      <div className="absolute bottom-0 right-0 w-2 h-2 bg-(--primary) dark:bg-blue-500 rounded-full opacity-60"></div>
-                    </div>
-                  )}
                   {showNoActionsThisTurn && (
                     <div className="mt-2 text-xs text-muted-foreground">No actions this turn.</div>
                   )}
@@ -211,6 +176,12 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               ) : (
                 <VanillaMarkdownParser content={message.content} />
               )}
+            </div>
+          )}
+          {/* Done phase: show A beneath last assistant message for ~2s after response completes */}
+          {message.role === "assistant" && isLastMessage && !isStreaming && showDoneBeneath && (
+            <div className="mt-3 flex justify-start">
+              <AtlarixAnimation size="sm" phase="done" />
             </div>
           )}
           {(message.role === "assistant" && message.content && !isStreaming) ||

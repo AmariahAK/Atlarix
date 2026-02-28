@@ -16,8 +16,10 @@ import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
+import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
+import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
@@ -179,6 +181,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
+  const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
   const showWorkspacePanel = currentApp?.pathExists !== false;
@@ -280,6 +283,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
+              {activeExtensionIds.length > 0 && <LeftPanel />}
               {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
               {isOnChatPage && (
                 <button

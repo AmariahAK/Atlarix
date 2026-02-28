@@ -26,7 +26,7 @@ import {
     BatchPlanPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
-import { runShellCommand, CommandResult } from "../../utils/runShellCommand";
+import { runShellCommand, runShellCommandStreaming, CommandResult } from "../../utils/runShellCommand";
 import { queueCapture } from "../../../lib/diagram-timeline";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
@@ -136,7 +136,7 @@ export class PermissionInterceptor extends EventEmitter {
         for (const win of BrowserWindow.getAllWindows()) {
             win.webContents.send('diagram:staleness-detected', payload);
         }
-        logger.log(`📊 [SessionTracker] Diagram staleness: ${severity} (${changedFileCount} files)`);
+        logger.log(`[SessionTracker] Diagram staleness: ${severity} (${changedFileCount} files)`);
     }
 
     /**
@@ -431,7 +431,7 @@ export class PermissionInterceptor extends EventEmitter {
         try {
             operation.status = 'approved';
 
-            // 📊 Emit running status for queue UI
+            // Emit running status for queue UI
             this.emitStatus(operationId, 'running');
 
             switch (request.operation) {
@@ -471,7 +471,7 @@ export class PermissionInterceptor extends EventEmitter {
             // Mark as executed
             operation.status = 'executed';
 
-            // 📊 Emit completed status - frontend will clear all errors (todo approach)
+            // Emit completed status - frontend will clear all errors (todo approach)
             this.emitStatus(operationId, 'completed');
 
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);
@@ -516,7 +516,7 @@ export class PermissionInterceptor extends EventEmitter {
                 }
             }
 
-            // ✅ Resolve approval AFTER execution completes
+            // Resolve approval AFTER execution completes
             // This is the key fix - AI now waits for command to finish
             this.resolveApproval(operationId, true);
 
@@ -529,13 +529,13 @@ export class PermissionInterceptor extends EventEmitter {
             // Mark as failed
             operation.status = 'failed';
 
-            // 📊 Emit failed status for queue UI
+            // Emit failed status for queue UI
             const errorMessage = error instanceof Error ? error.message : String(error);
             this.emitStatus(operationId, 'failed', undefined, undefined, errorMessage);
 
             logger.error(`[executeOperation] Failed ${operationId}:`, error);
 
-            // ✅ Resolve with false on error so AI knows it failed
+            // Resolve with false on error so AI knows it failed
             this.resolveApproval(operationId, false);
 
             return {
@@ -721,7 +721,7 @@ export class PermissionInterceptor extends EventEmitter {
                     status === 'major_drift' ? 'major' : 'minor',
                     tracker.changeCount
                 );
-                logger.log(`📊 [SessionTracker] Batch complete: ${status} (${tracker.changeCount} files, ${(tracker.getChangePercentage() * 100).toFixed(1)}%)`);
+                logger.log(`[SessionTracker] Batch complete: ${status} (${tracker.changeCount} files, ${(tracker.getChangePercentage() * 100).toFixed(1)}%)`);
             }
         }
 
@@ -747,7 +747,7 @@ export class PermissionInterceptor extends EventEmitter {
         try {
             const decision = await decideDiagramAction(this.workspaceId, this.executedOperations);
 
-            logger.log(`📊 [Diagram Refresh] Decision: ${decision.action} - ${decision.reason} (confidence: ${decision.confidence.toFixed(2)})`);
+            logger.log(`[Diagram Refresh] Decision: ${decision.action} - ${decision.reason} (confidence: ${decision.confidence.toFixed(2)})`);
 
             if (decision.action === 'generate' || decision.action === 'refresh') {
                 // Emit event for frontend notification (EventEmitter for internal use)
@@ -773,7 +773,7 @@ export class PermissionInterceptor extends EventEmitter {
                 for (const win of BrowserWindow.getAllWindows()) {
                     win.webContents.send('diagram:staleness-detected', stalenessPayload);
                 }
-                logger.log(`📊 [Diagram Staleness] Sent to renderer: ${stalenessPayload.severity} - ${stalenessPayload.reason}`);
+                logger.log(`[Diagram Staleness] Sent to renderer: ${stalenessPayload.severity} - ${stalenessPayload.reason}`);
 
                 // Trigger background diagram regeneration
                 // Uses setImmediate to not block the permission response
@@ -781,7 +781,7 @@ export class PermissionInterceptor extends EventEmitter {
                 setImmediate(async () => {
                     try {
                         const { ipcMain } = await import('electron');
-                        logger.log(`📊 [Diagram Refresh] Triggering background regeneration for workspace ${workspaceId}`);
+                        logger.log(`[Diagram Refresh] Triggering background regeneration for workspace ${workspaceId}`);
                         // Invoke the diagram regeneration handler directly
                         // Note: This is in the main process, so we need to invoke the handler manually
                         // The handler is registered in diagram_handlers.ts
@@ -1078,17 +1078,6 @@ export class PermissionInterceptor extends EventEmitter {
             status: 'running' as const,
         });
 
-        // Progress interval - update UI every 2 seconds for long commands
-        const progressInterval = setInterval(() => {
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            this.emit('terminal-output', {
-                operationId,
-                command: commandToRun,
-                output: `Running... ${elapsed}s`,
-                status: 'running' as const,
-            });
-        }, 2000);
-
         // Create timeout promise
         const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => {
@@ -1097,13 +1086,22 @@ export class PermissionInterceptor extends EventEmitter {
         });
 
         try {
-            // Race between command execution and timeout
+            // Stream stdout/stderr and emit on each chunk for live tool indicator
             const result = await Promise.race([
-                runShellCommand(commandToRun, workingDir),
+                runShellCommandStreaming(commandToRun, workingDir, {
+                    onOutput: ({ stdout, stderr }) => {
+                        const output = stdout + (stderr ? `\n${stderr}` : '');
+                        this.emit('terminal-output', {
+                            operationId,
+                            command: commandToRun,
+                            output,
+                            status: 'running' as const,
+                        });
+                    },
+                }),
                 timeoutPromise
             ]);
 
-            clearInterval(progressInterval);
             const duration = Date.now() - startTime;
 
             // Store output for UI display and AI feedback
@@ -1136,7 +1134,6 @@ export class PermissionInterceptor extends EventEmitter {
                 throw new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
             }
         } catch (error) {
-            clearInterval(progressInterval);
             const duration = Date.now() - startTime;
             const errorMessage = error instanceof Error ? error.message : String(error);
             const isTimeout = errorMessage.includes('timed out');

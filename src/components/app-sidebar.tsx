@@ -3,7 +3,6 @@ import {
   Inbox,
   Settings,
   HelpCircle,
-  Store,
   BookOpen,
   GitBranch,
   Wrench,
@@ -12,12 +11,14 @@ import {
   User,
   Github,
   Chrome,
+  LayoutGrid,
 } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
+import { activeExtensionIdsAtom, selectedExtensionIdAtom } from "@/atoms/viewAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
 
 import {
@@ -36,6 +37,7 @@ import {
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
+import { ExtensionManagerDialog } from "./extensions/ExtensionManagerDialog";
 
 // Menu items.
 const items = [
@@ -85,6 +87,9 @@ export function AppSidebar() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
+  const [isExtensionManagerOpen, setIsExtensionManagerOpen] = useState(false);
+  const [activeExtensionIds, setActiveExtensionIds] = useAtom(activeExtensionIdsAtom);
+  const setSelectedExtensionId = useSetAtom(selectedExtensionIdAtom);
 
   // Auth hook for OAuth login
   const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
@@ -324,6 +329,29 @@ export function AppSidebar() {
                 )}
               </div>
             )}
+          </SidebarMenuItem>
+
+          {/* Extensions - above Help */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+              onClick={() => setIsExtensionManagerOpen(true)}
+            >
+              <LayoutGrid className="h-5 w-5" />
+              <span className="text-xs">Extensions</span>
+            </SidebarMenuButton>
+            <ExtensionManagerDialog
+              open={isExtensionManagerOpen}
+              onOpenChange={setIsExtensionManagerOpen}
+              activeExtensionIds={activeExtensionIds}
+              onAddToPanel={(id) => {
+                if (activeExtensionIds.includes(id)) return;
+                if (activeExtensionIds.length >= 5) return;
+                setActiveExtensionIds([...activeExtensionIds, id]);
+                setSelectedExtensionId(id);
+              }}
+            />
           </SidebarMenuItem>
 
           {/* Help Button */}

@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoModelRouting: false,
   autoProviderId: null,
   autoModelIds: undefined,
+  autoRoutingShowReasoning: true,
+  autoRoutingExchangeThreshold: 6,
   enableAutoFixProblems: false,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   blueprintAlwaysShowBeacons: false,

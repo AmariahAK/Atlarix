@@ -142,6 +142,109 @@ export function runShellCommand(command: string, cwd?: string): Promise<CommandR
   });
 }
 
+export interface RunShellCommandStreamingOptions {
+  /** Called on each stdout/stderr chunk with accumulated output so far. */
+  onOutput: (accumulated: { stdout: string; stderr: string }) => void;
+}
+
+/**
+ * Run a shell command and stream output via callback.
+ * Calls onOutput on each stdout/stderr chunk with accumulated stdout and stderr.
+ * Resolves with the same CommandResult as runShellCommand when the process exits.
+ */
+export function runShellCommandStreaming(
+  command: string,
+  cwd?: string,
+  options?: RunShellCommandStreamingOptions
+): Promise<CommandResult> {
+  let resolvedCwd: string | undefined = cwd;
+  if (cwd) {
+    try {
+      const absolute = path.resolve(cwd);
+      resolvedCwd = fs.realpathSync(absolute);
+      const stat = fs.statSync(resolvedCwd);
+      if (!stat.isDirectory()) {
+        const err = new Error(`Working directory is not a directory: ${cwd}`);
+        logger.error(err.message);
+        return Promise.resolve({
+          stdout: "",
+          stderr: err.message,
+          exitCode: 1,
+          success: false,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const out = `Invalid or inaccessible working directory: ${cwd}. ${message}`;
+      logger.error(out);
+      return Promise.resolve({
+        stdout: "",
+        stderr: out,
+        exitCode: 1,
+        success: false,
+      });
+    }
+  }
+
+  logger.log(`Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ''}`);
+
+  const shell = getShell();
+  const env = { ...process.env, CI: "true" };
+  const onOutput = options?.onOutput;
+
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+
+    const emit = () => {
+      onOutput?.({ stdout, stderr });
+    };
+
+    const proc = spawn(command, {
+      shell,
+      cwd: resolvedCwd || undefined,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    proc.stdout?.on("data", (data) => {
+      stdout += data.toString();
+      emit();
+    });
+
+    proc.stderr?.on("data", (data) => {
+      stderr += data.toString();
+      emit();
+    });
+
+    proc.on("error", (error) => {
+      logger.error(`Error executing command "${command}":`, error.message);
+      resolve({
+        stdout,
+        stderr: error.message,
+        exitCode: 1,
+        success: false,
+      });
+    });
+
+    proc.on("close", (code) => {
+      const exitCode = code ?? 1;
+      const success = exitCode === 0;
+      if (success) {
+        logger.debug(`Command "${command}" succeeded with code ${exitCode}`);
+      } else {
+        logger.error(`Command "${command}" failed with code ${exitCode}`);
+      }
+      resolve({
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        exitCode,
+        success,
+      });
+    });
+  });
+}
+
 /**
  * Legacy function for backward compatibility.
  * Returns stdout on success, null on failure.

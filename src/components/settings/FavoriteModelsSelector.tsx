@@ -130,7 +130,7 @@ export function FavoriteModelsSelector() {
                         {favorites.map((modelId, idx) => {
                             const model = openrouterModels.find((m) => m.apiName === modelId);
                             if (!model) return null;
-                            const tierLabels = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+                            const tierLabels = ["Fast", "Balanced", "Deep"];
                             const tierLabel = idx < 3 ? tierLabels[idx] : null;
 
                             return (

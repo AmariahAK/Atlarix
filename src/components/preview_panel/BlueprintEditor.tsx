@@ -40,6 +40,11 @@ import {
   Settings2,
   Maximize2,
   X,
+  Sparkles,
+  Shield,
+  History,
+  Undo2,
+  GitCompare,
 } from "lucide-react";
 import { GenerateBlueprintsModal } from "@/components/preview_panel/GenerateBlueprintsModal";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
@@ -53,6 +58,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { BlueprintTree } from "@/components/preview_panel/BlueprintTree";
+import { PivotAnalysisPanel } from "@/components/preview_panel/PivotAnalysisPanel";
+import { LiveVsBlueprintCompare } from "@/components/preview_panel/LiveVsBlueprintCompare";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const FUNCTION_KINDS: BlueprintFunctionKind[] = ["api", "webhook", "function", "feature"];
 
@@ -64,14 +77,22 @@ interface BlueprintEditorProps {
   onOpenCreds?: () => void;
 }
 
+const MAX_UNDO = 5;
+
 export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEditorProps) {
   const app = useAtomValue(currentAppAtom);
   const agentPhaseState = useAtomValue(agentPhaseFromActivityAtom);
   const [local, setLocal] = useState<Blueprint>(blueprint);
   const [showMermaidPreview, setShowMermaidPreview] = useState(true);
+  const [undoStack, setUndoStack] = useState<Blueprint[]>([]);
   const mermaidCode = blueprintToMermaid(local);
 
+  const pushUndo = useCallback(() => {
+    setUndoStack((prev) => [...prev.slice(1 - MAX_UNDO), local]);
+  }, [local]);
+
   const addRoom = useCallback((parentId?: string) => {
+    pushUndo();
     const id = generateBlueprintId();
     setLocal((prev) => {
       const count = prev.rooms.length + 1;
@@ -88,26 +109,29 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
         ],
       };
     });
-  }, []);
+  }, [pushUndo]);
 
   const updateRoom = useCallback((roomId: string, updates: Partial<BlueprintRoom>) => {
+    pushUndo();
     setLocal((prev) => ({
       ...prev,
       rooms: prev.rooms.map((r) =>
         r.id === roomId ? { ...r, ...updates } : r
       ),
     }));
-  }, []);
+  }, [pushUndo]);
 
   const removeRoom = useCallback((roomId: string) => {
+    pushUndo();
     setLocal((prev) => ({
       ...prev,
       rooms: prev.rooms.filter((r) => r.id !== roomId),
       edges: prev.edges.filter((e) => e.from !== roomId && e.to !== roomId),
     }));
-  }, []);
+  }, [pushUndo]);
 
   const addFunction = useCallback((roomId: string, kind: BlueprintFunctionKind) => {
+    pushUndo();
     const id = generateBlueprintId();
     const fn: BlueprintFunction = { id, name: "", kind };
     setLocal((prev) => ({
@@ -118,10 +142,11 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           : r
       ),
     }));
-  }, []);
+  }, [pushUndo]);
 
   const updateFunction = useCallback(
     (roomId: string, fnId: string, updates: Partial<BlueprintFunction>) => {
+      pushUndo();
       setLocal((prev) => ({
         ...prev,
         rooms: prev.rooms.map((r) =>
@@ -136,10 +161,11 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
         ),
       }));
     },
-    []
+    [pushUndo]
   );
 
   const removeFunction = useCallback((roomId: string, fnId: string) => {
+    pushUndo();
     setLocal((prev) => ({
       ...prev,
       rooms: prev.rooms.map((r) =>
@@ -152,10 +178,11 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           : r
       ),
     }));
-  }, []);
+  }, [pushUndo]);
 
   const addEdge = useCallback(() => {
     if (local.rooms.length < 2) return;
+    pushUndo();
     setLocal((prev) => ({
       ...prev,
       edges: [
@@ -163,22 +190,24 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
         { from: prev.rooms[0].id, to: prev.rooms[1].id },
       ],
     }));
-  }, [local.rooms.length]);
+  }, [local.rooms.length, pushUndo]);
 
   const updateEdge = useCallback((index: number, from: string, to: string) => {
+    pushUndo();
     setLocal((prev) => {
       const next = [...prev.edges];
       next[index] = { ...next[index], from, to };
       return { ...prev, edges: next };
     });
-  }, []);
+  }, [pushUndo]);
 
   const removeEdge = useCallback((index: number) => {
+    pushUndo();
     setLocal((prev) => ({
       ...prev,
       edges: prev.edges.filter((_, i) => i !== index),
     }));
-  }, []);
+  }, [pushUndo]);
 
   const handleSave = useCallback(() => {
     onSave(local);
@@ -226,9 +255,96 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const [flowExpandRoomId, setFlowExpandRoomId] = useState<string | null>(null);
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isClustering, setIsClustering] = useState(false);
   const [isRteRunning, setIsRteRunning] = useState(false);
   const [generateBlueprintsOpen, setGenerateBlueprintsOpen] = useState(false);
+  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
+  const [comparePanelOpen, setComparePanelOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<Array<{ id: number; snapshotAt: Date; source: string }>>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [isSimplifyingRoom, setIsSimplifyingRoom] = useState(false);
+  const [isSimplifyingArchitecture, setIsSimplifyingArchitecture] = useState(false);
   const { settings, updateSettings } = useSettings();
+
+  const handleUndo = useCallback(() => {
+    setUndoStack((prev) => {
+      const next = prev.slice(0, -1);
+      const last = prev[prev.length - 1];
+      if (last) setLocal(last);
+      return next;
+    });
+  }, []);
+
+  const loadSnapshots = useCallback(async () => {
+    if (!app?.id) return;
+    const res = await IpcClient.getInstance().getBlueprintSnapshots({ workspaceId: app.id, limit: 20 });
+    if (res.success && res.snapshots) setSnapshots(res.snapshots);
+  }, [app?.id]);
+
+  useEffect(() => {
+    if (historyOpen && app?.id) loadSnapshots();
+  }, [historyOpen, app?.id, loadSnapshots]);
+
+  const handleRestoreSnapshot = useCallback(
+    async (snapshotId: number) => {
+      if (!app?.id) return;
+      const res = await IpcClient.getInstance().restoreBlueprintSnapshot({ workspaceId: app.id, snapshotId });
+      if (res.success && res.blueprint) {
+        setLocal(res.blueprint);
+        onSave(res.blueprint);
+        setHistoryOpen(false);
+        toast.success("Blueprint restored from history");
+      } else {
+        toast.error(res.error ?? "Restore failed");
+      }
+    },
+    [app?.id, onSave]
+  );
+
+  const handleSimplifyRoom = useCallback(
+    async (roomId: string) => {
+      if (!app?.id) return;
+      setIsSimplifyingRoom(true);
+      try {
+        const res = await IpcClient.getInstance().simplifyBlueprintRoom({ workspaceId: app.id, roomId });
+        if (res.success && res.label) {
+          const next = {
+            ...local,
+            rooms: local.rooms.map((r) =>
+              r.id === roomId ? { ...r, label: res.label!, intent: res.intent ?? r.intent } : r
+            ),
+          };
+          setLocal(next);
+          onSave(next);
+          toast.success("Container description updated");
+        } else {
+          toast.error(res.error ?? "Could not simplify");
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Simplify failed");
+      } finally {
+        setIsSimplifyingRoom(false);
+      }
+    },
+    [app?.id, local, onSave]
+  );
+
+  const handleSimplifyArchitecture = useCallback(async () => {
+    if (!app?.id) return;
+    setIsSimplifyingArchitecture(true);
+    try {
+      const res = await IpcClient.getInstance().simplifyBlueprintArchitecture({ workspaceId: app.id });
+      if (res.success && res.summary) {
+        toast.success(res.summary, { duration: 6000 });
+      } else {
+        toast.error(res.error ?? "Could not summarize architecture");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Summarize failed");
+    } finally {
+      setIsSimplifyingArchitecture(false);
+    }
+  }, [app?.id]);
 
   // Sync local state when blueprint prop changes (e.g. from refresh-from-code or AI update)
   useEffect(() => {
@@ -288,6 +404,25 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
       setIsRefreshing(false);
     }
   }, [app?.id]);
+
+  const handleRegenerateClustering = useCallback(async () => {
+    if (!app?.id) return;
+    setIsClustering(true);
+    try {
+      const res = await IpcClient.getInstance().clusterBlueprint({ workspaceId: app.id });
+      if (res.success && res.blueprint) {
+        setLocal(res.blueprint);
+        onSave(res.blueprint);
+        toast.success("Blueprint regenerated with AI clustering (5–8 containers)");
+      } else {
+        toast.error(res.error ?? "Clustering failed");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Clustering failed");
+    } finally {
+      setIsClustering(false);
+    }
+  }, [app?.id, onSave]);
 
   const selectedRoom = selectedRoomId ? local.rooms.find((r) => r.id === selectedRoomId) : null;
 
@@ -427,6 +562,79 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             </button>
             <button
               type="button"
+              onClick={handleRegenerateClustering}
+              disabled={isClustering}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              title="Regenerate blueprint with AI clustering (5–8 containers)"
+            >
+              <Sparkles className={cn("w-3 h-3", isClustering && "animate-pulse")} />
+              Cluster
+            </button>
+            <button
+              type="button"
+              onClick={handleSimplifyArchitecture}
+              disabled={isSimplifyingArchitecture || local.rooms.length === 0}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              title="Summarize high-level architecture with AI"
+            >
+              <Sparkles className={cn("w-3 h-3", isSimplifyingArchitecture && "animate-pulse")} />
+              Summarize
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnalysisPanelOpen(true)}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Run PIVOT analysis (SonarQube, Semgrep)"
+            >
+              <Shield className="w-3 h-3" />
+              Analysis
+            </button>
+            <button
+              type="button"
+              onClick={() => setComparePanelOpen(true)}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Compare Live (code) vs Blueprint"
+            >
+              <GitCompare className="w-3 h-3" />
+              Compare
+            </button>
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              title="Undo last edit"
+            >
+              <Undo2 className="w-3 h-3" />
+              Undo
+            </button>
+            <DropdownMenu open={historyOpen} onOpenChange={setHistoryOpen}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
+                  title="Blueprint history"
+                >
+                  <History className="w-3 h-3" />
+                  History
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-60 overflow-auto">
+                {snapshots.length === 0 && (
+                  <DropdownMenuItem disabled>No history yet</DropdownMenuItem>
+                )}
+                {snapshots.map((s) => (
+                  <DropdownMenuItem
+                    key={s.id}
+                    onClick={() => handleRestoreSnapshot(s.id)}
+                  >
+                    {new Date(s.snapshotAt).toLocaleString()} ({s.source})
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
               onClick={handleSave}
               className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border border-border bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground"
               title="Save blueprint"
@@ -461,6 +669,12 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           onOpenChange={setGenerateBlueprintsOpen}
           workspaceId={app?.id ?? null}
           onGenerated={() => {}}
+        />
+        <PivotAnalysisPanel open={analysisPanelOpen} onOpenChange={setAnalysisPanelOpen} />
+        <LiveVsBlueprintCompare
+          open={comparePanelOpen}
+          onOpenChange={setComparePanelOpen}
+          currentBlueprint={local}
         />
         <Dialog open={flowExpandRoomId != null} onOpenChange={(open) => !open && setFlowExpandRoomId(null)}>
           <DialogContent className="max-w-[95vw] min-w-[85vw] w-full max-h-[85vh] flex flex-col gap-2" showCloseButton>
@@ -590,6 +804,19 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
                           placeholder="Intent (optional)"
                           className="flex-1 min-w-[100px] px-2 py-1 text-xs rounded border border-border bg-background text-muted-foreground"
                         />
+                        <button
+                          type="button"
+                          onClick={() => handleSimplifyRoom(room.id)}
+                          disabled={isSimplifyingRoom}
+                          className={cn(
+                            "inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20",
+                            isSimplifyingRoom && "opacity-60"
+                          )}
+                          title="Simplify container/packet description with AI"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          {isSimplifyingRoom ? "Simplifying…" : "Simplify with AI"}
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {

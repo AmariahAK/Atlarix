@@ -2,6 +2,65 @@
 
 All notable changes to Atlarix will be documented in this file.
 
+## Atlarix product summary (for model and blueprint accuracy)
+
+- **PIVOT:** From Code to Canvas, Canvas to Code. **Containers** and **Beacons** are the main diagram concepts. The **Blueprint** is the living diagram (RTE + RAG). **RTE** (Round-Trip Engineering): parsers (TypeScript, Python) extract structure; single and **combined blueprints**; diagram types: architecture, dependencies, flows. **RAG:** queryBlueprint, getCodeForNodes; file watcher for incremental updates.
+- **Modes:** **Ask** = read-only (code search, web search, read_file, list_files, get_diagram, git_status; no terminal, no code gen/modification). **Build** = full tools (run_command, write_file, delete_file, etc.). Permission flow: user approves before execution.
+- **Agents:** Research, Architect, Builder, Reviewer. Delegation: **Guided** (flat) or **Autonomous** (nested, depth limit). Model tiers: **Fast** / **Balanced** / **Thinking** (e.g. OpenRouter favorites); Auto routes by mode/role.
+- **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; project instructions; token budget per provider; context bar + auto-summarize.
+
+---
+
+## [Unreleased]
+
+---
+
+## [3.6.0] — v3.6 (Build guide completion)
+
+### Added
+
+- **Two-stage auto router:** `src/lib/routing/` (auto-router, capability-registry, fallback-router). Auto model routing overrides the model before the LLM call; routing preview in chat input (debounced) and "Override" to use selected model for one message. Settings > AI > Auto Routing: show reasoning in Activity Stream, exchange threshold for fallback.
+- **Capability registry:** Model capabilities (context window, tool calling, vision, tier) with persistence in user data; inferred tier from model name; manual 3-slot model entry supported.
+- **Summarization overhaul:** 7-trigger compaction (token ratio, exchange count, tool calls in last 6, per-agent thresholds); per-agent compaction thresholds (main, architect, builder, reviewer, researcher); balanced model when session is complex (tool/delegation count); structured summary prompt (400–600 words); real toolCallCount/delegationCount passed from chat handler.
+- **Blueprint intelligence:** Enricher (`src/lib/blueprint/enricher.ts`) with contentHash cache, balanced model, batches of 10; reference-manager for multiple projects and combined blueprint; workspace open ensures `.atlarix/plans/` and background enrichment + combined blueprint build; plan-manager (`.atlarix/plans/_index.md`, domain plans: backend, frontend, database, devops).
+- **Blueprint live flow:** BlueprintEdge particles now use unique path IDs per edge; bidirectional ("both") edges render two staggered particle groups; edge directions correctly follow import arrows. Particle glow keyframes in globals.css; legend entry for "Live flow".
+- **Blueprint simplify with AI:** "Simplify with AI" buttons on containers and beacons (BlueprintEditor); "Simplify architecture" for entire blueprint; AI-driven description simplification via `aiSimplifier.ts`.
+- **Blueprint edge corrections:** mergeInferredEdges with fallback matching by normalized label/path; cross-room test edges filtered; edge direction inferred from import direction.
+- **Plan cards:** `PlanCard.tsx`, `plan-card-renderer.ts`; plan cards below AI responses (task groups, status, agent icons, "Switch to Build"); extraction from `<atlarix-plan>` or fenced JSON block.
+- **Agent mesh:** AgentBus (`src/lib/agents/agent-bus.ts`), orchestrator, `agent-bus-ipc` forwarding to Activity Stream; ActivityStreamItem type `agent_message` and `routing_decision`; delegation events sync to agent animation store.
+- **Agent animation:** Zustand store `animation-state.ts`; `AgentNode.tsx` (Framer Motion state styling), `AgentMessageEdge.tsx` (SVG animateMotion particles); fixed canvas positions; Activity Stream updates store on delegation_start/complete.
+- **Enhanced reviewer:** `static-analyzer.ts` (regex security patterns), `qodo-prompt-adapter.ts` (semantic review types/prompts), `lightning-review-memory.ts` (SQLite `review_patterns`); schema and ensureReviewPatternsTableIfNeeded in db init.
+- **Reference projects:** `add_reference_project` tool; `blueprint:get-reference-paths` / `blueprint:set-reference-paths` IPC; `ReferenceProjectsCard` in Diagram panel (Blueprint view); combined blueprint built when refs exist.
+- **DB Extension (Connections):** Full CRUD for database connections (PostgreSQL, MySQL, SQLite). IPC handlers: db:save-connection, db:delete-connection, db:connect, db:disconnect, db:set-active-connection, db:get-schema, db:run-query, db:get-table-data, db:list-connections. Connection persistence in user settings with global and per-workspace active connections. Schema introspection (tables, columns, FKs) and query execution exposed as AI tools: db_query, db_schema, db_list, db_mutate. Context injector appends active DB schema to the AI system prompt.
+- **Settings > Extensions:** New Extensions section in Settings with DbExtensionsSettings component. Add, connect, disconnect, delete, and set active database connections per workspace or globally. Production flag for extra confirmation before writes.
+- **Persistent tool indicator:** "Working... toolName" indicator during AI tool execution. Backend emits chat:tool:start and chat:tool:end; frontend shows Atlarix compass animation.
+- **Prompt suggestions:** Context-aware suggestion chips after each AI response; system prompt asks for suggestions block; chips below chat input.
+- **Atlarix loading animation:** AtlarixAnimation component with configurable size and phase (thinking = compass, done = formed A). Used in ChatMessage, tool indicator.
+
+### Changed
+
+- Chat input shows routing preview when Auto is on; compaction uses session stats for balanced summarization; blueprint infer runs background enrichment and combined blueprint when reference paths exist.
+- Animation speed: GuidedPipeline line transitions 0.4s to 0.2s, node pulse 1.2s to 0.6s; AgentNode glow 1.5s to 0.8s, delegation dot 0.8s to 0.4s; AgentMessageEdge particle 1.2s to 0.6s; BlueprintEdge particle 3s to 1.5s.
+- DB tools (db_query, db_schema, db_list, db_mutate) registered in global ToolRegistry; AGENTS.md and AGENTS_COMPACT.md updated with DB Extension tool documentation.
+- chat:tool:start, chat:tool:end, db:save-connection, db:delete-connection, db:connect, db:disconnect added to preload.ts valid channels.
+
+---
+
+## [3.5.0] — v3.5
+
+### Added
+
+- **Full PIVOT implementation:** Code to Canvas, Canvas to Code. New `src/lib/pivot/` with types (PivotNode, PivotEdge, Container, Beacon), SQLite schema (pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots), pivot-service (save/load nodes, edges, snapshots), structure extractor (WorkspaceAnalysis to PivotNode/Edge), and parsers (`parseProject` using workspace-analyzer). Blueprint refresh-from-code and setBlueprint persist to PIVOT DB and create snapshots. AI clustering (`clusterIntoContainers`) groups nodes into 5–8 containers with beacon descriptions; "Cluster" button in Blueprint editor. Analysis layer: SonarQube (env SONAR_URL, SONAR_TOKEN), Semgrep CLI, SCIP placeholder; "Analysis" panel. UI: Live vs Blueprint comparison (Compare), blueprint Undo (last 5 edits), History dropdown (restore from snapshot).
+- **Prompt suggestions (Option A):** Context-aware suggestion chips after each AI response. System prompt asks the model to output `<suggestions>["suggestion 1", "suggestion 2", "suggestion 3"]</suggestions>`; backend strips the block and passes suggestions to the UI. Chips appear below the chat input; clicking a chip sets it as the next message.
+- **Persistent tool indicator:** When the AI runs a tool (e.g. `run_command`, `read_file`), a "Working… toolName" indicator appears and stays visible until the tool completes. Backend emits `chat:tool:start` and `chat:tool:end`; frontend shows the Atlarix compass animation in the indicator.
+- **Atlarix loading animation:** Dedicated `AtlarixAnimation` component with configurable size (xs/sm/md/lg/full) and phase (thinking = compass, done = formed A). Used during AI streaming in ChatMessage and in the tool indicator.
+
+### Changed
+
+- **GitHub Actions:** macOS signing uses `APPLE_IDENTITY` (full Developer ID string). Mac job imports certificate from `APPLE_CERT_BASE64` / `APPLE_CERT_PASSWORD` when set. Windows build job disabled (`if: false`) until EV/OV signing is ready. Publish release no longer waits on Windows. VirusTotal job runs after Mac build and submits DMG for scanning (requires `VIRUSTOTAL_API_KEY`).
+- **Website (atlarix-launchpad):** Windows download is hidden; a Windows card shows "Windows version is currently in development. Stay tuned for updates!" with no download link.
+- **atlarix-releases:** README notes that Windows builds are temporarily not published.
+
 ## [3.1.0] - 2026-02-21
 
 ### Added
@@ -152,7 +211,7 @@ Architecture is now a two-way system: **Live** (code → diagram, read-only) and
 
 ### Phase 6 – Smart Model Routing & IDE
 
-- **3-tier favorites** – Fast ⚡ / Balanced ⚖️ / Deep 🧠 in ModelPicker and Settings for OpenRouter, Ollama, LM Studio.
+- **3-tier favorites** – Fast / Balanced / Deep in ModelPicker and Settings for OpenRouter, Ollama, LM Studio.
 - **Auto fallback** – When provider is "Auto", a fallback chain is built; if the first provider fails (e.g. rate limit), the next is tried automatically.
 - **IDE-like workspace** – File tree in sidebar; click file → Code tab; collapse previous workspace on switch.
 - **Context bar + auto-summarize** – Fillable context; post-turn compaction; real token tracking; tool output pruning; OpenCode-style continuation.
@@ -234,7 +293,7 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 ---
 
 ## [v1.7.5] - 2026-01-31
-### 🎯 Phase 4 Complete - Atlarix 2.0 Progress (This Week)
+### Phase 4 Complete - Atlarix 2.0 Progress (This Week)
 
 #### Phase 4: Diagram Refinements
 - **Smarter tracking** - structuralChangeScore 0.7→0.8, isMinorBugFix broadened (≤3 files)
@@ -249,7 +308,7 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 ---
 
 ## [v1.5.0] - 2026-01-24
-### 🎯 Phase 3 Complete - Atlarix 2.0 Progress (Week Before Last)
+### Phase 3 Complete - Atlarix 2.0 Progress (Week Before Last)
 
 #### Smart Diff Preview
 - **Hunk View** - Changed sections with ±3 lines of context (DIFF_CONTEXT_LINES)
@@ -271,17 +330,17 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 - **Terminal** - Multi-tab for multiple outputs (backend + frontend dev servers)
 
 ## [v1.0.1] - 2026-01-17
-### 📦 Build & Release
+### Build & Release
 - **macOS DMG**: Switched from `.zip` to `.dmg` for macOS releases for easier installation.
 
 ## [v1.0.0] - 2026-01-17
-### 🎉 First Major Release
+### First Major Release
 - **Official Release**: Atlarix is now out of beta!
 - **Documentation**: New comprehensive `/docs` page.
 - **Onboarding**: Setup video and polished onboarding flow.
 - **Production Ready**: Live LemonSqueezy integration, robust auth, and signed binaries.
 
-### 📝 Documentation & Polish
+### Documentation & Polish
 - **Documentation Page**: Added `/docs` route with Getting Started, Features, and Workflow guides.
 - **Setup Video**: Integrated setup tutorial video in Setup banner.
 - **Credentials**: Switched LemonSqueezy to Live Production mode.
@@ -289,38 +348,38 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 - **Vercel**: Added routing configuration for documentation site.
 
 ## [v0.9.22] - 2026-01-16
-### 🔐 Workspace Cleanup & Auth Flow
+### Workspace Cleanup & Auth Flow
 - **Logout Clears Workspaces**: Signing out now deletes ALL workspaces for a fresh start
 - **Free Tier Enforcement**: Login now enforces 1-workspace limit (keeps oldest, deletes newer)
 - **Robust FK Handling**: Manual cleanup of chats, prompts, diagrams before workspace deletion
 - **Fail-Safe Logout**: Sign-out now proceeds even if DB cleanup has errors
 
-### 🖼️ UI Improvements  
+### UI Improvements  
 - **Auth-Gated UI**: "Add Workspace" (+) and "Delete All" buttons hidden when logged out
 - **Onboarding Banner**: Video placeholder replaced with Atlarix logo + play button overlay
 - **Theme-Aware Chat Header**: Logo switches between dark/light correctly
 - **Removed Pro Button**: ProModeSelector removed from chat input controls
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Diagram Generation Error**: Fixed `NOT NULL constraint failed: diagrams.title` by using AI-powered generation
 - **Database Schema**: Added fingerprint columns to diagrams table migration
 
-### 📝 Known Issues
+### Known Issues
 - **Library Workspaces (Prod Only)**: `npm start` shows workspaces in Library page, but bundled app doesn't (under investigation)
 
 ## [v0.9.21] - 2026-01-16
-### 🔒 Workspace Limits (Free Tier Enforcement)
+### Workspace Limits (Free Tier Enforcement)
 - **Limit Check**: Free tier now limited to 1 workspace (enforced in frontend + backend)
 - **Upgrade Prompt**: Shows upgrade modal when limit reached
 - **Cache Fix**: Fixed stale workspace count after deletion (was blocking new imports)
 - **Import Safeguard**: Backend validates limit in `import-app` handler
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Unsubscribe White Screen**: Removed page reload after cancellation (UI now updates reactively)
 - **IPC Whitelist**: Added `auth:check-workspace-limit` channel
 
 ## [v0.9.20] - 2026-01-15
-### 💳 LemonSqueezy Integration (Monetization)
+### LemonSqueezy Integration (Monetization)
 - **Checkout Flow**: Upgrade button opens LemonSqueezy checkout with pre-filled email
 - **Webhook Handling**: Supabase Edge Function processes subscription lifecycle events
 - **Realtime Updates**: Supabase Realtime instantly updates UI when plan changes
@@ -328,51 +387,51 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 - **Subscription Expiry**: Users keep Pro access until billing period ends (not immediately revoked)
 - **Hardcoded Fallbacks**: LemonSqueezy credentials bundled for production builds
 
-### 🔧 Help Modal Improvements
+### Help Modal Improvements
 - **Email Bug Reports**: "Report a Bug" now opens email form (auto-fills user email)
 - **Removed Chat Upload**: Removed "Upload Chat Session" button (unused)
 - **Simplified UI**: Cleaner dialog with Open Docs and Report a Bug options
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Profile Picture Fix**: Fixed Google avatar not showing in bundled app (was hardcoded to undefined)
 - **OAuth Hang Fix**: Added 5-second timeout to `getUserPlan()` for new accounts
 - **Reload Fix**: Changed `window.location.reload()` to proper Electron-compatible refresh
 
 ## [v0.9.19] - 2026-01-14
-### 🌐 Language Detection System
+### Language Detection System
 - **Language Registry**: Added support for 12 languages (Node.js, Python, Go, Rust, Ruby, Java, PHP, .NET, Deno, Bun, Elixir, Docker)
 - **Project Detection**: Auto-detects project languages from indicator files (package.json, Cargo.toml, go.mod, etc.)
 - **Lazy Validation**: Languages are only checked when running/building projects, not on startup
 - **AI Tools**: Added `check_language_installed(lang)` and `detect_project_languages()` tools (now 57 total)
 
-### 🎨 Setup Banner UI
+### Setup Banner UI
 - **Simplified Cards**: Removed Google Gemini, now shows OpenRouter + Atlarix Pro only
 - **Credits Note**: Added info message about OpenRouter paid vs free models
 - **Hidden Other Providers**: Commented out until settings are complete
 - **Fixed Logo**: Atlarix Pro card now uses correct `/logo/Atlarix.png`
 
-### ⚙️ Settings Page
+### Settings Page
 - **Workflow Toggles**: Disabled Auto-Approve and Auto-Fix with "Coming Soon" badge
 - **Reset Text**: Updated to mention workspaces, diagrams, prompts
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **OpenRouter API Key**: Fixed production loading from database in `get_model_client.ts`
 - **Banner Visibility**: `useLanguageModelProviders` now checks database for API keys
 - **Fixed Duplicate Span**: Resolved JSX parsing error in SetupBanner
 
 ## [v0.9.18] - 2026-01-14
-### 🔐 Authentication & Session
+### Authentication & Session
 - **Google OAuth**: Implemented Google Sign-In via Supabase Auth (removed GitHub option).
 - **Session Persistence**: Implemented file-based session storage (`supabase-auth.json`) to keep users logged in across app restarts.
 - **Deep Linking**: Fixed `atlarix://` protocol handling for OAuth callbacks.
 - **Auth UI**: Added sidebar dropdown with User Email, Plan status, and Upgrade/Sign Out buttons.
 
-### 🎨 UI Polish
+### UI Polish
 - **App Icon**: Updated to "Split" (Dark/Light) design for better visibility on all backgrounds.
 - **Theme-Aware Logos**: Home page now switches between Dark/Light logos based on theme.
 - **Success Toast**: Added notification to close browser tab after successful OAuth login.
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Profile Picture**: Fixed missing user avatar by extracting from Google metadata.
 - **Lint Errors**: Resolved TypeScript errors in auth hooks.
 - **Logo Paths**: Fixed broken image paths in production build.
@@ -383,16 +442,16 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 - **Smart Staleness**: Warns user if diagrams are <5% (clean), 5-15% (minor drift), or >15% (needs regen) outdated.
 - **New AI Tools**: `get_session_changes()` and `get_dev_server_port()`.
 
-### 📚 Documentation
+### Documentation
 - **Architecture Rewrite**: Rewrote `docs/architecture.md` to accurately reflect Atlarix (Electron+React) architecture.
 - **Tool Verification**: Verified all 55 tools in `src/lib/tools/`.
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Right Panel**: Fixed stale diagram state persisting in Global Prompts.
 - **AI Context**: Fixed missing file paths in "Fix with AI" prompts.
 
 ## [v0.9.16] - 2026-01-10
-### 🚀 Right Panel & Documentation
+### Right Panel & Documentation
 - **Right Panel**: Completed documentation for all 7 tabs.
 - **Port Info**: Clarified Atlarix (5173) vs User App ports.
 - **Mermaid Support**: Standardized on Mermaid.js for diagrams.
@@ -569,7 +628,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 ### Known Issues
 - **Early Browser Errors**: Runtime errors triggering strictly on initial page load (ms 0) may still occasionally slip past the browser injector, though the new Watcher catches the underlying cause in most cases.
 
-### 🎨 Right Panel UX Improvements
+### Right Panel UX Improvements
 
 #### Terminal Output Formatting
 - **Fixed**: Terminal output now properly formatted with line breaks instead of one paragraph
@@ -600,7 +659,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.9] - 2026-01-03
 
-### 🎨 Unified Permission Card UI
+### Unified Permission Card UI
 
 #### Data Extraction Fix
 - **FIXED**: "Unknown operation" display bug - commands now show correctly
@@ -629,7 +688,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - `src/components/preview_panel/FileDiffPanel.tsx`: Simplified to render PermissionQueuePanel directly
 - `src/hooks/useRightPanelContext.ts`: Removed unused tabs for file-diff panel
 
-### 🔄 Agentic Loop Continuation (Option A)
+### Agentic Loop Continuation (Option A)
 
 #### Root Cause
 - AI stopped after approved commands (e.g., `npm install`)
@@ -645,7 +704,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 #### Files Modified
 - `src/ipc/handlers/chat_stream_handlers.ts`: Added tool execution tracking
 
-### 🗺️ Diagram Path Fix
+### Diagram Path Fix
 
 #### Root Cause
 - "Not in folder" error for imported projects
@@ -658,7 +717,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 #### Files Modified
 - `src/ipc/handlers/diagram_handlers.ts`: Fixed path resolution
 
-### 🤖 Dev Server Error Auto-Reporter
+### Dev Server Error Auto-Reporter
 
 #### Feature
 - ThinkingCard-style collapsible error banner in preview panel
@@ -669,7 +728,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 #### Files Modified
 - `src/components/preview_panel/PreviewIframe.tsx`: Enhanced ErrorBanner component
 
-### 📺 Preview Panel Visibility
+### Preview Panel Visibility
 
 #### Issue
 - After `npm run dev` completed, the right panel stayed on "permission" mode instead of switching to preview
@@ -702,7 +761,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.8] - 2026-01-03
 
-### 🔧 Permission Queue Integration
+### Permission Queue Integration
 
 #### Unified FileDiffPanel
 - **Merged PermissionQueuePanel** into FileDiffPanel's Approve tab
@@ -716,13 +775,13 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - `src/ipc/handlers/permissions/handlers.ts`: Added `permission-request` IPC emission
 - `src/components/PermissionQueuePanel.tsx`: Added useEffect for loading permissions
 
-### 🚀 Workspace Delete UI Fix
+### Workspace Delete UI Fix
 - **Instant UI update**: Workspace disappears immediately on delete click
 - **Optimistic update**: UI updates before backend confirms deletion
 - **Graceful handling**: "Already deleted" errors ignored silently
 - **Auto-navigate**: Returns to home when current workspace deleted
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **FIXED**: AI `Invalid prompt: The messages must be a ModelMessage[]` error
   - Restored `chat_stream_handlers.ts` to stable commit 4a2b440
   - Error was caused by message format incompatibility
@@ -731,7 +790,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.7] - 2026-01-02
 
-### 🚀 Command Execution Wait Fix (Critical)
+### Command Execution Wait Fix (Critical)
 
 #### Core Fix
 - **FIXED**: AI now waits for commands to complete before issuing next command
@@ -749,7 +808,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **Progress Updates**: UI updates every 2 seconds for long-running commands
 - **Error Storage**: Timeout/failure info captured for AI context
 
-### 🔧 Technical Changes
+### Technical Changes
 
 #### Files Modified
 - `src/ipc/handlers/permissions/interceptor.ts`
@@ -760,29 +819,29 @@ This release dramatically reduces AI context usage, making Atlarix work on small
   - Added timeout with `Promise.race()` and progress interval
   - Added `queueCapture()` for timeline auto-capture after file ops
 
-### 🌐 Live Preview (Lovable-style)
+### Live Preview (Lovable-style)
 - **Auto-Start Dev Server**: DevServerProvider detects frontend projects and starts server
 - **Iframe Preview**: RightPanel Preview tab with responsive viewport controls
 - **Framework Detection**: Vite, Next.js, Create React App, Nuxt, Astro
 - **Backend Fallback**: Auto-pins diagram panel for non-frontend projects
 
-### 📊 Timeline & Project Evolution
+### Timeline & Project Evolution
 - **Auto-Capture**: Diagram snapshots on AI file changes (5-min debounce)
 - **11 Timeline IPC Channels**: Full timeline API for project evolution
 - **AI Awareness**: System prompt teaches Lovable-style workflow
 
-### 💰 Token-Saving Stop Button
+### Token-Saving Stop Button
 - **chat:abort IPC**: Cancels backend AI stream immediately
 - **abortAllStreams()**: Cleanup on app quit
 - **Stop Button Wired**: SimpleChatInput + ChatInput call abort to save tokens
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **PlantUMLPreview null check**: Fixed undefined split error
 - **Database paths documented**: Dev vs Production DB locations
 
 ## [v0.9.6] - 2026-01-01
 
-### 🎉 New Features
+### New Features
 
 #### Global & Workspace Prompts System
 - **Global AI Behavior**: Define custom instructions that apply to all incognito chats
@@ -795,7 +854,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **Session Persistence**: Chat sessions now persist across navigation (Settings → Home)
 - **Jotai Atom**: `activeChatIdAtom` ensures chat state survives component unmounts
 
-### 🐛 Bug Fixes
+### Bug Fixes
 
 #### LM Studio Error Handling
 - **FIXED**: Technical stack traces replaced with user-friendly messages
@@ -815,7 +874,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **FIXED**: Sequential AI permission requests now display correctly
 - **Timestamp Fix**: Unique timestamps force frontend to re-process intents
 
-### 🔧 Technical Changes
+### Technical Changes
 
 #### Files Created
 - None
@@ -835,7 +894,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.5] - 2025-12-31
 
-### 🎉 Major Features
+### Major Features
 
 #### AI-Controlled Right Panel
 - **Explicit AI Intent**: AI now explicitly sets what the right panel shows instead of heuristic guessing
@@ -844,7 +903,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **IPC Integration**: Backend emits `right-panel:set-view` events when permissions are buffered
 - **useAIPanelListener Hook**: Frontend hook that receives and applies AI panel updates
 
-### 🐛 Bug Fixes
+### Bug Fixes
 
 #### Prompt Box Clipping (Critical)
 - **FIXED**: Mode switcher (Build/Ask) and model picker were hidden after first message
@@ -855,7 +914,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **FIXED**: "No callbacks found for chat -1" error when stopping generation
 - **Changed**: console.error → console.debug (expected behavior when cancelling)
 
-### 🔧 Technical Changes
+### Technical Changes
 
 #### Files Created
 - `src/hooks/useAIPanelListener.ts` - Listens for AI panel updates from main process
@@ -873,7 +932,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.4] - 2025-12-31
 
-### 🎉 Major Features
+### Major Features
 
 #### Real AI Diagram Generation
 - **AI-Powered Analysis**: Diagrams now generated by analyzing actual codebase structure
@@ -895,7 +954,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - **Restore Button**: One-click restore to any previous version
 - **Empty State**: Friendly message when no history exists
 
-### 🔧 Technical Changes
+### Technical Changes
 
 #### Files Created
 - None (used existing infrastructure)
@@ -912,18 +971,18 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.2] - 2025-12-30
 
-### 🚀 New Features
+### New Features
 - **Smart Project Scaffolding**: AI now uses CLI commands first (`npx create-vite`, `npx create-next-app`, etc.) instead of writing files from scratch
 - **Session Memory Persistence**: Memory now persists across Ask → Build mode switches (keyed by appId instead of chatId)
 - **Permission Sound Notification**: Plays `remaining.mp3` when new file proposals arrive after initial batch approved
 - **SearxNG Template Fallback**: When GitHub API is rate-limited, templates are fetched via SearxNG search
 
-### 🔧 Technical Improvements
+### Technical Improvements
 - **scaffold_commands.ts**: New library with 25+ framework CLI mappings
 - **Command Approval UI**: Extended `FileProposal` type to support `command` operations
-- **FileDiffPanel**: Commands now grouped under "⚡ Commands" with purple icon
+- **FileDiffPanel**: Commands now grouped under "Commands" with purple icon
 
-### 🐛 Known Issues
+### Known Issues
 - **Command Approval Not Showing**: `run_command` permissions not appearing in right panel (needs deeper investigation)
 - **AI Repetition**: Model sometimes repeats previous messages (model behavior, not code issue)
 
@@ -931,18 +990,18 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.1] - 2025-12-29
 
-### ✅ Bug Fixes
+### Bug Fixes
 - **Input Box Clipping**: Fixed - Added `min-h-0` to flex containers + `flex-shrink-0` to input
 - **Chat Scroll**: Fixed - Added `min-h-0` to enable proper overflow
 - **ThinkingCard in Ask Mode**: Fixed - Added `<think>` tag instructions to chat-only prompt
 - **Permission System**: All 4 phases complete - AI tools properly block for user approval
 
-### 🚀 Enhancements
+### Enhancements
 - **Session Memory**: In-memory buffer of last 5 exchanges for conversation continuity
 - **Session Cleanup**: Memory cleared on new chat creation and app quit
 - **Right Panel Empty State**: Improved empty state with mode explanations
 
-### 🐛 Known Issues (v1.0)
+### Known Issues (v1.0)
 - **Right Panel Toggle**: Keyboard shortcuts not fully working (Cmd+B system conflict)
 - **Diagrams Page Empty**: Diagrams not persisting to sidebar page
 
@@ -950,7 +1009,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.9.0] - 2025-12-28
 
-### 🎉 Major Features
+### Major Features
 
 #### Permission System (Build Mode)
 - **Structured JSON Permissions**: Tools return JSON permission requests for user approval
@@ -967,7 +1026,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 - [ ] **Chat Memory Cache**: Cache last 5 chats for AI context continuity
 - [ ] **Web Search Sources**: Make file code show like web search results
 
-### 🔧 Technical Changes
+### Technical Changes
 
 #### Files Created
 - `src/lib/tools/permissions/schema.ts` - Zod schemas for permission requests
@@ -988,7 +1047,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.8.0] - 2025-12-27
 
-### 🎉 Major Features
+### Major Features
 
 #### ThinkingCard UI (Claude-style)
 - **Two Independent Cards**: Thinking and Response as separate, non-connected cards
@@ -1005,7 +1064,7 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ## [v0.7.0] - 2025-12-27
 
-### 🎉 Major Features
+### Major Features
 
 #### Ask Mode with Read-Only Tools
 - **Smart Tool Filtering**: `isReadOnly` flag on all tools enables safe Ask mode exploration
@@ -1038,5 +1097,5 @@ This release dramatically reduces AI context usage, making Atlarix work on small
 
 ---
 
-**Last Updated**: 2026-01-17
-**Version**: v1.0.1 (DMG Update)
+**Last Updated**: 2026-02-27
+**Version**: v3.6.0

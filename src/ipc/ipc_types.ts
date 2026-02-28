@@ -43,6 +43,8 @@ export interface ChatStreamParams {
     attachmentType: "upload-to-codebase" | "chat-context"; // FileAttachment type
   }>;
   selectedComponents?: ComponentSelection[];
+  /** v3.6: Override model for this message only (e.g. when user clicks Override in Auto routing preview). */
+  modelOverride?: { provider: string; name: string };
 }
 
 export interface ChatResponseEnd {
@@ -54,6 +56,10 @@ export interface ChatResponseEnd {
   contextWindow?: number;
   /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
   hadToolCallsOrPermissions?: boolean;
+  /** v3.5: Context-aware prompt suggestions from the model (up to 3 chips). */
+  suggestions?: string[];
+  /** When suggestions were stripped, the response content without the block (so renderer can update last message). */
+  lastMessageContent?: string;
 }
 
 export interface ChatProblemsEvent {

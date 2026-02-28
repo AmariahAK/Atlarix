@@ -17,6 +17,7 @@ import {
   ChartColumnIncreasing,
   SendHorizontalIcon,
   Lock,
+  Zap,
 } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -24,9 +25,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { IpcClient } from "@/ipc/ipc_client";
 import {
+  activeChatIdAtom,
   chatInputValueAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
+  suggestionsByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -74,6 +77,8 @@ import { SelectedComponentsDisplay } from "./SelectedComponentDisplay";
 import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
+import { ToolIndicator } from "./ToolIndicator";
+import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
 import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEditingChangesDialog";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 
@@ -87,6 +92,12 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const { refreshVersions } = useVersions(appId);
   const { streamMessage, isStreaming, setIsStreaming, error, setError } =
     useStreamChat();
+  const activeChatId = useAtomValue(activeChatIdAtom);
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const currentChatId = activeChatId ?? chatId ?? selectedChatId;
+  const suggestionsByChatId = useAtomValue(suggestionsByChatIdAtom);
+  const setSuggestionsByChatId = useSetAtom(suggestionsByChatIdAtom);
+  const suggestions = (currentChatId != null ? suggestionsByChatId[currentChatId] : undefined) ?? [];
   const [showError, setShowError] = useState(true);
   const [isApproving, setIsApproving] = useState(false); // State for approving
   const [isRejecting, setIsRejecting] = useState(false); // State for rejecting
@@ -94,6 +105,14 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
   const [showTokenBar, setShowTokenBar] = useAtom(showTokenBarAtom);
+  const [routingPreview, setRoutingPreview] = useState<{
+    category: string;
+    targetModel: string;
+    targetProvider: string;
+  } | null>(null);
+  const [modelOverrideForNextMessage, setModelOverrideForNextMessage] = useState<
+    { provider: string; name: string } | null
+  >(null);
   const [selectedComponents, setSelectedComponents] = useAtom(
     selectedComponentsPreviewAtom,
   );
@@ -146,6 +165,21 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     }
   }, [error]);
 
+  // v3.6: Debounced routing preview when Auto is on (500ms)
+  useEffect(() => {
+    if (!settings?.autoModelRouting || !inputValue.trim()) {
+      setRoutingPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      IpcClient.getInstance()
+        .getRoutingPreview(inputValue)
+        .then((preview) => setRoutingPreview(preview))
+        .catch(() => setRoutingPreview(null));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [inputValue, settings?.autoModelRouting]);
+
   const fetchChatMessages = useCallback(async () => {
     if (!chatId) {
       return;
@@ -169,6 +203,13 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
     const currentInput = inputValue;
     setInputValue("");
+    if (currentChatId != null) {
+      setSuggestionsByChatId((prev) => {
+        const next = { ...prev };
+        delete next[currentChatId];
+        return next;
+      });
+    }
 
     // Use all selected components for multi-component editing
     const componentsToSend =
@@ -192,7 +233,9 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       attachments,
       redo: false,
       selectedComponents: componentsToSend,
+      modelOverride: modelOverrideForNextMessage ?? undefined,
     });
+    setModelOverrideForNextMessage(null);
     clearAttachments();
     posthog.capture("chat:submit");
   };
@@ -275,6 +318,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
   return (
     <>
+      <ToolIndicator />
       {error && showError && (
         <ChatErrorBox
           onDismiss={dismissError}
@@ -293,6 +337,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           Error loading proposal: {proposalError}
         </div>
       )}
+      <SummarizationProgressStrip />
       <div className="p-4 flex-shrink-0" data-testid="chat-input-container">
         <div
           className={`relative flex flex-col border border-border rounded-lg bg-(--background-lighter) shadow-sm ${isDraggingOver ? "ring-2 ring-blue-500 border-blue-500" : ""
@@ -418,6 +463,60 @@ export function ChatInput({ chatId }: { chatId?: number }) {
               </button>
             )}
           </div>
+          {/* v3.5: Context-aware prompt suggestion chips */}
+          {!isStreaming && suggestions.length > 0 && currentChatId != null && (
+            <div className="flex flex-wrap gap-2 px-2 pb-2">
+              {suggestions.map((text, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    setInputValue(text);
+                    setSuggestionsByChatId((prev) => {
+                      const next = { ...prev };
+                      delete next[currentChatId!];
+                      return next;
+                    });
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-md border border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* v3.6: Auto routing preview */}
+          {!isStreaming && settings?.autoModelRouting && (routingPreview || modelOverrideForNextMessage) && (
+            <div className="flex items-center justify-between gap-2 px-2 pb-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Zap size={12} />
+                {modelOverrideForNextMessage
+                  ? `Override: ${modelOverrideForNextMessage.name}`
+                  : routingPreview
+                    ? `Auto → ${routingPreview.targetModel} · ${routingPreview.category}`
+                    : null}
+              </span>
+              {routingPreview && !modelOverrideForNextMessage && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs"
+                onClick={() => {
+                  if (settings?.selectedModel?.provider && settings?.selectedModel?.name) {
+                    setModelOverrideForNextMessage({
+                      provider: settings.selectedModel.provider,
+                      name: settings.selectedModel.name,
+                    });
+                    setRoutingPreview(null);
+                  }
+                }}
+              >
+                Override
+              </Button>
+              )}
+            </div>
+          )}
           <div className="pl-2 pr-1 flex items-center justify-between pb-2">
             <div className="flex items-center">
               <ChatInputControls showContextFilesPicker={true} chatId={chatId} />

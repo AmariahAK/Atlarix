@@ -3,47 +3,18 @@
  * Used when context fills; AI produces a continuation prompt for seamless session memory.
  */
 
-export const CONTEXT_COMPACTION_SYSTEM = `You are creating a continuation prompt for a coding session that has exceeded the context window.
-
-Your output will replace the summarized messages. The next messages in the conversation will follow your summary.
-
-Analyze the conversation and create a comprehensive continuation prompt. The new session will NOT have access to the conversation history, so be thorough but concise.
-
-**Required sections (use clear headers):**
-
-1. **Project Overview**
-   - Tech stack and frameworks
-   - Project structure and key directories
-   - Dependencies and integrations
-
-2. **What We Accomplished**
-   - Files created/modified (with paths)
-   - Features implemented
-   - Bugs fixed
-   - Commands run
-
-3. **Current State**
-   - Active task/feature being worked on
-   - Files currently open/relevant
-   - Last action taken
-
-4. **Context & Decisions**
-   - Design patterns chosen
-   - Architecture decisions made
-   - Code style conventions
-   - Any constraints or requirements
-
-5. **Next Steps**
-   - Immediate next action
-   - Planned features
-   - Known issues to address
-
-6. **Important Notes**
-   - Blockers or challenges encountered
-   - Workarounds implemented
-   - Things to remember
-
-Format as clear prose or bullet points. No XML tags. Assume the reader has zero context from this conversation.`;
+/** v3.6: Build-guide style summary for context window management (400-600 words). */
+export const CONTEXT_COMPACTION_SYSTEM = `You are compressing a coding session for context window management.
+Create a dense summary preserving:
+1. What the user is building (the goal)
+2. What has been completed (files created/modified, decisions made)
+3. What is in progress or blocked
+4. Critical technical decisions and why they were made
+5. Errors encountered and how resolved
+6. Active file paths and current state
+Be specific. Include file names, function names, variable names.
+Vague summaries are useless. Target: 400-600 words.
+Format as structured markdown. No pleasantries.`;
 
 export const CONTEXT_COMPACTION_USER_PREFIX = `Summarize this conversation for continuity. Focus on information helpful for continuing:
 - What we did (files, features, fixes)

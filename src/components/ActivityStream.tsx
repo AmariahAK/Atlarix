@@ -10,6 +10,7 @@ import {
   activityStreamItemsAtom,
   type ActivityStreamItem,
 } from "@/atoms/sourceAtoms";
+import { useAgentAnimStore } from "@/lib/agents/animation-state";
 import { cn } from "@/lib/utils";
 import {
   Bot,
@@ -35,6 +36,8 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   tool_use: Hammer,
   turn_summary: Activity,
   mode_change: Activity,
+  agent_message: Box,
+  routing_decision: Bot,
 };
 
 const STATUS_ICONS: Record<string, React.ElementType> = {
@@ -61,6 +64,24 @@ export function ActivityStream() {
         }
         return next.slice(-100);
       });
+      // v3.6: Sync agent animation store for agent canvas
+      const agent = payload.agent as string | undefined;
+      if (agent && ["main", "architect", "builder", "reviewer", "researcher"].includes(agent)) {
+        const store = useAgentAnimStore.getState();
+        if (payload.type === "delegation_start") {
+          store.setAgentState(agent as "main" | "architect" | "builder" | "reviewer" | "researcher", "delegating");
+          store.startFlow({
+            id: payload.id,
+            from: agent as "main" | "architect" | "builder" | "reviewer" | "researcher",
+            to: agent,
+            type: "request",
+            startedAt: payload.timestamp ?? Date.now(),
+          });
+        } else if (payload.type === "delegation_complete" || payload.type === "delegation_error") {
+          store.endFlow(payload.id);
+          store.setAgentState(agent as "main" | "architect" | "builder" | "reviewer" | "researcher", "idle");
+        }
+      }
     },
     [setItems]
   );

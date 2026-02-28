@@ -131,6 +131,9 @@ export class IpcClient {
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
   private diagramHandlers: Map<number, (payload: any) => void>;
   private terminalHandlers: Map<number, (payload: any) => void>;
+  private toolStartHandlers: Set<(payload: { chatId: number; toolName: string }) => void> = new Set();
+  private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
+  private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -206,6 +209,19 @@ export class IpcClient {
         console.debug(
           `[IPC] Stream ended without callbacks for chat ${chatId} (expected after cancel)`,
         );
+      }
+    });
+
+    this.ipcRenderer.on("chat:tool:start", (payload: unknown) => {
+      if (payload && typeof payload === "object" && "chatId" in payload && "toolName" in payload) {
+        const { chatId, toolName } = payload as { chatId: number; toolName: string };
+        this.toolStartHandlers.forEach((h) => h({ chatId, toolName }));
+      }
+    });
+    this.ipcRenderer.on("chat:tool:end", (payload: unknown) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload as { chatId: number };
+        this.toolEndHandlers.forEach((h) => h({ chatId }));
       }
     });
 
@@ -324,6 +340,32 @@ export class IpcClient {
         }
       }
     });
+
+    // chat:activity (e.g. summarization progress)
+    this.ipcRenderer.on("chat:activity", (payload: any) => {
+      if (payload && typeof payload === "object") {
+        this.chatActivityHandlers.forEach((h) => h(payload));
+      }
+    });
+  }
+
+  /** v3.5: Register for chat activity (e.g. summarization). Returns unsubscribe. */
+  public onChatActivity(handler: (payload: { label?: string; status?: string; chatId?: number }) => void): () => void {
+    this.chatActivityHandlers.add(handler);
+    return () => this.chatActivityHandlers.delete(handler);
+  }
+
+  /** v3.5: Register for tool start/end events (persistent "Working…" indicator). Returns unsubscribe. */
+  public onToolIndicator(
+    onStart: (payload: { chatId: number; toolName: string }) => void,
+    onEnd: (payload: { chatId: number }) => void,
+  ): () => void {
+    this.toolStartHandlers.add(onStart);
+    this.toolEndHandlers.add(onEnd);
+    return () => {
+      this.toolStartHandlers.delete(onStart);
+      this.toolEndHandlers.delete(onEnd);
+    };
   }
 
   public static getInstance(): IpcClient {
@@ -460,6 +502,7 @@ export class IpcClient {
       redo?: boolean;
       attachments?: FileAttachment[];
       appId?: number | null;
+      modelOverride?: { provider: string; name: string };
       onUpdate: (messages: Message[]) => void;
       onEnd: (response: ChatResponseEnd) => void;
       onError: (error: string) => void;
@@ -472,6 +515,7 @@ export class IpcClient {
       attachments,
       selectedComponents,
       appId,
+      modelOverride,
       onUpdate,
       onEnd,
       onError,
@@ -514,6 +558,7 @@ export class IpcClient {
               selectedComponents,
               appId: appId ?? undefined,
               attachments: fileDataArray,
+              modelOverride: modelOverride ?? undefined,
             })
             .catch((err) => {
               console.error("Error streaming message:", err);
@@ -537,6 +582,7 @@ export class IpcClient {
           redo,
           selectedComponents,
           appId: appId ?? undefined,
+          modelOverride: modelOverride ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);
@@ -702,6 +748,15 @@ export class IpcClient {
       showError(error);
       throw error;
     }
+  }
+
+  /** v3.6: Get routing preview when Auto is on (category + model for display). */
+  public async getRoutingPreview(prompt: string): Promise<{
+    category: string;
+    targetModel: string;
+    targetProvider: string;
+  } | null> {
+    return this.ipcRenderer.invoke("routing:preview", { prompt });
   }
 
   // Delete an app and all its files
@@ -1992,6 +2047,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:set", params);
   }
 
+  /** v3.6: Get reference project paths for combined blueprint */
+  public async getReferencePaths(workspaceId: number): Promise<{ success: boolean; paths?: string[]; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:get-reference-paths", { workspaceId });
+  }
+
+  /** v3.6: Set reference project paths for combined blueprint */
+  public async setReferencePaths(workspaceId: number, paths: string[]): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:set-reference-paths", { workspaceId, paths });
+  }
+
   /** Refresh blueprint from code (invalidate cache, re-infer from workspace) */
   public async refreshBlueprintFromCode(params: { workspaceId: number }): Promise<{
     success: boolean;
@@ -2032,6 +2097,19 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:simplify-description", params);
   }
 
+  public async simplifyBlueprintRoom(params: {
+    workspaceId: number;
+    roomId: string;
+  }): Promise<{ success: boolean; label?: string; intent?: string; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:simplify-room", params);
+  }
+
+  public async simplifyBlueprintArchitecture(params: {
+    workspaceId: number;
+  }): Promise<{ success: boolean; summary?: string; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:simplify-architecture", params);
+  }
+
   /** Layout container canvas via ELK (main process) */
   public async layoutContainerCanvas(
     rooms: Array<{ id: string }>,
@@ -2046,6 +2124,121 @@ export class IpcClient {
     flowEdges: Array<{ id: string; from: string; to: string }>
   ): Promise<Array<{ id: string; x: number; y: number; width: number; height: number }>> {
     return this.ipcRenderer.invoke("blueprint:layout-beacons", { beacons, flowEdges });
+  }
+
+  /** DB Extension: list connections and active id for workspace */
+  public async dbListConnections(workspaceId: number | null): Promise<{
+    connections: Array<{ id: string; name: string; type: string; status: string; isProd?: boolean }>;
+    activeId: string | null;
+  }> {
+    return this.ipcRenderer.invoke("db:list-connections", { workspaceId });
+  }
+
+  /** DB Extension: save a new connection */
+  public async dbSaveConnection(params: {
+    name: string;
+    type: string;
+    config: Record<string, unknown>;
+    isProd?: boolean;
+  }): Promise<{ id: string; success: boolean }> {
+    return this.ipcRenderer.invoke("db:save-connection", params);
+  }
+
+  /** DB Extension: delete a connection */
+  public async dbDeleteConnection(connectionId: string): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("db:delete-connection", { connectionId });
+  }
+
+  /** DB Extension: open live connection */
+  public async dbConnect(connectionId: string): Promise<{ success?: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("db:connect", { connectionId });
+  }
+
+  /** DB Extension: close live connection */
+  public async dbDisconnect(connectionId: string): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("db:disconnect", { connectionId });
+  }
+
+  /** DB Extension: set active connection for workspace or global */
+  public async dbSetActiveConnection(workspaceId: number | null, connectionId: string | null): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("db:set-active-connection", { workspaceId, connectionId });
+  }
+
+  /** DB Extension: get schema for active connection */
+  public async dbGetSchema(workspaceId: number | null): Promise<{
+    tables: Array<{ name: string; columns: Array<{ name: string; type: string }> }>;
+    foreignKeys: Array<{ table: string; column: string; referencedTable: string; referencedColumn: string }>;
+  } | null> {
+    return this.ipcRenderer.invoke("db:get-schema", { workspaceId });
+  }
+
+  /** DB Extension: run read-only query */
+  public async dbRunQuery(
+    workspaceId: number | null,
+    query: string
+  ): Promise<{ rows?: unknown[]; error?: string }> {
+    return this.ipcRenderer.invoke("db:run-query", { workspaceId, query });
+  }
+
+  /** DB Extension: get table data (first 50 rows) */
+  public async dbGetTableData(
+    workspaceId: number | null,
+    table: string
+  ): Promise<{ rows?: unknown[]; error?: string }> {
+    return this.ipcRenderer.invoke("db:get-table-data", { workspaceId, table });
+  }
+
+  /** Get PIVOT nodes and edges for workspace (for Live vs Blueprint comparison). */
+  public async getPivotNodesEdges(params: { workspaceId: number }): Promise<{
+    success: boolean;
+    nodes?: Array<{ id: string; type: string; label: string; filePath: string }>;
+    edges?: Array<{ fromId: string; toId: string; type: string }>;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("pivot:get-nodes-edges", params);
+  }
+
+  /** Get blueprint snapshots for workspace (history). */
+  public async getBlueprintSnapshots(params: { workspaceId: number; limit?: number }): Promise<{
+    success: boolean;
+    snapshots?: Array<{ id: number; snapshotAt: Date; source: string }>;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("pivot:get-snapshots", params);
+  }
+
+  /** Restore blueprint from a snapshot. */
+  public async restoreBlueprintSnapshot(params: { workspaceId: number; snapshotId: number }): Promise<{
+    success: boolean;
+    blueprint?: import("@/shared/blueprint-types").Blueprint;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("pivot:restore-snapshot", params);
+  }
+
+  /** Run PIVOT analysis (SonarQube, Semgrep, SCIP) for workspace. */
+  public async runPivotAnalysis(params: {
+    workspaceId: number;
+    projectKey?: string;
+  }): Promise<{
+    success: boolean;
+    result?: {
+      sonar: { success: boolean; issues?: Array<{ file: string; line?: number; message: string; severity: string; rule: string }>; error?: string };
+      semgrep: { success: boolean; findings?: Array<{ path: string; start: { line: number }; message: string; severity: string; ruleId: string }>; error?: string };
+      scip: { success: boolean; symbols?: unknown[]; error?: string };
+    };
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("pivot:run-analysis", params);
+  }
+
+  /** Regenerate blueprint via AI clustering (5–8 containers from parsed nodes). */
+  public async clusterBlueprint(params: { workspaceId: number }): Promise<{
+    success: boolean;
+    blueprint?: import("@/shared/blueprint-types").Blueprint;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:cluster", params);
   }
 
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */

@@ -137,6 +137,10 @@ export const appsRelations = relations(apps, ({ many }) => ({
   chats: many(chats),
   versions: many(versions),
   workspaceDiagrams: many(workspaceDiagrams),
+  pivotNodes: many(pivotNodes),
+  pivotEdges: many(pivotEdges),
+  pivotContainers: many(pivotContainers),
+  blueprintSnapshots: many(blueprintSnapshots),
 }));
 
 export const chatsRelations = relations(chats, ({ many, one }) => ({
@@ -571,7 +575,9 @@ export const workflowTemplates = sqliteTable("workflow_templates", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});// --- Blueprint (Phase 7 Additive Blueprint) ---
+});
+
+// --- Blueprint (Phase 7 Additive Blueprint) ---
 // One blueprint per workspace: rooms, edges, functions per room
 export const blueprints = sqliteTable(
   "blueprints",
@@ -588,9 +594,159 @@ export const blueprints = sqliteTable(
       .default(sql`(unixepoch())`),
   },
   (table) => [unique("blueprints_workspace_unique").on(table.workspaceId)]
-);export const blueprintsRelations = relations(blueprints, ({ one }) => ({
+);
+
+export const blueprintsRelations = relations(blueprints, ({ one }) => ({
   workspace: one(apps, {
     fields: [blueprints.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+// --- PIVOT (Full PIVOT: nodes, edges, containers, beacons, blueprint_snapshots) ---
+export const pivotNodes = sqliteTable(
+  "pivot_nodes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    externalId: text("external_id").notNull(), // Parser-generated id (e.g. file::symbol) for dedupe and edge refs
+    type: text("type", {
+      enum: ["file", "function", "class", "module"],
+    }).notNull(),
+    label: text("label").notNull(),
+    filePath: text("file_path").notNull(),
+    rangeStart: integer("range_start"),
+    rangeEnd: integer("range_end"),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    index("pivot_nodes_workspace_idx").on(table.workspaceId),
+    unique("pivot_nodes_workspace_external_unique").on(table.workspaceId, table.externalId),
+  ]
+);
+
+export const pivotEdges = sqliteTable(
+  "pivot_edges",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    fromId: text("from_id").notNull(),
+    toId: text("to_id").notNull(),
+    type: text("type", {
+      enum: ["import", "call", "extends", "api"],
+    }).notNull(),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  },
+  (table) => [index("pivot_edges_workspace_idx").on(table.workspaceId)]
+);
+
+export const pivotContainers = sqliteTable("pivot_containers", {
+  id: text("id").primaryKey(),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  intent: text("intent"),
+  position: text("position", { mode: "json" }).$type<{ x: number; y: number }>(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const pivotBeacons = sqliteTable("pivot_beacons", {
+  id: text("id").primaryKey(),
+  containerId: text("container_id")
+    .notNull()
+    .references(() => pivotContainers.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  kind: text("kind", {
+    enum: ["api", "webhook", "function", "feature"],
+  }).notNull(),
+  description: text("description"),
+  filePath: text("file_path"),
+  position: text("position", { mode: "json" }).$type<{ x: number; y: number }>(),
+});
+
+export const blueprintSnapshots = sqliteTable(
+  "blueprint_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    snapshotAt: integer("snapshot_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    blueprintJson: text("blueprint_json").notNull(),
+    source: text("source", {
+      enum: ["rte", "user", "ai_cluster"],
+    }).notNull(),
+  },
+  (table) => [index("blueprint_snapshots_workspace_idx").on(table.workspaceId)]
+);
+
+/** v3.6: Lightning review memory — learn from past fixes per workspace */
+export const reviewPatterns = sqliteTable(
+  "review_patterns",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    issueRule: text("issue_rule").notNull(),
+    issueContext: text("issue_context"),
+    fixApplied: text("fix_applied").notNull(),
+    accepted: integer("accepted", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("review_patterns_workspace_idx").on(table.workspaceId)]
+);
+
+export const pivotNodesRelations = relations(pivotNodes, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [pivotNodes.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+export const pivotEdgesRelations = relations(pivotEdges, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [pivotEdges.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+export const pivotContainersRelations = relations(pivotContainers, ({ one, many }) => ({
+  workspace: one(apps, {
+    fields: [pivotContainers.workspaceId],
+    references: [apps.id],
+  }),
+  beacons: many(pivotBeacons),
+}));
+
+export const pivotBeaconsRelations = relations(pivotBeacons, ({ one }) => ({
+  container: one(pivotContainers, {
+    fields: [pivotBeacons.containerId],
+    references: [pivotContainers.id],
+  }),
+}));
+
+export const blueprintSnapshotsRelations = relations(blueprintSnapshots, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [blueprintSnapshots.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+export const reviewPatternsRelations = relations(reviewPatterns, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [reviewPatterns.workspaceId],
     references: [apps.id],
   }),
 }));

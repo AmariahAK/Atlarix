@@ -94,6 +94,38 @@ export function getFastModelForCurrentProvider(
 }
 
 /**
+ * v3.6: Returns the balanced (second-tier) model for summarization when session is complex.
+ */
+export function getBalancedModelForCurrentProvider(
+  settings: UserSettings,
+  openRouterFavoriteIds?: string[],
+): LargeLanguageModel | null {
+  if (
+    settings.autoModelRouting &&
+    settings.autoProviderId &&
+    Array.isArray(settings.autoModelIds) &&
+    settings.autoModelIds.length >= 2 &&
+    settings.autoModelIds[1]
+  ) {
+    return { provider: settings.autoProviderId, name: settings.autoModelIds[1] };
+  }
+  const effective = settings.selectedModel;
+  if (!effective?.provider) return null;
+  if (effective.provider === "openrouter" && openRouterFavoriteIds && openRouterFavoriteIds.length >= 2) {
+    return { provider: "openrouter", name: openRouterFavoriteIds[1] };
+  }
+  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 2) {
+    return { provider: "ollama", name: ollamaFavs[1] };
+  }
+  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "lmstudio" && lmStudioFavs && lmStudioFavs.length >= 2) {
+    return { provider: "lmstudio", name: lmStudioFavs[1] };
+  }
+  return null;
+}
+
+/**
  * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain;
  * when manual and OpenRouter model is known-deprecated, uses first OpenRouter favorite if provided.
  */

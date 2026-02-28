@@ -107,7 +107,7 @@ export function GuidedPipeline() {
                   strokeDasharray="4 3"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ duration: 0.4 }}
+                  transition={{ duration: 0.2 }}
                 />
               );
             })}
@@ -147,7 +147,7 @@ export function GuidedPipeline() {
                     )}
                     initial={false}
                     animate={isActive ? { scale: [1, 1.05, 1] } : {}}
-                    transition={{ repeat: isActive ? Infinity : 0, duration: 1.2 }}
+                    transition={{ repeat: isActive ? Infinity : 0, duration: 0.6 }}
                   >
                     <Icon className="h-4 w-4 text-muted-foreground" />
                     {isActive && <Loader2 className="h-3 w-3 absolute bottom-0.5 right-0.5 animate-spin text-emerald-500" />}

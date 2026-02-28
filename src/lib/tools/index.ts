@@ -32,7 +32,8 @@ import "./project-structure-tools"; // Multi-Layer Fallback System
 import "./meta-tools"; // Phase 3: New meta-tools
 import "./agent-tools"; // v2.1: delegate_to_agent
 import "./mode-tools"; // request_mode_change (Ask/Build/Auto)
-
+import "./reference-project-tools"; // v3.6 add_reference_project
+import "./db-tools"; // v3.6 DB Extension: db_query, db_schema, db_list, db_mutate
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

@@ -74,7 +74,7 @@ ipcMain.handle(
                 })
                 .returning();
 
-            console.log(`📊 [diagram:generate] Created diagram "${input.title}" (ID: ${diagram.id})`);
+            console.log(`[diagram:generate] Created diagram "${input.title}" (ID: ${diagram.id})`);
 
             return {
                 success: true,
@@ -98,7 +98,7 @@ ipcMain.handle(
     "diagram:generate-ai",
     async (_, { workspaceId, title }: { workspaceId: number; title?: string }) => {
         try {
-            console.log(`📊 [diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
+            console.log(`[diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
 
             // 1. Get Workspace Path
             const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
@@ -117,7 +117,7 @@ ipcMain.handle(
                 excludePaths: []
             };
 
-            console.log(`📊 [diagram:generate-ai] Extracting codebase from ${appPath}`);
+            console.log(`[diagram:generate-ai] Extracting codebase from ${appPath}`);
             const { formattedOutput } = await extractCodebase({
                 appPath,
                 chatContext
@@ -193,7 +193,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
 
             let result: Awaited<ReturnType<typeof generateText>>;
             try {
-                console.log(`📊 [diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
+                console.log(`[diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
                 result = await generateText({
                     model: modelClientResult.modelClient.model,
                     system: systemPrompt,
@@ -203,7 +203,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 if (isDiagramModelNotFoundError(genError)) {
                     const fallback = getDiagramFallbackModel(settings, openRouterFavorites);
                     if (fallback) {
-                        console.warn(`📊 [diagram:generate-ai] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
+                        console.warn(`[diagram:generate-ai] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
                         modelConfig = fallback;
                         modelClientResult = await getModelClient(fallback, settings);
                         result = await generateText({
@@ -252,7 +252,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 const diagramGit = new DiagramGitTracker(workspaceId);
                 diagramGitCommit = await diagramGit.captureSnapshot(appPath, content);
                 if (diagramGitCommit) {
-                    console.log(`📊 [diagram:generate-ai] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
+                    console.log(`[diagram:generate-ai] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
                 }
             } catch (e) {
                 console.warn("[diagram:generate-ai] Diagram git capture skipped:", e);
@@ -295,7 +295,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .returning();
 
                 diagram = updated;
-                console.log(`📊 [diagram:generate-ai] Updated diagram ${existingDiagram.id}`);
+                console.log(`[diagram:generate-ai] Updated diagram ${existingDiagram.id}`);
             } else {
                 const [created] = await db
                     .insert(diagrams)
@@ -315,7 +315,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .returning();
 
                 diagram = created;
-                console.log(`📊 [diagram:generate-ai] Created diagram ${diagram.id}`);
+                console.log(`[diagram:generate-ai] Created diagram ${diagram.id}`);
             }
 
             invalidateBlueprintCache(workspaceId);
@@ -359,7 +359,7 @@ ipcMain.handle(
 
             const results = await query.orderBy(desc(diagrams.updatedAt));
 
-            console.log(`📊 [diagram:list] Found ${results.length} diagrams`);
+            console.log(`[diagram:list] Found ${results.length} diagrams`);
 
             return {
                 success: true,
@@ -392,7 +392,7 @@ ipcMain.handle(
         error?: string;
     }> => {
         try {
-            console.log(`📊 [diagram:check-staleness] Checking diagram ${diagramId}`);
+            console.log(`[diagram:check-staleness] Checking diagram ${diagramId}`);
 
             const [diagram] = await db
                 .select()
@@ -432,14 +432,14 @@ ipcMain.handle(
                             linesAdded: decision.changes.linesAdded,
                             linesDeleted: decision.changes.linesDeleted,
                         };
-                        console.log(`📊 [diagram:check-staleness] Diagram git decision: ${decision.action} (${decision.reason})`);
+                        console.log(`[diagram:check-staleness] Diagram git decision: ${decision.action} (${decision.reason})`);
                     }
                 } catch (err) {
                     console.warn("[diagram:check-staleness] Diagram git skipped:", err);
                 }
             }
 
-            console.log(`📊 [diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
+            console.log(`[diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
 
             return { success: true, staleness, gitDecision };
         } catch (error) {
@@ -547,7 +547,7 @@ ipcMain.handle(
                 .where(eq(diagrams.id, id))
                 .returning();
 
-            console.log(`📊 [diagram:update] Updated diagram ${id}, saved version`);
+            console.log(`[diagram:update] Updated diagram ${id}, saved version`);
 
             return { success: true, diagram: updated };
         } catch (error) {
@@ -567,7 +567,7 @@ ipcMain.handle(
 ipcMain.handle("diagram:delete", async (_, { id }: { id: number }) => {
     try {
         await db.delete(diagrams).where(eq(diagrams.id, id));
-        console.log(`📊 [diagram:delete] Deleted diagram ${id}`);
+        console.log(`[diagram:delete] Deleted diagram ${id}`);
         return { success: true };
     } catch (error) {
         console.error("[diagram:delete] Error:", error);
@@ -592,7 +592,7 @@ ipcMain.handle(
                 .where(eq(diagramVersions.diagramId, diagramId))
                 .orderBy(desc(diagramVersions.createdAt));
 
-            console.log(`📊 [diagram:history] Found ${versions.length} versions for diagram ${diagramId}`);
+            console.log(`[diagram:history] Found ${versions.length} versions for diagram ${diagramId}`);
 
             return { success: true, versions };
         } catch (error) {
@@ -617,7 +617,7 @@ ipcMain.handle(
             const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
             const diagramGit = new DiagramGitTracker(workspaceId);
             const history = await diagramGit.getDiagramHistory(maxCount ?? 50);
-            console.log(`📊 [diagram:history-from-git] Found ${history.length} commits for workspace ${workspaceId}`);
+            console.log(`[diagram:history-from-git] Found ${history.length} commits for workspace ${workspaceId}`);
             return { success: true, versions: history };
         } catch (error) {
             console.error("[diagram:history-from-git] Error:", error);
@@ -675,7 +675,7 @@ ipcMain.handle(
                 .where(eq(diagrams.id, diagramId))
                 .returning();
 
-            console.log(`📊 [diagram:restore] Restored diagram ${diagramId} to version ${versionId}`);
+            console.log(`[diagram:restore] Restored diagram ${diagramId} to version ${versionId}`);
 
             return { success: true, diagram: updated };
         } catch (error) {
@@ -742,7 +742,7 @@ ipcMain.handle(
     "diagram:regenerate-background",
     async (_, { workspaceId }: { workspaceId: number }) => {
         try {
-            console.log(`📊 [diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
+            console.log(`[diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
 
             // 1. Get Workspace Path
             const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
@@ -761,7 +761,7 @@ ipcMain.handle(
                 excludePaths: []
             };
 
-            console.log(`📊 [diagram:regenerate-background] Extracting codebase from ${appPath}`);
+            console.log(`[diagram:regenerate-background] Extracting codebase from ${appPath}`);
             const { formattedOutput } = await extractCodebase({
                 appPath,
                 chatContext
@@ -789,7 +789,7 @@ Requirements:
 
             const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 
-            console.log(`📊 [diagram:regenerate-background] Sending prompt to model ${modelConfig.name}`);
+            console.log(`[diagram:regenerate-background] Sending prompt to model ${modelConfig.name}`);
             const result = await generateText({
                 model: modelClient.model,
                 system: systemPrompt,
@@ -824,7 +824,7 @@ Requirements:
                     })
                     .where(eq(diagrams.id, existingDiagram.id));
 
-                console.log(`📊 [diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
+                console.log(`[diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
                 invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'updated', diagramId: existingDiagram.id };
             } else {
@@ -842,7 +842,7 @@ Requirements:
                     })
                     .returning();
 
-                console.log(`📊 [diagram:regenerate-background] Created new diagram ${diagram.id}`);
+                console.log(`[diagram:regenerate-background] Created new diagram ${diagram.id}`);
                 invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'created', diagramId: diagram.id };
             }

@@ -21,6 +21,7 @@ ToolRegistry.register({
     name: "edit_file_section",
     category: ToolCategory.FILE_ADVANCED,
     description: "Edit a specific function, class, or code section in a file",
+    isReadOnly: false,
     parameters: {
         filepath: {
             type: "string",
@@ -213,6 +214,7 @@ ToolRegistry.register({
     name: "rename_file",
     category: ToolCategory.FILE_ADVANCED,
     description: "Rename or move a file/directory",
+    isReadOnly: false,
     parameters: {
         old_path: {
             type: "string",
@@ -259,6 +261,7 @@ ToolRegistry.register({
     name: "delete_file",
     category: ToolCategory.FILE_ADVANCED,
     description: "Delete a file or directory (requires confirmation)",
+    isReadOnly: false,
     parameters: {
         filepath: {
             type: "string",
@@ -384,6 +387,7 @@ ToolRegistry.register({
     name: "get_file_info",
     category: ToolCategory.FILE_ADVANCED,
     description: "Get metadata about a file (size, modified date, permissions)",
+    isReadOnly: true,
     parameters: {
         filepath: {
             type: "string",

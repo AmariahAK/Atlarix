@@ -5,7 +5,7 @@
  */
 
 import type { UserSettings } from "./schemas";
-import { getFastModelForCurrentProvider } from "../ipc/utils/get_model_client";
+import { getFastModelForCurrentProvider, getBalancedModelForCurrentProvider } from "../ipc/utils/get_model_client";
 
 /**
  * Returns the LargeLanguageModel to use for summarization and title generation (sync).
@@ -27,34 +27,48 @@ export function getSummarizationModel(settings: UserSettings): {
 }
 
 /**
- * Async version: when mode is "fast", uses the fast model for the current provider:
- * - Auto ON: first of the 3 Auto models (Fast) for the chosen provider (OpenAI, Anthropic, OpenRouter, etc.).
- * - Manual OpenRouter: first OpenRouter favorite.
- * - Manual Ollama / LM Studio: first favorite from provider settings.
- * - Manual other (OpenAI, Anthropic, Grok, etc.): selected model (no per-provider favorites in UI).
+ * v3.6: Session stats to prefer balanced model when complex (tool calls > 15 or delegations > 5).
  */
-export async function getSummarizationModelAsync(settings: UserSettings): Promise<{
+export interface SummarizationSessionStats {
+  toolCallCount?: number;
+  delegationCount?: number;
+}
+
+/**
+ * Async version: when mode is "fast", uses the fast model for the current provider.
+ * When session is complex (toolCallCount > 15 or delegationCount > 5), prefers balanced model for coherence.
+ * - Auto ON: first of the 3 Auto models (Fast) or second (Balanced) when complex.
+ * - Manual: first/second favorite when available.
+ */
+export async function getSummarizationModelAsync(
+  settings: UserSettings,
+  sessionStats?: SummarizationSessionStats
+): Promise<{
   provider: string;
   name: string;
   customModelId?: number;
 }> {
-  const mode = settings.aiConfiguration?.contextSummarization?.summarizationModel ?? "fast";
+  const mode = settings.aiConfiguration?.contextSummarization?.summarizationModel ?? "balanced";
   if (mode === "same") {
     return settings.selectedModel;
   }
   if (mode === "custom" && settings.aiConfiguration?.contextSummarization?.customSummarizationModel) {
     return settings.aiConfiguration.contextSummarization.customSummarizationModel;
   }
-  if (mode === "fast") {
-    let openRouterFavoriteIds: string[] | undefined;
-    if (settings.selectedModel?.provider === "openrouter") {
-      const { getFavoriteOpenRouterModels } = await import("../db/openrouter_favorites");
-      openRouterFavoriteIds = await getFavoriteOpenRouterModels();
-    }
+  const preferBalanced =
+    (sessionStats?.toolCallCount ?? 0) > 15 || (sessionStats?.delegationCount ?? 0) > 5;
+  let openRouterFavoriteIds: string[] | undefined;
+  if (settings.selectedModel?.provider === "openrouter") {
+    const { getFavoriteOpenRouterModels } = await import("../db/openrouter_favorites");
+    openRouterFavoriteIds = await getFavoriteOpenRouterModels();
+  }
+  if ((mode === "balanced" || mode === "fast") && preferBalanced) {
+    const balancedModel = getBalancedModelForCurrentProvider(settings, openRouterFavoriteIds);
+    if (balancedModel) return balancedModel;
+  }
+  if (mode === "fast" || mode === "balanced") {
     const fastModel = getFastModelForCurrentProvider(settings, openRouterFavoriteIds);
-    if (fastModel) {
-      return fastModel;
-    }
+    if (fastModel) return fastModel;
   }
   return getSummarizationModel(settings);
 }

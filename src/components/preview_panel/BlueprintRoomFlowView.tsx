@@ -202,6 +202,7 @@ function BlueprintRoomFlowViewInner({
       <div className="absolute left-2 top-1.5 z-10 max-w-[320px] space-y-0.5 text-[10px] text-muted-foreground">
         <div><strong>What connects the tree:</strong> These lines = flowEdges (beacon↔beacon, beacon↔node, node↔node).</div>
         <div>Container↔container, container↔packet, packet↔packet = main Blueprint diagram (rooms).</div>
+        <div>Connections are import-based; add manual edges for other relationships.</div>
         <div>Top row has no lines between nodes until you add them: drag from one node handle to another to connect.</div>
       </div>
       <ReactFlow

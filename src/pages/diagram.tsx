@@ -91,22 +91,22 @@ export default function DiagramPage() {
     }, [selectedWorkspace]);
 
     const loadDiagrams = async (workspaceId: number) => {
-        console.log(`📊 [DiagramPage] Loading diagrams for workspace ${workspaceId}`);
+        console.log(`[DiagramPage] Loading diagrams for workspace ${workspaceId}`);
         setLoadingDiagrams(true);
         try {
             const result = await IpcClient.getInstance().listDiagrams({ workspaceId });
-            console.log(`📊 [DiagramPage] Result:`, result);
+            console.log(`[DiagramPage] Result:`, result);
 
             if (result.success) {
                 setDiagrams(result.diagrams);
                 // Auto-select first diagram
                 if (result.diagrams.length > 0) {
                     setSelectedDiagram(result.diagrams[0]);
-                    console.log(`📊 [DiagramPage] Selected diagram content:`, result.diagrams[0].content?.substring(0, 100) || 'EMPTY');
+                    console.log(`[DiagramPage] Selected diagram content:`, result.diagrams[0].content?.substring(0, 100) || 'EMPTY');
                 }
-                console.log(`📊 [DiagramPage] Loaded ${result.diagrams.length} diagrams`);
+                console.log(`[DiagramPage] Loaded ${result.diagrams.length} diagrams`);
             } else {
-                console.error(`📊 [DiagramPage] Error:`, result.error);
+                console.error(`[DiagramPage] Error:`, result.error);
                 setDiagrams([]);
             }
         } catch (error) {
@@ -444,8 +444,8 @@ export default function DiagramPage() {
                                     <MermaidRenderer
                                         code={selectedDiagram.content}
                                         className="w-full h-full"
-                                        onError={(err) => console.error('📊 [DiagramPage] Mermaid error:', err)}
-                                        onRender={() => console.log('📊 [DiagramPage] Diagram rendered successfully')}
+                                        onError={(err) => console.error('[DiagramPage] Mermaid error:', err)}
+                                        onRender={() => console.log('[DiagramPage] Diagram rendered successfully')}
                                     />
                                 </div>
                             </div>

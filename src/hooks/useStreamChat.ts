@@ -12,6 +12,9 @@ import {
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
+  suggestionsByChatIdAtom,
+  toolIndicatorAtom,
+  responseDoneAnimationAtom,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
@@ -89,6 +92,9 @@ export function useStreamChat({
   hasChatId = true,
 }: { hasChatId?: boolean } = {}) {
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
+  const setSuggestionsByChatId = useSetAtom(suggestionsByChatIdAtom);
+  const setToolIndicator = useSetAtom(toolIndicatorAtom);
+  const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
   const errorById = useAtomValue(chatErrorByIdAtom);
@@ -130,6 +136,7 @@ export function useStreamChat({
       redo,
       attachments,
       selectedComponents,
+      modelOverride,
       onSettled,
     }: {
       prompt: string;
@@ -137,6 +144,7 @@ export function useStreamChat({
       redo?: boolean;
       attachments?: FileAttachment[];
       selectedComponents?: ComponentSelection[];
+      modelOverride?: { provider: string; name: string };
       onSettled?: () => void;
     }) => {
       if (
@@ -257,6 +265,14 @@ export function useStreamChat({
         const unsubscribeTerminal = IpcClient.getInstance().onTerminalOutput(
           chatId,
           (payload) => {
+            // Stream live output into tool indicator when it's active for this chat
+            setToolIndicator((prev) => {
+              if (prev.active && prev.activeChatId === chatId) {
+                return { ...prev, liveOutput: payload.output ?? "" };
+              }
+              return prev;
+            });
+
             // Update terminal outputs Map for CommandOutputCard display
             setTerminalOutputs((prev) => {
               const next = new Map(prev);
@@ -329,6 +345,7 @@ export function useStreamChat({
           chatId,
           redo,
           attachments,
+          modelOverride,
           appId: selectedAppId ?? undefined,
           onUpdate: (updatedMessages: Message[]) => {
             if (!hasIncrementedStreamCount) {
@@ -432,6 +449,28 @@ export function useStreamChat({
 
             refetchUserBudget();
 
+            // v3.5: Store suggestions for prompt chips; update last message if we stripped the block
+            if (response.suggestions?.length) {
+              setSuggestionsByChatId((prev) => ({
+                ...prev,
+                [response.chatId]: response.suggestions!,
+              }));
+            }
+            if (response.lastMessageContent != null) {
+              setMessagesById((prev) => {
+                const messages = prev.get(response.chatId) ?? [];
+                if (messages.length === 0) return prev;
+                const last = messages[messages.length - 1];
+                if (last.role !== "assistant") return prev;
+                const next = new Map(prev);
+                next.set(response.chatId, [
+                  ...messages.slice(0, -1),
+                  { ...last, content: response.lastMessageContent! },
+                ]);
+                return next;
+              });
+            }
+
             // Keep the same as below
             setIsStreamingById((prev) => {
               const next = new Map(prev);
@@ -453,6 +492,12 @@ export function useStreamChat({
               ...prev,
               [response.chatId]: response.hadToolCallsOrPermissions === true,
             }));
+
+            // v3.5: Clear persistent tool indicator when stream ends
+            setToolIndicator({ active: false, toolName: null, count: 0, activeChatId: null, liveOutput: "" });
+
+            // v3.5: Brief "done" phase of Atlarix animation when response completes
+            setResponseDoneAnimation({ chatId: response.chatId, until: Date.now() + 2000 });
 
             onSettled?.();
           },
@@ -502,6 +547,9 @@ export function useStreamChat({
     },
     [
       setMessagesById,
+      setSuggestionsByChatId,
+      setToolIndicator,
+      setResponseDoneAnimation,
       setIsStreamingById,
       setIsPreviewOpen,
       checkProblems,

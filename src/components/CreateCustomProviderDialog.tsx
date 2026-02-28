@@ -74,7 +74,7 @@ export function CreateCustomProviderDialog({
         await createProvider({
           id: id.trim(),
           name: name.trim(),
-          apiBaseUrl: apiBaseUrl.trim(),
+          apiBaseUrl: apiBaseUrl.trim() || "https://manual.provider",
           envVarName: envVarName.trim() || undefined,
         });
       }
@@ -113,7 +113,7 @@ export function CreateCustomProviderDialog({
           <DialogDescription>
             {isEditMode
               ? "Update your custom language model provider configuration."
-              : "Connect to a custom language model provider API."}
+              : "Add a provider by API key and base URL. For providers with no API endpoint, use a placeholder base URL (e.g. https://api.example.com). After creation, add your API key and up to 3 model names (Fast, Balanced, Thinking) in the provider settings."}
           </DialogDescription>
         </DialogHeader>
 
@@ -149,17 +149,16 @@ export function CreateCustomProviderDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="apiBaseUrl">API Base URL</Label>
+            <Label htmlFor="apiBaseUrl">API Base URL (optional for manual providers)</Label>
             <Input
               id="apiBaseUrl"
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder="E.g., https://api.example.com/v1"
-              required
+              placeholder="E.g., https://api.example.com/v1 (or placeholder if no endpoint)"
               disabled={isLoading}
             />
             <p className="text-xs text-muted-foreground">
-              The base URL for the API endpoint.
+              Base URL for the API. For providers with no list endpoint, use any placeholder; then add API key and model name(s) in provider settings (max 3: Fast, Balanced, Thinking).
             </p>
           </div>
 

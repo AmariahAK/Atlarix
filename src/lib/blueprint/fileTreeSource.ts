@@ -71,6 +71,24 @@ function inferBeaconKind(filePath: string, baseName: string): BlueprintFunctionK
   return "function";
 }
 
+/** True if the room looks like a test/spec area (so we avoid cross-room edges from impl into test). */
+function isTestLikeRoom(room: BlueprintRoom): boolean {
+  const id = (room.id ?? "").toLowerCase();
+  const label = (room.label ?? "").toLowerCase();
+  const pathStr = (room.path ?? "").toLowerCase();
+  const testPatterns = [
+    /\btest\b/,
+    /\btests\b/,
+    /\be2e\b/,
+    /\bspec\b/,
+    /\b_add[-_]?test\b/,
+    /\btest[-_]/,
+    /_test$/,
+  ];
+  const combined = `${id} ${label} ${pathStr}`;
+  return testPatterns.some((re) => re.test(combined));
+}
+
 interface WalkEntry {
   relativePath: string;
   absolutePath: string;
@@ -326,6 +344,8 @@ async function inferEdgesFromImports(
         const toBeaconId = findBeaconIdByFile(rooms, resolved);
         if (!toBeaconId) continue;
         if (toRoomId !== room.id) {
+          const toRoom = rooms.find((r) => r.id === toRoomId);
+          if (toRoom && !isTestLikeRoom(room) && isTestLikeRoom(toRoom)) continue;
           const edgeId = `inferred::${room.id}->${toRoomId}::${edgeIndex++}`;
           crossRoomEdges.push({
             id: edgeId,

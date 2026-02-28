@@ -80,7 +80,7 @@ ToolRegistry.register({
                     max_allowed: workspaceLimitCheck.maxAllowed,
                     current_workspace: currentWorkspace,
                     reason: workspaceLimitCheck.reason,
-                    upgrade_message: `🚀 Free tier includes 1 workspace with all features.
+                    upgrade_message: `Free tier includes 1 workspace with all features.
 
 Your current workspace: "${currentWorkspace?.name || 'Unknown'}"
 • ${currentWorkspace?.diagramCount || 0} diagrams saved
@@ -152,7 +152,7 @@ Would you like to upgrade or delete the existing workspace?`,
                 workspace_id: app.id,
                 workspace_name: app.name,
                 workspace_path: projectPath,
-                message: `✅ Created workspace "${projectName}"
+                message: `Created workspace "${projectName}"
 
 Now you can:
 - Call apply_template() to use a starter template

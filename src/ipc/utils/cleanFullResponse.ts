@@ -1,3 +1,40 @@
+const SUGGESTIONS_REGEX = /<suggestions>([\s\S]*?)<\/suggestions>/i;
+
+/**
+ * Extract and remove the <suggestions>...</suggestions> block from the response.
+ * Returns cleaned response (for DB/display) and up to 3 suggestion strings for UI chips.
+ */
+export function extractSuggestions(fullResponse: string): {
+  cleaned: string;
+  suggestions: string[];
+} {
+  const match = fullResponse.match(SUGGESTIONS_REGEX);
+  if (!match) {
+    return { cleaned: fullResponse, suggestions: [] };
+  }
+  const raw = match[1].trim();
+  let suggestions: string[] = [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      suggestions = parsed
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+    }
+  } catch {
+    // Plain list: split by newline or comma
+    suggestions = raw
+      .split(/[\n,]/)
+      .map((s) => s.replace(/^["'\s-•*]+|["'\s-•*]+$/g, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+  const cleaned = fullResponse.replace(SUGGESTIONS_REGEX, "").trim();
+  return { cleaned, suggestions };
+}
+
 export function cleanFullResponse(text: string): string {
   // Replace < characters inside dyad-* attributes with fullwidth less-than sign ＜
   // This prevents parsing issues when attributes contain HTML tags like <a> or <div>

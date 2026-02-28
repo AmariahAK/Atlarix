@@ -34,6 +34,8 @@ import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
 import { ThinkingCard } from "./ThinkingSection";
 import { ActivityDisplay } from "../ActivityDisplay";
+import { PlanCard } from "./PlanCard";
+import { extractPlanFromContent } from "@/lib/plan-cards/plan-card-renderer";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -326,6 +328,11 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
             )}
         </React.Fragment>
       ))}
+      {/* v3.6: Plan card below response when content contains plan data */}
+      {!isStreaming && (() => {
+        const planData = extractPlanFromContent(content);
+        return planData ? <PlanCard data={planData} /> : null;
+      })()}
     </>
   );
 };

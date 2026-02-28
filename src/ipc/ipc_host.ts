@@ -43,6 +43,10 @@ import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
+import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
+import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
+import { registerRoutingHandlers } from "./handlers/routing_handlers";
+import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
@@ -95,4 +99,8 @@ export function registerIpcHandlers() {
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
   registerBlueprintHandlers(); // Phase 7 Additive Blueprint
+  registerPivotAnalysisHandlers(); // PIVOT analysis (SonarQube, Semgrep, SCIP)
+  registerDbExtensionHandlers(); // DB Studio extension (Pro)
+  registerRoutingHandlers(); // v3.6 Auto routing preview
+  wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

@@ -491,6 +491,15 @@ body[data-scroll-locked] .app-region-drag {
   50% { opacity: 1; }
 }
 
+/* Live-flow edge particles: subtle opacity pulse along the path */
+@keyframes atlarix-particle-glow {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.9; }
+}
+.atlarix-edge-particle {
+  animation: atlarix-particle-glow 1.5s ease-in-out infinite;
+}
+
 /* ═══════════════════════════════════════════════════════════
    PANEL ANIMATIONS
    ═══════════════════════════════════════════════════════════ */

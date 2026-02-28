@@ -73,28 +73,42 @@ function blueprintToNodesAndEdges(
     agentPhase === "reviewer" && agentPhaseActive
       ? "atlarix-edge-reviewer-pulse"
       : undefined;
-  const edges: Edge[] = validEdges.map((e, i) => ({
-    id: e.id ?? `edge-${e.from}-${e.to}-${i}`,
-    source: e.from,
-    target: e.to,
-    label: e.label ?? e.type ?? undefined,
-    type: "smoothstep",
-    className: edgeClassName,
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: e.inferred ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))",
-      width: 18,
-      height: 18,
-    },
-    data: { edgeType: e.type, inferred: e.inferred ?? false, isRteRunning: isRteRunning ?? false },
-    style: {
-      stroke: e.inferred ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))",
-      strokeWidth: 2,
-      strokeDasharray: e.inferred ? "6 4" : undefined,
-      opacity: 1,
-    },
-    zIndex: 1000,
-  }));
+  const DIRECTION_COLORS: Record<"to" | "from" | "both", string> = {
+    to: "hsl(0, 70%, 52%)",
+    from: "hsl(220, 70%, 55%)",
+    both: "hsl(270, 60%, 55%)",
+  };
+  const edges: Edge[] = validEdges.map((e, i) => {
+    const direction = e.direction ?? "to";
+    const strokeColor = e.inferred ? "hsl(var(--muted-foreground))" : DIRECTION_COLORS[direction];
+    return {
+      id: e.id ?? `edge-${e.from}-${e.to}-${i}`,
+      source: e.from,
+      target: e.to,
+      label: e.label ?? e.type ?? undefined,
+      type: "smoothstep",
+      className: edgeClassName,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: strokeColor,
+        width: 18,
+        height: 18,
+      },
+      data: {
+        edgeType: e.type,
+        inferred: e.inferred ?? false,
+        isRteRunning: isRteRunning ?? false,
+        direction,
+      },
+      style: {
+        stroke: strokeColor,
+        strokeWidth: 2,
+        strokeDasharray: e.inferred ? "6 4" : undefined,
+        opacity: 1,
+      },
+      zIndex: 1000,
+    };
+  });
   return { nodes, edges, hiddenRooms };
 }
 
@@ -105,6 +119,7 @@ function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint 
     to: e.target,
     label: typeof e.label === "string" ? e.label : undefined,
     type: (e.data as { edgeType?: "import" | "call" | "api" })?.edgeType,
+    direction: (e.data as { direction?: "to" | "from" | "both" })?.direction,
   }));
   return { rooms, edges: blueprintEdges, envRefs: [] };
 }
@@ -392,6 +407,10 @@ function BlueprintCanvasInner({
           <div className="flex items-center gap-2">
             <div className="w-6 border-t-2 border-dashed border-muted-foreground" />
             <span className="text-muted-foreground">Inferred (refresh to confirm)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary atlarix-edge-particle" />
+            <span className="text-muted-foreground">Live flow</span>
           </div>
           {isRteRunning && (
             <div className="mt-1 text-xs text-muted-foreground animate-pulse">Analyzing code...</div>

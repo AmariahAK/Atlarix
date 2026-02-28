@@ -44,8 +44,50 @@ export function estimateContextTokens(params: {
   return systemPromptTokens + messageHistoryTokens + inputTokens;
 }
 
+/** v3.6: Per-agent compaction thresholds (token ratio). */
+const AGENT_COMPACTION_THRESHOLDS: Record<string, number> = {
+  main: 0.6,
+  architect: 0.65,
+  builder: 0.7,
+  reviewer: 0.7,
+  researcher: 0.75,
+};
+
 /**
- * Check if we should run compaction (over threshold)
+ * v3.6: Trigger-based compaction. Evaluate in order; first match wins.
+ * Returns true if any trigger fires.
+ */
+export function evaluateCompactionTriggers(params: {
+  tokenRatio: number;
+  exchangeCount?: number;
+  contextWindowKnown?: boolean;
+  toolCallsInLast6?: number;
+  agentId?: string;
+  hasWorkspace?: boolean;
+  settingsExchangeThreshold?: number;
+}): boolean {
+  const {
+    tokenRatio,
+    exchangeCount = 0,
+    contextWindowKnown = true,
+    toolCallsInLast6 = 0,
+    agentId,
+    hasWorkspace = true,
+    settingsExchangeThreshold = 6,
+  } = params;
+
+  if (tokenRatio > 0.65) return true;
+  if (tokenRatio > 0.5) return true;
+  if (!contextWindowKnown && exchangeCount >= settingsExchangeThreshold) return true;
+  if (toolCallsInLast6 >= 8) return true;
+  const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
+  if (tokenRatio > threshold) return true;
+  return false;
+}
+
+/**
+ * Check if we should run compaction (over threshold).
+ * v3.6: When triggerParams provided, uses trigger-based evaluation; otherwise single threshold.
  */
 export async function shouldCompact(params: {
   chatId: number;
@@ -53,6 +95,11 @@ export async function shouldCompact(params: {
   systemPromptTokens: number;
   inputTokens?: number;
   providerId?: string;
+  /** v3.6: Trigger params for multi-trigger evaluation */
+  exchangeCount?: number;
+  toolCallsInLast6?: number;
+  agentId?: string;
+  hasWorkspace?: boolean;
 }): Promise<boolean> {
   const {
     chatId,
@@ -60,6 +107,10 @@ export async function shouldCompact(params: {
     systemPromptTokens,
     inputTokens = 0,
     providerId,
+    exchangeCount,
+    toolCallsInLast6,
+    agentId,
+    hasWorkspace = true,
   } = params;
 
   if (chatId < 0) return false; // Ephemeral chat - no compaction
@@ -73,12 +124,30 @@ export async function shouldCompact(params: {
   const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
   const { budget } = await getEffectiveBudget(pid);
   const usableBudget = Math.floor(budget * (1 - OUTPUT_RESERVE_RATIO));
+  const tokenRatio = budget > 0 ? total / usableBudget : 0;
 
-  return total > usableBudget * COMPACTION_THRESHOLD;
+  const settings = readSettings();
+  const exchangeThreshold = settings.autoRoutingExchangeThreshold ?? 6;
+
+  if (exchangeCount != null || toolCallsInLast6 != null) {
+    return evaluateCompactionTriggers({
+      tokenRatio,
+      exchangeCount,
+      contextWindowKnown: budget > 0,
+      toolCallsInLast6,
+      agentId,
+      hasWorkspace,
+      settingsExchangeThreshold: exchangeThreshold,
+    });
+  }
+
+  const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
+  return total > usableBudget * threshold;
 }
 
 /**
- * Run compaction: summarize oldest N messages, save, return summary + remaining
+ * Run compaction: summarize oldest N messages, save, return summary + remaining.
+ * v3.6: Accepts sessionStats for balanced model when session is complex.
  */
 export async function runCompaction(params: {
   chatId: number;
@@ -86,6 +155,8 @@ export async function runCompaction(params: {
   systemPromptTokens: number;
   inputTokens?: number;
   providerId?: string;
+  /** v3.6: For balanced summarization when complex */
+  sessionStats?: { toolCallCount?: number; delegationCount?: number };
 }): Promise<{
   summaryText: string;
   lastMessageId: number;
@@ -97,6 +168,7 @@ export async function runCompaction(params: {
     systemPromptTokens,
     inputTokens = 0,
     providerId,
+    sessionStats,
   } = params;
 
   if (chatId < 0 || chatMessages.length < 4) return null;
@@ -142,7 +214,7 @@ export async function runCompaction(params: {
   const userPrompt = CONTEXT_COMPACTION_USER_PREFIX + formatted;
 
   try {
-    const summarizationModel = await getSummarizationModelAsync(settings);
+    const summarizationModel = await getSummarizationModelAsync(settings, sessionStats);
     const { modelClient } = await getModelClient(summarizationModel, settings);
 
     const result = await generateText({

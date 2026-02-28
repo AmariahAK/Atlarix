@@ -1,79 +1,68 @@
 /**
- * v2.5 PIVOT — From Code to Canvas, Canvas to Code
- * Types for Containers (high-level components) and Beacons (functionality inside a container).
- * Three states: Live Diagram ↔ Blueprint → Generated Code.
+ * PIVOT types — canonical model for Code to Canvas, Canvas to Code.
+ * Aligns with shared/blueprint-types where needed for UI mapping.
  */
 
-/** Structural node from code (function, class, API, DB, webhook, etc.) */
+export type PivotNodeType = "file" | "function" | "class" | "module";
+
+export type PivotEdgeType = "import" | "call" | "extends" | "api";
+
+/** Extracted node (file, function, class, module) from parsers. */
 export interface PivotNode {
   id: string;
-  type: "function" | "class" | "api" | "webhook" | "db" | "cron" | "stream" | "3p" | "other";
+  type: PivotNodeType;
   label: string;
-  filePath?: string;
-  startLine?: number;
-  endLine?: number;
-  frameworkHint?: string;
-  /** Env key references (e.g. STRIPE_API_KEY, RESEND_API_KEY) */
-  envRefs?: string[];
+  filePath: string;
+  rangeStart?: number;
+  rangeEnd?: number;
+  metadata?: Record<string, unknown>;
 }
 
-/** Edge between nodes (calls, imports, inherits) */
+/** Edge between two nodes (import, call, extends). */
 export interface PivotEdge {
   id: string;
   fromId: string;
   toId: string;
-  kind: "calls" | "imports" | "inherits" | "data";
-  label?: string;
+  type: PivotEdgeType;
+  metadata?: Record<string, unknown>;
 }
 
-/** Container = high-level architectural component (e.g. Auth API, Payment Service) */
-export interface PivotContainer {
+/** Container = top-level diagram node (maps to BlueprintRoom). */
+export interface Container {
   id: string;
+  workspaceId: number;
   label: string;
   intent?: string;
-  type?: "api" | "db" | "worker" | "frontend" | "service";
-  nodeIds: string[];
+  position?: { x: number; y: number };
+  createdAt?: number;
 }
 
-/** Beacon = individual functionality inside a container (e.g. Login, Signup, Send Email) */
-export interface PivotBeacon {
+/** Beacon = function/feature inside a container (maps to BlueprintFunction). */
+export interface Beacon {
   id: string;
   containerId: string;
   label: string;
-  /** Natural language description; can reference env keys (e.g. "Uses STRIPE_API_KEY") */
+  kind: "api" | "webhook" | "function" | "feature";
   description?: string;
-  nodeIds: string[];
-  /** Env key names referenced (no values) */
-  envRefs?: string[];
+  filePath?: string;
+  position?: { x: number; y: number };
 }
 
-/** Edge between beacons (flow/sequence) */
-export interface PivotBeaconEdge {
-  id: string;
-  fromBeaconId: string;
-  toBeaconId: string;
-  label?: string;
-}
-
-/** Blueprint snapshot: containers + beacons + optional comparison to live */
+/** Full PIVOT blueprint: containers + beacons + optional raw nodes/edges. */
 export interface PivotBlueprint {
-  id: string;
-  projectHash?: string;
-  containers: PivotContainer[];
-  beacons: PivotBeacon[];
-  beaconEdges: PivotBeaconEdge[];
-  envRefs: string[];
-  /** When this snapshot was taken */
-  updatedAt: number;
+  containers: Container[];
+  beacons: Beacon[];
+  nodes?: PivotNode[];
+  edges?: PivotEdge[];
 }
 
-export function createEmptyPivotBlueprint(): PivotBlueprint {
-  return {
-    id: `pivot_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-    containers: [],
-    beacons: [],
-    beaconEdges: [],
-    envRefs: [],
-    updatedAt: Date.now(),
-  };
+/** Source of a blueprint snapshot. */
+export type BlueprintSnapshotSource = "rte" | "user" | "ai_cluster";
+
+/** Parsed project result from Stage 1 (parsers). */
+export interface ParsedProject {
+  nodes: PivotNode[];
+  edges: PivotEdge[];
+  framework?: string;
+  language?: string;
 }

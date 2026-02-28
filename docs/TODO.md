@@ -1,8 +1,40 @@
 # Atlarix TODO
 
-**Current Version:** v2.9.0  
-**Next Version:** v2.10+ (PIVOT full implementation)  
-**Last Updated:** 2026-02-16
+**Current Version:** v3.6.0  
+**Next Version:** v3.7+  
+**Last Updated:** 2026-02-27
+
+---
+
+## Product context (for AI and blueprint accuracy)
+
+- **PIVOT:** Code to Canvas, Canvas to Code. **Containers** = top-level diagram nodes; **Beacons** = functions/features inside a container. **Blueprint** = living diagram from RTE (Round-Trip Engineering) and RAG. RTE parsers (TS, Python) produce single-project blueprints; combined blueprints span projects. Diagram types: architecture, dependencies, flows.
+- **Blueprint connections:** Inferred edges are **import-based** only (file A imports file B → edge A→B). No call-graph or data-flow analysis; add manual edges for other relationships. Cross-room edges into test-like rooms from non-test rooms are filtered out.
+- **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
+- **Agents:** Research, Architect, Builder, Reviewer; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers.
+- **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; token budget; permission queue; summarization.
+
+---
+
+## Done: v3.6 — Build guide completion (2026-02-27)
+
+- **Auto router:** Two-stage routing, capability registry, fallback-router; wiring in chat stream; routing preview and override in ChatInput.
+- **Summarization:** 7-trigger system, per-agent thresholds, balanced model for complex sessions, structured prompt.
+- **Blueprint:** Enricher (contentHash cache, batches of 10), reference-manager, plan-manager (`.atlarix/plans/`), workspace open enrichment + combined blueprint.
+- **Blueprint live flow:** Unique path IDs, bidirectional particles, edge direction fix, particle glow keyframes, legend entry.
+- **Blueprint simplify with AI:** Containers, beacons, and full architecture simplification.
+- **Blueprint edge corrections:** Fallback matching by normalized label/path; test edge filtering.
+- **Plan cards:** PlanCard component, plan-card-renderer, extract from content; Switch to Build.
+- **Agent mesh:** AgentBus, orchestrator, IPC forward to Activity Stream; agent_message / routing_decision in Activity Stream.
+- **Agent animation:** Zustand animation-state, AgentNode, AgentMessageEdge; store sync from delegation events.
+- **Animation speed:** All animation durations halved (GuidedPipeline, AgentNode, AgentMessageEdge, BlueprintEdge).
+- **Reviewer:** static-analyzer, qodo-prompt-adapter, lightning-review-memory (review_patterns table).
+- **Reference projects:** add_reference_project tool, get/set reference paths IPC, ReferenceProjectsCard in Diagram panel.
+- **DB Extension:** Full CRUD for connections (PostgreSQL, MySQL, SQLite). IPC handlers, persistence, schema introspection, query execution. AI tools: db_query, db_schema, db_list, db_mutate. Context injector for system prompt.
+- **Settings > Extensions:** DB connections UI with global and per-workspace scope.
+- **Persistent tool indicator:** chat:tool:start/end with Atlarix compass animation.
+- **Prompt suggestions:** Context-aware suggestion chips.
+- **Atlarix loading animation:** Configurable AtlarixAnimation component (compass/A phases).
 
 ---
 
@@ -71,10 +103,10 @@
 - **Blueprint UX:** Delete container/beacon, drag nodes, Summary Card, Edit Internals, Back, onboarding, "Always show beacons", AI-generated badge, Flow zoom/pan; aiGenerated in add_blueprint_function/update_blueprint.
 - **Capability comparison** in README.
 
-**Remaining for full PIVOT:**
-- **Stage 1 — ANTLR4 parsing:** TS/JS, Python, Java, Go, C/C++, Rust; ASTs from language grammars.
-- **Stage 2 — Structure extraction:** Nodes and edges; framework detection (Express, Next.js, FastAPI, etc.).
-- **Stage 3 — SQLite persistence:** Wire schema to extractors and blueprint snapshots.
-- **Stage 4 — Clustering & visualization:** AI clustering into 5–8 containers; beacon descriptions; canvas output.
-- **Stage 5 — Analysis layer:** SonarQube, Semgrep, SCIP, traces.
-- **UI levels:** Canvas (containers) → Container view (beacons) → Beacon editor (prompt + connections). Live vs Blueprint comparison, Generate Code workflow, undo/history.
+**Full PIVOT (implemented):**
+- **Stage 1 — Parsing:** `src/lib/pivot/parsers` uses workspace-analyzer (regex + optional Tree-sitter) for TS/JS, Python, Go, Rust, etc.; unified `parseProject(workspacePath)`.
+- **Stage 2 — Structure extraction:** `src/lib/pivot/structure.ts` maps WorkspaceAnalysis to PivotNode[] and PivotEdge[]; framework from analyzer.
+- **Stage 3 — SQLite persistence:** `src/lib/pivot/` types, `src/db/schema.ts` pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots; `pivot-service.ts`; wired in blueprint_handlers (refresh-from-code and setBlueprint persist nodes/edges and snapshots).
+- **Stage 4 — Clustering:** `src/lib/pivot/clustering.ts` AI clustering into 5–8 containers; blueprint:cluster IPC; "Cluster" button in Blueprint editor.
+- **Stage 5 — Analysis layer:** `src/lib/pivot/analysis/` SonarQube (env: SONAR_URL, SONAR_TOKEN), Semgrep CLI, SCIP placeholder; pivot:run-analysis IPC; "Analysis" panel in Blueprint.
+- **UI:** Live vs Blueprint comparison (Compare button), Generate Code (existing Generate button), blueprint undo stack and History (snapshots restore).

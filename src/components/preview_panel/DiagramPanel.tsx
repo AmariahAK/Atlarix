@@ -16,6 +16,7 @@ import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
 import { BlueprintEditor } from '@/components/preview_panel/BlueprintEditor';
+import { ReferenceProjectsCard } from '@/components/blueprint/ReferenceProjectsCard';
 import { IpcClient } from '@/ipc/ipc_client';
 import { createEmptyBlueprint } from '@/shared/blueprint-types';
 import { toast } from 'sonner';
@@ -126,13 +127,13 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         const loadExistingDiagrams = async () => {
             setLoadingDiagram(true);
             try {
-                console.log(`📊 [DiagramPanel] Loading diagrams for workspace ${app.id}`);
+                console.log(`[DiagramPanel] Loading diagrams for workspace ${app.id}`);
                 const result = await IpcClient.getInstance().listDiagrams({ workspaceId: app.id });
 
                 if (result.success && result.diagrams && result.diagrams.length > 0) {
                     const diagrams = result.diagrams as DiagramRecord[];
                     setAllDiagrams(diagrams);
-                    console.log(`📊 [DiagramPanel] Found ${diagrams.length} diagrams`);
+                    console.log(`[DiagramPanel] Found ${diagrams.length} diagrams`);
                     // If current diagram is not in the list or from another workspace, show first
                     const currentInList = diagram && (diagram as any).workspaceId === app.id
                         ? diagrams.find((d) => d.id === (diagram as any).id)
@@ -149,10 +150,10 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                 } else {
                     setAllDiagrams([]);
                     setDiagramState(null);
-                    console.log(`📊 [DiagramPanel] No diagrams found for workspace ${app.id}`);
+                    console.log(`[DiagramPanel] No diagrams found for workspace ${app.id}`);
                 }
             } catch (error) {
-                console.error('📊 [DiagramPanel] Failed to load diagrams:', error);
+                console.error('[DiagramPanel] Failed to load diagrams:', error);
                 setAllDiagrams([]);
             } finally {
                 setLoadingDiagram(false);
@@ -385,6 +386,9 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
             )}
             {activeTab === 'diagram' && viewMode === 'blueprint' && (
                 <div className="flex flex-col flex-1 min-h-0">
+                    <div className="px-3 py-2 border-b border-border/50">
+                        <ReferenceProjectsCard workspaceId={app?.id ?? null} />
+                    </div>
                     {loadingBlueprint ? (
                         <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
                             <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />

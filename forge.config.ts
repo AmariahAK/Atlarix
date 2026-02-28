@@ -64,18 +64,18 @@ const config: ForgeConfig = {
     icon: "./assets/icon/logo",
     executableName: "atlarix", // Fixes Linux 'could not find binary' error (case sensitivity)
 
-    osxSign: isEndToEndTestBuild || !process.env.APPLE_TEAM_ID
+    osxSign: isEndToEndTestBuild || !process.env.APPLE_IDENTITY
       ? undefined
       : {
-        identity: process.env.APPLE_TEAM_ID,
-      },
+          identity: process.env.APPLE_IDENTITY,
+        },
     osxNotarize: isEndToEndTestBuild || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID
       ? undefined
       : {
-        appleId: process.env.APPLE_ID!,
-        appleIdPassword: process.env.APPLE_PASSWORD!,
-        teamId: process.env.APPLE_TEAM_ID!,
-      },
+          appleId: process.env.APPLE_ID!,
+          appleIdPassword: process.env.APPLE_PASSWORD!,
+          teamId: process.env.APPLE_TEAM_ID!,
+        },
     asar: true,
     ignore,
     extraResource: ["node_modules/dugite/git"],

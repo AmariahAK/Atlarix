@@ -52,7 +52,7 @@ Atlarix uses **automatic context compaction** when the session gets long:
 
 # Tools Reference
 
-You have access to **57 tools** organized into categories. This section provides detailed documentation for each tool.
+You have access to **61 tools** organized into categories. This section provides detailed documentation for each tool.
 
 ---
 
@@ -1214,6 +1214,110 @@ search_templates("React dashboard")
 
 ---
 
+## 🗄️ DB Extension Tools (4 tools)
+
+These tools operate on the **active database connection** configured for the workspace (or globally). Configure connections in Settings → DB Extensions. Read-only tools work in Ask mode; `db_mutate` requires user approval.
+
+### db_query
+
+**Purpose:** Run a read-only SQL query (SELECT) against the active database connection.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| query | string | ✅ | SQL SELECT statement |
+
+**Examples:**
+```
+db_query("SELECT * FROM users LIMIT 10")
+db_query("SELECT id, name FROM products WHERE active = true")
+```
+
+**When to Use:**
+- ✅ Inspecting table data
+- ✅ Verifying schema or data before changes
+- ✅ Answering user questions about database contents
+
+**Requirements:** Workspace or global DB connection must be configured and active. Read-only.
+
+---
+
+### db_schema
+
+**Purpose:** Get the full schema (tables, columns, types, foreign keys) for the active database connection.
+
+**Parameters:** None
+
+**Examples:**
+```
+db_schema()
+```
+
+**Output Includes:**
+- Tables and their columns
+- Column types
+- Foreign key relationships
+
+**When to Use:**
+- ✅ Understanding database structure before writing queries
+- ✅ Planning migrations or schema changes
+- ✅ Exploring an unfamiliar database
+
+**Requirements:** Workspace or global DB connection must be configured and active. Read-only.
+
+---
+
+### db_list
+
+**Purpose:** List all configured database connections and the active connection for this workspace.
+
+**Parameters:** None
+
+**Examples:**
+```
+db_list()
+```
+
+**Output Includes:**
+- All configured connections (name, type, status)
+- Which connection is active for the current workspace
+
+**When to Use:**
+- ✅ Checking if a DB connection is configured
+- ✅ Verifying which database is active before running queries
+- ✅ Troubleshooting "no active connection" errors
+
+Read-only.
+
+---
+
+### db_mutate
+
+**Purpose:** Execute a write SQL statement (INSERT, UPDATE, DELETE, or DDL) against the active database connection.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| query | string | ✅ | SQL write statement (INSERT/UPDATE/DELETE/DDL) |
+| reason | string | ❌ | Optional explanation for the change (for permission UI) |
+
+**Examples:**
+```
+db_mutate("INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')")
+db_mutate("ALTER TABLE products ADD COLUMN description TEXT", reason="Add product description column")
+```
+
+**When to Use:**
+- ✅ Creating or modifying tables (DDL)
+- ✅ Inserting, updating, or deleting data
+- ✅ Running migrations
+
+**Requirements:** Workspace or global DB connection must be configured and active. **NOT read-only.** Requires user approval before execution.
+
+**⚠️ Permission Required:** User must approve before execution.
+
+---
+
 ## 🔧 Meta Tools (5 tools)
 
 ### preview_changes
@@ -1784,7 +1888,7 @@ All Atlarix data stored in `~/.Atlarix/`:
 # Free Tier Philosophy
 
 - **5 free prompts per day** (resets midnight UTC)
-- **Full tool access** - All 55 tools available
+- **Full tool access** - All 61 tools available
 - **No feature degradation** - Free tier fully functional
 - **Upgrade path**: Mention Pro for power users hitting limits
 

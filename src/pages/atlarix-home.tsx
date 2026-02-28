@@ -135,7 +135,7 @@ export default function AtlarixHome() {
                 // Show first 3 templates
                 setDisplayedTemplates(templates.slice(0, 3));
             } catch (error) {
-                console.error('[Atlarix Home] ❌ Failed to fetch templates:', error);
+                console.error('[Atlarix Home] Failed to fetch templates:', error);
                 setAllTemplates([]);
                 setDisplayedTemplates([]);
             } finally {
@@ -570,7 +570,7 @@ export default function AtlarixHome() {
                                 )}
                             </div>
                             <p className="mt-2 text-xs text-muted-foreground">
-                                💡 Searches cached templates first, then searches GitHub live if needed
+                                Searches cached templates first, then searches GitHub live if needed
                             </p>
                         </div>
 

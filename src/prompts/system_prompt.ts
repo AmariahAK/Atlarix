@@ -213,6 +213,22 @@ ${userPrompt.trim()}
 `;
     }
 
+    // v3.5: Context-aware prompt suggestions (Option A — piggyback, zero extra API call)
+    prompt += `
+
+---
+
+# Prompt suggestions
+After your response, output a JSON block on its own line:
+<suggestions>["suggestion 1", "suggestion 2", "suggestion 3"]</suggestions>
+Base suggestions on what would logically come next in this task. Examples:
+- After creating a component: "Add tests for this component", "Connect this to the API"
+- After a build error: "Fix all TypeScript errors", "Check why this is failing"
+- Fresh workspace: "Scan my codebase and give me an overview", "Generate a Blueprint"
+- After a long task completes: "Review what was just built", "Update the spec"
+Provide exactly 3 short, actionable suggestions. No preamble inside the tag.
+`;
+
     return prompt;
 };
 

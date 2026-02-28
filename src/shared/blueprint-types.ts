@@ -29,6 +29,12 @@ export interface BlueprintFunction {
   parentId?: string;
   /** Absolute path to source file (used by file-tree source). */
   file?: string;
+  /** v3.6: Enrichment inputs (from balanced model). */
+  enrichmentInputs?: string[];
+  /** v3.6: Enrichment outputs. */
+  enrichmentOutputs?: string[];
+  /** v3.6: Enrichment data flows to other nodes. */
+  enrichmentDataFlows?: Array<{ to: string; label: string }>;
 }
 
 /** Direction of data flow for edge styling (to=red, from=blue, both=purple) */
@@ -74,6 +80,8 @@ export interface BlueprintEdge {
   weight?: number;
   /** When true, edge was inferred from imports (not RTE-confirmed). */
   inferred?: boolean;
+  /** Data flow direction for path color: to (red), from (blue), both (purple). */
+  direction?: BlueprintEdgeDirection;
 }
 
 export interface Blueprint {
@@ -81,6 +89,8 @@ export interface Blueprint {
   edges: BlueprintEdge[];
   /** Optional env var names referenced (no values) */
   envRefs?: string[];
+  /** Inferred edge keys (from\\tto) that the user removed; we do not re-add them on merge. */
+  removedInferredEdgeKeys?: string[];
 }
 
 export function createEmptyBlueprint(): Blueprint {

@@ -179,14 +179,18 @@ export function ProviderSettingsGrid() {
             );
           })}
 
-        {/* Custom provider TBD */}
+        {/* Manual / custom provider: API key + model name(s), max 3 tiers */}
         <button
-          disabled
-          className="flex flex-col items-center justify-center h-24 rounded-lg border-2 border-dashed border-muted hover:border-muted-foreground transition opacity-50 cursor-not-allowed"
+          type="button"
+          onClick={() => setIsDialogOpen(true)}
+          className="flex flex-col items-center justify-center h-24 rounded-lg border-2 border-dashed border-muted hover:border-muted-foreground transition cursor-pointer"
         >
           <PlusIcon className="h-6 w-6 mb-2 text-muted-foreground" />
           <span className="text-sm font-medium text-muted-foreground">
-            Custom Provider (TBD)
+            Add custom provider
+          </span>
+          <span className="text-xs text-muted-foreground mt-1">
+            API key + model name, max 3 (Fast / Balanced / Thinking)
           </span>
         </button>
       </div>

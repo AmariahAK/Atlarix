@@ -19,6 +19,7 @@ import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight } from "lucide-react";
+import { DbExtensionsSettings } from "@/components/settings/DbExtensionsSettings";
 
 export default function SettingsPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -86,6 +87,15 @@ export default function SettingsPage() {
           {/* MCP Servers - clickable card like AI providers */}
           <div id="mcp" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <McpServersCard />
+          </div>
+
+          {/* Extensions */}
+          <div id="extensions" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <h2 className="text-lg font-medium text-foreground mb-4">Extensions</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
+            </p>
+            <DbExtensionsSettings workspaceId={null} />
           </div>
 
           {/* Integrations */}
@@ -271,6 +281,50 @@ export function AISettings() {
 
       <div className="mt-4">
         <MaxChatTurnsSelector />
+      </div>
+
+      {/* v3.6: Auto Routing options */}
+      <div className="mt-4 space-y-3">
+        <h3 className="text-sm font-medium text-foreground">Auto Routing</h3>
+        <div className="flex items-center gap-2">
+          <input
+            id="auto-routing-show-reasoning"
+            type="checkbox"
+            checked={settings?.autoRoutingShowReasoning !== false}
+            onChange={(e) =>
+              updateSettings({ autoRoutingShowReasoning: e.target.checked })
+            }
+            className="rounded border-border"
+          />
+          <label
+            htmlFor="auto-routing-show-reasoning"
+            className="text-sm text-muted-foreground"
+          >
+            Show routing reasoning in Activity Stream
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="auto-routing-exchange-threshold"
+            className="text-sm text-muted-foreground whitespace-nowrap"
+          >
+            Exchange threshold for fallback:
+          </label>
+          <input
+            id="auto-routing-exchange-threshold"
+            type="number"
+            min={3}
+            max={20}
+            value={settings?.autoRoutingExchangeThreshold ?? 6}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              if (!Number.isNaN(n) && n >= 3 && n <= 20) {
+                updateSettings({ autoRoutingExchangeThreshold: n });
+              }
+            }}
+            className="w-16 rounded border border-border bg-background px-2 py-1 text-sm"
+          />
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground mt-2">

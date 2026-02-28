@@ -323,7 +323,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                 <div>
                   <h3 className="font-medium mb-1">Favorite Models</h3>
                   <p className="text-sm text-muted-foreground">
-                    Select 3 models for Fast ⚡ / Balanced ⚖️ / Deep 🧠.
+                    Select 3 models for Fast / Balanced / Deep.
                   </p>
                 </div>
                 <LocalProviderFavoritesSelector
@@ -358,7 +358,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   <div>
                     <h3 className="font-medium mb-1">Favorite Models</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select 3 models for Fast ⚡ / Balanced ⚖️ / Deep 🧠 (max 3).
+                      Select 3 models for Fast / Balanced / Deep (max 3).
                     </p>
                   </div>
                   <FavoriteModelsSelector />

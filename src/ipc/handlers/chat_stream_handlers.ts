@@ -61,7 +61,7 @@ import { requireMcpToolConsent } from "../utils/mcp_consent";
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
-import { cleanFullResponse } from "../utils/cleanFullResponse";
+import { cleanFullResponse, extractSuggestions } from "../utils/cleanFullResponse";
 import { generateProblemReport } from "../processors/tsc";
 import { createProblemFixPrompt } from "@/shared/problem_prompt";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
@@ -788,11 +788,28 @@ ${componentSnippet}
         );
       } else {
         // Normal AI processing for non-test prompts
-        const effectiveModel = getEffectiveModel(settings);
         const mainOptions: GetModelClientOptions = {
           agentMode: settings.agentMode ?? "guided",
           delegationRole: "main",
         };
+        let effectiveModel = getEffectiveModel(settings);
+        if (req.modelOverride) {
+          effectiveModel = req.modelOverride;
+        } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
+          const { runAutoRouter } = await import("../../lib/routing/auto-router");
+          const { decision, model } = runAutoRouter(req.prompt, settings, mainOptions);
+          effectiveModel = model;
+          if (settings.autoRoutingShowReasoning !== false) {
+            safeSend(event.sender, "chat:activity", {
+              id: `routing-${req.chatId}-${Date.now()}`,
+              type: "routing_decision",
+              label: `Auto → ${decision.targetModel} (${decision.category})`,
+              status: "done",
+              timestamp: Date.now(),
+              chatId: req.chatId,
+            });
+          }
+        }
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
 
@@ -995,15 +1012,37 @@ ${componentSnippet}
               logger.log(
                 `Using context summary + ${afterSummary.length} messages (after msg ${existingSummary.lastMessageId})`,
               );
-            } else if (
-              await shouldCompact({
+            } else {
+              const toolCallsInLast6 = msgList
+                .slice(-6)
+                .filter((m) => (m.content || "").includes("tool_result") || (m.content || "").includes("tool_use"))
+                .length;
+              const toolCallCount = msgList.filter(
+                (m) => (m.content || "").includes("tool_result") || (m.content || "").includes("tool_use")
+              ).length;
+              const delegationCount = msgList.filter(
+                (m) => (m.content || "").includes("delegate_to_agent") || (m.content || "").includes("delegation")
+              ).length;
+              const shouldRun = await shouldCompact({
                 chatId: req.chatId,
                 messageHistoryTokens,
                 systemPromptTokens: systemPromptEstimate,
                 inputTokens,
                 providerId: getEffectiveModelForOptions(settings)?.provider,
-              })
-            ) {
+                exchangeCount: msgList.length,
+                toolCallsInLast6,
+                hasWorkspace: !!hasWorkspace,
+              });
+              if (shouldRun) {
+              // Emit "running" so frontend can show summarization progress above input
+              safeSend(event.sender, "chat:activity", {
+                id: `compaction-start-${req.chatId}-${Date.now()}`,
+                type: "background",
+                label: "Summarizing conversation",
+                status: "running",
+                timestamp: Date.now(),
+                chatId: req.chatId,
+              });
               // Run compaction when over threshold
               const compactionResult = await runCompaction({
                 chatId: req.chatId,
@@ -1011,6 +1050,7 @@ ${componentSnippet}
                 systemPromptTokens: systemPromptEstimate,
                 inputTokens,
                 providerId: getEffectiveModelForOptions(settings)?.provider,
+                sessionStats: { toolCallCount, delegationCount },
               });
               if (compactionResult) {
                 contextSummaryForSystem = compactionResult.summaryText;
@@ -1028,6 +1068,7 @@ ${componentSnippet}
                   status: "done",
                   timestamp: Date.now(),
                   detail: `Compacted to ${compactionResult.messagesAfterSummary.length} messages`,
+                  chatId: req.chatId,
                 });
                 // Persist to .atlarix/memory.md for cross-session memory
                 if (hasWorkspace && appPath) {
@@ -1035,6 +1076,7 @@ ${componentSnippet}
                     logger.warn("Failed to write .atlarix/memory.md:", err)
                   );
                 }
+              }
               }
             }
           }
@@ -2164,6 +2206,14 @@ If the user requests modifications, use request_mode_change to request Build mod
                   textToolCalls.length > 1 &&
                   textToolCalls.every((tc) => readOnlyNames.has(tc.toolName));
 
+                if (allReadOnly) {
+                  for (const tc of textToolCalls) {
+                    safeSend(event.sender, "chat:tool:start", {
+                      chatId: req.chatId,
+                      toolName: tc.toolName,
+                    });
+                  }
+                }
                 const toolCallsToProcess = allReadOnly
                   ? await Promise.all(
                       textToolCalls.map(async (tc) => {
@@ -2192,6 +2242,12 @@ If the user requests modifications, use request_mode_change to request Build mod
 
                 for (let i = 0; i < textToolCalls.length; i++) {
                   const toolCall = textToolCalls[i];
+                  if (!toolCallsToProcess) {
+                    safeSend(event.sender, "chat:tool:start", {
+                      chatId: req.chatId,
+                      toolName: toolCall.toolName,
+                    });
+                  }
                   let toolResult: unknown;
 
                   if (toolCallsToProcess) {
@@ -2213,6 +2269,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                       toolResult = `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`;
                     }
                   }
+                  safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
 
                   try {
                     if (typeof toolResult === "string" && toolResult.startsWith("Error:")) {
@@ -2412,6 +2469,10 @@ If the user requests modifications, use request_mode_change to request Build mod
 
         // Only save the response and process it if we weren't aborted
         if (!abortController.signal.aborted && fullResponse) {
+          // v3.5: Extract and strip <suggestions> block; use cleaned for DB/display, pass suggestions to UI
+          const { cleaned, suggestions } = extractSuggestions(fullResponse);
+          fullResponse = cleaned;
+
           // Scrape from: <atlarix-chat-summary>Renaming profile file</dyad-chat-title>
           const chatTitle = fullResponse.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
@@ -2545,6 +2606,8 @@ If the user requests modifications, use request_mode_change to request Build mod
               extraFiles: status.extraFiles,
               extraFilesError: status.extraFilesError,
               hadToolCallsOrPermissions: status.updatedFiles ?? (status.extraFiles?.length ? true : false),
+              suggestions: suggestions?.length ? suggestions : undefined,
+              lastMessageContent: suggestions?.length ? fullResponse : undefined,
             } satisfies ChatResponseEnd);
           } else {
             // v2.1: Self-review activity in non-status path (ask/simple)
@@ -2588,6 +2651,8 @@ If the user requests modifications, use request_mode_change to request Build mod
               chatId: req.chatId,
               updatedFiles: false,
               hadToolCallsOrPermissions,
+              suggestions: suggestions?.length ? suggestions : undefined,
+              lastMessageContent: suggestions?.length ? fullResponse : undefined,
             } satisfies ChatResponseEnd);
           }
         }

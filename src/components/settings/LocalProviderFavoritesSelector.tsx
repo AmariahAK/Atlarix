@@ -1,6 +1,6 @@
 /**
  * LocalProviderFavoritesSelector - Select 3 favorites for Ollama or LM Studio
- * Fast ⚡ / Balanced ⚖️ / Deep 🧠
+ * Fast / Balanced / Deep
  */
 
 import { useState, useEffect } from "react";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const MAX_FAVORITES = 3;
-const TIER_LABELS = ["⚡ Fast", "⚖️ Balanced", "🧠 Deep"];
+const TIER_LABELS = ["Fast", "Balanced", "Deep"];
 
 interface LocalProviderFavoritesSelectorProps {
   providerId: "ollama" | "lmstudio";

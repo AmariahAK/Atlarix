@@ -197,7 +197,7 @@ export type AgentLightningConfig = z.infer<typeof AgentLightningConfigSchema>;
 
 /** v2.1: Context and summarization config. */
 export const ContextSummarizationConfigSchema = z.object({
-  summarizationModel: z.enum(["fast", "same", "custom"]).default("fast"),
+  summarizationModel: z.enum(["fast", "balanced", "same", "custom"]).default("balanced"),
   customSummarizationModel: LargeLanguageModelSchema.optional(),
   compactionThreshold: z.number().min(0.6).max(0.9).default(0.75),
   adaptiveThreshold: z.boolean().default(true),
@@ -309,6 +309,28 @@ export type ReleaseChannel = z.infer<typeof ReleaseChannelSchema>;
 export const ZoomLevelSchema = z.enum(["90", "100", "110", "125", "150"]);
 export type ZoomLevel = z.infer<typeof ZoomLevelSchema>;
 
+/** v3.6: Stored DB connection config (persisted in settings). Password stored in config. */
+export const DBConnectionConfigStoredSchema = z.object({
+  host: z.string().optional(),
+  port: z.number().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  database: z.string().optional(),
+  ssl: z.boolean().optional(),
+  filename: z.string().optional(),
+  connectionString: z.string().optional(),
+});
+export const DBConnectionStoredSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["postgresql", "sqlite", "mysql"]),
+  config: DBConnectionConfigStoredSchema,
+  isProd: z.boolean().optional(),
+  scope: z.enum(["global", "workspace"]).optional(),
+  workspaceId: z.number().nullable().optional(),
+});
+export type DBConnectionStored = z.infer<typeof DBConnectionStoredSchema>;
+
 export const SmartContextModeSchema = z.enum([
   "balanced",
   "conservative",
@@ -353,6 +375,10 @@ export const UserSettingsSchema = z.object({
   autoProviderId: z.string().nullable().optional(),
   /** v2.1: When Auto is ON, [Fast, Medium, Thinking] model names for autoProviderId. */
   autoModelIds: z.tuple([z.string(), z.string(), z.string()]).optional(),
+  /** v3.6: Show routing reasoning in Activity Stream when Auto is on. */
+  autoRoutingShowReasoning: z.boolean().optional(),
+  /** v3.6: Exchange count threshold for summarization fallback (3–20, default 6). */
+  autoRoutingExchangeThreshold: z.number().min(3).max(20).optional(),
   /** Intent: ask (read-only) | build (full access) | auto (model may switch). */
   intentMode: z.enum(["ask", "build", "auto"]).optional(),
   /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
@@ -386,6 +412,11 @@ export const UserSettingsSchema = z.object({
       systemCpuPercent: z.number().optional(),
     })
     .optional(),
+
+  /** v3.6: DB extension — persisted connections (Global + one per workspace). */
+  dbConnections: z.array(DBConnectionStoredSchema).optional(),
+  dbActiveGlobalId: z.string().nullable().optional(),
+  dbActiveByWorkspace: z.record(z.string(), z.string()).optional(),
 
   ////////////////////////////////
   // E2E TESTING ONLY.
