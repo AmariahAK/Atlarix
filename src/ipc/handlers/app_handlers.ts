@@ -65,6 +65,7 @@ import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils"
 import { AppSearchResult } from "@/lib/schemas";
 import { onWorkspaceRemoved } from "../../db/workspace_cleanup";
 import { capture as analyticsCapture } from "../../main/lib/analytics";
+import { SENTRY_DSN } from "../../main/sentry-config";
 
 import { getAppPort } from "../../../shared/ports";
 
@@ -1487,7 +1488,7 @@ export function registerAppHandlers() {
       isPackaged: boolean;
     }> => {
       return {
-        dsn: process.env.SENTRY_DSN,
+        dsn: SENTRY_DSN,
         version: app.getVersion(),
         isPackaged: app.isPackaged,
       };

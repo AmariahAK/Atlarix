@@ -23,9 +23,7 @@ export function createLoggedHandler(logger: log.LogFunctions) {
             `Error in ${fn.name}: args: ${JSON.stringify(args)}`,
             error,
           );
-          if (process.env.SENTRY_DSN) {
-            Sentry.captureException(error);
-          }
+          Sentry.captureException(error);
           throw new Error(`[${channel}] ${error}`);
         }
       },

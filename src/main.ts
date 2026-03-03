@@ -32,6 +32,7 @@ import { clearAllSessionMemories } from "./lib/session-memory";
 import { startModelsDevRefresh } from "./lib/models_dev";
 import { initTelemetry } from "./lib/telemetry/tracer";
 import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
+import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import fs from "fs";
 import os from "node:os";
@@ -45,8 +46,7 @@ const logger = log.scope("main");
 // Load environment variables from .env file
 dotenv.config();
 
-// Sentry: init in main process before app.whenReady(); skip if no DSN
-const SENTRY_DSN = process.env.SENTRY_DSN;
+// Sentry: init in main process before app.whenReady(); DSN from env or fallback for packaged app
 if (SENTRY_DSN) {
   Sentry.init({
     dsn: SENTRY_DSN,
