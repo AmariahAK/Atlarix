@@ -68,7 +68,6 @@ const config: ForgeConfig = {
       ? undefined
       : {
           identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
-          keychain: "build.keychain",
         },
     osxNotarize: isEndToEndTestBuild
       ? undefined
