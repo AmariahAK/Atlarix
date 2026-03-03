@@ -64,22 +64,19 @@ const config: ForgeConfig = {
     icon: "./assets/icon/logo",
     executableName: "atlarix", // Fixes Linux 'could not find binary' error (case sensitivity)
 
-    osxSign: isEndToEndTestBuild || !process.env.APPLE_IDENTITY
+    osxSign: isEndToEndTestBuild
       ? undefined
       : {
-          identity: process.env.APPLE_IDENTITY,
-          additionalArguments: [
-            "--keychain",
-            process.env.APPLE_KEYCHAIN_PATH || "build.keychain",
-          ],
+          identity: process.env.APPLE_IDENTITY || "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
+          keychain: "build.keychain",
         },
-    osxNotarize: isEndToEndTestBuild || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID
+    osxNotarize: isEndToEndTestBuild || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD
       ? undefined
       : {
           tool: "notarytool",
           appleId: process.env.APPLE_ID!,
           appleIdPassword: process.env.APPLE_PASSWORD!,
-          teamId: process.env.APPLE_TEAM_ID!,
+          teamId: process.env.APPLE_TEAM_ID || "7VWW7N9R87",
         },
     asar: true,
     ignore,
