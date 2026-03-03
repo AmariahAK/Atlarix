@@ -77,6 +77,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Debug env vars
+        run: |
+          echo "APPLE_IDENTITY is set: ${{ secrets.APPLE_IDENTITY != '' }}"
+          echo "APPLE_ID is set: ${{ secrets.APPLE_ID != '' }}"
+          echo "APPLE_PASSWORD is set: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}"
+          echo "APPLE_TEAM_ID is set: ${{ secrets.APPLE_TEAM_ID != '' }}"
+          echo "APPLE_CERT_BASE64 is set: ${{ secrets.APPLE_CERT_BASE64 != '' }}"
+
       # Apple certificate required for macOS signing and notarization; job fails if import or verification fails
       - name: Import Apple certificate
         env:
@@ -99,6 +107,15 @@ jobs:
           # Verify cert imported — will fail the job if not found
           security find-identity -v -p codesigning build.keychain | grep "Developer ID Application"
           rm certificate.p12
+
+      - name: Verify cert in keychain
+        run: |
+          echo "=== Identities in keychain ==="
+          security find-identity -v -p codesigning build.keychain || echo "KEYCHAIN NOT FOUND"
+          echo "=== APPLE_IDENTITY env ==="
+          echo "Value: '$APPLE_IDENTITY'"
+        env:
+          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
 
       - name: Verify signing env
         run: |
