@@ -109,7 +109,11 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Build for macOS (${{ matrix.arch }})
-        run: npm run make -- --arch=${{ matrix.arch }}
+        run: |
+          security list-keychains -s "$(pwd)/build.keychain"
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions-keychain build.keychain
+          npm run make -- --arch=${{ matrix.arch }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           APPLE_ID: ${{ secrets.APPLE_ID }}
