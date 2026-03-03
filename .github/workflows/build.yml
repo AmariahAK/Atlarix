@@ -59,9 +59,11 @@ jobs:
   build-macos:
     needs: create-draft
     runs-on: macos-latest
+    timeout-minutes: 60
     strategy:
       matrix:
         arch: [arm64, x64]
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -77,6 +79,7 @@ jobs:
 
       # TBD - pending Apple Developer Program approval: set APPLE_CERT_BASE64, APPLE_CERT_PASSWORD, APPLE_IDENTITY, APPLE_TEAM_ID in repo secrets
       - name: Import Apple certificate
+        id: import_cert
         env:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
@@ -93,10 +96,13 @@ jobs:
             security set-key-partition-list \
               -S apple-tool:,apple:,codesign: \
               -s -k actions-keychain build.keychain
+            security list-keychains -s "$(pwd)/build.keychain"
             security find-identity -v build.keychain
             rm certificate.p12
+            echo "keychain_path=$(pwd)/build.keychain" >> "$GITHUB_OUTPUT"
           else
             echo "Apple certificate not configured; build will be unsigned."
+            echo "keychain_path=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build for macOS (${{ matrix.arch }})
@@ -108,6 +114,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+          APPLE_KEYCHAIN_PATH: ${{ steps.import_cert.outputs.keychain_path }}
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
       - name: Upload macOS assets to release

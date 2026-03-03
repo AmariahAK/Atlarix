@@ -68,6 +68,9 @@ const config: ForgeConfig = {
       ? undefined
       : {
           identity: process.env.APPLE_IDENTITY,
+          ...(process.env.APPLE_KEYCHAIN_PATH && {
+            keychain: process.env.APPLE_KEYCHAIN_PATH,
+          }),
         },
     osxNotarize: isEndToEndTestBuild || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID
       ? undefined
