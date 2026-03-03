@@ -100,6 +100,14 @@ jobs:
           security find-identity -v -p codesigning build.keychain | grep "Developer ID Application"
           rm certificate.p12
 
+      - name: Verify signing env
+        run: |
+          echo "APPLE_IDENTITY set: ${{ secrets.APPLE_IDENTITY != '' }}"
+          echo "APPLE_ID set: ${{ secrets.APPLE_ID != '' }}"
+          echo "APPLE_TEAM_ID set: ${{ secrets.APPLE_TEAM_ID != '' }}"
+          echo "APPLE_PASSWORD set: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}"
+          security find-identity -v -p codesigning build.keychain
+
       - name: Build for macOS (${{ matrix.arch }})
         run: npm run make -- --arch=${{ matrix.arch }}
         env:
