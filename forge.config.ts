@@ -70,7 +70,7 @@ const config: ForgeConfig = {
           identity: process.env.APPLE_IDENTITY,
           additionalArguments: [
             "--keychain",
-            "build.keychain",
+            process.env.APPLE_KEYCHAIN_PATH || "build.keychain",
           ],
         },
     osxNotarize: isEndToEndTestBuild || !process.env.APPLE_ID || !process.env.APPLE_PASSWORD || !process.env.APPLE_TEAM_ID
