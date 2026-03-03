@@ -978,6 +978,23 @@ export class IpcClient {
     return result.version as string;
   }
 
+  /** Get Sentry config (DSN, version, isPackaged) for renderer init and dev test shortcut. */
+  public async getSentryConfig(): Promise<{
+    dsn: string | undefined;
+    version: string;
+    isPackaged: boolean;
+  }> {
+    return this.ipcRenderer.invoke("get-sentry-config");
+  }
+
+  /** Get PostHog config (API key + anonymous ID) for renderer init. Key undefined if not set. */
+  public async getPostHogConfig(): Promise<{
+    posthogApiKey: string | undefined;
+    analyticsId: string;
+  }> {
+    return this.ipcRenderer.invoke("get-posthog-config");
+  }
+
   // --- MCP Client Methods ---
   public async listMcpServers(filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }) {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);

@@ -31,7 +31,10 @@ import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { clearAllSessionMemories } from "./lib/session-memory";
 import { startModelsDevRefresh } from "./lib/models_dev";
 import { initTelemetry } from "./lib/telemetry/tracer";
+import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
+import * as Sentry from "@sentry/electron/main";
 import fs from "fs";
+import os from "node:os";
 
 log.errorHandler.startCatching();
 log.eventLogger.startLogging();
@@ -41,6 +44,16 @@ const logger = log.scope("main");
 
 // Load environment variables from .env file
 dotenv.config();
+
+// Sentry: init in main process before app.whenReady(); skip if no DSN
+const SENTRY_DSN = process.env.SENTRY_DSN;
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    release: app.getVersion(),
+    tracesSampleRate: 1.0,
+  });
+}
 
 // Mitigate GPU SharedImageManager::ProduceSkia errors (Chromium/Electron on some systems)
 app.commandLine.appendSwitch("disable-gpu-sandbox");
@@ -130,6 +143,11 @@ export async function onReady() {
   logger.info("Models.dev refresh started");
 
   await onFirstRunMaybe(settings);
+  analyticsCapture("app_launched", {
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: os.arch(),
+  });
   createWindow();
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
@@ -500,6 +518,7 @@ app.on("window-all-closed", () => {
 // Only set isRunning to false when the app is properly quit by the user
 app.on("will-quit", () => {
   logger.info("App is quitting, setting isRunning to false");
+  analyticsShutdown();
 
   // Stop performance monitoring and capture final metrics
   stopPerformanceMonitoring();

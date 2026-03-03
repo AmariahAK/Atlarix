@@ -1,10 +1,10 @@
-import { StrictMode, useEffect } from "react";
+import { Component, StrictMode, useEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { router } from "./router";
 import { RouterProvider } from "@tanstack/react-router";
 import { PostHogProvider } from "posthog-js/react";
 import posthog from "posthog-js";
-import { getTelemetryUserId, isTelemetryOptedIn } from "./hooks/useSettings";
+import { isTelemetryOptedIn } from "./hooks/useSettings";
 import {
   QueryCache,
   QueryClient,
@@ -14,9 +14,12 @@ import {
 import { showError, showMcpConsentToast } from "./lib/toast";
 import { IpcClient } from "./ipc/ipc_client";
 import { DevServerProvider } from "./components/DevServerProvider";
+import * as Sentry from "@sentry/electron/renderer";
 
 // @ts-ignore
 console.log("Running in mode:", import.meta.env.MODE);
+
+let sentryIsPackaged = true; // set by bootstrap before render
 
 interface MyMeta extends Record<string, unknown> {
   showErrorToast: boolean;
@@ -54,42 +57,44 @@ const queryClient = new QueryClient({
   }),
 });
 
-const posthogClient = posthog.init(
-  "phc_5Vxx0XT8Ug3eWROhP6mm4D6D2DgIIKT232q4AKxC2ab",
-  {
-    api_host: "https://us.i.posthog.com",
+// PostHog client: inited in bootstrap from main process config (API key + anonymous ID)
+let posthogClient: ReturnType<typeof posthog.init> | null = null;
+
+function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
+  posthogClient = posthog.init(apiKey, {
+    api_host: "https://eu.i.posthog.com",
+    persistence: "memory",
+    autocapture: false,
+    capture_pageview: false,
+    disable_session_recording: true,
     // @ts-ignore
     debug: import.meta.env.MODE === "development",
-    autocapture: false,
-    capture_exceptions: true,
-    capture_pageview: false,
     before_send: (event) => {
       if (!isTelemetryOptedIn()) {
-        console.debug("Telemetry not opted in, skipping event");
         return null;
       }
-      const telemetryUserId = getTelemetryUserId();
-      if (telemetryUserId) {
-        posthogClient.identify(telemetryUserId);
-      }
-
-      if (event?.properties["$ip"]) {
+      if (event?.properties?.["$ip"]) {
         event.properties["$ip"] = null;
       }
-
-      console.debug(
-        "Telemetry opted in - UUID:",
-        telemetryUserId,
-        "sending event",
-        event,
-      );
       return event;
     },
-    persistence: "localStorage",
-  },
-);
+  });
+  posthog.identify(analyticsId);
+}
 
 function App() {
+  // Dev-only: Ctrl+Shift+Alt+E sends a test message to Sentry to verify pipeline
+  useEffect(() => {
+    if (sentryIsPackaged) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.altKey && e.key === "E") {
+        Sentry.captureMessage("test-error");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   useEffect(() => {
     // Subscribe to navigation state changes
     const unsubscribe = router.subscribe("onResolved", (navigation) => {
@@ -128,14 +133,69 @@ function App() {
   return <RouterProvider router={router} />;
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <PostHogProvider client={posthogClient}>
-        <DevServerProvider>
-          <App />
-        </DevServerProvider>
-      </PostHogProvider>
-    </QueryClientProvider>
-  </StrictMode>,
+const SentryFallback = () => (
+  <div style={{ padding: 24, fontFamily: "system-ui", textAlign: "center" }}>
+    <p>Something went wrong. The error has been reported.</p>
+  </div>
 );
+
+/** Catches React render errors and reports them to Sentry, then shows fallback UI. */
+class SentryErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    Sentry.captureException(error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
+async function bootstrap() {
+  const ipc = IpcClient.getInstance();
+  const [sentryConfig, posthogConfig] = await Promise.all([
+    ipc.getSentryConfig(),
+    ipc.getPostHogConfig(),
+  ]);
+  sentryIsPackaged = sentryConfig.isPackaged;
+  if (sentryConfig.dsn) {
+    Sentry.init({
+      dsn: sentryConfig.dsn,
+      release: sentryConfig.version,
+      integrations: [Sentry.browserTracingIntegration()],
+      tracesSampleRate: 1.0,
+    });
+  }
+  if (posthogConfig.posthogApiKey) {
+    initPostHogFromConfig(
+      posthogConfig.posthogApiKey,
+      posthogConfig.analyticsId,
+    );
+  }
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <SentryErrorBoundary fallback={<SentryFallback />}>
+        <QueryClientProvider client={queryClient}>
+          <PostHogProvider client={posthogClient ?? posthog}>
+            <DevServerProvider>
+              <App />
+            </DevServerProvider>
+          </PostHogProvider>
+        </QueryClientProvider>
+      </SentryErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+bootstrap();

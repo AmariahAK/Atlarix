@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import posthog from "posthog-js";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
@@ -10,6 +11,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
@@ -31,6 +33,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setActiveSettingsSection("general");
+    posthog.capture("settings_opened", { section: "general" });
   }, [setActiveSettingsSection]);
 
   const handleResetEverything = async () => {
@@ -193,6 +196,9 @@ function McpServersCard() {
 }
 
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
+  const { settings, updateSettings } = useSettings();
+  const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
+
   return (
     <div
       id="general"
@@ -201,11 +207,36 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
       <h2 className="text-lg font-medium text-foreground mb-4">
         General Settings
       </h2>
-      <div className="flex items-center text-sm text-muted-foreground">
+      <div className="flex items-center text-sm text-muted-foreground mb-6">
         <span className="mr-2 font-medium">App Version:</span>
         <span className="bg-muted px-2 py-0.5 rounded text-foreground font-mono">
           {appVersion ? appVersion : "-"}
         </span>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <label
+              htmlFor="help-improve-atlarix"
+              className="text-sm font-medium text-foreground"
+            >
+              Help improve Atlarix
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Share anonymous usage data (no code, no prompts, no personal info)
+              to help us understand which features matter most.
+            </p>
+          </div>
+          <Switch
+            id="help-improve-atlarix"
+            checked={analyticsOptedIn}
+            onCheckedChange={(checked) => {
+              updateSettings({
+                telemetryConsent: checked ? "opted_in" : "opted_out",
+              });
+            }}
+          />
+        </div>
       </div>
     </div>
   );

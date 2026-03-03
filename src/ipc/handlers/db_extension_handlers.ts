@@ -3,6 +3,7 @@
  */
 
 import { ipcMain } from "electron";
+import { capture as analyticsCapture } from "../../main/lib/analytics";
 import { v4 as uuidv4 } from "uuid";
 import {
   listConnections,
@@ -167,6 +168,8 @@ export function registerDbExtensionHandlers() {
       const conn = getConnection(connId);
       const client = getClient(connId);
       if (!conn || !client || conn.status !== "connected") return null;
+      const dbType = conn.type === "postgresql" ? "postgres" : conn.type === "mysql" ? "mysql" : "sqlite";
+      analyticsCapture("db_extension_used", { db_type: dbType });
       const schema = await introspectSchema(conn, client);
       return {
         tables: schema.tables.map((t) => ({
@@ -186,6 +189,8 @@ export function registerDbExtensionHandlers() {
       const conn = getConnection(connId);
       const client = getClient(connId);
       if (!conn || !client || conn.status !== "connected") return { error: "Not connected" };
+      const dbType = conn.type === "postgresql" ? "postgres" : conn.type === "mysql" ? "mysql" : "sqlite";
+      analyticsCapture("db_extension_used", { db_type: dbType });
       try {
         if (conn.type === "postgresql") {
           const pgMod = await import("pg");

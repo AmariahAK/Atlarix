@@ -1,5 +1,6 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
+import * as Sentry from "@sentry/electron/main";
 import { IS_TEST_BUILD } from "../utils/test_utils";
 
 export function createLoggedHandler(logger: log.LogFunctions) {
@@ -22,6 +23,9 @@ export function createLoggedHandler(logger: log.LogFunctions) {
             `Error in ${fn.name}: args: ${JSON.stringify(args)}`,
             error,
           );
+          if (process.env.SENTRY_DSN) {
+            Sentry.captureException(error);
+          }
           throw new Error(`[${channel}] ${error}`);
         }
       },

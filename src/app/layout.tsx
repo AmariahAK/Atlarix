@@ -18,6 +18,7 @@ import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
 import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
+import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
 import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -274,6 +275,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
   return (
     <>
+      <AnalyticsConsentModal />
       <ThemeProvider>
         <DeepLinkProvider>
           <SidebarProvider>

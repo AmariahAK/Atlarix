@@ -76,6 +76,8 @@ const validInvokeChannels = [
   "vercel:get-deployments",
   "vercel:disconnect",
   "get-app-version",
+  "get-sentry-config",
+  "get-posthog-config",
   "reload-env-path",
   "get-proposal",
   "approve-proposal",

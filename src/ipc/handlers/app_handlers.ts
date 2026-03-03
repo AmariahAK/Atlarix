@@ -64,6 +64,7 @@ import { getVercelTeamSlug } from "../utils/vercel_utils";
 import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils";
 import { AppSearchResult } from "@/lib/schemas";
 import { onWorkspaceRemoved } from "../../db/workspace_cleanup";
+import { capture as analyticsCapture } from "../../main/lib/analytics";
 
 import { getAppPort } from "../../../shared/ports";
 
@@ -748,6 +749,7 @@ export function registerAppHandlers() {
       vercelTeamSlug = await getVercelTeamSlug(app.vercelTeamId);
     }
 
+    analyticsCapture("workspace_opened", { appId });
     return {
       ...app,
       files,
@@ -1476,6 +1478,34 @@ export function registerAppHandlers() {
   ipcMain.handle("get-app-version", async (): Promise<{ version: string }> => {
     return { version: app.getVersion() };
   });
+
+  ipcMain.handle(
+    "get-sentry-config",
+    async (): Promise<{
+      dsn: string | undefined;
+      version: string;
+      isPackaged: boolean;
+    }> => {
+      return {
+        dsn: process.env.SENTRY_DSN,
+        version: app.getVersion(),
+        isPackaged: app.isPackaged,
+      };
+    },
+  );
+
+  ipcMain.handle(
+    "get-posthog-config",
+    async (): Promise<{
+      posthogApiKey: string | undefined;
+      analyticsId: string;
+    }> => {
+      const { getPostHogConfigForRenderer } = await import(
+        "../../main/lib/analytics"
+      );
+      return getPostHogConfigForRenderer();
+    },
+  );
 
   handle("rename-branch", async (_, params: RenameBranchParams) => {
     const { appId, oldBranchName, newBranchName } = params;
