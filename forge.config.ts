@@ -68,6 +68,12 @@ const config: ForgeConfig = {
       ? undefined
       : {
           identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
+          keychain: process.env.APPLE_KEYCHAIN_PATH || "build.keychain",
+          optionsForFile: () => ({
+            entitlements: "./entitlements.plist",
+            "entitlements-inherit": "./entitlements.plist",
+            "hardened-runtime": true,
+          }),
         },
     osxNotarize: isEndToEndTestBuild
       ? undefined
