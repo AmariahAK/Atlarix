@@ -78,38 +78,10 @@ jobs:
         run: npm ci
 
       - name: Import Apple certificate
-        env:
-          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: actions-keychain
-        run: |
-          # Write cert to RUNNER_TEMP (reliable path across steps)
-          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-
-          echo -n "$APPLE_CERT_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-
-          # Create and configure keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          # Import cert into keychain
-          security import $CERTIFICATE_PATH \
-            -P "$APPLE_CERT_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k $KEYCHAIN_PATH
-
-          # Add to keychain search list
-          security list-keychain -d user -s $KEYCHAIN_PATH
-
-          # Verify — fails loudly if Developer ID cert not found
-          echo "=== Identities available ==="
-          security find-identity -v -p codesigning $KEYCHAIN_PATH
-          security find-identity -v -p codesigning $KEYCHAIN_PATH | grep "Developer ID Application"
-
-          # Clean up p12
-          rm $CERTIFICATE_PATH
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERT_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
 
       - name: Build for macOS (${{ matrix.arch }})
         run: npm run make -- --arch=${{ matrix.arch }}
