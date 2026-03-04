@@ -115,9 +115,24 @@ jobs:
         run: npm run make -- --arch=${{ matrix.arch }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+      - name: Notarize macOS app
+        run: |
+          DMG=$(find out/make -name "*.dmg" | head -1)
+          echo "Notarizing $DMG..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "7VWW7N9R87" \
+            --wait \
+            --timeout 90m
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$DMG"
+          echo "Done — $DMG is signed, notarized, and stapled."
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
       - name: Clean up keychain
         if: always()

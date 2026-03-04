@@ -74,14 +74,7 @@ const config: ForgeConfig = {
             "hardened-runtime": true,
           }),
         },
-    osxNotarize: isEndToEndTestBuild
-      ? undefined
-      : {
-          tool: "notarytool",
-          appleId: process.env.APPLE_ID!,
-          appleIdPassword: process.env.APPLE_PASSWORD!,
-          teamId: "7VWW7N9R87",
-        },
+    osxNotarize: undefined,
     asar: true,
     ignore,
     extraResource: ["node_modules/dugite/git"],
