@@ -219,38 +219,38 @@ jobs:
             -d '{"draft":false}' \
             "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
 
-  virustotal:
-    needs: build-macos
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for release assets
-        run: sleep 30
+  # virustotal:
+  #   needs: build-macos
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Wait for release assets
+  #       run: sleep 30
 
-      - name: Get release tag
-        id: tag
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+  #     - name: Get release tag
+  #       id: tag
+  #       run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Download DMG from atlarix-releases
-        run: |
-          mkdir -p ./assets
-          gh release download ${{ steps.tag.outputs.tag }} \
-            --repo AmariahAK/atlarix-releases \
-            --pattern "*.dmg" \
-            --dir ./assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+  #     - name: Download DMG from atlarix-releases
+  #       run: |
+  #         mkdir -p ./assets
+  #         gh release download ${{ steps.tag.outputs.tag }} \
+  #           --repo AmariahAK/atlarix-releases \
+  #           --pattern "*.dmg" \
+  #           --dir ./assets
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
-      - name: Submit to VirusTotal
-        run: |
-          for file in ./assets/*.dmg; do
-            if [ -f "$file" ]; then
-              echo "Submitting $(basename "$file")..."
-              RESPONSE=$(curl --silent --request POST \
-                --url https://www.virustotal.com/api/v3/files \
-                --header "x-apikey: ${{ secrets.VIRUSTOTAL_API_KEY }}" \
-                --form "file=@$file")
-              echo "$RESPONSE"
-              ANALYSIS_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('id','N/A'))")
-              echo "VirusTotal analysis: https://www.virustotal.com/gui/file-analysis/$ANALYSIS_ID"
-            fi
-          done
+  #     - name: Submit to VirusTotal
+  #       run: |
+  #         for file in ./assets/*.dmg; do
+  #           if [ -f "$file" ]; then
+  #             echo "Submitting $(basename "$file")..."
+  #             RESPONSE=$(curl --silent --request POST \
+  #               --url https://www.virustotal.com/api/v3/files \
+  #               --header "x-apikey: ${{ secrets.VIRUSTOTAL_API_KEY }}" \
+  #               --form "file=@$file")
+  #             echo "$RESPONSE"
+  #             ANALYSIS_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('id','N/A'))")
+  #             echo "VirusTotal analysis: https://www.virustotal.com/gui/file-analysis/$ANALYSIS_ID"
+  #           fi
+  #         done
