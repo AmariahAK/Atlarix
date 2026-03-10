@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v3.6.0  
-**Next Version:** v3.7+  
-**Last Updated:** 2026-02-27
+**Current Version:** v3.7.0  
+**Next Version:** v3.8+  
+**Last Updated:** 2026-03-09
 
 ---
 
@@ -13,6 +13,14 @@
 - **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
 - **Agents:** Research, Architect, Builder, Reviewer; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers.
 - **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; token budget; permission queue; summarization.
+
+---
+
+## Done: v3.7 — Apple Verified, Sentry, PostHog (2026-03-09)
+
+- **Sentry:** Always-on error monitoring for stability and faster fixes.
+- **PostHog:** Optional analytics with first-launch consent and Settings toggle.
+- **Apple Verified:** Notarized and code-signed on macOS; no security warnings.
 
 ---
 

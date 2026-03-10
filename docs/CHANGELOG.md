@@ -15,6 +15,20 @@ All notable changes to Atlarix will be documented in this file.
 
 ---
 
+## [3.7.0] — v3.7 (Apple Verified, Sentry, PostHog)
+
+### Added
+
+- **Sentry error monitoring:** Always-on error monitoring for crash and exception reporting to improve stability and fix issues faster.
+- **PostHog optional analytics:** First-launch consent flow and Settings toggle for product analytics (events, usage) when opted in.
+- **Apple Verified (macOS):** Atlarix is now notarized and code-signed on macOS so the system trusts it out of the box—no security warnings or workarounds.
+
+### Changed
+
+- macOS installs use notarized and code-signed builds for a seamless install experience.
+
+---
+
 ## [3.6.0] — v3.6 (Build guide completion)
 
 ### Added
