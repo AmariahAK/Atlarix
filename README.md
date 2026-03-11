@@ -7,11 +7,11 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v3.7.0*
+*Current: v3.8.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
-**Recent (v3.7):** Sentry error monitoring (always on); PostHog optional analytics with first-launch consent and Settings toggle; Apple Verified (notarized and code-signed on macOS). Plus two-stage auto router, Blueprint enricher, DB Extension, prompt suggestions, and Atlarix loading animation from v3.6.
+**Recent (v3.8):** Screen-by-screen onboarding (workspace → Blueprint intro → Ask vs Build → Settings AI → Done); DB extension: connection string parser, Test connection, Parse button; GitHub OAuth; Pro gating for Extensions/DB (log in first, then upgrade). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
 ---
 

@@ -7,8 +7,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSearch } from "@tanstack/react-router";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import { onboardingStepAtom } from "@/atoms/viewAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { App } from "@/ipc/ipc_types";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -30,8 +31,10 @@ import {
     RotateCcw,
     Calendar,
     X,
+    MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "@tanstack/react-router";
 
 interface Diagram {
     id: number;
@@ -57,6 +60,9 @@ export default function DiagramPage() {
     const search = useSearch({ from: "/diagram", strict: false }) as { appId?: number };
     const appIdFromRoute = search?.appId;
     const activeChatId = useAtomValue(activeChatIdAtom);
+    const onboardingStep = useAtomValue(onboardingStepAtom);
+    const setOnboardingStep = useSetAtom(onboardingStepAtom);
+    const navigate = useNavigate();
     const { apps, loading: isLoading } = useLoadApps();
     const [selectedWorkspace, setSelectedWorkspace] = useState<App | null>(null);
     const [diagrams, setDiagrams] = useState<Diagram[]>([]);
@@ -249,6 +255,12 @@ export default function DiagramPage() {
     }
 
     const showChatPanel = appIdFromRoute != null;
+    const showOnboardingPanel = onboardingStep === 3;
+
+    const handleOnboardingNext = () => {
+        setOnboardingStep(4);
+        navigate({ to: "/" });
+    };
 
     return (
         <div className="flex-1 flex bg-background h-screen">
@@ -561,6 +573,29 @@ export default function DiagramPage() {
                     </div>
                 )}
             </div>
+
+            {/* Onboarding step 3: Blueprint intro panel */}
+            {showOnboardingPanel && (
+                <div className="w-80 flex-shrink-0 border-l border-border bg-card flex flex-col p-4 shadow-lg">
+                    <h3 className="font-semibold text-foreground mb-2">About the Blueprint</h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                        <strong>Containers</strong> are the main building blocks of your architecture (e.g. services, apps, databases).
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-3">
+                        <strong>Beacons</strong> are entry points or landmarks (e.g. APIs, queues) that connect containers.
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                        The diagram you see was built from your project&apos;s code by the RTE (Round-Trip Engineering) parser — this is your real project structure.
+                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                        <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => { setOnboardingStep(4); navigate({ to: "/" }); }}>Skip</button>
+                        <Button onClick={handleOnboardingNext} className="gap-2">
+                            <MessageSquare className="h-4 w-4" />
+                            Got it, show me the chat
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Right Chat panel (full-screen mode: same session as main) */}
             {showChatPanel && (

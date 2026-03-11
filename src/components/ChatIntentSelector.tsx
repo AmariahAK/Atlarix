@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { onboardingStepAtom } from "@/atoms/viewAtoms";
 import { cn } from "@/lib/utils";
 import { MessageCircle, Hammer, Sparkles } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ type IntentMode = "ask" | "build" | "auto";
 
 export function ChatIntentSelector() {
   const appId = useAtomValue(selectedAppIdAtom);
+  const onboardingStep = useAtomValue(onboardingStepAtom);
   const { settings, updateSettings } = useSettings();
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -84,7 +86,10 @@ export function ChatIntentSelector() {
     >
       <PopoverAnchor asChild>
         <div
-          className="inline-flex rounded-md border border-border bg-muted/30 p-0.5"
+          className={cn(
+            "inline-flex rounded-md border bg-muted/30 p-0.5",
+            onboardingStep === 4 ? "border-primary ring-2 ring-primary/50 ring-offset-2 ring-offset-background animate-pulse" : "border-border"
+          )}
           data-testid="chat-intent-selector"
         >
           {options.map(({ value, icon: Icon, label }) => {

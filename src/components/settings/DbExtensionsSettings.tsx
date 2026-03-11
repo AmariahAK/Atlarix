@@ -42,6 +42,7 @@ export function DbExtensionsSettings({ workspaceId }: { workspaceId: number | nu
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
 
   const [formName, setFormName] = useState("");
   const [formType, setFormType] = useState<DBType>("postgresql");
@@ -157,6 +158,61 @@ export function DbExtensionsSettings({ workspaceId }: { workspaceId: number | nu
     }
   };
 
+  const getFormConfig = (): Record<string, unknown> => {
+    if (formType === "sqlite") {
+      return { filename: formFilename || ":memory:" };
+    }
+    if (formUseConnString && formConnString) {
+      return { connectionString: formConnString };
+    }
+    return {
+      host: formHost,
+      port: parseInt(formPort, 10) || (formType === "mysql" ? 3306 : 5432),
+      username: formUser,
+      password: formPass,
+      database: formDatabase,
+    };
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    try {
+      const config = getFormConfig();
+      const res = await ipc.dbTestConnection({ type: formType, config });
+      if (res.success) {
+        showSuccess("Connection successful");
+      } else {
+        showError(res.error || "Connection failed");
+      }
+    } catch (e) {
+      showError(e instanceof Error ? e.message : "Test failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleParseConnectionString = async () => {
+    if (!formConnString.trim()) return;
+    try {
+      const parsed = await ipc.dbParseConnectionString(formConnString.trim());
+      if (parsed) {
+        setFormType(parsed.type as DBType);
+        if (parsed.database) setFormDatabase(parsed.database);
+        const c = parsed.config as Record<string, unknown>;
+        if (c.host) setFormHost(String(c.host));
+        if (c.port) setFormPort(String(c.port));
+        if (c.username) setFormUser(String(c.username));
+        if (c.password) setFormPass(String(c.password));
+        if (c.database) setFormDatabase(String(c.database));
+        showSuccess("Connection string parsed");
+      } else {
+        showError("Could not parse connection string");
+      }
+    } catch {
+      showError("Parse failed");
+    }
+  };
+
   const statusIcon = (status: string) => {
     if (status === "connected") return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     if (status === "error") return <XCircle className="h-4 w-4 text-red-500" />;
@@ -248,14 +304,19 @@ export function DbExtensionsSettings({ workspaceId }: { workspaceId: number | nu
               </div>
 
               {formUseConnString ? (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Connection String</label>
-                  <input
-                    value={formConnString}
-                    onChange={(e) => setFormConnString(e.target.value)}
-                    placeholder={formType === "postgresql" ? "postgresql://user:pass@host:5432/db" : "mysql://user:pass@host:3306/db"}
-                    className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm font-mono"
-                  />
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground block">Connection String</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={formConnString}
+                      onChange={(e) => setFormConnString(e.target.value)}
+                      placeholder={formType === "postgresql" ? "postgresql://user:pass@host:5432/db" : "mysql://user:pass@host:3306/db"}
+                      className="flex-1 rounded border border-border bg-background px-3 py-1.5 text-sm font-mono"
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={handleParseConnectionString}>
+                      Parse
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -320,6 +381,15 @@ export function DbExtensionsSettings({ workspaceId }: { workspaceId: number | nu
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={resetForm}>Cancel</Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleTestConnection}
+              disabled={testing || (formType === "sqlite" ? false : formUseConnString ? !formConnString.trim() : !formHost.trim())}
+            >
+              {testing ? "Testing…" : "Test connection"}
+            </Button>
             <Button size="sm" onClick={handleSave}>Save Connection</Button>
           </div>
         </div>

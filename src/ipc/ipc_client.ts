@@ -2181,6 +2181,22 @@ export class IpcClient {
     return this.ipcRenderer.invoke("db:set-active-connection", { workspaceId, connectionId });
   }
 
+  /** DB Extension: test connection by id or by config (before save) */
+  public async dbTestConnection(
+    payload: { connectionId: string } | { type: string; config: Record<string, unknown> }
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("db:test-connection", payload);
+  }
+
+  /** DB Extension: parse connection string to get type and config */
+  public async dbParseConnectionString(connectionString: string): Promise<{
+    type: string;
+    config: Record<string, unknown>;
+    database?: string;
+  } | null> {
+    return this.ipcRenderer.invoke("db:parse-connection-string", { connectionString });
+  }
+
   /** DB Extension: get schema for active connection */
   public async dbGetSchema(workspaceId: number | null): Promise<{
     tables: Array<{ name: string; columns: Array<{ name: string; type: string }> }>;

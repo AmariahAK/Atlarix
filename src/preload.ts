@@ -264,6 +264,8 @@ const validInvokeChannels = [
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
+  "onboarding:get-completed",
+  "onboarding:set-completed",
   // DB Extension (Pro / Workforce preview)
   "db:list-connections",
   "db:save-connection",
@@ -274,6 +276,8 @@ const validInvokeChannels = [
   "db:run-query",
   "db:get-table-data",
   "db:set-active-connection",
+  "db:test-connection",
+  "db:parse-connection-string",
 ];
 
 const validReceiveChannels = [

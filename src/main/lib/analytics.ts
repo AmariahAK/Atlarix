@@ -12,8 +12,6 @@ import { v4 as uuidv4 } from "uuid";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
-const POSTHOG_API_KEY_FALLBACK =
-  "phc_rRWFfp8H1xknyUlQvDHtX2gxmLUFtHChz3rmBRwdlUc";
 
 let client: PostHog | null = null;
 
@@ -54,7 +52,7 @@ function isOptedIn(): boolean {
  */
 export function getPostHog(): PostHog | null {
   if (client) return client;
-  const apiKey = process.env.POSTHOG_API_KEY || POSTHOG_API_KEY_FALLBACK;
+  const apiKey = process.env.POSTHOG_API_KEY;
   if (!apiKey) return null;
   client = new PostHog(apiKey, { host: POSTHOG_HOST });
   return client;
@@ -91,8 +89,7 @@ export function getPostHogConfigForRenderer(): {
   analyticsId: string;
 } {
   return {
-    posthogApiKey:
-      process.env.POSTHOG_API_KEY || POSTHOG_API_KEY_FALLBACK,
+    posthogApiKey: process.env.POSTHOG_API_KEY,
     analyticsId: getOrCreateAnonymousId(),
   };
 }

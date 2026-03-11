@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v3.7.0  
-**Next Version:** v3.8+  
-**Last Updated:** 2026-03-09
+**Current Version:** v3.8.0  
+**Next Version:** v3.9+  
+**Last Updated:** 2026-03-11
 
 ---
 
@@ -13,6 +13,16 @@
 - **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
 - **Agents:** Research, Architect, Builder, Reviewer; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers.
 - **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; token budget; permission queue; summarization.
+
+---
+
+## Done: v3.8 — Credentials, DB ease, Onboarding redesign, GitHub OAuth, Pro gating (2026-03-11)
+
+- **Credentials:** `.env.example`, `SECRETS.md`; all secrets from env; GitHub OAuth in UI and Supabase.
+- **DB Extension:** Connection string parser, Test connection IPC + UI, Parse button; easier connection setup (`.atlarix` in .gitignore for future workspace DB config).
+- **Onboarding (redesign):** Screen-by-screen first-run flow (login → workspace → Blueprint intro → Ask vs Build → Settings AI provider → Done). State in Supabase `users.onboarding_completed`; progress bar and per-step Skip/Skip all; Restart in Settings > General; reset when last workspace deleted.
+- **Pro gating:** Settings > Extensions and Sidebar Extensions: when logged out, show "Log in" CTA and button to sign-in; when logged in (free), show "Upgrade to use Extensions & DB" and Upgrade button. Pro users see full DB Connections and Extension Manager.
+- **Reviews (launchpad):** `REVIEW_ADMIN_EMAIL` env; frontend only shows approved reviews.
 
 ---
 

@@ -17,11 +17,15 @@ import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
-import { useSetAtom } from "jotai";
-import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
+import { useSetAtom, useAtomValue } from "jotai";
+import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight } from "lucide-react";
 import { DbExtensionsSettings } from "@/components/settings/DbExtensionsSettings";
+import { useAuth } from "@/lib/auth/useAuth";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
+
+const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 
 export default function SettingsPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -29,12 +33,23 @@ export default function SettingsPage() {
   const appVersion = useAppVersion();
   const { settings, updateSettings } = useSettings();
   const router = useRouter();
+  const navigate = useNavigate();
   const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
+  const onboardingStep = useAtomValue(onboardingStepAtom);
+  const setOnboardingStep = useSetAtom(onboardingStepAtom);
+  const { status, isAuthenticated } = useAuth();
 
   useEffect(() => {
     setActiveSettingsSection("general");
     posthog.capture("settings_opened", { section: "general" });
   }, [setActiveSettingsSection]);
+
+  // Onboarding step 5: scroll to AI section when we land on settings
+  useEffect(() => {
+    if (onboardingStep !== 5) return;
+    const el = document.getElementById("ai");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [onboardingStep]);
 
   const handleResetEverything = async () => {
     setIsResetting(true);
@@ -74,6 +89,39 @@ export default function SettingsPage() {
         <div className="space-y-6">
           <GeneralSettings appVersion={appVersion} />
           <WorkflowSettings />
+          {onboardingStep === 5 && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
+              <p>Add your API key to start chatting. Atlarix works with OpenAI, Anthropic, Gemini, Ollama and more.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    setOnboardingStep(6);
+                    navigate({ to: "/" });
+                  }}
+                >
+                  Done, start building
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      localStorage.setItem(ONBOARDING_SKIPPED_AI_KEY, "1");
+                      const ipc = window.electron?.ipcRenderer;
+                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
+                    } catch {
+                      // ignore
+                    }
+                    setOnboardingStep(null);
+                    navigate({ to: "/" });
+                  }}
+                >
+                  Remind me later
+                </Button>
+              </div>
+            </div>
+          )}
           <AISettings />
 
           {/* Search Settings */}
@@ -92,13 +140,33 @@ export default function SettingsPage() {
             <McpServersCard />
           </div>
 
-          {/* Extensions */}
+          {/* Extensions — DB Connections gated: log in first, then Pro */}
           <div id="extensions" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <h2 className="text-lg font-medium text-foreground mb-4">Extensions</h2>
-            <p className="text-xs text-muted-foreground mb-4">
-              Extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
-            </p>
-            <DbExtensionsSettings workspaceId={null} />
+            {status?.plan === "pro" ? (
+              <>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
+                </p>
+                <DbExtensionsSettings workspaceId={null} />
+              </>
+            ) : !isAuthenticated ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Log in to use Extensions and DB Connections</p>
+                <p className="mb-3">Sign in with Google or GitHub to access Extensions and database connections.</p>
+                <Button size="sm" onClick={() => navigate({ to: "/sign-in" })}>
+                  Log in
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Upgrade to use Extensions & DB</p>
+                <p className="mb-3">DB Connections and other extensions are available on Pro. Upgrade to connect your database and let the AI read your schema and run approved queries.</p>
+                <Button size="sm" onClick={() => triggerUpgrade()}>
+                  Upgrade
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Integrations */}
@@ -198,11 +266,25 @@ function McpServersCard() {
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const { settings, updateSettings } = useSettings();
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
+  const setOnboardingStep = useSetAtom(onboardingStepAtom);
+  const navigate = useNavigate();
+
+  const handleRestartOnboarding = async () => {
+    try {
+      const ipc = window.electron?.ipcRenderer;
+      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+    } catch {
+      // ignore
+    }
+    setOnboardingStep(2);
+    navigate({ to: "/" });
+  };
 
   return (
     <div
       id="general"
       className="bg-card rounded-xl shadow-sm p-6 border border-border"
+      data-onboarding="general-settings"
     >
       <h2 className="text-lg font-medium text-foreground mb-4">
         General Settings
@@ -236,6 +318,14 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               });
             }}
           />
+        </div>
+        <div className="pt-4 border-t border-border mt-4">
+          <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>
+            Restart onboarding guide
+          </Button>
+          <p className="text-xs text-muted-foreground mt-2">
+            Show the welcome guide again (Code to Canvas, Blueprint, Ask vs Build, API key).
+          </p>
         </div>
       </div>
     </div>

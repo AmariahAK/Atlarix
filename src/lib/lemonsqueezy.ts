@@ -17,18 +17,16 @@ const logger = log.scope('lemonsqueezy');
  * @returns The checkout URL from LemonSqueezy API
  */
 async function createCheckoutSession(userEmail: string, userId?: string): Promise<string | null> {
-    // Production fallback values (safe to embed - these only create checkout sessions)
-    const PROD_STORE_ID = '236920';
-    const PROD_VARIANT_ID = '1226325';
-    // Production API key (prefer LEMONSQUEEZY_API_KEY env in deployment)
-    const PROD_API_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI5NGQ1OWNlZi1kYmI4LTRlYTUtYjE3OC1kMjU0MGZjZDY5MTkiLCJqdGkiOiI1MDU5NzhjZjk3OTU1Yjg4OGE1ZDJlNTMwYjQ3MzBhOWQxYzU0Y2Q2ODVjZWEyYmY2NWRhYTIyMjI0YTQyYjJmMDk2MWJkYjRhYzAwYjRkZCIsImlhdCI6MTc3MTE2MjU4My40MTc5MDUsIm5iZiI6MTc3MTE2MjU4My40MTc5MDgsImV4cCI6MTc4Njc1MjAwMC4wMjI5MjgsInN1YiI6IjU4NjQyMTciLCJzY29wZXMiOltdfQ.rphiK2zsV3BxJ7IssyRcJoWYcjBggnbFPzmNwNeESveY5iebgKR71titoYscnUw-uI5iVN42OHMs63_dru6J8Y2p-1nEhhdcY01yMnPkU6ZTR-cdOIr1gCvdgLM-PWgRWN37HsOYDPDOhhM7QWNh8y8kyRWlgeaK9cJLGqlfb3-LQ9uli0BJQ742AIvq7NedoNK90YRSH0sD1cY1erupg79oaogUtDl_YOtOlnaEx1oD5EYw3UvrVbCVTYAblOx5jdnimdz81g49VMQYsimaB1Roy_VxRD8WQXxdYdPTkdQ8lbWUymtvmJ8GsfFBImCToPln0LvqvexQNoVnQ3b64atQMl-4qjvHaWSoYRMuIkmlJKFEajxqwRhL-yFoXtnqnBwWBQI90hAI4spR1DBPeyMKcxm7GfTQseT-7JUzQAps2_TODeraG_wx3piuphAYpHL4UYboWGjs6BqHBMOAjEoKvIWZu8WEIf7iW5Axl7VCh8TuBFi2tb7bjwp0kx0RWJHVi0H8wNvB0Ayxw3QIA_AR215kHI327WdaL367kNu14bBHe-dhCdda7fiGmI1sxz8YL452GcWUEZGsaBT18ngyuqlnAij14D4d2-gLmMnCUtr_FBixlCbfyZpXbzYDkaZq0jTYsRwlhAk9G-DzM1il3Su3Z9rkXuufVT09gg4';
+    const storeId = process.env.LEMONSQUEEZY_STORE_ID || '236920';
+    const variantId = process.env.LEMONSQUEEZY_VARIANT_ID || '1226325';
+    const apiKey = process.env.LEMONSQUEEZY_API_KEY;
 
-    const storeId = process.env.LEMONSQUEEZY_STORE_ID || PROD_STORE_ID;
-    const variantId = process.env.LEMONSQUEEZY_VARIANT_ID || PROD_VARIANT_ID;
-    const apiKey = process.env.LEMONSQUEEZY_API_KEY || PROD_API_KEY;
-
-    if (!storeId || !variantId || !apiKey) {
-        logger.error('Missing LemonSqueezy credentials');
+    if (!apiKey) {
+        logger.error('Missing LEMONSQUEEZY_API_KEY; set it in .env or GitHub Actions secrets');
+        return null;
+    }
+    if (!storeId || !variantId) {
+        logger.error('Missing LemonSqueezy store or variant ID');
         return null;
     }
 

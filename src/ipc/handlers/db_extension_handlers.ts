@@ -20,6 +20,31 @@ import {
   type DBConnectionType,
 } from "@/lib/workforce/db-extension/connection-manager";
 import { introspectSchema } from "@/lib/workforce/db-extension/schema-introspector";
+import { parseConnectionString } from "@/lib/workforce/db-extension/connection-string";
+
+/** Run a quick test query; closes client after. */
+async function runTestQuery(client: unknown, type: DBConnectionType): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (type === "postgresql") {
+      const c = client as { query: (sql: string) => Promise<{ rows: unknown[] }> };
+      await c.query("SELECT 1");
+      return { ok: true };
+    }
+    if (type === "mysql") {
+      const c = client as { execute: (sql: string) => Promise<unknown> };
+      await c.execute("SELECT 1");
+      return { ok: true };
+    }
+    if (type === "sqlite") {
+      const db = client as { prepare: (sql: string) => { get: () => unknown } };
+      db.prepare("SELECT 1").get();
+      return { ok: true };
+    }
+    return { ok: false, error: "Unsupported type for test" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 async function connectClient(conn: DBConnection): Promise<unknown> {
   if (conn.type === "postgresql") {
@@ -56,6 +81,75 @@ async function connectClient(conn: DBConnection): Promise<unknown> {
 }
 
 export function registerDbExtensionHandlers() {
+  ipcMain.handle(
+    "db:parse-connection-string",
+    async (_, { connectionString }: { connectionString: string }) => {
+      const parsed = parseConnectionString(connectionString);
+      if (!parsed) return null;
+      const type = parsed.type as DBConnectionType;
+      if (type === "mssql") return null; // Not yet supported by connectClient
+      return {
+        type,
+        config: parsed.config,
+        database: parsed.database,
+      };
+    }
+  );
+
+  ipcMain.handle(
+    "db:test-connection",
+    async (
+      _,
+      payload:
+        | { connectionId: string }
+        | { type: DBConnectionType; config: DBConnectionConfig }
+    ) => {
+      if ("connectionId" in payload) {
+        const conn = getConnection(payload.connectionId);
+        if (!conn) return { success: false, error: "Connection not found" };
+        const existingClient = getClient(payload.connectionId);
+        if (existingClient && conn.status === "connected") {
+          const result = await runTestQuery(existingClient, conn.type);
+          return result.ok ? { success: true } : { success: false, error: result.error };
+        }
+        let tempClient: unknown = null;
+        try {
+          tempClient = await connectClient(conn);
+          const result = await runTestQuery(tempClient, conn.type);
+          if (!result.ok) return { success: false, error: result.error };
+          return { success: true };
+        } finally {
+          if (tempClient && conn.type === "postgresql") await (tempClient as { end: () => Promise<void> }).end();
+          if (tempClient && conn.type === "mysql") await (tempClient as { end: () => Promise<void> }).end();
+          if (tempClient && conn.type === "sqlite") (tempClient as { close: () => void }).close();
+        }
+      } else {
+        const { type, config } = payload;
+        const conn: DBConnection = {
+          id: "test-temp",
+          name: "Test",
+          type,
+          config,
+          isProd: false,
+          status: "disconnected",
+        };
+        let client: unknown = null;
+        try {
+          client = await connectClient(conn);
+          const result = await runTestQuery(client, type);
+          if (!result.ok) return { success: false, error: result.error };
+          return { success: true };
+        } catch (e) {
+          return { success: false, error: e instanceof Error ? e.message : String(e) };
+        } finally {
+          if (client && type === "postgresql") await (client as { end: () => Promise<void> }).end();
+          if (client && type === "mysql") await (client as { end: () => Promise<void> }).end();
+          if (client && type === "sqlite") (client as { close: () => void }).close();
+        }
+      }
+    }
+  );
+
   ipcMain.handle(
     "db:list-connections",
     async (_, { workspaceId }: { workspaceId: number | null }) => {

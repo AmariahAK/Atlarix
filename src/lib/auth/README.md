@@ -47,14 +47,14 @@ ATLARIX_API_URL=https:// atlarix-api.fly.dev
 6. Add authorized redirect URI: `atlarix://auth/callback`
 7. Copy Client ID and Client Secret to `.env`
 
-### 2. GitHub OAuth
+### 2. GitHub OAuth (via Supabase)
 
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Click "New OAuth App"
-3. Application name: Atlarix
-4. Homepage URL: https://atlarix.dev
-5. Authorization callback URL: `atlarix://auth/callback`
-6. Copy Client ID and Client Secret to `.env`
+1. In **Supabase Dashboard**: Authentication → Providers → **GitHub** → Enable.
+2. Supabase shows the **Authorization callback URL** (e.g. `https://<project-ref>.supabase.co/auth/v1/callback`). Copy it.
+3. Go to [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**.
+4. Application name: Atlarix. Homepage URL: `https://atlarix.dev`. **Authorization callback URL**: paste the Supabase callback URL from step 2.
+5. Copy **Client ID** and **Client Secret** from GitHub into Supabase (Authentication → Providers → GitHub). Save.
+6. In Atlarix `.env`, set `VITE_GITHUB_CLIENT_ID` to the same GitHub Client ID (optional, for UI). The app uses Supabase’s OAuth flow; redirect back to the app is `atlarix://auth/callback`.
 
 ### 3. Protocol Handler
 

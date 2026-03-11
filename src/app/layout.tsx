@@ -26,6 +26,8 @@ import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
+import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
+import { OnboardingTrigger } from "@/components/OnboardingTrigger";
 
 /**
  * PersistentChatContainer
@@ -278,6 +280,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <AnalyticsConsentModal />
       <ThemeProvider>
         <DeepLinkProvider>
+          <OnboardingTrigger />
+          <OnboardingProgressBar />
           <SidebarProvider>
             <TitleBar />
             <AppSidebar />

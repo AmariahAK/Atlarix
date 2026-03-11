@@ -32,7 +32,9 @@ import { HomeChatInput } from '@/components/chat/HomeChatInput';
 import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 import { RightPanel } from '@/components/RightPanel';
 import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
+import { onboardingStepAtom } from '@/atoms/viewAtoms';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { Button } from '@/components/ui/button';
 // Current datetime for AI context
 const getCurrentDateTime = () => {
     return new Date().toLocaleString('en-US', {
@@ -95,6 +97,25 @@ export default function AtlarixHome() {
     const setSourceList = useSetAtom(sourceListAtom);
     const setSelectedSource = useSetAtom(selectedSourceAtom);
     const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+    const onboardingStep = useAtomValue(onboardingStepAtom);
+    const setOnboardingStep = useSetAtom(onboardingStepAtom);
+
+    // Onboarding step 6: show toast, mark completed, clear step
+    useEffect(() => {
+      if (onboardingStep !== 6) return;
+      const run = async () => {
+        try {
+          const ipc = window.electron?.ipcRenderer;
+          if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
+        } catch {
+          // ignore
+        }
+        setOnboardingStep(null);
+        const { toast } = await import("sonner");
+        toast.success("You're set up. Ask Atlarix anything.", { duration: 5000 });
+      };
+      run();
+    }, [onboardingStep, setOnboardingStep]);
 
     // Clear sources when starting a new chat
     const handleNewChat = useCallback(() => {
@@ -115,6 +136,7 @@ export default function AtlarixHome() {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<Template[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [remindBannerDismissed, setRemindBannerDismissed] = useState(false);
 
     // Update time every minute for AI context
     useEffect(() => {
@@ -353,6 +375,31 @@ export default function AtlarixHome() {
             />
 
             <div className="w-full max-w-4xl px-8 pt-12 space-y-8">{/* Content centered within main area */}
+                {/* Onboarding step 2: workspace setup banner */}
+                {onboardingStep === 2 && (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex items-center justify-between gap-4">
+                        <span>Let&apos;s set up your first workspace — point Atlarix to a project folder. Use the <strong>+</strong> button in the sidebar to add a workspace.</span>
+                        <button type="button" className="text-muted-foreground hover:text-foreground text-xs shrink-0" onClick={() => { setOnboardingStep(3); navigate({ to: '/diagram' }); }}>Skip</button>
+                    </div>
+                )}
+                {/* Onboarding step 4: Ask vs Build */}
+                {onboardingStep === 4 && (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
+                        <p>Ask mode is read-only. Build mode lets the AI write and run code. Start in Ask mode to explore safely.</p>
+                        <div className="flex justify-end items-center gap-2">
+                            <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => { setOnboardingStep(5); navigate({ to: '/settings' }); }}>Skip</button>
+                            <Button
+                                size="sm"
+                                onClick={() => {
+                                    setOnboardingStep(5);
+                                    navigate({ to: '/settings' });
+                                }}
+                            >
+                                Next
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 {/* Atlarix Header - Enhanced with signature glow effect */}
                 <div className="text-center space-y-4">
                     {/* Logo with glow effect - theme-aware */}
@@ -387,6 +434,32 @@ export default function AtlarixHome() {
 
                 {/* Setup Banner */}
                 <SetupBanner />
+
+                {/* Remind me later: prompt to add API key after skipping in onboarding */}
+                {!remindBannerDismissed && typeof window !== 'undefined' && localStorage.getItem('atlarix.onboarding_skipped_ai_setup') && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-foreground flex items-center justify-between gap-4">
+                        <span>Add your API key in Settings to start chatting with the AI.</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => navigate({ to: '/settings' })}
+                                className="text-primary hover:underline font-medium"
+                            >
+                                Open Settings
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    localStorage.removeItem('atlarix.onboarding_skipped_ai_setup');
+                                    setRemindBannerDismissed(true);
+                                }}
+                                className="text-muted-foreground hover:text-foreground text-xs"
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Main Input Area - Centered and Focused */}
                 <div className="space-y-4 max-w-3xl mx-auto">{/* Added max-w and mx-auto for centering */}

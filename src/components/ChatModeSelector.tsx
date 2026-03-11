@@ -47,7 +47,7 @@ export function ChatModeSelector() {
   const isMac = detectIsMac();
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" data-onboarding="ask-build-toggle">
       {/* Mode: Direct / Guided / Autonomous */}
       <Select value={agentMode} onValueChange={handleAgentModeChange}>
         <Tooltip>

@@ -15,6 +15,26 @@ All notable changes to Atlarix will be documented in this file.
 
 ---
 
+## [3.8.0] — v3.8 (Credentials, DB ease, Onboarding redesign, GitHub OAuth, Pro gating)
+
+### Added
+
+- **Credentials and env:** All secrets moved to environment variables. See `.env.example` and `SECRETS.md`. No hardcoded secrets in the bundle.
+- **DB Extension (ease of use):** Connection string parser (postgres, mysql, sqlite, mssql); "Test connection" button before save; "Parse" button to auto-fill form from a pasted connection string.
+- **Onboarding (screen-by-screen):** First-run flow over real app screens: login → workspace setup (banner + real folder pick) → Blueprint intro (side panel: Containers, Beacons, RTE) → Ask vs Build (highlight + panel) → Settings AI provider (scroll to #ai, Done / Remind me later) → Done (toast). Progress bar "Step X of 5" and "Skip all"; per-step Skip; "Restart onboarding guide" in Settings > General; state in Supabase `users.onboarding_completed`; reset when last workspace deleted.
+- **GitHub OAuth:** Sign in with GitHub in addition to Google. Supabase Auth supports both; configure GitHub provider in Supabase Dashboard (see `src/lib/auth/README.md`).
+- **Pro gating (Extensions / DB):** When logged out, Extensions and Settings > Extensions show "Log in" CTA and button to `/sign-in`. When logged in (free), show "Upgrade to use Extensions & DB" and Upgrade button (LemonSqueezy checkout). Pro users see full DB Connections and Extension Manager.
+
+### Changed
+
+- **LemonSqueezy:** `LEMONSQUEEZY_API_KEY` required in env or CI; no fallback in code.
+- **Supabase client:** Requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`; throws clear error if missing.
+- **Sentry:** `SENTRY_DSN` optional; no hardcoded fallback.
+- **PostHog:** No fallback API key; uses `POSTHOG_API_KEY` from env when set.
+- **Reviews (launchpad):** Admin email configurable via `REVIEW_ADMIN_EMAIL`; frontend filters to `approved = true`.
+
+---
+
 ## [3.7.0] — v3.7 (Apple Verified, Sentry, PostHog)
 
 ### Added

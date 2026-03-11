@@ -86,18 +86,14 @@ let fileStorage: SupportedStorage | null = null;
  */
 export function getSupabaseClient(): SupabaseClient {
     if (!supabaseClient) {
-        // Production defaults (anon key is safe to embed - it's public by design)
-        const DEFAULT_SUPABASE_URL = 'https://oubgrpkqyyjwytspycpd.supabase.co';
-        const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91YmdycGtxeXlqd3l0c3B5Y3BkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzNjA3MjIsImV4cCI6MjA4MzkzNjcyMn0.-J2ICUrM3s3bLr7_7ddmPb1DXKZqDKZRgPRF5ydNHyc';
-
-        // Read env vars at runtime, fall back to defaults for production
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ||
+            process.env.SUPABASE_URL;
         const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-            process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY || DEFAULT_SUPABASE_ANON_KEY;
+            process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
         if (!supabaseUrl || !supabaseAnonKey) {
-            logger.warn('[Supabase] Missing credentials - auth will not work');
-            logger.warn(`[Supabase] URL: ${supabaseUrl ? 'SET' : 'MISSING'}, Key: ${supabaseAnonKey ? 'SET' : 'MISSING'}`);
+            logger.warn('[Supabase] Missing credentials - set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env or CI');
+            throw new Error('Supabase URL and anon key are required. Add them to .env (see .env.example).');
         }
 
         // Create file-based storage for Electron
@@ -130,9 +126,14 @@ export type OAuthProvider = 'google' | 'github';
  * User will be redirected back to atlarix://auth/callback
  */
 export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error: Error | null }> {
+    let supabase: SupabaseClient;
     try {
-        const supabase = getSupabaseClient();
-
+        supabase = getSupabaseClient();
+    } catch (err) {
+        logger.warn('[Supabase] Cannot sign in: missing or invalid Supabase config.', err instanceof Error ? err.message : String(err));
+        return { error: new Error('Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env (see .env.example).') };
+    }
+    try {
         logger.log(`[Supabase] Starting OAuth with ${provider}`);
 
         const { data, error } = await supabase.auth.signInWithOAuth({
@@ -298,13 +299,14 @@ async function ensureUserExists(user: User): Promise<void> {
             .single();
 
         if (!existingUser) {
-            // Create user record
+            // Create user record (onboarding_completed false for new users)
             const { error } = await supabase
                 .from('users')
                 .insert({
                     id: user.id,
                     email: user.email,
                     plan: 'free',
+                    onboarding_completed: false,
                 });
 
             if (error) {
@@ -359,6 +361,51 @@ export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
     })();
 
     return Promise.race([fetchPromise, timeoutPromise]);
+}
+
+/**
+ * Get onboarding completed flag for a user (for first-run guided flow).
+ * Returns false if no row or column missing.
+ */
+export async function getOnboardingCompleted(userId: string): Promise<boolean> {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('users')
+            .select('onboarding_completed')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error) {
+            logger.warn('[Supabase] getOnboardingCompleted error:', error.message);
+            return false;
+        }
+        return data?.onboarding_completed === true;
+    } catch (err) {
+        logger.warn('[Supabase] getOnboardingCompleted exception:', err);
+        return false;
+    }
+}
+
+/**
+ * Set onboarding completed for a user.
+ */
+export async function setOnboardingCompleted(userId: string, value: boolean): Promise<void> {
+    try {
+        const supabase = getSupabaseClient();
+        const { error } = await supabase
+            .from('users')
+            .update({ onboarding_completed: value })
+            .eq('id', userId);
+
+        if (error) {
+            logger.error('[Supabase] setOnboardingCompleted error:', error.message);
+        } else {
+            logger.log('[Supabase] onboarding_completed set to', value, 'for user', userId);
+        }
+    } catch (err) {
+        logger.error('[Supabase] setOnboardingCompleted exception:', err);
+    }
 }
 
 /**

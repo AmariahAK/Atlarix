@@ -1,8 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen, FileCode2 } from "lucide-react";
 import { Trash2 } from "lucide-react";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import { onboardingStepAtom } from "@/atoms/viewAtoms";
 import {
   selectedErrorForCodeAtom,
   rightPanelVisibleAtom,
@@ -46,6 +47,8 @@ export function AppList({ show }: { show?: boolean }) {
   const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
+  const onboardingStep = useAtomValue(onboardingStepAtom);
+  const setOnboardingStep = useSetAtom(onboardingStepAtom);
 
   // Auth hook for checking plan/workspace limits
   const { status, isAuthenticated } = useAuth();
@@ -232,6 +235,11 @@ export function AppList({ show }: { show?: boolean }) {
       setWorkspaces(prev => prev.map(w =>
         w.id === result.appId ? { ...w, isExpanded: true } : w
       ));
+      // Onboarding: advance to step 3 and open Blueprint
+      if (onboardingStep === 2) {
+        setOnboardingStep(3);
+        navigate({ to: "/diagram" });
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('Failed to create workspace:', error);
@@ -276,6 +284,12 @@ export function AppList({ show }: { show?: boolean }) {
                     setSelectedAppId(null);
                     setSelectedWorkspaceInfo(null);
                     navigate({ to: "/" });
+                    try {
+                      const ipc = window.electron?.ipcRenderer;
+                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+                    } catch {
+                      // ignore
+                    }
                   }
                 }}
               >
@@ -428,6 +442,14 @@ export function AppList({ show }: { show?: boolean }) {
                               }
                               // Refresh to sync with backend
                               refreshApps?.();
+                              if (apps.length <= 1) {
+                                try {
+                                  const ipc = window.electron?.ipcRenderer;
+                                  if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+                                } catch {
+                                  // ignore
+                                }
+                              }
                             }
                           }}
                           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
