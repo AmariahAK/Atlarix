@@ -13,6 +13,20 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 
 **Recent (v3.8):** Screen-by-screen onboarding (workspace → Blueprint intro → Ask vs Build → Settings AI → Done); DB extension: connection string parser, Test connection, Parse button; GitHub OAuth; Pro gating for Extensions/DB (log in first, then upgrade). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
+### Deployment (CI / GitHub Actions)
+
+**Releases are built and published via GitHub Actions for every version.** The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
+
+- **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v3.8`), it runs `npm run make` then `npm run publish`.
+- **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example):  
+  `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`,  
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,  
+  `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`,  
+  `VITE_GOOGLE_CLIENT_ID`, `VITE_GITHUB_CLIENT_ID`,  
+  `VITE_ATLARIX_API_URL`, `SENTRY_DSN`, `POSTHOG_API_KEY`, `ATLARIX_API_URL`.  
+  `GITHUB_TOKEN` is provided automatically; if publishing to a separate releases repo, use a PAT with `repo` scope as a secret and reference it in the workflow.
+- **All versions:** Every tagged release uses these secrets for the build and publish step.
+
 ---
 
 ## What's New in v2.1 — Agent System and Project Understanding
