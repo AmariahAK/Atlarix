@@ -11,10 +11,6 @@ All notable changes to Atlarix will be documented in this file.
 
 ---
 
-## [Unreleased]
-
----
-
 ## [3.8.0] — v3.8 (Credentials, DB ease, Onboarding redesign, GitHub OAuth, Pro gating)
 
 ### Added
