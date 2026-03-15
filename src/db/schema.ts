@@ -80,6 +80,10 @@ export const chats = sqliteTable("chats", {
     .references(() => apps.id, { onDelete: "cascade" }), // Nullable for chat-only sessions
   title: text("title"),
   initialCommitHash: text("initial_commit_hash"),
+  /** v3.9: When true, the AI has already received answers to clarifying questions in this chat; omit <questions> instruction. */
+  hasAnsweredQuestions: integer("has_answered_questions", { mode: "boolean" })
+    .notNull()
+    .default(false),
   lastUsedAt: integer("last_used_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -105,6 +109,12 @@ export const messages = sqliteTable("messages", {
   requestId: text("request_id"),
   // Max tokens used for this message (only for assistant messages)
   maxTokensUsed: integer("max_tokens_used"),
+  /** v3.9: 0-based exchange index (user+assistant pair). */
+  exchangeIndex: integer("exchange_index"),
+  /** v3.9: Snapshot id taken before this assistant message (for revert). */
+  snapshotId: integer("snapshot_id"),
+  /** v3.9: Paths written in this exchange (Build mode). */
+  filesWritten: text("files_written", { mode: "json" }).$type<string[]>(),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

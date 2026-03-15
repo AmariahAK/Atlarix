@@ -23,7 +23,7 @@ export type PanelType =
     | 'permission'      // Permission approval panel (run_command, write_file)
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat';
 
 export interface PanelContext {
     type: PanelType;
@@ -335,11 +335,17 @@ export const terminalOutputAtom = atom<TerminalOutput | null>(null);
 /** Whether right panel is visible */
 export const rightPanelVisibleAtom = atom<boolean>(false);
 
+/** Whether left panel is visible (extension panel). Toggled by Cmd+I / Ctrl+I when Pro. */
+export const leftPanelVisibleAtom = atom<boolean>(false);
+
 /** Whether panel content is loading (e.g., during search) */
 export const rightPanelLoadingAtom = atom<boolean>(false);
 
-/** Panel width in pixels (for resize) */
+/** Panel width in pixels (for resize). Persisted in localStorage (atlarix-right-panel-width) by RightPanel. */
 export const rightPanelWidthAtom = atom<number>(400);
+
+/** Left panel width in pixels (for resize). Persisted in localStorage (atlarix-left-panel-width) by LeftPanel. Default 280. */
+export const leftPanelWidthAtom = atom<number>(280);
 
 /** Dev server URL for live preview (Lovable-style) */
 export const devServerUrlAtom = atom<string | null>(null);

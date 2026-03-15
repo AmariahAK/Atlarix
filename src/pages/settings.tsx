@@ -20,7 +20,7 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSetAtom, useAtomValue } from "jotai";
 import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
-import { Server, ChevronRight } from "lucide-react";
+import { Server, ChevronRight, GitBranch } from "lucide-react";
 import { DbExtensionsSettings } from "@/components/settings/DbExtensionsSettings";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
@@ -149,6 +149,18 @@ export default function SettingsPage() {
                   Extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
                 </p>
                 <DbExtensionsSettings workspaceId={null} />
+                <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <GitBranch className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">GitHub Actions</p>
+                      <p className="text-xs text-muted-foreground">View workflow runs and job logs in the left panel. Connect GitHub to enable.</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground shrink-0">
+                    {settings?.githubAccessToken?.value ? "Connected" : "Connect GitHub"}
+                  </span>
+                </div>
               </>
             ) : !isAuthenticated ? (
               <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">

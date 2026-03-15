@@ -19,8 +19,9 @@ import { RightPanel } from "@/components/RightPanel";
 import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
-import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
+import { rightPanelVisibleAtom, leftPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
 import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
+import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
@@ -182,8 +183,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const currentApp = useAtomValue(currentAppAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
+  const setLeftPanelVisible = useSetAtom(leftPanelVisibleAtom);
+  const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
+
+  usePanelShortcuts();
+
+  // When user adds first extension, open the left panel
+  useEffect(() => {
+    if (activeExtensionIds.length > 0 && !leftPanelVisible) {
+      setLeftPanelVisible(true);
+    }
+  }, [activeExtensionIds.length, leftPanelVisible, setLeftPanelVisible]);
   const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
@@ -289,7 +302,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
-              {activeExtensionIds.length > 0 && <LeftPanel />}
+              {leftPanelVisible && <LeftPanel />}
               {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
               {isOnChatPage && (
                 <button

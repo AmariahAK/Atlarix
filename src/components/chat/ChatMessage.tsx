@@ -13,12 +13,14 @@ import {
   Copy,
   Check,
   Info,
+  Edit2,
+  Undo2,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useVersions } from "@/hooks/useVersions";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { activeChatIdAtom, lastTurnHadToolCallsByChatIdAtom, responseDoneAnimationAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, lastTurnHadToolCallsByChatIdAtom, responseDoneAnimationAtom, restartedAfterMessageIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -29,6 +31,10 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import AtlarixAnimation from "../atlarix/AtlarixAnimation";
+import { IpcClient } from "@/ipc/ipc_client";
+import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
+import { showError, showInfo } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
 
 interface ChatMessageProps {
   message: Message;
@@ -36,12 +42,16 @@ interface ChatMessageProps {
 }
 
 const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
-  const { isStreaming } = useStreamChat();
+  const { isStreaming, streamMessage } = useStreamChat();
   const { settings } = useSettings();
   const appId = useAtomValue(selectedAppIdAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const setMessagesById = useSetAtom(chatMessagesByIdAtom);
+  const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const currentChatId = activeChatId ?? selectedChatId;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
   const lastTurnHadToolCallsByChatId = useAtomValue(lastTurnHadToolCallsByChatIdAtom);
   const doneAnimationState = useAtomValue(responseDoneAnimationAtom);
   const setDoneAnimation = useSetAtom(responseDoneAnimationAtom);
@@ -122,6 +132,49 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     }
   };
 
+  const handleEditSend = async () => {
+    if (currentChatId == null || message.role !== "user") return;
+    try {
+      await IpcClient.getInstance().editMessage(currentChatId, message.id, editContent);
+      const chat = await IpcClient.getInstance().getChat(currentChatId);
+      setMessagesById((prev) => {
+        const next = new Map(prev);
+        next.set(currentChatId, chat.messages);
+        return next;
+      });
+      setRestartedAfterMessageId(message.id);
+      streamMessage({ prompt: "", chatId: currentChatId, continueAfterQuestions: true });
+      setIsEditing(false);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handleRevertClick = async () => {
+    if (currentChatId == null || message.role !== "assistant" || !message.snapshotId) return;
+    const filesNote =
+      message.filesWritten && message.filesWritten.length > 0
+        ? ` ${message.filesWritten.length} file(s) were written after this point — code revert coming in v3.10.`
+        : "";
+    const ok = window.confirm(
+      `Revert conversation?\n\nThis will remove all messages after this one.${filesNote}`
+    );
+    if (!ok) return;
+    try {
+      await IpcClient.getInstance().revertToMessage(currentChatId, message.id);
+      const chat = await IpcClient.getInstance().getChat(currentChatId);
+      setMessagesById((prev) => {
+        const next = new Map(prev);
+        next.set(currentChatId, chat.messages);
+        return next;
+      });
+      setRestartedAfterMessageId(message.id);
+      showInfo("Conversation reverted. Code changes from removed exchanges are still on disk — file revert coming in a future update.");
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   return (
     <div
       className={`flex ${
@@ -130,11 +183,28 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     >
       <div className={`mt-2 w-full max-w-3xl mx-auto group`}>
         <div
-          className={`rounded-lg p-2 ${
+          className={`rounded-lg p-2 relative ${
             message.role === "assistant" ? "" : "ml-24 bg-(--sidebar-accent)"
           }`}
         >
-          {message.role === "assistant" && isLastMessage && isStreaming ? (
+          {message.role === "user" && isEditing ? (
+            <>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-sm resize-y"
+                autoFocus
+              />
+              <div className="flex gap-2 mt-2">
+                <Button size="sm" onClick={handleEditSend}>
+                  Send
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setIsEditing(false); setEditContent(message.content); }}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : message.role === "assistant" && isLastMessage && isStreaming ? (
             <>
               {/* Content first, then compass beneath (Claude-style) */}
               {!message.content ? (
@@ -183,6 +253,17 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             <div className="mt-3 flex justify-start">
               <AtlarixAnimation size="sm" phase="done" />
             </div>
+          )}
+          {message.role === "user" && !isEditing && (
+            <button
+              type="button"
+              onClick={() => { setEditContent(message.content); setIsEditing(true); }}
+              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-muted transition-opacity"
+              title="Edit message"
+              aria-label="Edit message"
+            >
+              <Edit2 className="h-4 w-4 text-muted-foreground" />
+            </button>
           )}
           {(message.role === "assistant" && message.content && !isStreaming) ||
           message.approvalState ? (
@@ -239,6 +320,19 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             </div>
           ) : null}
         </div>
+        {/* v3.9: Revert to here (assistant messages with snapshot) */}
+        {message.role === "assistant" && message.snapshotId != null && !isStreaming && (
+          <div className="mt-1">
+            <button
+              type="button"
+              onClick={handleRevertClick}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              <Undo2 className="h-3 w-3" />
+              Revert to here
+            </button>
+          </div>
+        )}
         {/* Timestamp and commit info for assistant messages - only visible on hover */}
         {message.role === "assistant" && message.createdAt && (
           <div className="mt-1 flex flex-wrap items-center justify-start space-x-2 text-xs text-gray-500 dark:text-gray-400 ">

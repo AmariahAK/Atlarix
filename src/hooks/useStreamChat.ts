@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import type {
   ComponentSelection,
   Message,
@@ -12,9 +12,10 @@ import {
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
-  suggestionsByChatIdAtom,
   toolIndicatorAtom,
   responseDoneAnimationAtom,
+  questionsByMessageIdAtom,
+  restartedAfterMessageIdAtom,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
@@ -92,7 +93,6 @@ export function useStreamChat({
   hasChatId = true,
 }: { hasChatId?: boolean } = {}) {
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-  const setSuggestionsByChatId = useSetAtom(suggestionsByChatIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
@@ -129,6 +129,9 @@ export function useStreamChat({
   let { refreshProposal } = hasChatId ? useProposal(chatId) : useProposal();
   const { invalidateTokenCount } = useCountTokens(chatId ?? null, "");
 
+  const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
+  const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
+
   const streamMessage = useCallback(
     async ({
       prompt,
@@ -138,6 +141,7 @@ export function useStreamChat({
       selectedComponents,
       modelOverride,
       onSettled,
+      continueAfterQuestions,
     }: {
       prompt: string;
       chatId: number;
@@ -146,10 +150,13 @@ export function useStreamChat({
       selectedComponents?: ComponentSelection[];
       modelOverride?: { provider: string; name: string };
       onSettled?: () => void;
+      /** v3.9: Continue after clarifying questions (no new user message). */
+      continueAfterQuestions?: boolean;
     }) => {
+      if (!chatId) return;
       if (
-        (!prompt.trim() && (!attachments || attachments.length === 0)) ||
-        !chatId
+        !continueAfterQuestions &&
+        (!prompt.trim() && (!attachments || attachments.length === 0))
       ) {
         return;
       }
@@ -347,6 +354,7 @@ export function useStreamChat({
           attachments,
           modelOverride,
           appId: selectedAppId ?? undefined,
+          continueAfterQuestions,
           onUpdate: (updatedMessages: Message[]) => {
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
@@ -449,28 +457,6 @@ export function useStreamChat({
 
             refetchUserBudget();
 
-            // v3.5: Store suggestions for prompt chips; update last message if we stripped the block
-            if (response.suggestions?.length) {
-              setSuggestionsByChatId((prev) => ({
-                ...prev,
-                [response.chatId]: response.suggestions!,
-              }));
-            }
-            if (response.lastMessageContent != null) {
-              setMessagesById((prev) => {
-                const messages = prev.get(response.chatId) ?? [];
-                if (messages.length === 0) return prev;
-                const last = messages[messages.length - 1];
-                if (last.role !== "assistant") return prev;
-                const next = new Map(prev);
-                next.set(response.chatId, [
-                  ...messages.slice(0, -1),
-                  { ...last, content: response.lastMessageContent! },
-                ]);
-                return next;
-              });
-            }
-
             // Keep the same as below
             setIsStreamingById((prev) => {
               const next = new Map(prev);
@@ -498,6 +484,9 @@ export function useStreamChat({
 
             // v3.5: Brief "done" phase of Atlarix animation when response completes
             setResponseDoneAnimation({ chatId: response.chatId, until: Date.now() + 2000 });
+
+            // v3.9: Clear "conversation restarted from here" divider when stream ends
+            setRestartedAfterMessageId(null);
 
             onSettled?.();
           },
@@ -547,7 +536,7 @@ export function useStreamChat({
     },
     [
       setMessagesById,
-      setSuggestionsByChatId,
+      setQuestionsByMessageId,
       setToolIndicator,
       setResponseDoneAnimation,
       setIsStreamingById,
@@ -557,8 +546,17 @@ export function useStreamChat({
       refetchUserBudget,
       settings,
       setLastTurnHadToolCallsByChatId,
+      setRestartedAfterMessageId,
     ],
   );
+
+  // v3.9: Update questionsByMessageIdAtom when main process emits chat:questions
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onQuestions(({ messageId, questions }) => {
+      setQuestionsByMessageId((prev) => ({ ...prev, [messageId]: questions }));
+    });
+    return unsub;
+  }, [setQuestionsByMessageId]);
 
   return {
     streamMessage,

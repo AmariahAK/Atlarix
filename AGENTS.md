@@ -48,6 +48,10 @@ Atlarix uses **automatic context compaction** when the session gets long:
 - Keep tasks focused; start a new chat for very long sessions.
 - For 50+ turn sessions, prefer cloud providers (OpenRouter, Anthropic) with larger context.
 
+**Clarifying questions:** The system may ask the user clarifying questions (format and rules are in the system prompt). There is no manual trigger; you do not need to emit a special block. If the user answers, the next turn will include their answers in context.
+
+**Conversation revert:** Users can edit a message or revert to a prior assistant message from the UI. When they do, context is truncated to that point. You need not be aware of the revert mechanism; just treat the conversation as continuing from the truncated history.
+
 ---
 
 # Tools Reference
@@ -684,7 +688,7 @@ get_current_time()
 
 ---
 
-## ⚡ Execution (7 tools)
+## ⚡ Execution (9 tools)
 
 ### run_command
 
@@ -748,6 +752,42 @@ run_command("git status")
 run_tests()                      // All tests
 run_tests(path="src/utils.test.ts")  // Specific test
 ```
+
+---
+
+### stream_terminal_output
+
+**Purpose:** Collect live terminal output from commands run in this chat. Use when you need to see the output of a command the user or you are about to run (e.g. after or before `run_command`). Only captures output from this conversation's run_command executions.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| pattern | string | ❌ | Optional regex to filter lines (e.g. "error\|Error\|ERROR") |
+| maxLines | number | ❌ | Max lines to collect (default 50, max 200) |
+| timeoutMs | number | ❌ | How long to wait for output in ms (default 30000) |
+
+**When to Use:**
+- ✅ You need to see command output (e.g. build logs, test output) without re-running the command
+- ✅ Filtering for errors or specific lines in long output
+
+**Example:** After suggesting `run_command("npm run build")`, call `stream_terminal_output(pattern="error|Error", maxLines=50)` to capture build errors when the user runs it.
+
+---
+
+### stream_pipeline_logs
+
+**Purpose:** Collect logs from a CI/CD pipeline job (e.g. GitHub Actions). Provide the job ID; logs are polled until the job completes or max lines reached. Use when the user wants to inspect workflow or job logs.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| jobId | number | ✅ | Pipeline job ID (e.g. GitHub Actions job id) |
+| filter | string | ❌ | Optional regex to filter log lines |
+| maxLines | number | ❌ | Max lines to collect (default 50, max 200) |
+
+**When to Use:**
+- ✅ User asks about a failing workflow or job run
+- ✅ Inspecting CI logs (GitHub Actions, etc.) when connected
 
 ---
 
@@ -866,7 +906,7 @@ detect_project_languages()
 
 **When to Use:**
 - ✅ Understanding what languages a project requires before running
-- ✅ Intelligent suggestions based on project type
+- ✅ Choosing the right setup flow for the project type
 
 ---
 
@@ -1368,7 +1408,7 @@ db_mutate("ALTER TABLE products ADD COLUMN description TEXT", reason="Add produc
 
 ### analyze_code
 
-**Purpose:** Analyze code for patterns, issues, suggestions.
+**Purpose:** Analyze code for patterns and issues.
 
 **Parameters:**
 | Name | Type | Required | Description |

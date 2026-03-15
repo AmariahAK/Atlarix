@@ -5,7 +5,7 @@ import ChatMessage from "./ChatMessage";
 import { OpenRouterSetupBanner, SetupBanner } from "../SetupBanner";
 
 import { useStreamChat } from "@/hooks/useStreamChat";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { selectedChatIdAtom, chatMessagesByIdAtom, questionsByMessageIdAtom, restartedAfterMessageIdAtom } from "@/atoms/chatAtoms";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Loader2, RefreshCw, Undo } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,13 @@ import { useVersions } from "@/hooks/useVersions";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { showError, showWarning } from "@/lib/toast";
 import { IpcClient } from "@/ipc/ipc_client";
-import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { PromoMessage } from "./PromoMessage";
 import { ContextLimitBanner } from "./ContextLimitBanner";
 import { useCountTokens } from "@/hooks/useCountTokens";
+import { QuestionsWidget } from "./QuestionsWidget";
 
 interface MessagesListProps {
   messages: Message[];
@@ -34,6 +34,9 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const { isAnyProviderSetup, isProviderSetup } = useLanguageModelProviders();
     const { settings } = useSettings();
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
+    const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
+    const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
+    const restartedAfterMessageId = useAtomValue(restartedAfterMessageIdAtom);
     const [isUndoLoading, setIsUndoLoading] = useState(false);
     const [isRetryLoading, setIsRetryLoading] = useState(false);
     const selectedChatId = useAtomValue(selectedChatIdAtom);
@@ -67,11 +70,48 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
       >
         {messages.length > 0
           ? messages.map((message, index) => (
-              <ChatMessage
-                key={index}
-                message={message}
-                isLastMessage={index === messages.length - 1}
-              />
+              <div key={message.id ?? index} className="contents">
+                <ChatMessage
+                  message={message}
+                  isLastMessage={index === messages.length - 1}
+                />
+                {message.role === "assistant" &&
+                  questionsByMessageId[message.id]?.length > 0 && (
+                    <QuestionsWidget
+                      messageId={message.id}
+                      questions={questionsByMessageId[message.id]}
+                      onSubmit={async (answers) => {
+                        if (!selectedChatId) return;
+                        try {
+                          await IpcClient.getInstance().submitQuestionAnswers(
+                            selectedChatId,
+                            message.id,
+                            answers
+                          );
+                          setQuestionsByMessageId((prev) => {
+                            const next = { ...prev };
+                            delete next[message.id];
+                            return next;
+                          });
+                          streamMessage({
+                            prompt: "",
+                            chatId: selectedChatId,
+                            continueAfterQuestions: true,
+                          });
+                        } catch (err) {
+                          showError(err);
+                        }
+                      }}
+                    />
+                  )}
+                {restartedAfterMessageId === message.id && (
+                  <div className="w-full max-w-3xl mx-auto py-2 flex items-center gap-2">
+                    <span className="flex-1 border-t border-border" />
+                    <span className="text-xs text-muted-foreground">conversation restarted from here</span>
+                    <span className="flex-1 border-t border-border" />
+                  </div>
+                )}
+              </div>
             ))
           : !renderSetupBanner() && (
               <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto">

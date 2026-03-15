@@ -74,6 +74,7 @@ import type {
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
 } from "./ipc_types";
+import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
 import type {
   AppChatContext,
@@ -134,6 +135,8 @@ export class IpcClient {
   private toolStartHandlers: Set<(payload: { chatId: number; toolName: string }) => void> = new Set();
   private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
+  /** v3.9: Clarifying questions from AI — handlers receive { messageId, questions }. */
+  private questionsHandlers: Set<(payload: { messageId: number; questions: Question[] }) => void> = new Set();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -347,6 +350,113 @@ export class IpcClient {
         this.chatActivityHandlers.forEach((h) => h(payload));
       }
     });
+
+    // v3.9: Clarifying questions from AI (<questions> block)
+    this.ipcRenderer.on("chat:questions", (payload: unknown) => {
+      if (payload && typeof payload === "object" && "messageId" in payload && "questions" in payload) {
+        const { messageId, questions } = payload as { messageId: number; questions: Question[] };
+        this.questionsHandlers.forEach((h) => h({ messageId, questions }));
+      }
+    });
+  }
+
+  /** v3.9: Register for clarifying questions. Returns unsubscribe. */
+  public onQuestions(handler: (payload: { messageId: number; questions: Question[] }) => void): () => void {
+    this.questionsHandlers.add(handler);
+    return () => this.questionsHandlers.delete(handler);
+  }
+
+  /** v3.9: Submit clarifying-question answers and mark chat as answered (backend appends to user message). */
+  public async submitQuestionAnswers(
+    chatId: number,
+    assistantMessageId: number,
+    answers: Record<string, string>
+  ): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("chat:submit-question-answers", {
+      chatId,
+      assistantMessageId,
+      answers,
+    });
+  }
+
+  /** v3.9: Edit user message, truncate after it, clear has_answered_questions. */
+  public async editMessage(
+    chatId: number,
+    userMessageId: number,
+    newContent: string
+  ): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("chat:edit-message", {
+      chatId,
+      userMessageId,
+      newContent,
+    });
+  }
+
+  /** v3.9: Revert conversation to assistant message, truncate after it, clear has_answered_questions. */
+  public async revertToMessage(
+    chatId: number,
+    assistantMessageId: number
+  ): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("chat:revert-to-message", {
+      chatId,
+      assistantMessageId,
+    });
+  }
+
+  /** v3.9: GitHub Actions — list runs for workspace */
+  public async githubActionsListRuns(workspacePath: string): Promise<{
+    repo: { owner: string; repo: string } | null;
+    runs: Array<{
+      id: number;
+      name: string;
+      headBranch: string;
+      status: string;
+      conclusion: string | null;
+      createdAt: Date;
+      htmlUrl?: string;
+    }>;
+  }> {
+    return this.ipcRenderer.invoke("github-actions:list-runs", workspacePath);
+  }
+
+  /** v3.9: GitHub Actions — get jobs for a run */
+  public async githubActionsGetJobs(
+    owner: string,
+    repo: string,
+    runId: number
+  ): Promise<Array<{ id: number; name: string; status: string; conclusion: string | null; steps: unknown[]; htmlUrl?: string }>> {
+    return this.ipcRenderer.invoke("github-actions:get-jobs", owner, repo, runId);
+  }
+
+  /** v3.9: GitHub Actions — get job logs */
+  public async githubActionsGetLogs(
+    owner: string,
+    repo: string,
+    jobId: number
+  ): Promise<string> {
+    return this.ipcRenderer.invoke("github-actions:get-logs", owner, repo, jobId);
+  }
+
+  /** v3.9: GitHub Actions — start log stream (emits github-actions:log-chunk) */
+  public async githubActionsStartStream(
+    owner: string,
+    repo: string,
+    jobId: number,
+    filter?: string | null
+  ): Promise<{ success: boolean; jobId: number }> {
+    return this.ipcRenderer.invoke("github-actions:start-stream", owner, repo, jobId, filter ?? undefined);
+  }
+
+  /** v3.9: GitHub Actions — stop log stream */
+  public async githubActionsStopStream(jobId: number): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("github-actions:stop-stream", jobId);
+  }
+
+  /** v3.9: Subscribe to GitHub Actions log stream chunks */
+  public onGitHubActionsLogChunk(handler: (payload: { jobId: number; line?: string; error?: string }) => void): () => void {
+    const subscription = (_: Electron.IpcRendererEvent, payload: { jobId: number; line?: string; error?: string }) => handler(payload);
+    this.ipcRenderer.on("github-actions:log-chunk", subscription);
+    return () => this.ipcRenderer.removeListener("github-actions:log-chunk", subscription);
   }
 
   /** v3.5: Register for chat activity (e.g. summarization). Returns unsubscribe. */
@@ -507,6 +617,8 @@ export class IpcClient {
       onEnd: (response: ChatResponseEnd) => void;
       onError: (error: string) => void;
       onProblems?: (problems: ChatProblemsEvent) => void;
+      /** v3.9: Continue after clarifying questions (no new user message; use last user message content). */
+      continueAfterQuestions?: boolean;
     },
   ): void {
     const {
@@ -519,6 +631,7 @@ export class IpcClient {
       onUpdate,
       onEnd,
       onError,
+      continueAfterQuestions,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
@@ -559,6 +672,7 @@ export class IpcClient {
               appId: appId ?? undefined,
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
+              continueAfterQuestions: continueAfterQuestions ?? undefined,
             })
             .catch((err) => {
               console.error("Error streaming message:", err);
@@ -583,6 +697,7 @@ export class IpcClient {
           selectedComponents,
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
+          continueAfterQuestions: continueAfterQuestions ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);

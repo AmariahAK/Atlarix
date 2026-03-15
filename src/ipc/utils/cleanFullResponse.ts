@@ -1,38 +1,47 @@
-const SUGGESTIONS_REGEX = /<suggestions>([\s\S]*?)<\/suggestions>/i;
+import type { Question } from "../ipc_types";
+
+const QUESTIONS_REGEX = /<questions>([\s\S]*?)<\/questions>/i;
 
 /**
- * Extract and remove the <suggestions>...</suggestions> block from the response.
- * Returns cleaned response (for DB/display) and up to 3 suggestion strings for UI chips.
+ * Parse and remove the <questions>...</questions> block from the response.
+ * Returns cleaned content and parsed questions, or null if malformed/missing.
  */
-export function extractSuggestions(fullResponse: string): {
-  cleaned: string;
-  suggestions: string[];
-} {
-  const match = fullResponse.match(SUGGESTIONS_REGEX);
+export function parseQuestions(fullResponse: string): { cleanContent: string; questions: Question[] | null } {
+  const match = fullResponse.match(QUESTIONS_REGEX);
   if (!match) {
-    return { cleaned: fullResponse, suggestions: [] };
+    return { cleanContent: fullResponse, questions: null };
   }
   const raw = match[1].trim();
-  let suggestions: string[] = [];
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      suggestions = parsed
-        .filter((s): s is string => typeof s === "string")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 3);
+    if (!Array.isArray(parsed)) {
+      return { cleanContent: fullResponse.replace(QUESTIONS_REGEX, "").trim(), questions: null };
     }
-  } catch {
-    // Plain list: split by newline or comma
-    suggestions = raw
-      .split(/[\n,]/)
-      .map((s) => s.replace(/^["'\s-•*]+|["'\s-•*]+$/g, "").trim())
-      .filter(Boolean)
-      .slice(0, 3);
+    const questions: Question[] = [];
+    for (const item of parsed) {
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof (item as Question).id === "string" &&
+        typeof (item as Question).question === "string" &&
+        Array.isArray((item as Question).choices) &&
+        typeof (item as Question).allowCustom === "boolean"
+      ) {
+        questions.push({
+          id: (item as Question).id,
+          question: (item as Question).question,
+          choices: (item as Question).choices,
+          allowCustom: (item as Question).allowCustom,
+        });
+      }
+    }
+    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
+    return { cleanContent, questions: questions.length > 0 ? questions : null };
+  } catch (err) {
+    console.warn("[parseQuestions] Malformed <questions> JSON, treating as no questions:", err);
+    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
+    return { cleanContent, questions: null };
   }
-  const cleaned = fullResponse.replace(SUGGESTIONS_REGEX, "").trim();
-  return { cleaned, suggestions };
 }
 
 export function cleanFullResponse(text: string): string {

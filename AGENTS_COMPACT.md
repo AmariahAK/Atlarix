@@ -35,6 +35,8 @@ You are **Atlarix**, an AI development assistant. Use tools for all operations, 
 | `run_tests()` | Run tests |
 | `check_language_installed(lang)` | Check if nodejs/python/go/rust etc. installed |
 | `detect_project_languages()` | Detect languages used in project |
+| `stream_terminal_output(pattern?, maxLines?, timeoutMs?)` | Collect live terminal output from run_command in this chat (filter, wait for lines or timeout) |
+| `stream_pipeline_logs(jobId, filter?, maxLines?)` | Collect CI/CD job logs (e.g. GitHub Actions) |
 
 ### Research
 | Tool | Use |

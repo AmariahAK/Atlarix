@@ -25,11 +25,12 @@ import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
+import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare
 } from 'lucide-react';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
@@ -62,6 +63,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     debug: { icon: Terminal, label: 'Debug' },
     vault: { icon: KeyRound, label: 'Vault' },
     activity: { icon: Workflow, label: 'Activity' },  // Deprecated: Activity moved to chat; kept for PanelTab type
+    chat: { icon: MessageSquare, label: 'Chat' },
 };
 
 // Primary mode categories for the toolbar
@@ -328,6 +330,11 @@ function PanelContent({
     setActiveTab?: (tab: import('@/atoms/sourceAtoms').PanelTab) => void;
     fallbackChatId?: number;
 }) {
+    // Chat tab (when chat area is hidden)
+    if (context.activeTab === 'chat') {
+        return <EmbeddedChatTab />;
+    }
+
     // For file-diff and permission types, route based on activeTab
     if (context.type === 'file-diff' || context.type === 'permission') {
         switch (context.activeTab) {

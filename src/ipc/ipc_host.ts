@@ -46,6 +46,8 @@ import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
 import { registerRoutingHandlers } from "./handlers/routing_handlers";
+import { registerStreamHandlers } from "./handlers/stream_handlers";
+import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
 import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
@@ -102,5 +104,7 @@ export function registerIpcHandlers() {
   registerPivotAnalysisHandlers(); // PIVOT analysis (SonarQube, Semgrep, SCIP)
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
   registerRoutingHandlers(); // v3.6 Auto routing preview
+  registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
+  registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel
   wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

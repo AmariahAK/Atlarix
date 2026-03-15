@@ -21,6 +21,18 @@ const validInvokeChannels = [
   "chat:cancel",
   "chat:stream",
   "chat:abort",  // User can stop AI to save tokens
+  "chat:submit-question-answers",  // v3.9: submit clarifying-question answers and continue
+  "chat:edit-message",             // v3.9: edit user message and truncate after
+  "chat:revert-to-message",        // v3.9: revert conversation to assistant message
+  "stream:open",                  // v3.9: open terminal/pipeline stream
+  "stream:close",                 // v3.9: close stream
+  "stream:get-lines",             // v3.9: get collected lines
+  "stream:feed-terminal",         // v3.9: feed terminal output (main process)
+  "github-actions:list-runs",
+  "github-actions:get-jobs",
+  "github-actions:get-logs",
+  "github-actions:start-stream",
+  "github-actions:stop-stream",
   "chat:count-tokens",
   "create-chat",
   "create-chat-only",
@@ -325,6 +337,8 @@ const validReceiveChannels = [
   "chat:iteration:timeout",     // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
+  // v3.9: Clarifying questions from AI (render QuestionsWidget)
+  "chat:questions",
   // Blueprint: AI editing indicator (Diagram tab)
   "blueprint:ai-editing",
   "blueprint:updated",
@@ -332,6 +346,8 @@ const validReceiveChannels = [
   "blueprint:edges-updated",
   // OAuth callback from main process
   "oauth-callback-success",
+  // v3.9: GitHub Actions log stream
+  "github-actions:log-chunk",
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

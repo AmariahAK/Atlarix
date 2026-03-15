@@ -29,7 +29,6 @@ import {
   chatInputValueAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
-  suggestionsByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -95,9 +94,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const currentChatId = activeChatId ?? chatId ?? selectedChatId;
-  const suggestionsByChatId = useAtomValue(suggestionsByChatIdAtom);
-  const setSuggestionsByChatId = useSetAtom(suggestionsByChatIdAtom);
-  const suggestions = (currentChatId != null ? suggestionsByChatId[currentChatId] : undefined) ?? [];
   const [showError, setShowError] = useState(true);
   const [isApproving, setIsApproving] = useState(false); // State for approving
   const [isRejecting, setIsRejecting] = useState(false); // State for rejecting
@@ -463,28 +459,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
               </button>
             )}
           </div>
-          {/* v3.5: Context-aware prompt suggestion chips */}
-          {!isStreaming && suggestions.length > 0 && currentChatId != null && (
-            <div className="flex flex-wrap gap-2 px-2 pb-2">
-              {suggestions.map((text, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => {
-                    setInputValue(text);
-                    setSuggestionsByChatId((prev) => {
-                      const next = { ...prev };
-                      delete next[currentChatId!];
-                      return next;
-                    });
-                  }}
-                  className="text-xs px-2.5 py-1 rounded-md border border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
-          )}
           {/* v3.6: Auto routing preview */}
           {!isStreaming && settings?.autoModelRouting && (routingPreview || modelOverrideForNextMessage) && (
             <div className="flex items-center justify-between gap-2 px-2 pb-2 text-xs text-muted-foreground">

@@ -61,12 +61,15 @@ export const BUILTIN_EXTENSIONS: Extension[] = [
     ],
   },
   {
-    id: "ci-cd-monitor",
-    name: "CI/CD Monitor",
+    id: "github-actions",
+    name: "GitHub Actions",
     icon: "Workflow",
-    description: "Connect to GitHub Actions, GitLab CI, or Bitbucket Pipelines. Pipeline status in left panel.",
-    tier: "workforce",
-    getPanelComponent: async () => PlaceholderPanel as ComponentType<{ workspaceId: number | null }>,
+    description: "View workflow runs, jobs, and stream job logs. Connect GitHub in Settings → Extensions.",
+    tier: "pro",
+    getPanelComponent: async () => {
+      const { GitHubActionsPanelWrapper } = await import("@/components/extensions/GitHubActionsPanelWrapper");
+      return GitHubActionsPanelWrapper as ComponentType<{ workspaceId: number | null }>;
+    },
     tools: [],
   },
   {

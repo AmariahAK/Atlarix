@@ -7,15 +7,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v3.8.0*
+*Current: v3.9.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
-**Recent (v3.8):** Screen-by-screen onboarding (workspace → Blueprint intro → Ask vs Build → Settings AI → Done); DB extension: connection string parser, Test connection, Parse button; GitHub OAuth; Pro gating for Extensions/DB (log in first, then upgrade). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
+**Recent (v3.9):** GitHub Actions in the **left panel** (Pro, same pattern as DB Studio); resizable left panel; Chat tab in right panel when chat area is hidden; Pro panel shortcuts (Cmd+I / Cmd+O); compact model search when right panel is open. Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
-### Deployment (CI / GitHub Actions)
+### Deployment & CI/CD
 
-**Releases are built and published via GitHub Actions for every version.** The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
+**Releases** are built and published via GitHub Actions for every version. **GitHub Actions**: in the **left panel**, add the GitHub Actions extension (Pro) to list workflow runs, view job logs, stream logs live, and send logs to the AI. Connect GitHub in Settings → Extensions. Token is read from the Supabase session (`session.provider_token`) when signed in with GitHub. The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
 
 - **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v3.8`), it runs `npm run make` then `npm run publish`.
 - **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example):  
@@ -154,6 +154,7 @@ Building user authentication with JWT tokens.
 ### Context Management
 - **Context Bar** – Real-time token usage visualization
 - **Auto-Summarize** – Long conversations compressed automatically
+- **Conversation Revert** – Revert to a prior assistant message or edit a user message and continue from there (v3.9)
 - **Project Memory** – `.atlarix/memory.md` (Claude Code style) persists across sessions; compaction writes there
 - **Task Breakdown** – `.atlarix/spec.md` (model-created) for task breakdown; AI reads both when present
 - **ATLARIX_PLAN.md** – Version-controllable implementation plan
@@ -165,11 +166,12 @@ Building user authentication with JWT tokens.
 - **AI Summary** - Change description at top of each file diff
 - **Permission Queue** - Approve/reject AI changes before execution
 
-### 57 Intelligent Tools
+### 59+ Intelligent Tools
 **File Operations** - Read, write, search, modify files  
 **Code Intelligence** - Semantic search, architecture diagrams  
 **Web & Research** - web_search, deep_search, read_url  
-**Development** - Command execution, template scaffolding
+**Development** - Command execution, template scaffolding  
+**Stream tools (v3.9)** - stream_terminal_output (live terminal from run_command), stream_pipeline_logs (CI/CD job logs e.g. GitHub Actions)
 
 ### Capability comparison
 Atlarix supports **code generation and modification**, **session/context summarization** (auto-compaction, project memory), **web search** (`web_search`, `read_url`), **tool calls** (with a permission layer for writes and commands), and **agent delegation** (Guided/Autonomous modes with specialist agents: research, architect, builder, reviewer). These capabilities are comparable to or stronger than those in [claude-code](https://github.com/anthropics/claude-code) and [opencode](https://github.com/anomalyco/opencode): code gen and tool use are on par or better due to explicit permission UI; session summarization and web search are on par; agent delegation is a differentiator with a structured delegate-to-specialist model. See those projects for their exact feature sets.
@@ -213,6 +215,8 @@ Atlarix supports **code generation and modification**, **session/context summari
 - **macOS / Windows / Linux**
 
 ### Development Setup
+
+**Important — Schema changes:** Any update that modifies the database schema (adding columns, tables, indexes, or relations) must include a corresponding migration file so the auto-migrate system runs it correctly on app start. Do not rely on `db:push` alone in production builds. Migration files live in [`drizzle/`](drizzle/) at the project root and must follow the existing naming convention (see [`drizzle/meta/_journal.json`](drizzle/meta/_journal.json)).
 
 ```bash
 git clone https://github.com/norahlabs/atlarix.git

@@ -119,6 +119,8 @@ export interface ConstructSystemPromptParams {
     optionalProjectInstructions?: string;
     /** Legacy: unused in builder, kept for call-site compatibility. */
     enableTurboEditsV2?: boolean;
+    /** v3.9: When true, omit the <questions> clarifying-questions instruction (user already answered). */
+    hasAnsweredQuestions?: boolean;
 }
 
 export const constructSystemPrompt = ({
@@ -127,6 +129,7 @@ export const constructSystemPrompt = ({
     userPrompt,
     contextSize = 32000,
     optionalProjectInstructions,
+    hasAnsweredQuestions = false,
 }: ConstructSystemPromptParams) => {
     // v2.1: Use full instruction layers when provided; else AGENTS.md + tech stack
     let prompt = optionalProjectInstructions ?? getAgentsMdForContextSize(contextSize);
@@ -213,21 +216,43 @@ ${userPrompt.trim()}
 `;
     }
 
-    // v3.5: Context-aware prompt suggestions (Option A — piggyback, zero extra API call)
-    prompt += `
+    // v3.9: Clarifying questions — only when not already answered in this chat
+    if (!hasAnsweredQuestions) {
+        prompt += `
 
 ---
 
-# Prompt suggestions
-After your response, output a JSON block on its own line:
-<suggestions>["suggestion 1", "suggestion 2", "suggestion 3"]</suggestions>
-Base suggestions on what would logically come next in this task. Examples:
-- After creating a component: "Add tests for this component", "Connect this to the API"
-- After a build error: "Fix all TypeScript errors", "Check why this is failing"
-- Fresh workspace: "Scan my codebase and give me an overview", "Generate a Blueprint"
-- After a long task completes: "Review what was just built", "Update the spec"
-Provide exactly 3 short, actionable suggestions. No preamble inside the tag.
+# Clarifying questions
+When you determine that a task is ambiguous in a way that would produce fundamentally different implementations depending on interpretation — such as architecture decisions, tech stack choices, destructive operations, or unclear scope — you may emit a <questions> block BEFORE your response text.
+
+Only use this for genuinely consequential ambiguity. Do NOT ask about cosmetic details (colors, font sizes, naming conventions) unless the user explicitly asks for your opinion on these.
+
+Format exactly as follows:
+<questions>
+[
+  {
+    "id": "q1",
+    "question": "Which database should the auth system use?",
+    "choices": ["PostgreSQL (existing)", "Redis (sessions only)", "Keep current setup"],
+    "allowCustom": true
+  },
+  {
+    "id": "q2",
+    "question": "Should this replace the existing login flow or run alongside it?",
+    "choices": ["Replace it", "Run alongside (A/B)"],
+    "allowCustom": false
+  }
+]
+</questions>
+
+Rules:
+- Emit at most ONE <questions> block per response
+- Maximum 4 questions per block
+- Maximum 4 choices per question
+- After the user answers, proceed directly — never ask questions again in the same thread
+- If you emit <questions>, do not write any other response text in that turn
 `;
+    }
 
     return prompt;
 };
@@ -242,8 +267,10 @@ export async function buildSystemPromptWithProjectInstructions(params: {
     contextSize: number;
     chatMode: "build" | "ask";
     userPrompt?: string | null;
+    /** v3.9: When true, omit the <questions> instruction. */
+    hasAnsweredQuestions?: boolean;
 }): Promise<string> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, userPrompt } = params;
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, userPrompt, hasAnsweredQuestions } = params;
     const bundleContent = getAgentsMdForContextSize(contextSize);
     const layers = await loadInstructionLayers({
         workspacePath,
@@ -256,6 +283,7 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         chatMode,
         userPrompt,
         optionalProjectInstructions,
+        hasAnsweredQuestions,
     });
 }
 

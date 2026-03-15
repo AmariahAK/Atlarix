@@ -61,7 +61,7 @@ import { requireMcpToolConsent } from "../utils/mcp_consent";
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
-import { cleanFullResponse, extractSuggestions } from "../utils/cleanFullResponse";
+import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
 import { generateProblemReport } from "../processors/tsc";
 import { createProblemFixPrompt } from "@/shared/problem_prompt";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
@@ -84,6 +84,8 @@ import z from "zod";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import { getCurrentCommitHash } from "../utils/git_utils";
+import { createSnapshot } from "../../lib/workspace-snapshots";
+import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
   VersionedFiles as VersionedFiles,
@@ -438,6 +440,7 @@ export function registerChatStreamHandlers() {
           app: appData,
           initialCommitHash: null,
           lastUsedAt: new Date(),
+          hasAnsweredQuestions: false,
         };
 
         logger.log(`Ephemeral workspace chat loaded for app: ${appData.name} (${appData.path})`);
@@ -502,11 +505,31 @@ export function registerChatStreamHandlers() {
         }
       }
 
-      // Process attachments if any
+      // v3.9: Continue after clarifying questions — use last user message (already updated with Q/A block)
+      let userPrompt: string;
+      if (req.continueAfterQuestions) {
+        // Re-fetch chat so we have the user message that was updated by chat:submit-question-answers
+        const freshChat = await db.query.chats.findFirst({
+          where: eq(chats.id, req.chatId),
+          with: {
+            messages: { orderBy: (messages, { asc }) => [asc(messages.createdAt)] },
+            app: true,
+          },
+        });
+        if (!freshChat) throw new Error("Chat not found");
+        const userMessages = freshChat.messages.filter((m: any) => m.role === "user");
+        const lastUser = userMessages[userMessages.length - 1];
+        if (!lastUser?.content) {
+          throw new Error("Continue after questions: no user message content found");
+        }
+        userPrompt = lastUser.content;
+      }
+
+      // Process attachments if any (skip when continuing after questions)
       let attachmentInfo = "";
       let attachmentPaths: string[] = [];
 
-      if (req.attachments && req.attachments.length > 0) {
+      if (!req.continueAfterQuestions && req.attachments && req.attachments.length > 0) {
         attachmentInfo = "\n\nAttachments:\n";
 
         for (const [index, attachment] of req.attachments.entries()) {
@@ -556,30 +579,34 @@ export function registerChatStreamHandlers() {
         }
       }
 
-      // Add user message to database with attachment info
-      let userPrompt = req.prompt + (attachmentInfo ? attachmentInfo : "");
-      // Inline referenced prompt contents for mentions like @prompt:<id>
-      try {
-        const matches = Array.from(userPrompt.matchAll(/@prompt:(\d+)/g));
-        if (matches.length > 0) {
-          const ids = Array.from(new Set(matches.map((m) => Number(m[1]))));
-          const referenced = await db
-            .select()
-            .from(promptsTable)
-            .where(inArray(promptsTable.id, ids));
-          if (referenced.length > 0) {
-            const promptsMap: Record<number, string> = {};
-            for (const p of referenced) {
-              promptsMap[p.id] = p.content;
+      // Add user message to database with attachment info (skip when continueAfterQuestions)
+      if (!req.continueAfterQuestions) {
+        userPrompt = req.prompt + (attachmentInfo ? attachmentInfo : "");
+      }
+      // Inline referenced prompt contents for mentions like @prompt:<id> (skip when continueAfterQuestions)
+      if (!req.continueAfterQuestions) {
+        try {
+          const matches = Array.from(userPrompt.matchAll(/@prompt:(\d+)/g));
+          if (matches.length > 0) {
+            const ids = Array.from(new Set(matches.map((m) => Number(m[1]))));
+            const referenced = await db
+              .select()
+              .from(promptsTable)
+              .where(inArray(promptsTable.id, ids));
+            if (referenced.length > 0) {
+              const promptsMap: Record<number, string> = {};
+              for (const p of referenced) {
+                promptsMap[p.id] = p.content;
+              }
+              userPrompt = replacePromptReference(userPrompt, promptsMap);
             }
-            userPrompt = replacePromptReference(userPrompt, promptsMap);
           }
+        } catch (e) {
+          logger.error("Failed to inline referenced prompts:", e);
         }
-      } catch (e) {
-        logger.error("Failed to inline referenced prompts:", e);
       }
 
-      const componentsToProcess = req.selectedComponents || [];
+      const componentsToProcess = req.continueAfterQuestions ? [] : (req.selectedComponents || []);
 
       if (componentsToProcess.length > 0) {
         userPrompt += "\n\nSelected components:\n";
@@ -626,8 +653,8 @@ ${componentSnippet}
       // Check if this is an ephemeral workspace chat (skip DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
-      // Only save to database for non-ephemeral chats
-      if (!isEphemeralWorkspace) {
+      // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
+      if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
         await db
           .insert(messages)
           .values({
@@ -650,6 +677,9 @@ ${componentSnippet}
       let updatedChat: any = chat; // Use the existing chat object for ephemeral
 
       if (!isEphemeralWorkspace) {
+        // v3.9: 0-based exchange index = number of assistant messages before this one
+        const exchangeIndex =
+          chat.messages.filter((m: any) => m.role === "assistant").length;
         // Regular DB chat - save to database
         const [dbPlaceholder] = await db
           .insert(messages)
@@ -661,6 +691,7 @@ ${componentSnippet}
             sourceCommitHash: await getCurrentCommitHash({
               path: resolveAppPath(chat.app.path),
             }),
+            exchangeIndex,
           })
           .returning();
         placeholderAssistantMessage = dbPlaceholder;
@@ -1126,6 +1157,7 @@ ${componentSnippet}
               contextSize,
               chatMode,
               userPrompt: userPrompt,
+              hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
             });
           } else {
             systemPrompt = constructSystemPrompt({
@@ -1134,6 +1166,7 @@ ${componentSnippet}
               contextSize,
               userPrompt,
               enableTurboEditsV2: isTurboEditsV2Enabled(settings),
+              hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
             });
           }
 
@@ -1701,6 +1734,10 @@ This conversation includes one or more image attachments. When the user uploads 
             });
           }
 
+          // v3.9: Set in Build block; used when updating assistant message after stream
+          let preExchangeSnapshotId: number | null = null;
+          let filesWrittenInThisExchange: string[] = [];
+
           // Ask mode with workspace: use read-only tools for exploration
           if (settings.selectedChatMode === "ask" && effectiveApp) {
             logger.log("Ask mode with workspace - enabling read-only tools");
@@ -1716,12 +1753,24 @@ This conversation includes one or more image attachments. When the user uploads 
                 parameters: tool.parameters,
                 execute: async (args: any) => {
                   try {
-                    // Execute tool via registry (use effective workspace)
-                    const execResult = await ToolRegistry.execute(tool.name, {
+                    const execArgs: any = {
                       ...args,
                       workspace: appPath,
                       workspaceId: effectiveAppId!,
-                    });
+                    };
+                    if (tool.name === "stream_terminal_output" || tool.name === "stream_pipeline_logs") {
+                      execArgs.chatId = req.chatId;
+                      execArgs._sendToolActivity = (label: string) => {
+                        safeSend(event.sender, "chat:tool:start", {
+                          chatId: req.chatId,
+                          toolName: label,
+                        });
+                        return () => {
+                          safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                        };
+                      };
+                    }
+                    const execResult = await ToolRegistry.execute(tool.name, execArgs);
 
                     // Return formatted result for display
                     return JSON.stringify(execResult);
@@ -1826,6 +1875,23 @@ If the user requests modifications, use request_mode_change to request Build mod
             // Permission interceptor buffers write operations for user approval
             logger.log("Build mode with native tool calling + permission system");
 
+            // v3.9: Snapshot synchronously at exchange start (before any tool runs) for conversation revert
+            if (effectiveAppId != null && appPath) {
+              try {
+                const snap = await createSnapshot(
+                  effectiveAppId,
+                  "pre-exchange",
+                  appPath,
+                  effectiveAppId,
+                  updatedChat.messages.map((m: any) => ({ role: m.role, content: m.content ?? "" }))
+                );
+                preExchangeSnapshotId = snap.id;
+                logger.log(`[Build Mode] Created pre-exchange snapshot: ${preExchangeSnapshotId}`);
+              } catch (snapErr) {
+                logger.warn("Failed to create pre-exchange snapshot:", snapErr);
+              }
+            }
+
             const workspacePath = appPath;
             /** After create_workspace in this turn, use this so run_command/write_file run in the new project. */
             let workspaceOverride: { path: string; id: number } | null = null;
@@ -1840,8 +1906,9 @@ If the user requests modifications, use request_mode_change to request Build mod
             // Register interceptor for IPC handlers (so UI can approve/reject)
             registerInterceptor(req.chatId, permissionInterceptor);
 
-            // Listen for terminal output events and forward to frontend
+            // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
             permissionInterceptor.on('terminal-output', (payload: any) => {
+              feedTerminalOutput(req.chatId, payload.output ?? "");
               safeSend(event.sender, "terminal-output", {
                 chatId: req.chatId,
                 commandId: payload.operationId,
@@ -1874,13 +1941,28 @@ If the user requests modifications, use request_mode_change to request Build mod
                     // Use workspace override when create_workspace was just run (same turn)
                     const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
                     const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
-                    // Execute tool via registry, inject workspace path, workspaceId, and chatMode
-                    const result = await ToolRegistry.execute(tool.function.name, {
+                    const isStreamTool =
+                      tool.function.name === "stream_terminal_output" ||
+                      tool.function.name === "stream_pipeline_logs";
+                    const executeArgs: any = {
                       ...args,
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
                       chatMode: "build", // Pass chatMode so handlers can check permissions
-                    });
+                    };
+                    if (isStreamTool) {
+                      executeArgs.chatId = req.chatId;
+                      executeArgs._sendToolActivity = (label: string) => {
+                        safeSend(event.sender, "chat:tool:start", {
+                          chatId: req.chatId,
+                          toolName: label,
+                        });
+                        return () => {
+                          safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                        };
+                      };
+                    }
+                    const result = await ToolRegistry.execute(tool.function.name, executeArgs);
 
                     // If create_workspace succeeded, use new workspace for rest of this turn
                     if (
@@ -1923,6 +2005,14 @@ If the user requests modifications, use request_mode_change to request Build mod
                           // User approved - return success to AI
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
                           logger.log(`[Build Mode] Permission approved: ${operationId}`);
+
+                          // v3.9: Record written paths for this exchange (revert UI)
+                          const preview = permRequest.preview as { path?: string; paths?: string[] };
+                          if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
+                            filesWrittenInThisExchange.push(...preview.paths);
+                          } else if (preview.path) {
+                            filesWrittenInThisExchange.push(preview.path);
+                          }
 
                           // Check if output contains error patterns (dev server may start but have compilation errors)
                           const output = execResult.output || '';
@@ -2469,12 +2559,18 @@ If the user requests modifications, use request_mode_change to request Build mod
 
         // Only save the response and process it if we weren't aborted
         if (!abortController.signal.aborted && fullResponse) {
-          // v3.5: Extract and strip <suggestions> block; use cleaned for DB/display, pass suggestions to UI
-          const { cleaned, suggestions } = extractSuggestions(fullResponse);
-          fullResponse = cleaned;
+          // v3.9: Parse and strip <questions> block; emit chat:questions if present (first block only)
+          const { cleanContent: contentAfterQuestions, questions } = parseQuestions(fullResponse);
+          const responseToStore = questions != null ? contentAfterQuestions : fullResponse;
+          if (questions != null && questions.length > 0) {
+            safeSend(event.sender, "chat:questions", {
+              messageId: placeholderAssistantMessage.id,
+              questions,
+            });
+          }
 
           // Scrape from: <atlarix-chat-summary>Renaming profile file</dyad-chat-title>
-          const chatTitle = fullResponse.match(
+          const chatTitle = responseToStore.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
           );
           if (chatTitle) {
@@ -2485,17 +2581,21 @@ If the user requests modifications, use request_mode_change to request Build mod
           }
           const chatSummary = chatTitle?.[1];
 
-          // Update the placeholder assistant message with the full response
-          // Only for non-ephemeral chats
+          // Update the placeholder assistant message with the full response (with <questions> stripped if present)
+          // v3.9: Also set snapshotId and filesWritten when from Build mode
           if (!isEphemeralWorkspace) {
             await db
               .update(messages)
-              .set({ content: fullResponse })
+              .set({
+                content: responseToStore,
+                ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
+                ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
+              })
               .where(eq(messages.id, placeholderAssistantMessage.id));
           } else {
             // For ephemeral workspace chats, save to in-memory store
             const { addEphemeralMessage } = await import("./chat_only_handlers");
-            addEphemeralMessage(req.chatId, { role: "assistant", content: fullResponse });
+            addEphemeralMessage(req.chatId, { role: "assistant", content: responseToStore });
           }
 
           // Record exchange in session memory for conversation continuity
@@ -2503,7 +2603,7 @@ If the user requests modifications, use request_mode_change to request Build mod
           try {
             const sessionMemory = getSessionMemory(chat.appId);
             // Strip XML tags and code blocks for the summary
-            const cleanResponse = fullResponse
+            const cleanResponse = responseToStore
               .replace(/<[^>]*>/g, '')
               .replace(/```[\s\S]*?```/g, '[code]')
               .trim();
@@ -2518,7 +2618,7 @@ If the user requests modifications, use request_mode_change to request Build mod
             settings.selectedChatMode !== "ask"
           ) {
             const status = await processFullResponseActions(
-              fullResponse,
+              responseToStore,
               req.chatId,
               {
                 chatSummary,
@@ -2606,8 +2706,6 @@ If the user requests modifications, use request_mode_change to request Build mod
               extraFiles: status.extraFiles,
               extraFilesError: status.extraFilesError,
               hadToolCallsOrPermissions: status.updatedFiles ?? (status.extraFiles?.length ? true : false),
-              suggestions: suggestions?.length ? suggestions : undefined,
-              lastMessageContent: suggestions?.length ? fullResponse : undefined,
             } satisfies ChatResponseEnd);
           } else {
             // v2.1: Self-review activity in non-status path (ask/simple)
@@ -2651,8 +2749,6 @@ If the user requests modifications, use request_mode_change to request Build mod
               chatId: req.chatId,
               updatedFiles: false,
               hadToolCallsOrPermissions,
-              suggestions: suggestions?.length ? suggestions : undefined,
-              lastMessageContent: suggestions?.length ? fullResponse : undefined,
             } satisfies ChatResponseEnd);
           }
         }
@@ -2742,6 +2838,106 @@ If the user requests modifications, use request_mode_change to request Build mod
     }
     return { success: false, message: 'No active stream for this chat' };
   });
+
+  // v3.9: Submit clarifying-question answers: append Q/A block to last user message, set has_answered_questions
+  ipcMain.handle(
+    "chat:submit-question-answers",
+    async (
+      _event,
+      payload: { chatId: number; assistantMessageId: number; answers: Record<string, string> }
+    ) => {
+      const { chatId, assistantMessageId, answers } = payload;
+      const assistantMsg = await db.query.messages.findFirst({
+        where: and(eq(messages.id, assistantMessageId), eq(messages.chatId, chatId)),
+      });
+      if (!assistantMsg) {
+        throw new Error("Assistant message not found");
+      }
+      const chatMessages = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.chatId, chatId))
+        .orderBy(messages.createdAt);
+      const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
+      if (idx <= 0) {
+        throw new Error("No user message before this assistant message");
+      }
+      const userMsg = chatMessages[idx - 1];
+      if (userMsg.role !== "user") {
+        throw new Error("Message before assistant is not a user message");
+      }
+      const block =
+        "\n\nClarifying answers:\n" +
+        Object.entries(answers)
+          .map(([id, a]) => `- ${id}: ${a}`)
+          .join("\n");
+      const newContent = userMsg.content + block;
+      await db.update(messages).set({ content: newContent }).where(eq(messages.id, userMsg.id));
+      await db.update(chats).set({ hasAnsweredQuestions: true }).where(eq(chats.id, chatId));
+      return { success: true };
+    }
+  );
+
+  // v3.9: Edit user message — truncate messages after it, update content, clear has_answered_questions
+  ipcMain.handle(
+    "chat:edit-message",
+    async (
+      _event,
+      payload: { chatId: number; userMessageId: number; newContent: string }
+    ) => {
+      const { chatId, userMessageId, newContent } = payload;
+      const msg = await db.query.messages.findFirst({
+        where: and(eq(messages.id, userMessageId), eq(messages.chatId, chatId)),
+      });
+      if (!msg || msg.role !== "user") {
+        throw new Error("User message not found");
+      }
+      const chatMessages = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.chatId, chatId))
+        .orderBy(messages.createdAt);
+      const idx = chatMessages.findIndex((m) => m.id === userMessageId);
+      if (idx < 0) throw new Error("Message not in chat");
+      const idsToDelete = chatMessages.slice(idx + 1).map((m) => m.id);
+      if (idsToDelete.length > 0) {
+        await db.delete(messages).where(inArray(messages.id, idsToDelete));
+      }
+      await db.update(messages).set({ content: newContent }).where(eq(messages.id, userMessageId));
+      await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
+      return { success: true };
+    }
+  );
+
+  // v3.9: Revert conversation to an assistant message — truncate after it, clear has_answered_questions
+  ipcMain.handle(
+    "chat:revert-to-message",
+    async (
+      _event,
+      payload: { chatId: number; assistantMessageId: number }
+    ) => {
+      const { chatId, assistantMessageId } = payload;
+      const msg = await db.query.messages.findFirst({
+        where: and(eq(messages.id, assistantMessageId), eq(messages.chatId, chatId)),
+      });
+      if (!msg || msg.role !== "assistant") {
+        throw new Error("Assistant message not found");
+      }
+      const chatMessages = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.chatId, chatId))
+        .orderBy(messages.createdAt);
+      const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
+      if (idx < 0) throw new Error("Message not in chat");
+      const idsToDelete = chatMessages.slice(idx + 1).map((m) => m.id);
+      if (idsToDelete.length > 0) {
+        await db.delete(messages).where(inArray(messages.id, idsToDelete));
+      }
+      await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
+      return { success: true };
+    }
+  );
 }
 
 export function formatMessagesForSummary(

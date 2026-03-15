@@ -45,6 +45,16 @@ export interface ChatStreamParams {
   selectedComponents?: ComponentSelection[];
   /** v3.6: Override model for this message only (e.g. when user clicks Override in Auto routing preview). */
   modelOverride?: { provider: string; name: string };
+  /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
+  continueAfterQuestions?: boolean;
+}
+
+/** v3.9: Clarifying question from AI (<questions> block). */
+export interface Question {
+  id: string;
+  question: string;
+  choices: string[];
+  allowCustom: boolean;
 }
 
 export interface ChatResponseEnd {
@@ -56,10 +66,6 @@ export interface ChatResponseEnd {
   contextWindow?: number;
   /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
   hadToolCallsOrPermissions?: boolean;
-  /** v3.5: Context-aware prompt suggestions from the model (up to 3 chips). */
-  suggestions?: string[];
-  /** When suggestions were stripped, the response content without the block (so renderer can update last message). */
-  lastMessageContent?: string;
 }
 
 export interface ChatProblemsEvent {
@@ -102,6 +108,12 @@ export interface Message {
     content?: string;
     favicon?: string;
   }>;
+  /** v3.9: 0-based exchange index. */
+  exchangeIndex?: number | null;
+  /** v3.9: Snapshot id before this assistant message (revert target). */
+  snapshotId?: number | null;
+  /** v3.9: Paths written in this exchange. */
+  filesWritten?: string[] | null;
 }
 
 export interface Chat {

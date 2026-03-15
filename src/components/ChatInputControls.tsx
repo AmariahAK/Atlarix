@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/sheet";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
+import { CompactModelSearch } from "./CompactModelSearch";
 
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -31,6 +33,7 @@ export function ChatInputControls({
   chatId?: number;
 }) {
   const appId = useAtomValue(selectedAppIdAtom);
+  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
   const [configSubView, setConfigSubView] = useState<
     "model" | "mcp" | "auto" | null
@@ -96,6 +99,9 @@ export function ChatInputControls({
       </div>
 
       <div className="flex items-center gap-2">
+        {rightPanelVisible && (
+          <CompactModelSearch className="shrink-0" />
+        )}
         <Popover
           open={configSubView !== null}
           onOpenChange={(open) => !open && setConfigSubView(null)}
@@ -103,10 +109,14 @@ export function ChatInputControls({
           <PopoverAnchor asChild>
             <span className="inline-flex">
               <ChatConfigDropdown
-                onOpenModelPicker={() => {
-                  setConfigSubView(null);
-                  setModelSheetOpen(true);
-                }}
+                onOpenModelPicker={
+                  rightPanelVisible
+                    ? undefined
+                    : () => {
+                        setConfigSubView(null);
+                        setModelSheetOpen(true);
+                      }
+                }
                 onOpenMcpTools={() => setConfigSubView("mcp")}
                 onOpenAutoConfig={() => setConfigSubView("auto")}
               />
@@ -118,6 +128,7 @@ export function ChatInputControls({
           </PopoverContent>
         </Popover>
 
+        {!rightPanelVisible && (
         <Sheet open={modelSheetOpen} onOpenChange={setModelSheetOpen}>
           <SheetContent
             side="right"
@@ -129,6 +140,7 @@ export function ChatInputControls({
             <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
           </SheetContent>
         </Sheet>
+        )}
 
         <ChatIntentSelector />
 

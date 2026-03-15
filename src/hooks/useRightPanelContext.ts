@@ -15,7 +15,7 @@
  */
 
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import {
     type PanelContext,
     type PanelType,
@@ -33,6 +33,10 @@ import {
     aiPanelIntentAtom,
     mapIntentToView,
     browserErrorsAtom,
+    leftPanelWidthAtom,
+    rightPanelWidthAtom,
+    rightPanelVisibleAtom,
+    leftPanelVisibleAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
@@ -88,6 +92,22 @@ export function useRightPanelContext(): RightPanelContextResult {
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
     const currentApp = useAtomValue(currentAppAtom);
+    const leftPanelWidth = useAtomValue(leftPanelWidthAtom);
+    const rightPanelWidth = useAtomValue(rightPanelWidthAtom);
+    const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+    const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
+    const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+
+    useEffect(() => {
+        const onResize = () => setWindowWidth(window.innerWidth);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    const chatAreaHidden = Boolean(
+        rightPanelVisible &&
+        (leftPanelVisible ? leftPanelWidth : 0) + rightPanelWidth >= windowWidth - 80
+    );
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
 
@@ -180,7 +200,10 @@ export function useRightPanelContext(): RightPanelContextResult {
 
     // Build context object
     const context = useMemo((): PanelContext => {
-        const tabs = PANEL_TABS[effectiveType] || [];
+        let tabs = PANEL_TABS[effectiveType] || [];
+        if (chatAreaHidden && !tabs.includes('chat')) {
+            tabs = ['chat', ...tabs];
+        }
         const validTab = tabs.includes(activeTab) ? activeTab : tabs[0];
 
         return {
@@ -202,7 +225,7 @@ export function useRightPanelContext(): RightPanelContextResult {
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo]);
+    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
