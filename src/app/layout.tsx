@@ -197,7 +197,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       setLeftPanelVisible(true);
     }
   }, [activeExtensionIds.length, leftPanelVisible, setLeftPanelVisible]);
-  const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
   const showWorkspacePanel = currentApp?.pathExists !== false;
