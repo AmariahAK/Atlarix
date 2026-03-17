@@ -408,6 +408,13 @@ function ensurePivotTablesIfNeeded(sqlite: Database.Database): void {
 }
 
 /**
+ * Whether the database has been initialized (safe to use from IPC handlers).
+ */
+export function isDbInitialized(): boolean {
+  return _db !== null;
+}
+
+/**
  * Get the database instance (throws if not initialized)
  */
 export function getDb(): BetterSQLite3Database<typeof schema> & {

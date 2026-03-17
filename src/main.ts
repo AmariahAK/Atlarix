@@ -105,7 +105,18 @@ export async function onReady() {
   } catch (e) {
     logger.error("Error initializing backup manager", e);
   }
-  initializeDatabase();
+  try {
+    initializeDatabase();
+  } catch (e) {
+    logger.error("Database initialization failed:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    dialog.showErrorBox(
+      "Database Error",
+      `Atlarix could not initialize its database. Please restart the app.\n\n${msg}`,
+    );
+    app.quit();
+    return;
+  }
   try {
     initTelemetry();
   } catch (e) {

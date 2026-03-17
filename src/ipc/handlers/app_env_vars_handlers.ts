@@ -5,7 +5,7 @@
 import { ipcMain } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { db } from "../../db";
+import { db, isDbInitialized } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { getAtlarixAppPath } from "../../paths/paths";
@@ -17,10 +17,13 @@ import {
 } from "../utils/app_env_var_utils";
 
 export function registerAppEnvVarsHandlers() {
-  // Handler to get app environment variables
+  // Handler to get app environment variables (safe when DB not yet initialized in packaged app)
   ipcMain.handle(
     "get-app-env-vars",
     async (event, { appId }: GetAppEnvVarsParams) => {
+      if (!isDbInitialized()) {
+        return [];
+      }
       try {
         const app = await db.query.apps.findFirst({
           where: eq(apps.id, appId),
@@ -53,10 +56,15 @@ export function registerAppEnvVarsHandlers() {
     },
   );
 
-  // Handler to set app environment variables
+  // Handler to set app environment variables (no-op when DB not yet initialized)
   ipcMain.handle(
     "set-app-env-vars",
     async (event, { appId, envVars }: SetAppEnvVarsParams) => {
+      if (!isDbInitialized()) {
+        throw new Error(
+          "Database not ready. Please wait for the app to finish starting.",
+        );
+      }
       try {
         const app = await db.query.apps.findFirst({
           where: eq(apps.id, appId),
@@ -82,4 +90,12 @@ export function registerAppEnvVarsHandlers() {
       }
     },
   );
+
+  // get-env-vars: safe when DB not yet initialized (e.g. packaged app startup). Returns [] until ready.
+  ipcMain.handle("get-env-vars", async () => {
+    if (!isDbInitialized()) {
+      return [];
+    }
+    return [];
+  });
 }
