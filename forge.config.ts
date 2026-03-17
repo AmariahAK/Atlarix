@@ -1,4 +1,7 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
@@ -113,6 +116,61 @@ const config: ForgeConfig = {
       },
     },
   ],
+  hooks: {
+    packageAfterPrune: async (_config, build_path: string) => {
+      const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
+      const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
+      const raw =
+        viteMainConfig?.default?.build?.rollupOptions?.external;
+      const externalList: string[] = Array.isArray(raw)
+        ? raw
+        : typeof raw === "function"
+          ? [
+              "better-sqlite3",
+              "mysql2",
+              "ai",
+              "@ai-sdk/provider",
+              "@ai-sdk/openai",
+              "@ai-sdk/anthropic",
+              "@ai-sdk/google",
+              "@ai-sdk/google-vertex",
+              "@ai-sdk/azure",
+              "@ai-sdk/xai",
+              "@ai-sdk/amazon-bedrock",
+              "@ai-sdk/openai-compatible",
+              "@ai-sdk/provider-utils",
+            ]
+          : [];
+      const builtins = new Set([
+        "electron",
+        "fs",
+        "path",
+        "url",
+        "stream",
+        "zlib",
+        "crypto",
+        "os",
+        "child_process",
+      ]);
+      const toInstall = externalList.filter(
+        (id) => !id.startsWith("node:") && !builtins.has(id)
+      );
+      if (toInstall.length === 0) return;
+      const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn("npm", commands, {
+          cwd: build_path,
+          stdio: "inherit",
+          shell: false,
+        });
+        proc.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`npm install exited with code ${code}`));
+        });
+        proc.on("error", reject);
+      });
+    },
+  },
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({
