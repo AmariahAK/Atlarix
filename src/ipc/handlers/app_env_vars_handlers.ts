@@ -17,6 +17,12 @@ import {
 } from "../utils/app_env_var_utils";
 
 export function registerAppEnvVarsHandlers() {
+  // Remove any existing handlers so registration is idempotent (avoids "second handler" error if main runs twice)
+  ipcMain.removeHandler("get-app-env-vars");
+  ipcMain.removeHandler("set-app-env-vars");
+  ipcMain.removeHandler("get-env-vars");
+  ipcMain.removeHandler("get-db-ready");
+
   // Handler to get app environment variables (safe when DB not yet initialized in packaged app)
   ipcMain.handle(
     "get-app-env-vars",
