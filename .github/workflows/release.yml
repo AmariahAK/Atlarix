@@ -1,5 +1,7 @@
 # Build and publish Atlarix for every version (tag v*).
 # Credentials are read from GitHub repository secrets — no hardcoded secrets in the repo.
+# Main process: vite.main.config.mts embeds NEXT_PUBLIC_SUPABASE_*, SENTRY_DSN, POSTHOG_API_KEY,
+# RESEND_API_KEY, EMAIL_SOURCE at build time. Renderer gets VITE_* from env. SearXNG is Docker in-app (port 8000).
 # See README "Deployment (CI / GitHub Actions)" for the list of required secrets.
 
 name: Release
@@ -30,6 +32,7 @@ jobs:
       AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
       VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
