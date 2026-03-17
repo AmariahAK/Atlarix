@@ -10,6 +10,7 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
+import rebuild from "@electron/rebuild";
 
 // Based on https://github.com/electron/forge/blob/6b2d547a7216c30fde1e1fddd1118eee5d872945/packages/plugin/vite/src/VitePlugin.ts#L124
 const ignore = (file: string) => {
@@ -117,7 +118,13 @@ const config: ForgeConfig = {
     },
   ],
   hooks: {
-    packageAfterPrune: async (_config, build_path: string) => {
+    packageAfterPrune: async (
+      _config,
+      buildPath: string,
+      electronVersion: string,
+      platform: string,
+      arch: string,
+    ) => {
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
       const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
       const raw =
@@ -155,19 +162,30 @@ const config: ForgeConfig = {
       const toInstall = externalList.filter(
         (id) => !id.startsWith("node:") && !builtins.has(id)
       );
-      if (toInstall.length === 0) return;
-      const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn("npm", commands, {
-          cwd: build_path,
-          stdio: "inherit",
-          shell: false,
+      if (toInstall.length > 0) {
+        const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn("npm", commands, {
+            cwd: buildPath,
+            stdio: "inherit",
+            shell: false,
+          });
+          proc.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`npm install exited with code ${code}`));
+          });
+          proc.on("error", reject);
         });
-        proc.on("close", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`npm install exited with code ${code}`));
-        });
-        proc.on("error", reject);
+      }
+      // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
+      // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
+      await rebuild({
+        buildPath,
+        electronVersion,
+        platform: platform as NodeJS.Platform,
+        arch,
+        force: true,
+        extraModules: ["better-sqlite3"],
       });
     },
   },

@@ -554,7 +554,8 @@ app.on("will-quit", () => {
 app.on("activate", () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) {
+  // Only create window when app is ready (activate can fire before ready on macOS).
+  if (BrowserWindow.getAllWindows().length === 0 && app.isReady()) {
     createWindow();
   }
 });
