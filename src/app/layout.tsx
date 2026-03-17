@@ -18,6 +18,7 @@ import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { RightPanel } from "@/components/RightPanel";
 import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
+import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import { rightPanelVisibleAtom, leftPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
 import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
@@ -320,6 +321,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               )}
               {/* Main content: chat when active, else route content */}
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Pending team invites (signed-in user) */}
+                <PendingInviteBanner />
                 {/* Workspace folder missing (deleted outside app) */}
                 {isOnChatPage && <WorkspaceNotFoundBanner />}
                 {/* Chat overlay when active, else route content */}

@@ -1,6 +1,6 @@
 # Supabase v4.0 setup — Workforce tier and Teams
 
-Run the following SQL in **Supabase Dashboard → SQL Editor** in order. This creates the teams system, adds the `workforce` tier and `effective_tier` to users, and the workforce_connected_services table. Ensure your `public.users` table already exists (from your existing auth/setup).
+Run the following SQL in **Supabase Dashboard → SQL Editor** in order. This is the **consolidated** script for first-time v4.0 setup: teams, team_members, users columns, RLS (including policies for pending invites and accept/reject/leave), and workforce_connected_services. Ensure your `public.users` table already exists (from your existing auth/setup).
 
 ---
 
@@ -135,6 +135,27 @@ CREATE POLICY "team_members_member_read"
             SELECT team_id FROM public.team_members t2
             WHERE t2.user_id = auth.uid() AND t2.status = 'active'
         )
+    );
+
+-- Invitee can see their own pending invites (by email match)
+DROP POLICY IF EXISTS "team_members_pending_select" ON public.team_members;
+CREATE POLICY "team_members_pending_select"
+    ON public.team_members FOR SELECT
+    USING (
+        status = 'pending' AND email = (SELECT email FROM public.users WHERE id = auth.uid() LIMIT 1)
+    );
+
+-- Member can update own row: accept (pending -> active), reject (pending -> removed), or leave (active -> removed)
+DROP POLICY IF EXISTS "team_members_self_update" ON public.team_members;
+CREATE POLICY "team_members_self_update"
+    ON public.team_members FOR UPDATE
+    USING (
+        user_id = auth.uid()
+        OR (status = 'pending' AND email = (SELECT email FROM public.users WHERE id = auth.uid() LIMIT 1))
+    )
+    WITH CHECK (
+        user_id = auth.uid()
+        OR (status = 'pending' AND email = (SELECT email FROM public.users WHERE id = auth.uid() LIMIT 1))
     );
 ```
 

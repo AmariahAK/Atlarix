@@ -298,9 +298,14 @@ const validInvokeChannels = [
   // v4.0 Teams (Workforce)
   "team:get",
   "team:list-members",
+  "team:get-pending-invites",
   "team:invite",
+  "team:accept-invite",
+  "team:reject-invite",
+  "team:leave",
   "team:remove-member",
   "team:add-seats",
+  "team:send-test-email",
 ];
 
 const validReceiveChannels = [

@@ -78,6 +78,266 @@ export async function getTeamByOwner(ownerUserId: string): Promise<Team | null> 
   }
 }
 
+export async function getTeamById(teamId: string): Promise<Team | null> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("teams")
+      .select("*")
+      .eq("id", teamId)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (error) {
+      logger.warn("[team-service] getTeamById error:", error.message);
+      return null;
+    }
+    return data as Team | null;
+  } catch (err) {
+    logger.error("[team-service] getTeamById exception:", err);
+    return null;
+  }
+}
+
+export interface PendingInvite {
+  memberId: string;
+  teamId: string;
+  teamName: string;
+  inviterEmail: string | null;
+}
+
+export async function getPendingInvitesForEmail(email: string): Promise<PendingInvite[]> {
+  try {
+    const supabase = getSupabaseClient();
+    const normalized = email.trim().toLowerCase();
+    const { data: rows, error } = await supabase
+      .from("team_members")
+      .select("id, team_id, invited_by")
+      .eq("email", normalized)
+      .eq("status", "pending");
+
+    if (error) {
+      logger.warn("[team-service] getPendingInvitesForEmail error:", error.message);
+      return [];
+    }
+    if (!rows?.length) return [];
+
+    const teamIds = [...new Set(rows.map((r) => r.team_id))];
+    const { data: teams } = await supabase
+      .from("teams")
+      .select("id, name")
+      .in("id", teamIds);
+    const teamMap = new Map((teams ?? []).map((t) => [t.id, t.name]));
+
+    const inviterIds = [...new Set(rows.map((r) => r.invited_by).filter(Boolean) as string[])];
+    let inviterMap = new Map<string, string>();
+    if (inviterIds.length > 0) {
+      const { data: users } = await supabase
+        .from("users")
+        .select("id, email")
+        .in("id", inviterIds);
+      inviterMap = new Map((users ?? []).map((u) => [u.id, u.email ?? ""]));
+    }
+
+    return rows.map((r) => ({
+      memberId: r.id,
+      teamId: r.team_id,
+      teamName: teamMap.get(r.team_id) ?? "Unknown",
+      inviterEmail: (r.invited_by && inviterMap.get(r.invited_by)) ?? null,
+    }));
+  } catch (err) {
+    logger.error("[team-service] getPendingInvitesForEmail exception:", err);
+    return [];
+  }
+}
+
+export interface AcceptRejectResult {
+  success: boolean;
+  error?: string;
+  teamId?: string;
+  teamName?: string;
+  ownerUserId?: string;
+  memberEmail?: string;
+}
+
+export async function acceptInvite(
+  memberId: string,
+  userId: string,
+  userEmail: string
+): Promise<AcceptRejectResult> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data: row, error: fetchErr } = await supabase
+      .from("team_members")
+      .select("id, team_id, email, status")
+      .eq("id", memberId)
+      .single();
+
+    if (fetchErr || !row || row.status !== "pending") {
+      return { success: false, error: "Invite not found or already used" };
+    }
+    if (row.email.toLowerCase() !== userEmail.trim().toLowerCase()) {
+      return { success: false, error: "This invite was sent to a different email" };
+    }
+
+    const { error: updateErr } = await supabase
+      .from("team_members")
+      .update({
+        status: "active",
+        user_id: userId,
+        joined_at: new Date().toISOString(),
+      })
+      .eq("id", memberId);
+
+    if (updateErr) {
+      logger.warn("[team-service] acceptInvite update error:", updateErr.message);
+      return { success: false, error: updateErr.message };
+    }
+
+    const team = await getTeamById(row.team_id);
+    if (!team) return { success: true, teamId: row.team_id, teamName: "Unknown", ownerUserId: undefined, memberEmail: row.email };
+
+    const { error: userUpdateErr } = await supabase
+      .from("users")
+      .update({ team_id: team.id, effective_tier: "workforce" })
+      .eq("id", userId);
+
+    if (userUpdateErr) {
+      logger.warn("[team-service] acceptInvite user update error:", userUpdateErr.message);
+    }
+
+    return {
+      success: true,
+      teamId: team.id,
+      teamName: team.name,
+      ownerUserId: team.owner_user_id,
+      memberEmail: row.email,
+    };
+  } catch (err) {
+    logger.error("[team-service] acceptInvite exception:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export async function rejectInvite(
+  memberId: string,
+  userId: string,
+  userEmail: string
+): Promise<AcceptRejectResult> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data: row, error: fetchErr } = await supabase
+      .from("team_members")
+      .select("id, team_id, email, status")
+      .eq("id", memberId)
+      .single();
+
+    if (fetchErr || !row || row.status !== "pending") {
+      return { success: false, error: "Invite not found or already used" };
+    }
+    if (row.email.toLowerCase() !== userEmail.trim().toLowerCase()) {
+      return { success: false, error: "This invite was sent to a different email" };
+    }
+
+    const { error: updateErr } = await supabase
+      .from("team_members")
+      .update({ status: "removed" })
+      .eq("id", memberId);
+
+    if (updateErr) {
+      logger.warn("[team-service] rejectInvite error:", updateErr.message);
+      return { success: false, error: updateErr.message };
+    }
+
+    const team = await getTeamById(row.team_id);
+    return {
+      success: true,
+      teamId: team?.id ?? row.team_id,
+      teamName: team?.name ?? "Unknown",
+      ownerUserId: team?.owner_user_id,
+      memberEmail: row.email,
+    };
+  } catch (err) {
+    logger.error("[team-service] rejectInvite exception:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export async function leaveTeam(userId: string): Promise<AcceptRejectResult> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data: memberRow, error: findErr } = await supabase
+      .from("team_members")
+      .select("id, team_id, email")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (findErr || !memberRow) {
+      return { success: false, error: "You are not in a team" };
+    }
+
+    const { error: updateErr } = await supabase
+      .from("team_members")
+      .update({ status: "removed" })
+      .eq("id", memberRow.id);
+
+    if (updateErr) {
+      logger.warn("[team-service] leaveTeam error:", updateErr.message);
+      return { success: false, error: updateErr.message };
+    }
+
+    const { data: userRow } = await supabase
+      .from("users")
+      .select("plan")
+      .eq("id", userId)
+      .single();
+
+    const fallbackTier = (userRow?.plan as string) ?? "free";
+    const { error: userUpdateErr } = await supabase
+      .from("users")
+      .update({ team_id: null, effective_tier: fallbackTier })
+      .eq("id", userId);
+
+    if (userUpdateErr) {
+      logger.warn("[team-service] leaveTeam user update error:", userUpdateErr.message);
+    }
+
+    const team = await getTeamById(memberRow.team_id);
+    return {
+      success: true,
+      teamId: team?.id ?? memberRow.team_id,
+      teamName: team?.name ?? "Unknown",
+      ownerUserId: team?.owner_user_id,
+      memberEmail: memberRow.email,
+    };
+  } catch (err) {
+    logger.error("[team-service] leaveTeam exception:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export async function getOwnerEmailForTeam(teamId: string): Promise<string | null> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data: team } = await supabase
+      .from("teams")
+      .select("owner_user_id")
+      .eq("id", teamId)
+      .single();
+    if (!team?.owner_user_id) return null;
+    const { data: user } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", team.owner_user_id)
+      .single();
+    return user?.email ?? null;
+  } catch (err) {
+    logger.error("[team-service] getOwnerEmailForTeam exception:", err);
+    return null;
+  }
+}
+
 export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
   try {
     const supabase = getSupabaseClient();

@@ -157,7 +157,7 @@ export class SubscriptionManager {
                 this.realtimeCleanup();
             }
 
-            this.realtimeCleanup = subscribeToPlanChanges(email, (newData, oldData) => {
+            this.realtimeCleanup = subscribeToPlanChanges(email, async (newData, oldData) => {
                 logger.log(`[SubscriptionManager] 🎉 Subscription changed via realtime:`, {
                     plan: `${oldData.plan} → ${newData.plan}`,
                     status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,

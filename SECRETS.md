@@ -19,6 +19,10 @@
   - `AUTH0_TOKEN_VAULT_ID`
   - `AUTH0_AUDIENCE`
   If unset, the app falls back to existing credential store and shows a warning toast.
+- **Resend (team emails):** For team invite and status emails (invite, accept/reject/leave). From [Resend](https://resend.com): API key and verified sender.
+  - `RESEND_API_KEY` — from Resend dashboard → API Keys.
+  - `EMAIL_SOURCE` — sender address (e.g. `Atlarix <noreply@yourdomain.com>`). Must use a verified domain in Resend.
+  If unset, invite/status emails are skipped (no error).
 
 ## OAuth (Supabase Auth)
 

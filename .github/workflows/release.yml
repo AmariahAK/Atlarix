@@ -35,6 +35,8 @@ jobs:
       VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
       VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
       VITE_ATLARIX_API_URL: ${{ secrets.VITE_ATLARIX_API_URL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
       ATLARIX_API_URL: ${{ secrets.ATLARIX_API_URL }}
