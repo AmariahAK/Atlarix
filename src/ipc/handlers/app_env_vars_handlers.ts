@@ -98,4 +98,6 @@ export function registerAppEnvVarsHandlers() {
     }
     return [];
   });
+
+  ipcMain.handle("get-db-ready", () => isDbInitialized());
 }

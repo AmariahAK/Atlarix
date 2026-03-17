@@ -1110,6 +1110,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-posthog-config");
   }
 
+  /** Whether the main process has initialized the database (for loading gate). */
+  public async getDbReady(): Promise<boolean> {
+    return this.ipcRenderer.invoke("get-db-ready");
+  }
+
   // --- MCP Client Methods ---
   public async listMcpServers(filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }) {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);
@@ -1547,6 +1552,14 @@ export class IpcClient {
     this.ipcRenderer.on("force-close-detected", listener);
     return () => {
       this.ipcRenderer.removeListener("force-close-detected", listener);
+    };
+  }
+
+  /** Subscribe to db-ready event (main process has initialized the database). Returns unsubscribe. */
+  public onDbReady(callback: () => void): () => void {
+    this.ipcRenderer.on("db-ready", callback);
+    return () => {
+      this.ipcRenderer.removeListener("db-ready", callback);
     };
   }
 

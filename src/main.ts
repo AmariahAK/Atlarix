@@ -105,6 +105,9 @@ export async function onReady() {
   } catch (e) {
     logger.error("Error initializing backup manager", e);
   }
+
+  createWindow();
+
   try {
     initializeDatabase();
   } catch (e) {
@@ -117,6 +120,8 @@ export async function onReady() {
     app.quit();
     return;
   }
+  sendDbReadyToWindow();
+
   try {
     initTelemetry();
   } catch (e) {
@@ -159,7 +164,6 @@ export async function onReady() {
     platform: process.platform,
     arch: os.arch(),
   });
-  createWindow();
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
   if (settings.enableAutoUpdate) {
@@ -232,6 +236,12 @@ declare global {
 let mainWindow: BrowserWindow | null = null;
 let pendingForceCloseData: any = null;
 
+function sendDbReadyToWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("db-ready");
+  }
+}
+
 const createWindow = () => {
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -267,15 +277,16 @@ const createWindow = () => {
     mainWindow.webContents.openDevTools();
   }
 
-  // Send force-close event if it was detected
-  if (pendingForceCloseData) {
-    mainWindow.webContents.once("did-finish-load", () => {
+  // Send force-close event if it was detected; also send db-ready when window loads (in case DB was ready before load)
+  mainWindow.webContents.once("did-finish-load", () => {
+    sendDbReadyToWindow();
+    if (pendingForceCloseData) {
       mainWindow?.webContents.send("force-close-detected", {
         performanceData: pendingForceCloseData,
       });
       pendingForceCloseData = null;
-    });
-  }
+    }
+  });
 
   // Enable native context menu on right-click
   mainWindow.webContents.on("context-menu", (event, params) => {

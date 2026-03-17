@@ -14,6 +14,8 @@ import {
 import { showError, showMcpConsentToast } from "./lib/toast";
 import { IpcClient } from "./ipc/ipc_client";
 import { DevServerProvider } from "./components/DevServerProvider";
+import { AppLoadingScreen } from "./components/AppLoadingScreen";
+import { useDbReady } from "./hooks/useDbReady";
 import * as Sentry from "@sentry/electron/renderer";
 
 // @ts-ignore
@@ -80,6 +82,15 @@ function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
     },
   });
   posthog.identify(analyticsId);
+}
+
+/** Shows loading screen until main process has initialized the database, then renders children. */
+function DbReadyGate({ children }: { children: ReactNode }) {
+  const dbReady = useDbReady();
+  if (!dbReady) {
+    return <AppLoadingScreen />;
+  }
+  return <>{children}</>;
 }
 
 function App() {
@@ -189,7 +200,9 @@ async function bootstrap() {
         <QueryClientProvider client={queryClient}>
           <PostHogProvider client={posthogClient ?? posthog}>
             <DevServerProvider>
-              <App />
+              <DbReadyGate>
+                <App />
+              </DbReadyGate>
             </DevServerProvider>
           </PostHogProvider>
         </QueryClientProvider>

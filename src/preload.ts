@@ -63,6 +63,7 @@ const validInvokeChannels = [
   "set-user-settings",
   "routing:preview",
   "get-env-vars",
+  "get-db-ready",
   "open-external-url",
   "show-item-in-folder",
   "reset-all",
@@ -322,6 +323,7 @@ const validReceiveChannels = [
   "plan-changed",              // Realtime plan updates from Supabase
   "oauth-callback-success",    // OAuth callback from main process
   "force-close-detected",
+  "db-ready",                  // Main: DB initialized, renderer can show app
   // Help bot
   "help:chat:response:chunk",
   "help:chat:response:end",
