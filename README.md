@@ -13,6 +13,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 
 **Recent (v4.0 — Workforce):** New **Workforce** tier ($79/mo): Auth0 Token Vault for secure agent auth, Workspace Context (Slack, Jira, Linear, CI, Sentry, Calendar), Teams (up to 20 seats), GitLab CI & Bitbucket Pipelines, Progressive Tool Reveal. DB Studio moved to Workforce (existing Pro subscribers grandfathered). Three tiers: Free, Pro ($19/mo), Workforce ($79/mo). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
+### Workspace tools & extensions (how it works)
+
+- **Core workspace tools (all tiers)**: When you open a workspace and use **Build** mode, the model always has access to core tools for files, code, search, diagrams, git, and commands. In **Ask** mode it automatically filters to read‑only tools (`read_file`, `list_files`, `search_code`, `get_diagram`, `git_log`, `web_search`, etc.) using each tool’s `isReadOnly` flag.
+- **MCP tools (`@mcp` mentions)**: Add MCP servers in **Settings → Tools → MCP**. In chat, type `@` and pick an MCP server (e.g. `@mcp:MyServer`). The mention is sent in your message so the AI can prefer that server’s tools, but you never call tools manually—the model chooses which MCP tools to invoke.
+- **Workforce tools (Slack, Jira/Linear, Sentry, calendar, CI)**: On the **Workforce** tier, connect services via **Token Vault**. Once connected, the AI can read your workspace context (open PRs, failing pipelines, assigned tickets, unread mentions, Sentry errors, today’s meetings) and call workforce tools as needed. You do **not** use an `@` command for these; you just ask in natural language (“What Jira tickets are assigned to me?”, “Any new Slack mentions?”, “How did the CI pipeline go?”).
+- **Database Extension (DB tools)**: Configure database connections (PostgreSQL, MySQL, SQLite) in the **DB extension / DB Studio UI**. After a connection is active for a workspace, the AI gets DB tools:
+  - `db_query` and `db_schema` for read‑only SELECTs and schema inspection  
+  - `db_list` to list configured/active connections  
+  - `db_mutate` for writes (INSERT/UPDATE/DELETE/DDL) that always require explicit user approval in the permission queue  
+  You never paste credentials into chat; connection details live in settings, and the AI interacts with the active connection through these tools.
+
 ### Deployment & CI/CD
 
 **Releases** are built and published via GitHub Actions for every version. **GitHub Actions**: in the **left panel**, add the GitHub Actions extension (Pro) to list workflow runs, view job logs, stream logs live, and send logs to the AI. Connect GitHub in Settings → Extensions. Token is read from the Supabase session (`session.provider_token`) when signed in with GitHub. The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
