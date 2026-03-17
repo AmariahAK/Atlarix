@@ -1,8 +1,10 @@
 /**
  * DB Extension IPC handlers — CRUD connections, connect/disconnect, schema, query.
+ * v4.0: Gated on Workforce tier or grandfathered Pro (hasDbStudioLegacy).
  */
 
 import { ipcMain } from "electron";
+import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import { capture as analyticsCapture } from "../../main/lib/analytics";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -80,6 +82,17 @@ async function connectClient(conn: DBConnection): Promise<unknown> {
   throw new Error(`Unsupported connection type: ${conn.type}`);
 }
 
+/** v4.0: DB Studio is Workforce-only; grandfathered Pro users retain access */
+function canAccessDbStudio(): boolean {
+  return (
+    SubscriptionManager.getEffectiveTier() === "workforce" ||
+    SubscriptionManager.hasDbStudioLegacy()
+  );
+}
+
+const DB_STUDIO_UPGRADE_MESSAGE =
+  "DB Studio is now part of Workforce. Upgrade to access, or your existing Pro access is maintained if you were subscribed before this change.";
+
 export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:parse-connection-string",
@@ -104,6 +117,7 @@ export function registerDbExtensionHandlers() {
         | { connectionId: string }
         | { type: DBConnectionType; config: DBConnectionConfig }
     ) => {
+      if (!canAccessDbStudio()) return { success: false, error: DB_STUDIO_UPGRADE_MESSAGE };
       if ("connectionId" in payload) {
         const conn = getConnection(payload.connectionId);
         if (!conn) return { success: false, error: "Connection not found" };
@@ -153,8 +167,10 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:list-connections",
     async (_, { workspaceId }: { workspaceId: number | null }) => {
+      if (!canAccessDbStudio()) return { connections: [], activeId: null, error: DB_STUDIO_UPGRADE_MESSAGE };
       const conns = listConnections();
       const activeId = getActiveConnectionId(workspaceId);
+      const isLegacy = SubscriptionManager.hasDbStudioLegacy();
       return {
         connections: conns.map((c) => ({
           id: c.id,
@@ -164,6 +180,9 @@ export function registerDbExtensionHandlers() {
           isProd: c.isProd,
         })),
         activeId,
+        dbStudioMigrationNotice: isLegacy
+          ? "DB Studio is now part of Workforce. Your existing access is maintained."
+          : undefined,
       };
     }
   );
@@ -176,6 +195,7 @@ export function registerDbExtensionHandlers() {
       config: DBConnectionConfig;
       isProd?: boolean;
     }) => {
+      if (!canAccessDbStudio()) return { id: "", success: false, error: DB_STUDIO_UPGRADE_MESSAGE };
       const id = uuidv4();
       const conn: DBConnection = {
         id,
@@ -193,6 +213,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:delete-connection",
     async (_, { connectionId }: { connectionId: string }) => {
+      if (!canAccessDbStudio()) return { success: false, error: DB_STUDIO_UPGRADE_MESSAGE };
       deleteConnection(connectionId);
       return { success: true };
     }
@@ -201,6 +222,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:connect",
     async (_, { connectionId }: { connectionId: string }) => {
+      if (!canAccessDbStudio()) return { error: DB_STUDIO_UPGRADE_MESSAGE };
       const conn = getConnection(connectionId);
       if (!conn) return { error: "Connection not found" };
       try {
@@ -222,6 +244,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:disconnect",
     async (_, { connectionId }: { connectionId: string }) => {
+      if (!canAccessDbStudio()) return { success: false, error: DB_STUDIO_UPGRADE_MESSAGE };
       const conn = getConnection(connectionId);
       const client = getClient(connectionId);
       if (client) {
@@ -249,6 +272,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:set-active-connection",
     async (_, { workspaceId, connectionId }: { workspaceId: number | null; connectionId: string | null }) => {
+      if (!canAccessDbStudio()) return { success: false, error: DB_STUDIO_UPGRADE_MESSAGE };
       setActiveConnection(workspaceId, connectionId);
       return { success: true };
     }
@@ -257,6 +281,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:get-schema",
     async (_, { workspaceId }: { workspaceId: number | null }) => {
+      if (!canAccessDbStudio()) return null;
       const connId = getActiveConnectionId(workspaceId);
       if (!connId) return null;
       const conn = getConnection(connId);
@@ -278,6 +303,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:run-query",
     async (_, { workspaceId, query }: { workspaceId: number | null; query: string }) => {
+      if (!canAccessDbStudio()) return { error: DB_STUDIO_UPGRADE_MESSAGE };
       const connId = getActiveConnectionId(workspaceId);
       if (!connId) return { error: "No active connection" };
       const conn = getConnection(connId);
@@ -313,6 +339,7 @@ export function registerDbExtensionHandlers() {
   ipcMain.handle(
     "db:get-table-data",
     async (_, { workspaceId, table }: { workspaceId: number | null; table: string }) => {
+      if (!canAccessDbStudio()) return { error: DB_STUDIO_UPGRADE_MESSAGE, rows: [] };
       const connId = getActiveConnectionId(workspaceId);
       if (!connId) return { error: "No active connection" };
       const conn = getConnection(connId);

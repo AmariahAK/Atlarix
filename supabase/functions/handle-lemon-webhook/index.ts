@@ -86,10 +86,10 @@ serve(async (req: Request) => {
         const event = JSON.parse(body);
         const eventName = event.meta?.event_name;
         const data = event.data?.attributes;
+        const subscriptionId = String(event.data?.id ?? '');
 
         console.log(`[Webhook] Event type: ${eventName}`);
 
-        // Get user email from event
         const customerEmail = data?.user_email;
         if (!customerEmail) {
             console.error('[Webhook] No user email in event');
@@ -99,9 +99,6 @@ serve(async (req: Request) => {
             });
         }
 
-        console.log(`[Webhook] Customer email: ${customerEmail}`);
-
-        // Initialize Supabase client with service role key
         if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
             console.error('[Webhook] Missing Supabase credentials');
             return new Response(JSON.stringify({ error: 'Server configuration error' }), {
@@ -112,125 +109,165 @@ serve(async (req: Request) => {
 
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-        // Handle different event types
+        // Infer tier from variant_id (Workforce = monthly variant only; no annual)
+        const variantId = data?.variant_id?.toString() ?? '';
+        const workforceVariantId = Deno.env.get('LEMONSQUEEZY_WORKFORCE_VARIANT_ID') ?? '';
+        const isWorkforce = variantId === workforceVariantId;
+
         switch (eventName) {
             case 'subscription_created':
             case 'subscription_updated': {
-                const status = data?.status; // active, cancelled, expired, on_trial, paused, past_due
+                const status = data?.status;
                 const isActive = ['active', 'on_trial'].includes(status);
-                const renewsAt = data?.renews_at || null; // Next billing date for active subscriptions
+                const renewsAt = data?.renews_at || null;
 
-                console.log(`[Webhook] Status: ${status}, isActive: ${isActive}, renewsAt: ${renewsAt}`);
-
-                // First, check if user exists
-                const { data: existingUser, error: fetchError } = await supabase
+                const { data: existingUser } = await supabase
                     .from('users')
                     .select('id')
                     .eq('email', customerEmail)
                     .single();
 
-                if (fetchError && fetchError.code !== 'PGRST116') {
-                    console.error('[Webhook] Error fetching user:', fetchError);
-                }
-
                 if (!existingUser) {
-                    // User doesn't exist, create them
-                    console.log(`[Webhook] Creating new user: ${customerEmail}`);
                     const { error: insertError } = await supabase
                         .from('users')
                         .insert({
                             email: customerEmail,
-                            plan: isActive ? 'pro' : 'free',
-                            lemon_subscription_id: String(event.data.id),
+                            plan: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
+                            effective_tier: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
+                            lemon_subscription_id: subscriptionId,
                             lemon_customer_id: String(data?.customer_id),
                             subscription_status: status,
-                            subscription_ends_at: renewsAt, // Store renewal date
+                            subscription_ends_at: renewsAt,
                             customer_portal_url: data?.urls?.customer_portal || null,
                         });
-
                     if (insertError) {
                         console.error('[Webhook] Insert error:', insertError);
-                        return new Response(JSON.stringify({ error: 'Database insert error' }), {
-                            status: 500,
-                            headers: { 'Content-Type': 'application/json' }
-                        });
+                        return new Response(JSON.stringify({ error: 'Database insert error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    if (isActive && isWorkforce) {
+                        const { data: newUser } = await supabase.from('users').select('id').eq('email', customerEmail).single();
+                        if (newUser) {
+                            const { data: existingTeam } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                            if (!existingTeam) {
+                                const { error: teamErr } = await supabase.from('teams').insert({
+                                    owner_user_id: newUser.id,
+                                    lemonsqueezy_subscription_id: subscriptionId,
+                                    name: `Team ${customerEmail.split('@')[0]}`,
+                                    seat_limit: 20,
+                                    extra_seats: 0,
+                                    active: true,
+                                });
+                                if (teamErr) console.error('[Webhook] Team insert error:', teamErr);
+                            }
+                        }
                     }
                 } else {
-                    // Update existing user
-                    console.log(`[Webhook] Updating user: ${customerEmail} to ${isActive ? 'pro' : 'free'}`);
+                    const plan = isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free';
+                    const effectiveTier = isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free';
                     const { error: updateError } = await supabase
                         .from('users')
                         .update({
-                            plan: isActive ? 'pro' : 'free',
-                            lemon_subscription_id: String(event.data.id),
+                            plan,
+                            effective_tier: effectiveTier,
+                            lemon_subscription_id: subscriptionId,
                             lemon_customer_id: String(data?.customer_id),
                             subscription_status: status,
-                            subscription_ends_at: renewsAt, // Store renewal date
+                            subscription_ends_at: renewsAt,
                             customer_portal_url: data?.urls?.customer_portal || null,
                             updated_at: new Date().toISOString(),
                         })
                         .eq('email', customerEmail);
-
                     if (updateError) {
                         console.error('[Webhook] Update error:', updateError);
-                        return new Response(JSON.stringify({ error: 'Database update error' }), {
-                            status: 500,
-                            headers: { 'Content-Type': 'application/json' }
-                        });
+                        return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    if (isActive && isWorkforce) {
+                        const { data: existingTeam } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                        if (!existingTeam) {
+                            const { error: teamInsErr } = await supabase.from('teams').insert({
+                                owner_user_id: existingUser.id,
+                                lemonsqueezy_subscription_id: subscriptionId,
+                                name: `Team ${customerEmail.split('@')[0]}`,
+                                seat_limit: 20,
+                                extra_seats: 0,
+                                active: true,
+                            });
+                            if (teamInsErr) console.error('[Webhook] Team insert error:', teamInsErr);
+                        } else {
+                            const { error: teamUpd } = await supabase.from('teams').update({ active: true, updated_at: new Date().toISOString() }).eq('id', existingTeam.id);
+                            if (teamUpd) console.error('[Webhook] Team update error:', teamUpd);
+                        }
                     }
                 }
-
-                console.log(`[Webhook] Successfully processed ${eventName} for ${customerEmail}`);
+                console.log(`[Webhook] Successfully processed ${eventName} for ${customerEmail} (${isWorkforce ? 'workforce' : 'pro'})`);
                 break;
             }
 
             case 'subscription_cancelled': {
-                // Cancelled = user cancelled but still has access until ends_at
-                console.log(`[Webhook] Subscription ${event.data.id} cancelled (retains access until ends_at)`);
-
                 const endsAt = data?.ends_at || null;
-
-                const { error } = await supabase
+                const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                if (team) {
+                    await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
+                    await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
+                    const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
+                    for (const m of members ?? []) {
+                        if (m.user_id) {
+                            const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
+                            await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
+                        }
+                    }
+                }
+                await supabase
                     .from('users')
                     .update({
-                        // Keep plan as 'pro' until it actually expires
                         subscription_status: 'cancelled',
                         subscription_ends_at: endsAt,
                         updated_at: new Date().toISOString(),
                     })
-                    .eq('lemon_subscription_id', String(event.data.id));
-
-                if (error) {
-                    console.error('[Webhook] Update error:', error);
-                }
-
-                console.log(`[Webhook] Successfully processed ${eventName}, ends_at: ${endsAt}`);
+                    .eq('lemon_subscription_id', subscriptionId);
+                console.log(`[Webhook] Processed ${eventName}, ends_at: ${endsAt}`);
                 break;
             }
 
             case 'subscription_expired': {
-                // Expired = subscription has actually ended, now revoke access
-                console.log(`[Webhook] Subscription ${event.data.id} expired - downgrading to free`);
-
+                const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                if (team) {
+                    await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
+                    await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
+                    const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
+                    for (const m of members ?? []) {
+                        if (m.user_id) {
+                            const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
+                            await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
+                        }
+                    }
+                }
                 const { error } = await supabase
                     .from('users')
                     .update({
                         plan: 'free',
+                        effective_tier: 'free',
                         subscription_status: 'expired',
                         subscription_ends_at: null,
+                        team_id: null,
                         updated_at: new Date().toISOString(),
                     })
-                    .eq('lemon_subscription_id', String(event.data.id));
-
+                    .eq('lemon_subscription_id', subscriptionId);
                 if (error) {
                     console.error('[Webhook] Update error:', error);
-                    return new Response(JSON.stringify({ error: 'Database error' }), {
-                        status: 500,
-                        headers: { 'Content-Type': 'application/json' }
-                    });
+                    return new Response(JSON.stringify({ error: 'Database error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
                 }
-
                 console.log(`[Webhook] Successfully processed ${eventName}`);
+                break;
+            }
+
+            case 'subscription_payment_failed': {
+                console.log(`[Webhook] Payment failed for subscription ${subscriptionId}; notify owner and grace period`);
+                const { data: team } = await supabase.from('teams').select('owner_user_id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                if (team) {
+                    const { data: owner } = await supabase.from('users').select('email').eq('id', team.owner_user_id).single();
+                    if (owner?.email) console.log(`[Webhook] Notify owner: ${owner.email}`);
+                }
                 break;
             }
 

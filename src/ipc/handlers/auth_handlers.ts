@@ -266,6 +266,20 @@ export function registerAuthHandlers() {
         }
     });
 
+    // v4.0: Open Workforce checkout ($79/mo, up to 20 seats)
+    ipcMain.handle("auth:upgrade-workforce", async () => {
+        logger.log("[AuthHandlers] Upgrade to Workforce requested");
+        try {
+            const { openWorkforceCheckout } = await import("../../lib/lemonsqueezy");
+            const result = await openWorkforceCheckout();
+            if (!result.success) return { success: false, error: result.error };
+            return { success: true, message: "Workforce checkout opened in browser" };
+        } catch (error) {
+            logger.error(`[AuthHandlers] Workforce upgrade error:`, error);
+            return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+        }
+    });
+
     // Refresh plan from Supabase (call after payment)
     ipcMain.handle("auth:refresh-plan", async () => {
         logger.log("[AuthHandlers] Refreshing plan from Supabase");

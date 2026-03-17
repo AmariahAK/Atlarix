@@ -32,6 +32,9 @@ export enum ToolCategory {
     ANALYSIS = "analysis",
     REFACTORING = "refactoring",
     TESTING = "testing",
+
+    // v4.0 Workforce (Slack, Jira, Linear, Sentry, Calendar, CI, etc.)
+    WORKFORCE = "workforce",
 }
 
 export interface ToolMetadata {
@@ -93,14 +96,9 @@ export class ToolRegistry {
                 (tool) => !tool.requiresWorkspace
             );
         } else {
-            // Workspace mode: 
-            // - All core workspace tools
-            // - Plus chat-only tools (web, datetime - they work in both modes)
-            return this.getAll().filter(
-                (tool) =>
-                    (tool.requiresWorkspace && tool.isCore) || // Core workspace tools
-                    (!tool.requiresWorkspace && tool.isCore)    // Chat-only tools (available everywhere)
-            );
+            // Workspace (Build) mode: return all tools for manifest; progressive reveal
+            // filters to loaded+core in chat_stream_handlers when building the tools object
+            return this.getAll();
         }
     }
 

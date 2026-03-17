@@ -12,6 +12,8 @@ export interface WorkflowRun {
   conclusion: string | null;
   createdAt: Date;
   htmlUrl?: string;
+  /** Optional platform-specific run id (e.g. Bitbucket pipeline UUID) for getJobs/getJobLogs */
+  pipelineUuid?: string;
 }
 
 export interface WorkflowStep {
@@ -33,12 +35,13 @@ export interface WorkflowJob {
 
 export interface CIPlatform {
   listRuns(owner: string, repo: string, options?: { perPage?: number }): Promise<WorkflowRun[]>;
-  getJobs(owner: string, repo: string, runId: number): Promise<WorkflowJob[]>;
-  getJobLogs(owner: string, repo: string, jobId: number): Promise<string>;
+  getJobs(owner: string, repo: string, runId: number, pipelineUuid?: string): Promise<WorkflowJob[]>;
+  getJobLogs(owner: string, repo: string, jobId: number, pipelineUuid?: string): Promise<string>;
   streamJobLogs(
     owner: string,
     repo: string,
     jobId: number,
-    filter?: RegExp | null
+    filter?: RegExp | null,
+    pipelineUuid?: string
   ): AsyncGenerator<string, void, unknown>;
 }

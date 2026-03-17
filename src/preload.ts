@@ -273,6 +273,7 @@ const validInvokeChannels = [
   "auth:enforce-workspace-limit", // Enforce workspace limit on login
   "auth:get-plan-info",
   "auth:upgrade",
+  "auth:upgrade-workforce",
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
@@ -290,6 +291,16 @@ const validInvokeChannels = [
   "db:set-active-connection",
   "db:test-connection",
   "db:parse-connection-string",
+  // v4.0 Token Vault (Workforce)
+  "token-vault:get-token",
+  "token-vault:revoke",
+  "token-vault:list-services",
+  // v4.0 Teams (Workforce)
+  "team:get",
+  "team:list-members",
+  "team:invite",
+  "team:remove-member",
+  "team:add-seats",
 ];
 
 const validReceiveChannels = [
@@ -317,6 +328,9 @@ const validReceiveChannels = [
   "mode_change_requested",
   "terminal-output",
   "operation-status",         // Permission queue status updates
+  // v4.0 Token Vault (Workforce)
+  "token-vault:consent-required",
+  "token-vault:fallback-warning",
   "auto-recovery-needed",     // AI self-healing on failures
   "chat:workspace-diagram",
   // AI-controlled right panel (Hybrid Intent System)

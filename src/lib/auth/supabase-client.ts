@@ -320,40 +320,34 @@ async function ensureUserExists(user: User): Promise<void> {
     }
 }
 
+export type UserPlanDb = 'free' | 'pro' | 'workforce';
+
 /**
  * Get user's plan from database (with timeout to prevent hanging)
  */
-export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
-    // Add timeout to prevent hanging if database is slow
-    const timeoutPromise = new Promise<'free'>((resolve) => {
+export async function getUserPlan(userId: string): Promise<UserPlanDb> {
+    const timeoutPromise = new Promise<UserPlanDb>((resolve) => {
         setTimeout(() => {
             logger.warn('[Supabase] getUserPlan timed out, defaulting to free');
             resolve('free');
-        }, 5000); // 5 second timeout
+        }, 5000);
     });
 
-    const fetchPromise = (async (): Promise<'free' | 'pro'> => {
+    const fetchPromise = (async (): Promise<UserPlanDb> => {
         try {
             const supabase = getSupabaseClient();
-
             const { data, error } = await supabase
                 .from('users')
                 .select('plan')
                 .eq('id', userId)
-                .maybeSingle(); // Use maybeSingle instead of single to avoid throwing when no row exists
+                .maybeSingle();
 
             if (error) {
                 logger.warn('[Supabase] getUserPlan error:', error.message);
                 return 'free';
             }
-
-            if (!data) {
-                // New user, no row yet
-                logger.log('[Supabase] No user row found, defaulting to free');
-                return 'free';
-            }
-
-            return data.plan as 'free' | 'pro';
+            if (!data) return 'free';
+            return (data.plan as UserPlanDb) || 'free';
         } catch (err) {
             logger.warn('[Supabase] getUserPlan exception:', err);
             return 'free';
@@ -361,6 +355,48 @@ export async function getUserPlan(userId: string): Promise<'free' | 'pro'> {
     })();
 
     return Promise.race([fetchPromise, timeoutPromise]);
+}
+
+/**
+ * v4.0: Get effective tier (max of own plan or team plan)
+ */
+export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('users')
+            .select('effective_tier, plan')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error || !data) return ownPlan || 'free';
+        const effective = (data.effective_tier as UserPlanDb) || data.plan || ownPlan || 'free';
+        const plan = (data.plan as UserPlanDb) || ownPlan || 'free';
+        return effective || plan;
+    } catch (err) {
+        logger.warn('[Supabase] getEffectiveTier exception:', err);
+        return ownPlan || 'free';
+    }
+}
+
+/**
+ * v4.0: Whether user has grandfathered DB Studio (Pro before move to Workforce)
+ */
+export async function getHasDbStudioLegacy(userId: string): Promise<boolean> {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('users')
+            .select('has_db_studio_legacy')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error || !data) return false;
+        return data.has_db_studio_legacy === true;
+    } catch (err) {
+        logger.warn('[Supabase] getHasDbStudioLegacy exception:', err);
+        return false;
+    }
 }
 
 /**
@@ -426,9 +462,10 @@ export function onAuthStateChange(callback: (session: Session | null) => void): 
 // ============================================
 
 export interface SubscriptionData {
-    plan: 'free' | 'pro';
+    plan: 'free' | 'pro' | 'workforce';
     subscriptionStatus: 'active' | 'cancelled' | null;
     subscriptionEndsAt: string | null;
+    effectiveTier?: 'free' | 'pro' | 'workforce';
 }
 
 type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
@@ -459,19 +496,21 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                 filter: `email=eq.${userEmail}`,
             },
             (payload) => {
-                const newRow = payload.new as { plan: string; subscription_status: string | null; subscription_ends_at: string | null };
-                const oldRow = payload.old as { plan: string; subscription_status: string | null; subscription_ends_at: string | null };
+                const newRow = payload.new as { plan: string; subscription_status: string | null; subscription_ends_at: string | null; effective_tier?: string };
+                const oldRow = payload.old as { plan: string; subscription_status: string | null; subscription_ends_at: string | null; effective_tier?: string };
 
                 const newData: SubscriptionData = {
-                    plan: (newRow?.plan || 'free') as 'free' | 'pro',
+                    plan: (newRow?.plan || 'free') as 'free' | 'pro' | 'workforce',
                     subscriptionStatus: (newRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: newRow?.subscription_ends_at || null,
+                    effectiveTier: (newRow?.effective_tier as 'free' | 'pro' | 'workforce') || undefined,
                 };
 
                 const oldData: SubscriptionData = {
-                    plan: (oldRow?.plan || 'free') as 'free' | 'pro',
+                    plan: (oldRow?.plan || 'free') as 'free' | 'pro' | 'workforce',
                     subscriptionStatus: (oldRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: oldRow?.subscription_ends_at || null,
+                    effectiveTier: (oldRow?.effective_tier as 'free' | 'pro' | 'workforce') || undefined,
                 };
 
                 logger.log(`[Supabase] Realtime subscription update:`, {
@@ -480,11 +519,12 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                     endsAt: newData.subscriptionEndsAt,
                 });
 
-                // Fire callback on ANY relevant change (plan, status, or date)
+                // Fire callback on ANY relevant change (plan, status, date, or effective tier)
                 if (
                     newData.plan !== oldData.plan ||
                     newData.subscriptionStatus !== oldData.subscriptionStatus ||
-                    newData.subscriptionEndsAt !== oldData.subscriptionEndsAt
+                    newData.subscriptionEndsAt !== oldData.subscriptionEndsAt ||
+                    newData.effectiveTier !== oldData.effectiveTier
                 ) {
                     callback(newData, oldData);
                 }

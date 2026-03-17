@@ -7,25 +7,43 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v3.9.0*
+*Current: v4.0.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
-**Recent (v3.9):** GitHub Actions in the **left panel** (Pro, same pattern as DB Studio); resizable left panel; Chat tab in right panel when chat area is hidden; Pro panel shortcuts (Cmd+I / Cmd+O); compact model search when right panel is open. Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
+**Recent (v4.0 — Workforce):** New **Workforce** tier ($79/mo): Auth0 Token Vault for secure agent auth, Workspace Context (Slack, Jira, Linear, CI, Sentry, Calendar), Teams (up to 20 seats), GitLab CI & Bitbucket Pipelines, Progressive Tool Reveal. DB Studio moved to Workforce (existing Pro subscribers grandfathered). Three tiers: Free, Pro ($19/mo), Workforce ($79/mo). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
 ### Deployment & CI/CD
 
 **Releases** are built and published via GitHub Actions for every version. **GitHub Actions**: in the **left panel**, add the GitHub Actions extension (Pro) to list workflow runs, view job logs, stream logs live, and send logs to the AI. Connect GitHub in Settings → Extensions. Token is read from the Supabase session (`session.provider_token`) when signed in with GitHub. The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
 
 - **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v3.8`), it runs `npm run make` then `npm run publish`.
-- **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example):  
+- **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example). See [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for a step-by-step guide to obtain each. Required:  
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`,  
+  `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`,  
+  `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,  
   `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`,  
   `VITE_GOOGLE_CLIENT_ID`, `VITE_GITHUB_CLIENT_ID`,  
   `VITE_ATLARIX_API_URL`, `SENTRY_DSN`, `POSTHOG_API_KEY`, `ATLARIX_API_URL`.  
   `GITHUB_TOKEN` is provided automatically; if publishing to a separate releases repo, use a PAT with `repo` scope as a secret and reference it in the workflow.
 - **All versions:** Every tagged release uses these secrets for the build and publish step.
+
+---
+
+## What's New in v4.0 — Workforce
+
+v4.0 introduces the **Workforce** tier and secure agent authentication.
+
+- **Tiers:** Free ($0), Pro ($19/mo), Workforce ($79/mo, up to 20 seats; extra seats $10/mo).
+- **Auth0 Token Vault:** Secure agent auth for Workforce extensions; step-up for high-stakes actions.
+- **Workspace Context:** Workforce-only block injected into the system prompt: open PRs, failing pipelines, assigned tickets, unread mentions, Sentry errors, today's meetings (from connected extensions).
+- **Teams:** Create a team, invite members, manage seats; shared .atlarix (team-memory.md, Blueprint) via Git.
+- **Extensions:** Slack, Google Chat, Jira, Linear, GitLab CI, Bitbucket Pipelines, Sentry, Notion, Google Calendar — connect via Token Vault, no manual credential inputs.
+- **Progressive Tool Reveal:** System prompt gets a compact tool manifest; full schemas loaded on first use (core tools always loaded).
+- **DB Studio:** Now part of Workforce; existing Pro subscribers keep access (grandfathered).
+- **File revert:** "Revert to here" in conversation restores workspace file state from the snapshot at that exchange.
+- **CI:** GitHub Actions (Pro), plus GitLab CI and Bitbucket Pipelines (Workforce, Token Vault).
 
 ---
 
@@ -216,7 +234,7 @@ Atlarix supports **code generation and modification**, **session/context summari
 
 ### Development Setup
 
-**Important — Schema changes:** Any update that modifies the database schema (adding columns, tables, indexes, or relations) must include a corresponding migration file so the auto-migrate system runs it correctly on app start. Do not rely on `db:push` alone in production builds. Migration files live in [`drizzle/`](drizzle/) at the project root and must follow the existing naming convention (see [`drizzle/meta/_journal.json`](drizzle/meta/_journal.json)).
+**Important — Schema changes:** Any update that modifies the database schema (adding columns, tables, indexes, or relations) must include a corresponding migration file so the auto-migrate system runs it correctly on app start. Do not rely on `db:push` alone in production builds. Migration files live in [`drizzle/`](drizzle/) at the project root and must follow the existing naming convention (see [`drizzle/meta/_journal.json`](drizzle/meta/_journal.json)). **v4.0** adds one local SQLite migration (`0030_v40_tool_session_loads`) and two Supabase migrations (`20260316_v40_teams.sql`, `20260316_v40_workforce_connected_services.sql`); the local migration runs automatically on first launch; run the Supabase migrations in your project (e.g. `supabase db push` or via Dashboard) when deploying v4.0.
 
 ```bash
 git clone https://github.com/norahlabs/atlarix.git

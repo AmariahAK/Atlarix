@@ -159,6 +159,7 @@ export const chatsRelations = relations(chats, ({ many, one }) => ({
     fields: [chats.appId],
     references: [apps.id],
   }),
+  toolSessionLoads: many(toolSessionLoads),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
@@ -569,6 +570,29 @@ export const workspaceSnapshots = sqliteTable(
     index("workspace_snapshots_app_id_idx").on(table.appId),
   ]
 );
+
+// --- v4.0: Tool session loads (analytics - which tools first called per chat) ---
+export const toolSessionLoads = sqliteTable(
+  "tool_session_loads",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    chatId: integer("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    firstCalledAt: integer("first_called_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("tool_session_loads_chat_id_idx").on(table.chatId)],
+);
+
+export const toolSessionLoadsRelations = relations(toolSessionLoads, ({ one }) => ({
+  chat: one(chats, {
+    fields: [toolSessionLoads.chatId],
+    references: [chats.id],
+  }),
+}));
 
 // --- Workflow Templates (Atlaflow template library) ---
 // Save/load named workflow templates (e.g. "API + DB", "Webhook → Slack")

@@ -72,7 +72,7 @@ export const GitHubProvider: CIPlatform = {
     }));
   },
 
-  async getJobs(owner: string, repo: string, runId: number): Promise<WorkflowJob[]> {
+  async getJobs(owner: string, repo: string, runId: number, _pipelineUuid?: string): Promise<WorkflowJob[]> {
     const octokit = await getClient();
     if (!octokit) throw new Error("GitHub not connected");
     trackRequest();
@@ -97,7 +97,7 @@ export const GitHubProvider: CIPlatform = {
     }));
   },
 
-  async getJobLogs(owner: string, repo: string, jobId: number): Promise<string> {
+  async getJobLogs(owner: string, repo: string, jobId: number, _pipelineUuid?: string): Promise<string> {
     const token = await getToken();
     if (!token) throw new Error("GitHub not connected");
     trackRequest();

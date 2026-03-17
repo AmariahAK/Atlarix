@@ -14,6 +14,8 @@ import {
     getSession,
     getUser,
     getUserPlan,
+    getEffectiveTier,
+    getHasDbStudioLegacy,
     signInWithOAuth,
     signOut,
     onAuthStateChange,
@@ -28,7 +30,7 @@ const logger = log.scope('subscription');
 // TYPES
 // ============================================
 
-export type UserPlan = 'free' | 'pro';
+export type UserPlan = 'free' | 'pro' | 'workforce';
 
 export interface UserSession {
     id: string;
@@ -36,6 +38,10 @@ export interface UserSession {
     name?: string;
     avatar?: string;
     plan: UserPlan;
+    /** v4.0: effective tier (max of own plan or team plan) */
+    effectiveTier?: UserPlan;
+    /** v4.0: grandfathered Pro users keep DB Studio access */
+    hasDbStudioLegacy?: boolean;
 }
 
 // ============================================
@@ -46,12 +52,12 @@ export interface UserSession {
 export const PLAN_LIMITS = {
     free: {
         maxWorkspaces: 1,
-        // Incognito chats: unlimited (no workspace context)
-        // All tools available for one workspace
     },
     pro: {
         maxWorkspaces: Infinity,
-        // All features unlimited
+    },
+    workforce: {
+        maxWorkspaces: Infinity,
     },
 };
 
@@ -110,16 +116,27 @@ export class SubscriptionManager {
         const avatar = userMeta.avatar_url || userMeta.picture || undefined;
         const name = userMeta.full_name || userMeta.name || user.email?.split('@')[0] || 'User';
 
+        const effectiveTier = await getEffectiveTier(user.id, plan);
+        const hasDbStudioLegacy = await getHasDbStudioLegacy(user.id);
+
         this.session = {
             id: user.id,
             email: user.email || '',
             name,
             avatar,
             plan,
+            effectiveTier,
+            hasDbStudioLegacy,
         };
 
         this.cachedWorkspaceCount = null; // Clear cache
         logger.log(`[SubscriptionManager] Session updated: ${user.email} (${plan})`, { avatar: !!avatar, name });
+
+        // v4.0: PostHog tier event (no PII)
+        try {
+            const { capture } = await import('../main/lib/analytics');
+            capture('tier_identified', { tier: effectiveTier });
+        } catch { /* non-fatal */ }
 
         // Subscribe to realtime plan changes for instant Pro activation
         if (user.email) {
@@ -147,7 +164,16 @@ export class SubscriptionManager {
                 });
 
                 if (this.session) {
-                    this.session = { ...this.session, plan: newData.plan };
+                    this.session = {
+                        ...this.session,
+                        plan: newData.plan,
+                        effectiveTier: newData.effectiveTier ?? newData.plan,
+                    };
+
+                    try {
+                        const { capture } = await import('../main/lib/analytics');
+                        capture('tier_identified', { tier: this.session.effectiveTier });
+                    } catch { /* non-fatal */ }
 
                     // Notify the frontend about the subscription change (with complete data)
                     const { BrowserWindow } = require('electron');
@@ -155,6 +181,7 @@ export class SubscriptionManager {
                     windows.forEach((win: any) => {
                         win.webContents.send('plan-changed', {
                             plan: newData.plan,
+                            effectiveTier: newData.effectiveTier ?? newData.plan,
                             previousPlan: oldData.plan,
                             subscriptionStatus: newData.subscriptionStatus,
                             subscriptionEndsAt: newData.subscriptionEndsAt,
@@ -192,10 +219,32 @@ export class SubscriptionManager {
     }
 
     /**
-     * Check if user has Pro plan
+     * Check if user has Pro plan (or higher)
      */
     static isPro(): boolean {
-        return this.getLocalUserPlan() === 'pro';
+        const p = this.getLocalUserPlan();
+        return p === 'pro' || p === 'workforce';
+    }
+
+    /**
+     * v4.0: Check if user has Workforce plan (effective tier)
+     */
+    static isWorkforce(): boolean {
+        return this.getEffectiveTier() === 'workforce';
+    }
+
+    /**
+     * v4.0: Effective tier (own plan or team plan, whichever is higher)
+     */
+    static getEffectiveTier(): UserPlan {
+        return this.session?.effectiveTier ?? this.session?.plan ?? 'free';
+    }
+
+    /**
+     * v4.0: Whether user has grandfathered DB Studio access (Pro before move to Workforce)
+     */
+    static hasDbStudioLegacy(): boolean {
+        return this.session?.hasDbStudioLegacy === true;
     }
 
     /**
@@ -209,13 +258,25 @@ export class SubscriptionManager {
         }
 
         const newPlan = await getUserPlan(this.session.id);
+        const effectiveTier = await getEffectiveTier(this.session.id, newPlan);
+        const hasDbStudioLegacy = await getHasDbStudioLegacy(this.session.id);
 
-        if (newPlan !== this.session.plan) {
-            logger.log(`[SubscriptionManager] Plan changed: ${this.session.plan} → ${newPlan}`);
-            this.session = { ...this.session, plan: newPlan };
+        const changed =
+            newPlan !== this.session.plan ||
+            effectiveTier !== this.session.effectiveTier ||
+            hasDbStudioLegacy !== this.session.hasDbStudioLegacy;
+
+        if (changed) {
+            logger.log(`[SubscriptionManager] Plan/effective tier refreshed: ${this.session.plan} → ${newPlan}, effective: ${effectiveTier}`);
+            this.session = {
+                ...this.session,
+                plan: newPlan,
+                effectiveTier,
+                hasDbStudioLegacy,
+            };
         }
 
-        return newPlan;
+        return effectiveTier;
     }
 
     /**
@@ -260,12 +321,11 @@ export class SubscriptionManager {
 
     /**
      * Check if user can create a new workspace
-     * Free: 1 workspace max
-     * Pro: Unlimited
+     * Free: 1 workspace max; Pro/Workforce: Unlimited
      */
     static async canCreateWorkspace(): Promise<{ allowed: boolean; reason?: string; currentCount: number; maxAllowed: number }> {
-        const plan = this.getLocalUserPlan();
-        const limit = PLAN_LIMITS[plan].maxWorkspaces;
+        const tier = this.getEffectiveTier();
+        const limit = PLAN_LIMITS[tier].maxWorkspaces;
 
         // Get current workspace count
         const workspaceCount = await this.getWorkspaceCount();
@@ -273,7 +333,9 @@ export class SubscriptionManager {
         if (workspaceCount >= limit) {
             return {
                 allowed: false,
-                reason: `Free plan allows ${limit} workspace. Upgrade to Pro for unlimited workspaces.`,
+                reason: tier === 'free'
+                    ? 'Free plan allows 1 workspace. Upgrade to Pro for unlimited workspaces.'
+                    : `Workspace limit reached (${limit}).`,
                 currentCount: workspaceCount,
                 maxAllowed: limit,
             };

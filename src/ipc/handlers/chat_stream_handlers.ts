@@ -84,7 +84,7 @@ import z from "zod";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import { getCurrentCommitHash } from "../utils/git_utils";
-import { createSnapshot } from "../../lib/workspace-snapshots";
+import { createSnapshot, restoreSnapshot } from "../../lib/workspace-snapshots";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -96,8 +96,11 @@ import {
   shouldTriggerAINaming,
 } from "../../utils/chat_naming";
 import { ToolRegistry } from "../../lib/tools";
+import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
+import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import { handleChatOnlyStream } from "./chat_only_handlers";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
+import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
 import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
@@ -116,6 +119,17 @@ import { writeSettings } from "../../main/settings";
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+// v4.0 Progressive Tool Reveal: one loader per chat session
+const toolSessionLoaders = new Map<number, ToolSessionLoader>();
+function getOrCreateToolSessionLoader(chatId: number): ToolSessionLoader {
+  let loader = toolSessionLoaders.get(chatId);
+  if (!loader) {
+    loader = new ToolSessionLoader((name) => ToolRegistry.get(name));
+    toolSessionLoaders.set(chatId, loader);
+  }
+  return loader;
+}
 
 // Pending mode change (Ask -> Build) approval; keyed by chatId
 const pendingModeChangeResolvers = new Map<number, { resolve: (approved: boolean) => void }>();
@@ -1204,6 +1218,17 @@ ${componentSnippet}
                 }
               }
             }
+
+            // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
+            try {
+              const workforceBlock = await buildWorkforceWorkspaceContextBlock();
+              if (workforceBlock) {
+                systemPrompt += workforceBlock;
+                logger.info("Injected Workforce workspace context block");
+              }
+            } catch (workforceErr) {
+              logger.warn("Failed to build Workforce workspace context:", workforceErr);
+            }
           } catch (error) {
             logger.warn("Failed to inject workspace context:", error);
           }
@@ -1742,16 +1767,21 @@ This conversation includes one or more image attachments. When the user uploads 
           if (settings.selectedChatMode === "ask" && effectiveApp) {
             logger.log("Ask mode with workspace - enabling read-only tools");
 
-            // Get read-only tools for Ask mode
             const askModeTools = ToolRegistry.getToolsForAskMode();
+            const askLoader = getOrCreateToolSessionLoader(req.chatId);
+            const askLoadedNames = askLoader.getLoadedToolNames();
+            const askToolsToInclude = askModeTools.filter(
+              (t) => askLoadedNames.has(t.name) || isCoreTool(t)
+            );
+            const askManifest = generateManifest(askModeTools, true);
 
-            // Convert to tool set format expected by AI SDK
             const askTools: ToolSet = {};
-            for (const tool of askModeTools) {
+            for (const tool of askToolsToInclude) {
               askTools[tool.name] = {
                 description: tool.description,
                 parameters: tool.parameters,
                 execute: async (args: any) => {
+                  askLoader.onToolCall(tool.name);
                   try {
                     const execArgs: any = {
                       ...args,
@@ -1851,12 +1881,16 @@ If the user requests modifications, use request_mode_change to request Build mod
               chatMessages,
               modelClient,
               tools: askTools,
-              systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(appPath),
-                chatMode: "ask",
-                contextSize: Math.min(await getContextWindow(), 128_000),
-                enableTurboEditsV2: false,
-              }) + askModePrompt,
+              systemPromptOverride:
+                constructSystemPrompt({
+                  aiRules: await readAiRules(appPath),
+                  chatMode: "ask",
+                  contextSize: Math.min(await getContextWindow(), 128_000),
+                  enableTurboEditsV2: false,
+                }) +
+                askModePrompt +
+                "\n\n" +
+                askManifest,
               files: files,
             });
 
@@ -1893,9 +1927,15 @@ If the user requests modifications, use request_mode_change to request Build mod
             }
 
             const workspacePath = appPath;
-            /** After create_workspace in this turn, use this so run_command/write_file run in the new project. */
             let workspaceOverride: { path: string; id: number } | null = null;
-            const buildModeTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
+            const buildModeToolsMetadata = ToolRegistry.getToolsForContext(hasWorkspace);
+            const buildLoader = getOrCreateToolSessionLoader(req.chatId);
+            const buildLoadedNames = buildLoader.getLoadedToolNames();
+            const buildToolsToInclude = buildModeToolsMetadata.filter(
+              (t) => buildLoadedNames.has(t.name) || isCoreTool(t)
+            );
+            const buildManifest = generateManifest(buildModeToolsMetadata, false);
+            const buildSystemPromptWithManifest = systemPrompt + "\n\n" + buildManifest;
 
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(
@@ -1921,34 +1961,34 @@ If the user requests modifications, use request_mode_change to request Build mod
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
             });
 
-            // Convert to tool set format expected by AI SDK
             const tools: ToolSet = {};
-            for (const tool of buildModeTools) {
-              tools[tool.function.name] = {
-                description: tool.function.description,
-                parameters: tool.function.parameters,
+            for (const toolMeta of buildToolsToInclude) {
+              const toolName = toolMeta.name;
+              tools[toolName] = {
+                description: toolMeta.description,
+                parameters: toolMeta.parameters,
                 execute: async (args: any) => {
-                  const toolActivityId = `tool-${tool.function.name}-${Date.now()}`;
+                  buildLoader.onToolCall(toolName);
+                  const toolActivityId = `tool-${toolName}-${Date.now()}`;
                   let activityStatus: "done" | "error" = "done";
                   safeSend(event.sender, "chat:activity", {
                     id: toolActivityId,
                     type: "tool_use",
-                    label: tool.function.name,
+                    label: toolName,
                     status: "running",
                     timestamp: Date.now(),
                   });
                   try {
-                    // Use workspace override when create_workspace was just run (same turn)
                     const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
                     const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
                     const isStreamTool =
-                      tool.function.name === "stream_terminal_output" ||
-                      tool.function.name === "stream_pipeline_logs";
+                      toolName === "stream_terminal_output" ||
+                      toolName === "stream_pipeline_logs";
                     const executeArgs: any = {
                       ...args,
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
-                      chatMode: "build", // Pass chatMode so handlers can check permissions
+                      chatMode: "build",
                     };
                     if (isStreamTool) {
                       executeArgs.chatId = req.chatId;
@@ -1962,11 +2002,10 @@ If the user requests modifications, use request_mode_change to request Build mod
                         };
                       };
                     }
-                    const result = await ToolRegistry.execute(tool.function.name, executeArgs);
+                    const result = await ToolRegistry.execute(toolName, executeArgs);
 
-                    // If create_workspace succeeded, use new workspace for rest of this turn
                     if (
-                      tool.function.name === "create_workspace" &&
+                      toolName === "create_workspace" &&
                       result &&
                       typeof result === "object" &&
                       !permissionInterceptor.isPermissionRequest(result) &&
@@ -2083,7 +2122,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                     safeSend(event.sender, "chat:activity", {
                       id: toolActivityId,
                       type: "tool_use",
-                      label: tool.function.name,
+                      label: toolName,
                       status: activityStatus,
                       timestamp: Date.now(),
                     });
@@ -2228,6 +2267,7 @@ If the user requests modifications, use request_mode_change to request Build mod
                   chatMessages: agenticMessages,
                   modelClient,
                   tools,
+                  systemPromptOverride: buildSystemPromptWithManifest,
                   files: files,
                 });
 
@@ -2909,7 +2949,7 @@ If the user requests modifications, use request_mode_change to request Build mod
     }
   );
 
-  // v3.9: Revert conversation to an assistant message — truncate after it, clear has_answered_questions
+  // v3.9 / v4.0: Revert conversation to an assistant message — restore workspace snapshot (if any), truncate messages, clear has_answered_questions
   ipcMain.handle(
     "chat:revert-to-message",
     async (
@@ -2922,6 +2962,22 @@ If the user requests modifications, use request_mode_change to request Build mod
       });
       if (!msg || msg.role !== "assistant") {
         throw new Error("Assistant message not found");
+      }
+      // v4.0: Restore workspace file state from snapshot taken at this exchange
+      const snapshotId = msg.snapshotId ?? null;
+      if (snapshotId != null) {
+        const [chatRow] = await db.select().from(chats).where(eq(chats.id, chatId));
+        const appId = chatRow?.appId ?? null;
+        if (appId != null) {
+          const [app] = await db.select().from(apps).where(eq(apps.id, appId));
+          if (app) {
+            const appPath = resolveAppPath(app.path);
+            const restoreResult = await restoreSnapshot(snapshotId, appPath);
+            if (!restoreResult.success) {
+              logger.warn("Revert: snapshot restore failed:", restoreResult.error);
+            }
+          }
+        }
       }
       const chatMessages = await db
         .select({ id: messages.id })
