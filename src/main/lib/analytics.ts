@@ -9,6 +9,7 @@ import { app } from "electron";
 import { PostHog } from "posthog-node";
 import { readSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
+import { buildConfig } from "@/generated/build-config";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
@@ -52,7 +53,7 @@ function isOptedIn(): boolean {
  */
 export function getPostHog(): PostHog | null {
   if (client) return client;
-  const apiKey = process.env.POSTHOG_API_KEY;
+  const apiKey = buildConfig.POSTHOG_API_KEY;
   if (!apiKey) return null;
   client = new PostHog(apiKey, { host: POSTHOG_HOST });
   return client;
@@ -89,7 +90,7 @@ export function getPostHogConfigForRenderer(): {
   analyticsId: string;
 } {
   return {
-    posthogApiKey: process.env.POSTHOG_API_KEY,
+    posthogApiKey: buildConfig.POSTHOG_API_KEY || undefined,
     analyticsId: getOrCreateAnonymousId(),
   };
 }

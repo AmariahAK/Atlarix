@@ -28,16 +28,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 
 **Releases** are built and published via GitHub Actions for every version. **GitHub Actions**: in the **left panel**, add the GitHub Actions extension (Pro) to list workflow runs, view job logs, stream logs live, and send logs to the AI. Connect GitHub in Settings → Extensions. Token is read from the Supabase session (`session.provider_token`) when signed in with GitHub. The workflow runs on tag push (`v*`) and **reads all credentials from GitHub repository secrets** — nothing is hardcoded in the repo.
 
-- **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v3.8`), it runs `npm run make` then `npm run publish`.
+- **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v4.0.3.23`), creates a draft release on atlarix-releases, builds macOS (arm64/x64) and Linux, uploads assets, then publishes the release.
 - **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example). See [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for a step-by-step guide to obtain each. Required:  
-  `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`,  
-  `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`,  
+  `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`, `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,  
   `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
-  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,  
-  `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`,  
-  `VITE_GOOGLE_CLIENT_ID`, `VITE_GITHUB_CLIENT_ID`,  
-  `VITE_ATLARIX_API_URL`, `SENTRY_DSN`, `POSTHOG_API_KEY`, `ATLARIX_API_URL`.  
-  `GITHUB_TOKEN` is provided automatically; if publishing to a separate releases repo, use a PAT with `repo` scope as a secret and reference it in the workflow.
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`,  
+  `VITE_ATLARIX_API_URL`, `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`, `ATLARIX_API_URL`.  
+  For macOS builds: `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_IDENTITY`, `APPLE_TEAM_ID`.  
+  For publishing to a separate releases repo: `RELEASES_TOKEN` (PAT with `repo` scope).  
+  `GITHUB_TOKEN` is provided automatically for same-repo releases.
 - **All versions:** Every tagged release uses these secrets for the build and publish step.
 
 ---

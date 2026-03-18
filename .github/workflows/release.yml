@@ -1,7 +1,5 @@
 # Build and publish Atlarix for every version (tag v*).
-# Credentials are read from GitHub repository secrets — no hardcoded secrets in the repo.
-# Main process: vite.main.config.mts embeds NEXT_PUBLIC_SUPABASE_*, SENTRY_DSN, POSTHOG_API_KEY,
-# RESEND_API_KEY, EMAIL_SOURCE at build time. Renderer gets VITE_* from env. SearXNG is Docker in-app (port 8000).
+# Credentials are read from GitHub repository secrets and embedded at build time via Vite define.
 # See README "Deployment (CI / GitHub Actions)" for the list of required secrets.
 
 name: Release
@@ -9,59 +7,281 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0)"
+        required: false
 
 permissions:
   contents: write
 
-jobs:
-  release:
-    runs-on: macos-latest
-    env:
-      # All credentials come from repository secrets (Settings → Secrets and variables → Actions).
-      # These env vars are available during build for all tagged versions.
-      LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
-      LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
-      LEMONSQUEEZY_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_VARIANT_ID }}
-      LEMONSQUEEZY_WORKFORCE_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_WORKFORCE_VARIANT_ID }}
-      LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID }}
-      AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
-      AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
-      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
-      AUTH0_TOKEN_VAULT_ID: ${{ secrets.AUTH0_TOKEN_VAULT_ID }}
-      AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
-      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-      GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
-      VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-      VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
-      VITE_ATLARIX_API_URL: ${{ secrets.VITE_ATLARIX_API_URL }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
-      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-      POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-      ATLARIX_API_URL: ${{ secrets.ATLARIX_API_URL }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# Env block for jobs that run npm run make (build-macos, build-linux). No Google/GitHub OAuth — Supabase handles auth.
+env:
+  LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
+  LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
+  LEMONSQUEEZY_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_VARIANT_ID }}
+  LEMONSQUEEZY_WORKFORCE_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_WORKFORCE_VARIANT_ID }}
+  LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID }}
+  LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
+  AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+  AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
+  AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
+  AUTH0_TOKEN_VAULT_ID: ${{ secrets.AUTH0_TOKEN_VAULT_ID }}
+  AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
+  VITE_ATLARIX_API_URL: ${{ secrets.VITE_ATLARIX_API_URL }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+  ATLARIX_API_URL: ${{ secrets.ATLARIX_API_URL }}
 
+jobs:
+  create-draft:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      tag_name: ${{ steps.set_tag.outputs.tag }}
     steps:
-      - name: Checkout
+      - name: Set tag name
+        id: set_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ inputs.version || 'v0.0.0-manual' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create draft release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.set_tag.outputs.tag }}
+          name: Atlarix ${{ steps.set_tag.outputs.tag }}
+          body: |
+            ## Atlarix ${{ steps.set_tag.outputs.tag }}
+
+            ### Downloads
+            - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
+            - **macOS (Intel)**: `Atlarix-*-x64.dmg`
+            - **Windows**: In development; not included in this release.
+            - **Linux**: `.deb`, `.rpm`, or `.AppImage`
+
+            ### Installation Notes
+            - **macOS**: Double-click to install — Apple Notarized, no security warnings.
+            - **Linux**: `chmod +x Atlarix.AppImage && ./Atlarix.AppImage`
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          repository: AmariahAK/atlarix-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+
+  build-macos:
+    needs: create-draft
+    runs-on: macos-latest
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        arch: [arm64, x64]
+      fail-fast: false
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+    steps:
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build (make installers)
-        run: npm run make
+      - name: Import Apple certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERT_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
 
-      - name: Publish to GitHub Release
-        run: npm run publish
+      - name: Build for macOS (${{ matrix.arch }})
+        run: npm run make -- --arch=${{ matrix.arch }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+      - name: Notarize macOS app
+        run: |
+          DMG=$(find out/make -name "*.dmg" | head -1)
+          echo "Notarizing $DMG..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 90m
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$DMG"
+          echo "Done — $DMG is signed, notarized, and stapled."
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Upload macOS assets to release
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          export UPLOAD_URL RELEASES_TOKEN
+          find out/make -type f \( -name "*.dmg" -o -name "*.zip" \) -print0 | while IFS= read -r -d '' f; do
+            echo "Uploading $(basename "$f")..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")"
+          done
+
+  build-linux:
+    needs: create-draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg fakeroot rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for Linux
+        run: npm run make
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Upload Linux assets to release
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          export UPLOAD_URL RELEASES_TOKEN
+          find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | while IFS= read -r -d '' f; do
+            echo "Uploading $(basename "$f")..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")"
+          done
+
+  build-windows:
+    if: false  # Windows signing pending — re-enable when YubiKey and OV cert are ready.
+    needs: create-draft
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for Windows
+        run: npm run make
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Upload Windows assets to release
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          TAG="${{ needs.create-draft.outputs.tag_name }}"
+          mapfile -d '' -t FILES < <(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0)
+          gh release upload "$TAG" "${FILES[@]}" --repo AmariahAK/atlarix-releases --clobber
+
+  publish-release:
+    needs: [create-draft, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Publish draft release
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          curl -sS -X PATCH \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{"draft":false}' \
+            "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
+
+  # virustotal:
+  #   needs: build-macos
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Wait for release assets
+  #       run: sleep 30
+
+  #     - name: Get release tag
+  #       id: tag
+  #       run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+  #     - name: Download DMG from atlarix-releases
+  #       run: |
+  #         mkdir -p ./assets
+  #         gh release download ${{ steps.tag.outputs.tag }} \
+  #           --repo AmariahAK/atlarix-releases \
+  #           --pattern "*.dmg" \
+  #           --dir ./assets
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+  #     - name: Submit to VirusTotal
+  #       run: |
+  #         for file in ./assets/*.dmg; do
+  #           if [ -f "$file" ]; then
+  #             echo "Submitting $(basename "$file")..."
+  #             RESPONSE=$(curl --silent --request POST \
+  #               --url https://www.virustotal.com/api/v3/files \
+  #               --header "x-apikey: ${{ secrets.VIRUSTOTAL_API_KEY }}" \
+  #               --form "file=@$file")
+  #             echo "$RESPONSE"
+  #             ANALYSIS_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('id','N/A'))")
+  #             echo "VirusTotal analysis: https://www.virustotal.com/gui/file-analysis/$ANALYSIS_ID"
+  #           fi
+  #         done

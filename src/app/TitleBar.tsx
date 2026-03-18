@@ -200,7 +200,7 @@ export function AtlarixProButton({
       )}
       size="sm"
     >
-      {isAtlarixProEnabled ? "Pro • Unlimited" : "Pro (off)"}
+      {isAtlarixProEnabled ? "Workspace • Unlimited" : "Workspace"}
     </Button>
   );
 }

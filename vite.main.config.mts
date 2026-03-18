@@ -1,31 +1,47 @@
 import { defineConfig } from "vite";
 import path from "path";
+import { createRequire } from "module";
 
-// Embed build-time env into main process bundle so packaged app has config without .env.
-// CI passes these via job env (GitHub Actions repository secrets).
-const envKeys = [
+const require = createRequire(import.meta.url);
+try {
+  require("dotenv").config();
+} catch {
+  // dotenv optional
+}
+
+// Build-time credentials embedded via Vite define (main process)
+const MAIN_KEYS = [
+  "AUTH0_DOMAIN",
+  "AUTH0_CLIENT_ID",
+  "AUTH0_CLIENT_SECRET",
+  "AUTH0_AUDIENCE",
+  "AUTH0_TOKEN_VAULT_ID",
+  "LEMONSQUEEZY_API_KEY",
+  "LEMONSQUEEZY_STORE_ID",
+  "LEMONSQUEEZY_VARIANT_ID",
+  "LEMONSQUEEZY_WORKFORCE_VARIANT_ID",
+  "LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID",
+  "LEMONSQUEEZY_WEBHOOK_SECRET",
+  "RESEND_API_KEY",
+  "EMAIL_SOURCE",
+  "ATLARIX_API_URL",
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "SENTRY_DSN",
   "POSTHOG_API_KEY",
-  "RESEND_API_KEY",
-  "EMAIL_SOURCE",
 ] as const;
-const define: Record<string, string> = {};
-for (const key of envKeys) {
-  const val = process.env[key];
-  define[`process.env.${key}`] = JSON.stringify(val ?? "");
-}
 
 // https://vitejs.dev/config
 export default defineConfig({
-  define,
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: Object.fromEntries(
+    MAIN_KEYS.map((k) => [`process.env.${k}`, JSON.stringify(process.env[k] ?? "")])
+  ),
   build: {
     rollupOptions: {
       external: [

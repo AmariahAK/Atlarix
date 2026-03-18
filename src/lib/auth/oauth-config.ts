@@ -1,41 +1,13 @@
 /**
  * OAuth Configuration for Atlarix
  * ==================================
- * Google and GitHub authentication setup
+ * OAuth flows are handled by Supabase; backend API URLs and redirect handling only.
  */
-
-export interface OAuthConfig {
-    clientId: string;
-    clientSecret?: string; // Only for backend
-    redirectUri: string;
-    scopes: string[];
-}
 
 // OAuth redirect handling
 export const OAUTH_REDIRECT_URI = 'atlarix://auth/callback';
 
-// Google OAuth Configuration
-export const GOOGLE_OAUTH: OAuthConfig = {
-    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
-    redirectUri: OAUTH_REDIRECT_URI,
-    scopes: [
-        'openid',
-        'email',
-        'profile',
-    ],
-};
-
-// GitHub OAuth Configuration
-export const GITHUB_OAUTH: OAuthConfig = {
-    clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
-    redirectUri: OAUTH_REDIRECT_URI,
-    scopes: [
-        'user:email',
-        'read:user',
-    ],
-};
-
-// OAuth URLs
+// OAuth URLs (for reference; Supabase manages the actual flows)
 export const OAUTH_URLS = {
     google: {
         authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',

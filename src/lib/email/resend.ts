@@ -1,9 +1,10 @@
 /**
  * Resend email — team invite and status notifications (main process only).
- * Uses RESEND_API_KEY and EMAIL_SOURCE from env. No-op if unset.
+ * Uses RESEND_API_KEY and EMAIL_SOURCE from build config. No-op if unset.
  */
 
 import log from "electron-log";
+import { buildConfig } from "@/generated/build-config";
 
 const logger = log.scope("resend");
 
@@ -124,8 +125,8 @@ export async function sendTeamEmail(params: {
   subject: string;
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_SOURCE;
+  const apiKey = buildConfig.RESEND_API_KEY;
+  const from = buildConfig.EMAIL_SOURCE;
   if (!apiKey || !from) {
     logger.warn("[Resend] Missing RESEND_API_KEY or EMAIL_SOURCE, skipping send");
     return { ok: false, error: "Resend not configured" };

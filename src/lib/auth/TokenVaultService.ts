@@ -8,6 +8,7 @@
  */
 
 import log from 'electron-log';
+import { buildConfig } from '@/generated/build-config';
 
 const logger = log.scope('token-vault');
 
@@ -43,11 +44,11 @@ function warnFallback(): void {
 }
 
 function isConfigured(): boolean {
-  const domain = process.env.AUTH0_DOMAIN;
-  const clientId = process.env.AUTH0_CLIENT_ID;
-  const clientSecret = process.env.AUTH0_CLIENT_SECRET;
-  const vaultId = process.env.AUTH0_TOKEN_VAULT_ID;
-  const audience = process.env.AUTH0_AUDIENCE;
+  const domain = buildConfig.AUTH0_DOMAIN;
+  const clientId = buildConfig.AUTH0_CLIENT_ID;
+  const clientSecret = buildConfig.AUTH0_CLIENT_SECRET;
+  const vaultId = buildConfig.AUTH0_TOKEN_VAULT_ID;
+  const audience = buildConfig.AUTH0_AUDIENCE;
   if (!domain || !clientId || !clientSecret || !vaultId || !audience) {
     vaultUnavailableReason = 'Missing AUTH0_* env vars (see .env.example and SECRETS.md)';
     return false;

@@ -80,4 +80,21 @@ export async function triggerUpgrade(): Promise<UpgradeResult> {
     }
 }
 
+/** Open Workforce checkout ($79/mo, teams). Use when user chooses Workforce from upgrade flow. */
+export async function triggerUpgradeWorkforce(): Promise<UpgradeResult> {
+    try {
+        const ipcRenderer = window.electron?.ipcRenderer;
+        if (!ipcRenderer?.invoke) {
+            showError('Unable to access upgrade. Please restart the app.');
+            return { success: false, error: 'Unable to access upgrade' };
+        }
+        const result = await ipcRenderer.invoke('auth:upgrade-workforce') as UpgradeResult;
+        if (!result.success && result.error) showError(result.error);
+        return result;
+    } catch (error) {
+        showError('Failed to open upgrade page. Please try again.');
+        return { success: false, error: 'Failed to open upgrade page' };
+    }
+}
+
 export default useUpgrade;

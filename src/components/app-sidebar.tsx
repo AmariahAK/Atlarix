@@ -221,32 +221,45 @@ export function AppSidebar() {
 
                     {/* Plan badge with upgrade/manage button */}
                     <div className="flex items-center justify-between px-2 py-1.5 mb-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro'
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro' || status?.plan === 'workforce'
                         ? 'bg-primary/20 text-primary'
                         : 'bg-muted text-muted-foreground'
                         }`}>
-                        {status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
+                        {status?.plan === 'workforce' ? '✨ Workforce' : status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
                       </span>
-                      {/* Free tier: show Upgrade button */}
+                      {/* Free tier: show Upgrade choice (Pro vs Workforce) */}
                       {status?.plan === 'free' && (
-                        <button
-                          onClick={() => {
-                            import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-                              triggerUpgrade();
-                            });
-                            setShowAuthMenu(false);
-                          }}
-                          className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
-                        >
-                          Upgrade
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
+                                triggerUpgrade();
+                              });
+                              setShowAuthMenu(false);
+                            }}
+                            className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
+                          >
+                            Pro
+                          </button>
+                          <button
+                            onClick={() => {
+                              import("@/hooks/useUpgrade").then(({ triggerUpgradeWorkforce }) => {
+                                triggerUpgradeWorkforce();
+                              });
+                              setShowAuthMenu(false);
+                            }}
+                            className="text-xs px-2 py-0.5 bg-primary/80 text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
+                          >
+                            Workforce
+                          </button>
+                        </div>
                       )}
-                      {/* Pro tier (active): show Unsubscribe button */}
-                      {status?.plan === 'pro' && status?.subscriptionStatus !== 'cancelled' && (
+                      {/* Pro or Workforce (active): show Unsubscribe button */}
+                      {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus !== 'cancelled' && (
                         <button
                           onClick={async () => {
                             const confirmed = window.confirm(
-                              'Are you sure you want to cancel your Atlarix Pro subscription?\n\nYou will retain access until the end of your billing period.'
+                              'Are you sure you want to cancel your subscription?\n\nYou will retain access until the end of your billing period.'
                             );
                             if (!confirmed) return;
 
@@ -254,7 +267,7 @@ export function AppSidebar() {
 
                             const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription') as { success?: boolean; message?: string; error?: string } | undefined;
                             if (result?.success) {
-                              alert(result.message || 'Subscription cancelled. You will retain Pro access until the end of your billing period.');
+                              alert(result.message || 'Subscription cancelled. You will retain access until the end of your billing period.');
                             } else {
                               alert(result?.error || 'Failed to cancel subscription');
                             }
@@ -266,26 +279,26 @@ export function AppSidebar() {
                       )}
                     </div>
 
-                    {/* Subscription date info for Pro users */}
-                    {status?.plan === 'pro' && status?.subscriptionEndsAt && (
+                    {/* Subscription date info for Pro/Workforce users — same tier date, next payment */}
+                    {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionEndsAt && (
                       <div className="px-2 pb-2 mb-2 border-b border-border text-xs text-muted-foreground">
                         {status.subscriptionStatus === 'cancelled' ? (
-                          <span>Pro ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                          <span>{status.plan === 'workforce' ? 'Workforce' : 'Pro'} ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
                         ) : (
                           <span>Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
                         )}
                       </div>
                     )}
 
-                    {/* Pro tier (cancelled): show Subscribe button to re-subscribe */}
-                    {status?.plan === 'pro' && status?.subscriptionStatus === 'cancelled' && (
+                    {/* Pro or Workforce (cancelled): show Subscribe Again */}
+                    {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus === 'cancelled' && (
                       <div className="px-2 pb-2 mb-2">
                         <button
                           onClick={() => {
-                            import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-                              triggerUpgrade();
-                            });
-                            setShowAuthMenu(false);
+                            const openAgain = status?.plan === 'workforce'
+                              ? import("@/hooks/useUpgrade").then(({ triggerUpgradeWorkforce }) => triggerUpgradeWorkforce())
+                              : import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => triggerUpgrade());
+                            openAgain.then(() => setShowAuthMenu(false));
                           }}
                           className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
                         >

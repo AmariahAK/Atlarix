@@ -23,7 +23,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, GitBranch } from "lucide-react";
 import { DbExtensionsSettings } from "@/components/settings/DbExtensionsSettings";
 import { useAuth } from "@/lib/auth/useAuth";
-import { triggerUpgrade } from "@/hooks/useUpgrade";
+import { triggerUpgrade, triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
 
 const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 
@@ -140,13 +140,13 @@ export default function SettingsPage() {
             <McpServersCard />
           </div>
 
-          {/* Extensions — DB Connections gated: log in first, then Pro */}
+          {/* Workspace — DB Connections & extensions gated: log in first, then Pro */}
           <div id="extensions" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <h2 className="text-lg font-medium text-foreground mb-4">Extensions</h2>
+            <h2 className="text-lg font-medium text-foreground mb-4">Workspace</h2>
             {status?.plan === "pro" ? (
               <>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
+                  Workspace extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
                 </p>
                 <DbExtensionsSettings workspaceId={null} />
                 <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4 flex items-center justify-between gap-4">
@@ -164,18 +164,41 @@ export default function SettingsPage() {
               </>
             ) : !isAuthenticated ? (
               <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Log in to use Extensions and DB Connections</p>
-                <p className="mb-3">Sign in with Google or GitHub to access Extensions and database connections.</p>
+                <p className="font-medium text-foreground mb-1">Log in to use Workspace extensions and DB connections</p>
+                <p className="mb-3">Sign in with Google or GitHub to access Workspace extensions and database connections.</p>
                 <Button size="sm" onClick={() => navigate({ to: "/sign-in" })}>
                   Log in
                 </Button>
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Upgrade to use Extensions & DB</p>
+                <p className="font-medium text-foreground mb-1">Upgrade to use Workspace extensions & DB</p>
                 <p className="mb-3">DB Connections and other extensions are available on Pro. Upgrade to connect your database and let the AI read your schema and run approved queries.</p>
                 <Button size="sm" onClick={() => triggerUpgrade()}>
                   Upgrade
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Team — only unlocked on Workforce */}
+          <div id="team" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <h2 className="text-lg font-medium text-foreground mb-4">Team</h2>
+            {status?.plan === "workforce" ? (
+              <>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Manage your team, invite members, and handle seats. Team features are available on Atlarix Workforce.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => navigate({ to: "/account" })}>
+                  Manage team in Account
+                </Button>
+              </>
+            ) : (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Unlock with Workforce</p>
+                <p className="mb-3">Teams, seats, and invites are available on Atlarix Workforce. Upgrade to add your team.</p>
+                <Button size="sm" onClick={() => triggerUpgradeWorkforce()}>
+                  Upgrade to Workforce
                 </Button>
               </div>
             )}

@@ -95,6 +95,9 @@ typings/
 # Vite
 .vite/
 
+# Build-time generated (credentials inlined via Vite define; do not commit)
+src/generated/
+
 # Electron-Forge
 out/
 
