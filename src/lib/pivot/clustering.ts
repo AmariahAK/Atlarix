@@ -64,7 +64,7 @@ Return JSON with 5–8 containers and beacons for each function/class node.`;
     system: SYSTEM,
     messages: [{ role: "user", content: userPrompt }],
     maxTokens: 4000,
-  });
+  } as Parameters<typeof generateText>[0]);
 
   let data: {
     containers?: Array<{ name: string; nodeIds: string[] }>;

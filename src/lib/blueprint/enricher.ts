@@ -105,7 +105,7 @@ async function enrichNode(
         },
       ],
       maxTokens: 150,
-    });
+    } as Parameters<typeof generateText>[0]);
 
     const text = result.text.trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);

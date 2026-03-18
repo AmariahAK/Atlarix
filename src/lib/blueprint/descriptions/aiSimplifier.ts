@@ -31,7 +31,7 @@ export async function simplifyDescriptionWithAI(
       system: SYSTEM,
       messages: [{ role: "user", content: userContent }],
       maxTokens: 50,
-    });
+    } as Parameters<typeof generateText>[0]);
     const text = result.text.trim().replace(/^["']|["']$/g, "");
     return text.slice(0, 120) || null;
   } catch {
@@ -59,7 +59,7 @@ export async function simplifyRoomWithAI(
       system: ROOM_SYSTEM,
       messages: [{ role: "user", content: userContent }],
       maxTokens: 60,
-    });
+    } as Parameters<typeof generateText>[0]);
     const text = result.text.trim().replace(/^["']|["']$/g, "");
     return text.slice(0, 120) || null;
   } catch {
@@ -82,7 +82,7 @@ export async function simplifyArchitectureWithAI(
       system: ARCH_SYSTEM,
       messages: [{ role: "user", content: userContent }],
       maxTokens: 80,
-    });
+    } as Parameters<typeof generateText>[0]);
     const text = result.text.trim().replace(/^["']|["']$/g, "");
     return text.slice(0, 200) || null;
   } catch {

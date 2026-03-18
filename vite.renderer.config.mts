@@ -17,7 +17,6 @@ const RENDERER_KEYS = [
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "POSTHOG_API_KEY",
   "SENTRY_DSN",
-  "VITE_ATLARIX_API_URL",
 ] as const;
 
 // https://vite.dev/config/

@@ -98,7 +98,7 @@ import {
 import { ToolRegistry } from "../../lib/tools";
 import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
-import { handleChatOnlyStream } from "./chat_only_handlers";
+import { handleChatOnlyStream, type McpToolSet } from "./chat_only_handlers";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
 import { PermissionInterceptor } from "./permissions/interceptor";
@@ -422,7 +422,7 @@ export function registerChatStreamHandlers() {
             // This is a pure chat-only (no workspace) - use simplified handler with global MCP tools
             logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
             const mcpTools = await getMcpTools(event, null);
-            await handleChatOnlyStream(event, req, abortController, mcpTools);
+            await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
             return;
           }
         }
@@ -478,12 +478,16 @@ export function registerChatStreamHandlers() {
         if (!chat.app) {
           logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
           const mcpTools = await getMcpTools(event, null);
-          await handleChatOnlyStream(event, req, abortController, mcpTools);
+          await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
           return;
         }
 
         appData = chat.app;
       }
+
+      // v3.9: Set in Build block; used when updating assistant message after stream (must be in same scope as onFinish)
+      let preExchangeSnapshotId: number | null = null;
+      let filesWrittenInThisExchange: string[] = [];
 
       // Handle redo option: remove the most recent messages if needed
       if (req.redo) {
@@ -520,7 +524,7 @@ export function registerChatStreamHandlers() {
       }
 
       // v3.9: Continue after clarifying questions — use last user message (already updated with Q/A block)
-      let userPrompt: string;
+      let userPrompt: string = "";
       if (req.continueAfterQuestions) {
         // Re-fetch chat so we have the user message that was updated by chat:submit-question-answers
         const freshChat = await db.query.chats.findFirst({
@@ -1006,7 +1010,8 @@ ${componentSnippet}
           // Prepare message history for the AI
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
-          const messageHistory = updatedChat.messages.map((message) => {
+          type Msg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
+          const messageHistory = updatedChat.messages.map((message: Msg) => {
             const content = message.content || "";
             const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
               role: message.role as "user" | "assistant" | "system",
@@ -1134,11 +1139,11 @@ ${componentSnippet}
 
             if (messageHistory.length > maxChatTurns * 2) {
               let recentMessages = messageHistory
-                .filter((msg) => msg.role !== "system")
+                .filter((msg: Msg) => msg.role !== "system")
                 .slice(-maxChatTurns * 2);
 
               if (recentMessages.length > 0 && recentMessages[0].role !== "user") {
-                const firstUserIndex = recentMessages.findIndex((msg) => msg.role === "user");
+                const firstUserIndex = recentMessages.findIndex((msg: Msg) => msg.role === "user");
                 if (firstUserIndex > 0) {
                   recentMessages = recentMessages.slice(firstUserIndex);
                 } else if (firstUserIndex === -1) {
@@ -1153,10 +1158,10 @@ ${componentSnippet}
           }
 
           const contextSize = Math.min(await getContextWindow(), 128_000);
-          const chatMode =
+          const chatMode: "ask" | "build" =
             settings.selectedChatMode === "agent"
               ? "build"
-              : settings.selectedChatMode;
+              : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
           let systemPrompt: string;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
@@ -1407,7 +1412,8 @@ This conversation includes one or more image attachments. When the user uploads 
           // Prune long tool outputs to prevent context bloat (OpenCode style)
           limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
 
-          const limitedHistoryChatMessages = limitedMessageHistory.map((msg) => {
+          type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
+          const limitedHistoryChatMessages = limitedMessageHistory.map((msg: HistoryMsg) => {
             const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
               role: msg.role as "user" | "assistant" | "system",
               // Why remove thinking tags?
@@ -1415,8 +1421,8 @@ This conversation includes one or more image attachments. When the user uploads 
               // and eats up extra tokens.
               content:
                 settings.selectedChatMode === "ask"
-                  ? removeAtlarixTags(removeNonEssentialTags(msg.content))
-                  : removeNonEssentialTags(msg.content),
+                  ? removeAtlarixTags(removeNonEssentialTags(msg.content ?? ""))
+                  : removeNonEssentialTags(msg.content ?? ""),
             };
 
             // Only include providerOptions if we have actual commit hash values
@@ -1706,7 +1712,7 @@ This conversation includes one or more image attachments. When the user uploads 
             for (const tool of workspaceFilteredTools) {
               tools[tool.function.name] = {
                 description: tool.function.description,
-                parameters: tool.function.parameters,
+                inputSchema: (tool.function?.parameters ?? {}) as never,
                 execute: async (args: any) => {
                   // Execute tool via registry
                   const result = await ToolRegistry.execute(tool.function.name, args);
@@ -1759,9 +1765,9 @@ This conversation includes one or more image attachments. When the user uploads 
             });
           }
 
-          // v3.9: Set in Build block; used when updating assistant message after stream
-          let preExchangeSnapshotId: number | null = null;
-          let filesWrittenInThisExchange: string[] = [];
+          // v3.9: Assign in Build block (declared above for use in post-stream update)
+          preExchangeSnapshotId = null;
+          filesWrittenInThisExchange = [];
 
           // Ask mode with workspace: use read-only tools for exploration
           if (settings.selectedChatMode === "ask" && effectiveApp) {
@@ -1779,7 +1785,7 @@ This conversation includes one or more image attachments. When the user uploads 
             for (const tool of askToolsToInclude) {
               askTools[tool.name] = {
                 description: tool.description,
-                parameters: tool.parameters,
+                inputSchema: (tool.parameters ?? (tool as { function?: { parameters?: unknown } }).function?.parameters ?? {}) as never,
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
                   try {
@@ -1816,7 +1822,7 @@ This conversation includes one or more image attachments. When the user uploads 
             if (requestModeChangeTool) {
               askTools["request_mode_change"] = {
                 description: requestModeChangeTool.description,
-                parameters: requestModeChangeTool.parameters,
+                inputSchema: (requestModeChangeTool.parameters ?? {}) as never,
                 execute: async (args: any) => {
                   const result = await ToolRegistry.execute("request_mode_change", {
                     ...args,
@@ -1966,7 +1972,7 @@ If the user requests modifications, use request_mode_change to request Build mod
               const toolName = toolMeta.name;
               tools[toolName] = {
                 description: toolMeta.description,
-                parameters: toolMeta.parameters,
+                inputSchema: (toolMeta.parameters ?? {}) as never,
                 execute: async (args: any) => {
                   buildLoader.onToolCall(toolName);
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
@@ -2142,7 +2148,7 @@ If the user requests modifications, use request_mode_change to request Build mod
               if (delegateTool) {
                 tools["delegate_to_agent"] = {
                   description: delegateTool.description,
-                  parameters: delegateTool.parameters,
+                  inputSchema: (delegateTool.parameters ?? {}) as never,
                   execute: async (args: any) => {
                     const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
                     const agentId = String(args.agent_id ?? "agent");
@@ -2189,7 +2195,7 @@ If the user requests modifications, use request_mode_change to request Build mod
             if (requestModeChangeToolBuild) {
               tools["request_mode_change"] = {
                 description: requestModeChangeToolBuild.description,
-                parameters: requestModeChangeToolBuild.parameters,
+                inputSchema: (requestModeChangeToolBuild.parameters ?? {}) as never,
                 execute: async (args: any) => {
                   const hasPending =
                     permissionInterceptor.getAllOperationsCount() >
@@ -3246,10 +3252,10 @@ async function getMcpTools(
       const toolSet = await client.tools();
       for (const [name, tool] of Object.entries(toolSet)) {
         const key = `${String(s.name || "").replace(/[^a-zA-Z0-9_-]/g, "-")}__${String(name).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-        const original = tool;
+        const original = tool as { description?: string; inputSchema?: unknown; execute?: (args: unknown, ctx?: unknown) => Promise<unknown> };
         mcpToolSet[key] = {
           description: original?.description,
-          inputSchema: original?.inputSchema,
+          inputSchema: original?.inputSchema as never,
           execute: async (args: any, execCtx: any) => {
             const inputPreview =
               typeof args === "string"
@@ -3266,7 +3272,7 @@ async function getMcpTools(
             });
 
             if (!ok) throw new Error(`User declined running tool ${key}`);
-            const res = await original.execute?.(args, execCtx);
+            const res = await (original as { execute?: (a: unknown, c?: unknown) => Promise<unknown> }).execute?.(args, execCtx);
 
             return typeof res === "string" ? res : JSON.stringify(res);
           },

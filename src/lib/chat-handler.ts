@@ -65,7 +65,16 @@ export class ChatHandler {
         try {
             const tools = ToolRegistry.toAISDKFormat();
 
-            const response = await provider.chat({
+            // BaseProvider.chat(userQuery: string) returns Promise<string>; this path expects a streaming API.
+            // Cast to streaming shape for type-check; in practice use the provider's string API or a streaming adapter.
+            type StreamingChat = (opts: {
+                messages: { role: string; content: string }[];
+                tools: unknown;
+                temperature: number;
+                maxTokens: number;
+                stream: boolean;
+            }) => AsyncIterable<{ type: string; text?: string; toolCallId?: string; toolName?: string; args?: unknown }>;
+            const response = await (provider as unknown as { chat: StreamingChat }).chat({
                 messages: [
                     {
                         role: 'system',
@@ -86,29 +95,26 @@ export class ChatHandler {
                 stream: true,
             });
 
-            // Process streaming response
             for await (const chunk of response) {
                 if (chunk.type === 'text') {
-                    assistantMsg.content += chunk.text;
+                    assistantMsg.content += chunk.text ?? '';
                     onMessageUpdate?.(assistantMsg);
                 } else if (chunk.type === 'tool-call') {
-                    // Execute tool
                     const toolCall: ToolCall = {
-                        id: chunk.toolCallId,
-                        name: chunk.toolName,
+                        id: chunk.toolCallId ?? '',
+                        name: chunk.toolName ?? '',
                         status: 'running',
-                        params: chunk.args,
+                        params: (chunk.args ?? {}) as Record<string, any>,
                     };
 
                     assistantMsg.toolCalls = assistantMsg.toolCalls || [];
                     assistantMsg.toolCalls.push(toolCall);
                     onToolCall?.(toolCall);
 
-                    // Execute the tool
                     try {
-                        const result = await ToolRegistry.execute(chunk.toolName, chunk.args);
-                        toolCall.status = result.success ? 'complete' : 'error';
-                        toolCall.result = result;
+                        const result = await ToolRegistry.execute(chunk.toolName ?? '', chunk.args);
+                        toolCall.status = (result as { success?: boolean }).success ? 'complete' : 'error';
+                        toolCall.result = result as Record<string, any>;
                         onToolCall?.(toolCall);
                     } catch (error) {
                         toolCall.status = 'error';

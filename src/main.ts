@@ -174,7 +174,6 @@ export async function onReady() {
     // TODO: Phase 4.5 - Set up auto-update via GitHub releases
     // For now, check GitHub API for latest release
     const host = `https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest`;
-    // Alternative: Use atlarix-api.fly.dev/v1/update/${postfix} if you want custom update server
     logger.info("Auto-update release channel=", postfix);
     updateElectronApp({
       logger,
@@ -409,6 +408,42 @@ function handleDeepLinkReturn(url: string) {
       "Invalid Protocol",
       `Expected atlarix://, got ${parsed.protocol}. Full URL: ${url}`,
     );
+    return;
+  }
+
+  // Auth0 Token Vault callback: atlarix://auth0/callback?code=...
+  if (parsed.hostname === "auth0" && (parsed.pathname === "/callback" || parsed.pathname === "/callback/")) {
+    const code = parsed.searchParams.get("code");
+    if (code) {
+      import("./lib/auth/TokenVaultService").then(async ({ storeAuth0Tokens }) => {
+        const domain = process.env.AUTH0_DOMAIN ?? "";
+        const clientId = process.env.AUTH0_CLIENT_ID ?? "";
+        const clientSecret = process.env.AUTH0_CLIENT_SECRET ?? "";
+        const base = domain.startsWith("http") ? domain : `https://${domain}`;
+        const body = new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: "atlarix://auth0/callback",
+        });
+        const res = await fetch(`${base}/oauth/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        const data = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
+        if (data.access_token && data.refresh_token) {
+          storeAuth0Tokens(data.refresh_token, data.access_token, data.expires_in ?? 86400);
+          log.log("Auth0 Token Vault: tokens stored");
+          if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send("token-vault:connected", {});
+          }
+        } else {
+          log.warn("Auth0 callback: missing tokens", data);
+        }
+      }).catch((err) => log.error("Auth0 callback error:", err));
+    }
     return;
   }
 

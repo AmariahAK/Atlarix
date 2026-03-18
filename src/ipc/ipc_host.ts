@@ -49,6 +49,7 @@ import { registerRoutingHandlers } from "./handlers/routing_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
 import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
 import { registerTokenVaultHandlers } from "./handlers/token_vault_handlers";
+import { registerExtensionSpaceHandlers } from "./handlers/extension_space_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
 import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
@@ -109,6 +110,7 @@ export function registerIpcHandlers() {
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel
   registerTokenVaultHandlers(); // v4.0 Token Vault (Workforce)
+  registerExtensionSpaceHandlers(); // v4.0 per-workspace extension scope (Workforce)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
   wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

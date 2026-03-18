@@ -334,7 +334,8 @@ export async function fetchModelsFromElastic(
   if (!baseUrl && typeof process !== "undefined" && (process as NodeJS.Process).type === "browser") {
     try {
       const { readSettings } = await import("@/main/settings");
-      baseUrl = (readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined)?.baseUrl?.trim();
+      const elasticBase = (readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined)?.baseUrl?.trim();
+      if (elasticBase) baseUrl = elasticBase;
     } catch {
       // ignore
     }

@@ -57,8 +57,8 @@ interface DiagramVersion {
 }
 
 export default function DiagramPage() {
-    const search = useSearch({ from: "/diagram", strict: false }) as { appId?: number };
-    const appIdFromRoute = search?.appId;
+    const search = useSearch({ strict: false }) as { appId?: number | string };
+    const appIdFromRoute = search?.appId != null ? Number(search.appId) : undefined;
     const activeChatId = useAtomValue(activeChatIdAtom);
     const onboardingStep = useAtomValue(onboardingStepAtom);
     const setOnboardingStep = useSetAtom(onboardingStepAtom);

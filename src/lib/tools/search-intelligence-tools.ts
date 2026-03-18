@@ -122,9 +122,9 @@ ToolRegistry.register({
                     const ctxAfter = r.contextAfter || [];
                     const lineNum = r.line;
                     const lines = [
-                        ...ctxBefore.map((l, i) => `  ${lineNum - ctxBefore.length + i}| ${l}`),
+                        ...ctxBefore.map((l: string, i: number) => `  ${lineNum - ctxBefore.length + i}| ${l}`),
                         `> ${lineNum}| ${r.content}`,
-                        ...ctxAfter.map((l, i) => `  ${lineNum + i + 1}| ${l}`),
+                        ...ctxAfter.map((l: string, i: number) => `  ${lineNum + i + 1}| ${l}`),
                     ].join("\n");
                     return `${relPath}:${lineNum}\n${lines}`;
                 })

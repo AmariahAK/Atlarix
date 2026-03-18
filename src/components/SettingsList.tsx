@@ -7,6 +7,7 @@ import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 
 const settingsItems = [
   { id: "general", label: "General" },
+  { id: "billing", label: "Subscription" },
   { id: "workflow", label: "Workflow" },
   { id: "ai", label: "AI" },
   { id: "search", label: "Search" },

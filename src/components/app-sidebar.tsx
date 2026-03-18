@@ -307,6 +307,18 @@ export function AppSidebar() {
                       </div>
                     )}
 
+                    {/* Account (profile, subscription, team) */}
+                    <button
+                      onClick={() => {
+                        navigate({ to: "/account" });
+                        setShowAuthMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-muted rounded transition-colors"
+                    >
+                      <User className="h-4 w-4" />
+                      Account
+                    </button>
+
                     {/* Sign out button */}
                     <button
                       onClick={() => {
@@ -482,7 +494,7 @@ function AppIcons({
                 >
                   <Link
                     to={item.to}
-                    data-onboarding={item.title === "Diagram" ? "blueprint-tab" : item.title === "Settings" ? "settings-link" : undefined}
+                    data-onboarding={item.title === "Apps" ? "workspace-selector" : item.title === "Diagram" ? "blueprint-tab" : item.title === "Settings" ? "settings-link" : undefined}
                     className={`flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
                       }`}
                     onMouseEnter={() => {

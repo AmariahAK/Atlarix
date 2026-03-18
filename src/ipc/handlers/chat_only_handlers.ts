@@ -231,7 +231,7 @@ export async function handleChatOnlyStream(
         for (const tool of availableTools) {
             tools[tool.name] = {
                 description: tool.description,
-                parameters: tool.parameters,
+                inputSchema: tool.parameters as never,
                 execute: async (params: any) => {
                     logger.log(`Executing tool: ${tool.name}`);
                     const result = await tool.handler({ ...params, chatId: req.chatId });
@@ -326,11 +326,12 @@ export async function handleChatOnlyStream(
             for (const toolCall of textToolCalls) {
                 try {
                     // Check if this tool exists in our tools object
-                    if (tools[toolCall.toolName]) {
+                    const toolFn = tools[toolCall.toolName];
+                    if (toolFn) {
                         logger.log(`[Chat-Only] Executing text-based tool: ${toolCall.toolName}`, toolCall.args);
 
                         // Execute the tool
-                        const toolResult = await tools[toolCall.toolName].execute({ ...toolCall.args, chatId: req.chatId });
+                        const toolResult = await toolFn.execute?.({ ...toolCall.args, chatId: req.chatId }, {} as import("ai").ToolCallOptions);
 
                         // Append result to response
                         const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);

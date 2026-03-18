@@ -16,6 +16,6 @@ export const selectedExtensionIdAtom = atom<string | null>(null);
 /** When true, show onboarding overlay (e.g. after "Restart guide" in Settings). */
 export const showOnboardingAtom = atom(false);
 
-/** Current onboarding step (2–6) or null when not in onboarding. Step 1 = login (no atom). */
-export type OnboardingStep = 2 | 3 | 4 | 5 | 6 | null;
+/** Current onboarding step: 1 = login first, 2–6 = workspace/settings flow, null = not in onboarding. */
+export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6 | null;
 export const onboardingStepAtom = atom<OnboardingStep>(null);

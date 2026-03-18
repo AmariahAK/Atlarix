@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "4.0.3.21",
+  "version": "4.2.0",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {
@@ -9,7 +9,7 @@
     "url": "https://github.com/AmariahAK/Atlarix.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "clean": "rimraf out scaffold/node_modules",
@@ -99,6 +99,7 @@
     "@ai-sdk/azure": "^2.0.17",
     "@ai-sdk/google": "^2.0.6",
     "@ai-sdk/google-vertex": "3.0.16",
+    "@ai-sdk/mcp": "^0.0.15",
     "@ai-sdk/openai": "2.0.15",
     "@ai-sdk/openai-compatible": "^1.0.8",
     "@ai-sdk/provider-utils": "^3.0.3",

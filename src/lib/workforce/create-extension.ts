@@ -3,17 +3,19 @@
  */
 
 import * as TokenVault from "../auth/TokenVaultService";
-import type { WorkforceExtension } from "./types";
+import type { WorkforceExtension, WorkspaceContextData } from "./types";
 
 export function createWorkforceExtension(
   name: string,
   service: string,
-  scopes: string[]
+  scopes: string[],
+  options?: { getContextData?: () => Promise<Partial<WorkspaceContextData>> }
 ): WorkforceExtension {
   return {
     name,
     service,
     scopes,
+    getContextData: options?.getContextData,
     async connect(): Promise<boolean> {
       const token = await TokenVault.getToken(service, scopes);
       return token != null && token.length > 0;

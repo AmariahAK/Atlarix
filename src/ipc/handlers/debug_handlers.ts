@@ -166,6 +166,9 @@ export function registerDebugHandlers() {
         };
 
         // Get app data from database
+        if (chatRecord.appId == null) {
+          throw new Error("Chat has no app ID");
+        }
         const app = await db.query.apps.findFirst({
           where: eq(apps.id, chatRecord.appId),
         });

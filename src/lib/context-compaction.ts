@@ -222,7 +222,7 @@ export async function runCompaction(params: {
       system: CONTEXT_COMPACTION_SYSTEM,
       messages: [{ role: "user" as const, content: userPrompt }],
       maxTokens: 1500,
-    });
+    } as Parameters<typeof generateText>[0]);
 
     const summaryText = result.text.trim();
     if (!summaryText) return null;

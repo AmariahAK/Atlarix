@@ -18,6 +18,9 @@ import {
   setBlueprintForWorkspace,
   emitBlueprintAiEditing,
 } from "../../ipc/handlers/blueprint_handlers";
+import { db } from "@/db";
+import { eq } from "drizzle-orm";
+import { apps } from "@/db/schema";
 
 // ═══════════════════════════════════════════════════════════
 // GET BLUEPRINT
@@ -249,7 +252,6 @@ ToolRegistry.register({
     let liveMermaid = "";
     try {
       const { getWorkspaceContext } = await import("../../ipc/handlers/chat_stream/workspace-context");
-      const { apps } = await import("../../db/schema");
       const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
       if (app?.path) {
         const ctx = await getWorkspaceContext(app.path);

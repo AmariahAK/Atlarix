@@ -47,12 +47,13 @@ export async function introspectSchema(
   return { tables: [], foreignKeys: [] };
 }
 
+type PgClient = import("pg").Client;
+
 async function introspectPostgres(client: unknown): Promise<DBSchema> {
   const tables: TableInfo[] = [];
   const foreignKeys: FKInfo[] = [];
   try {
-    const pg = await import("pg");
-    const c = client as pg.Client;
+    const c = client as PgClient;
     const tablesRes = await c.query(`
       SELECT table_name
       FROM information_schema.tables

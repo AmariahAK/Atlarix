@@ -77,7 +77,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     for (const t of toolsForAgent) {
       toolSet[t.name] = {
         description: t.description,
-        parameters: t.parameters,
+        inputSchema: (t.parameters ?? {}) as never,
         execute: async (toolArgs: any) => {
           const result = await ToolRegistry.execute(t.name, {
             ...toolArgs,
@@ -98,7 +98,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       if (delegateMeta) {
         toolSet["delegate_to_agent"] = {
           description: delegateMeta.description,
-          parameters: delegateMeta.parameters,
+          inputSchema: (delegateMeta.parameters ?? {}) as never,
           execute: async (toolArgs: any) => {
             const nestedResult = await runDelegation({
               ...toolArgs,
@@ -121,7 +121,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       messages: [{ role: "user" as const, content: userContent }],
       tools: toolSet,
       maxSteps: DELEGATE_MAX_STEPS,
-    });
+    } as Parameters<typeof generateText>[0]);
 
     const stepsUsed = result.steps?.length ?? 0;
     logger.info(`Delegation to ${agent.name} (depth=${depth}) completed; steps=${stepsUsed}`);

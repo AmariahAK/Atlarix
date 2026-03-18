@@ -11,6 +11,8 @@ import {
   stringParam,
 } from "./registry";
 import * as TokenVault from "../auth/TokenVaultService";
+import * as SlackApi from "../workforce/slack-api";
+import * as JiraApi from "../workforce/jira-api";
 
 const workforceCost = 2;
 
@@ -33,8 +35,13 @@ ToolRegistry.register({
   handler: async () => {
     const token = await TokenVault.getToken("slack", ["channels:read", "im:read", "users:read"]);
     if (!token) return notConnected("Slack");
-    // TODO: call Slack API conversations.list + users.conversations, filter unread mentions
-    return "No unread mentions (Slack API integration pending).";
+    try {
+      const mentions = await SlackApi.fetchUnreadMentions(token);
+      if (mentions.length === 0) return "No unread mentions in Slack.";
+      return `Unread: ${mentions.join("; ")}`;
+    } catch (e) {
+      return `Slack API error: ${e instanceof Error ? e.message : String(e)}`;
+    }
   },
 });
 
@@ -52,7 +59,15 @@ ToolRegistry.register({
   handler: async (args: any) => {
     const token = await TokenVault.getToken("slack", ["channels:read", "chat:write"]);
     if (!token) return notConnected("Slack");
-    return `Channel ${args.channelId}: (Slack API integration pending).`;
+    if (!args?.channelId) return "channelId is required.";
+    try {
+      const info = await SlackApi.fetchChannelInfo(token, args.channelId);
+      const lines = [`Channel: ${info.name ?? args.channelId}`];
+      if (info.messages?.length) lines.push("Recent messages:", ...info.messages.slice(0, 15));
+      return lines.join("\n");
+    } catch (e) {
+      return `Slack API error: ${e instanceof Error ? e.message : String(e)}`;
+    }
   },
 });
 
@@ -73,8 +88,14 @@ ToolRegistry.register({
   handler: async (args: any) => {
     const token = await TokenVault.getToken("slack", ["chat:write"]);
     if (!token) return notConnected("Slack");
-    // TODO: permission queue + Slack chat.postMessage
-    return { success: true, message: `Post to channel ${args.channelId} would be sent (approval flow pending).` };
+    if (!args?.channelId || !args?.text) return { success: false, error: "channelId and text required." };
+    try {
+      const result = await SlackApi.postMessage(token, args.channelId, args.text);
+      if (result.ok) return { success: true, message: "Message posted." };
+      return { success: false, error: result.error ?? "Failed to post" };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
   },
 });
 
@@ -92,11 +113,20 @@ ToolRegistry.register({
   ),
   handler: async (args: any) => {
     const source = (args?.source ?? "jira").toLowerCase();
-    const token = source === "linear"
-      ? await TokenVault.getToken("linear", ["read"])
-      : await TokenVault.getToken("jira", ["read:jira-work"]);
-    if (!token) return notConnected(source === "linear" ? "Linear" : "Jira");
-    return "No assigned tickets (API integration pending).";
+    if (source === "linear") {
+      const token = await TokenVault.getToken("linear", ["read"]);
+      if (!token) return notConnected("Linear");
+      return "Assigned Linear issues (Linear API integration pending).";
+    }
+    const token = await TokenVault.getToken("jira", ["read:jira-work"]);
+    if (!token) return notConnected("Jira");
+    try {
+      const tickets = await JiraApi.fetchAssignedTickets(token);
+      if (tickets.length === 0) return "No assigned Jira tickets.";
+      return tickets.join("\n");
+    } catch (e) {
+      return `Jira API error: ${e instanceof Error ? e.message : String(e)}`;
+    }
   },
 });
 

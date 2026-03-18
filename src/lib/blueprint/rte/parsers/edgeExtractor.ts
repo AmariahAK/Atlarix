@@ -28,6 +28,7 @@ export async function extractImportAndCallEdges(
   nodes: BlueprintNode[],
   language: SupportedLanguage
 ): Promise<RTEBlueprintEdge[]> {
+  let m: RegExpExecArray | null;
   const edges: RTEBlueprintEdge[] = [];
   const nodesByFile = new Map<string, BlueprintNode[]>();
   for (const n of nodes) {

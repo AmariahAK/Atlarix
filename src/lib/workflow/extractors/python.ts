@@ -47,7 +47,7 @@ const EXCLUDE_DIRS = new Set([
 
 async function findPythonFiles(dir: string, base: string): Promise<string[]> {
   const files: string[] = [];
-  let entries: { name: string }[];
+  let entries: { name: string; isDirectory: () => boolean }[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {

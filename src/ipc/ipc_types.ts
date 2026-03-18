@@ -95,6 +95,8 @@ export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /** Ephemeral/chat-only: in-memory chat id (not persisted). */
+  chatId?: number;
   approvalState?: "approved" | "rejected" | null;
   commitHash?: string | null;
   dbTimestamp?: string | null;

@@ -87,10 +87,11 @@ export function createElasticAgentBuilderModel(
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
     const text = data.response ?? "";
-    const usage: LanguageModelV2Usage = {
-      promptTokens: data.usage?.prompt_tokens ?? 0,
-      completionTokens: data.usage?.completion_tokens ?? 0,
-    };
+    const usage = {
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+      totalTokens: (data.usage?.total_tokens ?? 0) || (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0),
+    } as LanguageModelV2Usage;
     const content: LanguageModelV2Content[] = text
       ? [{ type: "text" as const, text }]
       : [];
@@ -111,9 +112,9 @@ export function createElasticAgentBuilderModel(
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
         controller.enqueue({ type: "stream-start", warnings: [] });
-        controller.enqueue({ type: "text-start", providerMetadata: undefined });
+        controller.enqueue({ type: "text-start", id: "elastic-1", providerMetadata: undefined });
         if (textValue) {
-          controller.enqueue({ type: "text-delta", textDelta: textValue });
+          controller.enqueue({ type: "text-delta", id: "elastic-1", delta: textValue });
         }
         controller.enqueue({
           type: "finish",

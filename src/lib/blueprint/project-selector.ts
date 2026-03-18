@@ -135,7 +135,7 @@ export async function getRecentActivity(projectPath: string): Promise<ActivitySc
   let fileCount = 0;
 
   async function walk(dir: string): Promise<void> {
-    let entries: { name: string; isDirectory: () => boolean; mtimeMs: number }[] = [];
+    let entries: { name: string; isDirectory: () => boolean }[] = [];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

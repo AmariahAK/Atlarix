@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.2.0 — Bug fixes and security (2026-03-18)
+
+### Fixed
+
+- TypeScript and type-safety fixes across handlers, providers, blueprint, workflow extractors, auth/useAuth typing, and optional deps (e.g. SliceExtractorAgent).
+- Onboarding progress bar moved below window controls so "Sign in to get started" / "Log in / Sign up" / "Skip all" are clickable and no longer overlap traffic-light buttons.
+- MCP client updated from deprecated experimental API to current `@ai-sdk/mcp` API.
+
+### Security / cleanup
+
+- Removed all fly.io and standalone API URL usage; app is self-contained with auth and DB via Supabase only.
+- Removed backend Google/GitHub OAuth references (handled by Supabase).
+
+### Changed
+
+- Various type assertions and SDK compatibility fixes (e.g. provider stream chunks, tool `inputSchema`, `LanguageModelV2Usage`), and provider-manager helpers for chat-handler compatibility.
+
+---
+
 ## v4.0.0 — Workforce (2026-03-16)
 
 ### Added

@@ -1,6 +1,6 @@
 # TODO
 
-## Current Version: 4.0.0
+## Current Version: 4.2.0
 
 ## Atlarix 4.0.5 — Progressive dependency & deprecation cleanup (patch)
 
@@ -40,6 +40,15 @@
 - Voice input
 - Timeline export (GIF)
 - Workspace templates (Pro)
+
+## Done (v4.2)
+
+- TypeScript and type-safety fixes across the codebase
+- Removal of fly.io and standalone API URL (Supabase-only auth/DB)
+- Onboarding bar positioning below traffic lights
+- MCP client update
+- Security/cleanup (OAuth, env, README/CI secrets)
+- Optional-dependency handling (e.g. tfjs-node)
 
 ## Done (v4.0)
 

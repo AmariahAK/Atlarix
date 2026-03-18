@@ -199,13 +199,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
     const currentInput = inputValue;
     setInputValue("");
-    if (currentChatId != null) {
-      setSuggestionsByChatId((prev) => {
-        const next = { ...prev };
-        delete next[currentChatId];
-        return next;
-      });
-    }
 
     // Use all selected components for multi-component editing
     const componentsToSend =

@@ -21,7 +21,7 @@ import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import { rightPanelVisibleAtom, leftPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
-import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
+import { activeExtensionIdsAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useLoadApp } from "@/hooks/useLoadApp";
@@ -189,6 +189,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
+  const onboardingStep = useAtomValue(onboardingStepAtom);
 
   usePanelShortcuts();
 
@@ -288,6 +289,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [setDiagramStaleness]);
 
+  const showOnboardingHighlight = onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 5;
+
   return (
     <>
       <AnalyticsConsentModal />
@@ -295,6 +298,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <DeepLinkProvider>
           <OnboardingTrigger />
           <OnboardingProgressBar />
+          {showOnboardingHighlight && (
+            <style>{`
+              [data-onboarding-step="2"] [data-onboarding="workspace-selector"],
+              [data-onboarding-step="3"] [data-onboarding="blueprint-tab"],
+              [data-onboarding-step="4"] [data-onboarding="settings-link"],
+              [data-onboarding-step="5"] [data-onboarding="general-settings"] {
+                outline: 2px solid hsl(var(--primary));
+                outline-offset: 2px;
+                border-radius: 0.5rem;
+                box-shadow: 0 0 0 4px hsl(var(--primary) / 0.25);
+              }
+            `}</style>
+          )}
+          <div {...(showOnboardingHighlight ? { "data-onboarding-step": String(onboardingStep) } : {})}>
           <SidebarProvider>
             <TitleBar />
             <AppSidebar />
@@ -334,6 +351,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </div>
             <Toaster richColors />
           </SidebarProvider>
+          </div>
         </DeepLinkProvider>
       </ThemeProvider>
     </>

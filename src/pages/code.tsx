@@ -21,8 +21,8 @@ import { useRightPanelContext } from "@/hooks/useRightPanelContext";
 type CodePageTab = "chat" | "errors" | "terminal";
 
 export default function CodePage() {
-  const search = useSearch({ from: "/code", strict: false }) as { appId?: number };
-  const appIdFromRoute = search?.appId;
+  const search = useSearch({ strict: false }) as { appId?: number | string };
+  const appIdFromRoute = search?.appId != null ? Number(search.appId) : undefined;
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);

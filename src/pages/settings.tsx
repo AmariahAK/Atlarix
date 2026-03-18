@@ -22,6 +22,7 @@ import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, GitBranch } from "lucide-react";
 import { DbExtensionsSettings } from "@/components/settings/DbExtensionsSettings";
+import { TokenVaultSettings } from "@/components/settings/TokenVaultSettings";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgrade, triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
 
@@ -88,6 +89,69 @@ export default function SettingsPage() {
 
         <div className="space-y-6">
           <GeneralSettings appVersion={appVersion} />
+          {/* Subscription / Billing — next payment for Pro and Workforce */}
+          <div id="billing" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <h2 className="text-lg font-medium text-foreground mb-4">Subscription</h2>
+            {!isAuthenticated ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Log in to see your plan</p>
+                <p className="mb-3">Sign in with Google or GitHub to view subscription and billing.</p>
+                <Button size="sm" onClick={() => navigate({ to: "/sign-in" })}>
+                  Log in
+                </Button>
+              </div>
+            ) : status?.plan === "pro" || status?.plan === "workforce" ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {status.plan === "workforce" ? "Atlarix Workforce" : "Atlarix Pro"}
+                    </p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      Status: {status.subscriptionStatus ?? "—"}
+                    </p>
+                  </div>
+                  {status.subscriptionEndsAt && (
+                    <p className="text-sm text-foreground">
+                      Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+                    </p>
+                  )}
+                </div>
+                {status.subscriptionStatus === "cancelled" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Your subscription is cancelled. You keep access until the end of the current period.
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const ipc = window.electron?.ipcRenderer;
+                      if (ipc?.invoke) await ipc.invoke("auth:manage-subscription");
+                    } catch {
+                      showError("Could not open subscription management.");
+                    }
+                  }}
+                >
+                  Manage subscription
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Free plan</p>
+                <p className="mb-3">Upgrade to Pro for unlimited workspaces, or to Workforce for teams and extensions.</p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => triggerUpgrade()}>
+                    Upgrade to Pro
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => triggerUpgradeWorkforce()}>
+                    Upgrade to Workforce
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
           <WorkflowSettings />
           {onboardingStep === 5 && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
@@ -140,10 +204,10 @@ export default function SettingsPage() {
             <McpServersCard />
           </div>
 
-          {/* Workspace — DB Connections & extensions gated: log in first, then Pro */}
+          {/* Workspace — DB Connections & extensions gated: log in first, then Pro/Workforce */}
           <div id="extensions" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <h2 className="text-lg font-medium text-foreground mb-4">Workspace</h2>
-            {status?.plan === "pro" ? (
+            {status?.plan === "pro" || status?.plan === "workforce" ? (
               <>
                 <p className="text-xs text-muted-foreground mb-4">
                   Workspace extensions give the AI real-time access to external services. Add database connections so the model can read your schema and query data.
@@ -161,6 +225,9 @@ export default function SettingsPage() {
                     {settings?.githubAccessToken?.value ? "Connected" : "Connect GitHub"}
                   </span>
                 </div>
+                {status?.plan === "workforce" && (
+                  <TokenVaultSettings workspaceId={null} />
+                )}
               </>
             ) : !isAuthenticated ? (
               <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -306,6 +373,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
 
   const handleRestartOnboarding = async () => {
     try {
+      localStorage.removeItem("atlarix.onboarding_skipped");
       const ipc = window.electron?.ipcRenderer;
       if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
     } catch {

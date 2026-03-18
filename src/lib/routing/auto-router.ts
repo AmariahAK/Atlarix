@@ -55,15 +55,15 @@ export function classifyHeuristic(
   const codeGen = countSignals(text, CODE_GENERATION_SIGNALS);
   const simpleEdit = countSignals(text, SIMPLE_EDIT_SIGNALS);
 
-  const scores: { category: RoutingCategory; score: number }[] = [
-    { category: "architecture", score: arch },
-    { category: "debugging", score: debug },
-    { category: "deep_research", score: research },
-    { category: "security_review", score: security },
-    { category: "complex_reasoning", score: reasoning },
-    { category: "code_generation", score: codeGen },
-    { category: "simple_edit", score: simpleEdit },
-  ].filter((s) => s.score > 0);
+  const scores = [
+    { category: "architecture" as const, score: arch },
+    { category: "debugging" as const, score: debug },
+    { category: "deep_research" as const, score: research },
+    { category: "security_review" as const, score: security },
+    { category: "complex_reasoning" as const, score: reasoning },
+    { category: "code_generation" as const, score: codeGen },
+    { category: "simple_edit" as const, score: simpleEdit },
+  ].filter((s) => s.score > 0) as { category: RoutingCategory; score: number }[];
 
   if (scores.length === 0) {
     return { category: "complex_reasoning", confidence: 0.3 };

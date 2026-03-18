@@ -380,6 +380,7 @@ export const diagrams = sqliteTable("diagrams", {
     files?: string[];
     entities?: string[];
     focus?: string;
+    summary?: string;
     /** Git commit when diagram was saved (for update vs regenerate decision) */
     gitCommit?: string;
     /** 'regenerate' | 'update' */

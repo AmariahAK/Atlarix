@@ -47,7 +47,7 @@ const EXCLUDE_DIRS = new Set([
 
 async function findSourceFiles(dir: string, base: string): Promise<string[]> {
   const files: string[] = [];
-  let entries: { name: string }[];
+  let entries: { name: string; isDirectory: () => boolean }[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -178,7 +178,7 @@ export async function extractAppMapFromNode(projectPath: string): Promise<AppMap
     return { runtime: "node", entryPoints, dataSources };
   }
 
-  const deps = { ...pkg.dependencies, ...pkg.devDependencies } ?? {};
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   for (const [dep, _ver] of Object.entries(deps)) {
     const key = dep.toLowerCase();
     const info = DATA_SOURCE_DEPS[key];

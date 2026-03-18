@@ -10,7 +10,7 @@ import {
   activityStreamItemsAtom,
   type ActivityStreamItem,
 } from "@/atoms/sourceAtoms";
-import { useAgentAnimStore } from "@/lib/agents/animation-state";
+import { useAgentAnimStore, type AgentId } from "@/lib/agents/animation-state";
 import { cn } from "@/lib/utils";
 import {
   Bot,
@@ -72,8 +72,8 @@ export function ActivityStream() {
           store.setAgentState(agent as "main" | "architect" | "builder" | "reviewer" | "researcher", "delegating");
           store.startFlow({
             id: payload.id,
-            from: agent as "main" | "architect" | "builder" | "reviewer" | "researcher",
-            to: agent,
+            from: agent as AgentId,
+            to: agent as AgentId,
             type: "request",
             startedAt: payload.timestamp ?? Date.now(),
           });

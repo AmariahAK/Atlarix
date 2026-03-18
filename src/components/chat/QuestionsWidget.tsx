@@ -135,7 +135,7 @@ export function QuestionsWidget({ messageId, questions, onSubmit }: QuestionsWid
                 type="text"
                 value={customValues[q.id] ?? ""}
                 onChange={(e) => handleCustomChange(q.id, e.target.value)}
-                placeholder="Type your answer…”
+                placeholder="Type your answer..."
                 className="w-full max-w-md px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>

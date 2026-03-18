@@ -3,12 +3,14 @@
  * Auth0-powered agent authentication for extensions.
  */
 
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import {
   getToken,
   revokeToken,
   listConnectedServices,
   setTokenVaultFallbackWarning,
+  getConnectUrl,
+  storeAuth0Tokens,
 } from "../../lib/auth/TokenVaultService";
 
 export function registerTokenVaultHandlers(): void {
@@ -27,11 +29,23 @@ export function registerTokenVaultHandlers(): void {
     return listConnectedServices();
   });
 
-  // Fallback warning: main can send to renderer via a dedicated channel
-  // (renderer subscribes to 'token-vault:fallback-warning'); we invoke the callback
-  // which can be set by a handler that forwards to BrowserWindow. For now we only
-  // set the callback; the app can call setTokenVaultFallbackWarning with a fn that
-  // uses BrowserWindow.getAllWindows() and send('token-vault:fallback-warning', msg).
+  ipcMain.handle("token-vault:start-connect", async (_event, service: string) => {
+    const url = getConnectUrl(service);
+    if (url) {
+      await shell.openExternal(url);
+      return { success: true, url };
+    }
+    return { success: false, error: "Token Vault not configured" };
+  });
+
+  ipcMain.handle(
+    "token-vault:store-tokens",
+    async (_event, refreshToken: string, accessToken: string, expiresInSeconds: number) => {
+      storeAuth0Tokens(refreshToken, accessToken, expiresInSeconds);
+      return { success: true };
+    }
+  );
+
   setTokenVaultFallbackWarning((message) => {
     const { BrowserWindow } = require("electron");
     BrowserWindow.getAllWindows().forEach((win: any) => {

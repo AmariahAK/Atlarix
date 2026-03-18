@@ -145,19 +145,20 @@ export class OpenRouterProvider extends BaseProvider {
                     model,
                     messages,
                     tools: tools.length > 0 ? this._convertToAISDKTools(tools) : undefined,
-                    onChunk: (chunk) => {
-                        if (chunk.type === "text-delta" && onToken) {
-                            onToken(chunk.textDelta);
-                            fullResponse += chunk.textDelta;
+                    onChunk: (payload) => {
+                        const c = (payload as { chunk?: { type?: string; text?: string; delta?: string } }).chunk;
+                        if (c?.type === "text-delta" && onToken) {
+                            const text = c.text ?? c.delta ?? "";
+                            onToken(text);
+                            fullResponse += text;
                         }
                     },
                 });
 
-                // Wait for completion
                 const finalResult = await result.text;
 
-                // Check for tool calls
-                const toolCalls = result.toolCalls || [];
+                const rawCalls = result.toolCalls;
+                const toolCalls = Array.isArray(rawCalls) ? rawCalls : await (rawCalls as Promise<unknown[]>).catch(() => []);
 
                 if (toolCalls.length === 0) {
                     // Check for text-based permission request (fallback)
@@ -210,17 +211,16 @@ export class OpenRouterProvider extends BaseProvider {
                     messages.push({
                         role: "assistant" as const,
                         content: finalResult,
-                    });
+                    } as unknown as (typeof messages)[0]);
 
                     messages.push({
                         role: "tool" as const,
                         content: toolResult.success
                             ? toolResult.result
                             : `Error: ${toolResult.error}`,
-                    });
+                    } as unknown as (typeof messages)[0]);
                 }
 
-                // Continue loop to let model process tool results
             } catch (error) {
                 if (this.debug) {
                     console.error("[OpenRouter] Error:", error);

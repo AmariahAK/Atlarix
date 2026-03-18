@@ -79,7 +79,7 @@ export async function runElkLayout(
 /**
  * Apply ELK layout to React Flow nodes and return nodes with updated positions.
  */
-export async function applyElkToReactFlowNodes<T>(
+export async function applyElkToReactFlowNodes<T extends Record<string, unknown>>(
   nodes: Node<T>[],
   edges: Edge[],
   opts?: { direction?: "DOWN" | "RIGHT"; nodeWidth?: number; nodeHeight?: number }
@@ -87,7 +87,7 @@ export async function applyElkToReactFlowNodes<T>(
   const layoutNodes: LayoutNode[] = nodes.map((n) => ({
     id: n.id,
     position: n.position,
-    data: n.data as Record<string, unknown>,
+    data: n.data,
     width: n.measured?.width ?? opts?.nodeWidth ?? DEFAULT_WIDTH,
     height: n.measured?.height ?? opts?.nodeHeight ?? DEFAULT_HEIGHT,
   }));

@@ -16,11 +16,15 @@ export function OnboardingTrigger() {
     if (!ipc?.invoke) return;
 
     const checkAndStartOnboarding = async () => {
+      if (localStorage.getItem("atlarix.onboarding_skipped")) return;
       try {
-        const userResult = await ipc.invoke("auth:get-current-user");
-        if (!userResult?.user?.id) return;
-        const { completed } = await ipc.invoke("onboarding:get-completed");
-        if (!completed) setStep(2);
+        const userResult = (await ipc.invoke("auth:get-current-user")) as { user?: { id?: string } };
+        if (!userResult?.user?.id) {
+          setStep(1); // Not logged in: show "Sign in to get started"
+          return;
+        }
+        const result = (await ipc.invoke("onboarding:get-completed")) as { completed?: boolean };
+        if (!result?.completed) setStep(2);
       } catch {
         // ignore
       }

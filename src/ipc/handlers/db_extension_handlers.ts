@@ -100,7 +100,7 @@ export function registerDbExtensionHandlers() {
       const parsed = parseConnectionString(connectionString);
       if (!parsed) return null;
       const type = parsed.type as DBConnectionType;
-      if (type === "mssql") return null; // Not yet supported by connectClient
+      if ((type as string) === "mssql") return null; // Not yet supported by connectClient
       return {
         type,
         config: parsed.config,

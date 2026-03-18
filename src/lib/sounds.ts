@@ -5,8 +5,8 @@
  * Files must live in public/sounds/ so they are served at /sounds/... (Vite/Electron).
  */
 
-const BASE = typeof import.meta !== "undefined" && import.meta.env?.BASE_URL != null
-  ? (import.meta.env.BASE_URL as string).replace(/\/$/, "")
+const BASE = typeof import.meta !== "undefined" && (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL != null
+  ? ((import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL).replace(/\/$/, "")
   : "";
 
 const SOUNDS = {

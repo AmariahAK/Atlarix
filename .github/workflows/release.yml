@@ -33,12 +33,10 @@ env:
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
-  VITE_ATLARIX_API_URL: ${{ secrets.VITE_ATLARIX_API_URL }}
   RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-  ATLARIX_API_URL: ${{ secrets.ATLARIX_API_URL }}
 
 jobs:
   create-draft:
@@ -101,7 +99,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
@@ -169,7 +167,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install Linux build dependencies
@@ -213,7 +211,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install dependencies

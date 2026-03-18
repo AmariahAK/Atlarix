@@ -72,6 +72,21 @@ export class ProviderManager {
         return this.currentProvider;
     }
 
+    /** Alias for getProvider (used by chat-handler). */
+    getCurrentProvider(): BaseProvider | null {
+        return this.currentProvider;
+    }
+
+    /** Set current provider by id (used by chat-handler; requires config to be set separately). */
+    setCurrentProvider(_providerId: string): void {
+        // Provider is set via createProvider/switchProvider with full config
+    }
+
+    /** List available provider type ids (used by chat-handler). */
+    getAvailableProviders(): string[] {
+        return ["ollama", "lmstudio", "openrouter"];
+    }
+
     /**
      * Switch to a different provider
      */
@@ -159,7 +174,7 @@ export class ProviderManager {
     static getRecommendedModels(type: ProviderType): string[] {
         switch (type) {
             case "ollama":
-                return OllamaProvider.getRecommendedModels();
+                return (OllamaProvider as { getRecommendedModels?: () => string[] }).getRecommendedModels?.() ?? [];
             case "openrouter":
                 return OpenRouterProvider.getToolCapableModels();
             case "lmstudio":

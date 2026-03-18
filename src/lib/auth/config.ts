@@ -1,10 +1,8 @@
 /**
  * Atlarix Authentication Configuration
  * ====================================
+ * Self-contained native app; DB and auth via Supabase. No separate API URL.
  */
-
-// API Base URL (will be Fly.io in production)
-export const API_BASE_URL = process.env.ATLARIX_API_URL || 'http://localhost:3001';
 
 // Free Tier Configuration
 export const FREE_TIER = {

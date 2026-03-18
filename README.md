@@ -7,9 +7,11 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v4.0.0*
+*Current: v4.2.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+**Recent (v4.2):** Bug fixes and security improvements: TypeScript and type-safety fixes across the app, removal of fly.io/standalone API URL (auth and DB via Supabase only), onboarding bar positioning below window controls, MCP client API update, and related stability/security cleanup.
 
 **Recent (v4.0 — Workforce):** New **Workforce** tier ($79/mo): Auth0 Token Vault for secure agent auth, Workspace Context (Slack, Jira, Linear, CI, Sentry, Calendar), Teams (up to 20 seats), GitLab CI & Bitbucket Pipelines, Progressive Tool Reveal. DB Studio moved to Workforce (existing Pro subscribers grandfathered). Three tiers: Free, Pro ($19/mo), Workforce ($79/mo). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
@@ -33,7 +35,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`, `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,  
   `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`,  
-  `VITE_ATLARIX_API_URL`, `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`, `ATLARIX_API_URL`.  
+  `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`.  
   For macOS builds: `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_IDENTITY`, `APPLE_TEAM_ID`.  
   For publishing to a separate releases repo: `RELEASES_TOKEN` (PAT with `repo` scope).  
   `GITHUB_TOKEN` is provided automatically for same-repo releases.
@@ -170,7 +172,7 @@ Building user authentication with JWT tokens.
 - **Template Fallback** - Falls back to SearxNG template search when GitHub API is rate-limited
 
 ### Authentication & Security
-- **Google OAuth** - Secure sign-in with your Google account
+- **Supabase Auth** - Sign in with Google or GitHub via Supabase; session and DB in Supabase
 - **Session Persistence** - Stay logged in across restarts
 - **Deep Linking** - Seamless redirect handling (`atlarix://`)
 
@@ -239,7 +241,7 @@ Atlarix supports **code generation and modification**, **session/context summari
 ## Installation
 
 ### Prerequisites
-- **Node.js 20+**
+- **Node.js 24+**
 - **macOS / Windows / Linux**
 
 ### Development Setup
@@ -253,6 +255,8 @@ npm install
 cp .env.example .env
 npm start
 ```
+
+**Dependencies & audit:** Run `npm audit` to check for known vulnerabilities (use default npm registry if your project uses a custom registry). Prefer `npm audit fix` without `--force` first. Top-level `glob` is already `^11`; transitive deprecations (`prebuild-install` from native deps like `better-sqlite3`, `node-domexception`) are accepted until upstream updates. See [TODO.md](TODO.md) § 4.0.5 for full deprecation cleanup notes.
 
 ---
 

@@ -93,9 +93,9 @@ export function RightPanel() {
     // Get chatId from URL route as fallback for PermissionQueuePanel
     let routeChatId: number | undefined;
     try {
-        const searchParams = useSearch({ from: '/chat', strict: false });
-        const id = (searchParams as { id?: number | string })?.id;
-        routeChatId = id != null ? Number(id) : undefined;
+        const searchParams = useSearch({ strict: false }) as unknown as { id?: number | string } | undefined;
+        const id = searchParams?.id;
+        routeChatId = id !== undefined && id !== null ? Number(id) : undefined;
     } catch {
         // Not on chat route, that's fine
     }

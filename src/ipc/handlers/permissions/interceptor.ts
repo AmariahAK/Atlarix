@@ -507,12 +507,13 @@ export class PermissionInterceptor extends EventEmitter {
             // Queue timeline capture for file operations
             if (request.operation === 'write_file' || request.operation === 'write_multiple_files' ||
                 request.operation === 'delete_file' || request.operation === 'rename_file') {
+                const reqData = (request as { data?: { files?: { path: string }[]; path?: string; appId?: number } }).data;
                 const filesChanged = request.operation === 'write_multiple_files'
-                    ? (request.data?.files || []).map((f: any) => f.path)
-                    : request.data?.path ? [request.data.path] : [];
-                if (filesChanged.length > 0 && request.data?.appId) {
+                    ? (reqData?.files || []).map((f: { path: string }) => f.path)
+                    : reqData?.path ? [reqData.path] : [];
+                if (filesChanged.length > 0 && reqData?.appId) {
                     // Queue with 5 minute debounce - multiple rapid edits get one snapshot
-                    queueCapture(request.data.appId, filesChanged);
+                    queueCapture(reqData.appId, filesChanged);
                 }
             }
 

@@ -488,7 +488,8 @@ export class SliceExtractorAgent {
      */
     async initializeTensorFlow(): Promise<boolean> {
         try {
-            // Dynamic import to avoid bundling TF if not needed
+            // Dynamic import to avoid bundling TF if not needed (optional dependency)
+            // @ts-expect-error - @tensorflow/tfjs-node is optional and may not be installed
             const tf = await import('@tensorflow/tfjs-node');
             // const use = await import('@tensorflow-models/universal-sentence-encoder');
 

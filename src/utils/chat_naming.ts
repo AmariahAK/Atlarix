@@ -105,7 +105,7 @@ export async function generateAIChatName(
             system: TITLE_SYSTEM_PROMPT,
             messages: [{ role: "user" as const, content: conversationSummary }],
             maxTokens: 30,
-        });
+        } as Parameters<typeof generateText>[0]);
 
         const aiName = result.text.trim().replace(/['"]/g, "");
         return aiName || fallbackName;

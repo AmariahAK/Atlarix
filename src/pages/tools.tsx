@@ -137,13 +137,20 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Home → Search tab", to: "/" },
   },
   {
-    id: "db",
-    title: "Database (Supabase / Neon)",
-    shortDescription: "Connect DBs, schemas, migrations. AI assistance for data layer.",
+    id: "workspace-workforce",
+    title: "Workspace & Workforce (Teams, Extensions, Context)",
+    shortDescription: "Workspaces with Teams, Workforce billing, and connected extensions (Slack, Jira, Linear, Sentry, Calendar, CI).",
     category: "integration",
-    steps: ["Settings → Supabase or Neon", "Connect project", "Reference in chat for schemas/migrations"],
-    howItWorks: "Credentials stored securely; AI can generate SQL and migrations.",
-    link: { label: "Settings", to: "/settings" },
+    steps: [
+      "Create or select a workspace on Home",
+      "Upgrade to Workforce in Settings → Subscription or sidebar Account menu",
+      "Open Settings → Workspace to connect extensions via Token Vault (Slack, Jira, Linear, etc.)",
+      "Use the JSON \"Space selection\" to choose which Slack channels / Jira projects the AI can see for this workspace",
+      "Chat in Build or Ask mode and let Workforce tools fetch tickets, mentions, pipelines, and errors for the active workspace"
+    ],
+    howItWorks:
+      "Each workspace has its own Team, plan (Free / Pro / Workforce), and extension configuration. Workforce users can connect external services via Auth0 Token Vault in Settings → Workspace (Slack, Jira, Linear, Sentry, Calendar, CI) and then narrow what the AI can see with per-workspace \"space\" selection (e.g. only specific Slack channels or Jira projects). When you chat in a Workforce workspace, Atlarix uses these connections to build a Workforce context block (assigned tickets, unread Slack mentions, failing pipelines, Sentry errors, today's meetings) and injects it into the system prompt so the AI understands your team's real workload. All Workforce tools are gated by your effective tier and respect the allowed space.",
+    link: { label: "Settings → Subscription & Workspace", to: "/settings" },
   },
   {
     id: "agent-delegation",

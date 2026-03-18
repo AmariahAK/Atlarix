@@ -20,7 +20,7 @@ let orchestratorHandler: ((msg: AgentMessage) => OrchestratorDecision) | null = 
  * Set the orchestrator handler. Main process or UI can set this to observe and optionally intervene.
  */
 export function setOrchestratorHandler(handler: (msg: AgentMessage) => OrchestratorDecision | void): () => void {
-  const fn = (msg: AgentMessage) => {
+  const fn = (msg: AgentMessage): OrchestratorDecision => {
     const decision = handler(msg);
     if (decision && decision.action !== "none") {
       if (decision.action === "inject" && decision.injectMessage) {
@@ -32,6 +32,7 @@ export function setOrchestratorHandler(handler: (msg: AgentMessage) => Orchestra
       }
       // redirect/block would be applied by the caller when processing the decision
     }
+    return decision ?? { action: "none" };
   };
   orchestratorHandler = fn;
   return () => {

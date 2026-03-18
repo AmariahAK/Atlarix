@@ -16,7 +16,7 @@ export interface AuthUser {
 }
 
 export interface UserStatus {
-    plan: 'free' | 'pro';
+    plan: 'free' | 'pro' | 'workforce';
     isLoggedIn: boolean;
     workspaceLimit: number;
     currentWorkspaceCount: number;
@@ -55,8 +55,8 @@ export function useAuth() {
                     const ipcRenderer = window.electron?.ipcRenderer;
                     if (ipcRenderer?.invoke) {
                         try {
-                            const result = await ipcRenderer.invoke('auth:enforce-workspace-limit');
-                            if (result?.removed > 0) {
+                            const result = (await ipcRenderer.invoke('auth:enforce-workspace-limit')) as { removed?: number } | undefined;
+                            if (result?.removed && result.removed > 0) {
                                 console.log(`[useAuth] Removed ${result.removed} excess workspaces to meet Free tier limit`);
                             }
                         } catch (e) {
@@ -87,8 +87,8 @@ export function useAuth() {
 
         // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
         const handlePlanChanged = (data: {
-            plan: 'free' | 'pro';
-            previousPlan?: 'free' | 'pro';
+            plan: 'free' | 'pro' | 'workforce';
+            previousPlan?: 'free' | 'pro' | 'workforce';
             subscriptionStatus?: 'active' | 'cancelled' | null;
             subscriptionEndsAt?: string | null;
         }) => {
@@ -102,15 +102,17 @@ export function useAuth() {
                 subscriptionEndsAt: data.subscriptionEndsAt ?? prev.subscriptionEndsAt,
             } : prev);
 
-            // Show upgrade notification ONLY if:
-            // 1. Plan changed from free to pro
-            // 2. AND subscriptionStatus is 'active' (not cancelled)
-            const isActualUpgrade =
+            // Show upgrade notification when plan upgraded and subscription is active
+            const isProUpgrade =
                 data.plan === 'pro' &&
                 data.previousPlan === 'free' &&
                 data.subscriptionStatus === 'active';
+            const isWorkforceUpgrade =
+                data.plan === 'workforce' &&
+                data.previousPlan !== 'workforce' &&
+                data.subscriptionStatus === 'active';
 
-            if (isActualUpgrade) {
+            if (isProUpgrade) {
                 const notification = document.createElement('div');
                 notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                 notification.innerHTML = `
@@ -118,6 +120,19 @@ export function useAuth() {
                     <div>
                         <div class="font-medium">Welcome to Atlarix Pro!</div>
                         <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
+                    </div>
+                `;
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 6000);
+            }
+            if (isWorkforceUpgrade) {
+                const notification = document.createElement('div');
+                notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                notification.innerHTML = `
+                    <span class="text-xl">✨</span>
+                    <div>
+                        <div class="font-medium">Welcome to Atlarix Workforce!</div>
+                        <div class="text-sm opacity-90">Teams, extensions, and workspace context are now unlocked.</div>
                     </div>
                 `;
                 document.body.appendChild(notification);
@@ -150,22 +165,38 @@ export function useAuth() {
                 return;
             }
 
-            const result = await ipcRenderer.invoke('auth:get-current-user');
+            type GetUserResult = { user?: { id: string; email?: string; name?: string; avatar?: string; plan?: string }; isPro?: boolean };
+            const result = (await ipcRenderer.invoke('auth:get-current-user')) as GetUserResult | undefined;
 
             if (result?.user) {
                 setUser({
                     id: result.user.id,
-                    email: result.user.email,
-                    name: result.user.name || result.user.email.split('@')[0],
+                    email: result.user.email ?? "",
+                    name: (result.user.name || (result.user.email ?? "").split('@')[0]) || "User",
                     avatar: result.user.avatar,
                 });
+                const plan = (result.user.plan || 'free') as 'free' | 'pro' | 'workforce';
                 setStatus({
-                    plan: result.user.plan || 'free',
+                    plan,
                     isLoggedIn: true,
                     workspaceLimit: result.isPro ? Infinity : 1,
                     currentWorkspaceCount: 0,
                     canCreateWorkspace: true,
                 });
+                // Fetch full plan info (subscriptionEndsAt, etc.) for billing UI
+                type PlanResult = { success?: boolean; plan?: string; workspaceLimit?: number; currentWorkspaceCount?: number; canCreateWorkspace?: boolean; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
+                const planResult = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
+                if (planResult?.success) {
+                    setStatus((prev) => prev ? {
+                        ...prev,
+                        plan: (planResult.plan ?? prev.plan) as UserStatus['plan'],
+                        workspaceLimit: planResult.workspaceLimit ?? prev.workspaceLimit,
+                        currentWorkspaceCount: planResult.currentWorkspaceCount ?? prev.currentWorkspaceCount,
+                        canCreateWorkspace: planResult.canCreateWorkspace ?? prev.canCreateWorkspace,
+                        subscriptionStatus: (planResult.subscriptionStatus === "active" || planResult.subscriptionStatus === "cancelled" ? planResult.subscriptionStatus : prev.subscriptionStatus) ?? null,
+                        subscriptionEndsAt: planResult.subscriptionEndsAt ?? prev.subscriptionEndsAt,
+                    } : prev);
+                }
             }
         } catch (error) {
             console.error('Failed to check session:', error);
@@ -179,17 +210,18 @@ export function useAuth() {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) return;
 
-            const result = await ipcRenderer.invoke('auth:get-plan-info');
+            type PlanResult = { success?: boolean; plan?: string; workspaceLimit?: number; currentWorkspaceCount?: number; canCreateWorkspace?: boolean; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
+            const result = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
 
             if (result?.success) {
                 setStatus({
-                    plan: result.plan,
-                    isLoggedIn: result.isLoggedIn,
-                    workspaceLimit: result.workspaceLimit,
-                    currentWorkspaceCount: result.currentWorkspaceCount,
-                    canCreateWorkspace: result.canCreateWorkspace,
-                    subscriptionStatus: result.subscriptionStatus,
-                    subscriptionEndsAt: result.subscriptionEndsAt,
+                    plan: (result.plan ?? 'free') as UserStatus['plan'],
+                    isLoggedIn: result.isLoggedIn ?? true,
+                    workspaceLimit: result.workspaceLimit ?? 1,
+                    currentWorkspaceCount: result.currentWorkspaceCount ?? 0,
+                    canCreateWorkspace: result.canCreateWorkspace ?? true,
+                    subscriptionStatus: (result.subscriptionStatus === "active" || result.subscriptionStatus === "cancelled" ? result.subscriptionStatus : null) ?? null,
+                    subscriptionEndsAt: result.subscriptionEndsAt ?? null,
                 });
             }
         } catch (error) {
@@ -205,10 +237,10 @@ export function useAuth() {
                 return;
             }
 
-            const result = await ipcRenderer.invoke('auth:sign-in', { provider: 'google' });
+            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'google' })) as { error?: string } | undefined;
 
             if (result?.error) {
-                console.error('Google sign in failed:', result.error);
+                console.error('Google sign in failed', result.error);
             }
             // OAuth flow will continue in browser, callback handled by main process
         } catch (error) {
@@ -224,10 +256,10 @@ export function useAuth() {
                 return;
             }
 
-            const result = await ipcRenderer.invoke('auth:sign-in', { provider: 'github' });
+            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'github' })) as { error?: string } | undefined;
 
             if (result?.error) {
-                console.error('GitHub sign in failed:', result.error);
+                console.error('GitHub sign in failed', result.error);
             }
             // OAuth flow will continue in browser, callback handled by main process
         } catch (error) {
@@ -256,17 +288,18 @@ export function useAuth() {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) return null;
 
-            const result = await ipcRenderer.invoke('auth:refresh-plan');
+            const result = (await ipcRenderer.invoke('auth:refresh-plan')) as { success?: boolean; plan?: string } | undefined;
 
             if (result?.success && status) {
                 setStatus({
                     ...status,
-                    plan: result.plan,
+                    plan: (result.plan ?? status.plan) as UserStatus['plan'],
                 });
                 console.log('[useAuth] Plan refreshed:', result.plan);
 
                 // Show notification if upgraded
-                if (result.plan === 'pro' && status.plan !== 'pro') {
+                const newPlan = (result.plan ?? status.plan) as 'free' | 'pro' | 'workforce';
+                if (newPlan === 'pro' && status.plan !== 'pro') {
                     const notification = document.createElement('div');
                     notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                     notification.innerHTML = `
@@ -274,6 +307,19 @@ export function useAuth() {
                         <div>
                             <div class="font-medium">Welcome to Atlarix Pro!</div>
                             <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
+                        </div>
+                    `;
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.remove(), 5000);
+                }
+                if (newPlan === 'workforce' && status.plan !== 'workforce') {
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed bottom-4 right-4 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
+                    notification.innerHTML = `
+                        <span class="text-xl">✨</span>
+                        <div>
+                            <div class="font-medium">Welcome to Atlarix Workforce!</div>
+                            <div class="text-sm opacity-90">Teams and extensions are now unlocked.</div>
                         </div>
                     `;
                     document.body.appendChild(notification);
