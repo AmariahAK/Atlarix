@@ -16,10 +16,7 @@ const logger = log.scope("auth-handlers");
 export function registerAuthHandlers() {
     logger.log("[AuthHandlers] Registering auth IPC handlers");
 
-    // Initialize SubscriptionManager on startup
-    SubscriptionManager.initialize().catch(err => {
-        logger.error("[AuthHandlers] Failed to initialize SubscriptionManager:", err);
-    });
+    // SubscriptionManager.initialize() runs from main after app.ready (see main.ts onReady)
 
     // Sign in with OAuth provider
     ipcMain.handle("auth:sign-in", async (_, { provider }: { provider: "google" | "github" }) => {
@@ -226,7 +223,9 @@ export function registerAuthHandlers() {
 
             return {
                 success: true,
-                plan: user?.plan || "free",
+                plan: user
+                    ? SubscriptionManager.getEffectiveTier()
+                    : "free",
                 isLoggedIn: SubscriptionManager.isLoggedIn(),
                 workspaceLimit: canCreate.maxAllowed,
                 currentWorkspaceCount: canCreate.currentCount,
@@ -368,8 +367,11 @@ export function registerAuthHandlers() {
             const subscriptionId = data.lemon_subscription_id;
             logger.log(`[AuthHandlers] Cancelling subscription: ${subscriptionId}`);
 
-            // Call LemonSqueezy API to cancel (same prod key as lemonsqueezy.ts)
-            const API_KEY = process.env.LEMONSQUEEZY_API_KEY || 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI5NGQ1OWNlZi1kYmI4LTRlYTUtYjE3OC1kMjU0MGZjZDY5MTkiLCJqdGkiOiI1MDU5NzhjZjk3OTU1Yjg4OGE1ZDJlNTMwYjQ3MzBhOWQxYzU0Y2Q2ODVjZWEyYmY2NWRhYTIyMjI0YTQyYjJmMDk2MWJkYjRhYzAwYjRkZCIsImlhdCI6MTc3MTE2MjU4My40MTc5MDUsIm5iZiI6MTc3MTE2MjU4My40MTc5MDgsImV4cCI6MTc4Njc1MjAwMC4wMjI5MjgsInN1YiI6IjU4NjQyMTciLCJzY29wZXMiOltdfQ.rphiK2zsV3BxJ7IssyRcJoWYcjBggnbFPzmNwNeESveY5iebgKR71titoYscnUw-uI5iVN42OHMs63_dru6J8Y2p-1nEhhdcY01yMnPkU6ZTR-cdOIr1gCvdgLM-PWgRWN37HsOYDPDOhhM7QWNh8y8kyRWlgeaK9cJLGqlfb3-LQ9uli0BJQ742AIvq7NedoNK90YRSH0sD1cY1erupg79oaogUtDl_YOtOlnaEx1oD5EYw3UvrVbCVTYAblOx5jdnimdz81g49VMQYsimaB1Roy_VxRD8WQXxdYdPTkdQ8lbWUymtvmJ8GsfFBImCToPln0LvqvexQNoVnQ3b64atQMl-4qjvHaWSoYRMuIkmlJKFEajxqwRhL-yFoXtnqnBwWBQI90hAI4spR1DBPeyMKcxm7GfTQseT-7JUzQAps2_TODeraG_wx3piuphAYpHL4UYboWGjs6BqHBMOAjEoKvIWZu8WEIf7iW5Axl7VCh8TuBFi2tb7bjwp0kx0RWJHVi0H8wNvB0Ayxw3QIA_AR215kHI327WdaL367kNu14bBHe-dhCdda7fiGmI1sxz8YL452GcWUEZGsaBT18ngyuqlnAij14D4d2-gLmMnCUtr_FBixlCbfyZpXbzYDkaZq0jTYsRwlhAk9G-DzM1il3Su3Z9rkXuufVT09gg4';
+            const API_KEY = process.env.LEMONSQUEEZY_API_KEY?.trim();
+            if (!API_KEY) {
+                logger.error("[AuthHandlers] LEMONSQUEEZY_API_KEY is not set");
+                return { success: false, error: "Billing is not configured in this app build." };
+            }
 
             const response = await fetch(`https://api.lemonsqueezy.com/v1/subscriptions/${subscriptionId}`, {
                 method: 'DELETE',
@@ -409,12 +411,16 @@ export function registerAuthHandlers() {
                 rowsUpdated: updateData?.length || 0
             });
 
-            // Emit plan-changed event to update UI immediately
+            await SubscriptionManager.refreshPlan();
+            const effectiveTier = SubscriptionManager.getEffectiveTier();
+            const sessionPlan = SubscriptionManager.getLocalUserPlan();
+
             const { BrowserWindow } = await import("electron");
             const windows = BrowserWindow.getAllWindows();
             for (const win of windows) {
                 win.webContents.send('plan-changed', {
-                    plan: 'pro', // Still pro until expiry
+                    plan: sessionPlan,
+                    effectiveTier,
                     subscriptionStatus: 'cancelled',
                     subscriptionEndsAt: endsAt,
                 });
@@ -423,6 +429,7 @@ export function registerAuthHandlers() {
             // Delayed verification check (safety net) - re-confirm after 3s
             setTimeout(async () => {
                 try {
+                    await SubscriptionManager.refreshPlan();
                     const { data: verifyData } = await supabase
                         .from('users')
                         .select('subscription_status, subscription_ends_at')
@@ -431,11 +438,11 @@ export function registerAuthHandlers() {
 
                     if (verifyData) {
                         logger.log("[AuthHandlers] Verification check:", verifyData);
-                        // Re-emit to ensure UI is in sync
                         const { BrowserWindow: BW } = require('electron');
                         BW.getAllWindows().forEach((win: any) => {
                             win.webContents.send('plan-changed', {
-                                plan: 'pro',
+                                plan: SubscriptionManager.getLocalUserPlan(),
+                                effectiveTier: SubscriptionManager.getEffectiveTier(),
                                 subscriptionStatus: verifyData.subscription_status,
                                 subscriptionEndsAt: verifyData.subscription_ends_at,
                             });
@@ -455,10 +462,11 @@ export function registerAuthHandlers() {
                 });
             }
 
+            const tierLabel = effectiveTier === 'workforce' ? 'Workforce' : 'Pro';
             return {
                 success: true,
                 endsAt,
-                message: `Subscription cancelled. You'll have Pro access until ${endDateDisplay}.`
+                message: `Subscription cancelled. You'll have ${tierLabel} access until ${endDateDisplay}.`
             };
         } catch (error) {
             logger.error("[AuthHandlers] Cancel subscription error:", error);

@@ -107,7 +107,7 @@ export function ChatInputControls({
           onOpenChange={(open) => !open && setConfigSubView(null)}
         >
           <PopoverAnchor asChild>
-            <span className="inline-flex">
+            <span className="inline-flex" data-tour="tour-model-picker">
               <ChatConfigDropdown
                 onOpenModelPicker={
                   rightPanelVisible

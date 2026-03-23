@@ -66,13 +66,14 @@ export function AccountSettings() {
   }, [user]);
 
   useEffect(() => {
+    if (loading) return;
     if (!user) {
       navigate({ to: '/sign-in' });
     } else {
       refreshStatus?.();
       if (status?.plan === 'workforce') loadTeam();
     }
-  }, [user, navigate, refreshStatus, status?.plan, loadTeam]);
+  }, [loading, user, navigate, refreshStatus, status?.plan, loadTeam]);
 
   if (loading) {
     return (
@@ -94,6 +95,25 @@ export function AccountSettings() {
       await getInvoke()?.('auth:manage-subscription');
     } catch {
       showError('Could not open subscription management.');
+    }
+  };
+
+  const canCancelSubscription =
+    status.subscriptionStatus === 'active' || status.subscriptionStatus === 'on_trial';
+
+  const handleCancelSubscription = async () => {
+    const confirmed = window.confirm(
+      'Cancel your subscription? You keep paid features until the end of the current billing period.'
+    );
+    if (!confirmed) return;
+    const result = (await getInvoke()?.('auth:cancel-subscription')) as
+      | { success?: boolean; message?: string; error?: string }
+      | undefined;
+    if (result?.success) {
+      showSuccess(result.message ?? 'Subscription updated.');
+      await refreshStatus?.();
+    } else {
+      showError(result?.error ?? 'Could not cancel subscription.');
     }
   };
 
@@ -163,7 +183,7 @@ export function AccountSettings() {
   const totalSeats = team ? team.seat_limit + (team.extra_seats ?? 0) : 0;
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className="min-h-full bg-background p-8 pb-12">
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div>
@@ -223,42 +243,121 @@ export function AccountSettings() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h4 className="font-semibold">Current Plan</h4>
-                <p className="text-2xl font-bold text-primary capitalize">{status.plan}</p>
+                <p className="text-2xl font-bold text-primary">
+                  {status.plan === 'workforce'
+                    ? 'Atlarix Workforce'
+                    : status.plan === 'pro'
+                      ? 'Atlarix Pro'
+                      : 'Free'}
+                </p>
               </div>
               {status.subscriptionStatus && (
                 <Badge
-                  variant={status.subscriptionStatus === 'active' ? 'default' : 'secondary'}
+                  variant={
+                    status.subscriptionStatus === 'active' || status.subscriptionStatus === 'on_trial'
+                      ? 'default'
+                      : 'secondary'
+                  }
                   className="text-sm capitalize"
                 >
-                  {status.subscriptionStatus}
+                  {status.subscriptionStatus.replace(/_/g, ' ')}
                 </Badge>
               )}
             </div>
-            {(status.plan === 'pro' || status.plan === 'workforce') && status.subscriptionEndsAt && (
-              <p className="text-sm text-muted-foreground">
-                Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-              </p>
-            )}
-            {status.subscriptionStatus === 'cancelled' && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                Your subscription is cancelled. You keep access until the end of the current period.
-              </p>
-            )}
+            {(status.plan === 'pro' || status.plan === 'workforce') && status.subscriptionEndsAt && (() => {
+              const end = new Date(status.subscriptionEndsAt);
+              const periodEndFuture = !Number.isNaN(+end) && end > new Date();
+              return (
+              <>
+                {(status.subscriptionStatus === 'active' ||
+                  status.subscriptionStatus === 'on_trial' ||
+                  (!status.subscriptionStatus && periodEndFuture)) && (
+                  <p className="text-sm text-muted-foreground">
+                    Next payment:{' '}
+                    {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                  </p>
+                )}
+                {status.subscriptionStatus === 'cancelled' && periodEndFuture && (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        {status.plan === 'workforce' ? 'Workforce' : 'Pro'} access until:{' '}
+                      </span>
+                      {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Subscription cancelled — you keep paid features until that date. Use Subscribe again or Manage
+                      billing to resume or update payment.
+                    </p>
+                  </>
+                )}
+                {status.subscriptionStatus === 'cancelled' && !periodEndFuture && (
+                  <p className="text-sm text-muted-foreground">
+                    Your paid period has ended. Subscribe again to restore {status.plan === 'workforce' ? 'Workforce' : 'Pro'}.
+                  </p>
+                )}
+                {status.subscriptionStatus &&
+                  !['active', 'on_trial', 'cancelled'].includes(status.subscriptionStatus) && (
+                    <p className="text-sm text-muted-foreground">
+                      Billing period:{' '}
+                      {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </p>
+                  )}
+              </>
+              );
+            })()}
             {status.plan === 'free' && (
               <div className="pt-4 border-t flex flex-wrap gap-2">
-                <Button onClick={() => triggerUpgrade()} size="sm">
+                <Button onClick={() => triggerUpgrade()} size="sm" variant="default">
                   Upgrade to Pro
                 </Button>
-                <Button onClick={() => triggerUpgradeWorkforce()} variant="outline" size="sm">
+                <Button onClick={() => triggerUpgradeWorkforce()} size="sm" variant="secondary">
+                  Upgrade to Workforce
+                </Button>
+              </div>
+            )}
+            {status.plan === 'pro' && (
+              <div className="pt-4 border-t flex flex-wrap gap-2">
+                <Button onClick={() => triggerUpgradeWorkforce()} size="sm" variant="default">
                   Upgrade to Workforce
                 </Button>
               </div>
             )}
             {(status.plan === 'pro' || status.plan === 'workforce') && (
-              <div className="pt-4 border-t">
-                <Button onClick={handleManageSubscription} variant="outline" size="sm">
-                  Manage subscription
-                </Button>
+              <div className="pt-4 border-t space-y-3">
+                {status.plan === 'workforce' && (
+                  <p className="text-xs text-muted-foreground max-w-xl">
+                    To switch to Pro: cancel Workforce below or in the customer portal, then subscribe to Pro from this
+                    page after the team billing period ends.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleManageSubscription} variant="outline" size="sm">
+                    Manage subscription
+                  </Button>
+                  {canCancelSubscription && (
+                    <Button
+                      onClick={handleCancelSubscription}
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Cancel subscription
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>

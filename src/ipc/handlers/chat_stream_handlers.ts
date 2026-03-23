@@ -133,6 +133,10 @@ function getOrCreateToolSessionLoader(chatId: number): ToolSessionLoader {
 
 // Pending mode change (Ask -> Build) approval; keyed by chatId
 const pendingModeChangeResolvers = new Map<number, { resolve: (approved: boolean) => void }>();
+const pendingWorkspacePermissionResolvers = new Map<
+  string,
+  { resolve: (result: { dismissed: boolean; grantedServices: string[] }) => void }
+>();
 
 export function waitForModeChangeResponse(chatId: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -145,6 +149,32 @@ export function resolveModeChange(chatId: number, approve: boolean): void {
   if (r) {
     pendingModeChangeResolvers.delete(chatId);
     r.resolve(approve);
+  }
+}
+
+function workspacePermissionKey(chatId: number, requestId: string): string {
+  return `${chatId}:${requestId}`;
+}
+
+export function waitForWorkspacePermissionResponse(
+  chatId: number,
+  requestId: string,
+): Promise<{ dismissed: boolean; grantedServices: string[] }> {
+  return new Promise((resolve) => {
+    pendingWorkspacePermissionResolvers.set(workspacePermissionKey(chatId, requestId), { resolve });
+  });
+}
+
+export function resolveWorkspacePermissionResponse(
+  chatId: number,
+  requestId: string,
+  result: { dismissed: boolean; grantedServices: string[] },
+): void {
+  const key = workspacePermissionKey(chatId, requestId);
+  const r = pendingWorkspacePermissionResolvers.get(key);
+  if (r) {
+    pendingWorkspacePermissionResolvers.delete(key);
+    r.resolve(result);
   }
 }
 
@@ -395,6 +425,20 @@ export function registerChatStreamHandlers() {
       }
       return { ok: true };
     }
+  );
+
+  ipcMain.handle(
+    "respond-workspace-permissions",
+    async (
+      _event,
+      payload: { chatId: number; requestId: string; dismissed: boolean; grantedServices?: string[] },
+    ): Promise<{ ok: boolean }> => {
+      resolveWorkspacePermissionResponse(payload.chatId, payload.requestId, {
+        dismissed: payload.dismissed,
+        grantedServices: Array.isArray(payload.grantedServices) ? payload.grantedServices : [],
+      });
+      return { ok: true };
+    },
   );
 
   ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
@@ -1769,16 +1813,29 @@ This conversation includes one or more image attachments. When the user uploads 
           preExchangeSnapshotId = null;
           filesWrittenInThisExchange = [];
 
-          // Ask mode with workspace: use read-only tools for exploration
+          // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
           if (settings.selectedChatMode === "ask" && effectiveApp) {
-            logger.log("Ask mode with workspace - enabling read-only tools");
+            logger.log("Ask mode with workspace - enabling read-only tools + plan writes (approval)");
+
+            const askPermissionInterceptor = new PermissionInterceptor(
+              appPath,
+              effectiveAppId ?? undefined,
+            );
+            registerInterceptor(req.chatId, askPermissionInterceptor);
 
             const askModeTools = ToolRegistry.getToolsForAskMode();
             const askLoader = getOrCreateToolSessionLoader(req.chatId);
             const askLoadedNames = askLoader.getLoadedToolNames();
-            const askToolsToInclude = askModeTools.filter(
-              (t) => askLoadedNames.has(t.name) || isCoreTool(t)
+            let askToolsToInclude = askModeTools.filter(
+              (t) => askLoadedNames.has(t.name) || isCoreTool(t),
             );
+            const planWriteMeta = ToolRegistry.get("write_implementation_plan");
+            if (
+              planWriteMeta &&
+              !askToolsToInclude.some((t) => t.name === "write_implementation_plan")
+            ) {
+              askToolsToInclude = [...askToolsToInclude, planWriteMeta];
+            }
             const askManifest = generateManifest(askModeTools, true);
 
             const askTools: ToolSet = {};
@@ -1789,10 +1846,21 @@ This conversation includes one or more image attachments. When the user uploads 
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
                   try {
+                    const meta = ToolRegistry.get(tool.name);
+                    const askAllowed =
+                      tool.name === "request_mode_change" ||
+                      (meta?.isReadOnly === true || meta?.allowInAskMode === true);
+                    if (!askAllowed) {
+                      return JSON.stringify({
+                        success: false,
+                        error: `${tool.name} is not available in Ask mode.`,
+                      });
+                    }
                     const execArgs: any = {
                       ...args,
                       workspace: appPath,
                       workspaceId: effectiveAppId!,
+                      chatMode: "ask",
                     };
                     if (tool.name === "stream_terminal_output" || tool.name === "stream_pipeline_logs") {
                       execArgs.chatId = req.chatId;
@@ -1806,10 +1874,138 @@ This conversation includes one or more image attachments. When the user uploads 
                         };
                       };
                     }
-                    const execResult = await ToolRegistry.execute(tool.name, execArgs);
+                    const result = await ToolRegistry.execute(tool.name, execArgs);
 
-                    // Return formatted result for display
-                    return JSON.stringify(execResult);
+                    if (
+                      result &&
+                      typeof result === "object" &&
+                      (result as any).__workspace_permissions_requested
+                    ) {
+                      const requestId = `workspace-permissions-${Date.now()}`;
+                      const services = Array.isArray((result as any).services)
+                        ? (result as any).services
+                        : [];
+                      safeSend(event.sender, "right-panel:set-intent", {
+                        intent: "show-workspace-permissions",
+                        context: {
+                          chatId: req.chatId,
+                          requestId,
+                          services,
+                          alreadyConnected: Array.isArray((result as any).alreadyConnected)
+                            ? (result as any).alreadyConnected
+                            : [],
+                          message:
+                            (result as any).message ??
+                            "Connect required workforce services, then click Done to continue.",
+                        },
+                        timestamp: Date.now(),
+                        source: "system",
+                      });
+                      const permissionResult = await waitForWorkspacePermissionResponse(
+                        req.chatId,
+                        requestId,
+                      );
+                      return JSON.stringify({
+                        success: true,
+                        dismissed: permissionResult.dismissed,
+                        grantedServices: permissionResult.grantedServices,
+                      });
+                    }
+
+                    if (askPermissionInterceptor.isPermissionRequest(result)) {
+                      const permRequest = askPermissionInterceptor.parsePermissionRequest(result);
+                      if (permRequest) {
+                        const operationId = askPermissionInterceptor.generateOperationId();
+                        askPermissionInterceptor.bufferOperation(operationId, permRequest);
+
+                        safeSend(event.sender, "permission-request", {
+                          chatId: req.chatId,
+                          operationId,
+                          request: permRequest,
+                        });
+
+                        logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
+
+                        try {
+                          const approved = await askPermissionInterceptor.waitForApproval(operationId);
+
+                          if (approved) {
+                            const execResult = askPermissionInterceptor.getExecutionResult(operationId);
+                            logger.log(`[Ask Mode] Permission approved: ${operationId}`);
+
+                            const preview = permRequest.preview as { path?: string; paths?: string[] };
+                            if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
+                              filesWrittenInThisExchange.push(...preview.paths);
+                            } else if (preview.path) {
+                              filesWrittenInThisExchange.push(preview.path);
+                            }
+
+                            const output = execResult.output || "";
+                            const hasCompilationErrors =
+                              /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
+                                output,
+                              );
+
+                            if (hasCompilationErrors) {
+                              logger.log(`[Ask Mode] Command output contains errors: ${operationId}`);
+                              return JSON.stringify({
+                                success: true,
+                                hasErrors: true,
+                                warning:
+                                  "The command ran but the output shows errors. Please review the output and fix the underlying code issue before running the same command again.",
+                                message: "Command started but output shows errors",
+                                path: execResult.path,
+                                output: output.slice(-2000),
+                              });
+                            }
+
+                            return JSON.stringify({
+                              success: true,
+                              message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                              path: execResult.path,
+                              output: execResult.output,
+                            });
+                          } else {
+                            const execResultRejected = askPermissionInterceptor.getExecutionResult(operationId);
+
+                            if (execResultRejected.exitCode !== undefined) {
+                              logger.log(
+                                `[Ask Mode] Command failed: ${operationId} (exit ${execResultRejected.exitCode})`,
+                              );
+                              return JSON.stringify({
+                                success: false,
+                                error:
+                                  execResultRejected.error ||
+                                  `Command failed with exit code ${execResultRejected.exitCode}`,
+                                exitCode: execResultRejected.exitCode,
+                                output: execResultRejected.output,
+                                operation: permRequest.operation,
+                                path:
+                                  (permRequest.preview as { path?: string; command?: string }).path ||
+                                  (permRequest.preview as { command?: string }).command,
+                              });
+                            } else {
+                              logger.log(`[Ask Mode] Permission denied: ${operationId}`);
+                              return JSON.stringify({
+                                success: false,
+                                error: "Permission denied by user",
+                                operation: permRequest.operation,
+                                path: (permRequest.preview as { path?: string }).path,
+                              });
+                            }
+                          }
+                        } catch (error) {
+                          logger.error(`[Ask Mode] Permission error: ${operationId}`, error);
+                          return JSON.stringify({
+                            success: false,
+                            error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
+                            timedOut: true,
+                          });
+                        }
+                      }
+                    }
+
+                    return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (error) {
                     return JSON.stringify({ success: false, error: String(error) });
                   }
@@ -1858,10 +2054,10 @@ This conversation includes one or more image attachments. When the user uploads 
             // Merge global + workspace MCP tools so workspace chats can use MCP (e.g. GitHub)
             const askMcpTools = await getMcpTools(event, effectiveAppId!);
             Object.assign(askTools, askMcpTools);
-            logger.log(`Ask mode: ${Object.keys(askTools).length} read-only tools available (incl. MCP)`);
+            logger.log(`Ask mode: ${Object.keys(askTools).length} tools available (read-only + plan writes + MCP)`);
 
             const askModePrompt = `
-IMPORTANT: You are in ASK mode - a read-only assistant for exploring this codebase.
+IMPORTANT: You are in ASK mode — read-only exploration, with one exception: you may create or update **ATLARIX_PLAN.md** via write_implementation_plan when the user wants a structured implementation plan; that write goes through the same approval UI as Build mode.
 
 Available tools (read-only):
 - read_file: Read file contents
@@ -1874,14 +2070,17 @@ Available tools (read-only):
 - recall_memory, search_memory: Access saved learnings
 - parse_code_structure, get_change_impact, diagnose_issue, health_check: Code analysis
 - ask_user: Ask for clarification
-- request_mode_change: If the user wants implementation or code changes, call this with mode "build" and a short reason; wait for user approval before making changes.
+- write_implementation_plan: Create/update ATLARIX_PLAN.md (approval required)
+- request_workspace_permissions: Ask for batch Token Auth permissions (narrate first, then wait for user to finish panel)
+- request_mode_change: If the user wants code edits beyond the plan file, call with mode "build" and a short reason; wait for user approval.
 
 NOT available in Ask mode (Build mode only):
-- write_file, delete_file, rename_file: File modifications
+- write_file, delete_file, rename_file (except ATLARIX_PLAN.md via write_implementation_plan)
 - run_command, run_tests: Command execution
 - save_learning: Memory modifications
 
-If the user requests modifications, use request_mode_change to request Build mode with a reason and wait for approval. Do NOT make changes until the user approves.`;
+If the user requests code or file changes outside ATLARIX_PLAN.md, use request_mode_change to request Build mode. Do NOT apply code changes until the user approves.
+For workforce services, always explain which services you are about to access before calling request_workspace_permissions.`;
 
             const { fullStream: askStream } = await simpleStreamText({
               chatMessages,
@@ -2009,6 +2208,42 @@ If the user requests modifications, use request_mode_change to request Build mod
                       };
                     }
                     const result = await ToolRegistry.execute(toolName, executeArgs);
+
+                    if (
+                      result &&
+                      typeof result === "object" &&
+                      (result as any).__workspace_permissions_requested
+                    ) {
+                      const requestId = `workspace-permissions-${Date.now()}`;
+                      const services = Array.isArray((result as any).services)
+                        ? (result as any).services
+                        : [];
+                      safeSend(event.sender, "right-panel:set-intent", {
+                        intent: "show-workspace-permissions",
+                        context: {
+                          chatId: req.chatId,
+                          requestId,
+                          services,
+                          alreadyConnected: Array.isArray((result as any).alreadyConnected)
+                            ? (result as any).alreadyConnected
+                            : [],
+                          message:
+                            (result as any).message ??
+                            "Connect required workforce services, then click Done to continue.",
+                        },
+                        timestamp: Date.now(),
+                        source: "system",
+                      });
+                      const permissionResult = await waitForWorkspacePermissionResponse(
+                        req.chatId,
+                        requestId,
+                      );
+                      return JSON.stringify({
+                        success: true,
+                        dismissed: permissionResult.dismissed,
+                        grantedServices: permissionResult.grantedServices,
+                      });
+                    }
 
                     if (
                       toolName === "create_workspace" &&

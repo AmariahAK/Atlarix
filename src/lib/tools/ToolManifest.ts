@@ -39,7 +39,7 @@ export function generateManifest(
   const onDemand: ToolMetadata[] = [];
 
   for (const tool of availableTools) {
-    if (askMode && !tool.isReadOnly) continue;
+    if (askMode && !(tool.isReadOnly || tool.allowInAskMode)) continue;
     if (isCoreTool(tool)) core.push(tool);
     else onDemand.push(tool);
   }

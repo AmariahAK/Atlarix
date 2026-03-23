@@ -7,6 +7,7 @@
 import {
   ToolRegistry,
   ToolCategory,
+  arrayParam,
   createParameters,
   stringParam,
 } from "./registry";
@@ -20,7 +21,83 @@ function notConnected(service: string): string {
   return `${service} is not connected. Connect it in Settings → Workforce extensions.`;
 }
 
+type WorkforceWriteAction =
+  | "post_to_slack"
+  | "update_ticket_status"
+  | "create_ticket"
+  | "trigger_pipeline"
+  | "cancel_pipeline";
+
+function requestWorkforceApproval(params: {
+  action: WorkforceWriteAction;
+  service: string;
+  description: string;
+  payload: Record<string, unknown>;
+}) {
+  return {
+    __permission_required: true,
+    operation: "workforce_action",
+    preview: {
+      service: params.service,
+      action: params.action,
+      description: params.description,
+      payload: params.payload,
+    },
+    metadata: {
+      reasoning: "This workforce action can send updates or trigger external systems.",
+    },
+  };
+}
+
 // ─── Slack ─────────────────────────────────────────────────────────────────
+ToolRegistry.register({
+  name: "request_workspace_permissions",
+  description:
+    "Request Token Auth for multiple workforce services in one unified panel. Excludes already connected services automatically.",
+  category: ToolCategory.WORKFORCE,
+  cost: workforceCost,
+  requiresWorkspace: false,
+  isReadOnly: true,
+  parameters: createParameters(
+    {
+      services: arrayParam(
+        "string",
+        "Required service IDs (e.g. slack, jira, linear, sentry, notion, google_calendar, gitlab, bitbucket).",
+      ),
+      reason: stringParam("Short reason to show the user before requesting access."),
+    },
+    ["services"],
+  ),
+  handler: async (args: any) => {
+    const requested = Array.isArray(args?.services)
+      ? args.services.map((s: unknown) => String(s).toLowerCase()).filter(Boolean)
+      : [];
+    const uniqueRequested = Array.from(new Set(requested));
+    if (uniqueRequested.length === 0) {
+      return { success: false, error: "services[] is required." };
+    }
+    const connected = await TokenVault.listConnectedServices();
+    const connectedSet = new Set(connected.map((s) => s.name.toLowerCase()));
+    const missing = uniqueRequested.filter((svc) => !connectedSet.has(svc));
+    if (missing.length === 0) {
+      return {
+        success: true,
+        result: "All requested services are already connected in this session.",
+        alreadyConnected: uniqueRequested,
+      };
+    }
+    return {
+      __workspace_permissions_requested: true,
+      services: missing,
+      alreadyConnected: uniqueRequested.filter((svc) => connectedSet.has(svc)),
+      message:
+        typeof args?.reason === "string" && args.reason.trim().length > 0
+          ? args.reason.trim()
+          : `The assistant needs access to: ${missing.join(", ")}.`,
+    };
+  },
+});
+
 ToolRegistry.register({
   name: "get_slack_mentions",
   description: "Get unread mentions from Slack for the authenticated user. Workforce only.",
@@ -86,16 +163,13 @@ ToolRegistry.register({
     ["channelId", "text"]
   ),
   handler: async (args: any) => {
-    const token = await TokenVault.getToken("slack", ["chat:write"]);
-    if (!token) return notConnected("Slack");
     if (!args?.channelId || !args?.text) return { success: false, error: "channelId and text required." };
-    try {
-      const result = await SlackApi.postMessage(token, args.channelId, args.text);
-      if (result.ok) return { success: true, message: "Message posted." };
-      return { success: false, error: result.error ?? "Failed to post" };
-    } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) };
-    }
+    return requestWorkforceApproval({
+      action: "post_to_slack",
+      service: "slack",
+      description: `Post a Slack message to channel ${args.channelId}.`,
+      payload: { channelId: args.channelId, text: args.text },
+    });
   },
 });
 
@@ -147,11 +221,15 @@ ToolRegistry.register({
   ),
   handler: async (args: any) => {
     const source = (args?.source ?? "jira").toLowerCase();
-    const token = source === "linear"
-      ? await TokenVault.getToken("linear", ["write"])
-      : await TokenVault.getToken("jira", ["write:jira-work"]);
-    if (!token) return notConnected(source === "linear" ? "Linear" : "Jira");
-    return { success: true, message: `Ticket ${args.ticketId} status update (approval flow pending).` };
+    if (!args?.ticketId || !args?.status) {
+      return { success: false, error: "ticketId and status are required." };
+    }
+    return requestWorkforceApproval({
+      action: "update_ticket_status",
+      service: source === "linear" ? "linear" : "jira",
+      description: `Update ${source} ticket ${args.ticketId} to status "${args.status}".`,
+      payload: { source, ticketId: args.ticketId, status: args.status },
+    });
   },
 });
 
@@ -173,11 +251,18 @@ ToolRegistry.register({
   ),
   handler: async (args: any) => {
     const source = (args?.source ?? "jira").toLowerCase();
-    const token = source === "linear"
-      ? await TokenVault.getToken("linear", ["write"])
-      : await TokenVault.getToken("jira", ["write:jira-work"]);
-    if (!token) return notConnected(source === "linear" ? "Linear" : "Jira");
-    return { success: true, message: `Create ticket "${args.title}" (approval flow pending).` };
+    if (!args?.title) return { success: false, error: "title is required." };
+    return requestWorkforceApproval({
+      action: "create_ticket",
+      service: source === "linear" ? "linear" : "jira",
+      description: `Create ${source} ticket "${args.title}".`,
+      payload: {
+        source,
+        title: args.title,
+        description: args.description ?? "",
+        projectId: args.projectId ?? "",
+      },
+    });
   },
 });
 
@@ -278,15 +363,21 @@ ToolRegistry.register({
     ["provider", "owner", "repo", "ref"]
   ),
   handler: async (args: any) => {
-    const provider = (args?.provider ?? "github").toLowerCase();
-    if (provider === "gitlab") {
-      const t = await TokenVault.getToken("gitlab", ["read_api", "read_repository"]);
-      if (!t) return notConnected("GitLab");
-    } else if (provider === "bitbucket") {
-      const t = await TokenVault.getToken("bitbucket", ["pipeline:read", "repository:read"]);
-      if (!t) return notConnected("Bitbucket");
+    if (!args?.provider || !args?.owner || !args?.repo || !args?.ref) {
+      return { success: false, error: "provider, owner, repo, and ref are required." };
     }
-    return { success: true, message: `Trigger pipeline (approval flow pending) for ${args.owner}/${args.repo} @ ${args.ref}.` };
+    return requestWorkforceApproval({
+      action: "trigger_pipeline",
+      service: String(args.provider).toLowerCase(),
+      description: `Trigger ${args.provider} pipeline for ${args.owner}/${args.repo} @ ${args.ref}.`,
+      payload: {
+        provider: args.provider,
+        owner: args.owner,
+        repo: args.repo,
+        ref: args.ref,
+        workflowId: args.workflowId ?? "",
+      },
+    });
   },
 });
 
@@ -307,14 +398,19 @@ ToolRegistry.register({
     ["provider", "owner", "repo", "runId"]
   ),
   handler: async (args: any) => {
-    const provider = (args?.provider ?? "github").toLowerCase();
-    if (provider === "gitlab") {
-      const t = await TokenVault.getToken("gitlab", ["read_api", "read_repository"]);
-      if (!t) return notConnected("GitLab");
-    } else if (provider === "bitbucket") {
-      const t = await TokenVault.getToken("bitbucket", ["pipeline:read", "repository:read"]);
-      if (!t) return notConnected("Bitbucket");
+    if (!args?.provider || !args?.owner || !args?.repo || !args?.runId) {
+      return { success: false, error: "provider, owner, repo, and runId are required." };
     }
-    return { success: true, message: `Cancel pipeline run ${args.runId} (approval flow pending).` };
+    return requestWorkforceApproval({
+      action: "cancel_pipeline",
+      service: String(args.provider).toLowerCase(),
+      description: `Cancel ${args.provider} pipeline run ${args.runId} for ${args.owner}/${args.repo}.`,
+      payload: {
+        provider: args.provider,
+        owner: args.owner,
+        repo: args.repo,
+        runId: args.runId,
+      },
+    });
   },
 });

@@ -40,6 +40,15 @@ export const CommandOperationPreviewSchema = z.object({
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
 
+export const WorkforceActionPreviewSchema = z.object({
+    service: z.string().describe("Target workforce service (e.g. slack, jira, gitlab)"),
+    action: z.string().describe("Action name to execute"),
+    description: z.string().describe("Human-readable summary of the action"),
+    payload: z.record(z.string(), z.unknown()).describe("Action payload arguments"),
+});
+
+export type WorkforceActionPreview = z.infer<typeof WorkforceActionPreviewSchema>;
+
 // ════════════════════════════════════════════════════════════════════════════
 // DIAGRAM UPDATE PREVIEW
 // ════════════════════════════════════════════════════════════════════════════
@@ -84,6 +93,8 @@ export const PermissionOperationType = z.enum([
     "delete_lines",
     // AI-controlled diagram update
     "update_diagram",
+    // External workforce actions (Slack/Jira/CI etc.)
+    "workforce_action",
 ]);
 
 /** Single operation inside a batch_plan (file or command) */
@@ -110,6 +121,7 @@ export const PermissionRequestSchema = z.object({
         FileOperationPreviewSchema,
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
+        WorkforceActionPreviewSchema,
         DiagramUpdatePreviewSchema,
         BatchPlanPreviewSchema,
     ]),

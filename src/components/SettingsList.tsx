@@ -7,13 +7,12 @@ import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 
 const settingsItems = [
   { id: "general", label: "General" },
-  { id: "billing", label: "Subscription" },
   { id: "workflow", label: "Workflow" },
   { id: "ai", label: "AI" },
   { id: "search", label: "Search" },
   { id: "mcp", label: "MCP Servers" },
-  { id: "extensions", label: "Workspace" },
   { id: "team", label: "Team" },
+  { id: "integrations", label: "Integrations" },
   { id: "danger-zone", label: "Danger Zone" },
 ];
 

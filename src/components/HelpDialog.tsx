@@ -17,12 +17,14 @@ import {
   ImagePlusIcon,
   XIcon,
   SparklesIcon,
+  MessageSquare,
 } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useState, useEffect, useRef } from "react";
 import { HelpBotDialog } from "./HelpBotDialog";
 import { useSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/lib/auth/useAuth";
+import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 
 interface HelpDialogProps {
   isOpen: boolean;
@@ -300,6 +302,19 @@ System Info:
               </p>
             </div>
           )}
+
+          <div className="flex flex-col space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL)}
+              className="w-full py-6 bg-(--background-lightest)"
+            >
+              <MessageSquare className="mr-2 h-5 w-5" /> Community (Discord)
+            </Button>
+            <p className="text-sm text-muted-foreground px-2">
+              Chat with other builders, get updates, and ask questions in our Discord server.
+            </p>
+          </div>
 
           <div className="flex flex-col space-y-2">
             <Button

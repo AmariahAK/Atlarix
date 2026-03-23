@@ -73,6 +73,7 @@ import type {
   SelectNodeFolderResult,
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
+  type DiscordInviteInfoResult,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -735,6 +736,12 @@ export class IpcClient {
   // Open an external URL using the default browser
   public async openExternalUrl(url: string): Promise<void> {
     await this.ipcRenderer.invoke("open-external-url", url);
+  }
+
+  public async getDiscordInviteInfo(): Promise<DiscordInviteInfoResult> {
+    return this.ipcRenderer.invoke(
+      "discord:get-invite-info",
+    ) as Promise<DiscordInviteInfoResult>;
   }
 
   public async showItemInFolder(fullPath: string): Promise<void> {

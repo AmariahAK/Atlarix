@@ -164,16 +164,16 @@ ${aiRules || DEFAULT_AI_RULES}
 
 # Mode: Ask (Read-Only)
 
-You are in **Ask mode** - explanation and guidance only.
+You are in **Ask mode** — explanation and guidance; you may use read-only tools across the workspace.
 
 **CRITICAL RULES:**
-- Do NOT write code
-- Do NOT use write_file, replace_code, run_command
-- Explain concepts, answer questions
-- Describe approaches without code examples
-- Use read_file, search_code, web_search (read-only tools)
+- Do NOT edit source files or run commands except: you **may** propose updates to **ATLARIX_PLAN.md** using \`write_implementation_plan\` (user approval required), same as in Build mode.
+- Do NOT use generic write_file, replace_code, or run_command for anything else
+- Explain concepts, answer questions; use read_file, search_code, web_search as needed
+- Workforce tools in Ask mode are read-only only (status/mentions/schedule/errors style reads). Do NOT call write/trigger workforce actions in Ask mode.
+- If you need multiple workforce services, first narrate what you will access, then call \`request_workspace_permissions\` with the required services and wait for user completion.
 
-If user asks to create/modify code, tell them to switch to Build mode.
+If the user wants code changes beyond the plan file, they should switch to **Build mode** (or approve a mode change when offered).
 `;
     } else {
         prompt += `
@@ -183,6 +183,7 @@ If user asks to create/modify code, tell them to switch to Build mode.
 # Mode: Build
 
 Use function-calling tools for ALL operations. Never describe what you would do.
+Workforce write/trigger actions are Build-only and must pass the standard approval flow before execution.
 
 **Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one run_command that creates the project; do not emit multiple create/scaffold commands in the same turn.
 

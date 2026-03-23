@@ -10,9 +10,8 @@
 
 import { createClient, SupabaseClient, Session, User, SupportedStorage } from '@supabase/supabase-js';
 import log from 'electron-log';
-import { shell, app } from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
+import { shell } from 'electron';
+import { createSecureSupabaseStorage, clearSupabaseSecureStorage } from './supabase-secure-storage';
 
 const logger = log.scope('supabase');
 
@@ -24,53 +23,6 @@ const logger = log.scope('supabase');
 export const DEEP_LINK_PROTOCOL = 'atlarix';
 export const AUTH_CALLBACK_PATH = '/auth/callback';
 export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}`;
-
-// ============================================
-// FILE-BASED SESSION STORAGE
-// ============================================
-
-/**
- * Custom storage that persists to disk for Electron
- * Supabase's default localStorage doesn't persist in Electron
- */
-function createFileStorage(): SupportedStorage {
-    const storagePath = path.join(app.getPath('userData'), 'supabase-auth.json');
-    let cache: Record<string, string> = {};
-
-    // Load existing data on startup
-    try {
-        if (fs.existsSync(storagePath)) {
-            const data = fs.readFileSync(storagePath, 'utf8');
-            cache = JSON.parse(data);
-            logger.log('[Supabase] Loaded session from disk');
-        }
-    } catch (error) {
-        logger.warn('[Supabase] Failed to load session from disk:', error);
-        cache = {};
-    }
-
-    const save = () => {
-        try {
-            fs.writeFileSync(storagePath, JSON.stringify(cache), 'utf8');
-        } catch (error) {
-            logger.error('[Supabase] Failed to save session to disk:', error);
-        }
-    };
-
-    return {
-        getItem: (key: string) => {
-            return cache[key] || null;
-        },
-        setItem: (key: string, value: string) => {
-            cache[key] = value;
-            save();
-        },
-        removeItem: (key: string) => {
-            delete cache[key];
-            save();
-        },
-    };
-}
 
 // ============================================
 // SUPABASE CLIENT
@@ -96,12 +48,11 @@ export function getSupabaseClient(): SupabaseClient {
             throw new Error('Supabase URL and anon key are required. Add them to .env (see .env.example).');
         }
 
-        // Create file-based storage for Electron
-        fileStorage = createFileStorage();
+        // Keychain / safeStorage-backed session persistence (see supabase-secure-storage.ts)
+        fileStorage = createSecureSupabaseStorage();
 
         supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
             auth: {
-                // Use file-based storage for Electron session persistence
                 storage: fileStorage,
                 persistSession: true,
                 autoRefreshToken: true,
@@ -109,7 +60,7 @@ export function getSupabaseClient(): SupabaseClient {
             },
         });
 
-        logger.log('[Supabase] Client initialized with file-based storage');
+        logger.log('[Supabase] Client initialized with secure storage');
     }
 
     return supabaseClient;
@@ -266,9 +217,45 @@ export async function signOut(): Promise<void> {
     try {
         const supabase = getSupabaseClient();
         await supabase.auth.signOut();
+        await clearSupabaseSecureStorage();
         logger.log('[Supabase] Signed out');
     } catch (err) {
         logger.error('[Supabase] Sign out error:', err);
+        try {
+            await clearSupabaseSecureStorage();
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+/**
+ * Restore session on app startup: refresh if access token is expired or near expiry.
+ * Call from main after app.ready, before showing the main window.
+ */
+export async function restoreAuthSessionOnStartup(): Promise<void> {
+    try {
+        const supabase = getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            logger.log('[Supabase] No stored session on startup');
+            return;
+        }
+        const exp = session.expires_at;
+        if (exp) {
+            const expiresMs = exp * 1000;
+            const skewMs = 120_000;
+            if (expiresMs < Date.now() + skewMs) {
+                const { data, error } = await supabase.auth.refreshSession();
+                if (error) {
+                    logger.warn('[Supabase] Startup refresh failed (user may need to sign in again):', error.message);
+                } else if (data.session) {
+                    logger.log('[Supabase] Session refreshed on startup');
+                }
+            }
+        }
+    } catch (err) {
+        logger.warn('[Supabase] restoreAuthSessionOnStartup skipped:', err instanceof Error ? err.message : err);
     }
 }
 
@@ -322,39 +309,115 @@ async function ensureUserExists(user: User): Promise<void> {
 
 export type UserPlanDb = 'free' | 'pro' | 'workforce';
 
+type PlanRowInput = {
+    plan: string;
+    effective_tier?: string | null;
+    subscription_ends_at?: string | null;
+    subscription_status?: string | null;
+    lemon_subscription_id?: string | null;
+    lemon_variant_id?: string | null;
+};
+
+function trimEnv(key: string): string {
+    const v = process.env[key];
+    return typeof v === 'string' ? v.trim() : '';
+}
+
 /**
- * Get user's plan from database (with timeout to prevent hanging)
+ * When plan/effective_tier are still "free" but LemonSqueezy rows show a paid period,
+ * infer Pro or Workforce so the app matches billing (webhook may have updated status only).
+ * For active/on_trial we do not require subscription_ends_at (renewal date is often null in DB).
+ */
+function inferPaidTierWhenStoredFree(row: PlanRowInput): UserPlanDb | null {
+    const plan = (row.plan as UserPlanDb) || 'free';
+    const eff = (row.effective_tier as UserPlanDb) || plan;
+    if (plan !== 'free' || eff !== 'free') return null;
+    if (!row.lemon_subscription_id) return null;
+    const st = (row.subscription_status || '').toLowerCase();
+    const paidish = ['active', 'on_trial', 'cancelled', 'paused', 'past_due'].includes(st);
+    if (!paidish) return null;
+
+    const wf = trimEnv('LEMONSQUEEZY_WORKFORCE_VARIANT_ID');
+    const tierFromVariant =
+        row.lemon_variant_id && wf && row.lemon_variant_id === wf ? ('workforce' as const) : ('pro' as const);
+
+    if (st === 'active' || st === 'on_trial') {
+        return tierFromVariant;
+    }
+
+    const endsMs = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
+    if (!endsMs || Number.isNaN(endsMs) || Date.now() >= endsMs) return null;
+    return tierFromVariant;
+}
+
+/** Paid access: trust active/on_trial; otherwise use subscription_ends_at vs now. */
+function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
+    const st = (row.subscription_status || '').toLowerCase();
+    const activelyBilled = st === 'active' || st === 'on_trial';
+
+    const inferred = inferPaidTierWhenStoredFree(row);
+    if (inferred) {
+        if (!activelyBilled) {
+            const ends = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
+            if (ends && Date.now() > ends) return 'free';
+        }
+        return inferred;
+    }
+
+    const plan = (row.plan as UserPlanDb) || 'free';
+    const eff = (row.effective_tier as UserPlanDb) || plan;
+    const tier: UserPlanDb = eff === 'workforce' || eff === 'pro' ? eff : plan;
+    if (tier === 'free') return 'free';
+    const ends = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
+    if (!activelyBilled && ends && Date.now() > ends) return 'free';
+    return tier;
+}
+
+const PLAN_ROW_SELECT_BASE =
+    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
+const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
+
+async function fetchPlanRowForUser(
+    supabase: ReturnType<typeof getSupabaseClient>,
+    userId: string,
+): Promise<{ data: PlanRowInput | null; error: Error | null }> {
+    let { data, error } = await supabase
+        .from('users')
+        .select(PLAN_ROW_SELECT_WITH_VARIANT)
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (error) {
+        const r2 = await supabase
+            .from('users')
+            .select(PLAN_ROW_SELECT_BASE)
+            .eq('id', userId)
+            .maybeSingle();
+        data = r2.data as PlanRowInput | null;
+        error = r2.error;
+    }
+
+    return { data: data as PlanRowInput | null, error: error as Error | null };
+}
+
+/**
+ * Get user's plan from database
  */
 export async function getUserPlan(userId: string): Promise<UserPlanDb> {
-    const timeoutPromise = new Promise<UserPlanDb>((resolve) => {
-        setTimeout(() => {
-            logger.warn('[Supabase] getUserPlan timed out, defaulting to free');
-            resolve('free');
-        }, 5000);
-    });
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await fetchPlanRowForUser(supabase, userId);
 
-    const fetchPromise = (async (): Promise<UserPlanDb> => {
-        try {
-            const supabase = getSupabaseClient();
-            const { data, error } = await supabase
-                .from('users')
-                .select('plan')
-                .eq('id', userId)
-                .maybeSingle();
-
-            if (error) {
-                logger.warn('[Supabase] getUserPlan error:', error.message);
-                return 'free';
-            }
-            if (!data) return 'free';
-            return (data.plan as UserPlanDb) || 'free';
-        } catch (err) {
-            logger.warn('[Supabase] getUserPlan exception:', err);
+        if (error) {
+            logger.warn('[Supabase] getUserPlan error:', error.message);
             return 'free';
         }
-    })();
-
-    return Promise.race([fetchPromise, timeoutPromise]);
+        if (!data) return 'free';
+        return computeEntitledPlan(data);
+    } catch (err) {
+        logger.warn('[Supabase] getUserPlan exception:', err);
+        return 'free';
+    }
 }
 
 /**
@@ -363,16 +426,10 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
 export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
     try {
         const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-            .from('users')
-            .select('effective_tier, plan')
-            .eq('id', userId)
-            .maybeSingle();
+        const { data, error } = await fetchPlanRowForUser(supabase, userId);
 
         if (error || !data) return ownPlan || 'free';
-        const effective = (data.effective_tier as UserPlanDb) || data.plan || ownPlan || 'free';
-        const plan = (data.plan as UserPlanDb) || ownPlan || 'free';
-        return effective || plan;
+        return computeEntitledPlan(data);
     } catch (err) {
         logger.warn('[Supabase] getEffectiveTier exception:', err);
         return ownPlan || 'free';

@@ -22,6 +22,7 @@ import {
     PermissionResult,
     FileOperationPreview,
     CommandOperationPreview,
+    WorkforceActionPreview,
     DiagramUpdatePreview,
     BatchPlanPreview,
     parsePermissionRequest,
@@ -30,6 +31,8 @@ import { runShellCommand, runShellCommandStreaming, CommandResult } from "../../
 import { queueCapture } from "../../../lib/diagram-timeline";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
+import * as TokenVault from "../../../lib/auth/TokenVaultService";
+import * as SlackApi from "../../../lib/workforce/slack-api";
 
 const logger = log.scope("permission-interceptor");
 
@@ -460,6 +463,10 @@ export class PermissionInterceptor extends EventEmitter {
                 case "update_diagram":
                     await this.executeUpdateDiagram(request);
                     break;
+                // Workforce side-effect actions
+                case "workforce_action":
+                    await this.executeWorkforceAction(request);
+                    break;
                 // Parent-aggregated: execute each sub-operation in order (v2.2)
                 case "batch_plan":
                     await this.executeBatchPlan(operationId, request);
@@ -661,6 +668,51 @@ export class PermissionInterceptor extends EventEmitter {
         summary += '=== LAST 5 LINES ===\n' + lines.slice(-5).join('\n');
 
         return summary.slice(0, MAX_OUTPUT); // Hard cap
+    }
+
+    private async executeWorkforceAction(request: PermissionRequest): Promise<void> {
+        const preview = request.preview as WorkforceActionPreview;
+        const service = String(preview.service || "").toLowerCase();
+        const action = String(preview.action || "").toLowerCase();
+        const payload = preview.payload ?? {};
+
+        if (!service || !action) {
+            throw new Error("Invalid workforce action request");
+        }
+
+        if (action === "post_to_slack") {
+            const token = await TokenVault.getToken("slack", ["chat:write"]);
+            if (!token) throw new Error("Slack is not connected");
+            const channelId = String((payload as any).channelId ?? "");
+            const text = String((payload as any).text ?? "");
+            if (!channelId || !text) throw new Error("Slack action missing channelId/text");
+            const result = await SlackApi.postMessage(token, channelId, text);
+            if (!result.ok) throw new Error(result.error ?? "Failed to post to Slack");
+            return;
+        }
+
+        if (action === "update_ticket_status" || action === "create_ticket") {
+            if (service === "linear") {
+                const token = await TokenVault.getToken("linear", ["write"]);
+                if (!token) throw new Error("Linear is not connected");
+            } else {
+                const token = await TokenVault.getToken("jira", ["write:jira-work"]);
+                if (!token) throw new Error("Jira is not connected");
+            }
+            return;
+        }
+
+        if (action === "trigger_pipeline" || action === "cancel_pipeline") {
+            const provider = service;
+            if (provider === "gitlab") {
+                const token = await TokenVault.getToken("gitlab", ["read_api", "read_repository"]);
+                if (!token) throw new Error("GitLab is not connected");
+            } else if (provider === "bitbucket") {
+                const token = await TokenVault.getToken("bitbucket", ["pipeline:read", "repository:read"]);
+                if (!token) throw new Error("Bitbucket is not connected");
+            }
+            return;
+        }
     }
 
     /**

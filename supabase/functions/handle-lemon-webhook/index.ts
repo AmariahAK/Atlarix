@@ -117,15 +117,75 @@ serve(async (req: Request) => {
         switch (eventName) {
             case 'subscription_created':
             case 'subscription_updated': {
-                const status = data?.status;
-                const isActive = ['active', 'on_trial'].includes(status);
+                const status = data?.status ?? '';
                 const renewsAt = data?.renews_at || null;
+                const endsAt = data?.ends_at || null;
+                const isActive = ['active', 'on_trial'].includes(status);
 
                 const { data: existingUser } = await supabase
                     .from('users')
                     .select('id')
                     .eq('email', customerEmail)
                     .single();
+
+                // Cancelled but still in paid period: set tier from variant so plan is not left as free if active events were missed.
+                if (status === 'cancelled') {
+                    if (!existingUser) {
+                        console.log('[Webhook] subscription_updated cancelled but no user row; skipping');
+                        break;
+                    }
+                    const periodEnd = endsAt || renewsAt;
+                    const paidPlan = isWorkforce ? 'workforce' : 'pro';
+                    const { error: cancelErr } = await supabase
+                        .from('users')
+                        .update({
+                            plan: paidPlan,
+                            effective_tier: paidPlan,
+                            lemon_variant_id: variantId || null,
+                            subscription_status: 'cancelled',
+                            subscription_ends_at: periodEnd,
+                            lemon_subscription_id: subscriptionId,
+                            lemon_customer_id: String(data?.customer_id),
+                            customer_portal_url: data?.urls?.customer_portal || null,
+                            updated_at: new Date().toISOString(),
+                        })
+                        .eq('email', customerEmail);
+                    if (cancelErr) {
+                        console.error('[Webhook] Cancelled update error:', cancelErr);
+                        return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    console.log(`[Webhook] Cancelled (access until ${periodEnd}) for ${customerEmail}`);
+                    break;
+                }
+
+                // Definitive expiry in payload (some billing events): downgrade immediately
+                if (status === 'expired') {
+                    const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
+                    if (team) {
+                        await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
+                        await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
+                        const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
+                        for (const m of members ?? []) {
+                            if (m.user_id) {
+                                const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
+                                await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
+                            }
+                        }
+                    }
+                    const { error: expErr } = await supabase
+                        .from('users')
+                        .update({
+                            plan: 'free',
+                            effective_tier: 'free',
+                            subscription_status: 'expired',
+                            subscription_ends_at: null,
+                            team_id: null,
+                            updated_at: new Date().toISOString(),
+                        })
+                        .eq('lemon_subscription_id', subscriptionId);
+                    if (expErr) console.error('[Webhook] Expired status update error:', expErr);
+                    break;
+                }
 
                 if (!existingUser) {
                     const { error: insertError } = await supabase
@@ -134,10 +194,11 @@ serve(async (req: Request) => {
                             email: customerEmail,
                             plan: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
                             effective_tier: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
+                            lemon_variant_id: variantId || null,
                             lemon_subscription_id: subscriptionId,
                             lemon_customer_id: String(data?.customer_id),
                             subscription_status: status,
-                            subscription_ends_at: renewsAt,
+                            subscription_ends_at: renewsAt || endsAt,
                             customer_portal_url: data?.urls?.customer_portal || null,
                         });
                     if (insertError) {
@@ -162,20 +223,28 @@ serve(async (req: Request) => {
                         }
                     }
                 } else {
-                    const plan = isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free';
-                    const effectiveTier = isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free';
+                    // Active / trial: set paid tier. Other non-terminal states (e.g. past_due, paused): update status and period hints but do NOT downgrade to free.
+                    const paidPlan = isWorkforce ? 'workforce' : 'pro';
+                    const plan = isActive ? paidPlan : undefined;
+                    const effectiveTier = isActive ? paidPlan : undefined;
+
+                    const updateRow: Record<string, unknown> = {
+                        lemon_variant_id: variantId || null,
+                        lemon_subscription_id: subscriptionId,
+                        lemon_customer_id: String(data?.customer_id),
+                        subscription_status: status,
+                        subscription_ends_at: isActive ? renewsAt : (endsAt || renewsAt),
+                        customer_portal_url: data?.urls?.customer_portal || null,
+                        updated_at: new Date().toISOString(),
+                    };
+                    if (isActive) {
+                        updateRow.plan = plan;
+                        updateRow.effective_tier = effectiveTier;
+                    }
+
                     const { error: updateError } = await supabase
                         .from('users')
-                        .update({
-                            plan,
-                            effective_tier: effectiveTier,
-                            lemon_subscription_id: subscriptionId,
-                            lemon_customer_id: String(data?.customer_id),
-                            subscription_status: status,
-                            subscription_ends_at: renewsAt,
-                            customer_portal_url: data?.urls?.customer_portal || null,
-                            updated_at: new Date().toISOString(),
-                        })
+                        .update(updateRow)
                         .eq('email', customerEmail);
                     if (updateError) {
                         console.error('[Webhook] Update error:', updateError);
@@ -199,33 +268,29 @@ serve(async (req: Request) => {
                         }
                     }
                 }
-                console.log(`[Webhook] Successfully processed ${eventName} for ${customerEmail} (${isWorkforce ? 'workforce' : 'pro'})`);
+                console.log(`[Webhook] Successfully processed ${eventName} for ${customerEmail}`);
                 break;
             }
 
             case 'subscription_cancelled': {
                 const endsAt = data?.ends_at || null;
-                const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                if (team) {
-                    await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
-                    await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
-                    const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
-                    for (const m of members ?? []) {
-                        if (m.user_id) {
-                            const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
-                            await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
-                        }
-                    }
-                }
+                const variantIdCancelled = data?.variant_id?.toString() ?? '';
+                const workforceVariantCancelled = Deno.env.get('LEMONSQUEEZY_WORKFORCE_VARIANT_ID') ?? '';
+                const isWorkforceCancelled = variantIdCancelled === workforceVariantCancelled;
+                const paidPlanCancelled = isWorkforceCancelled ? 'workforce' : 'pro';
+                // User keeps paid features until subscription_ends_at; align plan with variant if DB was never updated on active.
                 await supabase
                     .from('users')
                     .update({
+                        plan: paidPlanCancelled,
+                        effective_tier: paidPlanCancelled,
+                        lemon_variant_id: variantIdCancelled || null,
                         subscription_status: 'cancelled',
                         subscription_ends_at: endsAt,
                         updated_at: new Date().toISOString(),
                     })
                     .eq('lemon_subscription_id', subscriptionId);
-                console.log(`[Webhook] Processed ${eventName}, ends_at: ${endsAt}`);
+                console.log(`[Webhook] Processed ${eventName}, access until: ${endsAt}`);
                 break;
             }
 

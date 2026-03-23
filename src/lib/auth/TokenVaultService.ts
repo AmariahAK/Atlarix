@@ -281,3 +281,14 @@ export function isTokenVaultConfigured(): boolean {
     process.env.AUTH0_TOKEN_VAULT_ID
   );
 }
+
+/**
+ * Clear in-memory Auth0 / Token Vault session state (e.g. on New Chat).
+ * Does not revoke remote connections (optional revoke may be slow); next tool use will re-prompt.
+ */
+export function clearAllTokenAuthSessions(): void {
+  storedRefreshToken = null;
+  storedAccessToken = null;
+  storedAccessTokenExpiry = 0;
+  logger.log('[TokenVault] clearAllTokenAuthSessions: in-memory tokens cleared');
+}

@@ -204,7 +204,11 @@ export function useRightPanelContext(): RightPanelContextResult {
         if (chatAreaHidden && !tabs.includes('chat')) {
             tabs = ['chat', ...tabs];
         }
-        const validTab = tabs.includes(activeTab) ? activeTab : tabs[0];
+        const preferredTab =
+            aiPanelIntent?.intent === 'show-workspace-permissions' && tabs.includes('vault')
+                ? 'vault'
+                : activeTab;
+        const validTab = tabs.includes(preferredTab) ? preferredTab : tabs[0];
 
         return {
             type: effectiveType,

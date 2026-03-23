@@ -45,6 +45,7 @@ export default defineConfig({
     rollupOptions: {
       external: [
         "better-sqlite3",
+        "keytar",
         "mysql2",
         // elkjs is bundled (use main entry 'elkjs' in code so it bundles without defineProperty issues).
         // OpenTelemetry packages are bundled so the packaged app finds them (no runtime require from node_modules).

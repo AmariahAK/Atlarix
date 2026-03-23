@@ -47,6 +47,8 @@ export interface ToolMetadata {
     requiresWorkspace?: boolean; // True if tool needs a workspace to function
     isCore?: boolean; // True if tool should be shown by default (with workspace)
     isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
+    /** When false isReadOnly: still offer in Ask mode (e.g. plan file writes with approval). */
+    allowInAskMode?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -110,7 +112,7 @@ export class ToolRegistry {
      */
     static getToolsForAskMode(): ToolMetadata[] {
         return this.getAll().filter(
-            (tool) => tool.isReadOnly === true
+            (tool) => tool.isReadOnly === true || tool.allowInAskMode === true
         );
     }
 
@@ -195,6 +197,10 @@ export class ToolRegistry {
             }
             // If this is a mode change request (Ask -> Build), return raw so stream handler can emit and wait
             if (result && typeof result === 'object' && result.__mode_change_requested) {
+                return result;
+            }
+            // Workspace permission panel request (batch Token Auth)
+            if (result && typeof result === 'object' && (result as any).__workspace_permissions_requested) {
                 return result;
             }
 

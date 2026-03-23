@@ -50,6 +50,7 @@ export type AIPanelIntent =
     | 'show-timeline'       // Show diagram history → maps to 'timeline'
     | 'show-files'          // Show file explorer → maps to 'files'
     | 'show-preview'        // Show dev server preview → maps to 'code-preview'
+    | 'show-workspace-permissions' // Show unified Token Auth workspace permission panel
     | 'hide'                // Clear/hide panel → maps to 'empty'
     | 'empty';              // No specific content → maps to 'empty'
 
@@ -101,6 +102,8 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
         case 'show-preview':
             // Dev server preview panel
             return 'code-preview';
+        case 'show-workspace-permissions':
+            return 'file-diff';
 
         case 'hide':
         case 'empty':

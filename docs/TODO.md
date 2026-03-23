@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v3.8.0  
-**Next Version:** v3.9+  
-**Last Updated:** 2026-03-11
+**Current Version:** v4.3.0  
+**Next Version:** v4.4+  
+**Last Updated:** 2026-03-23
 
 ---
 
@@ -13,6 +13,19 @@
 - **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
 - **Agents:** Research, Architect, Builder, Reviewer; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers.
 - **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; token budget; permission queue; summarization.
+
+---
+
+## Done: v4.3 — UX and release alignment (2026-03-23)
+
+- **Versioning/docs refresh:** App version bumped to 4.3.0; README/TODO/changelogs aligned to current release messaging.
+- **Secure auth persistence:** Keychain/encrypted session persistence on restart, startup restore + refresh, and explicit logout clearing.
+- **Onboarding tours:** First-run + feature `?` Shepherd tours with local resume/completion state.
+- **Billing entitlement fixes:** Correct active vs cancelled-within-period vs expired behavior; prevent premature feature removal; account copy alignment.
+- **Workforce flow improvements:** New-chat clears Token Auth sessions, connected-service indicator in chat, and polished Workforce settings areas.
+- **Ask-mode planning:** `write_implementation_plan` allowed in Ask with approval while code writes remain Build-only.
+- **Ollama recommendations:** Hardware-aware model suggestions with pull actions and quick selection in provider settings.
+- **Workforce permissions UX:** Ask/Build read-write split, Build-only approval for write/trigger actions, and unified batch permission panel via `request_workspace_permissions(services[])`.
 
 ---
 

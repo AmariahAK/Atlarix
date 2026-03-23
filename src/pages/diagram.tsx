@@ -452,7 +452,7 @@ export default function DiagramPage() {
                         <div className="flex-1 flex overflow-hidden">
                             {/* Main Diagram Area */}
                             <div className="flex-1 overflow-auto p-6">
-                                <div className="diagram-preview bg-card rounded-lg border border-border min-h-[500px] h-full">
+                                <div className="diagram-preview bg-card rounded-lg border border-border min-h-[500px] h-full" data-tour="tour-blueprint-canvas">
                                     <MermaidRenderer
                                         code={selectedDiagram.content}
                                         className="w-full h-full"

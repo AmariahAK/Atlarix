@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {
@@ -168,6 +168,7 @@
     "html-to-image": "^1.11.13",
     "isomorphic-git": "^1.30.1",
     "jotai": "^2.12.2",
+    "keytar": "^7.9.0",
     "kill-port": "^2.0.1",
     "konva": "^10.0.12",
     "lexical": "^0.33.1",
@@ -192,6 +193,7 @@
     "react-zoom-pan-pinch": "^3.7.0",
     "recast": "^0.23.11",
     "remark-gfm": "^4.0.1",
+    "shepherd.js": "^14.4.0",
     "shell-env": "^4.0.1",
     "shiki": "^3.2.1",
     "simple-git": "^3.30.0",

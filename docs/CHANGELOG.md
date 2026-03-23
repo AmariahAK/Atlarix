@@ -11,6 +11,27 @@ All notable changes to Atlarix will be documented in this file.
 
 ---
 
+## v4.3.0 — UX and workflow update (2026-03-23)
+
+### Added
+
+- **Batch workforce permissions:** New `request_workspace_permissions(services[])` flow opens one unified Token Auth panel for multi-service access.
+- **Ollama recommender panel:** Hardware-aware model recommendations with one-click pull and quick model selection in provider settings.
+
+### Changed
+
+- **Workforce Ask/Build behavior:** Ask mode is strictly read-only for Workforce tools; write/trigger actions are Build-only with approval.
+- **Ask-mode planning:** ATLARIX plan-writing tools are available in Ask mode with approval, while code changes remain Build-only.
+- **Release docs and metadata:** README/TODO/changelog/version metadata aligned to the 4.3 release.
+
+### Fixed
+
+- **Session persistence:** Secure auth session restore and refresh on startup, plus explicit logout secret clearing.
+- **Subscription UX:** Correct active vs cancelled-within-period vs expired messaging and entitlement timing.
+- **Token Auth lifecycle:** New chat clears prior Token Auth sessions and exposes connected-service indicators in chat UI.
+
+---
+
 ## v4.2.0 — Bug fixes and security (2026-03-18)
 
 ### Improvements

@@ -106,6 +106,9 @@ const validInvokeChannels = [
   "window:maximize",
   "window:close",
   "get-system-platform",
+  "system:get-hardware-profile",
+  "ollama:get-recommendations",
+  "ollama:pull-model",
   "upload-to-signed-url",
   "delete-chat",
   "update-chat",
@@ -124,6 +127,7 @@ const validInvokeChannels = [
   "get-app-upgrades",
   "execute-app-upgrade",
   "respond-mode-change",
+  "respond-workspace-permissions",
   "is-capacitor",
   "sync-capacitor",
   "open-ios",
@@ -280,6 +284,8 @@ const validInvokeChannels = [
   "auth:cancel-subscription",
   "onboarding:get-completed",
   "onboarding:set-completed",
+  "tour:get-state",
+  "tour:set-state",
   // DB Extension (Pro / Workforce preview)
   "db:list-connections",
   "db:save-connection",
@@ -296,6 +302,8 @@ const validInvokeChannels = [
   "token-vault:get-token",
   "token-vault:revoke",
   "token-vault:list-services",
+  "token-vault:start-connect",
+  "token-vault:clear-all-sessions",
   // v4.0 Teams (Workforce)
   "team:get",
   "team:list-members",
@@ -307,6 +315,8 @@ const validInvokeChannels = [
   "team:remove-member",
   "team:add-seats",
   "team:send-test-email",
+  // Community (Discord)
+  "discord:get-invite-info",
 ];
 
 const validReceiveChannels = [
@@ -338,6 +348,7 @@ const validReceiveChannels = [
   // v4.0 Token Vault (Workforce)
   "token-vault:consent-required",
   "token-vault:fallback-warning",
+  "token-vault:connected",
   "auto-recovery-needed",     // AI self-healing on failures
   "chat:workspace-diagram",
   // AI-controlled right panel (Hybrid Intent System)
@@ -369,6 +380,7 @@ const validReceiveChannels = [
   "oauth-callback-success",
   // v3.9: GitHub Actions log stream
   "github-actions:log-chunk",
+  "open-community-dialog",
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

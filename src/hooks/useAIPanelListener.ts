@@ -25,6 +25,7 @@ const VALID_INTENTS: AIPanelIntent[] = [
     'show-timeline',
     'show-files',
     'show-preview',  // Dev server preview
+    'show-workspace-permissions',
     'hide',
     'empty'
 ];

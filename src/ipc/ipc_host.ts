@@ -51,6 +51,9 @@ import { registerGitHubActionsHandlers } from "./handlers/github_actions_handler
 import { registerTokenVaultHandlers } from "./handlers/token_vault_handlers";
 import { registerExtensionSpaceHandlers } from "./handlers/extension_space_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
+import { registerTourHandlers } from "./handlers/tour_handlers";
+import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
+import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
@@ -112,5 +115,8 @@ export function registerIpcHandlers() {
   registerTokenVaultHandlers(); // v4.0 Token Vault (Workforce)
   registerExtensionSpaceHandlers(); // v4.0 per-workspace extension scope (Workforce)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
+  registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
+  registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
+  registerCommunityHandlers(); // Discord invite metadata for Community dialog
   wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

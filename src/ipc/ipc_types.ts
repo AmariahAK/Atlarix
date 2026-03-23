@@ -628,3 +628,14 @@ export interface AnalyseComponentParams {
   appId: number;
   componentId: string;
 }
+
+/** Discord invite API (main process) — metadata for Community dialog. */
+export type DiscordInviteInfoResult =
+  | {
+      ok: true;
+      name: string;
+      description: string | null;
+      memberCount?: number;
+      presenceCount?: number;
+    }
+  | { ok: false };

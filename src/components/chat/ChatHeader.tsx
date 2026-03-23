@@ -3,6 +3,7 @@ import {
   PlusCircle,
   GitBranch,
   Info,
+  KeyRound,
 } from "lucide-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAtom, useAtomValue } from "jotai";
@@ -20,7 +21,7 @@ import { useRouter } from "@tanstack/react-router";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useChats } from "@/hooks/useChats";
 import { showError, showSuccess } from "@/lib/toast";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useCurrentBranch } from "@/hooks/useCurrentBranch";
 import { useCheckoutVersion } from "@/hooks/useCheckoutVersion";
@@ -80,9 +81,42 @@ export function ChatHeader({
     showSuccess("Master branch renamed to main");
   };
 
+  const [vaultServices, setVaultServices] = useState<string[]>([]);
+
+  const refreshVaultServices = useCallback(async () => {
+    try {
+      const ipc = window.electron?.ipcRenderer;
+      if (!ipc?.invoke) return;
+      const list = (await ipc.invoke("token-vault:list-services")) as
+        | Array<{ name: string }>
+        | undefined;
+      setVaultServices(Array.isArray(list) ? list.map((s) => s.name) : []);
+    } catch {
+      setVaultServices([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshVaultServices();
+    const interval = setInterval(() => void refreshVaultServices(), 15000);
+    const unsub = window.electron?.ipcRenderer?.on?.("token-vault:connected", () => {
+      void refreshVaultServices();
+    });
+    return () => {
+      clearInterval(interval);
+      unsub?.();
+    };
+  }, [refreshVaultServices]);
+
   const handleNewChat = async () => {
     if (appId) {
       try {
+        try {
+          await window.electron?.ipcRenderer?.invoke("token-vault:clear-all-sessions");
+        } catch {
+          /* non-fatal */
+        }
+        await refreshVaultServices();
         const chatId = await IpcClient.getInstance().createChat(appId);
         setSelectedChatId(chatId);
         navigate({
@@ -179,8 +213,36 @@ export function ChatHeader({
       )}
 
       {/* Why is this pt-0.5? Because the loading bar is h-1 (it always takes space) and we want the vertical spacing to be consistent.*/}
-      <div className="@container flex items-center justify-between pb-1.5 pt-0.5">
-        <div className="flex items-center space-x-2">
+        <div className="@container flex items-center justify-between pb-1.5 pt-0.5">
+        <div className="flex items-center space-x-2 min-w-0">
+          {vaultServices.length > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="hidden @2xs:flex items-center gap-1 mr-1 text-muted-foreground shrink-0">
+                    <KeyRound className="h-4 w-4 shrink-0" aria-hidden />
+                    <div className="flex flex-wrap gap-1 max-w-[140px]">
+                      {vaultServices.slice(0, 4).map((name) => (
+                        <span
+                          key={name}
+                          className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground truncate max-w-[72px]"
+                          title={name}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                      {vaultServices.length > 4 ? (
+                        <span className="text-[10px] text-muted-foreground">+{vaultServices.length - 4}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  Token Vault connected: {vaultServices.join(", ")}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <Button
             onClick={handleNewChat}
             variant="ghost"

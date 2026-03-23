@@ -7,20 +7,20 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v4.2.0*
+*Current: v4.3.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
-**Recent (v4.2):** Bug fixes and security improvements: TypeScript and type-safety fixes across the app, removal of fly.io/standalone API URL (auth and DB via Supabase only), onboarding bar positioning below window controls, MCP client API update, and related stability/security cleanup.
+**Recent (v4.3):** UX and workflow upgrade: secure session persistence across restarts, guided Shepherd tours, corrected subscription entitlement timing/copy, Ask-mode planning improvements, Workforce Ask/Build read-write split, batch Token Auth permissions (`request_workspace_permissions`), and hardware-aware Ollama model recommendations in Settings.
 
 **Recent (v4.0 — Workforce):** New **Workforce** tier ($79/mo): Auth0 Token Vault for secure agent auth, Workspace Context (Slack, Jira, Linear, CI, Sentry, Calendar), Teams (up to 20 seats), GitLab CI & Bitbucket Pipelines, Progressive Tool Reveal. DB Studio moved to Workforce (existing Pro subscribers grandfathered). Three tiers: Free, Pro ($19/mo), Workforce ($79/mo). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
 ### Workspace tools & extensions (how it works)
 
-- **Core workspace tools (all tiers)**: When you open a workspace and use **Build** mode, the model always has access to core tools for files, code, search, diagrams, git, and commands. In **Ask** mode it automatically filters to read‑only tools (`read_file`, `list_files`, `search_code`, `get_diagram`, `git_log`, `web_search`, etc.) using each tool’s `isReadOnly` flag.
+- **Core workspace tools (all tiers)**: When you open a workspace and use **Build** mode, the model always has access to core tools for files, code, search, diagrams, git, and commands. In **Ask** mode it automatically filters to read‑only tools (`read_file`, `list_files`, `search_code`, `get_diagram`, `git_log`, `web_search`, etc.) using each tool’s `isReadOnly` flag (with explicit `allowInAskMode` exceptions, e.g. implementation-plan writes).
 - **MCP tools (`@mcp` mentions)**: Add MCP servers in **Settings → Tools → MCP**. In chat, type `@` and pick an MCP server (e.g. `@mcp:MyServer`). The mention is sent in your message so the AI can prefer that server’s tools, but you never call tools manually—the model chooses which MCP tools to invoke.
-- **Workforce tools (Slack, Jira/Linear, Sentry, calendar, CI)**: On the **Workforce** tier, connect services via **Token Vault**. Once connected, the AI can read your workspace context (open PRs, failing pipelines, assigned tickets, unread mentions, Sentry errors, today’s meetings) and call workforce tools as needed. You do **not** use an `@` command for these; you just ask in natural language (“What Jira tickets are assigned to me?”, “Any new Slack mentions?”, “How did the CI pipeline go?”).
-- **Database Extension (DB tools)**: Configure database connections (PostgreSQL, MySQL, SQLite) in the **DB extension / DB Studio UI**. After a connection is active for a workspace, the AI gets DB tools:
+- **Workforce tools (Slack, Jira/Linear, Sentry, calendar, CI)**: On the **Workforce** tier, connect services via **Token Vault**. Read tools are Ask-safe; write/trigger tools are Build-only with approval. For multi-service auth, the AI can call `request_workspace_permissions(services[])` to open one unified permission panel that excludes already-connected services.
+- **Database Extension (DB tools)**: Configure database connections (PostgreSQL, MySQL, SQLite) through the **AI and extensions flow** (no separate Workspace block in Settings). After a connection is active for a workspace, the AI gets DB tools:
   - `db_query` and `db_schema` for read‑only SELECTs and schema inspection  
   - `db_list` to list configured/active connections  
   - `db_mutate` for writes (INSERT/UPDATE/DELETE/DDL) that always require explicit user approval in the permission queue  

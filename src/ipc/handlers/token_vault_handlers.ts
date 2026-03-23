@@ -11,6 +11,7 @@ import {
   setTokenVaultFallbackWarning,
   getConnectUrl,
   storeAuth0Tokens,
+  clearAllTokenAuthSessions,
 } from "../../lib/auth/TokenVaultService";
 
 export function registerTokenVaultHandlers(): void {
@@ -45,6 +46,11 @@ export function registerTokenVaultHandlers(): void {
       return { success: true };
     }
   );
+
+  ipcMain.handle("token-vault:clear-all-sessions", async () => {
+    clearAllTokenAuthSessions();
+    return { success: true };
+  });
 
   setTokenVaultFallbackWarning((message) => {
     const { BrowserWindow } = require("electron");

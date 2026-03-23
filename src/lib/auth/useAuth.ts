@@ -21,7 +21,8 @@ export interface UserStatus {
     workspaceLimit: number;
     currentWorkspaceCount: number;
     canCreateWorkspace: boolean;
-    subscriptionStatus?: 'active' | 'cancelled' | null;
+    /** LemonSqueezy subscription status (e.g. active, on_trial, cancelled, expired) */
+    subscriptionStatus?: string | null;
     subscriptionEndsAt?: string | null; // ISO date string
 }
 
@@ -88,27 +89,31 @@ export function useAuth() {
         // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
         const handlePlanChanged = (data: {
             plan: 'free' | 'pro' | 'workforce';
+            /** Effective tier (own or team); prefer over `plan` when present */
+            effectiveTier?: 'free' | 'pro' | 'workforce';
             previousPlan?: 'free' | 'pro' | 'workforce';
-            subscriptionStatus?: 'active' | 'cancelled' | null;
+            subscriptionStatus?: string | null;
             subscriptionEndsAt?: string | null;
         }) => {
             console.log('[useAuth] Plan changed:', data);
 
+            const nextPlan = (data.effectiveTier ?? data.plan) as UserStatus['plan'];
+
             // Update status with all new fields
             setStatus((prev) => prev ? {
                 ...prev,
-                plan: data.plan,
+                plan: nextPlan,
                 subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
                 subscriptionEndsAt: data.subscriptionEndsAt ?? prev.subscriptionEndsAt,
             } : prev);
 
             // Show upgrade notification when plan upgraded and subscription is active
             const isProUpgrade =
-                data.plan === 'pro' &&
+                nextPlan === 'pro' &&
                 data.previousPlan === 'free' &&
                 data.subscriptionStatus === 'active';
             const isWorkforceUpgrade =
-                data.plan === 'workforce' &&
+                nextPlan === 'workforce' &&
                 data.previousPlan !== 'workforce' &&
                 data.subscriptionStatus === 'active';
 
@@ -165,7 +170,17 @@ export function useAuth() {
                 return;
             }
 
-            type GetUserResult = { user?: { id: string; email?: string; name?: string; avatar?: string; plan?: string }; isPro?: boolean };
+            type GetUserResult = {
+                user?: {
+                    id: string;
+                    email?: string;
+                    name?: string;
+                    avatar?: string;
+                    plan?: string;
+                    effectiveTier?: 'free' | 'pro' | 'workforce';
+                };
+                isPro?: boolean;
+            };
             const result = (await ipcRenderer.invoke('auth:get-current-user')) as GetUserResult | undefined;
 
             if (result?.user) {
@@ -175,7 +190,11 @@ export function useAuth() {
                     name: (result.user.name || (result.user.email ?? "").split('@')[0]) || "User",
                     avatar: result.user.avatar,
                 });
-                const plan = (result.user.plan || 'free') as 'free' | 'pro' | 'workforce';
+                const plan = (
+                    result.user.effectiveTier ??
+                    result.user.plan ??
+                    "free"
+                ) as "free" | "pro" | "workforce";
                 setStatus({
                     plan,
                     isLoggedIn: true,
@@ -193,7 +212,7 @@ export function useAuth() {
                         workspaceLimit: planResult.workspaceLimit ?? prev.workspaceLimit,
                         currentWorkspaceCount: planResult.currentWorkspaceCount ?? prev.currentWorkspaceCount,
                         canCreateWorkspace: planResult.canCreateWorkspace ?? prev.canCreateWorkspace,
-                        subscriptionStatus: (planResult.subscriptionStatus === "active" || planResult.subscriptionStatus === "cancelled" ? planResult.subscriptionStatus : prev.subscriptionStatus) ?? null,
+                        subscriptionStatus: planResult.subscriptionStatus ?? prev.subscriptionStatus ?? null,
                         subscriptionEndsAt: planResult.subscriptionEndsAt ?? prev.subscriptionEndsAt,
                     } : prev);
                 }
@@ -220,7 +239,7 @@ export function useAuth() {
                     workspaceLimit: result.workspaceLimit ?? 1,
                     currentWorkspaceCount: result.currentWorkspaceCount ?? 0,
                     canCreateWorkspace: result.canCreateWorkspace ?? true,
-                    subscriptionStatus: (result.subscriptionStatus === "active" || result.subscriptionStatus === "cancelled" ? result.subscriptionStatus : null) ?? null,
+                    subscriptionStatus: result.subscriptionStatus ?? null,
                     subscriptionEndsAt: result.subscriptionEndsAt ?? null,
                 });
             }

@@ -79,29 +79,38 @@ export class SubscriptionManager {
     // INITIALIZATION
     // ========================================
 
+    private static initPromise: Promise<void> | null = null;
+
     /**
-     * Initialize the subscription manager - call on app start
+     * Initialize the subscription manager - call on app start (after restoreAuthSessionOnStartup).
+     * Idempotent: concurrent callers share one initialization.
      */
     static async initialize(): Promise<void> {
-        logger.log('[SubscriptionManager] Initializing...');
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = (async () => {
+            logger.log('[SubscriptionManager] Initializing...');
 
-        // Check for existing session
-        const supabaseSession = await getSession();
-        if (supabaseSession?.user) {
-            await this.updateSession(supabaseSession);
-        }
-
-        // Listen for auth state changes
-        this.authCleanup = onAuthStateChange(async (session) => {
-            if (session) {
-                await this.updateSession(session);
-            } else {
-                this.session = null;
-                logger.log('[SubscriptionManager] User signed out');
+            const supabaseSession = await getSession();
+            if (supabaseSession?.user) {
+                await this.updateSession(supabaseSession);
             }
-        });
 
-        logger.log('[SubscriptionManager] Initialized');
+            if (this.authCleanup) {
+                this.authCleanup();
+                this.authCleanup = null;
+            }
+            this.authCleanup = onAuthStateChange(async (session) => {
+                if (session) {
+                    await this.updateSession(session);
+                } else {
+                    this.session = null;
+                    logger.log('[SubscriptionManager] User signed out');
+                }
+            });
+
+            logger.log('[SubscriptionManager] Initialized');
+        })();
+        return this.initPromise;
     }
 
     /**

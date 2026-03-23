@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu } from "electron";
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import dotenv from "dotenv";
@@ -36,6 +36,8 @@ import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import fs from "fs";
 import os from "node:os";
+import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
+import { SubscriptionManager } from "./lib/SubscriptionManager";
 
 log.errorHandler.startCatching();
 log.eventLogger.startLogging();
@@ -104,6 +106,13 @@ export async function onReady() {
     await backupManager.initialize();
   } catch (e) {
     logger.error("Error initializing backup manager", e);
+  }
+
+  try {
+    await restoreAuthSessionOnStartup();
+    await SubscriptionManager.initialize();
+  } catch (e) {
+    logger.warn("Auth session restore or subscription init (non-fatal):", e);
   }
 
   createWindow();
@@ -241,6 +250,48 @@ function sendDbReadyToWindow(): void {
   }
 }
 
+function setMainApplicationMenu(): void {
+  const isMac = process.platform === "darwin";
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []),
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: [
+        {
+          label: "Community",
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("open-community-dialog");
+            }
+          },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 const createWindow = () => {
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -346,6 +397,8 @@ const createWindow = () => {
     const menu = Menu.buildFromTemplate(template);
     menu.popup({ window: mainWindow! });
   });
+
+  setMainApplicationMenu();
 };
 
 const gotTheLock = app.requestSingleInstanceLock();

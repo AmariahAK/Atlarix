@@ -1,6 +1,5 @@
 import {
   Home,
-  Inbox,
   Settings,
   HelpCircle,
   BookOpen,
@@ -11,14 +10,12 @@ import {
   User,
   Github,
   Chrome,
-  LayoutGrid,
 } from "lucide-react";
-import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
-import { activeExtensionIdsAtom, selectedExtensionIdAtom } from "@/atoms/viewAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
 
 import {
@@ -33,20 +30,13 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 // ChatList removed - unified into home page
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
-import { ExtensionManagerDialog } from "./extensions/ExtensionManagerDialog";
-import { triggerUpgrade } from "@/hooks/useUpgrade";
+import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
+import { UpgradeChoiceDialog } from "./UpgradeChoiceDialog";
 
 // Menu items.
 const items = [
@@ -96,14 +86,24 @@ export function AppSidebar() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
-  const [isExtensionManagerOpen, setIsExtensionManagerOpen] = useState(false);
-  const [showExtensionsGateDialog, setShowExtensionsGateDialog] = useState(false);
-  const [activeExtensionIds, setActiveExtensionIds] = useAtom(activeExtensionIdsAtom);
-  const setSelectedExtensionId = useSetAtom(selectedExtensionIdAtom);
-  const navigate = useNavigate();
+  const [upgradeChoiceOpen, setUpgradeChoiceOpen] = useState(false);
 
   // Auth hook for OAuth login
-  const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
+  const {
+    user,
+    isAuthenticated,
+    signInWithGoogle,
+    signInWithGitHub,
+    signOut,
+    status,
+    refreshStatus,
+  } = useAuth();
+
+  useEffect(() => {
+    if (showAuthMenu && isAuthenticated) {
+      void refreshStatus?.();
+    }
+  }, [showAuthMenu, isAuthenticated, refreshStatus]);
 
   useEffect(() => {
     if (hoverState.startsWith("start-hover") && state === "collapsed") {
@@ -227,32 +227,18 @@ export function AppSidebar() {
                         }`}>
                         {status?.plan === 'workforce' ? '✨ Workforce' : status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
                       </span>
-                      {/* Free tier: show Upgrade choice (Pro vs Workforce) */}
+                      {/* Free tier: primary upgrade = Workforce (LEMONSQUEEZY_WORKFORCE_VARIANT_ID) */}
                       {status?.plan === 'free' && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => {
-                              import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-                                triggerUpgrade();
-                              });
-                              setShowAuthMenu(false);
-                            }}
-                            className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
-                          >
-                            Pro
-                          </button>
-                          <button
-                            onClick={() => {
-                              import("@/hooks/useUpgrade").then(({ triggerUpgradeWorkforce }) => {
-                                triggerUpgradeWorkforce();
-                              });
-                              setShowAuthMenu(false);
-                            }}
-                            className="text-xs px-2 py-0.5 bg-primary/80 text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
-                          >
-                            Workforce
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAuthMenu(false);
+                            setUpgradeChoiceOpen(true);
+                          }}
+                          className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
+                        >
+                          Upgrade
+                        </button>
                       )}
                       {/* Pro or Workforce (active): show Unsubscribe button */}
                       {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus !== 'cancelled' && (
@@ -294,11 +280,12 @@ export function AppSidebar() {
                     {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus === 'cancelled' && (
                       <div className="px-2 pb-2 mb-2">
                         <button
+                          type="button"
                           onClick={() => {
-                            const openAgain = status?.plan === 'workforce'
-                              ? import("@/hooks/useUpgrade").then(({ triggerUpgradeWorkforce }) => triggerUpgradeWorkforce())
-                              : import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => triggerUpgrade());
-                            openAgain.then(() => setShowAuthMenu(false));
+                            void (status?.plan === 'workforce'
+                              ? triggerUpgradeWorkforce()
+                              : triggerUpgrade());
+                            setShowAuthMenu(false);
                           }}
                           className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
                         >
@@ -307,17 +294,15 @@ export function AppSidebar() {
                       </div>
                     )}
 
-                    {/* Account (profile, subscription, team) */}
-                    <button
-                      onClick={() => {
-                        navigate({ to: "/account" });
-                        setShowAuthMenu(false);
-                      }}
+                    {/* Account (profile, subscription, team) — use Link like settings child routes so navigation always resolves */}
+                    <Link
+                      to="/account"
+                      onClick={() => setShowAuthMenu(false)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-muted rounded transition-colors"
                     >
                       <User className="h-4 w-4" />
                       Account
-                    </button>
+                    </Link>
 
                     {/* Sign out button */}
                     <button
@@ -377,70 +362,6 @@ export function AppSidebar() {
             )}
           </SidebarMenuItem>
 
-          {/* Extensions - above Help; Pro-gated: show gate dialog when not Pro */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="sm"
-              className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl relative"
-              onClick={() => {
-                if (status?.plan === "pro") {
-                  setIsExtensionManagerOpen(true);
-                } else {
-                  setShowExtensionsGateDialog(true);
-                }
-              }}
-            >
-              <LayoutGrid className="h-5 w-5" />
-              <span className="text-xs">Extensions</span>
-              {status?.plan !== "pro" && (
-                <span className="absolute -top-0.5 -right-0.5 rounded bg-primary/20 text-primary text-[9px] font-semibold px-1">
-                  Pro
-                </span>
-              )}
-            </SidebarMenuButton>
-            <Dialog open={showExtensionsGateDialog} onOpenChange={setShowExtensionsGateDialog}>
-              <DialogContent className="sm:max-w-md" showCloseButton>
-                <DialogHeader>
-                  <DialogTitle>
-                    {!isAuthenticated ? "Log in to use Extensions" : "Upgrade to use Extensions & DB"}
-                  </DialogTitle>
-                  <DialogDescription>
-                    {!isAuthenticated
-                      ? "Extensions and DB Connections require an account. Log in with Google or GitHub, then upgrade to Pro to use them."
-                      : "DB Connections and other extensions are available on Pro. Upgrade to connect your database and unlock extensions."}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="pt-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (!isAuthenticated) {
-                        setShowExtensionsGateDialog(false);
-                        navigate({ to: "/sign-in" });
-                      } else {
-                        setShowExtensionsGateDialog(false);
-                        triggerUpgrade();
-                      }
-                    }}
-                  >
-                    {!isAuthenticated ? "Log in" : "Upgrade"}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-            <ExtensionManagerDialog
-              open={isExtensionManagerOpen}
-              onOpenChange={setIsExtensionManagerOpen}
-              activeExtensionIds={activeExtensionIds}
-              onAddToPanel={(id) => {
-                if (activeExtensionIds.includes(id)) return;
-                if (activeExtensionIds.length >= 5) return;
-                setActiveExtensionIds([...activeExtensionIds, id]);
-                setSelectedExtensionId(id);
-              }}
-            />
-          </SidebarMenuItem>
-
           {/* Help Button */}
           <SidebarMenuItem>
             {/* Change button to open dialog instead of linking */}
@@ -455,6 +376,10 @@ export function AppSidebar() {
             <HelpDialog
               isOpen={isHelpDialogOpen}
               onClose={() => setIsHelpDialogOpen(false)}
+            />
+            <UpgradeChoiceDialog
+              open={upgradeChoiceOpen}
+              onOpenChange={setUpgradeChoiceOpen}
             />
           </SidebarMenuItem>
         </SidebarMenu>
@@ -495,6 +420,7 @@ function AppIcons({
                   <Link
                     to={item.to}
                     data-onboarding={item.title === "Apps" ? "workspace-selector" : item.title === "Diagram" ? "blueprint-tab" : item.title === "Settings" ? "settings-link" : undefined}
+                    data-tour={item.title === "Diagram" ? "tour-blueprint-canvas" : item.title === "Settings" ? "tour-extensions" : undefined}
                     className={`flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
                       }`}
                     onMouseEnter={() => {

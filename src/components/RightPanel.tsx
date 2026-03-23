@@ -23,6 +23,7 @@ import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
+import { WorkspacePermissionsPanel } from './preview_panel/WorkspacePermissionsPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
@@ -228,6 +229,7 @@ Please fix these errors in priority order (structural/build errors first, then r
     return (
         <div
             ref={panelRef}
+            data-tour="tour-activity-panel"
             className={cn(
                 "relative flex flex-col h-full bg-background border-l border-border flex-none z-10",
                 !isDragging && "animate-slide-in-right"
@@ -363,6 +365,17 @@ function PanelContent({
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             case 'vault':
+                if (context.data?.requestId && Array.isArray(context.data?.services)) {
+                    return (
+                        <WorkspacePermissionsPanel
+                            chatId={context.data?.chatId}
+                            requestId={context.data?.requestId}
+                            services={context.data?.services ?? []}
+                            alreadyConnected={context.data?.alreadyConnected ?? []}
+                            message={context.data?.message}
+                        />
+                    );
+                }
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             default:
                 // Default to permission queue
@@ -376,6 +389,17 @@ function PanelContent({
 
         case 'code-preview':
             if (context.activeTab === 'vault') {
+                if (context.data?.requestId && Array.isArray(context.data?.services)) {
+                    return (
+                        <WorkspacePermissionsPanel
+                            chatId={context.data?.chatId}
+                            requestId={context.data?.requestId}
+                            services={context.data?.services ?? []}
+                            alreadyConnected={context.data?.alreadyConnected ?? []}
+                            message={context.data?.message}
+                        />
+                    );
+                }
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             }
             return (

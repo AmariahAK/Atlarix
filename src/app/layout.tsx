@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
+import { TourManager } from "@/components/tour/TourManager";
+import { CommunityDialog } from "@/components/CommunityDialog";
 
 /**
  * PersistentChatContainer
@@ -191,6 +193,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const onboardingStep = useAtomValue(onboardingStepAtom);
 
+  /** Home chat UI covers the outlet only on `/` or `/chat`; other routes (e.g. `/account`, `/settings`) must always render. */
+  const suppressOutletForHomeChat =
+    activeChatId != null &&
+    (location.pathname === "/" || location.pathname.startsWith("/chat"));
+
   usePanelShortcuts();
 
   // When user adds first extension, open the left panel
@@ -297,6 +304,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <ThemeProvider>
         <DeepLinkProvider>
           <OnboardingTrigger />
+          <TourManager />
+          <CommunityDialog />
           <OnboardingProgressBar />
           {showOnboardingHighlight && (
             <style>{`
@@ -337,14 +346,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 </button>
               )}
               {/* Main content: chat when active, else route content */}
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                 {/* Pending team invites (signed-in user) */}
                 <PendingInviteBanner />
                 {/* Workspace folder missing (deleted outside app) */}
                 {isOnChatPage && <WorkspaceNotFoundBanner />}
-                {/* Chat overlay when active, else route content */}
+                {/* Chat overlay on home when a chat is active; full-page routes still render their outlet */}
                 <PersistentChatContainer />
-                {!activeChatId && children}
+                <div className="relative z-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+                  {!suppressOutletForHomeChat && children}
+                </div>
               </div>
               {/* Right panel: on chat page whenever visible (works for workspace and web-only chats) */}
               {rightPanelVisible && isOnChatPage && <RightPanel />}

@@ -15,8 +15,10 @@ This file is used by the AI to understand available tools and behavior. Tool cou
 - **Sentry:** `get_sentry_errors`, `get_sentry_error_detail`.
 - **Calendar:** `get_today_schedule`.
 - **CI:** `trigger_pipeline`, `cancel_pipeline` (approval) — GitHub, GitLab, Bitbucket.
+- **Batch auth:** `request_workspace_permissions(services[])` opens one Token Vault panel for multiple services and waits for user completion.
 
-Read-only Workforce tools are available in Ask mode; write/trigger tools require Build mode and approval.
+Read-only Workforce tools are available in Ask mode; write/trigger tools are blocked in Ask mode and require Build mode + approval.
+Before requesting batch permissions, the assistant should narrate which services it is about to access.
 
 ## Other Tools
 

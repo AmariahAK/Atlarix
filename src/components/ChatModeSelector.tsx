@@ -22,6 +22,7 @@ import {
   Bot,
   AlertTriangle,
 } from "lucide-react";
+import { TourHelpButton } from "@/components/tour/TourHelpButton";
 
 export function ChatModeSelector() {
   const { settings, updateSettings } = useSettings();
@@ -47,7 +48,7 @@ export function ChatModeSelector() {
   const isMac = detectIsMac();
 
   return (
-    <div className="flex items-center gap-1" data-onboarding="ask-build-toggle">
+    <div className="flex items-center gap-1" data-onboarding="ask-build-toggle" data-tour="tour-ask-build">
       {/* Mode: Direct / Guided / Autonomous */}
       <Select value={agentMode} onValueChange={handleAgentModeChange}>
         <Tooltip>
@@ -160,6 +161,7 @@ export function ChatModeSelector() {
           </SelectItem>
         </SelectContent>
       </Select>
+      <TourHelpButton featureId="agents" label="Agent & permission tour" className="shrink-0" />
     </div>
   );
 }

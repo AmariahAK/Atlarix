@@ -1,3 +1,4 @@
+import "shepherd.js/dist/css/shepherd.css";
 import { Component, StrictMode, useEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { router } from "./router";

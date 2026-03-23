@@ -85,7 +85,7 @@ const config: ForgeConfig = {
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
   rebuildConfig: {
-    extraModules: ["better-sqlite3"],
+    extraModules: ["better-sqlite3", "keytar"],
     force: true,
   },
   makers: [
@@ -185,7 +185,7 @@ const config: ForgeConfig = {
         platform: platform as NodeJS.Platform,
         arch,
         force: true,
-        extraModules: ["better-sqlite3"],
+        extraModules: ["better-sqlite3", "keytar"],
       });
     },
   },

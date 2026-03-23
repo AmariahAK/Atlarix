@@ -462,6 +462,7 @@ ToolRegistry.register({
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
+  allowInAskMode: true,
   parameters: createParameters(
     {
       workspace: stringParam("Workspace root path (auto-injected)"),
@@ -473,7 +474,6 @@ ToolRegistry.register({
           "Optional. For multi-repo: subpath where plan goes (e.g. 'frontend', 'packages/api'). Omit for single project.",
         required: false,
       },
-      chatMode: { type: "string", description: "Build or ask (auto-injected)", required: false },
     },
     ["content"]
   ),
@@ -482,21 +482,12 @@ ToolRegistry.register({
     content,
     description,
     targetPath,
-    chatMode,
   }: {
     workspace?: string;
     content: string;
     description?: string;
     targetPath?: string;
-    chatMode?: string;
   }) => {
-    if (chatMode === "ask") {
-      return {
-        error: "Write operations not allowed in Ask mode. Switch to Build mode to create/update the implementation plan.",
-        operation: "write_file",
-        denied: true,
-      };
-    }
     if (!workspace) return { success: false, error: "Workspace path required" };
     const pathMod = await import("path");
     const fs = await import("fs/promises");
