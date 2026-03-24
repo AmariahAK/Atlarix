@@ -12,15 +12,13 @@
  */
 
 import { IpcMainInvokeEvent } from "electron";
-import { streamText, ToolSet, stepCountIs } from "ai";
+import { streamText, ToolSet, stepCountIs, jsonSchema as aiJsonSchema } from "ai";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
 import log from "electron-log";
 import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
 import { ToolRegistry } from "../../lib/tools";
-import { getMaxTokens, getTemperature } from "../utils/token_utils";
-import { getExtraProviderOptions } from "../utils/thinking_utils";
 import { getSessionMemory } from "../../lib/session-memory";
 
 const logger = log.scope("chat_only_handlers");
@@ -226,20 +224,20 @@ export async function handleChatOnlyStream(
         // Track sources from tool calls
         const collectedSources: any[] = [];
 
-        // Convert tools to AI SDK format
+        const PERMISSIVE_SCHEMA = aiJsonSchema({ type: "object" as const, properties: {}, additionalProperties: true });
+
+        // Convert tools to AI SDK format with properly wrapped schemas
         const tools: ToolSet = {};
         for (const tool of availableTools) {
             tools[tool.name] = {
                 description: tool.description,
-                inputSchema: tool.parameters as never,
+                inputSchema: PERMISSIVE_SCHEMA,
                 execute: async (params: any) => {
                     logger.log(`Executing tool: ${tool.name}`);
                     const result = await tool.handler({ ...params, chatId: req.chatId });
 
-                    // If result has sources, collect them
                     if (result && typeof result === 'object' && result.sources) {
                         collectedSources.push(...result.sources);
-                        // Return just the text for the AI
                         return result.text || result;
                     }
 
@@ -248,10 +246,15 @@ export async function handleChatOnlyStream(
             };
         }
 
-        // Merge global MCP tools (GitHub, etc.) so chat-only can use them
+        // Merge global MCP tools (GitHub, etc.) with safe schema wrapping
         if (mcpTools && Object.keys(mcpTools).length > 0) {
             for (const [name, tool] of Object.entries(mcpTools)) {
-                tools[name] = tool as any;
+                const t = tool as { description?: string; execute?: (...args: any[]) => any; inputSchema?: unknown };
+                tools[name] = {
+                    description: t.description,
+                    inputSchema: PERMISSIVE_SCHEMA,
+                    execute: t.execute,
+                } as any;
             }
             logger.log(`Chat-only mode: +${Object.keys(mcpTools).length} MCP tools (total ${Object.keys(tools).length})`);
         }
@@ -274,16 +277,15 @@ export async function handleChatOnlyStream(
             logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
         }
 
-        // Stream response from AI
         let fullResponse = "";
         const result = streamText({
             model: modelClient.model,
             system: systemPrompt,
             messages: messageHistory,
             tools,
-            temperature: 0.7, // Default conversational temperature
+            temperature: 0.7,
             abortSignal: abortController.signal,
-            stopWhen: [stepCountIs(10)], // Allow up to 10 tool calls
+            stopWhen: [stepCountIs(10)],
             maxRetries: 2,
         });
 

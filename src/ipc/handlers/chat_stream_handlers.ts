@@ -9,6 +9,7 @@ import {
   TextStreamPart,
   stepCountIs,
   hasToolCall,
+  jsonSchema as aiJsonSchema,
 } from "ai";
 
 import { db } from "../../db";
@@ -1756,9 +1757,8 @@ This conversation includes one or more image attachments. When the user uploads 
             for (const tool of workspaceFilteredTools) {
               tools[tool.function.name] = {
                 description: tool.function.description,
-                inputSchema: (tool.function?.parameters ?? {}) as never,
+                inputSchema: aiJsonSchema((tool.function?.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
                 execute: async (args: any) => {
-                  // Execute tool via registry
                   const result = await ToolRegistry.execute(tool.function.name, args);
                   return JSON.stringify(result);
                 },
@@ -2171,7 +2171,7 @@ For workforce services, always explain which services you are about to access be
               const toolName = toolMeta.name;
               tools[toolName] = {
                 description: toolMeta.description,
-                inputSchema: (toolMeta.parameters ?? {}) as never,
+                inputSchema: aiJsonSchema((toolMeta.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
                 execute: async (args: any) => {
                   buildLoader.onToolCall(toolName);
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
@@ -3463,6 +3463,19 @@ async function getMcpTools(
   appId?: number | null
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
+  const PERMISSIVE = { type: "object" as const, properties: {}, additionalProperties: true };
+  const normalizeInputSchema = (schema: unknown): unknown => {
+    if (!schema || typeof schema !== "object") {
+      return aiJsonSchema(PERMISSIVE);
+    }
+    const obj = schema as Record<string, unknown>;
+    if ("_def" in obj) return aiJsonSchema(PERMISSIVE);
+    if ("type" in obj || "$schema" in obj) return aiJsonSchema(schema as Record<string, unknown>);
+    if ("jsonSchema" in obj && obj.jsonSchema && typeof obj.jsonSchema === "object") {
+      return aiJsonSchema(obj.jsonSchema as Record<string, unknown>);
+    }
+    return aiJsonSchema(PERMISSIVE);
+  };
   try {
     const enabled = eq(mcpServers.enabled, true as any);
     const servers = await db
@@ -3490,7 +3503,7 @@ async function getMcpTools(
         const original = tool as { description?: string; inputSchema?: unknown; execute?: (args: unknown, ctx?: unknown) => Promise<unknown> };
         mcpToolSet[key] = {
           description: original?.description,
-          inputSchema: original?.inputSchema as never,
+          inputSchema: normalizeInputSchema(original?.inputSchema) as never,
           execute: async (args: any, execCtx: any) => {
             const inputPreview =
               typeof args === "string"
