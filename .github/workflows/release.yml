@@ -173,7 +173,8 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg fakeroot rpm
+          # keytar (native module) needs libsecret headers/pkg-config on Linux
+          sudo apt-get install -y dpkg fakeroot rpm libsecret-1-dev
 
       - name: Install dependencies
         run: npm ci
