@@ -104,6 +104,13 @@ export class SubscriptionManager {
                     await this.updateSession(session);
                 } else {
                     this.session = null;
+                    if (this.realtimeCleanup) {
+                        this.realtimeCleanup();
+                        this.realtimeCleanup = null;
+                    }
+                    this.realtimeSubscribedEmail = null;
+                    this.lastPlanFingerprint = "";
+                    this.lastPlanFingerprintAt = 0;
                     logger.log('[SubscriptionManager] User signed out');
                 }
             });
@@ -149,7 +156,7 @@ export class SubscriptionManager {
 
         // Subscribe to realtime plan changes for instant Pro activation
         if (user.email) {
-            this.setupRealtimeSubscription(user.email);
+            await this.setupRealtimeSubscription(user.email);
         }
     }
 
@@ -157,16 +164,37 @@ export class SubscriptionManager {
      * Setup realtime subscription for plan changes
      */
     private static realtimeCleanup: (() => void) | null = null;
+    private static realtimeSetupPromise: Promise<void> | null = null;
+    private static realtimeSubscribedEmail: string | null = null;
+    private static lastPlanFingerprint = "";
+    private static lastPlanFingerprintAt = 0;
 
-    private static setupRealtimeSubscription(email: string): void {
-        // Import dynamically to avoid circular deps
-        import('./auth/supabase-client').then(({ subscribeToPlanChanges }) => {
-            // Cleanup any existing subscription
+    private static async setupRealtimeSubscription(email: string): Promise<void> {
+        if (this.realtimeSubscribedEmail === email && this.realtimeCleanup) {
+            return;
+        }
+        if (this.realtimeSetupPromise) {
+            await this.realtimeSetupPromise;
+            if (this.realtimeSubscribedEmail === email && this.realtimeCleanup) {
+                return;
+            }
+        }
+        this.realtimeSetupPromise = (async () => {
+            const { subscribeToPlanChanges } = await import("./auth/supabase-client");
             if (this.realtimeCleanup) {
                 this.realtimeCleanup();
+                this.realtimeCleanup = null;
             }
-
+            this.realtimeSubscribedEmail = email;
             this.realtimeCleanup = subscribeToPlanChanges(email, async (newData, oldData) => {
+                const fp = `${newData.plan}|${newData.subscriptionStatus ?? ""}|${newData.subscriptionEndsAt ?? ""}|${newData.effectiveTier ?? ""}`;
+                const now = Date.now();
+                if (fp === this.lastPlanFingerprint && now - this.lastPlanFingerprintAt < 2000) {
+                    return;
+                }
+                this.lastPlanFingerprint = fp;
+                this.lastPlanFingerprintAt = now;
+
                 logger.log(`[SubscriptionManager] 🎉 Subscription changed via realtime:`, {
                     plan: `${oldData.plan} → ${newData.plan}`,
                     status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
@@ -180,15 +208,16 @@ export class SubscriptionManager {
                     };
 
                     try {
-                        const { capture } = await import('../main/lib/analytics');
-                        capture('tier_identified', { tier: this.session.effectiveTier });
-                    } catch { /* non-fatal */ }
+                        const { capture } = await import("../main/lib/analytics");
+                        capture("tier_identified", { tier: this.session.effectiveTier });
+                    } catch {
+                        /* non-fatal */
+                    }
 
-                    // Notify the frontend about the subscription change (with complete data)
-                    const { BrowserWindow } = require('electron');
+                    const { BrowserWindow } = require("electron");
                     const windows = BrowserWindow.getAllWindows();
-                    windows.forEach((win: any) => {
-                        win.webContents.send('plan-changed', {
+                    windows.forEach((win: { webContents: { send: (c: string, p: unknown) => void } }) => {
+                        win.webContents.send("plan-changed", {
                             plan: newData.plan,
                             effectiveTier: newData.effectiveTier ?? newData.plan,
                             previousPlan: oldData.plan,
@@ -198,7 +227,12 @@ export class SubscriptionManager {
                     });
                 }
             });
-        });
+        })();
+        try {
+            await this.realtimeSetupPromise;
+        } finally {
+            this.realtimeSetupPromise = null;
+        }
     }
 
     // ========================================
@@ -301,6 +335,13 @@ export class SubscriptionManager {
     static async signOut(): Promise<void> {
         await signOut();
         this.session = null;
+        if (this.realtimeCleanup) {
+            this.realtimeCleanup();
+            this.realtimeCleanup = null;
+        }
+        this.realtimeSubscribedEmail = null;
+        this.lastPlanFingerprint = "";
+        this.lastPlanFingerprintAt = 0;
     }
 
     /**

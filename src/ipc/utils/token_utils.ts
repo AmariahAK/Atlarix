@@ -4,9 +4,16 @@ import { Message } from "../ipc_types";
 
 import { findLanguageModel } from "./findLanguageModel";
 
-// Estimate tokens (4 characters per token)
+/** Chars per token heuristic (OpenAI-style rough estimate; not word count). */
+export const ESTIMATED_CHARS_PER_TOKEN = 4;
+
+/**
+ * Rough token count for budgeting prompts. Uses character length / 4 (ceiled), not word count.
+ * Empty string → 0.
+ */
 export const estimateTokens = (text: string): number => {
-  return Math.ceil(text.length / 4);
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / ESTIMATED_CHARS_PER_TOKEN));
 };
 
 export const estimateMessagesTokens = (messages: Message[]): number => {

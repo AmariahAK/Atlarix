@@ -20,6 +20,16 @@ import {
     createBatchPermissionRequest,
     type FileOperationPreview,
 } from "./permissions/schema";
+import {
+    resolvePathUnderWorkspace,
+    safeRelativePathUnderWorkspace,
+    stripToolPathPrefixes,
+} from "../../ipc/utils/safeWorkspaceRelativePath";
+import {
+    loadIgnorerForProject,
+    normalizeRelPath,
+    isRelPathIgnored,
+} from "@/lib/atlarix/atlarix-ignore";
 
 // ═══════════════════════════════════════════════════════════
 // FILE READING
@@ -186,17 +196,22 @@ ToolRegistry.register({
                 throw new Error("Missing required parameter: path or file_path");
             }
 
-            // Normalize path
-            filePath = filePath
-                .replace(/^\/workspace\//, '')
-                .replace(/^workspace\//, '')
-                .replace(/^\/+/, '');
+            const displayPath = workspace
+                ? safeRelativePathUnderWorkspace(filePath)
+                : stripToolPathPrefixes(filePath);
 
             const fullPath = workspace
-                ? path.join(workspace, filePath)
-                : path.resolve(filePath);
+                ? resolvePathUnderWorkspace(workspace, filePath)
+                : path.resolve(stripToolPathPrefixes(filePath));
 
-            console.log(`[read_file] workspace: ${workspace}, filePath: ${filePath}, context: ${context}, max_lines: ${max_lines}`);
+            console.log(`[read_file] workspace: ${workspace}, filePath: ${displayPath}, context: ${context}, max_lines: ${max_lines}`);
+
+            const stat = await fs.promises.stat(fullPath);
+            if (stat.isDirectory()) {
+                throw new Error(
+                    `Path "${displayPath}" is a directory, not a file. Use explore_folder or list_files for directories.`
+                );
+            }
 
             const content = await fs.promises.readFile(fullPath, "utf-8");
             const lines = content.split("\n");
@@ -214,7 +229,7 @@ ToolRegistry.register({
                     .map((line, idx) => `${startIdx + idx + 1}: ${line}`)
                     .join("\n");
 
-                return `File: ${filePath}\nLines: ${startIdx + 1}-${endIdx} of ${lines.length}\n\n${numberedLines}`;
+                return `File: ${displayPath}\nLines: ${startIdx + 1}-${endIdx} of ${lines.length}\n\n${numberedLines}`;
             }
 
             // Small files: return as-is
@@ -222,13 +237,13 @@ ToolRegistry.register({
                 const numberedLines = lines
                     .map((line, idx) => `${idx + 1}: ${line}`)
                     .join("\n");
-                return `File: ${filePath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
+                return `File: ${displayPath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
             }
 
             // Large files: use smart slicing
             const sliced = smartSliceFile(lines, max_lines, context as SliceContext);
 
-            let result = `File: ${filePath}\n`;
+            let result = `File: ${displayPath}\n`;
             result += `Total lines: ${lines.length} | Showing: ${sliced.linesShown} (${sliced.strategy})\n`;
             result += `💡 Tip: Use start_line/end_line for specific sections, or get_file_outline for structure.\n\n`;
             result += sliced.text;
@@ -238,6 +253,113 @@ ToolRegistry.register({
             console.error(`[read_file] Error:`, error);
             throw new Error(`Failed to read file: ${error}`);
         }
+    },
+});
+
+// ═══════════════════════════════════════════════════════════
+// FOLDER EXPLORATION (STRUCTURED, .ATLARIXIGNORE-AWARE)
+// ═══════════════════════════════════════════════════════════
+
+ToolRegistry.register({
+    name: "explore_folder",
+    category: ToolCategory.FILE,
+    description:
+        "Explore a directory and return structured entries (files/folders) with metadata. Respects .atlarixignore when workspace is provided.",
+    cost: 1,
+    requiresWorkspace: true,
+    isCore: true,
+    isReadOnly: true,
+    parameters: createParameters(
+        {
+            path: stringParam("Directory path to explore (relative to workspace, default '.')"),
+            max_entries: {
+                type: "number",
+                description: "Maximum entries to return (default: 200, max: 1000)",
+            },
+            include_hidden: booleanParam("Include dotfiles/directories (default: false)"),
+            include_stats: booleanParam("Include size and modifiedAt metadata (default: true)"),
+            sort: {
+                type: "string",
+                description: "Sort entries by name or size (default: name)",
+                enum: ["name", "size"],
+            },
+        },
+        []
+    ),
+    handler: async ({
+        path: dirArg = ".",
+        max_entries = 200,
+        include_hidden = false,
+        include_stats = true,
+        sort = "name",
+        workspace,
+    }) => {
+        const fullPath = workspace
+            ? resolvePathUnderWorkspace(workspace, dirArg || ".")
+            : path.resolve(stripToolPathPrefixes(dirArg || ".") || ".");
+        const relRequestedPath = workspace
+            ? safeRelativePathUnderWorkspace(dirArg || ".")
+            : stripToolPathPrefixes(dirArg || ".");
+
+        const dirStat = await fs.promises.stat(fullPath);
+        if (!dirStat.isDirectory()) {
+            throw new Error(`Path "${relRequestedPath}" is not a directory. Use read_file for files.`);
+        }
+
+        const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
+        const maxEntries = Math.min(Math.max(Number(max_entries) || 200, 1), 1000);
+        const ig = workspace ? await loadIgnorerForProject(workspace) : null;
+
+        const items: Array<{
+            name: string;
+            type: "file" | "dir";
+            path: string;
+            size?: number;
+            modifiedAt?: string;
+        }> = [];
+
+        for (const entry of entries) {
+            const name = entry.name;
+            if (!include_hidden && name.startsWith(".")) continue;
+            const entryPath = path.join(fullPath, name);
+            const displayPath = workspace
+                ? normalizeRelPath(workspace, entryPath)
+                : path.join(relRequestedPath || ".", name).replace(/\\/g, "/");
+            if (ig && isRelPathIgnored(ig, displayPath)) continue;
+
+            let size: number | undefined;
+            let modifiedAt: string | undefined;
+            if (include_stats) {
+                try {
+                    const st = await fs.promises.stat(entryPath);
+                    size = st.size;
+                    modifiedAt = st.mtime.toISOString();
+                } catch {
+                    // Skip metadata if stat fails, still include entry.
+                }
+            }
+
+            items.push({
+                name,
+                type: entry.isDirectory() ? "dir" : "file",
+                path: displayPath,
+                size,
+                modifiedAt,
+            });
+        }
+
+        if (sort === "size") {
+            items.sort((a, b) => (b.size ?? 0) - (a.size ?? 0) || a.name.localeCompare(b.name));
+        } else {
+            items.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        return {
+            path: relRequestedPath || ".",
+            total: items.length,
+            truncated: items.length > maxEntries,
+            items: items.slice(0, maxEntries),
+        };
     },
 });
 
@@ -278,18 +400,14 @@ ToolRegistry.register({
             };
         }
 
-        // Normalize path
-        let normalizedPath = filePath
-            .replace(/^\/workspace\//, '')
-            .replace(/^workspace\//, '')
-            .replace(/^\/+/, '');
+        const normalizedPath = safeRelativePathUnderWorkspace(filePath);
 
         // Check if file exists (to set type as update vs create)
         let fileType: "create" | "update" = "create";
         let oldContent: string | undefined;
         if (workspace) {
             try {
-                const fullPath = path.join(workspace, normalizedPath);
+                const fullPath = resolvePathUnderWorkspace(workspace, normalizedPath);
                 await fs.promises.access(fullPath);
                 fileType = "update";
                 oldContent = await fs.promises.readFile(fullPath, "utf-8");
@@ -358,10 +476,7 @@ ToolRegistry.register({
 
         // Convert to FileOperationPreview array with normalized paths
         const previews: FileOperationPreview[] = files.map((f: any) => {
-            const normalizedPath = f.path
-                .replace(/^\/workspace\//, '')
-                .replace(/^workspace\//, '')
-                .replace(/^\/+/, '');
+            const normalizedPath = safeRelativePathUnderWorkspace(String(f.path));
 
             return {
                 path: normalizedPath,
@@ -410,16 +525,11 @@ ToolRegistry.register({
     ),
     handler: async ({ path: pathArg, directory, max_depth = 3, include_stats = false, workspace }) => {
         try {
-            let scanPath = pathArg || directory || ".";
-
-            scanPath = scanPath
-                .replace(/^\/workspace\//, '')
-                .replace(/^workspace\//, '')
-                .replace(/^\/+/, '') || ".";
+            const scanRaw = pathArg || directory || ".";
 
             const fullPath = workspace
-                ? path.join(workspace, scanPath)
-                : path.resolve(scanPath);
+                ? resolvePathUnderWorkspace(workspace, scanRaw)
+                : path.resolve(stripToolPathPrefixes(scanRaw) || ".");
 
             const files = await glob("**/*", {
                 cwd: fullPath,
@@ -537,16 +647,9 @@ ToolRegistry.register({
     ),
     handler: async ({ pattern, path: searchPath = ".", workspace }) => {
         try {
-            // Normalize path: strip common AI-generated prefixes
-            let normalizedPath = searchPath
-                .replace(/^\/workspace\//, '')
-                .replace(/^workspace\//, '')
-                .replace(/^\/+/, '') || ".";
-
-            // Resolve path relative to workspace if provided
             const fullPath = workspace
-                ? path.join(workspace, normalizedPath)
-                : path.resolve(normalizedPath);
+                ? resolvePathUnderWorkspace(workspace, searchPath || ".")
+                : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
             const files = await glob(pattern, {
                 cwd: fullPath,
                 ignore: ["node_modules/**", ".git/**", "dist/**"],

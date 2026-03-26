@@ -62,6 +62,13 @@ export const DiagramUpdatePreviewSchema = z.object({
 
 export type DiagramUpdatePreview = z.infer<typeof DiagramUpdatePreviewSchema>;
 
+export const ProjectRevertPreviewSchema = z.object({
+    snapshotId: z.coerce.number().int().positive(),
+    label: z.string(),
+    planExcerpt: z.string().max(800).optional(),
+});
+export type ProjectRevertPreview = z.infer<typeof ProjectRevertPreviewSchema>;
+
 // ════════════════════════════════════════════════════════════════════════════
 // PERMISSION METADATA
 // ════════════════════════════════════════════════════════════════════════════
@@ -95,6 +102,8 @@ export const PermissionOperationType = z.enum([
     "update_diagram",
     // External workforce actions (Slack/Jira/CI etc.)
     "workforce_action",
+    // Restore blueprint + plan from SQLite snapshot (v5.0 project memory)
+    "revert_project_snapshot",
 ]);
 
 /** Single operation inside a batch_plan (file or command) */
@@ -124,6 +133,7 @@ export const PermissionRequestSchema = z.object({
         WorkforceActionPreviewSchema,
         DiagramUpdatePreviewSchema,
         BatchPlanPreviewSchema,
+        ProjectRevertPreviewSchema,
     ]),
     metadata: PermissionMetadataSchema.optional(),
 });

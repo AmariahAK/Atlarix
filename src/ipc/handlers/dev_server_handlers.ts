@@ -11,8 +11,30 @@ import { db } from '@/db';
 import { apps } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { attachConsoleDebugger } from './console_debugger';
+import { abortAllStreams } from './chat_stream_handlers';
 
 const logger = log.scope('dev-server-handlers');
+
+// Register after app is ready so cleanup hooks align with the main lifecycle (avoids edge cases on early quit).
+function registerDevServerLifecycleCleanup(): void {
+  app.on('before-quit', () => {
+    logger.log('App quitting, stopping all dev servers and AI streams');
+    devServerManager.stopAllServers();
+    abortAllStreams();
+  });
+  app.on('window-all-closed', () => {
+    logger.log('All windows closed, stopping all dev servers');
+    devServerManager.stopAllServers();
+  });
+}
+
+if (app.isReady()) {
+  registerDevServerLifecycleCleanup();
+} else {
+  app.whenReady().then(() => {
+    registerDevServerLifecycleCleanup();
+  });
+}
 
 // ============================================
 // IPC HANDLERS
@@ -140,24 +162,6 @@ ipcMain.handle('dev-server:list-running', async () => {
         logger.error('Error listing dev servers:', error);
         return { success: false, servers: [] };
     }
-});
-
-// ============================================
-// CLEANUP ON APP QUIT
-// ============================================
-
-// Import stream cleanup for AI requests
-import { abortAllStreams } from './chat_stream_handlers';
-
-app.on('before-quit', () => {
-    logger.log('App quitting, stopping all dev servers and AI streams');
-    devServerManager.stopAllServers();
-    abortAllStreams(); // Cancel active AI requests to save tokens
-});
-
-app.on('window-all-closed', () => {
-    logger.log('All windows closed, stopping all dev servers');
-    devServerManager.stopAllServers();
 });
 
 logger.log('Dev server IPC handlers registered');

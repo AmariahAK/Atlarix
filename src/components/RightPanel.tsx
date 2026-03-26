@@ -16,7 +16,7 @@ import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useSearch } from '@tanstack/react-router';
-import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom } from '@/atoms/sourceAtoms';
+import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
@@ -87,6 +87,7 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
 export function RightPanel() {
     const { context, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
+    const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [chatInputValue, setChatInput] = useAtom(chatInputValueAtom);
@@ -261,7 +262,7 @@ Please fix these errors in priority order (structural/build errors first, then r
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <button
-                                onClick={() => setIsVisible(false)}
+                                onClick={() => { setSuppressRightAutoOpen(true); setIsVisible(false); }}
                                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
                             >
                                 <X className="w-4 h-4" />

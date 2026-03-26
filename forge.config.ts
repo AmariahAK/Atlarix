@@ -42,6 +42,9 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/better-sqlite3")) {
     return false;
   }
+  if (file.startsWith("/node_modules/keytar")) {
+    return false;
+  }
   if (file.startsWith("/node_modules/bindings")) {
     return false;
   }
@@ -89,12 +92,9 @@ const config: ForgeConfig = {
     force: true,
   },
   makers: [
-    new MakerSquirrel({
-      // Only sign if certificate is provided
-      ...(process.env.SM_CODE_SIGNING_CERT_SHA1_HASH ? {
+    new MakerSquirrel((process.env.SM_CODE_SIGNING_CERT_SHA1_HASH ? {
         signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
-      } : {}),
-    }),
+      } : {})),
     new MakerDMG(),
     new MakerRpm({}),
     new MakerDeb({

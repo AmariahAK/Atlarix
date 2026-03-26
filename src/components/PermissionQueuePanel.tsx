@@ -31,6 +31,7 @@ import {
     X,
     Terminal,
     Map,
+    History,
 } from "lucide-react";
 import { SmartDiffView } from "./SmartDiffView";
 import { useState, useCallback, useEffect } from "react";
@@ -139,6 +140,8 @@ function OperationCard({
                 return <Map className="w-4 h-4 text-emerald-400" />;
             case 'batch_plan':
                 return <Wand2 className="w-4 h-4 text-violet-400" />;
+            case 'revert_project_snapshot':
+                return <History className="w-4 h-4 text-amber-400" />;
             default:
                 return <FileEdit className="w-4 h-4 text-gray-400" />;
         }
@@ -149,8 +152,21 @@ function OperationCard({
     const diagramPreview = isDiagramUpdate ? JSON.parse(operation.preview || '{}') : null;
 
     const isBatchPlan = operation.operation === 'batch_plan';
+    const isRevertSnapshot = operation.operation === 'revert_project_snapshot';
     const displayName = isDiagramUpdate
         ? 'Diagram Update Request'
+        : isRevertSnapshot
+            ? (() => {
+                try {
+                    const p = JSON.parse(operation.preview || '{}');
+                    const summary = p.planExcerpt
+                        ? ` — ${String(p.planExcerpt).replace(/\s+/g, ' ').slice(0, 80)}`
+                        : '';
+                    return (p.label || `Revert snapshot #${p.snapshotId ?? '?'}`) + summary;
+                } catch {
+                    return 'Revert project snapshot';
+                }
+            })()
         : isBatchPlan
             ? (operation.batchPlanTitle || 'Plan') + (operation.batchPlanOperationsCount != null ? ` (${operation.batchPlanOperationsCount} operations)` : '')
             : operation.command

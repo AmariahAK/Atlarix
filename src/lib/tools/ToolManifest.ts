@@ -7,6 +7,7 @@ import type { ToolMetadata } from "./registry";
 
 const CORE_TOOL_NAMES = new Set([
   "read_file",
+  "explore_folder",
   "write_file",
   "run_command",
   "search_code",

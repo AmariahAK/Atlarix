@@ -7,11 +7,33 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v4.3.0*
+*Current: v5.0.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 **Recent (v4.3):** UX and workflow upgrade: secure session persistence across restarts, guided Shepherd tours, corrected subscription entitlement timing/copy, Ask-mode planning improvements, Workforce Ask/Build read-write split, batch Token Auth permissions (`request_workspace_permissions`), and hardware-aware Ollama model recommendations in Settings.
+
+### What's New in v5.0 — Blueprint context, project memory, and ignore rules
+
+v5.0 completes the Blueprint-context and project-memory work and ships it as the default experience; see [docs/TODO.md](docs/TODO.md) for follow-ups and historical notes.
+
+- **Section 1 — Tiered Blueprint injection:** The system prompt can include the Blueprint at different detail levels (**Ask / Plan / Build / Debug**) with separate token budgets. **Build** uses RAG-selected code snippets with a strict token cap and explicit messaging when snippets are omitted (no silent overflow). v5 discovery flow now prefers **targeted blueprint slices** (`get_blueprint_slice`) over full-graph mandatory fetches. Implementation lives in [`src/lib/blueprint/blueprintPromptTiers.ts`](src/lib/blueprint/blueprintPromptTiers.ts) and [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts). **Section 3** adds **Settings → AI** controls (Auto vs forced tier) and optional Debug context (stack trace / file path), plumbed through `IpcClient.streamMessage` into `ChatStreamParams.blueprintInjectionMode`, `blueprintDebugTrace`, and `blueprintDebugFile` in [`src/ipc/ipc_types.ts`](src/ipc/ipc_types.ts). Precedence on the server is: IPC `blueprintInjectionMode` (from the stream request) first, then the saved settings preference, then heuristics.
+
+**Section 4** adds a **chat Config (sliders) → Blueprint in prompt** override (`blueprintInjectionChatOverrideAtom` in [`src/atoms/chatAtoms.ts`](src/atoms/chatAtoms.ts)): choose **Use Settings** or force Ask / Plan / Build / Debug for the current app session. `useStreamChat` merges this ahead of Settings when calling `streamMessage`, so the in-chat choice wins over Settings until you switch back to **Use Settings**.
+
+- **Work modes (five + Auto):** The chat bar uses a **work mode** dropdown — **Ask, Plan, Build, Debug, Review** — and a separate **Auto** control (sparkles). `workModePreference` is stored in user settings and maps to **Ask vs Build** tool permission and Blueprint tier when Auto is off. Precedence for Blueprint injection is: **in-chat override** (Section 4 atom) → **work-mode tier** → **Settings** → heuristics. Mapping helpers live in [`src/lib/work-mode.ts`](src/lib/work-mode.ts); UI in [`src/components/ChatIntentSelector.tsx`](src/components/ChatIntentSelector.tsx). With no workspace open, mode is pinned to **Ask** and Auto is disabled.
+
+- **Subscription / Supabase Realtime:** Plan row updates from Postgres Realtime only log and notify when **plan / status / period end / effective tier** actually change. [`SubscriptionManager`](src/lib/SubscriptionManager.ts) **serializes** realtime setup (no overlapping listeners) and **dedupes** identical fingerprints within a short window so session refresh and `plan-changed` IPC fire once per real transition.
+
+- **Section 5 — Agent–mode binding & handoffs (kickoff):** Work mode maps to a **default specialist** (e.g. Plan → Architect, Debug → Debugger). A **Debugger** built-in agent joins Research / Architect / Builder / Reviewer. Zod schemas for structured handoffs live in [`src/lib/agents/agent-handoff-schemas.ts`](src/lib/agents/agent-handoff-schemas.ts); a short **Work mode** block is injected into the main stream system prompt when using a manual mode. Deeper delegation threading, Activity Stream events, and handoff UI cards are tracked in [docs/TODO.md](docs/TODO.md).
+
+- **Section 6 — Structured outputs:** Zod validation + one-retry fallback flow is enforced on delegation handoffs and mode-bound Plan/Debug/Review outputs. Structured responses are rendered as report-style cards in chat for these modes, with non-blocking warning fallback when schema validation fails twice.
+
+- **Section 7 — ContextAssembler (implemented):** Prompt-context assembly in stream flow is centralized through `ContextAssembler` with deterministic section ordering, per-mode caps, and session cache reuse. The cap table includes **Review: 2000** tokens. Lower-priority sections trim first under pressure (summary/session memory after higher-priority work-mode and Blueprint context), with concise trim/cache diagnostics logged for observability. `.atlarixignore` filtering is now also applied in the file-tree Blueprint source path for consistency with RTE parse/cache/prompt layers.
+
+- **Section 2 — SQLite project memory:** Persistent **`project_snapshots`** and **`project_memory`** tables (see [`src/db/schema.ts`](src/db/schema.ts), migration `0031_project_memory.sql`) capture blueprint + plan checkpoints and key/value facts. Service: [`src/lib/project-memory/service.ts`](src/lib/project-memory/service.ts). AI tools: `get_project_history`, `revert_to_snapshot` (with `revert_project_snapshot` approval), `set_project_memory`. Snapshots are triggered on blueprint saves (debounced), `.atlarix/ATLARIX_PLAN.md` writes, successful Build turns with file changes, and app quit (`session_end` for touched workspaces).
+
+- **`.atlarixignore`:** Gitignore-syntax patterns (via the [`ignore`](https://www.npmjs.com/package/ignore) package) exclude paths from RTE parsing, from cached Blueprint nodes on load, and as a final filter before prompt injection. A default file is created at the project root on first Blueprint parse when missing. Tools: `get_atlarixignore`, `update_atlarixignore` (Build + approval). The Blueprint panel includes an editable pattern list; IPC: `blueprint:get-atlarixignore` / `blueprint:set-atlarixignore`. Core logic: [`src/lib/atlarix/atlarix-ignore.ts`](src/lib/atlarix/atlarix-ignore.ts).
 
 **Recent (v4.0 — Workforce):** New **Workforce** tier ($79/mo): Auth0 Token Vault for secure agent auth, Workspace Context (Slack, Jira, Linear, CI, Sentry, Calendar), Teams (up to 20 seats), GitLab CI & Bitbucket Pipelines, Progressive Tool Reveal. DB Studio moved to Workforce (existing Pro subscribers grandfathered). Three tiers: Free, Pro ($19/mo), Workforce ($79/mo). Credentials via env — see [SECRETS.md](SECRETS.md) and [.env.example](.env.example).
 
@@ -65,8 +87,8 @@ v2.1 adds a three-tier agent system, built-in specialists, project instruction f
 
 - **Modes:** Direct (no agents), Guided (flat delegation; default), Autonomous (agents can spawn sub-agents; higher token usage).
 - **Permission:** Separate Ask (read-only tools) vs Build (can write/run), independent of mode.
-- **Built-in agents:** Research, Architect, Builder, Reviewer — each with a dedicated tool set and icon (no emojis; Lucide icons).
-- **Project instructions:** `.atlarix/ATLARIX.md`, `AI_RULES.md`, workspace prompts, `~/.atlarix/ATLARIX.md`, bundle AGENTS.md — loaded in precedence order for the system prompt.
+- **Built-in agents:** Research, Architect, Builder, Reviewer, Debugger — each with a dedicated tool set and icon (no emojis; Lucide icons).
+- **Project instructions:** `.atlarix/ATLARIX.md`, workspace prompts, `~/.atlarix/ATLARIX.md`, bundle AGENTS.md — loaded in precedence order for the system prompt.
 - **Self-review and Agent Lightning:** Optional runtime self-review (score, threshold); offline trace collection for future training.
 - **Activity Stream:** Right-panel tab showing model selection, delegation, compaction, tool use, and turn summary (Lucide icons only).
 - **Auto routing:** When Auto is ON, model picker is hidden; complexity-based routing uses Fast/Medium/Thinking (when configured).
@@ -110,7 +132,7 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 | **AI-Selected Blueprinting** | AI chooses which projects to blueprint/diagram (activity, intent); confirmation modal |
 | **Parent-Aggregated Permissions** | One approval for entire feature (not per-tool) |
 | **Motia-Style Visual UI** | React Flow; nodes (API, WH, FN, CLS, DB, etc.); drag-and-drop, Cmd+K |
-| **Blueprint-Driven Planning** | Compare desired vs actual, generate `ATLARIX_PLAN.md`, implement with review gates |
+| **Blueprint-Driven Planning** | Compare desired vs actual, generate `.atlarix/ATLARIX_PLAN.md`, implement with review gates |
 
 ### Step Types
 
@@ -127,17 +149,17 @@ Atlarix 2.2 transforms the Blueprint from a static diagram into a **living knowl
 [STREAM] WebSocket/SSE
 ```
 
-### Planning with ATLARIX_PLAN.md
+### Planning with .atlarix/ATLARIX_PLAN.md
 
 When you design in Blueprint and click "Generate," the AI:
 1. Compares Blueprint (desired) to Live (actual)
-2. Generates ordered tasks in `ATLARIX_PLAN.md`
+2. Generates ordered tasks in `.atlarix/ATLARIX_PLAN.md`
 3. Implements one task per exchange (user message -> AI response)
 4. Waits for your review before proceeding
 5. Quality over quantity: fixes bugs before moving on
 
 ```markdown
-# ATLARIX_PLAN.md
+# .atlarix/ATLARIX_PLAN.md
 
 ## Overview
 Building user authentication with JWT tokens.
@@ -185,9 +207,8 @@ Building user authentication with JWT tokens.
 - **Context Bar** – Real-time token usage visualization
 - **Auto-Summarize** – Long conversations compressed automatically
 - **Conversation Revert** – Revert to a prior assistant message or edit a user message and continue from there (v3.9)
-- **Project Memory** – `.atlarix/memory.md` (Claude Code style) persists across sessions; compaction writes there
-- **Task Breakdown** – `.atlarix/spec.md` (model-created) for task breakdown; AI reads both when present
-- **ATLARIX_PLAN.md** – Version-controllable implementation plan
+- **Project Memory** – `.atlarix/ATLARIX.md` is the single project memory/instructions file; legacy `.atlarix/memory.md` and `.atlarix/spec.md` are auto-migrated on first read/write
+- **.atlarix/ATLARIX_PLAN.md** – Version-controllable implementation plan
 - **Workspace location** – New workspaces are created at project root (e.g. **Choose folder** or ~/Documents/Atlarix). The `~/atlarix-apps` folder is legacy only; to remove old projects there, run `node scripts/cleanup-atlarix-apps.js` (use `--delete` to remove).
 
 ### Smart Diff Preview

@@ -31,7 +31,7 @@ import { neonTemplateHook } from '@/client_logic/template_hook';
 import { HomeChatInput } from '@/components/chat/HomeChatInput';
 import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 import { RightPanel } from '@/components/RightPanel';
-import { rightPanelVisibleAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
+import { rightPanelVisibleAtom, rightPanelSuppressAutoOpenAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
 import { onboardingStepAtom } from '@/atoms/viewAtoms';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
@@ -97,6 +97,7 @@ export default function AtlarixHome() {
     const setSourceList = useSetAtom(sourceListAtom);
     const setSelectedSource = useSetAtom(selectedSourceAtom);
     const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+    const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const onboardingStep = useAtomValue(onboardingStepAtom);
     const setOnboardingStep = useSetAtom(onboardingStepAtom);
 
@@ -122,8 +123,9 @@ export default function AtlarixHome() {
         setActiveChatId(null);
         setSourceList([]); // Clear stale sources
         setSelectedSource(null); // Clear selected source
+        setSuppressRightAutoOpen(true);
         setRightPanelVisible(false); // Hide panel
-    }, [setSourceList, setSelectedSource, setRightPanelVisible]);
+    }, [setSourceList, setSelectedSource, setSuppressRightAutoOpen, setRightPanelVisible]);
 
     // Enable keyboard shortcuts (CMD+B toggle, ESC close, etc.)
     useKeyboardShortcuts();

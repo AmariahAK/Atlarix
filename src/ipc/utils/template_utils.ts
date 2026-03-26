@@ -19,7 +19,7 @@ function shuffleWithinTiers(templates: Template[]): Template[] {
 
   // Split into top 3 (keep order) and rest (shuffle)
   const top = templates.slice(0, 3);
-  const rest = [...templates.slice(3)];
+  const rest = templates.slice(3);
 
   // Fisher-Yates shuffle for the rest
   for (let i = rest.length - 1; i > 0; i--) {
@@ -128,7 +128,7 @@ async function searchTemplatesViaSearxng(): Promise<Template[]> {
 
       for (const result of results) {
         // Parse GitHub repo URL
-        const match = result.url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        const match = result.url.match(/github\.com\/([^/]+)\/([^/]+)/);
         if (match) {
           const [, owner, repo] = match;
           const repoName = repo.replace(/[#?].*$/, ''); // Clean URL params

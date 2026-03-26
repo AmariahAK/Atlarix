@@ -25,7 +25,7 @@ dist-ssr
 *.sw?
 
 
-=== AI_RULES.md ===
+=== .atlarix/ATLARIX.md ===
 # Tech Stack
 
 - You are building a React application.

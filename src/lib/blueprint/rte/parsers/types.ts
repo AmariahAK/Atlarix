@@ -61,6 +61,8 @@ export interface RTEParseResult {
   nodes: BlueprintNode[];
   edges: RTEBlueprintEdge[];
   framework: FrameworkInfo;
+  /** `.atlarixignore` source applied during this parse (persisted with blueprint cache). */
+  atlarixIgnoreSource?: string;
 }
 
 /**

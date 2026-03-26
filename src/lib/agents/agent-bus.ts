@@ -2,7 +2,13 @@
  * Agent mesh: direct agent-to-agent communication (AgentMessage), Main observes and can intervene.
  */
 
-export type AgentId = "main" | "architect" | "builder" | "reviewer" | "researcher";
+export type AgentId =
+  | "main"
+  | "architect"
+  | "builder"
+  | "reviewer"
+  | "researcher"
+  | "debugger";
 
 export interface AgentMessage {
   id: string;

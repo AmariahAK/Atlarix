@@ -89,6 +89,13 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
     logger.error("Error ensuring PIVOT tables (non-fatal, continuing):", error);
   }
 
+  // v5.0: Ensure project_snapshots / project_memory (Section 2)
+  try {
+    ensureProjectMemoryTablesIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring project memory tables (non-fatal, continuing):", error);
+  }
+
   // v3.6: Ensure review_patterns table (lightning review memory)
   try {
     ensureReviewPatternsTableIfNeeded(sqlite);
@@ -299,6 +306,41 @@ function ensureBlueprintsTableIfNeeded(sqlite: Database.Database): void {
 /**
  * v3.6: Ensure review_patterns table exists (lightning review memory).
  */
+function ensureProjectMemoryTablesIfNeeded(sqlite: Database.Database): void {
+  if (
+    sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_snapshots'").get()
+  ) {
+    return;
+  }
+  logger.log("[Schema Fix] Creating project_snapshots / project_memory tables");
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS project_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+      blueprint_json TEXT NOT NULL,
+      plan_md TEXT,
+      diagram_mermaid TEXT,
+      git_commit_hash TEXT,
+      session_summary TEXT,
+      trigger TEXT NOT NULL
+    )
+  `);
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS project_snapshots_workspace_created_idx ON project_snapshots (workspace_id, created_at)",
+  );
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS project_memory (
+      workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+      PRIMARY KEY (workspace_id, key)
+    )
+  `);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS project_memory_workspace_idx ON project_memory (workspace_id)");
+}
+
 function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
   const tableExists = sqlite.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='review_patterns'"

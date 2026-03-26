@@ -5,7 +5,13 @@
 
 import { create } from "zustand";
 
-export type AgentId = "main" | "architect" | "builder" | "reviewer" | "researcher";
+export type AgentId =
+  | "main"
+  | "architect"
+  | "builder"
+  | "reviewer"
+  | "researcher"
+  | "debugger";
 
 export type AgentAnimState =
   | "idle"
@@ -40,6 +46,7 @@ const INITIAL_AGENT_STATES: Record<AgentId, AgentAnimState> = {
   builder: "idle",
   reviewer: "idle",
   researcher: "idle",
+  debugger: "idle",
 };
 
 export const useAgentAnimStore = create<AgentAnimStore>((set) => ({
@@ -69,4 +76,5 @@ export const AGENT_CANVAS_POSITIONS: Record<AgentId, { x: number; y: number }> =
   architect: { x: 300, y: 200 },
   builder: { x: 500, y: 200 },
   reviewer: { x: 300, y: 350 },
+  debugger: { x: 500, y: 350 },
 };

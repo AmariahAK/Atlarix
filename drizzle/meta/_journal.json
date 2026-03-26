@@ -218,6 +218,13 @@
       "when": 1766910000000,
       "tag": "0030_v40_tool_session_loads",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1766920000000,
+      "tag": "0031_project_memory",
+      "breakpoints": true
     }
   ]
 }

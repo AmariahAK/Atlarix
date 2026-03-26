@@ -26,6 +26,8 @@ import "./git-tools";
 import "./analysis-tools";
 import "./diagram-tools";
 import "./blueprint-tools"; // Phase 7 Additive Blueprint
+import "./project-memory-tools"; // v5.0 Section 2
+import "./atlarix-ignore-tools";
 import "./testing-tools";
 import "./refactoring-tools";
 import "./project-structure-tools"; // Multi-Layer Fallback System

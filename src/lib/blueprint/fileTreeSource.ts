@@ -12,6 +12,12 @@ import type {
   BlueprintFunctionKind,
   BlueprintRoomFlowEdge,
 } from "@/shared/blueprint-types";
+import {
+  ensureDefaultAtlarixIgnore,
+  isRelPathIgnored,
+  loadIgnorerForProject,
+  normalizeRelPath,
+} from "@/lib/atlarix/atlarix-ignore";
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -99,7 +105,8 @@ async function walkDir(
   dir: string,
   baseDir: string,
   relativePrefix: string,
-  entries: WalkEntry[]
+  entries: WalkEntry[],
+  shouldIncludeRelPath?: (relPath: string) => boolean,
 ): Promise<void> {
   let names: string[];
   try {
@@ -118,11 +125,13 @@ async function walkDir(
     }
     if (stat.isDirectory()) {
       if (SKIP_DIRS.has(name)) continue;
-      await walkDir(abs, baseDir, rel, entries);
+      if (shouldIncludeRelPath && !shouldIncludeRelPath(rel + "/")) continue;
+      await walkDir(abs, baseDir, rel, entries, shouldIncludeRelPath);
     } else {
       const ext = path.extname(name).toLowerCase();
       if (!SOURCE_EXTENSIONS.has(ext)) continue;
       if (shouldSkipFile(name)) continue;
+      if (shouldIncludeRelPath && !shouldIncludeRelPath(rel)) continue;
       entries.push({ relativePath: rel, absolutePath: abs, isDir: false });
     }
   }
@@ -379,7 +388,15 @@ export async function buildBlueprintFromFileTree(projectPath: string): Promise<{
 }> {
   const normPath = path.normalize(projectPath);
   const allEntries: WalkEntry[] = [];
-  await walkDir(normPath, normPath, "", allEntries);
+  await ensureDefaultAtlarixIgnore(normPath);
+  const ig = await loadIgnorerForProject(normPath);
+  await walkDir(
+    normPath,
+    normPath,
+    "",
+    allEntries,
+    (relPath) => !isRelPathIgnored(ig, normalizeRelPath(normPath, relPath)),
+  );
   const allFiles = allEntries.filter((e) => !e.isDir);
 
   const rooms = buildRoomsAndBeacons(normPath, allFiles);

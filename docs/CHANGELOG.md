@@ -1,3 +1,16 @@
+## v5.0.0 – Blueprint context & memory (2026-03-26)
+
+- **Tiered Blueprint prompt injection (Sections 1, 3, 4):** Blueprint context is now routed through `blueprintPromptTiers.ts` with explicit Ask / Plan / Build / Debug tiers. Settings and the chat Config dropdown can force a tier per session, and Auto mode falls back to heuristics based on work mode and prompt.
+- **Project memory & snapshots (Section 2):** New `project_snapshots` and `project_memory` tables (migration `0031_project_memory.sql`) plus `ensureProjectMemoryTablesIfNeeded` in `db/index.ts`. Snapshots track blueprint + plan state across sessions; tools (`get_project_history`, `set_project_memory`, `revert_to_snapshot`) expose this to the AI with an approval-gated `revert_project_snapshot` action.
+- **`.atlarixignore` end‑to‑end:** Gitignore-style patterns are respected in RTE parsing, Blueprint cache loading, and prompt assembly. A default `.atlarixignore` is created on first parse; `get_atlarixignore` / `update_atlarixignore` tools and the Blueprint panel editor keep AI context bounded to relevant files.
+- **Work modes + Auto routing:** Ask / Plan / Build / Debug / Review work modes now bind cleanly to Blueprint tiers and model routing. Auto decides between Fast / Balanced / Thinking based on mode/role, while manual mode selection and overrides still work as before.
+- **MCP server tier gating:** MCP free-tier limits now respect the authenticated subscription (via `SubscriptionManager.isPro()` and `useAuth().status.plan`) instead of raw credit budget, so Pro/Workforce users can add multiple MCP servers without seeing the “Free tier is limited to 1 MCP server” banner.
+- **Auto model configuration UX:** Auto mode lets you pick one provider and up to three models (Fast / Balanced / Thinking). The Config dropdown seeds tiers from provider favorites, supports 1–3 configured tiers, and uses an ordered fallback chain when a model fails.
+
+---
+
+For detailed historical notes (v1.x–v4.x) and implementation phases, see [`docs/previous-versions.md`](previous-versions.md) and the v5.0 tables in [`docs/TODO.md`](TODO.md).
+
 # Atlarix Changelog
 
 All notable changes to Atlarix will be documented in this file.

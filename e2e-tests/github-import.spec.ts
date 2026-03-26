@@ -76,7 +76,7 @@ test("should import GitHub URL", async ({ po }) => {
   await expect(
     po.page.getByRole("heading", { name: "Import App" }),
   ).not.toBeVisible();
-  // Verify AI_RULES generation prompt was sent
+  // Verify import completed and chat opened
 });
 
 test("should import from repository list", async ({ po }) => {

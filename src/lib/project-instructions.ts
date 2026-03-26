@@ -1,6 +1,6 @@
 /**
  * v2.1: Project instruction files (ATLARIX.md)
- * Precedence (lowest to highest): Bundle AGENTS.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < AI_RULES.md < .atlarix/ATLARIX.md (project)
+ * Precedence (lowest to highest): Bundle AGENTS.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < .atlarix/ATLARIX.md (project)
  */
 
 import path from "node:path";
@@ -12,7 +12,6 @@ const logger = log.scope("project-instructions");
 
 const ATLARIX_DIR = ".atlarix";
 const ATLARIX_MD = "ATLARIX.md";
-const AI_RULES_MD = "AI_RULES.md";
 
 /** Path to global user instruction file. */
 export function getGlobalAtlarixMdPath(): string {
@@ -22,11 +21,6 @@ export function getGlobalAtlarixMdPath(): string {
 /** Path to project instruction file (inside workspace). */
 export function getProjectAtlarixMdPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR, ATLARIX_MD);
-}
-
-/** Path to AI_RULES.md in workspace. */
-export function getAiRulesPath(workspacePath: string): string {
-  return path.join(workspacePath, AI_RULES_MD);
 }
 
 export async function readGlobalAtlarixMd(): Promise<string> {
@@ -43,15 +37,6 @@ export async function readProjectAtlarixMd(workspacePath: string): Promise<strin
   const p = getProjectAtlarixMdPath(workspacePath);
   try {
     return await fs.promises.readFile(p, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-export async function readAiRulesMd(workspacePath: string): Promise<string> {
-  if (!workspacePath) return "";
-  try {
-    return await fs.promises.readFile(getAiRulesPath(workspacePath), "utf8");
   } catch {
     return "";
   }
@@ -92,7 +77,7 @@ export async function existsProjectAtlarixMd(workspacePath: string): Promise<boo
 }
 
 export interface InstructionLayer {
-  key: "bundle" | "global" | "workspace" | "aiRules" | "project";
+  key: "bundle" | "global" | "workspace" | "project";
   label: string;
   content: string;
   exists: boolean;
@@ -100,7 +85,7 @@ export interface InstructionLayer {
 }
 
 /**
- * Load all instruction layers in precedence order (bundle first, then global, workspace, aiRules, project last).
+ * Load all instruction layers in precedence order (bundle first, then global, workspace, project last).
  * Caller can concatenate with "\n\n" so project has final say.
  */
 export async function loadInstructionLayers(params: {
@@ -111,7 +96,6 @@ export async function loadInstructionLayers(params: {
   const { workspacePath, workspacePromptContent, bundleAgentsContent } = params;
   const globalContent = await readGlobalAtlarixMd();
   const projectContent = await readProjectAtlarixMd(workspacePath);
-  const aiRulesContent = await readAiRulesMd(workspacePath);
 
   return [
     {
@@ -134,13 +118,6 @@ export async function loadInstructionLayers(params: {
       exists: !!(workspacePromptContent && workspacePromptContent.trim()),
     },
     {
-      key: "aiRules",
-      label: "AI_RULES.md",
-      content: aiRulesContent,
-      exists: !!aiRulesContent,
-      path: workspacePath ? getAiRulesPath(workspacePath) : undefined,
-    },
-    {
       key: "project",
       label: "Project (.atlarix/ATLARIX.md)",
       content: projectContent,
@@ -151,7 +128,7 @@ export async function loadInstructionLayers(params: {
 }
 
 /**
- * Build combined instruction string in precedence order: bundle + global + workspace + aiRules + project.
+ * Build combined instruction string in precedence order: bundle + global + workspace + project.
  * So project content comes last and overrides in spirit (we don't parse, we concatenate).
  */
 export function buildInstructionsFromLayers(layers: InstructionLayer[]): string {

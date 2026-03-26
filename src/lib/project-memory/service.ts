@@ -1,0 +1,319 @@
+/**
+ * v5.0 Section 2 — SQLite project memory (snapshots + key/value).
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import { db } from "@/db";
+import { apps, projectMemory, projectSnapshots, workspaceDiagrams } from "@/db/schema";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { getAtlarixAppPath } from "@/paths/paths";
+import { loadUserBlueprint } from "@/lib/cache/blueprint-cache";
+import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
+const PLAN_FILE = ".atlarix/ATLARIX_PLAN.md";
+import log from "electron-log";
+import { estimateTokens } from "@/ipc/utils/token_utils";
+
+const logger = log.scope("project-memory");
+
+export type ProjectSnapshotTrigger =
+  | "blueprint_change"
+  | "plan_update"
+  | "build_complete"
+  | "session_end";
+
+const MAX_SNAPSHOTS_PER_WORKSPACE = 100;
+const touchedWorkspaces = new Set<number>();
+const blueprintDebounce = new Map<number, ReturnType<typeof setTimeout>>();
+
+function markTouched(workspaceId: number): void {
+  touchedWorkspaces.add(workspaceId);
+}
+
+async function readPlanMd(workspacePath: string): Promise<string | null> {
+  const fp = path.join(workspacePath, PLAN_FILE);
+  try {
+    return await fs.readFile(fp, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function latestDiagramMermaid(workspaceId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ architecture: workspaceDiagrams.architecture })
+    .from(workspaceDiagrams)
+    .where(eq(workspaceDiagrams.appId, workspaceId))
+    .orderBy(desc(workspaceDiagrams.createdAt))
+    .limit(1);
+  return row?.architecture ?? null;
+}
+
+async function gatherPayload(
+  workspaceId: number,
+  workspacePath: string,
+  blueprintJsonOverride?: string,
+): Promise<{
+  blueprintJson: string;
+  planMd: string | null;
+  diagramMermaid: string | null;
+  gitCommitHash: string | null;
+}> {
+  let blueprintJson = blueprintJsonOverride ?? "";
+  if (!blueprintJson) {
+    const disk = await loadUserBlueprint(workspacePath);
+    blueprintJson = disk ? JSON.stringify(disk) : '{"rooms":[],"edges":[],"envRefs":[]}';
+  }
+  const planMd = await readPlanMd(workspacePath);
+  const diagramMermaid = await latestDiagramMermaid(workspaceId);
+  let gitCommitHash: string | null = null;
+  try {
+    gitCommitHash = (await getCurrentCommitHash({ path: workspacePath })) ?? null;
+  } catch {
+    gitCommitHash = null;
+  }
+  return { blueprintJson, planMd, diagramMermaid, gitCommitHash };
+}
+
+async function pruneSnapshots(workspaceId: number): Promise<void> {
+  const rows = await db
+    .select({ id: projectSnapshots.id })
+    .from(projectSnapshots)
+    .where(eq(projectSnapshots.workspaceId, workspaceId))
+    .orderBy(desc(projectSnapshots.createdAt));
+  if (rows.length <= MAX_SNAPSHOTS_PER_WORKSPACE) return;
+  const drop = rows.slice(MAX_SNAPSHOTS_PER_WORKSPACE).map((r) => r.id);
+  if (drop.length === 0) return;
+  await db.delete(projectSnapshots).where(inArray(projectSnapshots.id, drop));
+}
+
+export async function insertProjectSnapshot(params: {
+  workspaceId: number;
+  workspacePath: string;
+  trigger: ProjectSnapshotTrigger;
+  sessionSummary?: string | null;
+  blueprintJson?: string;
+}): Promise<void> {
+  const { workspaceId, workspacePath, trigger, sessionSummary, blueprintJson } = params;
+  markTouched(workspaceId);
+  try {
+    const payload = await gatherPayload(workspaceId, workspacePath, blueprintJson);
+    await db.insert(projectSnapshots).values({
+      workspaceId,
+      blueprintJson: payload.blueprintJson,
+      planMd: payload.planMd,
+      diagramMermaid: payload.diagramMermaid,
+      gitCommitHash: payload.gitCommitHash,
+      sessionSummary: sessionSummary ?? null,
+      trigger,
+    });
+    await pruneSnapshots(workspaceId);
+    logger.debug("insertProjectSnapshot", { workspaceId, trigger });
+  } catch (e) {
+    logger.warn("insertProjectSnapshot failed:", e);
+  }
+}
+
+export function scheduleBlueprintChangeSnapshot(
+  workspaceId: number,
+  workspacePath: string,
+  blueprintJson: string,
+): void {
+  markTouched(workspaceId);
+  const prev = blueprintDebounce.get(workspaceId);
+  if (prev) clearTimeout(prev);
+  blueprintDebounce.set(
+    workspaceId,
+    setTimeout(() => {
+      blueprintDebounce.delete(workspaceId);
+      void insertProjectSnapshot({
+        workspaceId,
+        workspacePath,
+        trigger: "blueprint_change",
+        blueprintJson,
+      });
+    }, 1500),
+  );
+}
+
+export async function recordPlanUpdateSnapshot(workspaceId: number, workspacePath: string): Promise<void> {
+  await insertProjectSnapshot({ workspaceId, workspacePath, trigger: "plan_update" });
+}
+
+export async function recordBuildCompleteSnapshot(
+  workspaceId: number,
+  workspacePath: string,
+  sessionSummary?: string,
+): Promise<void> {
+  await insertProjectSnapshot({
+    workspaceId,
+    workspacePath,
+    trigger: "build_complete",
+    sessionSummary: sessionSummary ?? null,
+  });
+}
+
+export async function flushSessionEndSnapshots(): Promise<void> {
+  const ids = [...touchedWorkspaces];
+  touchedWorkspaces.clear();
+  for (const workspaceId of ids) {
+    const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+    if (!app) continue;
+    const workspacePath = getAtlarixAppPath(app.path);
+    await insertProjectSnapshot({
+      workspaceId,
+      workspacePath,
+      trigger: "session_end",
+    });
+  }
+}
+
+export async function listProjectSnapshots(
+  workspaceId: number,
+  limit = 30,
+): Promise<
+  Array<{
+    id: number;
+    createdAt: Date;
+    trigger: string;
+    sessionSummary: string | null;
+    planExcerpt: string | null;
+  }>
+> {
+  const rows = await db
+    .select({
+      id: projectSnapshots.id,
+      createdAt: projectSnapshots.createdAt,
+      trigger: projectSnapshots.trigger,
+      sessionSummary: projectSnapshots.sessionSummary,
+      planMd: projectSnapshots.planMd,
+    })
+    .from(projectSnapshots)
+    .where(eq(projectSnapshots.workspaceId, workspaceId))
+    .orderBy(desc(projectSnapshots.createdAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt as Date,
+    trigger: r.trigger,
+    sessionSummary: r.sessionSummary,
+    planExcerpt: r.planMd ? r.planMd.slice(0, 400) : null,
+  }));
+}
+
+export async function getProjectSnapshotRow(
+  snapshotId: number,
+  workspaceId: number,
+): Promise<{
+  blueprintJson: string;
+  planMd: string | null;
+} | null> {
+  const [row] = await db
+    .select({
+      blueprintJson: projectSnapshots.blueprintJson,
+      planMd: projectSnapshots.planMd,
+      workspaceId: projectSnapshots.workspaceId,
+    })
+    .from(projectSnapshots)
+    .where(and(eq(projectSnapshots.id, snapshotId), eq(projectSnapshots.workspaceId, workspaceId)))
+    .limit(1);
+  if (!row) return null;
+  return { blueprintJson: row.blueprintJson, planMd: row.planMd };
+}
+
+export async function applyProjectSnapshotRevert(
+  workspaceId: number,
+  workspacePath: string,
+  snapshotId: number,
+): Promise<{ success: boolean; error?: string }> {
+  const row = await getProjectSnapshotRow(snapshotId, workspaceId);
+  if (!row) return { success: false, error: "Snapshot not found for this workspace" };
+  try {
+    const { setBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
+    const blueprint = JSON.parse(row.blueprintJson) as import("@/shared/blueprint-types").Blueprint;
+    await setBlueprintForWorkspace(workspaceId, blueprint);
+    if (row.planMd != null) {
+      await fs.mkdir(path.join(workspacePath, ".atlarix"), { recursive: true });
+      await fs.writeFile(path.join(workspacePath, PLAN_FILE), row.planMd, "utf-8");
+    }
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export async function listProjectMemoryKeys(workspaceId: number): Promise<Array<{ key: string; value: string }>> {
+  return db
+    .select({ key: projectMemory.key, value: projectMemory.value })
+    .from(projectMemory)
+    .where(eq(projectMemory.workspaceId, workspaceId));
+}
+
+export async function upsertProjectMemoryKey(
+  workspaceId: number,
+  key: string,
+  value: string,
+): Promise<void> {
+  markTouched(workspaceId);
+  const k = key.slice(0, 256);
+  const v = value.slice(0, 16_000);
+  await db.delete(projectMemory).where(and(eq(projectMemory.workspaceId, workspaceId), eq(projectMemory.key, k)));
+  await db.insert(projectMemory).values({
+    workspaceId,
+    key: k,
+    value: v,
+    updatedAt: sql`(unixepoch())`,
+  });
+}
+
+function truncateToTokensLocal(text: string, maxTokens: number): string {
+  if (estimateTokens(text) <= maxTokens) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if (estimateTokens(text.slice(0, mid)) <= maxTokens) lo = mid;
+    else hi = mid - 1;
+  }
+  return `${text.slice(0, Math.max(0, lo))}\n…`;
+}
+
+/** Token-bounded block for system prompt (latest snapshots + memory keys). */
+export async function buildProjectMemoryPromptBlock(
+  workspaceId: number,
+  maxTokens = 900,
+): Promise<string> {
+  const snaps = await listProjectSnapshots(workspaceId, 8);
+  const planSnippets = snaps
+    .filter((s) => s.trigger === "plan_update" || s.planExcerpt)
+    .slice(0, 3);
+  const mem = await listProjectMemoryKeys(workspaceId);
+  const parts: string[] = ["## Project memory (SQLite, cross-session)"];
+  if (snaps[0]) {
+    const ts =
+      snaps[0].createdAt instanceof Date
+        ? snaps[0].createdAt.toISOString()
+        : String(snaps[0].createdAt);
+    parts.push(`Latest snapshot: #${snaps[0].id} (${snaps[0].trigger}, ${ts})`);
+    if (snaps[0].sessionSummary) {
+      parts.push(`Summary: ${snaps[0].sessionSummary.slice(0, 400)}`);
+    }
+  }
+  if (planSnippets.length) {
+    parts.push("Recent plan-related snapshots:");
+    for (const p of planSnippets) {
+      parts.push(`- #${p.id}: ${(p.planExcerpt ?? "").slice(0, 220)}`);
+    }
+  }
+  if (mem.length) {
+    parts.push("Stored keys (key → value excerpt):");
+    for (const row of mem.slice(0, 40)) {
+      parts.push(`- \`${row.key}\`: ${row.value.slice(0, 200)}`);
+    }
+  }
+  const body = parts.join("\n");
+  return truncateToTokensLocal(body, maxTokens);
+}

@@ -1,5 +1,5 @@
 /**
- * Onboarding state — first-time guide (Code to Canvas, Blueprint, Ask/Build, AI settings).
+ * Onboarding state — first-time guide (Code to Canvas, Blueprint, work modes, AI settings).
  * Stored in localStorage so "Restart guide" in Settings can reset it.
  */
 
@@ -41,13 +41,13 @@ export const ONBOARDING_STEPS = [
   {
     id: "blueprint",
     title: "Blueprint tab",
-    body: "Use the Diagram view to see Containers and Beacons. The Blueprint is your living architecture—add containers and connect them.",
+    body: "Use the Diagram view to inspect architecture and Blueprint context. v5.0 discovery flow is: high-level map, explore folders, then targeted blueprint slices.",
     target: "[data-onboarding=blueprint-tab]",
   },
   {
     id: "ask-build",
-    title: "Ask vs Build",
-    body: "Ask mode is read-only (search, read files). Build mode lets the AI write code and run commands—you approve each change.",
+    title: "Work modes",
+    body: "Use Ask, Plan, Build, Debug, or Review (or Auto). Ask is read-only; Plan writes `.atlarix/ATLARIX_PLAN.md`; Build executes approved file/command changes.",
     target: "[data-onboarding=ask-build-toggle]",
   },
   {
@@ -59,7 +59,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "done",
     title: "You're all set",
-    body: "Start building! Open a workspace, describe what you want, and the AI will help you code it.",
+    body: "Start building. Ask for a plan to get a collapsible Plan card and a saved `.atlarix/ATLARIX_PLAN.md`, then switch to Build to execute tasks.",
     target: null,
   },
 ] as const;

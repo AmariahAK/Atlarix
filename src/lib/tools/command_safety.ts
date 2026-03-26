@@ -20,7 +20,7 @@
 // Dangerous command patterns - these are BLOCKED
 const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     // Delete operations
-    { pattern: /rm\s+(-rf?|--recursive)\s*[\/~]/i, reason: 'Recursively deletes files starting from root or home' },
+    { pattern: /rm\s+(-rf?|--recursive)\s*[/~]/i, reason: 'Recursively deletes files starting from root or home' },
     { pattern: /rm\s+-[a-z]*f[a-z]*\s+\//i, reason: 'Force deletion from root directory' },
     { pattern: /rmdir\s+--ignore-fail-on-non-empty\s+\//i, reason: 'Force removes directories from root' },
 

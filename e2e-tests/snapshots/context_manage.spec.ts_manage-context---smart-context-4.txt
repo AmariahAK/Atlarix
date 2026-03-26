@@ -48,8 +48,8 @@
           "force": false
         },
         {
-          "path": "AI_RULES.md",
-          "content": "# AI_RULES.md\n",
+          "path": ".atlarix/ATLARIX.md",
+          "content": "# .atlarix/ATLARIX.md\n",
           "force": false
         },
         {

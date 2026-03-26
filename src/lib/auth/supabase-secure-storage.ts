@@ -8,6 +8,7 @@ import log from "electron-log";
 import { app, safeStorage } from "electron";
 import * as fs from "fs";
 import * as path from "path";
+import { createRequire } from "node:module";
 
 const logger = log.scope("supabase-secure-storage");
 
@@ -25,16 +26,29 @@ function fallbackEncryptedPath(): string {
 let storageCache: Record<string, string> | null = null;
 let loadPromise: Promise<Record<string, string>> | null = null;
 
-async function loadKeytar(): Promise<typeof import("keytar") | null> {
+/** Native module: use createRequire so Vite/esbuild does not bundle `.node` binaries. */
+type KeytarModule = {
+  getPassword(service: string, account: string): Promise<string | null>;
+  setPassword(service: string, account: string, password: string): Promise<void>;
+  deletePassword(service: string, account: string): Promise<boolean>;
+};
+
+function getKeytarModule(): KeytarModule | null {
   try {
-    return await import("keytar");
+    const req = createRequire(import.meta.url);
+    const loaded = req("keytar") as KeytarModule & { default?: KeytarModule };
+    if (typeof loaded.getPassword === "function") return loaded;
+    if (loaded.default && typeof loaded.default.getPassword === "function") {
+      return loaded.default;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 async function readBlobFromDisk(): Promise<Record<string, string>> {
-  const kt = await loadKeytar();
+  const kt = getKeytarModule();
   if (kt) {
     try {
       const raw = await kt.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
@@ -86,7 +100,7 @@ async function readBlobFromDisk(): Promise<Record<string, string>> {
 
 async function persistBlob(cache: Record<string, string>): Promise<void> {
   const json = JSON.stringify(cache);
-  const kt = await loadKeytar();
+  const kt = getKeytarModule();
   if (kt) {
     try {
       await kt.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, json);
@@ -149,7 +163,7 @@ export function createSecureSupabaseStorage(): SupportedStorage {
 export async function clearSupabaseSecureStorage(): Promise<void> {
   storageCache = {};
   loadPromise = null;
-  const kt = await loadKeytar();
+  const kt = getKeytarModule();
   if (kt) {
     try {
       await kt.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);

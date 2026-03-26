@@ -46,6 +46,10 @@ export function useLoadApp(appId: number | null) {
       if (!appData) return;
       setApp(appData);
 
+      if (appData.path && appData.pathExists !== false) {
+        void IpcClient.getInstance().prewarmWorkspaceCache(appData.path);
+      }
+
       // If workspace path was deleted outside app, skip diagram/code/preview
       if (appData.pathExists === false) {
         loadedAppIdRef.current = appId;

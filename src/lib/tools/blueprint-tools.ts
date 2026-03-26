@@ -7,7 +7,7 @@
  * Blueprint updates can use:
  * - Detailed ASCII architecture diagrams (AI outputs structured text)
  * - Tree-sitter + regex parsing for code analysis (workspace-analyzer)
- * Each plan (ATLARIX_PLAN.md) must be detailed, accurate, and thorough.
+ * Each plan (.atlarix/ATLARIX_PLAN.md) must be detailed, accurate, and thorough.
  */
 
 import { ToolRegistry, ToolCategory, createParameters, stringParam } from "./registry";
@@ -21,6 +21,7 @@ import {
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { apps } from "@/db/schema";
+import { blueprintToRagGraph, getCodeForNodes } from "@/lib/blueprint/blueprint-rag";
 
 // ═══════════════════════════════════════════════════════════
 // GET BLUEPRINT
@@ -42,6 +43,123 @@ ToolRegistry.register({
       success: true,
       blueprint,
       summary: `${blueprint.rooms.length} room(s), ${blueprint.edges.length} edge(s). Rooms: ${blueprint.rooms.map((r) => r.label).join(", ") || "none"}.`,
+    };
+  },
+});
+
+ToolRegistry.register({
+  name: "get_blueprint_slice",
+  description:
+    "Return a focused Blueprint slice for specific folders/files. Helps deep-dive only the relevant architecture area.",
+  category: ToolCategory.DIAGRAM,
+  cost: 1,
+  requiresWorkspace: true,
+  isCore: false,
+  isReadOnly: true,
+  parameters: createParameters(
+    {
+      workspaceId: { type: "number", description: "Workspace ID" },
+      paths: {
+        type: "array",
+        description: "Folder/file paths relative to workspace to focus on",
+        items: { type: "string" },
+      },
+      includeNeighbors: {
+        type: "boolean",
+        description: "Include one-hop neighbor nodes and related edges (default: true)",
+      },
+      includeCodeSnippets: {
+        type: "boolean",
+        description: "Include small code snippets for matched nodes (default: false)",
+      },
+      maxNodes: {
+        type: "number",
+        description: "Maximum nodes to return (default: 30, max: 100)",
+      },
+    },
+    ["workspaceId", "paths"]
+  ),
+  handler: async ({
+    workspaceId,
+    paths,
+    includeNeighbors = true,
+    includeCodeSnippets = false,
+    maxNodes = 30,
+  }: {
+    workspaceId: number;
+    paths: string[];
+    includeNeighbors?: boolean;
+    includeCodeSnippets?: boolean;
+    maxNodes?: number;
+  }) => {
+    const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+    if (!app?.path) return { success: false, error: "Workspace not found" };
+    const workspacePath = app.path.replace(/\\/g, "/");
+    const requested = (paths ?? [])
+      .map((p) => String(p || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, ""))
+      .filter(Boolean);
+    if (requested.length === 0) return { success: false, error: "paths must contain at least one entry" };
+
+    const blueprint = await getBlueprintForWorkspace(workspaceId);
+    const graph = blueprintToRagGraph(blueprint, workspacePath);
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    const roomByNodeId = new Map<string, string>();
+    for (const room of blueprint.rooms ?? []) {
+      for (const fn of room.functions ?? []) roomByNodeId.set(fn.id, room.label);
+    }
+
+    const seedIds = new Set<string>();
+    for (const node of graph.nodes) {
+      const file = (node.file ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
+      if (!file) continue;
+      for (const reqPath of requested) {
+        if (file === reqPath || file.startsWith(`${reqPath}/`) || file.endsWith(`/${reqPath}`)) {
+          seedIds.add(node.id);
+          break;
+        }
+      }
+    }
+
+    const selectedIds = new Set(seedIds);
+    if (includeNeighbors && seedIds.size > 0) {
+      for (const e of graph.edges) {
+        if (seedIds.has(e.from)) selectedIds.add(e.to);
+        if (seedIds.has(e.to)) selectedIds.add(e.from);
+      }
+    }
+
+    const cap = Math.min(Math.max(Number(maxNodes) || 30, 1), 100);
+    const orderedIds = graph.nodes
+      .map((n) => n.id)
+      .filter((id) => selectedIds.has(id))
+      .slice(0, cap);
+
+    const selectedNodes = orderedIds
+      .map((id) => nodeById.get(id))
+      .filter(Boolean)
+      .map((n) => ({
+        id: n!.id,
+        name: n!.name,
+        file: n!.file,
+        room: roomByNodeId.get(n!.id) ?? null,
+        description: n!.description ?? null,
+      }));
+
+    const idSet = new Set(orderedIds);
+    const selectedEdges = graph.edges.filter((e) => idSet.has(e.from) && idSet.has(e.to));
+    const codeSnippets =
+      includeCodeSnippets && orderedIds.length > 0
+        ? await getCodeForNodes(graph, orderedIds, workspacePath, 5)
+        : [];
+
+    return {
+      success: true,
+      requestedPaths: requested,
+      matchedNodes: selectedNodes.length,
+      matchedEdges: selectedEdges.length,
+      nodes: selectedNodes,
+      edges: selectedEdges,
+      codeSnippets,
     };
   },
 });
@@ -271,20 +389,20 @@ ToolRegistry.register({
       blueprint,
       summary: diff,
       recommendation:
-        "Call get_plan_scope to determine where to put ATLARIX_PLAN.md. Then create plan (write_implementation_plan). Implement one task per exchange. After each task: ask user to review/test, fix bugs, then move to next when ready. Quality over quantity.",
+        "Call get_plan_scope to determine where to put .atlarix/ATLARIX_PLAN.md. Then create plan (write_implementation_plan). Implement one task per exchange. After each task: ask user to review/test, fix bugs, then move to next when ready. Quality over quantity.",
     };
   },
 });
 
 // ═══════════════════════════════════════════════════════════
-// GET PLAN SCOPE (where to put ATLARIX_PLAN.md)
+// GET PLAN SCOPE (where to put .atlarix/ATLARIX_PLAN.md)
 // Uses git + structure to suggest plan placement.
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
   name: "get_plan_scope",
   description:
-    "Determine where to put ATLARIX_PLAN.md. Uses git (if present) and project structure. Returns suggested targetPaths. Call before write_implementation_plan for multi-repo/polyproject.",
+    "Determine where to put .atlarix/ATLARIX_PLAN.md. Uses git (if present) and project structure. Returns suggested targetPaths. Call before write_implementation_plan for multi-repo/polyproject.",
   category: ToolCategory.DIAGRAM,
   cost: 2,
   requiresWorkspace: true,
@@ -318,16 +436,34 @@ ToolRegistry.register({
       // List top-level dirs and files
       const entries = await fs.readdir(workspace, { withFileTypes: true });
       const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name);
+      const rootHasPackageJson = await fs
+        .access(pathMod.join(workspace, "package.json"))
+        .then(() => true)
+        .catch(() => false);
 
       // Monorepo patterns: packages/, apps/, frontend/, backend/
       const monorepoDirs = ["packages", "apps", "frontend", "backend", "web", "api", "server", "client"];
       const found = dirs.filter((d) => monorepoDirs.includes(d));
+      const packageDirs: string[] = [];
+      for (const d of dirs) {
+        try {
+          await fs.access(pathMod.join(workspace, d, "package.json"));
+          packageDirs.push(d);
+        } catch {
+          // ignore non-package dirs
+        }
+      }
 
       if (found.length >= 2) {
         structure.type = "monorepo";
         structure.modules = found;
         // Single plan at root with sections, or one per module - suggest root for now
         structure.suggestedPaths = [""];
+      } else if (!rootHasPackageJson && packageDirs.length === 1) {
+        // Common wrapper folder case (e.g. workspace root contains one app folder like recipe-website/)
+        structure.type = "single";
+        structure.modules = packageDirs;
+        structure.suggestedPaths = [packageDirs[0], ""];
       } else if (found.length === 1) {
         structure.type = "polyproject";
         structure.modules = found;
@@ -345,9 +481,11 @@ ToolRegistry.register({
       ...structure,
       guidance:
         structure.type === "single"
-          ? "Single project: use targetPath omitted (plan at root)."
+          ? structure.modules.length === 1 && structure.suggestedPaths[0]
+            ? `Single project detected in subfolder '${structure.suggestedPaths[0]}': use targetPath='${structure.suggestedPaths[0]}' unless user wants root-level plan.`
+            : "Single project: use targetPath omitted (plan at root)."
           : structure.type === "monorepo"
-            ? "Monorepo: one ATLARIX_PLAN.md at root with ## Frontend, ## Backend sections. Or one per module if user scope is narrow."
+            ? "Monorepo: one .atlarix/ATLARIX_PLAN.md at root with ## Frontend, ## Backend sections. Or one per module if user scope is narrow."
             : "Polyproject: use targetPath for each module being updated (e.g. 'frontend', 'backend'). Only create plans in repos user asked to change.",
     };
   },
@@ -404,22 +542,25 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// IMPLEMENTATION PLAN (ATLARIX_PLAN.md at project root)
-// Like claude.md / cursor.md - stored in project, version-controllable.
-// For multi-repo: optional targetPath (e.g. "frontend") → frontend/ATLARIX_PLAN.md
+// IMPLEMENTATION PLAN (.atlarix/ATLARIX_PLAN.md under project root)
+// Stored in .atlarix for project-managed planning state.
+// For multi-repo: optional targetPath (e.g. "frontend") → frontend/.atlarix/ATLARIX_PLAN.md
 // v2.2: Blueprint may be RTE-generated (get_blueprint returns cached/RTE result); compare desired vs actual, one task per exchange.
 // ═══════════════════════════════════════════════════════════
 
 export const PLAN_FILENAME = "ATLARIX_PLAN.md";
+export const PLAN_DIR = ".atlarix";
 
 function getPlanPath(targetPath?: string): string {
-  return targetPath ? `${targetPath}/${PLAN_FILENAME}` : PLAN_FILENAME;
+  const normalizedTarget = (targetPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const base = normalizedTarget ? `${normalizedTarget}/${PLAN_DIR}` : PLAN_DIR;
+  return `${base}/${PLAN_FILENAME}`;
 }
 
 ToolRegistry.register({
   name: "read_implementation_plan",
   description:
-    "Read ATLARIX_PLAN.md (project root, like claude.md). Use at start of turn or when user says ready for next task. One exchange = one task. Optional targetPath for subprojects (e.g. 'frontend').",
+    "Read .atlarix/ATLARIX_PLAN.md. Use at start of turn or when user says ready for next task. One exchange = one task. Optional targetPath for subprojects (e.g. 'frontend').",
   category: ToolCategory.DIAGRAM,
   cost: 1,
   requiresWorkspace: true,
@@ -456,7 +597,7 @@ ToolRegistry.register({
 ToolRegistry.register({
   name: "write_implementation_plan",
   description:
-    "Create/update ATLARIX_PLAN.md at project root (like claude.md). Use after compare_blueprint_to_live. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. Requires user approval.",
+    "Create/update .atlarix/ATLARIX_PLAN.md. Use after compare_blueprint_to_live. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. In Ask mode the plan file is written without a separate approval step.",
   category: ToolCategory.DIAGRAM,
   cost: 3,
   requiresWorkspace: true,

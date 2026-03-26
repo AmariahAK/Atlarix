@@ -35,7 +35,7 @@ import { Button } from "@/components/ui/button";
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
-import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
+import { triggerUpgrade, triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
 import { UpgradeChoiceDialog } from "./UpgradeChoiceDialog";
 
 // Menu items.

@@ -91,7 +91,7 @@ dist-ssr
 
 </dyad-file>
 
-<dyad-file path="AI_RULES.md">
+<dyad-file path=".atlarix/ATLARIX.md">
 # Tech Stack
 
 - You are building a React application.
@@ -1032,4 +1032,4 @@ message: OK, got it. I'm ready to help
 
 ===
 role: user
-message: [dump] @file:AI_RULES.md
+message: [dump] @file:ATLARIX.md

@@ -12,6 +12,7 @@ import {
   leftPanelWidthAtom,
   rightPanelVisibleAtom,
   rightPanelWidthAtom,
+  rightPanelSuppressAutoOpenAtom,
 } from "@/atoms/sourceAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
@@ -35,6 +36,7 @@ export function usePanelShortcuts() {
 
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setRightPanelWidth = useSetAtom(rightPanelWidthAtom);
 
   useEffect(() => {
@@ -68,8 +70,10 @@ export function usePanelShortcuts() {
           return;
         }
         if (rightPanelVisible) {
+          setSuppressRightAutoOpen(true);
           setRightPanelVisible(false);
         } else {
+          setSuppressRightAutoOpen(false);
           const w = Math.max(280, Math.min(700, Math.floor(window.innerWidth * 0.3)));
           setRightPanelWidth(w);
           setRightPanelVisible(true);
@@ -88,5 +92,6 @@ export function usePanelShortcuts() {
     rightPanelVisible,
     setRightPanelVisible,
     setRightPanelWidth,
+    setSuppressRightAutoOpen,
   ]);
 }

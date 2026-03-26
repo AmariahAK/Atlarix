@@ -34,8 +34,8 @@ import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
 import { ThinkingCard } from "./ThinkingSection";
 import { ActivityDisplay } from "../ActivityDisplay";
-import { PlanCard } from "./PlanCard";
-import { extractPlanFromContent } from "@/lib/plan-cards/plan-card-renderer";
+import { PlanSection } from "./PlanSection";
+import { extractPlanFromContent, stripAssistantPlanForDisplay } from "@/lib/plan-cards/plan-card-renderer";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -94,10 +94,14 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
 }) => {
   const chatId = useAtomValue(selectedChatIdAtom);
   const isStreaming = useAtomValue(isStreamingByIdAtom).get(chatId!) ?? false;
+  const displayContent = useMemo(
+    () => stripAssistantPlanForDisplay(content),
+    [content],
+  );
   // Extract content pieces (markdown and custom tags)
   const contentPieces = useMemo(() => {
-    return parseCustomTags(content);
-  }, [content]);
+    return parseCustomTags(displayContent);
+  }, [displayContent]);
 
   // Stability guard: Don't hide ThinkingCard immediately when it becomes empty
   // This prevents flashing during streaming when content briefly parses to empty
@@ -331,7 +335,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       {/* v3.6: Plan card below response when content contains plan data */}
       {!isStreaming && (() => {
         const planData = extractPlanFromContent(content);
-        return planData ? <PlanCard data={planData} /> : null;
+        return planData ? <PlanSection data={planData} /> : null;
       })()}
     </>
   );

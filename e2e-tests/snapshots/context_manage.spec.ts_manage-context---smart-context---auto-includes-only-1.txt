@@ -24,7 +24,7 @@
         "fileIdToContent": {
           "fd0f9b44a8d543177b124c3b9b5e62da7d0e2683379352e9e2c587d285c36686": "// File contents excluded from context",
           "732a1ebb3b9b602d7104636b4009f8bb3f1d840c9fed3c3eb0dd56a3d299cbf2": "// a.ts\n",
-          "9a5461c208c95126e54da61c3159980e6447678d96cd065aaff1b87c3a9d1f95": "# AI_RULES.md\n",
+          "9a5461c208c95126e54da61c3159980e6447678d96cd065aaff1b87c3a9d1f95": "# .atlarix/ATLARIX.md\n",
           "86524c67667ac0b50cc96ad10d0e35630e81c9eee53c90bdd4576779c146773d": "// exclude.ts: this file is not in any of the globs\n",
           "923470fd746b2d90ec177920cc2ac10f9ecefff6272e8f6fa69ea714909478ab": "// exclude.tsx: this file is not in any of the globs\n",
           "075b6697b2282dfd4cce18f78bcbc51bf5f0d9c0c0911c889b9d72243b9187c3": "[\"even json is included\"]\n",
@@ -49,7 +49,7 @@
             "fileId": "732a1ebb3b9b602d7104636b4009f8bb3f1d840c9fed3c3eb0dd56a3d299cbf2"
           },
           {
-            "path": "AI_RULES.md",
+            "path": ".atlarix/ATLARIX.md",
             "force": false,
             "fileId": "9a5461c208c95126e54da61c3159980e6447678d96cd065aaff1b87c3a9d1f95"
           },

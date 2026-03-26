@@ -156,8 +156,19 @@ export function OllamaRecommenderPanel({
                         setPulling(rec.name);
                         try {
                           const ipc = window.electron?.ipcRenderer;
-                          await ipc?.invoke("ollama:pull-model", rec.name);
-                          showSuccess(`Pulled ${rec.name}`);
+                          if (!ipc?.invoke) {
+                            showError("IPC unavailable");
+                            return;
+                          }
+                          const res = (await ipc.invoke(
+                            "ollama:pull-model",
+                            rec.name,
+                          )) as { success: boolean; error?: string };
+                          if (!res.success) {
+                            showError(res.error ?? "Pull failed");
+                          } else {
+                            showSuccess(`Pulled ${rec.name}`);
+                          }
                         } catch (e) {
                           showError(e instanceof Error ? e.message : String(e));
                         } finally {

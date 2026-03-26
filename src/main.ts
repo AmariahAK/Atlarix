@@ -66,6 +66,9 @@ registerIpcHandlers();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
+  logger.warn(
+    "electron-squirrel-startup: installer flow; exiting without starting the app.",
+  );
   app.quit();
 }
 
@@ -98,6 +101,7 @@ if (process.defaultApp) {
 }
 
 export async function onReady() {
+  logger.info("main onReady started", { packaged: app.isPackaged });
   try {
     const backupManager = new BackupManager({
       settingsFile: getSettingsFilePath(),
@@ -258,15 +262,15 @@ function setMainApplicationMenu(): void {
           {
             label: app.name,
             submenu: [
-              { role: "about" },
-              { type: "separator" },
-              { role: "services" },
-              { type: "separator" },
-              { role: "hide" },
-              { role: "hideOthers" },
-              { role: "unhide" },
-              { type: "separator" },
-              { role: "quit" },
+              { role: "about" as const },
+              { type: "separator" as const },
+              { role: "services" as const },
+              { type: "separator" as const },
+              { role: "hide" as const },
+              { role: "hideOthers" as const },
+              { role: "unhide" as const },
+              { type: "separator" as const },
+              { role: "quit" as const },
             ],
           },
         ]
@@ -348,7 +352,7 @@ const createWindow = () => {
       template.push(
         { role: "undo" },
         { role: "redo" },
-        { type: "separator" },
+        { type: "separator" as const },
         { role: "cut" },
         { role: "copy" },
         { role: "paste" },
@@ -367,7 +371,7 @@ const createWindow = () => {
             },
           }));
         template.push(
-          { type: "separator" },
+          { type: "separator" as const },
           {
             type: "submenu",
             label: `Correct "${params.misspelledWord}"`,
@@ -375,7 +379,7 @@ const createWindow = () => {
           },
         );
       }
-      template.push({ type: "separator" }, { role: "selectAll" });
+      template.push({ type: "separator" as const }, { role: "selectAll" });
     } else {
       if (params.selectionText && params.selectionText.length > 0) {
         template.push({ role: "copy" });
@@ -385,7 +389,7 @@ const createWindow = () => {
 
     if (process.env.NODE_ENV === "development") {
       template.push(
-        { type: "separator" },
+        { type: "separator" as const },
         {
           label: "Inspect Element",
           click: () =>
@@ -401,21 +405,37 @@ const createWindow = () => {
   setMainApplicationMenu();
 };
 
-const gotTheLock = app.requestSingleInstanceLock();
+// Packaged app: single instance only. In dev, skip the lock so a second `npm start`
+// or Forge helper process does not exit immediately without onReady (confusing "crash").
+const gotTheLock = app.isPackaged ? app.requestSingleInstanceLock() : true;
 
 if (!gotTheLock) {
+  logger.warn(
+    "Single-instance lock not acquired — another Atlarix copy is already running. Exiting this process.",
+  );
   app.quit();
 } else {
-  app.on("second-instance", (_event, commandLine, _workingDirectory) => {
-    // Someone tried to run a second instance, we should focus our window.
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-    // the commandLine is array of strings in which last element is deep link url
-    handleDeepLinkReturn(commandLine.pop()!);
+  if (app.isPackaged) {
+    app.on("second-instance", (_event, commandLine, _workingDirectory) => {
+      // Someone tried to run a second instance, we should focus our window.
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+      // the commandLine is array of strings in which last element is deep link url
+      handleDeepLinkReturn(commandLine.pop()!);
+    });
+  }
+  app.whenReady().then(() => {
+    void onReady().catch((err: unknown) => {
+      logger.error("onReady failed:", err);
+      dialog.showErrorBox(
+        "Startup failed",
+        err instanceof Error ? err.message : String(err),
+      );
+      app.quit();
+    });
   });
-  app.whenReady().then(onReady);
 }
 
 // Handle the protocol. On macOS, deep links come through open-url event
@@ -615,6 +635,29 @@ function handleDeepLinkReturn(url: string) {
   }
   dialog.showErrorBox("Invalid deep link URL", url);
 }
+
+// v5.0: Flush project memory snapshots on quit (session_end), then abort streams
+let quittingAfterProjectMemoryFlush = false;
+app.on("before-quit", (e) => {
+  if (quittingAfterProjectMemoryFlush) return;
+  e.preventDefault();
+  quittingAfterProjectMemoryFlush = true;
+  void (async () => {
+    try {
+      const { flushSessionEndSnapshots } = await import("./lib/project-memory/service");
+      await flushSessionEndSnapshots();
+    } catch (err) {
+      logger.error("flushSessionEndSnapshots failed:", err);
+    }
+    try {
+      const { abortAllStreams } = await import("./ipc/handlers/chat_stream_handlers");
+      abortAllStreams();
+    } catch (abortErr) {
+      logger.warn("abortAllStreams on quit:", abortErr);
+    }
+    app.quit();
+  })();
+});
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

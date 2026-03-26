@@ -1,5 +1,6 @@
 /**
  * Tools page – 4 features per view, search, categories, short descriptions and in-app links.
+ * Updated for Atlarix 5.0 (Auto routing, Blueprint context, MCP tools, Workforce).
  */
 
 import { useState, useMemo } from "react";
@@ -121,10 +122,10 @@ const FEATURES: ToolFeature[] = [
   {
     id: "models",
     title: "Models & Providers",
-    shortDescription: "OpenRouter, Ollama, LM Studio, and others. Auto mode: one provider, 3 models.",
+    shortDescription: "OpenRouter, Ollama, LM Studio, and others. Auto mode: one provider, up to 3 models (Fast/Balanced/Thinking).",
     category: "models",
     steps: ["Settings → Model Providers", "Add API keys for providers", "Config → Change model or Configure Auto (provider + Fast/Medium/Thinking)"],
-    howItWorks: "Select a single model or turn on Auto and pick one provider + 3 models for routing.",
+    howItWorks: "Select a single model for manual control or turn on Auto to route by complexity using your chosen Fast/Balanced/Thinking models for a single provider.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
@@ -164,10 +165,10 @@ const FEATURES: ToolFeature[] = [
   {
     id: "blueprint-containers-beacons",
     title: "Blueprint — Containers & Beacons",
-    shortDescription: "Design architecture with containers and beacons. get_blueprint, compare_blueprint_to_live, add/update rooms, functions, edges. Generate code from Blueprint.",
+    shortDescription: "Design architecture with containers and beacons. Use full blueprint or targeted slices, compare live state, then generate code and plans.",
     category: "diagram",
-    steps: ["Open Diagram tab, switch to Blueprint mode", "Add containers and beacons manually or ask AI (add_blueprint_room, add_blueprint_function, add_blueprint_edge)", "Use compare_blueprint_to_live to see desired vs actual", "Generate code from Blueprint delta when ready"],
-    howItWorks: "Blueprint tools (get_blueprint, add_blueprint_room, add_blueprint_function, add_blueprint_edge, update_blueprint, compare_blueprint_to_live) let the AI or you design the architecture; then compare to live and generate code.",
+    steps: ["Open Diagram tab, switch to Blueprint mode", "Add containers and beacons manually or ask AI", "Use compare_blueprint_to_live to see desired vs actual", "Generate `.atlarix/ATLARIX_PLAN.md` and code from Blueprint delta when ready"],
+    howItWorks: "Blueprint tools let the AI or you design full architecture, fetch focused slices for specific folders/files, then compare to live and drive `.atlarix/ATLARIX_PLAN.md` plus code generation.",
     link: { label: "Diagram tab → Blueprint", to: "/" },
   },
 ];

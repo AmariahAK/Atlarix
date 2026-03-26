@@ -75,6 +75,7 @@ import {
 import { SelectedComponentsDisplay } from "./SelectedComponentDisplay";
 import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
+import { UserQuestionBar } from "./UserQuestionBar";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
 import { ToolIndicator } from "./ToolIndicator";
 import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
@@ -418,6 +419,8 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
           {/* Use the DragDropOverlay component */}
           <DragDropOverlay isDraggingOver={isDraggingOver} />
+
+          {currentChatId != null && <UserQuestionBar chatId={currentChatId} />}
 
           <div className="flex items-start space-x-2 ">
             <LexicalChatInput

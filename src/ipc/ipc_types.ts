@@ -47,6 +47,11 @@ export interface ChatStreamParams {
   modelOverride?: { provider: string; name: string };
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
   continueAfterQuestions?: boolean;
+  /** v5.0: Explicit Blueprint system-prompt tier (Diagram tab). When omitted, derived from chat mode + prompt heuristics. */
+  blueprintInjectionMode?: "ask" | "plan" | "build" | "debug";
+  /** v5.0: Optional debug context when tier resolves to Debug (IPC override; else settings). */
+  blueprintDebugTrace?: string;
+  blueprintDebugFile?: string;
 }
 
 /** v3.9: Clarifying question from AI (<questions> block). */
@@ -569,7 +574,6 @@ export interface GithubRepository {
 export type CloneRepoReturnType =
   | {
     app: App;
-    hasAiRules: boolean;
   }
   | {
     error: string;

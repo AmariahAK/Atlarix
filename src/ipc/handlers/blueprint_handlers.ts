@@ -16,6 +16,17 @@ import { getAtlarixAppPath } from "@/paths/paths";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
 import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint } from "@/lib/cache/blueprint-cache";
+import {
+  ATLARIX_IGNORE_FILENAME,
+  createIgnorerFromSource,
+  ensureDefaultAtlarixIgnore,
+  filterRteEdgesByNodes,
+  filterRteNodesByIgnore,
+  getAtlarixIgnorePath,
+  loadIgnorerForProject,
+  readAtlarixIgnoreSource,
+} from "@/lib/atlarix/atlarix-ignore";
+import { scheduleBlueprintChangeSnapshot } from "@/lib/project-memory/service";
 import { generateFromBlueprintDelta, type CodegenDelta, type CodegenResult } from "@/lib/blueprint/codegen";
 import { inferBlueprintFromWorkspace } from "@/lib/blueprint/workspace_to_blueprint";
 import { rteResultToBlueprint } from "@/lib/blueprint/rte_to_blueprint";
@@ -48,9 +59,12 @@ const blueprintCache = new Map<number, Blueprint>();
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
 
 function sanitizeBlueprint(b: Blueprint): Blueprint {
-  const rooms = (b.rooms ?? []).filter(
-    (r) => r.label != null && !INVALID_ROOM_NAMES.has(String(r.label).trim())
-  );
+  const rooms = (b.rooms ?? [])
+    .filter((r) => r.label != null && !INVALID_ROOM_NAMES.has(String(r.label).trim()))
+    .map((r) => ({
+      ...r,
+      functions: r.functions ?? [],
+    }));
   const roomIds = new Set(rooms.map((r) => r.id));
   const edges = (b.edges ?? []).filter((e) => roomIds.has(e.from) && roomIds.has(e.to));
   const out: Blueprint = { rooms, edges, envRefs: b.envRefs ?? [] };
@@ -96,10 +110,16 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
   const workspacePath = getAtlarixAppPath(app.path);
   const cached = await loadBlueprintCache(workspacePath);
   if (cached && cached.nodes.length > 0) {
+    const ig = cached.atlarixIgnoreSource?.trim()
+      ? createIgnorerFromSource(cached.atlarixIgnoreSource)
+      : await loadIgnorerForProject(workspacePath);
+    const nodes = filterRteNodesByIgnore(cached.nodes, ig, workspacePath);
+    const kept = new Set(nodes.map((n) => n.id));
+    const edges = filterRteEdgesByNodes(cached.edges, kept);
     const b = rteResultToBlueprint(
       {
-        nodes: cached.nodes,
-        edges: cached.edges,
+        nodes,
+        edges,
         framework: { name: cached.manifest.framework, confidence: 0.8 },
       },
       workspacePath
@@ -145,7 +165,18 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
 /** Get blueprint for workspace (memory, then persisted user blueprint, then infer). Used by IPC and AI tools. */
 export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blueprint> {
   const cached = blueprintCache.get(workspaceId);
-  if (cached) return sanitizeBlueprint(cached);
+  if (cached) {
+    const sanitized = sanitizeBlueprint(cached);
+    const needsFunctionBackfill = sanitized.rooms.some(
+      (r) => (r.functions?.length ?? 0) === 0 && !r.hidden,
+    );
+    if (needsFunctionBackfill) {
+      const merged = await mergeInferredEdges(workspaceId, sanitized);
+      blueprintCache.set(workspaceId, merged);
+      return merged;
+    }
+    return sanitized;
+  }
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (app) {
     const workspacePath = getAtlarixAppPath(app.path);
@@ -211,15 +242,19 @@ async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Pr
 
     const rooms = (blueprint.rooms ?? []).map((room) => {
       const inferredRoom = inferredByRoomId.get(room.id) ?? inferredByKey.get(normalizedRoomKey(room));
-      if (!inferredRoom?.flowEdges?.length) return room;
+      const effectiveFunctions =
+        (room.functions?.length ?? 0) > 0 ? room.functions : (inferredRoom?.functions ?? []);
+      let nextRoom = { ...room, functions: effectiveFunctions };
 
-      const existingFlowKeys = new Set((room.flowEdges ?? []).map((e) => `${e.from}\t${e.to}`));
-      const roomFnByName = new Map(room.functions.map((f) => [f.name, f]));
+      if (!inferredRoom?.flowEdges?.length) return nextRoom;
+
+      const existingFlowKeys = new Set((nextRoom.flowEdges ?? []).map((e) => `${e.from}\t${e.to}`));
+      const roomFnByName = new Map(nextRoom.functions.map((f) => [f.name, f]));
       const roomFnByFile = new Map(
-        room.functions.filter((f) => f.file).map((f) => [path.normalize(f.file!).replace(/\\/g, "/"), f])
+        nextRoom.functions.filter((f) => f.file).map((f) => [path.normalize(f.file!).replace(/\\/g, "/"), f])
       );
       const roomFnByBasename = new Map(
-        room.functions.map((f) => [f.name.toLowerCase(), f])
+        nextRoom.functions.map((f) => [f.name.toLowerCase(), f])
       );
       const inferredToRoomFnId = new Map<string, string>();
       for (const inf of inferredRoom.functions) {
@@ -231,7 +266,7 @@ async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Pr
         if (roomFn) inferredToRoomFnId.set(inf.id, roomFn.id);
       }
 
-      const added: typeof room.flowEdges = [];
+      const added: typeof nextRoom.flowEdges = [];
       for (const e of inferredRoom.flowEdges) {
         const fromId = inferredToRoomFnId.get(e.from);
         const toId = inferredToRoomFnId.get(e.to);
@@ -240,8 +275,8 @@ async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Pr
           existingFlowKeys.add(`${fromId}\t${toId}`);
         }
       }
-      if (added.length === 0) return room;
-      return { ...room, flowEdges: [...(room.flowEdges ?? []), ...added] };
+      if (added.length === 0) return nextRoom;
+      return { ...nextRoom, flowEdges: [...(nextRoom.flowEdges ?? []), ...added] };
     });
 
     const edges = [...(blueprint.edges ?? []), ...newCrossRoom];
@@ -255,6 +290,7 @@ async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Pr
 /** Set blueprint for workspace (in-memory + persist to disk); notifies renderer. Used by AI tools and UI save. */
 export async function setBlueprintForWorkspace(workspaceId: number, blueprint: Blueprint): Promise<void> {
   let b = sanitizeBlueprint(blueprint);
+  b = await mergeInferredEdges(workspaceId, b);
   const currentMerged = blueprintCache.get(workspaceId);
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (app) {
@@ -302,6 +338,7 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
       blueprintCache.set(workspaceId, b);
       await saveUserBlueprint(workspacePath, b);
       await saveBlueprintSnapshot(workspaceId, JSON.stringify(b), "user");
+      scheduleBlueprintChangeSnapshot(workspaceId, workspacePath, JSON.stringify(b));
     } catch (e) {
       logger.warn("Failed to persist user blueprint:", e);
       blueprintCache.set(workspaceId, b);
@@ -346,6 +383,40 @@ export function registerBlueprintHandlers() {
       await setBlueprintForWorkspace(workspaceId, blueprint);
       return { success: true };
     }
+  );
+
+  ipcMain.handle(
+    "blueprint:get-atlarixignore",
+    async (_, { workspaceId }: { workspaceId: number }) => {
+      try {
+        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (!app) return { success: false, error: "Workspace not found" };
+        const workspacePath = getAtlarixAppPath(app.path);
+        await ensureDefaultAtlarixIgnore(workspacePath);
+        const content = await readAtlarixIgnoreSource(workspacePath);
+        return { success: true, content, filename: ATLARIX_IGNORE_FILENAME };
+      } catch (e) {
+        logger.error("blueprint:get-atlarixignore error:", e);
+        return { success: false, error: e instanceof Error ? e.message : "Unknown error" };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "blueprint:set-atlarixignore",
+    async (_, { workspaceId, content }: { workspaceId: number; content: string }) => {
+      try {
+        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (!app) return { success: false, error: "Workspace not found" };
+        const workspacePath = getAtlarixAppPath(app.path);
+        await fs.writeFile(getAtlarixIgnorePath(workspacePath), content, "utf-8");
+        invalidateBlueprintCache(workspaceId);
+        return { success: true };
+      } catch (e) {
+        logger.error("blueprint:set-atlarixignore error:", e);
+        return { success: false, error: e instanceof Error ? e.message : "Unknown error" };
+      }
+    },
   );
 
   // v3.6: Reference projects for combined blueprint
@@ -404,6 +475,9 @@ export function registerBlueprintHandlers() {
         try {
           const rteResult = await generateBlueprint(workspacePath);
           if (rteResult && rteResult.nodes.length > 0) {
+            const ignoreSrc =
+              rteResult.atlarixIgnoreSource?.trim() ||
+              (await readAtlarixIgnoreSource(workspacePath)).trim();
             await saveBlueprintCache(workspacePath, {
               manifest: {
                 projectPath: workspacePath,
@@ -412,6 +486,7 @@ export function registerBlueprintHandlers() {
               },
               nodes: rteResult.nodes,
               edges: rteResult.edges,
+              ...(ignoreSrc ? { atlarixIgnoreSource: ignoreSrc } : {}),
             });
             const fromRte = rteResultToBlueprint(rteResult, workspacePath);
             const nonInferredEdges = (current.edges ?? []).filter((e) => !e.inferred);

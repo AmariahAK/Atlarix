@@ -1,6 +1,6 @@
 /**
  * Plan file restructure: .atlarix/plans/_index.md and domain-specific plan files.
- * spec.md (when present) is strictly for technical specifications.
+ * Project context/instructions live in .atlarix/ATLARIX.md.
  */
 
 import * as fs from "node:fs/promises";
@@ -8,7 +8,7 @@ import * as path from "node:path";
 
 export const PLANS_DIR = ".atlarix/plans";
 export const PLANS_INDEX = "_index.md";
-export const SPEC_FILE = ".atlarix/spec.md";
+export const ATLARIX_FILE = ".atlarix/ATLARIX.md";
 
 export const DOMAIN_PLANS = ["backend", "frontend", "database", "devops"] as const;
 export type PlanDomain = (typeof DOMAIN_PLANS)[number];
@@ -25,8 +25,8 @@ export function getDomainPlanPath(workspacePath: string, domain: PlanDomain): st
   return path.join(workspacePath, PLANS_DIR, `${domain}.md`);
 }
 
-export function getSpecPath(workspacePath: string): string {
-  return path.join(workspacePath, SPEC_FILE);
+export function getAtlarixPath(workspacePath: string): string {
+  return path.join(workspacePath, ATLARIX_FILE);
 }
 
 const INDEX_TEMPLATE = `# Atlarix Plans Index
@@ -36,7 +36,7 @@ const INDEX_TEMPLATE = `# Atlarix Plans Index
 - [Database](database.md)
 - [DevOps](devops.md)
 
-Use spec.md for technical specifications only.
+Use .atlarix/ATLARIX.md for project-level instructions and memory.
 `;
 
 const DOMAIN_TEMPLATE = (domain: string) => `# ${domain.charAt(0).toUpperCase() + domain.slice(1)} Plan

@@ -143,17 +143,13 @@ export const DEBUGGING_TIPS_TIP: MessageConfig = {
   ],
 };
 
-// Advanced tip: Customize your AI rules https://www.atlarix.dev/docs/guides/ai-rules
-export const AI_RULES_TIP: MessageConfig = {
+// Advanced tip: Use project memory/instructions via .atlarix/ATLARIX.md
+export const PROJECT_INSTRUCTIONS_TIP: MessageConfig = {
   spans: [
     {
       type: "text",
-      content: "Advanced tip: Customize your ",
-    },
-    {
-      type: "link",
-      content: "AI rules",
-      url: "https://www.atlarix.dev/docs/guides/ai-rules",
+      content:
+        "Advanced tip: Add stack guidance to .atlarix/ATLARIX.md so Atlarix follows your project conventions.",
     },
   ],
 };
@@ -206,7 +202,7 @@ const ALL_MESSAGES = [
   UPLOAD_CHAT_TIP,
   BUILD_A_BIBLE_APP_TIP,
   DEBUGGING_TIPS_TIP,
-  AI_RULES_TIP,
+  PROJECT_INSTRUCTIONS_TIP,
   NEW_CHAT_TIP,
   ROADMAP_TIP,
   GITHUB_TIP,

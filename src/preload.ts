@@ -22,6 +22,8 @@ const validInvokeChannels = [
   "chat:stream",
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-question-answers",  // v3.9: submit clarifying-question answers and continue
+  "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
+  "workspace:prewarm-cache",
   "chat:edit-message",             // v3.9: edit user message and truncate after
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
   "stream:open",                  // v3.9: open terminal/pipeline stream
@@ -116,7 +118,6 @@ const validInvokeChannels = [
   "start-chat-stream",
   "does-release-note-exist",
   "import-app",
-  "check-ai-rules",
   "select-app-folder",
   "check-app-name",
   "rename-branch",
@@ -252,6 +253,8 @@ const validInvokeChannels = [
   "blueprint:get-reference-paths",
   "blueprint:set-reference-paths",
   "blueprint:refresh-from-code",
+  "blueprint:get-atlarixignore",
+  "blueprint:set-atlarixignore",
   "blueprint:analyze-workspace",
   "blueprint:generate-combined",
   "blueprint:codegen",
@@ -342,6 +345,7 @@ const validReceiveChannels = [
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
+  "user-question-request", // ask_user: show question + options in chat UI
   "mode_change_requested",
   "terminal-output",
   "operation-status",         // Permission queue status updates

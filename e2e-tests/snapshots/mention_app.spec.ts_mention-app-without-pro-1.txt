@@ -94,7 +94,7 @@ dist-ssr
 
 </dyad-file>
 
-<dyad-file path="AI_RULES.md">
+<dyad-file path=".atlarix/ATLARIX.md">
 # Tech Stack
 
 - You are building a React application.
@@ -1071,10 +1071,10 @@ dist-ssr
 
 </dyad-file>
 
-<dyad-file path="AI_RULES.md">
-[[beginning of AI_RULES.md]]
+<dyad-file path=".atlarix/ATLARIX.md">
+[[beginning of .atlarix/ATLARIX.md]]
 There's already AI rules...
-[[end of AI_RULES.md]]
+[[end of .atlarix/ATLARIX.md]]
 
 </dyad-file>
 

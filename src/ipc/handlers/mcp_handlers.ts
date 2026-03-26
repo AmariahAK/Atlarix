@@ -9,7 +9,7 @@ import { resolveConsent } from "../utils/mcp_consent";
 import { getStoredConsent } from "../utils/mcp_consent";
 import { mcpManager } from "../utils/mcp_manager";
 import { CreateMcpServer, McpServerUpdate, McpTool } from "../ipc_types";
-import { fetchUserBudget } from "./pro_handlers";
+import { SubscriptionManager } from "../../lib/SubscriptionManager";
 
 const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
@@ -92,8 +92,8 @@ export function registerMcpHandlers() {
       const scope = params.scope ?? "global";
       const appId = params.appId ?? null;
 
-      const budget = await fetchUserBudget();
-      const isPro = budget != null && budget.totalCredits > 0;
+      // Use subscription tier (Pro or Workforce) instead of credits-based budget.
+      const isPro = SubscriptionManager.isPro();
 
       if (scope === "global") {
         const globalCount = await db

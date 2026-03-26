@@ -12,6 +12,17 @@ import { useAppVersion } from "@/hooks/useAppVersion";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { BlueprintInjectionModePreference } from "@/lib/schemas";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
@@ -396,6 +407,77 @@ export function AISettings() {
 
       <div className="mt-4">
         <MaxChatTurnsSelector />
+      </div>
+
+      <div className="mt-6 space-y-3 border-t border-border pt-6">
+        <h3 className="text-sm font-medium text-foreground">
+          Blueprint context (Diagram tab)
+        </h3>
+        <p className="text-xs text-muted-foreground max-w-2xl">
+          Controls how much Blueprint detail is injected into the AI system prompt.
+          Auto uses chat mode (Ask/Build) and message heuristics; other values force
+          that tier.
+        </p>
+        <div className="space-y-2 max-w-md">
+          <Label htmlFor="blueprint-injection-mode">Injection tier</Label>
+          <Select
+            value={settings?.blueprintInjectionModePreference ?? "auto"}
+            onValueChange={(v) =>
+              updateSettings({
+                blueprintInjectionModePreference:
+                  v as BlueprintInjectionModePreference,
+              })
+            }
+          >
+            <SelectTrigger
+              id="blueprint-injection-mode"
+              className="w-full max-w-sm"
+            >
+              <SelectValue placeholder="Auto" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto</SelectItem>
+              <SelectItem value="ask">Ask</SelectItem>
+              <SelectItem value="plan">Plan</SelectItem>
+              <SelectItem value="build">Build</SelectItem>
+              <SelectItem value="debug">Debug</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-3 max-w-xl">
+          <div className="space-y-1">
+            <Label htmlFor="blueprint-debug-trace">
+              Debug tier — stack trace / error (optional)
+            </Label>
+            <Textarea
+              id="blueprint-debug-trace"
+              value={settings?.blueprintDebugTrace ?? ""}
+              onChange={(e) =>
+                updateSettings({ blueprintDebugTrace: e.target.value })
+              }
+              placeholder="Paste error output or stack trace"
+              className="min-h-24 font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="blueprint-debug-file">
+              Debug tier — primary file path (optional)
+            </Label>
+            <Input
+              id="blueprint-debug-file"
+              value={settings?.blueprintDebugFile ?? ""}
+              onChange={(e) =>
+                updateSettings({ blueprintDebugFile: e.target.value })
+              }
+              placeholder="e.g. src/components/App.tsx"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These fields apply only when the effective Blueprint injection tier is
+            Debug (forced Debug above, or Auto when your message matches debug
+            heuristics). If empty, the model uses your chat message.
+          </p>
+        </div>
       </div>
 
       {/* v3.6: Auto Routing options */}

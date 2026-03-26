@@ -1,0 +1,92 @@
+/**
+ * Sanitize tool-supplied paths so models cannot recreate host absolute paths
+ * under the workspace (e.g. workspace/Users/you/.../project/src).
+ */
+import * as path from "path";
+
+/** First path segments that usually mean the model pasted an absolute path as "relative". */
+const BLOCKED_FIRST_SEGMENTS = new Set(
+  [
+    "Users",
+    "home",
+    "Volumes",
+    "private",
+    "mnt",
+    "var",
+    "usr",
+    "etc",
+    "opt",
+    "proc",
+    "sys",
+    "run",
+    "tmp",
+    "Program Files",
+    "Program Files (x86)",
+    "ProgramData",
+  ].map((s) => s.toLowerCase()),
+);
+
+/** Exported for tools that have no workspace root (resolve against cwd with same prefix stripping). */
+export function stripToolPathPrefixes(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^\/workspace\//i, "")
+    .replace(/^workspace\//i, "")
+    .replace(/^\/+/, "");
+}
+
+function segmentsOf(p: string): string[] {
+  return p.split(/[/\\]+/).filter((s) => s.length > 0);
+}
+
+/**
+ * Returns a normalized relative path (platform separators) safe to join under workspaceRoot.
+ * @throws Error with a clear message if the path escapes or looks like a pasted absolute path.
+ */
+export function safeRelativePathUnderWorkspace(raw: string): string {
+  let s = stripToolPathPrefixes(raw);
+  if (s === "") {
+    s = ".";
+  }
+  if (s.startsWith("\\\\") || s.startsWith('\\\\?\\')) {
+    throw new Error(
+      "Invalid path: UNC paths are not allowed. Use a path relative to the project root (e.g. src/App.tsx).",
+    );
+  }
+  if (/^[A-Za-z]:[\\/]/.test(s)) {
+    throw new Error(
+      "Invalid path: drive-letter paths are not allowed as relative paths. Use a path relative to the project root.",
+    );
+  }
+
+  const normalized = path.normalize(s);
+  const segs = segmentsOf(normalized);
+  if (segs.some((seg) => seg === "..")) {
+    throw new Error('Invalid path: ".." is not allowed. Use a path relative to the project root.');
+  }
+
+  const first = segs[0];
+  if (first !== undefined && BLOCKED_FIRST_SEGMENTS.has(first.toLowerCase())) {
+    throw new Error(
+      `Invalid path: "${first}/..." looks like an absolute system path pasted as relative. Use paths from the project root only (e.g. src/... not Users/...).`,
+    );
+  }
+
+  return normalized;
+}
+
+/**
+ * Resolve a tool-supplied path to an absolute path guaranteed under workspaceRoot.
+ */
+export function resolvePathUnderWorkspace(workspaceRoot: string, raw: string): string {
+  const root = path.resolve(workspaceRoot);
+  const rel = safeRelativePathUnderWorkspace(raw);
+  const full = path.resolve(root, rel);
+  const relCheck = path.relative(root, full);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+    throw new Error(
+      "Path resolves outside the workspace. Use a path relative to the project root.",
+    );
+  }
+  return full;
+}

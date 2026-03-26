@@ -9,6 +9,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import {
   rightPanelVisibleAtom,
+  rightPanelSuppressAutoOpenAtom,
   diagramStateAtom,
   sourceListAtom,
   selectedSourceAtom,
@@ -23,6 +24,7 @@ export function EmbeddedChatTab() {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setSelectedSource = useSetAtom(selectedSourceAtom);
@@ -58,12 +60,14 @@ export function EmbeddedChatTab() {
     setActiveChatId(null);
     setSourceList([]);
     setSelectedSource(null);
+    setSuppressRightAutoOpen(true);
     setRightPanelVisible(false);
     setDiagramState(null);
   }, [
     setActiveChatId,
     setSourceList,
     setSelectedSource,
+    setSuppressRightAutoOpen,
     setRightPanelVisible,
     setDiagramState,
   ]);

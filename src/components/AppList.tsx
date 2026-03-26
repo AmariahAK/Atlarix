@@ -7,6 +7,7 @@ import { onboardingStepAtom } from "@/atoms/viewAtoms";
 import {
   selectedErrorForCodeAtom,
   rightPanelVisibleAtom,
+  rightPanelSuppressAutoOpenAtom,
   aiPanelIntentAtom,
   previewTabAtom,
 } from "@/atoms/sourceAtoms";
@@ -44,6 +45,7 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
@@ -179,6 +181,7 @@ export function AppList({ show }: { show?: boolean }) {
     if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name, path: ws.path });
     setSelectedErrorForCode({ filePath });
     // Open right panel and switch to Code tab for IDE-like editing
+    setSuppressRightAutoOpen(false);
     setRightPanelVisible(true);
     setPreviewTab("code");
     setAIPanelIntent({

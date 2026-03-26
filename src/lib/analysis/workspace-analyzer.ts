@@ -9,6 +9,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import log from 'electron-log';
 import { parseWithTreeSitter } from './treesitter-parser';
+import {
+    ensureDefaultAtlarixIgnore,
+    loadIgnorerForProject,
+    normalizeRelPath,
+    isRelPathIgnored,
+} from '@/lib/atlarix/atlarix-ignore';
 
 const logger = log.scope('workspace-analyzer');
 
@@ -89,9 +95,15 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
     const { language, framework, packageManager } = await detectProjectType(workspacePath);
     logger.info(`Detected: ${language}${framework ? ` (${framework})` : ''}`);
 
-    // 2. Scan files
-    const filePaths = await scanFiles(workspacePath);
-    logger.info(`Found ${filePaths.length} source files`);
+    // 2. Scan files (respect .atlarixignore)
+    await ensureDefaultAtlarixIgnore(workspacePath);
+    const ig = await loadIgnorerForProject(workspacePath);
+    const scanned = await scanFiles(workspacePath);
+    const filePaths = scanned.filter((f) => {
+        const rel = normalizeRelPath(workspacePath, f);
+        return !isRelPathIgnored(ig, rel);
+    });
+    logger.info(`Found ${filePaths.length} source files (${scanned.length} before .atlarixignore)`);
 
     // 3. Analyze each file
     const analyzedFiles = await Promise.all(

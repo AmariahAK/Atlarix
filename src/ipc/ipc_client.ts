@@ -73,7 +73,7 @@ import type {
   SelectNodeFolderResult,
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
-  type DiscordInviteInfoResult,
+  DiscordInviteInfoResult,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -130,6 +130,7 @@ export class IpcClient {
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
   private permissionHandlers: Map<number, (payload: any) => void>;
+  private userQuestionHandlers: Map<number, (payload: any) => void>;
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
   private diagramHandlers: Map<number, (payload: any) => void>;
   private terminalHandlers: Map<number, (payload: any) => void>;
@@ -145,6 +146,7 @@ export class IpcClient {
     this.helpStreams = new Map();
     this.mcpConsentHandlers = new Map();
     this.permissionHandlers = new Map();
+    this.userQuestionHandlers = new Map();
     this.diagramHandlers = new Map();
     this.terminalHandlers = new Map();
     // Set up listeners for stream events
@@ -310,6 +312,19 @@ export class IpcClient {
           handler(payload);
         } else {
           console.warn(`[IPC] No permission handler for chat ${chatId}`);
+        }
+      }
+    });
+
+    // ask_user tool: question + optional options (render in chat UI)
+    this.ipcRenderer.on("user-question-request", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload;
+        const handler = this.userQuestionHandlers.get(chatId);
+        if (handler) {
+          handler(payload);
+        } else {
+          console.warn(`[IPC] No user-question handler for chat ${chatId}`);
         }
       }
     });
@@ -620,6 +635,10 @@ export class IpcClient {
       onProblems?: (problems: ChatProblemsEvent) => void;
       /** v3.9: Continue after clarifying questions (no new user message; use last user message content). */
       continueAfterQuestions?: boolean;
+      /** v5.0: Force Blueprint injection tier (Diagram tab); omit for Auto (heuristics + settings in main). */
+      blueprintInjectionMode?: "ask" | "plan" | "build" | "debug";
+      blueprintDebugTrace?: string;
+      blueprintDebugFile?: string;
     },
   ): void {
     const {
@@ -633,6 +652,9 @@ export class IpcClient {
       onEnd,
       onError,
       continueAfterQuestions,
+      blueprintInjectionMode,
+      blueprintDebugTrace,
+      blueprintDebugFile,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
@@ -674,6 +696,9 @@ export class IpcClient {
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
               continueAfterQuestions: continueAfterQuestions ?? undefined,
+              blueprintInjectionMode: blueprintInjectionMode ?? undefined,
+              blueprintDebugTrace: blueprintDebugTrace ?? undefined,
+              blueprintDebugFile: blueprintDebugFile ?? undefined,
             })
             .catch((err) => {
               console.error("Error streaming message:", err);
@@ -699,6 +724,9 @@ export class IpcClient {
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
+          blueprintInjectionMode: blueprintInjectionMode ?? undefined,
+          blueprintDebugTrace: blueprintDebugTrace ?? undefined,
+          blueprintDebugFile: blueprintDebugFile ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);
@@ -1330,6 +1358,45 @@ export class IpcClient {
   }
 
   /**
+   * Register a handler for ask_user tool (question + optional option buttons).
+   */
+  public onUserQuestionRequest(
+    chatId: number,
+    handler: (payload: {
+      chatId: number;
+      questionId: string;
+      question: string;
+      options?: string[];
+    }) => void,
+  ): () => void {
+    this.userQuestionHandlers.set(chatId, handler);
+    return () => {
+      this.userQuestionHandlers.delete(chatId);
+    };
+  }
+
+  public async submitUserQuestionAnswer(
+    chatId: number,
+    questionId: string,
+    answer: string,
+  ): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("chat:submit-user-question-answer", {
+      chatId,
+      questionId,
+      answer,
+    });
+  }
+
+  /** Fire-and-forget workspace analysis cache so first chat turn hits cache. */
+  public async prewarmWorkspaceCache(workspacePath: string): Promise<void> {
+    try {
+      await this.ipcRenderer.invoke("workspace:prewarm-cache", workspacePath);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  /**
    * Register a handler for workspace diagram events for a specific chat
    * Returns unsubscribe function
    */
@@ -1738,12 +1805,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-node-path");
   }
 
-  public async checkAiRules(params: {
-    path: string;
-  }): Promise<{ exists: boolean }> {
-    return this.ipcRenderer.invoke("check-ai-rules", params);
-  }
-
   public async getLatestSecurityReview(
     appId: number,
   ): Promise<SecurityReviewResult> {
@@ -1947,7 +2008,7 @@ export class IpcClient {
   }
   public async cloneRepoFromUrl(
     params: CloneRepoParams,
-  ): Promise<{ app: App; hasAiRules: boolean } | { error: string }> {
+  ): Promise<{ app: App } | { error: string }> {
     return this.ipcRenderer.invoke("github:clone-repo-from-url", params);
   }
 
@@ -2216,6 +2277,22 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("blueprint:refresh-from-code", params);
+  }
+
+  public async getAtlarixIgnore(workspaceId: number): Promise<{
+    success: boolean;
+    content?: string;
+    filename?: string;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:get-atlarixignore", { workspaceId });
+  }
+
+  public async setAtlarixIgnore(
+    workspaceId: number,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("blueprint:set-atlarixignore", { workspaceId, content });
   }
 
   /** Analyze workspace for blueprint: list projects with activity and recommendation */

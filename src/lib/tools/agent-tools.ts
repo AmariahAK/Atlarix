@@ -15,6 +15,15 @@ import { getBuiltinAgent } from "../agents/builtin";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
+import type { ZodTypeAny } from "zod";
+import {
+  ArchitectPlanPayloadSchema,
+  BuilderExecutionSummarySchema,
+  ReviewerFindingsSchema,
+  DebuggerRootCauseSchema,
+} from "../agents/agent-handoff-schemas";
+import { validateStructuredOutputWithSingleRetry } from "../agents/structured-output-validation";
+import { defaultAgentForWorkMode } from "../agents/work-mode-agents";
 
 const logger = log.scope("agent-tools");
 
@@ -37,13 +46,24 @@ async function runDelegation(args: DelegateArgs): Promise<{
   summary?: string;
   stepsUsed?: number;
   error?: string;
+  structuredPayload?: unknown;
+  validation?: {
+    status: "ok" | "fallback";
+    schema: string;
+    attempts: 1 | 2;
+    warning?: string;
+  };
 }> {
-  const agent = getBuiltinAgent(args.agent_id);
-  if (!agent) {
-    return { success: false, error: `Unknown agent: ${args.agent_id}` };
-  }
-
   const settings = readSettings();
+  const requestedAgentId = args.agent_id;
+  const resolvedAgentId =
+    settings.intentMode === "auto" || !settings.workModePreference
+      ? requestedAgentId
+      : defaultAgentForWorkMode(settings.workModePreference);
+  const agent = getBuiltinAgent(resolvedAgentId);
+  if (!agent) {
+    return { success: false, error: `Unknown agent: ${resolvedAgentId}` };
+  }
   const agentMode = settings.agentMode ?? "guided";
   const maxDepth = settings.aiConfiguration?.autonomous?.maxDelegationDepth ?? 2;
   const depth = args.depth ?? 0;
@@ -126,11 +146,93 @@ async function runDelegation(args: DelegateArgs): Promise<{
     const stepsUsed = result.steps?.length ?? 0;
     logger.info(`Delegation to ${agent.name} (depth=${depth}) completed; steps=${stepsUsed}`);
 
+    const schemaByAgent: Record<
+      string,
+      {
+        schemaName: string;
+        schemaHint: string;
+        schema: ZodTypeAny;
+      }
+    > = {
+      architect: {
+        schemaName: "ArchitectPlanPayload",
+        schemaHint:
+          "{ version: 1, summary: string, phases: [{ id: string, title: string, tasks: string[] }], risks?: string[] }",
+        schema: ArchitectPlanPayloadSchema,
+      },
+      builder: {
+        schemaName: "BuilderExecutionSummary",
+        schemaHint:
+          "{ version: 1, filesTouched: string[], summary: string, testsRun?: string }",
+        schema: BuilderExecutionSummarySchema,
+      },
+      reviewer: {
+        schemaName: "ReviewerFindings",
+        schemaHint:
+          "{ version: 1, severity: pass|minor|major|blocker, findings: [{ file?: string, message: string, suggestion?: string }] }",
+        schema: ReviewerFindingsSchema,
+      },
+      debugger: {
+        schemaName: "DebuggerRootCause",
+        schemaHint:
+          "{ version: 1, hypothesis: string, likelyFiles: string[], nextSteps: string[] }",
+        schema: DebuggerRootCauseSchema,
+      },
+    };
+
+    const schemaConfig = schemaByAgent[resolvedAgentId];
+    const rawSummary = result.text?.trim() || "(No summary produced)";
+    if (!schemaConfig) {
+      return {
+        success: true,
+        agent: agent.name,
+        summary: rawSummary,
+        stepsUsed,
+      };
+    }
+
+    const validated = await validateStructuredOutputWithSingleRetry({
+      rawText: rawSummary,
+      schema: schemaConfig.schema,
+      schemaName: schemaConfig.schemaName,
+      schemaHint: schemaConfig.schemaHint,
+      retry: async (retryPrompt) => {
+        const retryResult = await generateText({
+          model: modelClient.model,
+          system: `${agent.systemPrompt}\n\nReturn only valid JSON for structured handoff output.`,
+          messages: [{ role: "user" as const, content: retryPrompt }],
+        } as Parameters<typeof generateText>[0]);
+        return retryResult.text?.trim() || "";
+      },
+    });
+
+    if (validated.status === "ok") {
+      return {
+        success: true,
+        agent: agent.name,
+        summary: validated.normalizedText,
+        stepsUsed,
+        structuredPayload: validated.data,
+        validation: {
+          status: "ok",
+          schema: schemaConfig.schemaName,
+          attempts: validated.attempts,
+          warning: validated.warning,
+        },
+      };
+    }
+
     return {
       success: true,
       agent: agent.name,
-      summary: result.text?.trim() || "(No summary produced)",
+      summary: rawSummary,
       stepsUsed,
+      validation: {
+        status: "fallback",
+        schema: schemaConfig.schemaName,
+        attempts: validated.attempts,
+        warning: validated.warning,
+      },
     };
   } catch (err) {
     logger.error("delegate_to_agent failed:", err);
@@ -145,7 +247,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
 ToolRegistry.register({
   name: "delegate_to_agent",
   description:
-    "You have this tool in Guided and Autonomous modes. Delegate a task to a specialist agent (research, architect, builder, reviewer) when the task fits that specialist—e.g. research for lookups, architect for design, builder for implementation, reviewer for code review. Returns the agent's summary and findings so you can continue. In Autonomous mode, agents can delegate to other agents (nested). Use it when a specialist would do the job better.",
+    "You have this tool in Guided and Autonomous modes. Delegate to a specialist: research, architect, builder, reviewer, or debugger (errors/traces). Returns the agent's summary so you can continue. In Autonomous mode, nested delegation is allowed up to the configured depth.",
   category: ToolCategory.TASK,
   cost: 2,
   requiresWorkspace: false,
@@ -155,8 +257,8 @@ ToolRegistry.register({
     {
       agent_id: {
         type: "string",
-        description: "One of: research, architect, builder, reviewer",
-        enum: ["research", "architect", "builder", "reviewer"],
+        description: "One of: research, architect, builder, reviewer, debugger",
+        enum: ["research", "architect", "builder", "reviewer", "debugger"],
       },
       task: stringParam("Clear description of the task for the specialist"),
       context: {

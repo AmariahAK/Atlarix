@@ -3,9 +3,9 @@ role: system
 message: 
 ${BUILD_SYSTEM_PREFIX}
 
-[[beginning of AI_RULES.md]]
+[[beginning of .atlarix/ATLARIX.md]]
 There's already AI rules...
-[[end of AI_RULES.md]]
+[[end of .atlarix/ATLARIX.md]]
 
 
 ${BUILD_SYSTEM_POSTFIX}
@@ -75,10 +75,10 @@ dist-ssr
 
 </dyad-file>
 
-<dyad-file path="AI_RULES.md">
-[[beginning of AI_RULES.md]]
+<dyad-file path=".atlarix/ATLARIX.md">
+[[beginning of .atlarix/ATLARIX.md]]
 There's already AI rules...
-[[end of AI_RULES.md]]
+[[end of .atlarix/ATLARIX.md]]
 
 </dyad-file>
 

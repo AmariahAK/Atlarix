@@ -17,6 +17,14 @@ import { pythonParser } from "./python";
 import { extractImportAndCallEdges } from "./edgeExtractor";
 import { getSimpleDescriptionFromDoc } from "@/lib/blueprint/descriptions/jsdocExtractor";
 import { getSimpleDescriptionFromPattern } from "@/lib/blueprint/descriptions/patternMatcher";
+import {
+  ensureDefaultAtlarixIgnore,
+  readAtlarixIgnoreSource,
+  createIgnorerFromSource,
+  DEFAULT_ATLARIXIGNORE,
+  filterRteNodesByIgnore,
+  filterRteEdgesByNodes,
+} from "@/lib/atlarix/atlarix-ignore";
 
 export type { BlueprintNode, RTEBlueprintEdge, RTEParseResult, FrameworkInfo, SupportedLanguage } from "./types";
 
@@ -112,6 +120,11 @@ export const PARSERS: Partial<Record<SupportedLanguage, LanguageParser>> = {
  * Detects language, collects source files, runs parser, returns result.
  */
 export async function generateBlueprint(projectPath: string): Promise<RTEParseResult | null> {
+  await ensureDefaultAtlarixIgnore(projectPath);
+  const ignoreRaw = await readAtlarixIgnoreSource(projectPath);
+  const ignoreSourceForCache = ignoreRaw.trim() ? ignoreRaw : DEFAULT_ATLARIXIGNORE;
+  const ig = createIgnorerFromSource(ignoreSourceForCache);
+
   const language = await detectLanguage(projectPath);
   if (!language) return null;
 
@@ -121,26 +134,38 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
       nodes: [],
       edges: [],
       framework: { name: language, confidence: 0 },
+      atlarixIgnoreSource: ignoreSourceForCache,
     };
   }
 
-  const files = await getSourceFiles(projectPath, language);
+  let files = await getSourceFiles(projectPath, language);
+  files = files.filter((rel) => !ig.ignores(rel.replace(/\\/g, "/")));
   if (files.length === 0) {
     const framework = await parser.detectFramework([]);
-    return { nodes: [], edges: [], framework };
+    return {
+      nodes: [],
+      edges: [],
+      framework,
+      atlarixIgnoreSource: ignoreSourceForCache,
+    };
   }
 
   const absolutePaths = files.map((f) => path.join(projectPath, f));
-  const nodes = await parser.parse(absolutePaths);
+  let nodes = await parser.parse(absolutePaths);
   const framework = await parser.detectFramework(absolutePaths);
 
   await enrichNodesWithDescriptions(projectPath, nodes, language);
 
-  const callEdges = extractEdgesFromNodes(nodes);
-  const importEdges = await extractImportAndCallEdges(projectPath, nodes, language);
+  nodes = filterRteNodesByIgnore(nodes, ig, projectPath);
+  const kept = new Set(nodes.map((n) => n.id));
+  const callEdges = filterRteEdgesByNodes(extractEdgesFromNodes(nodes), kept);
+  const importEdges = filterRteEdgesByNodes(
+    await extractImportAndCallEdges(projectPath, nodes, language),
+    kept,
+  );
   const edges = [...callEdges, ...importEdges];
 
-  return { nodes, edges, framework };
+  return { nodes, edges, framework, atlarixIgnoreSource: ignoreSourceForCache };
 }
 
 const DOC_LANG: Record<SupportedLanguage, "ts" | "py"> = {

@@ -28,6 +28,7 @@ import {
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import { runShellCommand, runShellCommandStreaming, CommandResult } from "../../utils/runShellCommand";
+import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
 import { queueCapture } from "../../../lib/diagram-timeline";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
@@ -471,6 +472,9 @@ export class PermissionInterceptor extends EventEmitter {
                 case "batch_plan":
                     await this.executeBatchPlan(operationId, request);
                     break;
+                case "revert_project_snapshot":
+                    await this.executeRevertProjectSnapshot(request);
+                    break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
             }
@@ -509,6 +513,39 @@ export class PermissionInterceptor extends EventEmitter {
                         : 'modified';
                 tracker.recordChange(preview.path, changeType);
                 // Per-file emission removed - staleness checked after batch completes
+            }
+
+            if (this.workspaceId && (request.operation === "write_file" || request.operation === "write_multiple_files")) {
+                const previews = Array.isArray(request.preview)
+                    ? (request.preview as FileOperationPreview[])
+                    : preview?.path
+                        ? [preview as FileOperationPreview]
+                        : [];
+                let sawPlanWrite = false;
+                let sawIgnoreWrite = false;
+                for (const p of previews) {
+                    const norm = String(p.path || "").replace(/\\/g, "/");
+                    if (!norm) continue;
+                    if (
+                        norm === ".atlarix/ATLARIX_PLAN.md" ||
+                        norm.endsWith("/.atlarix/ATLARIX_PLAN.md") ||
+                        norm === "ATLARIX_PLAN.md" ||
+                        norm.endsWith("/ATLARIX_PLAN.md")
+                    ) {
+                        sawPlanWrite = true;
+                    }
+                    if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) {
+                        sawIgnoreWrite = true;
+                    }
+                }
+                if (sawPlanWrite) {
+                    const { recordPlanUpdateSnapshot } = await import("@/lib/project-memory/service");
+                    void recordPlanUpdateSnapshot(this.workspaceId, this.workspacePath);
+                }
+                if (sawIgnoreWrite) {
+                    const { invalidateBlueprintCache } = await import("../blueprint_handlers");
+                    invalidateBlueprintCache(this.workspaceId);
+                }
             }
 
             // Queue timeline capture for file operations
@@ -900,7 +937,7 @@ export class PermissionInterceptor extends EventEmitter {
     private resolvePathWithinWorkspace(filePath: string): string {
         const normalizedWorkspace = path.resolve(this.workspacePath);
         if (!path.isAbsolute(filePath)) {
-            return path.join(this.workspacePath, filePath);
+            return resolvePathUnderWorkspace(this.workspacePath, filePath);
         }
         const normalizedPath = path.resolve(filePath);
         const relativeToWorkspace = path.relative(normalizedWorkspace, normalizedPath);
@@ -916,6 +953,23 @@ export class PermissionInterceptor extends EventEmitter {
         throw new Error(
             `Path is outside workspace: ${filePath}. Import this folder as the project or use "Create app" with a target folder so files and commands use the same location.`
         );
+    }
+
+    private async executeRevertProjectSnapshot(request: PermissionRequest): Promise<void> {
+        const preview = request.preview as { snapshotId: number; label: string; planExcerpt?: string };
+        if (this.workspaceId == null) {
+            throw new Error("Workspace ID required to revert project snapshot");
+        }
+        const { applyProjectSnapshotRevert } = await import("@/lib/project-memory/service");
+        const result = await applyProjectSnapshotRevert(
+            this.workspaceId,
+            this.workspacePath,
+            preview.snapshotId,
+        );
+        if (!result.success) {
+            throw new Error(result.error || "Revert failed");
+        }
+        logger.log(`[executeRevertProjectSnapshot] id=${preview.snapshotId}`);
     }
 
     private async executeWriteFile(request: PermissionRequest): Promise<void> {

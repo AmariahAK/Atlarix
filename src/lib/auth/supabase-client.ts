@@ -381,11 +381,14 @@ async function fetchPlanRowForUser(
     supabase: ReturnType<typeof getSupabaseClient>,
     userId: string,
 ): Promise<{ data: PlanRowInput | null; error: Error | null }> {
-    let { data, error } = await supabase
+    let data: PlanRowInput | null = null;
+    let { data: row1, error } = await supabase
         .from('users')
         .select(PLAN_ROW_SELECT_WITH_VARIANT)
         .eq('id', userId)
         .maybeSingle();
+
+    data = row1 as PlanRowInput | null;
 
     if (error) {
         const r2 = await supabase
@@ -397,7 +400,7 @@ async function fetchPlanRowForUser(
         error = r2.error;
     }
 
-    return { data: data as PlanRowInput | null, error: error as Error | null };
+    return { data, error: error as Error | null };
 }
 
 /**
@@ -540,10 +543,16 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
         supabase.removeChannel(planSubscription);
     }
 
-    logger.log(`[Supabase] Setting up realtime subscription for plan changes: ${userEmail}`);
+    const channelId = `user-plan-${Buffer.from(userEmail, "utf8")
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "")
+        .slice(0, 48)}`;
+    logger.log(`[Supabase] Setting up realtime subscription for plan changes (${channelId})`);
 
     planSubscription = supabase
-        .channel('user-plan-changes')
+        .channel(channelId)
         .on(
             'postgres_changes',
             {
@@ -570,19 +579,18 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                     effectiveTier: (oldRow?.effective_tier as 'free' | 'pro' | 'workforce') || undefined,
                 };
 
-                logger.log(`[Supabase] Realtime subscription update:`, {
-                    plan: `${oldData.plan} → ${newData.plan}`,
-                    status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
-                    endsAt: newData.subscriptionEndsAt,
-                });
-
-                // Fire callback on ANY relevant change (plan, status, date, or effective tier)
-                if (
+                const materialChange =
                     newData.plan !== oldData.plan ||
                     newData.subscriptionStatus !== oldData.subscriptionStatus ||
                     newData.subscriptionEndsAt !== oldData.subscriptionEndsAt ||
-                    newData.effectiveTier !== oldData.effectiveTier
-                ) {
+                    newData.effectiveTier !== oldData.effectiveTier;
+
+                if (materialChange) {
+                    logger.log(`[Supabase] Realtime subscription update:`, {
+                        plan: `${oldData.plan} → ${newData.plan}`,
+                        status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
+                        endsAt: newData.subscriptionEndsAt,
+                    });
                     callback(newData, oldData);
                 }
             }

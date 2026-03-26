@@ -1,8 +1,46 @@
 # Atlarix TODO
 
-**Current Version:** v4.3.0  
-**Next Version:** v4.4+  
-**Last Updated:** 2026-03-23
+**Current Version:** v5.0.0  
+**Next Version:** v5.1+ (planning)  
+**Last Updated:** 2026-03-27
+
+---
+
+## Done: v5.0 — Blueprint context, memory, ignore
+
+| Area | Status | Notes |
+|------|--------|--------|
+| **S1** Tiered Blueprint injection + Build RAG cap | **Done** | `blueprintPromptTiers.ts`: Ask/Plan/Build/Debug budgets; `estimateTokens` uses chars÷4; Build adds ranked snippets with explicit omit footer + `truncateToTokens` safety net |
+| **S1** Blueprint-first empty state | **Done** | Plan/Build tiers inject blocker when Blueprint has no nodes |
+| **S2** Schema + migration + bootstrap | **Done** | `project_snapshots`, `project_memory`; `0031_project_memory.sql`; `ensureProjectMemoryTablesIfNeeded` in `db/index.ts` |
+| **S2** Snapshots + pruning | **Done** | Max 100 rows/workspace; triggers: debounced blueprint change, plan file write, build-complete (Agent/Build + files), `session_end` on quit for touched workspaces |
+| **S2** Session system prompt injection | **Done** | `buildProjectMemoryPromptBlock` in `chat_stream_handlers.ts` |
+| **S2** Tools | **Done** | `get_project_history`, `revert_to_snapshot` (`revert_project_snapshot` permission), `set_project_memory` |
+| **`.atlarixignore`** | **Done** | `ignore` npm package; filter at RTE (`generateBlueprint`), cache load (`inferBlueprint`), prompt (`buildBlueprintSystemPromptInjection`); `atlarixIgnoreSource` on cache; default file on first parse; `get_atlarixignore` / `update_atlarixignore`; Blueprint panel + IPC get/set |
+| **S3** Explicit Blueprint tier from Settings | **Done** | `blueprintInjectionModePreference` (Auto \| Ask \| Plan \| Build \| Debug); plumbed via `streamMessage` → `chat:stream`; precedence: IPC `blueprintInjectionMode` then preference then heuristics; optional `blueprintDebugTrace` / `blueprintDebugFile` in settings + `ChatStreamParams` for Debug tier |
+| **S4** Chat session override for Blueprint tier | **Done** | Config dropdown → **Blueprint in prompt**: Use Settings or force Ask/Plan/Build/Debug; `blueprintInjectionChatOverrideAtom` merged in `useStreamChat` before Settings preference |
+| **Work modes** Ask / Plan / Build / Debug / Review + Auto | **Done** | `workModePreference` in settings; maps to `selectedChatMode` + Blueprint tier via `src/lib/work-mode.ts`; `useStreamChat` precedence: chat override → work mode (non-Auto) → settings; `ChatIntentSelector` + context bar; duplicate Ask/Build removed from `ChatModeSelector` |
+| **Subscription Realtime dedupe** | **Done** | Material-change gate in `supabase-client` `subscribeToPlanChanges`; serialized setup + fingerprint dedupe in `SubscriptionManager.setupRealtimeSubscription` |
+| **S5a** Agent–mode foundation | **Done (kickoff)** | `debugger` in `builtin` / `agent-bus` / `delegate_to_agent`; `work-mode-agents.ts` (default agent + `workModeSystemHint`); stream injects hint after base prompt in `chat_stream_handlers.ts` |
+| **S5b** Structured handoffs | **Planned** | Thread child JSON into parent as isolated blocks from `delegate_to_agent`; explicit Blueprint tier per sub-agent role; reuse `agent-handoff-schemas.ts` (ArchitectPlanPayload, BuilderExecutionSummary, ReviewerFindings) |
+| **S5c** Handoff polish | **Planned** | Activity Stream send/receive events; collapsible handoff preview in UI |
+| **S6** Structured outputs per mode | **Done** | Delegate/handoff schema validation + one retry; Plan/Debug/Review stream validation + warning fallback; structured report rendering for supported mode outputs |
+| **S7** ContextAssembler | **Done** | `src/lib/context/ContextAssembler.ts` + `context-assembly-cache.ts`; deterministic section ordering, per-mode caps (Review: 2000), low-priority-first trimming, cache hit/miss + trim diagnostics in stream logs |
+| **S7** Tiered discovery flow + folder tooling | **Done** | Added `explore_folder` (structured directory exploration with `.atlarixignore` filtering), `get_blueprint_slice` (targeted architecture slices), and conditional diagram-prefix messaging to prevent synthetic context claims |
+
+### v5.0 follow-ups / incomplete
+
+- **S6 execution detail:** S6a validates `delegate_to_agent` + child handoff payloads first (highest-risk surface). S6b extends validation to mode-scoped stream outputs for Plan/Debug/Review only. Ask and general Build remain prose-first.
+- **S6 resilience contract:** Structured output failures should retry once with schema instructions, then emit a non-blocking fallback warning (Activity/chat) while preserving turn continuity.
+- **S7 integration note:** `chat_stream_handlers` now assembles additive context blocks via `ContextAssembler` before final prompt injection. Keep future context sources in assembler section order to preserve cap behavior and predictable trims.
+- **S7 ignore parity:** `.atlarixignore` is now applied in file-tree blueprint source generation in addition to RTE parse and prompt injection safety-net filtering.
+
+- **`session_end` scope:** Only workspaces touched during the session (memory/snapshot activity) get a quit snapshot; others do not.
+- **Tool discovery:** MEMORY-category tools (`get_project_history`, etc.) may not appear in progressive “core” manifests; verify UX for discovering them.
+- **Permission queue:** `revert_project_snapshot` has no file `path`; queue UI relies on `PermissionQueuePanel` parsing JSON preview (not the file-proposal path).
+- **Default `.atlarixignore`:** Patterns are intentionally aggressive (e.g. lockfiles, large binaries); product may want softer defaults or onboarding copy.
+- **File-tree Blueprint:** Confirm whether `buildBlueprintFromFileTree` / non-RTE paths respect `.atlarixignore` everywhere; unify if gaps remain.
+- **Per-turn Blueprint tier (future):** S4 uses a session-level atom (applies to every stream until cleared). Optional: reset override after each send, or a per-chat map keyed by `chatId`.
 
 ---
 
@@ -11,8 +49,8 @@
 - **PIVOT:** Code to Canvas, Canvas to Code. **Containers** = top-level diagram nodes; **Beacons** = functions/features inside a container. **Blueprint** = living diagram from RTE (Round-Trip Engineering) and RAG. RTE parsers (TS, Python) produce single-project blueprints; combined blueprints span projects. Diagram types: architecture, dependencies, flows.
 - **Blueprint connections:** Inferred edges are **import-based** only (file A imports file B → edge A→B). No call-graph or data-flow analysis; add manual edges for other relationships. Cross-room edges into test-like rooms from non-test rooms are filtered out.
 - **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
-- **Agents:** Research, Architect, Builder, Reviewer; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers.
-- **Workspace:** `.atlarix/memory.md`, `.atlarix/spec.md`; token budget; permission queue; summarization.
+- **Agents:** Research, Architect, Builder, Reviewer, Debugger; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers. Work mode sets a default specialist (see `src/lib/agents/work-mode-agents.ts`).
+- **Workspace:** `.atlarix/ATLARIX.md` (single memory/instructions file, legacy memory/spec auto-migrated); token budget; permission queue; summarization.
 
 ---
 

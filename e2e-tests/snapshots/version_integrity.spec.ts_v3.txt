@@ -1,8 +1,8 @@
 === a.txt ===
 a
 
-=== AI_RULES.md ===
-avoid AI_RULES auto-prompt
+=== .atlarix/ATLARIX.md ===
+avoid ATLARIX auto-prompt
 
 
 === b.txt ===

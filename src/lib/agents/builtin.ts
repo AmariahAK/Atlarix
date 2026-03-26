@@ -3,7 +3,13 @@
  * No emojis; use Lucide icon names in UI (Search, Box, Hammer, Eye).
  */
 
-export const BUILTIN_AGENT_IDS = ["research", "architect", "builder", "reviewer"] as const;
+export const BUILTIN_AGENT_IDS = [
+  "research",
+  "architect",
+  "builder",
+  "reviewer",
+  "debugger",
+] as const;
 export type BuiltinAgentId = (typeof BUILTIN_AGENT_IDS)[number];
 
 export interface BuiltinAgent {
@@ -28,6 +34,10 @@ Use write_file, replace_code, insert_code, run_command, and other code tools to 
 
 const REVIEWER_SYSTEM = `You are the Reviewer specialist. Your job is review, security, and best practices.
 Use read_file, grep_search, semantic_search only (read-only). Report issues and suggestions; do not edit files.`;
+
+const DEBUGGER_SYSTEM = `You are the Debugger specialist. Your job is to analyze errors, stack traces, and reproduction steps.
+Use read_file, grep_search, semantic_search, diagnose_issue, parse_code_structure, get_diagram, read_url as needed.
+Return a concise root-cause hypothesis, likely files/lines, and next verification steps. Do not modify code unless explicitly asked.`;
 
 export const BUILTIN_AGENTS: Record<BuiltinAgentId, BuiltinAgent> = {
   research: {
@@ -88,6 +98,24 @@ export const BUILTIN_AGENTS: Record<BuiltinAgentId, BuiltinAgent> = {
     icon: "Eye",
     toolSet: ["read_file", "grep_search", "semantic_search", "get_file_outline", "get_diagram"],
     systemPrompt: REVIEWER_SYSTEM,
+  },
+  debugger: {
+    id: "debugger",
+    name: "Debugger",
+    description: "Errors, traces, root-cause analysis",
+    icon: "Bug",
+    toolSet: [
+      "read_file",
+      "grep_search",
+      "semantic_search",
+      "diagnose_issue",
+      "parse_code_structure",
+      "get_diagram",
+      "read_url",
+      "list_files",
+      "find_file",
+    ],
+    systemPrompt: DEBUGGER_SYSTEM,
   },
 };
 

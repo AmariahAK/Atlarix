@@ -31,16 +31,6 @@ export function registerImportHandlers() {
     return { path: selectedPath, name: folderName };
   });
 
-  // Handler for checking if AI_RULES.md exists
-  handle("check-ai-rules", async (_, { path: appPath }: { path: string }) => {
-    try {
-      await fs.access(path.join(appPath, "AI_RULES.md"));
-      return { exists: true };
-    } catch {
-      return { exists: false };
-    }
-  });
-
   // Handler for checking if an app name is already taken
   // Imports use absolute path; atlarix-apps not used. Just check database.
   handle("check-app-name", async (_, { appName }: { appName: string }) => {

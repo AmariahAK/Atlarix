@@ -232,7 +232,7 @@ export function TourManager() {
                     const st = await getTourState();
                     await saveTourState({
                       featureTours: {
-                        ...(st?.featureTours ?? {}),
+                        ...st?.featureTours,
                         [featureId]: { completed: true, step: 0 },
                       },
                     });

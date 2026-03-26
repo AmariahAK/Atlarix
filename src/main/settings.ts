@@ -29,7 +29,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   experiments: {},
   enableProLazyEditsMode: true,
   enableProSmartFilesContextMode: true,
-  selectedChatMode: "build",
+  selectedChatMode: "ask",
+  workModePreference: "ask",
   agentMode: "guided",
   autoModelRouting: false,
   autoProviderId: null,
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableAutoFixProblems: false,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   blueprintAlwaysShowBeacons: false,
+  blueprintInjectionModePreference: "auto",
   includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",

@@ -7,6 +7,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   rightPanelVisibleAtom,
+  rightPanelSuppressAutoOpenAtom,
   previewTabAtom,
   pinnedPanelAtom,
   devServerUrlAtom,
@@ -26,6 +27,7 @@ type QuickTab = "diagram" | "preview" | "code";
 export function WorkspacePanelBar() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const devServerUrl = useAtomValue(devServerUrlAtom);
@@ -35,6 +37,7 @@ export function WorkspacePanelBar() {
   // Always use toolbar right panel (code-preview) so user sees all 7 tabs; just switch active tab
   const handleQuickTab = (tab: QuickTab) => {
     setPinnedPanel("code-preview");
+    setSuppressRightAutoOpen(false);
     setRightPanelVisible(true);
     setPreviewTab(tab);
   };

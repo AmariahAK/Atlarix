@@ -33,6 +33,14 @@ export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({}
 /** v3.9: Pending clarifying questions per assistant message (messageId -> questions). Cleared when user submits answers. */
 export const questionsByMessageIdAtom = atom<Record<number, import("@/ipc/ipc_types").Question[]>>({});
 
+/** ask_user tool: pending interactive question for a chat (cleared after submit). */
+export type PendingUserQuestion = {
+  questionId: string;
+  question: string;
+  options?: string[];
+};
+export const pendingUserQuestionByChatIdAtom = atom<Record<number, PendingUserQuestion | undefined>>({});
+
 /** v3.9: After edit or revert, show "conversation restarted from here" divider after this message id. Cleared on stream end. */
 export const restartedAfterMessageIdAtom = atom<number | null>(null);
 
@@ -62,3 +70,9 @@ export const summarizationProgressAtom = atom<{ active: boolean; chatId: number 
   active: false,
   chatId: null,
 });
+
+/** v5.0 S4: Per-session chat override for Blueprint system-prompt tier; null = follow Settings only. */
+export type BlueprintInjectionChatOverride = "ask" | "plan" | "build" | "debug";
+export const blueprintInjectionChatOverrideAtom = atom<BlueprintInjectionChatOverride | null>(
+  null,
+);

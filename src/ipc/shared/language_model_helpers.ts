@@ -17,6 +17,19 @@ import {
 } from "@/lib/provider_model_fetchers";
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
+import log from "electron-log";
+
+const lmHelpersLog = log.scope("language_model_helpers");
+
+function isLocalServerUnreachable(error: unknown): boolean {
+  let e: unknown = error;
+  for (let i = 0; i < 4 && e != null; i++) {
+    const code = (e as { code?: string })?.code;
+    if (code === "ECONNREFUSED") return true;
+    e = (e as { cause?: unknown })?.cause;
+  }
+  return false;
+}
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -199,8 +212,74 @@ export async function getLanguageModelsByProviders(): Promise<
   const modelsByProvider: Record<string, LanguageModel[]> = {};
 
   for (const provider of providers) {
-    // Skip local providers
+    // Local providers (Ollama, LM Studio): merge live CLI/API list with any DB custom rows
     if (provider.type === "local") {
+      if (provider.id === "ollama" || provider.id === "lmstudio") {
+        try {
+          const fromDb = await getLanguageModels({ providerId: provider.id });
+          let live: LanguageModel[] = [];
+          if (provider.id === "ollama") {
+            const { fetchOllamaModels } = await import(
+              "../handlers/local_model_ollama_handler"
+            );
+            const r = await fetchOllamaModels();
+            live = r.models.map((m) => ({
+              apiName: m.modelName,
+              displayName: m.displayName,
+              description: "",
+              type: "local" as const,
+              dollarSigns: 0,
+            }));
+          } else {
+            const { fetchLMStudioModels } = await import(
+              "../handlers/local_model_lmstudio_handler"
+            );
+            const r = await fetchLMStudioModels();
+            live = r.models.map((m) => ({
+              apiName: m.modelName,
+              displayName: m.displayName,
+              description: "",
+              type: "local" as const,
+              dollarSigns: 0,
+            }));
+          }
+          const seen = new Set(live.map((x) => x.apiName));
+          const merged: LanguageModel[] = [...live];
+          for (const m of fromDb) {
+            if (!seen.has(m.apiName)) {
+              merged.push(m);
+              seen.add(m.apiName);
+            }
+          }
+          modelsByProvider[provider.id] = merged;
+        } catch (error) {
+          if (isLocalServerUnreachable(error)) {
+            lmHelpersLog.debug(
+              `[${provider.id}] Local server not reachable; using DB/custom models only.`,
+            );
+          } else {
+            lmHelpersLog.warn(
+              `[${provider.id}] Failed to list live models for picker, using DB/custom only:`,
+              error,
+            );
+          }
+          try {
+            modelsByProvider[provider.id] = await getLanguageModels({
+              providerId: provider.id,
+            });
+          } catch {
+            modelsByProvider[provider.id] = [];
+          }
+        }
+      } else {
+        try {
+          modelsByProvider[provider.id] = await getLanguageModels({
+            providerId: provider.id,
+          });
+        } catch {
+          modelsByProvider[provider.id] = [];
+        }
+      }
       continue;
     }
 

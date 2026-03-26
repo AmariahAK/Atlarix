@@ -231,7 +231,7 @@ Architecture is now a two-way system: **Live** (code → diagram, read-only) and
 - **Codegen** – From Blueprint delta: new stub files (`src/<room>.ts`) and merge of env refs into `.env.local`. **Generate code** button in Blueprint editor; AI tool `generate_from_blueprint`. Additive only (skips existing files).
 - **Re-extract after refactor** – After AI file writes/moves, the permission interceptor runs `evaluateDiagramRefresh()`; when structural change is detected, background diagram regeneration runs so the Live diagram stays in sync.
 - **New-project flow** – Create workspace (empty or from template) → Diagram → Blueprint mode → design → **Generate code** to scaffold. Same codegen supports additive (existing project) and full scaffold (new project).
-- **Implementation plan** – `ATLARIX_PLAN.md` at project root (like claude.md), version-controllable. `get_plan_scope` determines placement for multi-repo. `read_implementation_plan` / `write_implementation_plan` support optional `targetPath`. Compare Blueprint to Live → plan tasks → implement exchange-by-exchange with user review.
+- **Implementation plan** – Historically `ATLARIX_PLAN.md` at project root (like claude.md). Current canonical location is `.atlarix/ATLARIX_PLAN.md`, version-controllable. `get_plan_scope` determines placement for multi-repo. `read_implementation_plan` / `write_implementation_plan` support optional `targetPath`. Compare Blueprint to Live → plan tasks → implement exchange-by-exchange with user review.
 
 ### Phase 6 – Smart Model Routing & IDE
 
@@ -246,7 +246,7 @@ Architecture is now a two-way system: **Live** (code → diagram, read-only) and
 - **Dangerous command UX** – "I understand" for risky commands; plain-English explanation; audit log.
 - **Themes** – Light / Dark / System (ThemeContext); diagram and code views follow theme.
 - **Compare mode** – Diagram tab: current / before / after / side-by-side diagram comparison.
-- **Persistent memory** – `MEMORY.md` at project root written on compaction; injected into workspace system prompt.
+- **Persistent memory** – Historically `MEMORY.md` at project root. Current canonical project memory/instructions file is `.atlarix/ATLARIX.md`.
 
 ### Blueprint UX – Phases A–D (2026-02-03)
 
@@ -312,7 +312,7 @@ Blueprint room detail is now a hybrid list + flow with credentials linking.
 - **Pro-gated** - Requires Atlarix Pro subscription
 
 #### Database
-- **Migrations** - Run automatically on app start (drizzle migrate from ./drizzle)
+- **Migrations** - Run automatically on app start (drizzle migrate from ./drizzle). Latest local migration as of v5.0 is `0031_project_memory.sql` (see `drizzle/meta/_journal.json` for the full ordered list).
 
 ---
 

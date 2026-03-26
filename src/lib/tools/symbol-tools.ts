@@ -329,7 +329,7 @@ function extractDependencies(fullContent: string, symbolBody: string): string[] 
     const typeNames = new Set<string>();
 
     [...typeMatches, ...genericMatches].forEach(match => {
-        const name = match.replace(/[:<>\[\]\s|]/g, '');
+        const name = match.replace(/[:<>[\]\s|]/g, '');
         if (name && !['string', 'number', 'boolean', 'void', 'any', 'unknown', 'null', 'undefined'].includes(name)) {
             typeNames.add(name);
         }

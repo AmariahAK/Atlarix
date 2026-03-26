@@ -17,14 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@radix-ui/react-label";
 import { useNavigate } from "@tanstack/react-router";
-import { useStreamChat } from "@/hooks/useStreamChat";
 import type { GithubRepository } from "@/ipc/ipc_types";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useSetAtom } from "jotai";
 import { useLoadApps } from "@/hooks/useLoadApps";
@@ -42,18 +35,14 @@ interface ImportAppDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
-export const AI_RULES_PROMPT =
-  "Generate an AI_RULES.md file for this app. Describe the tech stack in 5-10 bullet points and describe clear rules about what libraries to use for what.";
 export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [hasAiRules, setHasAiRules] = useState<boolean | null>(null);
   const [customAppName, setCustomAppName] = useState<string>("");
   const [nameExists, setNameExists] = useState<boolean>(false);
   const [isCheckingName, setIsCheckingName] = useState<boolean>(false);
   const [installCommand, setInstallCommand] = useState("");
   const [startCommand, setStartCommand] = useState("");
   const navigate = useNavigate();
-  const { streamMessage } = useStreamChat({ hasChatId: false });
   const { refreshApps } = useLoadApps();
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   // GitHub import state
@@ -132,12 +121,6 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
       showSuccess(`Successfully imported ${result.app.name}`);
       const chatId = await IpcClient.getInstance().createChat(result.app.id);
       navigate({ to: "/chat", search: { id: chatId } });
-      if (!result.hasAiRules) {
-        streamMessage({
-          prompt: AI_RULES_PROMPT,
-          chatId,
-        });
-      }
       onClose();
     } catch (error: unknown) {
       showError("Failed to import repository: " + (error as any).toString());
@@ -166,12 +149,6 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
       showSuccess(`Successfully imported ${result.app.name}`);
       const chatId = await IpcClient.getInstance().createChat(result.app.id);
       navigate({ to: "/chat", search: { id: chatId } });
-      if (!result.hasAiRules) {
-        streamMessage({
-          prompt: AI_RULES_PROMPT,
-          chatId,
-        });
-      }
       onClose();
     } catch (error: unknown) {
       showError("Failed to import repository: " + (error as any).toString());
@@ -219,10 +196,6 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
       if (!result.path || !result.name) {
         throw new Error("No folder selected");
       }
-      const aiRulesCheck = await IpcClient.getInstance().checkAiRules({
-        path: result.path,
-      });
-      setHasAiRules(aiRulesCheck.exists);
       setSelectedPath(result.path);
       // Use the folder name from the IPC response
       setCustomAppName(result.name);
@@ -247,19 +220,11 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
     },
     onSuccess: async (result) => {
       showSuccess(
-        !hasAiRules
-          ? "App imported successfully. Atlarix will automatically generate an AI_RULES.md now."
-          : "App imported successfully",
+        "App imported successfully",
       );
       onClose();
 
       navigate({ to: "/chat", search: { id: result.chatId } });
-      if (!hasAiRules) {
-        streamMessage({
-          prompt: AI_RULES_PROMPT,
-          chatId: result.chatId,
-        });
-      }
       setSelectedAppId(result.appId);
       await refreshApps();
     },
@@ -278,7 +243,6 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
 
   const handleClear = () => {
     setSelectedPath(null);
-    setHasAiRules(null);
     setCustomAppName("");
     setNameExists(false);
     setInstallCommand("");
@@ -446,28 +410,6 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                         </AccordionContent>
                       </AccordionItem>
                     </Accordion>
-
-                    {hasAiRules === false && (
-                      <Alert className="border-yellow-500/20 text-yellow-500 flex items-start gap-2">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-4 w-4 flex-shrink-0 mt-1" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">
-                                AI_RULES.md lets Atlarix know which tech stack to
-                                use for editing the app
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                        <AlertDescription className="text-xs sm:text-sm">
-                          No AI_RULES.md found. Atlarix will automatically generate
-                          one after importing.
-                        </AlertDescription>
-                      </Alert>
-                    )}
 
                     {importAppMutation.isPending && (
                       <div className="flex items-center justify-center space-x-2 text-xs sm:text-sm text-muted-foreground animate-pulse">

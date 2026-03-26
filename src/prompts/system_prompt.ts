@@ -2,7 +2,7 @@
  * Atlarix System Prompt
  * ======================
  * Minimal system prompt that loads AGENTS.md as the primary guidance.
- * v2.1: Supports project instruction precedence (ATLARIX.md, AI_RULES.md, workspace, global, bundle).
+ * v2.1: Supports project instruction precedence (ATLARIX.md, workspace, global, bundle).
  *
  * - AGENTS.md: Full reference (55 tools) for 32K+ models
  * - AGENTS_COMPACT.md: Essential guidance (~100 lines) for 8K models
@@ -84,10 +84,10 @@ export const getAgentsMdForContextSize = (contextSize: number = 32000): string =
 };
 
 // ═══════════════════════════════════════════════════════════
-// DEFAULT TECH STACK (when no AI_RULES.md exists)
+// DEFAULT TECH STACK (fallback when no layered instructions are present)
 // ═══════════════════════════════════════════════════════════
 
-const DEFAULT_AI_RULES = `# Tech Stack
+const DEFAULT_TECH_STACK = `# Tech Stack
 - React + TypeScript
 - Vite for bundling
 - Tailwind CSS for styling
@@ -111,7 +111,6 @@ export const BUILD_SYSTEM_POSTFIX = "\n---\n";
 // ═══════════════════════════════════════════════════════════
 
 export interface ConstructSystemPromptParams {
-    aiRules?: string | undefined;
     chatMode?: "build" | "ask";
     userPrompt?: string | null;
     contextSize?: number;
@@ -124,7 +123,6 @@ export interface ConstructSystemPromptParams {
 }
 
 export const constructSystemPrompt = ({
-    aiRules,
     chatMode = "build",
     userPrompt,
     contextSize = 32000,
@@ -152,7 +150,7 @@ Today is ${currentDateTime}. Use this date when answering questions about "today
         prompt += `
 
 # Tech Stack
-${aiRules || DEFAULT_AI_RULES}
+${DEFAULT_TECH_STACK}
 `;
     }
 
@@ -162,18 +160,28 @@ ${aiRules || DEFAULT_AI_RULES}
 
 ---
 
-# Mode: Ask (Read-Only)
+# Mode: Ask (Read-only + optional planning)
 
-You are in **Ask mode** — explanation and guidance; you may use read-only tools across the workspace.
+You are in **Ask mode**: answer questions and explore the workspace with read-only tools. You may also produce a structured implementation plan when the task calls for it.
+
+**Quick path (default):** For short factual questions, explanations, or small scope — answer directly. Use read_file, explore_folder, search_code, list_files, web_search, and analysis tools as needed. Do **not** create a plan file unless the user wants a roadmap or multi-step implementation outline.
+
+**Plan path (multi-step / implementation-shaped work):** When the user asks for a build plan, architecture, or phased implementation — clarify if needed (\`ask_user\` or a \`<questions>\` block when ambiguity is consequential), explore the codebase with read-only tools, then write **.atlarix/ATLARIX_PLAN.md** via \`write_implementation_plan\`. In Ask mode that tool applies **without** a separate approval dialog. Tell the user to switch to **Build mode** to execute the plan.
+When the user explicitly asks for a plan, create it directly with \`write_implementation_plan\` in the same turn (do not ask the user to create the file themselves).
+
+**Deterministic discovery flow (Plan path):**
+1. **High-level map first:** Use provided architecture/diagram context (if present) to pick the most relevant area.
+2. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on likely paths to confirm scope.
+3. **Deep-dive precisely:** Call \`get_blueprint_slice\` for those folders/files, then \`read_file\` only for required details.
+
+Use \`get_blueprint\` only when broad architecture context is missing or stale. Do not block on full-blueprint fetch if a targeted slice can answer the task.
 
 **CRITICAL RULES:**
-- Do NOT edit source files or run commands except: you **may** propose updates to **ATLARIX_PLAN.md** using \`write_implementation_plan\` (user approval required), same as in Build mode.
-- Do NOT use generic write_file, replace_code, or run_command for anything else
-- Explain concepts, answer questions; use read_file, search_code, web_search as needed
-- Workforce tools in Ask mode are read-only only (status/mentions/schedule/errors style reads). Do NOT call write/trigger workforce actions in Ask mode.
-- If you need multiple workforce services, first narrate what you will access, then call \`request_workspace_permissions\` with the required services and wait for user completion.
+- Do NOT use \`write_file\`, \`replace_code\`, \`run_command\`, or other mutating tools except \`write_implementation_plan\` for **.atlarix/ATLARIX_PLAN.md** only.
+- Workforce tools in Ask mode are read-only (status/mentions/schedule/errors). Do NOT call write/trigger workforce actions.
+- If you need multiple workforce services, narrate what you will access, then call \`request_workspace_permissions\` and wait for the user.
 
-If the user wants code changes beyond the plan file, they should switch to **Build mode** (or approve a mode change when offered).
+For code changes beyond **.atlarix/ATLARIX_PLAN.md**, the user should switch to **Build mode** (or approve \`request_mode_change\` when offered).
 `;
     } else {
         prompt += `
@@ -184,6 +192,13 @@ If the user wants code changes beyond the plan file, they should switch to **Bui
 
 Use function-calling tools for ALL operations. Never describe what you would do.
 Workforce write/trigger actions are Build-only and must pass the standard approval flow before execution.
+
+**Deterministic discovery flow (Build):**
+1. **High-level map first:** Use available architecture/diagram context to identify the impacted subsystem.
+2. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
+3. **Deep-dive precisely:** Call \`get_blueprint_slice\` for selected paths and read only the necessary files/snippets.
+
+Prefer targeted blueprint slices over full graph fetches. If architecture context is empty, obtain it before changing code.
 
 **Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one run_command that creates the project; do not emit multiple create/scaffold commands in the same turn.
 
@@ -259,7 +274,7 @@ Rules:
 };
 
 /**
- * v2.1: Build system prompt with project instruction precedence (ATLARIX.md, AI_RULES.md, workspace, global, bundle).
+ * v2.1: Build system prompt with project instruction precedence (ATLARIX.md, workspace, global, bundle).
  * Use when workspacePath is available for full layer loading.
  */
 export async function buildSystemPromptWithProjectInstructions(params: {
@@ -288,17 +303,3 @@ export async function buildSystemPromptWithProjectInstructions(params: {
     });
 }
 
-// ═══════════════════════════════════════════════════════════
-// READ AI RULES FROM WORKSPACE
-// ═══════════════════════════════════════════════════════════
-
-export const readAiRules = async (workspacePath: string): Promise<string> => {
-    const aiRulesPath = path.join(workspacePath, "AI_RULES.md");
-    try {
-        const content = await fs.promises.readFile(aiRulesPath, "utf8");
-        return content;
-    } catch {
-        logger.debug("No AI_RULES.md found, using defaults");
-        return DEFAULT_AI_RULES;
-    }
-};

@@ -114,7 +114,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "ask_user",
     description:
-        "Ask the user a question and wait for their response. Use for clarifications or choices.",
+        "Ask the user a question and wait for their response. Use for clarifications or choices. Pass `options` (string array) for multiple-choice; the app shows buttons plus a text field.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: false,
@@ -132,16 +132,11 @@ ToolRegistry.register({
         ["question"]
     ),
     handler: async ({ question, options }) => {
-        let prompt = `❓ ${question}`;
-
-        if (options && options.length > 0) {
-            prompt += `\n\nOptions:\n`;
-            options.forEach((opt: string, idx: number) => {
-                prompt += `${idx + 1}. ${opt}\n`;
-            });
-        }
-
-        return `__PERMISSION_REQUIRED__\n${prompt}\n\n[Your response]`;
+        return {
+            __ask_user: true as const,
+            question: String(question ?? ""),
+            options: Array.isArray(options) ? options.map((o: string) => String(o)) : undefined,
+        };
     },
 });
 

@@ -338,6 +338,13 @@ export const terminalOutputAtom = atom<TerminalOutput | null>(null);
 /** Whether right panel is visible */
 export const rightPanelVisibleAtom = atom<boolean>(false);
 
+/**
+ * When true, streaming handlers should not call setRightPanelVisible(true) for
+ * non-critical UI (sources, diagram tool results, terminal). Cleared when the user
+ * opens the panel explicitly.
+ */
+export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
+
 /** Whether left panel is visible (extension panel). Toggled by Cmd+I / Ctrl+I when Pro. */
 export const leftPanelVisibleAtom = atom<boolean>(false);
 

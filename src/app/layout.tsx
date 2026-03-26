@@ -20,7 +20,17 @@ import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
-import { rightPanelVisibleAtom, leftPanelVisibleAtom, sourceListAtom, selectedSourceAtom, diagramStalenessAtom, diagramStateAtom, pinnedPanelAtom, previewTabAtom } from "@/atoms/sourceAtoms";
+import {
+  rightPanelVisibleAtom,
+  leftPanelVisibleAtom,
+  sourceListAtom,
+  selectedSourceAtom,
+  diagramStalenessAtom,
+  diagramStateAtom,
+  pinnedPanelAtom,
+  previewTabAtom,
+  rightPanelSuppressAutoOpenAtom,
+} from "@/atoms/sourceAtoms";
 import { activeExtensionIdsAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -32,6 +42,7 @@ import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
+import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 
 /**
  * PersistentChatContainer
@@ -43,8 +54,10 @@ function PersistentChatContainer() {
   const location = useLocation();
   const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
-  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
+  const { visible: rightPanelVisible, toggle: toggleRightPanel, show: showRightPanel } =
+    useRightPanelUserPreference();
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setSuppressAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const sources = useAtomValue(sourceListAtom);
@@ -86,9 +99,10 @@ function PersistentChatContainer() {
     setActiveChatId(null);
     setSourceList([]);
     setSelectedSource(null);
+    setSuppressAutoOpen(true);
     setRightPanelVisible(false);
     setDiagramState(null); // Clear stale diagram
-  }, [setActiveChatId, setSourceList, setSelectedSource, setRightPanelVisible, setDiagramState]);
+  }, [setActiveChatId, setSourceList, setSelectedSource, setSuppressAutoOpen, setRightPanelVisible, setDiagramState]);
 
   // Don't render anything if no active chat
   if (!activeChatId) {
@@ -132,7 +146,7 @@ function PersistentChatContainer() {
                 onClick={() => {
                   setPinnedPanel("web-search");
                   setPreviewTab("sources");
-                  setRightPanelVisible(true);
+                  showRightPanel();
                 }}
                 className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
                 title="Open panel and show sources"
@@ -143,7 +157,7 @@ function PersistentChatContainer() {
             {/* Panel toggle button */}
             <button
               type="button"
-              onClick={() => setRightPanelVisible(!rightPanelVisible)}
+              onClick={toggleRightPanel}
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shrink-0"
               title={rightPanelVisible ? "Hide panel" : "Show panel"}
               aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}
@@ -184,8 +198,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
-  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
-  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const { visible: rightPanelVisible, toggle: toggleRightPanel } = useRightPanelUserPreference();
   const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
   const setLeftPanelVisible = useSetAtom(leftPanelVisibleAtom);
   const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
@@ -333,7 +346,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {isOnChatPage && (
                 <button
                   type="button"
-                  onClick={() => setRightPanelVisible(!rightPanelVisible)}
+                  onClick={toggleRightPanel}
                   className="absolute top-2 right-2 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
                   title={rightPanelVisible ? "Hide panel" : "Show panel"}
                   aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}

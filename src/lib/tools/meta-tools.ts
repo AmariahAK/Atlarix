@@ -527,7 +527,7 @@ function analyzeDiagramStructure(code: string, type: string): {
     else if (code.includes('@startuml')) subType = 'UML Diagram';
 
     // Extract components (simplified)
-    const nodePattern = /(\w+)[\[\(\{]/g;
+    const nodePattern = /(\w+)[[({]/g;
     let match;
     while ((match = nodePattern.exec(code)) !== null) {
         if (!['graph', 'flowchart', 'subgraph', 'end'].includes(match[1].toLowerCase())) {
@@ -546,7 +546,7 @@ function analyzeDiagramStructure(code: string, type: string): {
 
     return {
         subType,
-        nodeCount: [...new Set(components)].length,
+        nodeCount: new Set(components).size,
         edgeCount,
         components: [...new Set(components)].slice(0, 10),
         patterns

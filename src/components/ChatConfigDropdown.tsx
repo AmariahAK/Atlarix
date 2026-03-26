@@ -3,7 +3,12 @@
  * Delegation (Direct/Guided/Autonomous), Self-Review. Lucide icons only.
  */
 
+import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
+import {
+  blueprintInjectionChatOverrideAtom,
+  type BlueprintInjectionChatOverride,
+} from "@/atoms/chatAtoms";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
@@ -37,6 +42,7 @@ import {
   Crosshair,
   Bot,
   Eye,
+  Layers,
 } from "lucide-react";
 import type { AgentMode } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -116,8 +122,13 @@ export function ChatConfigDropdown({
   const autoOn = settings?.autoModelRouting === true;
   const isAuto = settings?.selectedModel?.provider === "auto";
   const selfReviewEnabled = settings?.aiConfiguration?.selfReview?.enabled ?? false;
+  const [blueprintChatOverride, setBlueprintChatOverride] = useAtom(
+    blueprintInjectionChatOverrideAtom,
+  );
+  const blueprintTierRadioValue =
+    blueprintChatOverride === null ? "settings" : blueprintChatOverride;
 
-  // When Auto is ON: only show providers that have at least 2 favorite models set
+  // When Auto is ON: show providers that have at least 1 favorite model (tiers seed from favorites)
   const { data: openRouterFavorites = [] } = useFavoriteOpenRouterModels();
   const ollamaFavs =
     (settings?.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds ?? [];
@@ -127,13 +138,13 @@ export function ChatConfigDropdown({
   const autoModelIds = settings?.autoModelIds;
 
   const providersForAuto = [
-    openRouterFavorites.length >= 2 && { id: "openrouter", name: "OpenRouter" },
-    ollamaFavs.length >= 2 && { id: "ollama", name: "Ollama" },
-    lmStudioFavs.length >= 2 && { id: "lmstudio", name: "LM Studio" },
-    // Include current auto provider if it has 2+ models and isn't already listed
+    openRouterFavorites.length >= 1 && { id: "openrouter", name: "OpenRouter" },
+    ollamaFavs.length >= 1 && { id: "ollama", name: "Ollama" },
+    lmStudioFavs.length >= 1 && { id: "lmstudio", name: "LM Studio" },
+    // Include current auto provider if it has tier model(s) configured and isn't already listed
     autoProviderId &&
       Array.isArray(autoModelIds) &&
-      autoModelIds.length >= 2 &&
+      autoModelIds.filter(Boolean).length >= 1 &&
       !["openrouter", "ollama", "lmstudio"].includes(autoProviderId) && {
         id: autoProviderId,
         name: autoProviderId.charAt(0).toUpperCase() + autoProviderId.slice(1),
@@ -141,6 +152,34 @@ export function ChatConfigDropdown({
   ].filter(Boolean) as { id: string; name: string }[];
 
   const hasEnoughFavoritesForAuto = providersForAuto.some((p) => p.id === autoProviderId);
+
+  function tripleFromFavorites(ids: string[]): [string, string, string] | undefined {
+    if (ids.length < 1) return undefined;
+    const a = ids[0];
+    const b = ids[1] ?? a;
+    const c = ids[2] ?? b;
+    return [a, b, c];
+  }
+
+  function buildAutoSettingsForProvider(providerId: string | null): {
+    autoProviderId: string | null;
+    autoModelIds?: [string, string, string];
+  } {
+    if (!providerId) {
+      return { autoProviderId: null, autoModelIds: undefined };
+    }
+    if (providerId === "openrouter") {
+      const t = tripleFromFavorites(openRouterFavorites);
+      if (t) return { autoProviderId: providerId, autoModelIds: t };
+    } else if (providerId === "ollama") {
+      const t = tripleFromFavorites(ollamaFavs);
+      if (t) return { autoProviderId: providerId, autoModelIds: t };
+    } else if (providerId === "lmstudio") {
+      const t = tripleFromFavorites(lmStudioFavs);
+      if (t) return { autoProviderId: providerId, autoModelIds: t };
+    }
+    return { autoProviderId: providerId, autoModelIds: undefined };
+  }
 
   return (
     <DropdownMenu>
@@ -157,7 +196,9 @@ export function ChatConfigDropdown({
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>Config: MCP, model, Auto, delegation, self-review</TooltipContent>
+        <TooltipContent>
+          Config: MCP, model, Auto, delegation, Blueprint prompt, self-review
+        </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" className="w-72" sideOffset={6}>
         <ScrollArea className="max-h-[70vh]">
@@ -177,7 +218,7 @@ export function ChatConfigDropdown({
 
           <DropdownMenuSeparator />
 
-          {/* When Auto OFF: Model selection. When Auto ON: Provider selection (only providers with ≥2 favs) */}
+          {/* When Auto OFF: Model selection. When Auto ON: Provider selection (providers with ≥1 favorite, tiers seeded from favorites) */}
           <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Cpu className="h-3.5 w-3.5" />
             {autoOn ? "Provider (Auto)" : "Model"}
@@ -188,7 +229,7 @@ export function ChatConfigDropdown({
                 <Select
                   value={hasEnoughFavoritesForAuto ? (autoProviderId ?? "") : ""}
                   onValueChange={(v) => {
-                    updateSettings({ autoProviderId: v || null, autoModelIds: undefined });
+                    updateSettings(buildAutoSettingsForProvider(v || null));
                   }}
                 >
                   <SelectTrigger className="h-8 w-full">
@@ -205,7 +246,7 @@ export function ChatConfigDropdown({
               </div>
               {providersForAuto.length === 0 && (
                 <p className="px-2 py-1 text-xs text-muted-foreground">
-                  Set at least 2 favorite models per provider in Settings to use Auto.
+                  Set at least 1 favorite model per provider in Settings to use Auto (we seed Fast/Medium/Thinking from your favorites).
                 </p>
               )}
             </>
@@ -236,7 +277,22 @@ export function ChatConfigDropdown({
             <Switch
               checked={autoOn}
               onCheckedChange={(checked) => {
-                updateSettings({ autoModelRouting: checked });
+                if (!checked) {
+                  updateSettings({ autoModelRouting: false });
+                  return;
+                }
+                const pid = settings?.autoProviderId ?? null;
+                const hasTierModels =
+                  Array.isArray(settings?.autoModelIds) &&
+                  settings.autoModelIds.some((s) => s && String(s).trim());
+                if (pid && !hasTierModels) {
+                  updateSettings({
+                    autoModelRouting: true,
+                    ...buildAutoSettingsForProvider(pid),
+                  });
+                  return;
+                }
+                updateSettings({ autoModelRouting: true });
               }}
               onClick={(e) => e.stopPropagation()}
             />
@@ -278,6 +334,43 @@ export function ChatConfigDropdown({
               Autonomous
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+
+          <DropdownMenuSeparator />
+
+          {/* Blueprint prompt tier (v5.0 S4): overrides Settings for this session */}
+          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Layers className="h-3.5 w-3.5" />
+            Blueprint in prompt
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={blueprintTierRadioValue}
+            onValueChange={(value) => {
+              setBlueprintChatOverride(
+                value === "settings"
+                  ? null
+                  : (value as BlueprintInjectionChatOverride),
+              );
+            }}
+          >
+            <DropdownMenuRadioItem value="settings" className="gap-2">
+              Use Settings
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="ask" className="gap-2 text-xs">
+              Force Ask tier
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="plan" className="gap-2 text-xs">
+              Force Plan tier
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="build" className="gap-2 text-xs">
+              Force Build tier
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="debug" className="gap-2 text-xs">
+              Force Debug tier
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <p className="px-2 pb-1 text-xs text-muted-foreground">
+            Overrides AI → Blueprint injection for this app session. Default follows Settings.
+          </p>
 
           <DropdownMenuSeparator />
 

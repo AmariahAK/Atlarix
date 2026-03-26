@@ -5,20 +5,24 @@ import {
   TextPart,
   ImagePart,
   streamText,
+  generateText,
   ToolSet,
   TextStreamPart,
   stepCountIs,
   hasToolCall,
   jsonSchema as aiJsonSchema,
+  zodSchema,
+  NoOutputGeneratedError,
+  NoContentGeneratedError,
 } from "ai";
+import type { JSONSchema7 } from "json-schema";
 
 import { db } from "../../db";
 import { apps, chats, messages, diagrams } from "../../db/schema";
 import { and, eq, isNull, or } from "drizzle-orm";
-import type { SmartContextMode } from "../../lib/schemas";
+import type { SmartContextMode, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
-  readAiRules,
   buildSystemPromptWithProjectInstructions,
 } from "../../prompts/system_prompt";
 import {
@@ -82,8 +86,12 @@ import { replacePromptReference } from "../utils/replacePromptReference";
 import { mcpManager } from "../utils/mcp_manager";
 import { logMcpError } from "./mcp_handlers";
 import z from "zod";
+import type { ZodTypeAny } from "zod";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
-import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
+import {
+  AI_STREAMING_ERROR_MESSAGE_PREFIX,
+  AI_STREAM_EMPTY_RESPONSE_FALLBACK,
+} from "@/shared/texts";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot, restoreSnapshot } from "../../lib/workspace-snapshots";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
@@ -99,6 +107,13 @@ import {
 import { ToolRegistry } from "../../lib/tools";
 import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
+import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
+import {
+  ArchitectPlanPayloadSchema,
+  DebuggerRootCauseSchema,
+  ReviewerFindingsSchema,
+} from "@/lib/agents/agent-handoff-schemas";
+import { validateStructuredOutputWithSingleRetry } from "@/lib/agents/structured-output-validation";
 import { handleChatOnlyStream, type McpToolSet } from "./chat_only_handlers";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
@@ -112,7 +127,7 @@ import {
   schedulePostTurnCompaction,
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
-import { readMemoryMd, readSpecMd, writeMemoryMd } from "../../lib/project-memory";
+import { readAtlarixMd, writeAtlarixMd } from "../../lib/project-memory";
 import { estimateTokens, getContextWindow } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
@@ -177,6 +192,30 @@ export function resolveWorkspacePermissionResponse(
     pendingWorkspacePermissionResolvers.delete(key);
     r.resolve(result);
   }
+}
+
+async function resolveAskUserToolResult(
+  event: IpcMainInvokeEvent,
+  chatId: number,
+  toolName: string,
+  result: unknown,
+): Promise<string | null> {
+  if (toolName !== "ask_user") return null;
+  if (!result || typeof result !== "object" || (result as { __ask_user?: boolean }).__ask_user !== true) {
+    return null;
+  }
+  const q = result as { question: string; options?: string[] };
+  const { waitForUserQuestionAnswer } = await import("./user_question_wait");
+  const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  safeSend(event.sender, "user-question-request", {
+    chatId,
+    questionId,
+    question: q.question ?? "",
+    options: Array.isArray(q.options) && q.options.length > 0 ? q.options : undefined,
+  });
+  logger.log(`[ask_user] Waiting for UI answer (${questionId})`);
+  const answer = await waitForUserQuestionAnswer(chatId, questionId, 30 * 60 * 1000);
+  return JSON.stringify({ success: true, answer });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -347,6 +386,17 @@ async function processStreamChunks({
   let incrementalResponse = "";
   let inThinkingBlock = false;
 
+  const applyEmptyFallback = async () => {
+    const fb = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
+    fullResponse += fb;
+    incrementalResponse += fb;
+    fullResponse = cleanFullResponse(fullResponse);
+    fullResponse = await processResponseChunkUpdate({
+      fullResponse,
+    });
+  };
+
+  try {
   for await (const part of fullStream) {
     let chunk = "";
     if (
@@ -408,6 +458,26 @@ async function processStreamChunks({
       break;
     }
   }
+  } catch (err) {
+    const isNoUsableOutput =
+      NoOutputGeneratedError.isInstance(err) ||
+      NoContentGeneratedError.isInstance(err);
+    if (isNoUsableOutput && !abortController.signal.aborted) {
+      logger.warn(
+        `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
+        err,
+      );
+      if (!fullResponse.trim()) {
+        await applyEmptyFallback();
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  if (!abortController.signal.aborted && !fullResponse.trim()) {
+    await applyEmptyFallback();
+  }
 
   return { fullResponse, incrementalResponse };
 }
@@ -422,7 +492,11 @@ export function registerChatStreamHandlers() {
       const { chatId, approve } = payload;
       resolveModeChange(chatId, approve);
       if (approve) {
-        writeSettings({ selectedChatMode: "build", intentMode: "build" });
+        writeSettings({
+          selectedChatMode: "build",
+          intentMode: "build",
+          workModePreference: "build",
+        });
       }
       return { ok: true };
     }
@@ -441,6 +515,24 @@ export function registerChatStreamHandlers() {
       return { ok: true };
     },
   );
+
+  ipcMain.handle(
+    "chat:submit-user-question-answer",
+    async (
+      _event,
+      payload: { chatId: number; questionId: string; answer: string },
+    ): Promise<{ success: boolean }> => {
+      const { resolveUserQuestionAnswer } = await import("./user_question_wait");
+      const ok = resolveUserQuestionAnswer(payload.chatId, payload.questionId, payload.answer);
+      return { success: ok };
+    },
+  );
+
+  ipcMain.handle("workspace:prewarm-cache", async (_event, workspacePath: string) => {
+    const { prewarmWorkspaceCache } = await import("./chat_stream/workspace-context");
+    await prewarmWorkspaceCache(workspacePath);
+    return { ok: true };
+  });
 
   ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
     const abortController = new AbortController();
@@ -890,8 +982,17 @@ ${componentSnippet}
         if (req.modelOverride) {
           effectiveModel = req.modelOverride;
         } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
-          const { runAutoRouter } = await import("../../lib/routing/auto-router");
+          const { runAutoRouter, recommendModeRoute } = await import("../../lib/routing/auto-router");
           const { decision, model } = runAutoRouter(req.prompt, settings, mainOptions);
+          const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
+            String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
+          );
+          const modeRoute = recommendModeRoute({
+            prompt: req.prompt,
+            hasPlan: hasPlanHint,
+            activeBuild: settings.selectedChatMode === "build",
+            lastMode: settings.workModePreference,
+          });
           effectiveModel = model;
           if (settings.autoRoutingShowReasoning !== false) {
             safeSend(event.sender, "chat:activity", {
@@ -901,6 +1002,7 @@ ${componentSnippet}
               status: "done",
               timestamp: Date.now(),
               chatId: req.chatId,
+              detail: `${modeRoute.recommended_mode}: ${modeRoute.reason}`,
             });
           }
         }
@@ -1165,10 +1267,10 @@ ${componentSnippet}
                   detail: `Compacted to ${compactionResult.messagesAfterSummary.length} messages`,
                   chatId: req.chatId,
                 });
-                // Persist to .atlarix/memory.md for cross-session memory
+                // Persist to .atlarix/ATLARIX.md for cross-session memory
                 if (hasWorkspace && appPath) {
-                  writeMemoryMd(appPath, compactionResult.summaryText).catch((err) =>
-                    logger.warn("Failed to write .atlarix/memory.md:", err)
+                  writeAtlarixMd(appPath, compactionResult.summaryText).catch((err) =>
+                    logger.warn("Failed to write .atlarix/ATLARIX.md:", err)
                   );
                 }
               }
@@ -1208,6 +1310,7 @@ ${componentSnippet}
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
           let systemPrompt: string;
+          let blueprintRequiredBlockMessage: string | null = null;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
               where: and(
@@ -1225,7 +1328,6 @@ ${componentSnippet}
             });
           } else {
             systemPrompt = constructSystemPrompt({
-              aiRules: await readAiRules(resolveAppPath(updatedChat.app?.path ?? "")),
               chatMode,
               contextSize,
               userPrompt,
@@ -1234,12 +1336,38 @@ ${componentSnippet}
             });
           }
 
+          const intentModeForContext = settings.intentMode ?? chatMode;
+          const effectiveWorkMode: WorkMode =
+            intentModeForContext === "auto"
+              ? (chatMode === "build" ? "build" : "ask")
+              : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
+          const contextSections: ContextSection[] = [];
+
+          try {
+            const im = settings.intentMode ?? chatMode;
+            if (im !== "auto" && settings.workModePreference) {
+              const { workModeSystemHint } = await import("@/lib/agents/work-mode-agents");
+              const hint = workModeSystemHint(settings.workModePreference);
+              contextSections.push({
+                name: "workModeHint",
+                priority: 1,
+                content: `## Work mode\n${hint}`,
+              });
+            }
+          } catch {
+            /* non-fatal */
+          }
+
           // Inject workspace analysis context (diagram-first analysis)
           // This prevents AI hallucination by providing accurate structure info
           try {
             const workspaceContext = await getWorkspaceContext(appPath);
             if (workspaceContext) {
-              systemPrompt += workspaceContext.systemPromptAddition;
+              contextSections.push({
+                name: "workspaceAnalysis",
+                priority: 3,
+                content: workspaceContext.systemPromptAddition,
+              });
               logger.info(`Injected workspace context (fromCache: ${workspaceContext.fromCache})`);
 
               // Send diagram to renderer for RightPanel display
@@ -1273,7 +1401,11 @@ ${componentSnippet}
             try {
               const workforceBlock = await buildWorkforceWorkspaceContextBlock();
               if (workforceBlock) {
-                systemPrompt += workforceBlock;
+                contextSections.push({
+                  name: "workspaceAnalysis",
+                  priority: 3,
+                  content: workforceBlock,
+                });
                 logger.info("Injected Workforce workspace context block");
               }
             } catch (workforceErr) {
@@ -1283,27 +1415,115 @@ ${componentSnippet}
             logger.warn("Failed to inject workspace context:", error);
           }
 
-          // Project-level .atlarix/memory.md and .atlarix/spec.md – Claude Code style
+          if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0 && appPath) {
+            try {
+              const { getBlueprintForWorkspace } = await import("./blueprint_handlers");
+              const {
+                resolveBlueprintInjectionMode,
+                buildBlueprintSystemPromptInjection,
+                isBlueprintEffectivelyEmpty,
+                blueprintFirstBlockedMessage,
+              } = await import("@/lib/blueprint/blueprintPromptTiers");
+              const bp = await getBlueprintForWorkspace(effectiveAppId);
+              const bpPref = settings.blueprintInjectionModePreference ?? "auto";
+              const explicitFromPreference =
+                bpPref === "auto"
+                  ? undefined
+                  : (bpPref as "ask" | "plan" | "build" | "debug");
+              const effectiveExplicitBlueprintMode =
+                req.blueprintInjectionMode ?? explicitFromPreference;
+              const injectionMode = resolveBlueprintInjectionMode({
+                chatMode,
+                userPrompt: userPrompt || req.prompt,
+                explicitBlueprintMode: effectiveExplicitBlueprintMode,
+              });
+              const debugTraceForBlueprint =
+                injectionMode === "debug"
+                  ? (req.blueprintDebugTrace?.trim() ||
+                      settings.blueprintDebugTrace?.trim() ||
+                      undefined)
+                  : undefined;
+              const debugFileForBlueprint =
+                injectionMode === "debug"
+                  ? (req.blueprintDebugFile?.trim() ||
+                      settings.blueprintDebugFile?.trim() ||
+                      undefined)
+                  : undefined;
+              const emptyBp = isBlueprintEffectivelyEmpty(bp);
+              if ((injectionMode === "plan" || injectionMode === "build") && emptyBp) {
+                const blocked = blueprintFirstBlockedMessage();
+                contextSections.push({
+                  name: "blueprint",
+                  priority: 2,
+                  content: blocked,
+                });
+                blueprintRequiredBlockMessage = blocked;
+                logger.info("Injected blueprint-first blocker (empty blueprint; plan/build tier)");
+              } else if (!emptyBp) {
+                const { body } = await buildBlueprintSystemPromptInjection({
+                  mode: injectionMode,
+                  workspaceId: effectiveAppId,
+                  blueprint: bp,
+                  workspacePath: appPath,
+                  userPrompt: userPrompt || req.prompt,
+                  errorTrace: debugTraceForBlueprint,
+                  bugFilePath: debugFileForBlueprint,
+                });
+                if (body) {
+                  contextSections.push({
+                    name: "blueprint",
+                    priority: 2,
+                    content: `## Blueprint (Diagram tab)\n\n${body}`,
+                  });
+                  logger.info(`Injected tiered blueprint into system prompt (mode=${injectionMode})`);
+                }
+              }
+            } catch (bpErr) {
+              logger.warn("Failed to inject blueprint into system prompt:", bpErr);
+            }
+          }
+
+          if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0) {
+            try {
+              const { buildProjectMemoryPromptBlock } = await import("@/lib/project-memory/service");
+              const pmBlock = await buildProjectMemoryPromptBlock(effectiveAppId);
+              if (pmBlock.trim()) {
+                contextSections.push({
+                  name: "projectMemory",
+                  priority: 4,
+                  content: pmBlock,
+                });
+                logger.info("Injected SQLite project memory (Section 2)");
+              }
+            } catch (pmErr) {
+              logger.warn("Failed to inject SQLite project memory:", pmErr);
+            }
+          }
+
+          // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
           if (hasWorkspace && appPath) {
             try {
-              const memoryMd = await readMemoryMd(appPath);
-              if (memoryMd) {
-                systemPrompt += `\n\n## Project memory (cross-session)\n${memoryMd}`;
-                logger.info("Injected .atlarix/memory.md");
-              }
-              const specMd = await readSpecMd(appPath);
-              if (specMd) {
-                systemPrompt += `\n\n## Task breakdown (spec.md)\n${specMd}`;
-                logger.info("Injected .atlarix/spec.md");
+              const atlarixMd = await readAtlarixMd(appPath);
+              if (atlarixMd) {
+                contextSections.push({
+                  name: "projectMemory",
+                  priority: 4,
+                  content: `## Project memory (.atlarix/ATLARIX.md)\n${atlarixMd}`,
+                });
+                logger.info("Injected .atlarix/ATLARIX.md");
               }
             } catch (memErr) {
-              logger.warn("Failed to read .atlarix/memory.md or spec.md:", memErr);
+              logger.warn("Failed to read .atlarix/ATLARIX.md:", memErr);
             }
           }
 
           // Phase 6: Inject context summary (compacted earlier conversation)
           if (contextSummaryForSystem) {
-            systemPrompt += `\n\n## Session Summary (earlier conversation)\n${contextSummaryForSystem}`;
+            contextSections.push({
+              name: "contextSummary",
+              priority: 5,
+              content: `## Session Summary (earlier conversation)\n${contextSummaryForSystem}`,
+            });
             logger.info("Injected context summary from auto-compaction");
           }
 
@@ -1313,12 +1533,39 @@ ${componentSnippet}
             const sessionMemory = getSessionMemory(chat.appId);
             const sessionContext = sessionMemory.getContextForPrompt();
             if (sessionContext) {
-              systemPrompt += `\n\n${sessionContext}`;
+              contextSections.push({
+                name: "sessionMemory",
+                priority: 6,
+                content: sessionContext,
+              });
               logger.info(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
             }
           } catch (error) {
             logger.warn("Failed to inject session memory:", error);
           }
+
+          const assembledContext = assembleContextSections({
+            chatId: req.chatId,
+            appId: effectiveAppId ?? null,
+            workMode: effectiveWorkMode,
+            userPrompt: userPrompt || req.prompt,
+            sections: contextSections,
+          });
+          if (assembledContext.finalSystemPromptAddition.trim()) {
+            systemPrompt += `\n\n${assembledContext.finalSystemPromptAddition}`;
+          }
+          logger.info(
+            `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
+          );
+          if (assembledContext.trimReport.length > 0) {
+            logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
+          }
+          const hasInjectedArchitectureContext =
+            assembledContext.assembledPromptSections.some(
+              (s) =>
+                s.included &&
+                (s.name === "blueprint" || s.name === "workspaceAnalysis"),
+            );
           // Add information about mentioned apps if any
           if (otherAppsCodebaseInfo) {
             const mentionedAppsList = mentionedAppsCodebases
@@ -1430,11 +1677,13 @@ This conversation includes one or more image attachments. When the user uploads 
             : ([
               {
                 role: "user",
-                content: createDiagramFirstPrompt(),
+                content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
               },
               {
                 role: "assistant",
-                content: "Got it! I can see the workspace structure from the diagram. I'll use read_file, search_code, and list_files tools to access specific code when needed.",
+                content: hasInjectedArchitectureContext
+                  ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
+                  : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
               },
             ] as const);
 
@@ -1692,6 +1941,19 @@ This conversation includes one or more image attachments. When the user uploads 
               },
               abortSignal: abortController.signal,
             });
+            // Prevent unhandled rejection when the stream finishes with no output (AI SDK rejects `usage`).
+            void streamResult.usage.catch((usageErr: unknown) => {
+              if (
+                NoOutputGeneratedError.isInstance(usageErr) ||
+                NoContentGeneratedError.isInstance(usageErr)
+              ) {
+                logger.warn(
+                  "[chat_stream] streamText().usage rejected (empty output); stream/chunks may still be handled elsewhere",
+                );
+                return;
+              }
+              logger.warn("[chat_stream] streamText().usage rejected:", usageErr);
+            });
             return {
               fullStream: streamResult.fullStream,
               usage: streamResult.usage,
@@ -1748,7 +2010,9 @@ This conversation includes one or more image attachments. When the user uploads 
             return fullResponse;
           };
 
-          if (settings.selectedChatMode === "agent") {
+          if (blueprintRequiredBlockMessage) {
+            fullResponse = blueprintRequiredBlockMessage;
+          } else if (settings.selectedChatMode === "agent") {
             // Workspace-aware tool filtering (uses effective workspace from outer scope)
             const workspaceFilteredTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
 
@@ -1757,7 +2021,9 @@ This conversation includes one or more image attachments. When the user uploads 
             for (const tool of workspaceFilteredTools) {
               tools[tool.function.name] = {
                 description: tool.function.description,
-                inputSchema: aiJsonSchema((tool.function?.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
+                inputSchema: normalizeToolInputSchemaForAiSdk(
+                  tool.function?.parameters ?? { type: "object", properties: {} },
+                ) as never,
                 execute: async (args: any) => {
                   const result = await ToolRegistry.execute(tool.function.name, args);
                   return JSON.stringify(result);
@@ -1769,7 +2035,7 @@ This conversation includes one or more image attachments. When the user uploads 
             tools["generate-code"] = {
               description:
                 "ALWAYS use this tool whenever generating or editing code for the codebase.",
-              inputSchema: z.object({}),
+              inputSchema: aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA),
               execute: async () => "",
             };
 
@@ -1782,7 +2048,6 @@ This conversation includes one or more image attachments. When the user uploads 
               modelClient,
               tools,
               systemPromptOverride: constructSystemPrompt({
-                aiRules: await readAiRules(appPath),
                 chatMode: "build",
                 contextSize: Math.min(await getContextWindow(), 128_000),
                 enableTurboEditsV2: false,
@@ -1814,7 +2079,7 @@ This conversation includes one or more image attachments. When the user uploads 
           filesWrittenInThisExchange = [];
 
           // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
-          if (settings.selectedChatMode === "ask" && effectiveApp) {
+          if (!blueprintRequiredBlockMessage && settings.selectedChatMode === "ask" && effectiveApp) {
             logger.log("Ask mode with workspace - enabling read-only tools + plan writes (approval)");
 
             const askPermissionInterceptor = new PermissionInterceptor(
@@ -1829,26 +2094,114 @@ This conversation includes one or more image attachments. When the user uploads 
             let askToolsToInclude = askModeTools.filter(
               (t) => askLoadedNames.has(t.name) || isCoreTool(t),
             );
+            const modeAllowlist: Record<WorkMode, Set<string>> = {
+              ask: new Set([
+                "read_file",
+                "explore_folder",
+                "list_files",
+                "search_code",
+                "find_file",
+                "get_diagram",
+                "get_blueprint",
+                "get_blueprint_slice",
+                "compare_blueprint_to_live",
+                "git_status",
+                "git_diff",
+                "git_log",
+                "web_search",
+                "deep_search",
+                "read_url",
+                "ask_user",
+                "request_mode_change",
+                "request_workspace_permissions",
+                "get_project_history",
+              ]),
+              plan: new Set([
+                "read_file",
+                "explore_folder",
+                "list_files",
+                "search_code",
+                "find_file",
+                "get_blueprint",
+                "get_blueprint_slice",
+                "compare_blueprint_to_live",
+                "get_plan_scope",
+                "read_implementation_plan",
+                "write_implementation_plan",
+                "write_file",
+                "get_project_history",
+                "get_diagram",
+                "ask_user",
+                "request_mode_change",
+              ]),
+              build: new Set(),
+              debug: new Set([
+                "read_file",
+                "explore_folder",
+                "list_files",
+                "search_code",
+                "find_file",
+                "get_blueprint",
+                "get_blueprint_slice",
+                "compare_blueprint_to_live",
+                "git_status",
+                "git_diff",
+                "git_log",
+                "ask_user",
+                "request_mode_change",
+              ]),
+              review: new Set([
+                "read_file",
+                "explore_folder",
+                "list_files",
+                "search_code",
+                "find_file",
+                "get_blueprint",
+                "get_blueprint_slice",
+                "compare_blueprint_to_live",
+                "git_status",
+                "git_diff",
+                "git_log",
+                "get_project_history",
+                "ask_user",
+                "request_mode_change",
+              ]),
+            };
+            const askAllowedSet = modeAllowlist[effectiveWorkMode] ?? modeAllowlist.ask;
+            askToolsToInclude = askToolsToInclude.filter((t) => askAllowedSet.has(t.name));
             const planWriteMeta = ToolRegistry.get("write_implementation_plan");
             if (
+              effectiveWorkMode === "plan" &&
               planWriteMeta &&
               !askToolsToInclude.some((t) => t.name === "write_implementation_plan")
             ) {
               askToolsToInclude = [...askToolsToInclude, planWriteMeta];
             }
-            const askManifest = generateManifest(askModeTools, true);
+            if (effectiveWorkMode === "plan") {
+              for (const name of ["write_file", "get_plan_scope", "read_implementation_plan"] as const) {
+                const meta = ToolRegistry.get(name);
+                if (meta && !askToolsToInclude.some((t) => t.name === name)) {
+                  askToolsToInclude = [...askToolsToInclude, meta];
+                }
+              }
+            }
+            const askManifest = generateManifest(askToolsToInclude, effectiveWorkMode !== "plan");
 
             const askTools: ToolSet = {};
             for (const tool of askToolsToInclude) {
               askTools[tool.name] = {
                 description: tool.description,
-                inputSchema: (tool.parameters ?? (tool as { function?: { parameters?: unknown } }).function?.parameters ?? {}) as never,
+                inputSchema: normalizeToolInputSchemaForAiSdk(
+                  tool.parameters ??
+                    (tool as { function?: { parameters?: unknown } }).function?.parameters,
+                ) as never,
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
                   try {
                     const meta = ToolRegistry.get(tool.name);
                     const askAllowed =
                       tool.name === "request_mode_change" ||
+                      (effectiveWorkMode === "plan" && tool.name === "write_file") ||
                       (meta?.isReadOnly === true || meta?.allowInAskMode === true);
                     if (!askAllowed) {
                       return JSON.stringify({
@@ -1875,6 +2228,16 @@ This conversation includes one or more image attachments. When the user uploads 
                       };
                     }
                     const result = await ToolRegistry.execute(tool.name, execArgs);
+
+                    const askUserResolvedEarly = await resolveAskUserToolResult(
+                      event,
+                      req.chatId,
+                      tool.name,
+                      result,
+                    );
+                    if (askUserResolvedEarly !== null) {
+                      return askUserResolvedEarly;
+                    }
 
                     if (
                       result &&
@@ -1910,6 +2273,45 @@ This conversation includes one or more image attachments. When the user uploads 
                         dismissed: permissionResult.dismissed,
                         grantedServices: permissionResult.grantedServices,
                       });
+                    }
+
+                    if (
+                      tool.name === "write_implementation_plan" &&
+                      askPermissionInterceptor.isPermissionRequest(result)
+                    ) {
+                      const planPerm = askPermissionInterceptor.parsePermissionRequest(result);
+                      if (planPerm) {
+                        const planOpId = askPermissionInterceptor.generateOperationId();
+                        askPermissionInterceptor.bufferOperation(planOpId, planPerm);
+                        logger.log(
+                          `[Ask Mode] write_implementation_plan: executing without approval UI (${planOpId})`,
+                        );
+                        const planExec = await askPermissionInterceptor.executeOperation(planOpId);
+                        if (!planExec.approved) {
+                          return JSON.stringify({
+                            success: false,
+                            error: planExec.error ?? "Failed to write implementation plan",
+                          });
+                        }
+                        const planResult = askPermissionInterceptor.getExecutionResult(planOpId);
+                        const planPreview = planPerm.preview as { path?: string };
+                        if (planPreview.path) {
+                          filesWrittenInThisExchange.push(planPreview.path);
+                        }
+                        safeSend(event.sender, "chat:activity", {
+                          id: `plan-saved-${Date.now()}`,
+                          type: "tool",
+                          label: "Plan saved",
+                          status: "done",
+                          timestamp: Date.now(),
+                          detail: planResult.path ?? planPreview.path ?? ".atlarix/ATLARIX_PLAN.md",
+                        });
+                        return JSON.stringify({
+                          success: true,
+                          message: `Wrote ${planPreview.path ?? ".atlarix/ATLARIX_PLAN.md"}`,
+                          path: planResult.path,
+                        });
+                      }
                     }
 
                     if (askPermissionInterceptor.isPermissionRequest(result)) {
@@ -2018,7 +2420,9 @@ This conversation includes one or more image attachments. When the user uploads 
             if (requestModeChangeTool) {
               askTools["request_mode_change"] = {
                 description: requestModeChangeTool.description,
-                inputSchema: (requestModeChangeTool.parameters ?? {}) as never,
+                inputSchema: normalizeToolInputSchemaForAiSdk(
+                  requestModeChangeTool.parameters ?? {},
+                ) as never,
                 execute: async (args: any) => {
                   const result = await ToolRegistry.execute("request_mode_change", {
                     ...args,
@@ -2056,31 +2460,35 @@ This conversation includes one or more image attachments. When the user uploads 
             Object.assign(askTools, askMcpTools);
             logger.log(`Ask mode: ${Object.keys(askTools).length} tools available (read-only + plan writes + MCP)`);
 
+            const planModePrompt =
+              effectiveWorkMode === "plan"
+                ? `
+
+## Plan mode (required)
+You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace layout is ambiguous. Persist the implementation roadmap to **.atlarix/ATLARIX_PLAN.md** using **write_implementation_plan** (preferred for structured tasks) **or** **write_file** targeting that exact path. Update **.atlarix/ATLARIX.md** with **write_file** when the user needs project instructions or memory updates. Read the current plan with **read_implementation_plan** before revising. Keep the assistant prose short after saving; the UI renders a structured Plan card from the hidden plan payload—avoid duplicating the full plan as markdown in the visible reply.
+`
+                : "";
+
             const askModePrompt = `
-IMPORTANT: You are in ASK mode — read-only exploration, with one exception: you may create or update **ATLARIX_PLAN.md** via write_implementation_plan when the user wants a structured implementation plan; that write goes through the same approval UI as Build mode.
+IMPORTANT: ASK mode — read-only exploration, plus optional **planning**. Quick questions: answer directly without creating a plan file. Multi-step or "how should we build this" work: clarify if needed, explore with read-only tools, then **write_implementation_plan** for .atlarix/ATLARIX_PLAN.md (applied in-app without a separate approval step). Execution of the plan is **Build mode**.
+If the user asks for a plan, write .atlarix/ATLARIX_PLAN.md directly in this turn via write_implementation_plan; do not ask the user to create it manually.
 
-Available tools (read-only):
-- read_file: Read file contents
-- list_files: List directory contents  
-- search_code: Search for patterns in code
-- find_file: Find files by name pattern
-- web_search, deep_search, read_url: Research and web content
-- get_diagram: Generate architecture diagrams
-- git_status, git_diff: View git information
-- recall_memory, search_memory: Access saved learnings
-- parse_code_structure, get_change_impact, diagnose_issue, health_check: Code analysis
-- ask_user: Ask for clarification
-- write_implementation_plan: Create/update ATLARIX_PLAN.md (approval required)
-- request_workspace_permissions: Ask for batch Token Auth permissions (narrate first, then wait for user to finish panel)
-- request_mode_change: If the user wants code edits beyond the plan file, call with mode "build" and a short reason; wait for user approval.
+Available tools (read-only + plan):
+- read_file, explore_folder, list_files, search_code, find_file
+- web_search, deep_search, read_url
+- get_diagram: Architecture diagrams
+- get_blueprint_slice: Focused blueprint nodes/edges for selected folders/files
+- git_status, git_diff
+- recall_memory, search_memory
+- parse_code_structure, get_change_impact, diagnose_issue, health_check
+- ask_user: Clarifications or choices — pass \`options\` as string array; do not fake widgets in prose only.
+- write_implementation_plan: Create/update .atlarix/ATLARIX_PLAN.md only (no extra approval prompt in Ask)
+- request_workspace_permissions: Batch Token Auth (narrate first, then wait)
+- request_mode_change: For edits beyond .atlarix/ATLARIX_PLAN.md — mode "build" + reason; wait for user.
 
-NOT available in Ask mode (Build mode only):
-- write_file, delete_file, rename_file (except ATLARIX_PLAN.md via write_implementation_plan)
-- run_command, run_tests: Command execution
-- save_learning: Memory modifications
+NOT in Ask mode (Build only): write_file, delete_file, rename_file (except plan via write_implementation_plan), run_command, run_tests, save_learning.
 
-If the user requests code or file changes outside ATLARIX_PLAN.md, use request_mode_change to request Build mode. Do NOT apply code changes until the user approves.
-For workforce services, always explain which services you are about to access before calling request_workspace_permissions.`;
+If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mode_change. For workforce, explain services before request_workspace_permissions.`;
 
             const { fullStream: askStream } = await simpleStreamText({
               chatMessages,
@@ -2088,12 +2496,12 @@ For workforce services, always explain which services you are about to access be
               tools: askTools,
               systemPromptOverride:
                 constructSystemPrompt({
-                  aiRules: await readAiRules(appPath),
                   chatMode: "ask",
                   contextSize: Math.min(await getContextWindow(), 128_000),
                   enableTurboEditsV2: false,
                 }) +
                 askModePrompt +
+                planModePrompt +
                 "\n\n" +
                 askManifest,
               files: files,
@@ -2108,7 +2516,7 @@ For workforce services, always explain which services you are about to access be
               processResponseChunkUpdate,
             });
             fullResponse = askResult.fullResponse;
-          } else {
+          } else if (!blueprintRequiredBlockMessage) {
             // BUILD MODE - Native tool calling (like Agent mode)
             // AI has access to all workspace tools via function calling
             // Permission interceptor buffers write operations for user approval
@@ -2208,6 +2616,16 @@ For workforce services, always explain which services you are about to access be
                       };
                     }
                     const result = await ToolRegistry.execute(toolName, executeArgs);
+
+                    const askUserResolvedBuild = await resolveAskUserToolResult(
+                      event,
+                      req.chatId,
+                      toolName,
+                      result,
+                    );
+                    if (askUserResolvedBuild !== null) {
+                      return askUserResolvedBuild;
+                    }
 
                     if (
                       result &&
@@ -2383,7 +2801,9 @@ For workforce services, always explain which services you are about to access be
               if (delegateTool) {
                 tools["delegate_to_agent"] = {
                   description: delegateTool.description,
-                  inputSchema: (delegateTool.parameters ?? {}) as never,
+                  inputSchema: normalizeToolInputSchemaForAiSdk(
+                    delegateTool.parameters ?? {},
+                  ) as never,
                   execute: async (args: any) => {
                     const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
                     const agentId = String(args.agent_id ?? "agent");
@@ -2409,6 +2829,8 @@ For workforce services, always explain which services you are about to access be
                     });
                     const duration = Date.now() - startTime;
                     const isError = result?.success === false;
+                    const validationInfo =
+                      result && typeof result === "object" ? (result as any).validation : undefined;
                     safeSend(event.sender, "chat:activity", {
                       type: isError ? "delegation_error" : "delegation_complete",
                       id,
@@ -2419,6 +2841,18 @@ For workforce services, always explain which services you are about to access be
                       label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
                       detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
                     });
+                    if (validationInfo?.status === "fallback" || validationInfo?.warning) {
+                      safeSend(event.sender, "chat:activity", {
+                        id: `structured-validation-${Date.now()}`,
+                        type: "background",
+                        label: `Structured output validation (${agentId})`,
+                        status: validationInfo?.status === "fallback" ? "error" : "done",
+                        timestamp: Date.now(),
+                        detail:
+                          validationInfo?.warning ||
+                          `Schema ${validationInfo?.schema ?? "unknown"} validated in ${validationInfo?.attempts ?? 1} attempt(s).`,
+                      });
+                    }
                     return typeof result === "string" ? result : JSON.stringify(result);
                   },
                 };
@@ -2430,7 +2864,9 @@ For workforce services, always explain which services you are about to access be
             if (requestModeChangeToolBuild) {
               tools["request_mode_change"] = {
                 description: requestModeChangeToolBuild.description,
-                inputSchema: (requestModeChangeToolBuild.parameters ?? {}) as never,
+                inputSchema: normalizeToolInputSchemaForAiSdk(
+                  requestModeChangeToolBuild.parameters ?? {},
+                ) as never,
                 execute: async (args: any) => {
                   const hasPending =
                     permissionInterceptor.getAllOperationsCount() >
@@ -2643,6 +3079,17 @@ For workforce services, always explain which services you are about to access be
                   safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
 
                   try {
+                    const askUserAgentic = await resolveAskUserToolResult(
+                      event,
+                      req.chatId,
+                      toolCall.toolName,
+                      toolResult,
+                    );
+                    if (askUserAgentic !== null) {
+                      iterationResults.push({ tool: toolCall.toolName, result: askUserAgentic });
+                      continue;
+                    }
+
                     if (typeof toolResult === "string" && toolResult.startsWith("Error:")) {
                       iterationResults.push({ tool: toolCall.toolName, result: toolResult });
                       continue;
@@ -2839,7 +3286,150 @@ For workforce services, always explain which services you are about to access be
         }
 
         // Only save the response and process it if we weren't aborted
-        if (!abortController.signal.aborted && fullResponse) {
+        if (!abortController.signal.aborted) {
+          const currentSettings = readSettings();
+          const intentModeForStructured = currentSettings.intentMode ?? "ask";
+          const manualWorkMode =
+            intentModeForStructured === "auto"
+              ? undefined
+              : currentSettings.workModePreference;
+          const modeSchemaConfig: {
+            schemaName: string;
+            schemaHint: string;
+            schema: ZodTypeAny;
+          } | null =
+            manualWorkMode === "plan"
+              ? {
+                  schemaName: "ArchitectPlanPayload",
+                  schemaHint:
+                    "{ version: 1, summary: string, phases: [{ id: string, title: string, tasks: string[] }], risks?: string[] }",
+                  schema: ArchitectPlanPayloadSchema,
+                }
+              : manualWorkMode === "debug"
+                ? {
+                    schemaName: "DebuggerRootCause",
+                    schemaHint:
+                      "{ version: 1, hypothesis: string, likelyFiles: string[], nextSteps: string[] }",
+                    schema: DebuggerRootCauseSchema,
+                  }
+                : manualWorkMode === "review"
+                  ? {
+                      schemaName: "ReviewerFindings",
+                      schemaHint:
+                        "{ version: 1, severity: pass|minor|major|blocker, findings: [{ file?: string, message: string, suggestion?: string }] }",
+                      schema: ReviewerFindingsSchema,
+                    }
+                  : null;
+
+          if (modeSchemaConfig && fullResponse.trim()) {
+            const validation = await validateStructuredOutputWithSingleRetry({
+              rawText: fullResponse,
+              schema: modeSchemaConfig.schema,
+              schemaName: modeSchemaConfig.schemaName,
+              schemaHint: modeSchemaConfig.schemaHint,
+              retry: async (retryPrompt) => {
+                const retryResult = await generateText({
+                  model: modelClient.model,
+                  system: "Return only valid JSON for this response when asked.",
+                  messages: [{ role: "user", content: retryPrompt }],
+                });
+                return retryResult.text?.trim() || "";
+              },
+            });
+
+            if (validation.status === "ok") {
+              if (manualWorkMode === "plan") {
+                const v = validation.data as any;
+                const tasks = Array.isArray(v?.phases)
+                  ? v.phases
+                      .map((p: any) => `- **${p.title}** (${p.id}): ${(p.tasks ?? []).join("; ")}`)
+                      .join("\n")
+                  : "";
+                const planCardPayload = {
+                  taskGroups: Array.isArray(v?.phases)
+                    ? v.phases.map((p: any, idx: number) => ({
+                        id: String(p?.id ?? `phase-${idx + 1}`),
+                        title: String(p?.title ?? `Phase ${idx + 1}`),
+                        tasks: Array.isArray(p?.tasks)
+                          ? p.tasks.map((t: any, tIdx: number) => ({
+                              id: `${String(p?.id ?? `phase-${idx + 1}`)}-task-${tIdx + 1}`,
+                              label: String(t ?? ""),
+                              status: "pending",
+                            }))
+                          : [],
+                      }))
+                    : [],
+                  completed: false,
+                };
+                fullResponse = [
+                  "## Plan Report",
+                  "",
+                  `**Summary:** ${v?.summary ?? ""}`,
+                  "",
+                  tasks ? `**Phases**\n${tasks}` : "",
+                  "",
+                  `<!-- atlarix-plan:${JSON.stringify(planCardPayload)} -->`,
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
+              } else if (manualWorkMode === "debug") {
+                const v = validation.data as any;
+                fullResponse = [
+                  "## Debug Report",
+                  "",
+                  `**Hypothesis:** ${v?.hypothesis ?? ""}`,
+                  "",
+                  `**Likely files:** ${(v?.likelyFiles ?? []).join(", ") || "N/A"}`,
+                  "",
+                  `**Next steps:** ${(v?.nextSteps ?? []).join("; ") || "N/A"}`,
+                ].join("\n");
+              } else if (manualWorkMode === "review") {
+                const v = validation.data as any;
+                const findings = Array.isArray(v?.findings)
+                  ? v.findings
+                      .map(
+                        (f: any) =>
+                          `- ${f.file ? `\`${f.file}\` — ` : ""}${f.message}${f.suggestion ? ` _(suggestion: ${f.suggestion})_` : ""}`,
+                      )
+                      .join("\n")
+                  : "";
+                fullResponse = [
+                  "## Review Report",
+                  "",
+                  `**Severity:** ${v?.severity ?? "unknown"}`,
+                  "",
+                  findings || "No findings.",
+                ].join("\n");
+              } else {
+                fullResponse = validation.normalizedText;
+              }
+              if (validation.warning) {
+                safeSend(event.sender, "chat:activity", {
+                  id: `structured-mode-validation-${Date.now()}`,
+                  type: "background",
+                  label: `Structured output validation (${manualWorkMode})`,
+                  status: "done",
+                  timestamp: Date.now(),
+                  detail: validation.warning,
+                });
+              }
+            } else {
+              const fallbackWarning = `[Structured output validation warning] ${validation.warning}`;
+              fullResponse = `${fullResponse}\n\n${fallbackWarning}`;
+              safeSend(event.sender, "chat:activity", {
+                id: `structured-mode-validation-${Date.now()}`,
+                type: "background",
+                label: `Structured output validation (${manualWorkMode})`,
+                status: "error",
+                timestamp: Date.now(),
+                detail: validation.warning,
+              });
+            }
+          }
+
+          if (!fullResponse.trim()) {
+            fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
+          }
           // v3.9: Parse and strip <questions> block; emit chat:questions if present (first block only)
           const { cleanContent: contentAfterQuestions, questions } = parseQuestions(fullResponse);
           const responseToStore = questions != null ? contentAfterQuestions : fullResponse;
@@ -2893,7 +3483,10 @@ For workforce services, always explain which services you are about to access be
           } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);
           }
+          let dyadProcessedFileWrites = false;
           const settings = readSettings();
+          const isBuildModeTurn =
+            settings.selectedChatMode === "agent" || settings.selectedChatMode === "build";
           if (
             settings.autoApproveChanges &&
             settings.selectedChatMode !== "ask"
@@ -2927,6 +3520,8 @@ For workforce services, always explain which services you are about to access be
                 error: `Sorry, there was an error applying the AI's changes: ${status.error}`,
               });
             }
+
+            dyadProcessedFileWrites = status.updatedFiles ?? false;
 
             // v2.1: Self-review activity (runtime stub - show in Activity Stream when enabled)
             const selfReview = settings.aiConfiguration?.selfReview;
@@ -2980,6 +3575,20 @@ For workforce services, always explain which services you are about to access be
               }).catch(() => {});
             }
 
+            if (
+              isBuildModeTurn &&
+              effectiveAppId != null &&
+              appPath &&
+              (dyadProcessedFileWrites || filesWrittenInThisExchange.length > 0)
+            ) {
+              const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
+              void recordBuildCompleteSnapshot(
+                effectiveAppId,
+                appPath,
+                userPrompt?.slice(0, 500),
+              );
+            }
+
             // Signal that the stream has completed
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
@@ -3026,6 +3635,19 @@ For workforce services, always explain which services you are about to access be
                 finalSnippet: (fullResponse ?? "").slice(0, 1000),
               }).catch(() => {});
             }
+            if (
+              isBuildModeTurn &&
+              effectiveAppId != null &&
+              appPath &&
+              filesWrittenInThisExchange.length > 0
+            ) {
+              const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
+              void recordBuildCompleteSnapshot(
+                effectiveAppId,
+                appPath,
+                userPrompt?.slice(0, 500),
+              );
+            }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: false,
@@ -3061,7 +3683,10 @@ For workforce services, always explain which services you are about to access be
         logger.error("Error calling LLM:", error);
         const errMessage = isDiagramModelNotFoundError(error)
           ? "The selected model was not found for any provider. Please choose a different model in Settings."
-          : `Sorry, there was an error processing your request: ${error}`;
+          : NoOutputGeneratedError.isInstance(error) ||
+              NoContentGeneratedError.isInstance(error)
+            ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
+            : `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : String(error)}`;
         safeSend(event.sender, "chat:response:error", {
           chatId: req.chatId,
           error: errMessage,
@@ -3424,27 +4049,36 @@ function createCodebasePrompt(codebaseInfo: string): string {
  * Diagram-First Context Prompt
  * Instead of dumping 168K tokens of codebase, instruct AI to use tools
  */
-function createDiagramFirstPrompt(): string {
+function createDiagramFirstPrompt(hasArchitectureContext: boolean): string {
+  if (hasArchitectureContext) {
+    return `# Workspace Context
+
+I have provided architecture context for this project in the prompt.
+
+Use this deterministic flow:
+1. High-level map from architecture context
+2. Explore likely folders/files
+3. Deep-dive only relevant code and blueprint slices
+
+## Recommended tool sequence
+- **explore_folder**: inspect directory contents first
+- **list_files** / **find_file**: refine scope
+- **get_blueprint_slice**: pull focused architecture for chosen paths
+- **read_file**: read exact files needed for implementation
+- **search_code**: locate symbols/usages
+`;
+  }
   return `# Workspace Context
 
-I've provided you with an architecture diagram of my codebase in the system prompt. This diagram shows:
-- The main components, services, and modules
-- Dependencies and relationships between files
-- Entry points and hub files
+You currently do not have project Diagram/Blueprint context in this turn.
 
-## How to Access Code
-When you need to see specific file contents, use these tools:
-- **read_file**: Read contents of a specific file (use the paths from the diagram)
-- **search_code**: Search for text/patterns across the codebase
-- **list_files**: List files in a directory
-- **find_file**: Find files matching a pattern
+Your first actions should be:
+1. Use **explore_folder** to discover relevant folders/files.
+2. Use **get_blueprint_slice** for the selected paths to obtain focused architecture context.
+3. Use **read_file** only after narrowing to the exact files.
 
-## Important
-- DON'T ask me to paste code - use the tools to fetch it yourself
-- The diagram shows you WHERE things are - use tools to see WHAT they contain
-- For multi-file changes, fetch each file as needed before editing
-
-I'm ready to help with my codebase!`;
+Do not claim a diagram is present until architecture context is actually provided.
+`;
 }
 
 function createOtherAppsCodebasePrompt(otherAppsCodebaseInfo: string): string {
@@ -3457,25 +4091,52 @@ ${otherAppsCodebaseInfo}
 `;
 }
 
+const PERMISSIVE_TOOL_JSON_SCHEMA: JSONSchema7 = {
+  type: "object",
+  properties: {},
+  additionalProperties: true,
+};
+
+/**
+ * Wire tool schemas for `streamText` tools. ToolRegistry uses Zod; MCP uses JSON Schema.
+ * - Pass Zod through `zodSchema()` so the provider gets real parameter shapes (not empty `{}`).
+ * - Pass JSON-Schema-shaped objects through `aiJsonSchema()`.
+ * - If a Zod schema hits an AI SDK conversion bug, fall back to permissive schema for that tool only.
+ */
+function normalizeToolInputSchemaForAiSdk(schema: unknown) {
+  if (!schema || typeof schema !== "object") {
+    return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
+  }
+  const obj = schema as Record<string, unknown>;
+  if ("_def" in obj) {
+    try {
+      return zodSchema(
+        obj as unknown as Parameters<typeof zodSchema>[0],
+        { useReferences: true },
+      );
+    } catch (e) {
+      logger.warn(
+        "Tool input Zod schema could not be wrapped for AI SDK; using permissive schema:",
+        e,
+      );
+      return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
+    }
+  }
+  if ("type" in obj || "$schema" in obj) {
+    return aiJsonSchema(obj as JSONSchema7);
+  }
+  if ("jsonSchema" in obj && obj.jsonSchema && typeof obj.jsonSchema === "object") {
+    return aiJsonSchema(obj.jsonSchema as JSONSchema7);
+  }
+  return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
+}
+
 /** When appId is null/undefined, only global MCPs; when set, global + that workspace's MCPs (same as list-servers). */
 async function getMcpTools(
   event: IpcMainInvokeEvent,
   appId?: number | null
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
-  const PERMISSIVE = { type: "object" as const, properties: {}, additionalProperties: true };
-  const normalizeInputSchema = (schema: unknown): unknown => {
-    if (!schema || typeof schema !== "object") {
-      return aiJsonSchema(PERMISSIVE);
-    }
-    const obj = schema as Record<string, unknown>;
-    if ("_def" in obj) return aiJsonSchema(PERMISSIVE);
-    if ("type" in obj || "$schema" in obj) return aiJsonSchema(schema as Record<string, unknown>);
-    if ("jsonSchema" in obj && obj.jsonSchema && typeof obj.jsonSchema === "object") {
-      return aiJsonSchema(obj.jsonSchema as Record<string, unknown>);
-    }
-    return aiJsonSchema(PERMISSIVE);
-  };
   try {
     const enabled = eq(mcpServers.enabled, true as any);
     const servers = await db
@@ -3503,7 +4164,7 @@ async function getMcpTools(
         const original = tool as { description?: string; inputSchema?: unknown; execute?: (args: unknown, ctx?: unknown) => Promise<unknown> };
         mcpToolSet[key] = {
           description: original?.description,
-          inputSchema: normalizeInputSchema(original?.inputSchema) as never,
+          inputSchema: normalizeToolInputSchemaForAiSdk(original?.inputSchema) as never,
           execute: async (args: any, execCtx: any) => {
             const inputPreview =
               typeof args === "string"

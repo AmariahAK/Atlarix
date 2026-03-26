@@ -45,6 +45,7 @@ import {
   History,
   Undo2,
   GitCompare,
+  Ban,
 } from "lucide-react";
 import { GenerateBlueprintsModal } from "@/components/preview_panel/GenerateBlueprintsModal";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
@@ -86,6 +87,22 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   const [showMermaidPreview, setShowMermaidPreview] = useState(true);
   const [undoStack, setUndoStack] = useState<Blueprint[]>([]);
   const mermaidCode = blueprintToMermaid(local);
+  const [atlarixIgnoreOpen, setAtlarixIgnoreOpen] = useState(false);
+  const [atlarixPatterns, setAtlarixPatterns] = useState<string[]>([]);
+  const [atlarixSaving, setAtlarixSaving] = useState(false);
+
+  useEffect(() => {
+    if (!atlarixIgnoreOpen || app?.id == null) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await IpcClient.getInstance().getAtlarixIgnore(app.id!);
+      if (cancelled || !res.success || res.content == null) return;
+      setAtlarixPatterns(res.content.split("\n"));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [atlarixIgnoreOpen, app?.id]);
 
   const pushUndo = useCallback(() => {
     setUndoStack((prev) => [...prev.slice(1 - MAX_UNDO), local]);
@@ -739,6 +756,79 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
             })()}
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* .atlarixignore — gitignore-style excludes for Blueprint / RTE */}
+      <div className="border-t border-border flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => setAtlarixIgnoreOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50"
+        >
+          {atlarixIgnoreOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <Ban className="w-3.5 h-3.5 shrink-0 opacity-70" />
+          Blueprint ignore (.atlarixignore)
+        </button>
+        {atlarixIgnoreOpen && app?.id != null && (
+          <div className="px-3 pb-3 space-y-2 max-h-[220px] overflow-auto border-b border-border/60">
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Patterns use the same syntax as .gitignore. They apply when refreshing the Blueprint from code and when
+              analyzing the workspace. Edit lines below; empty lines are kept.
+            </p>
+            <div className="space-y-1">
+              {atlarixPatterns.map((line, idx) => (
+                <div key={`ig-${idx}`} className="flex gap-1 items-center">
+                  <input
+                    type="text"
+                    value={line}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAtlarixPatterns((prev) => prev.map((p, i) => (i === idx ? v : p)));
+                    }}
+                    className="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono rounded border border-border bg-background"
+                    placeholder="e.g. node_modules/ or *.generated.ts"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAtlarixPatterns((prev) => prev.filter((_, i) => i !== idx))}
+                    className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted shrink-0"
+                    title="Remove line"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAtlarixPatterns((p) => [...p, ""])}
+                className="px-2 py-1 text-[10px] rounded border border-border bg-muted/50 hover:bg-muted"
+              >
+                Add pattern
+              </button>
+              <button
+                type="button"
+                disabled={atlarixSaving}
+                onClick={async () => {
+                  if (app?.id == null) return;
+                  setAtlarixSaving(true);
+                  try {
+                    const content = atlarixPatterns.join("\n");
+                    const res = await IpcClient.getInstance().setAtlarixIgnore(app.id, content);
+                    if (res.success) toast.success("Saved .atlarixignore");
+                    else toast.error(res.error ?? "Save failed");
+                  } finally {
+                    setAtlarixSaving(false);
+                  }
+                }}
+                className="px-2 py-1 text-[10px] rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {atlarixSaving ? "Saving…" : "Save to disk"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Container details: Summary Card or Edit Internals (beacon view) with Back */}

@@ -4,7 +4,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { Bot, Layout, Wrench, Shield, Search } from "lucide-react";
+import { Bot, Layout, Wrench, Shield, Search, Bug } from "lucide-react";
 import { useAgentAnimStore, type AgentId, type AgentAnimState } from "@/lib/agents/animation-state";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ const AGENT_ICONS: Record<AgentId, React.ReactNode> = {
   builder: <Wrench size={20} />,
   reviewer: <Shield size={20} />,
   researcher: <Search size={20} />,
+  debugger: <Bug size={20} />,
 };
 
 const STATE_STYLES: Record<

@@ -74,6 +74,7 @@ ToolRegistry.register({
       writeSettings({
         selectedChatMode: mode,
         intentMode: "auto",
+        workModePreference: mode === "build" ? "build" : "ask",
       });
       return {
         success: true,
@@ -89,6 +90,7 @@ ToolRegistry.register({
       writeSettings({
         selectedChatMode: "ask",
         intentMode: "ask",
+        workModePreference: "ask",
       });
       return { success: true, message: "Switched to Ask mode." };
     }

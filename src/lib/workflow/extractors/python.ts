@@ -60,7 +60,7 @@ async function findPythonFiles(dir: string, base: string): Promise<string[]> {
       if (!EXCLUDE_DIRS.has(e.name) && !rel.includes("venv") && !rel.includes("__pycache__")) {
         files.push(...(await findPythonFiles(full, base)));
       }
-    } else if (/\.py$/.test(e.name)) {
+    } else if (e.name.endsWith('.py')) {
       files.push(full);
     }
   }

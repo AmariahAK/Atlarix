@@ -149,6 +149,10 @@ export type RuntimeMode2 = z.infer<typeof RuntimeMode2Schema>;
 export const ChatModeSchema = z.enum(["build", "ask", "agent"]);
 export type ChatMode = z.infer<typeof ChatModeSchema>;
 
+/** v5.1: Fine-grained work mode (tools + Blueprint tier alignment). */
+export const WorkModeSchema = z.enum(["ask", "plan", "build", "debug", "review"]);
+export type WorkMode = z.infer<typeof WorkModeSchema>;
+
 /** v2.1: Agent mode (Direct / Guided / Autonomous). */
 export const AgentModeSchema = z.enum(["direct", "guided", "autonomous"]);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
@@ -337,6 +341,19 @@ export const SmartContextModeSchema = z.enum([
   "deep",
 ]);
 export type SmartContextMode = z.infer<typeof SmartContextModeSchema>;
+
+/** v5.0: Blueprint system-prompt injection tier preference (Diagram tab). */
+export const BlueprintInjectionModePreferenceSchema = z.enum([
+  "auto",
+  "ask",
+  "plan",
+  "build",
+  "debug",
+]);
+export type BlueprintInjectionModePreference = z.infer<
+  typeof BlueprintInjectionModePreferenceSchema
+>;
+
 /**
  * Zod schema for user settings
  */
@@ -381,6 +398,8 @@ export const UserSettingsSchema = z.object({
   autoRoutingExchangeThreshold: z.number().min(3).max(20).optional(),
   /** Intent: ask (read-only) | build (full access) | auto (model may switch). */
   intentMode: z.enum(["ask", "build", "auto"]).optional(),
+  /** v5.1: Work mode for Blueprint tier + UX; maps to ask/build tools (see work-mode.ts). */
+  workModePreference: WorkModeSchema.optional(),
   /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
   aiConfiguration: AIConfigurationSchema.optional(),
   acceptedCommunityCode: z.boolean().optional(),
@@ -391,6 +410,14 @@ export const UserSettingsSchema = z.object({
 
   /** When true, selecting a container opens Edit Internals (beacon view) directly instead of Summary Card. */
   blueprintAlwaysShowBeacons: z.boolean().optional(),
+
+  /** v5.0: How much Blueprint detail is injected into the system prompt. Auto = chat mode + message heuristics. */
+  blueprintInjectionModePreference:
+    BlueprintInjectionModePreferenceSchema.optional(),
+  /** Optional stack trace or error text for Debug tier (used when injection resolves to debug). */
+  blueprintDebugTrace: z.string().optional(),
+  /** Optional file path (project-relative or absolute) for Debug tier focus. */
+  blueprintDebugFile: z.string().optional(),
 
   /** When true (default), commits made via Atlarix include Co-authored-by: Atlarix AI Agent <agent@atlarix.dev> */
   includeAtlarixCoAuthor: z.boolean().optional(),

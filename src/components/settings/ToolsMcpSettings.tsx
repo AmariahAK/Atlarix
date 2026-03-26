@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMcp, type Transport } from "@/hooks/useMcp";
-import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
+import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
 import { Edit2, Plus, Save, Trash2, X, Wifi } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -312,10 +312,12 @@ export function ToolsMcpSettings({
     isUpdatingServer,
     refetchAll,
   } = useMcp(filter);
-  const { userBudget } = useUserBudgetInfo();
+  const { status: authStatus, loading: authLoading } = useAuth();
   const { handleUpgrade } = useUpgrade();
-  const isPro = (userBudget?.totalCredits ?? 0) > 0;
-  const mcpAtFreeLimit = !isPro && servers.length >= 1;
+  const plan = authStatus?.plan;
+  const isPro = plan === "pro" || plan === "workforce";
+  // Only enforce the free-tier limit when we know the user is on the free plan.
+  const mcpAtFreeLimit = !authLoading && plan === "free" && servers.length >= 1;
   const atMaxServers = maxServers != null && servers.length >= maxServers;
   const countLabel = maxServers != null ? `${servers.length}/${maxServers}` : null;
 

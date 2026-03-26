@@ -66,20 +66,29 @@ export function ActivityStream() {
       });
       // v3.6: Sync agent animation store for agent canvas
       const agent = payload.agent as string | undefined;
-      if (agent && ["main", "architect", "builder", "reviewer", "researcher"].includes(agent)) {
+      const agentIds: AgentId[] = [
+        "main",
+        "architect",
+        "builder",
+        "reviewer",
+        "researcher",
+        "debugger",
+      ];
+      if (agent && agentIds.includes(agent as AgentId)) {
         const store = useAgentAnimStore.getState();
+        const aid = agent as AgentId;
         if (payload.type === "delegation_start") {
-          store.setAgentState(agent as "main" | "architect" | "builder" | "reviewer" | "researcher", "delegating");
+          store.setAgentState(aid, "delegating");
           store.startFlow({
             id: payload.id,
-            from: agent as AgentId,
-            to: agent as AgentId,
+            from: aid,
+            to: aid,
             type: "request",
             startedAt: payload.timestamp ?? Date.now(),
           });
         } else if (payload.type === "delegation_complete" || payload.type === "delegation_error") {
           store.endFlow(payload.id);
-          store.setAgentState(agent as "main" | "architect" | "builder" | "reviewer" | "researcher", "idle");
+          store.setAgentState(aid, "idle");
         }
       }
     },

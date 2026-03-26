@@ -3,13 +3,11 @@ import { chats } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import {
   constructSystemPrompt,
-  readAiRules,
 } from "../../prompts/system_prompt";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
   SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
 } from "../../prompts/supabase_prompt";
-import { getAtlarixAppPath } from "../../paths/paths";
 import log from "electron-log";
 // extractCodebase removed - using diagram-first context system
 
@@ -61,7 +59,6 @@ export function registerTokenCountHandlers() {
       // Count system prompt tokens
       const contextSize = Math.min(await getContextWindow(), 128_000);
       let systemPrompt = constructSystemPrompt({
-        aiRules: await readAiRules(chat.app ? getAtlarixAppPath(chat.app.path) : ""),
         chatMode: settings.selectedChatMode === "agent" ? "build" : settings.selectedChatMode,
         contextSize,
         enableTurboEditsV2: isTurboEditsV2Enabled(settings),

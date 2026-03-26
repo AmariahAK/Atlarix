@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 /**
@@ -151,6 +151,8 @@ export const appsRelations = relations(apps, ({ many }) => ({
   pivotEdges: many(pivotEdges),
   pivotContainers: many(pivotContainers),
   blueprintSnapshots: many(blueprintSnapshots),
+  projectSnapshots: many(projectSnapshots),
+  projectMemoryRows: many(projectMemory),
 }));
 
 export const chatsRelations = relations(chats, ({ many, one }) => ({
@@ -724,6 +726,49 @@ export const blueprintSnapshots = sqliteTable(
   (table) => [index("blueprint_snapshots_workspace_idx").on(table.workspaceId)]
 );
 
+/** v5.0 Section 2: project memory snapshots */
+export const projectSnapshots = sqliteTable(
+  "project_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    blueprintJson: text("blueprint_json").notNull(),
+    planMd: text("plan_md"),
+    diagramMermaid: text("diagram_mermaid"),
+    gitCommitHash: text("git_commit_hash"),
+    sessionSummary: text("session_summary"),
+    trigger: text("trigger", {
+      enum: ["blueprint_change", "plan_update", "build_complete", "session_end"],
+    }).notNull(),
+  },
+  (table) => [
+    index("project_snapshots_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  ],
+);
+
+export const projectMemory = sqliteTable(
+  "project_memory",
+  {
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.key], name: "project_memory_pk" }),
+    index("project_memory_workspace_idx").on(table.workspaceId),
+  ],
+);
+
 /** v3.6: Lightning review memory — learn from past fixes per workspace */
 export const reviewPatterns = sqliteTable(
   "review_patterns",
@@ -775,6 +820,20 @@ export const pivotBeaconsRelations = relations(pivotBeacons, ({ one }) => ({
 export const blueprintSnapshotsRelations = relations(blueprintSnapshots, ({ one }) => ({
   workspace: one(apps, {
     fields: [blueprintSnapshots.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+export const projectSnapshotsRelations = relations(projectSnapshots, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [projectSnapshots.workspaceId],
+    references: [apps.id],
+  }),
+}));
+
+export const projectMemoryRelations = relations(projectMemory, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [projectMemory.workspaceId],
     references: [apps.id],
   }),
 }));

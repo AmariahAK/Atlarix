@@ -3,7 +3,7 @@ role: system
 message: 
 ${BUILD_SYSTEM_PREFIX}
 
-# AI_RULES.md
+# .atlarix/ATLARIX.md
 
 
 ${BUILD_SYSTEM_POSTFIX}

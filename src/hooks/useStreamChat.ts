@@ -4,7 +4,7 @@ import type {
   Message,
   FileAttachment,
 } from "@/ipc/ipc_types";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   chatErrorByIdAtom,
   chatMessagesByIdAtom,
@@ -16,10 +16,13 @@ import {
   responseDoneAnimationAtom,
   questionsByMessageIdAtom,
   restartedAfterMessageIdAtom,
+  pendingUserQuestionByChatIdAtom,
+  blueprintInjectionChatOverrideAtom,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
   rightPanelVisibleAtom,
+  rightPanelSuppressAutoOpenAtom,
   pendingProposalsAtom,
   diagramStateAtom,
   previewTabAtom,
@@ -52,6 +55,8 @@ import { usePostHog } from "posthog-js/react";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
 import { playNotify, playRemaining } from "@/lib/sounds";
+import { blueprintTierForWorkMode } from "@/lib/work-mode";
+import type { WorkMode } from "@/lib/schemas";
 
 /**
  * Extract domain from URL
@@ -70,13 +75,13 @@ function extractDomain(url: string): string {
  */
 function extractActualDomain(snippet: string, fallbackUrl: string): string {
   // Try markdown link format: [text](https://domain.com/...)
-  const markdownMatch = snippet.match(/\[([^\]]+)\]\((https?:\/\/([^\/\)]+))/);
+  const markdownMatch = snippet.match(/\[([^\]]+)\]\((https?:\/\/([^/)]+))/);
   if (markdownMatch && markdownMatch[3]) {
     return markdownMatch[3].replace('www.', '');
   }
 
   // Try bare URL in content
-  const urlMatch = snippet.match(/https?:\/\/([^\/\s\)]+)/);
+  const urlMatch = snippet.match(/https?:\/\/([^/\s)]+)/);
   if (urlMatch && urlMatch[1]) {
     return urlMatch[1].replace('www.', '');
   }
@@ -110,9 +115,15 @@ export function useStreamChat({
   const { refetchUserBudget } = useUserBudgetInfo();
   const { checkProblems } = useCheckProblems(selectedAppId);
   const { settings } = useSettings();
+  const blueprintChatTierOverride = useAtomValue(blueprintInjectionChatOverrideAtom);
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const maybeAutoOpenRightPanel = () => {
+    if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+      setRightPanelVisible(true);
+    }
+  };
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
@@ -131,6 +142,7 @@ export function useStreamChat({
 
   const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
+  const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
 
   const streamMessage = useCallback(
     async ({
@@ -181,6 +193,20 @@ export function useStreamChat({
       let hasIncrementedStreamCount = false;
       try {
         // Register permission handler for this chat
+        const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
+          chatId,
+          (payload) => {
+            setPendingUserQuestionByChatId((prev) => ({
+              ...prev,
+              [chatId]: {
+                questionId: payload.questionId,
+                question: payload.question,
+                options: payload.options,
+              },
+            }));
+          },
+        );
+
         const unsubscribePermission = IpcClient.getInstance().onPermissionRequest(
           chatId,
           (payload) => {
@@ -264,7 +290,7 @@ export function useStreamChat({
               compareMode: 'current',
               title: payload.title,
             });
-            setRightPanelVisible(true); // Show panel for diagram
+            maybeAutoOpenRightPanel(); // Show panel for diagram unless user dismissed it
           }
         );
 
@@ -305,7 +331,7 @@ export function useStreamChat({
             // BUT: Don't force-switch if this is a permission-based command
             // (The AI intent system handles panel switching for those)
             if (payload.status === 'running' && !payload.isPermissionBased) {
-              setRightPanelVisible(true);
+              maybeAutoOpenRightPanel();
               setPreviewTab('terminal');
             }
 
@@ -347,6 +373,28 @@ export function useStreamChat({
           }
         );
 
+        const intentMode =
+          settings?.intentMode ??
+          (settings?.selectedChatMode === "agent"
+            ? "build"
+            : settings?.selectedChatMode) ??
+          "build";
+        const intentIsAuto = intentMode === "auto";
+        const wm = (settings?.workModePreference ??
+          (settings?.selectedChatMode === "ask" ? "ask" : "build")) as WorkMode;
+        const fromWorkMode = !intentIsAuto
+          ? blueprintTierForWorkMode(wm)
+          : undefined;
+        const bpPref = settings?.blueprintInjectionModePreference ?? "auto";
+        const fromSettingsTier =
+          bpPref !== "auto"
+            ? (bpPref as "ask" | "plan" | "build" | "debug")
+            : undefined;
+        const streamBlueprintMode =
+          blueprintChatTierOverride ?? fromWorkMode ?? fromSettingsTier;
+        const streamBlueprintTrace = settings?.blueprintDebugTrace?.trim();
+        const streamBlueprintFile = settings?.blueprintDebugFile?.trim();
+
         IpcClient.getInstance().streamMessage(prompt, {
           selectedComponents: selectedComponents ?? [],
           chatId,
@@ -355,6 +403,9 @@ export function useStreamChat({
           modelOverride,
           appId: selectedAppId ?? undefined,
           continueAfterQuestions,
+          blueprintInjectionMode: streamBlueprintMode,
+          blueprintDebugTrace: streamBlueprintTrace || undefined,
+          blueprintDebugFile: streamBlueprintFile || undefined,
           onUpdate: (updatedMessages: Message[]) => {
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
@@ -407,7 +458,7 @@ export function useStreamChat({
             // Update sourceListAtom if we found sources
             if (allSources.length > 0) {
               setSourceList(allSources);
-              setRightPanelVisible(true); // Auto-show panel when sources arrive
+              maybeAutoOpenRightPanel(); // Auto-show panel when sources arrive
             }
 
             // Detect diagram results from tool calls
@@ -426,7 +477,7 @@ export function useStreamChat({
                       compareMode: 'current',
                       title: diagramData.title,
                     });
-                    setRightPanelVisible(true); // Show panel for diagram
+                    maybeAutoOpenRightPanel(); // Show panel for diagram
                   }
                 }
               }
@@ -547,6 +598,8 @@ export function useStreamChat({
       settings,
       setLastTurnHadToolCallsByChatId,
       setRestartedAfterMessageId,
+      setPendingUserQuestionByChatId,
+      blueprintChatTierOverride,
     ],
   );
 

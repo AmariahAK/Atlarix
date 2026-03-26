@@ -12,12 +12,20 @@
  */
 
 import { IpcMainInvokeEvent } from "electron";
-import { streamText, ToolSet, stepCountIs, jsonSchema as aiJsonSchema } from "ai";
+import {
+    streamText,
+    ToolSet,
+    stepCountIs,
+    jsonSchema as aiJsonSchema,
+    NoOutputGeneratedError,
+    NoContentGeneratedError,
+} from "ai";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
 import log from "electron-log";
 import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
+import { AI_STREAM_EMPTY_RESPONSE_FALLBACK } from "@/shared/texts";
 import { ToolRegistry } from "../../lib/tools";
 import { getSessionMemory } from "../../lib/session-memory";
 
@@ -236,6 +244,25 @@ export async function handleChatOnlyStream(
                     logger.log(`Executing tool: ${tool.name}`);
                     const result = await tool.handler({ ...params, chatId: req.chatId });
 
+                    if (
+                        tool.name === "ask_user" &&
+                        result &&
+                        typeof result === "object" &&
+                        (result as { __ask_user?: boolean }).__ask_user === true
+                    ) {
+                        const q = result as { question: string; options?: string[] };
+                        const { waitForUserQuestionAnswer } = await import("./user_question_wait");
+                        const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+                        safeSend(event.sender, "user-question-request", {
+                            chatId: req.chatId,
+                            questionId,
+                            question: q.question ?? "",
+                            options: Array.isArray(q.options) && q.options.length > 0 ? q.options : undefined,
+                        });
+                        const answer = await waitForUserQuestionAnswer(req.chatId, questionId, 30 * 60 * 1000);
+                        return JSON.stringify({ success: true, answer });
+                    }
+
                     if (result && typeof result === 'object' && result.sources) {
                         collectedSources.push(...result.sources);
                         return result.text || result;
@@ -290,15 +317,60 @@ export async function handleChatOnlyStream(
         });
 
         // Process stream
-        for await (const chunk of result.textStream) {
-            if (abortController.signal.aborted) {
-                logger.log("Ephemeral chat-only stream aborted");
-                break;
+        try {
+            for await (const chunk of result.textStream) {
+                if (abortController.signal.aborted) {
+                    logger.log("Ephemeral chat-only stream aborted");
+                    break;
+                }
+
+                fullResponse += chunk;
+
+                // Send chunk to UI (with temporary assistant message)
+                safeSend(event.sender, "chat:response:chunk", {
+                    chatId: req.chatId,
+                    messages: [
+                        ...chat.messages,
+                        {
+                            id: -1,
+                            chatId: req.chatId,
+                            role: "assistant",
+                            content: fullResponse,
+                            createdAt: new Date(),
+                        },
+                    ],
+                });
             }
+        } catch (streamErr) {
+            if (
+                (NoOutputGeneratedError.isInstance(streamErr) ||
+                    NoContentGeneratedError.isInstance(streamErr)) &&
+                !abortController.signal.aborted
+            ) {
+                logger.warn("Chat-only stream: no usable text from model:", streamErr);
+                if (!fullResponse.trim()) {
+                    fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
+                    safeSend(event.sender, "chat:response:chunk", {
+                        chatId: req.chatId,
+                        messages: [
+                            ...chat.messages,
+                            {
+                                id: -1,
+                                chatId: req.chatId,
+                                role: "assistant",
+                                content: fullResponse,
+                                createdAt: new Date(),
+                            },
+                        ],
+                    });
+                }
+            } else {
+                throw streamErr;
+            }
+        }
 
-            fullResponse += chunk;
-
-            // Send chunk to UI (with temporary assistant message)
+        if (!abortController.signal.aborted && !fullResponse.trim()) {
+            fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
             safeSend(event.sender, "chat:response:chunk", {
                 chatId: req.chatId,
                 messages: [
@@ -421,10 +493,21 @@ export async function handleChatOnlyStream(
 
     } catch (error) {
         logger.error("Error in ephemeral chat-only stream:", error);
+        const noOutput =
+            NoOutputGeneratedError.isInstance(error) ||
+            NoContentGeneratedError.isInstance(error);
+        const message = noOutput
+            ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
+            : `Sorry, there was an error: ${error instanceof Error ? error.message : String(error)}`;
         safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
-            error: `Sorry, there was an error: ${error}`,
+            error: message,
         });
+        safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+        } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
         throw error;
     }

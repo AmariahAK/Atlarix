@@ -95,7 +95,7 @@ dist-ssr
 
 </dyad-file>
 
-<dyad-file path="AI_RULES.md">
+<dyad-file path=".atlarix/ATLARIX.md">
 # Tech Stack
 
 - You are building a React application.

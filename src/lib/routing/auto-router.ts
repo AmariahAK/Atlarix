@@ -142,6 +142,64 @@ export interface RoutingDecision {
   tier: ModelTier;
 }
 
+export interface ModeRoutingDecision {
+  recommended_mode: "ask" | "plan" | "build" | "debug" | "review";
+  agent_sequence: Array<"ask" | "plan" | "build" | "debug" | "review">;
+  reason: string;
+  requires_confirmation: boolean;
+}
+
+export function recommendModeRoute(params: {
+  prompt: string;
+  hasPlan: boolean;
+  activeBuild: boolean;
+  lastMode?: "ask" | "plan" | "build" | "debug" | "review";
+}): ModeRoutingDecision {
+  const p = params.prompt.toLowerCase();
+  const looksLikeBug =
+    /\bbug|broken|error|failing|fix this|stack trace|typeerror|referenceerror|syntaxerror\b/.test(p);
+  if (looksLikeBug) {
+    return {
+      recommended_mode: "debug",
+      agent_sequence: ["debug"],
+      reason: "Prompt indicates a runtime or failing behavior issue.",
+      requires_confirmation: true,
+    };
+  }
+  if (params.activeBuild) {
+    return {
+      recommended_mode: "build",
+      agent_sequence: ["build", "review"],
+      reason: "An active build flow exists; continue implementation then review.",
+      requires_confirmation: false,
+    };
+  }
+  const asksForImplementation =
+    /\bimplement|build|create|add|refactor|wire|integrate|ship\b/.test(p);
+  if (asksForImplementation && !params.hasPlan) {
+    return {
+      recommended_mode: "plan",
+      agent_sequence: ["plan", "build"],
+      reason: "Implementation requested without an existing plan.",
+      requires_confirmation: true,
+    };
+  }
+  if (asksForImplementation && params.hasPlan) {
+    return {
+      recommended_mode: "build",
+      agent_sequence: ["build", "review"],
+      reason: "Implementation requested and plan is available.",
+      requires_confirmation: true,
+    };
+  }
+  return {
+    recommended_mode: "ask",
+    agent_sequence: ["ask"],
+    reason: "Defaulting to exploration/explanation.",
+    requires_confirmation: false,
+  };
+}
+
 /**
  * Run auto router: Stage 1 classification, optional Stage 2 (caller may do LLM call), then resolve model with ceiling and fallback.
  */

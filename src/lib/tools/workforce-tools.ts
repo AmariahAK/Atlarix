@@ -72,12 +72,12 @@ ToolRegistry.register({
     const requested = Array.isArray(args?.services)
       ? args.services.map((s: unknown) => String(s).toLowerCase()).filter(Boolean)
       : [];
-    const uniqueRequested = Array.from(new Set(requested));
+    const uniqueRequested: string[] = Array.from(new Set(requested));
     if (uniqueRequested.length === 0) {
       return { success: false, error: "services[] is required." };
     }
     const connected = await TokenVault.listConnectedServices();
-    const connectedSet = new Set(connected.map((s) => s.name.toLowerCase()));
+    const connectedSet = new Set<string>(connected.map((s) => String(s.name).toLowerCase()));
     const missing = uniqueRequested.filter((svc) => !connectedSet.has(svc));
     if (missing.length === 0) {
       return {

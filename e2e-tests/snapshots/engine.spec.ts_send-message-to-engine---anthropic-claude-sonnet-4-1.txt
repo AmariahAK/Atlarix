@@ -101,7 +101,7 @@
             "fileId": "fe718e7babb14f3cbad2d97f08889b9ce5215ed3fe0e43b2b8cfbfb3b9b844e8"
           },
           {
-            "path": "AI_RULES.md",
+            "path": ".atlarix/ATLARIX.md",
             "force": false,
             "fileId": "e1d271fecad76f8601c0273c4a397d6a1058e221cb159a15a04b667665bae0bc"
           },

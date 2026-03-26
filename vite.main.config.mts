@@ -33,6 +33,10 @@ const MAIN_KEYS = [
 
 // https://vitejs.dev/config
 export default defineConfig({
+  ssr: {
+    noExternal: [],
+    external: ["keytar", "better-sqlite3"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

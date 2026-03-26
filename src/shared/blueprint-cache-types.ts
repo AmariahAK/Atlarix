@@ -30,6 +30,8 @@ export interface BlueprintCacheContent {
   edges: RTEBlueprintEdge[];
   /** Legacy Blueprint shape for UI compatibility */
   blueprint?: Blueprint;
+  /** Raw `.atlarixignore` used when this cache was written (skip disk read for ignore filtering). */
+  atlarixIgnoreSource?: string;
 }
 
 /** Staleness result */

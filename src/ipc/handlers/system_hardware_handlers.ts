@@ -171,14 +171,69 @@ export function registerSystemHardwareHandlers(): void {
 
   ipcMain.handle("ollama:get-recommendations", async () => getOllamaRecommendations());
 
-  ipcMain.handle("ollama:pull-model", async (_event, model: unknown) => {
-    if (typeof model !== "string" || !model.trim()) {
-      throw new Error("Model name required");
-    }
-    await execFileAsync("ollama", ["pull", model.trim()], {
-      env: process.env,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-    return { success: true };
-  });
+  ipcMain.handle(
+    "ollama:pull-model",
+    async (
+      _event,
+      model: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }> => {
+      if (typeof model !== "string" || !model.trim()) {
+        return { success: false, error: "Model name required." };
+      }
+      const name = model.trim();
+      try {
+        await execFileAsync("ollama", ["pull", name], {
+          env: process.env,
+          maxBuffer: 20 * 1024 * 1024,
+        });
+        return { success: true };
+      } catch (e: unknown) {
+        const err = e as NodeJS.ErrnoException & {
+          stderr?: Buffer | string;
+          stdout?: Buffer | string;
+        };
+        if (err.code === "ENOENT") {
+          return {
+            success: false,
+            error:
+              "Ollama CLI not found. Install Ollama from https://ollama.com and ensure `ollama` is on your PATH, then restart Atlarix.",
+          };
+        }
+        const stderr =
+          typeof err.stderr === "string"
+            ? err.stderr
+            : err.stderr?.toString?.() ?? "";
+        const stdout =
+          typeof err.stdout === "string"
+            ? err.stdout
+            : err.stdout?.toString?.() ?? "";
+        const combined = `${stderr} ${stdout} ${err.message ?? ""}`.toLowerCase();
+        if (
+          combined.includes("file does not exist") ||
+          combined.includes("manifest") ||
+          combined.includes("not found")
+        ) {
+          return {
+            success: false,
+            error: `Model "${name}" was not found in the Ollama library. Check the name on ollama.com/library or run \`ollama pull ${name}\` in a terminal for details.`,
+          };
+        }
+        if (
+          combined.includes("connection refused") ||
+          combined.includes("econnrefused") ||
+          combined.includes("fetch failed")
+        ) {
+          return {
+            success: false,
+            error:
+              "Could not reach Ollama. Start the Ollama app or daemon (default http://127.0.0.1:11434).",
+          };
+        }
+        return {
+          success: false,
+          error: err.message || String(e),
+        };
+      }
+    },
+  );
 }

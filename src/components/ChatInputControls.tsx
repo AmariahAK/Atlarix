@@ -19,6 +19,8 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
+import type { WorkMode } from "@/lib/schemas";
+import { labelForWorkMode } from "@/lib/work-mode";
 
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -42,18 +44,25 @@ export function ChatInputControls({
   const { result: tokenResult } = useCountTokens(chatId ?? null, "");
 
   const agentMode = settings?.agentMode ?? "guided";
-  const intentMode = settings?.intentMode ?? (settings?.selectedChatMode === "agent" ? "build" : settings?.selectedChatMode) ?? "build";
-  const effectiveMode =
+  const effectivePermission =
     settings?.selectedChatMode === "agent"
       ? "build"
       : settings?.selectedChatMode ?? "build";
+  const intentMode = (settings?.intentMode ?? effectivePermission) as
+    | "ask"
+    | "build"
+    | "auto";
+  const workMode: WorkMode =
+    settings?.workModePreference ??
+    (effectivePermission === "ask" ? "ask" : "build");
+  const workLabel = labelForWorkMode(workMode);
 
   let contextLine =
     !appId
-      ? `${effectiveMode === "ask" ? "Ask" : "Build"} · No workspace`
+      ? `${workLabel} · No workspace`
       : intentMode === "auto"
-        ? `Auto · ${effectiveMode === "ask" ? "Ask" : "Build"} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`
-        : `${effectiveMode === "ask" ? "Ask" : "Build"} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
+        ? `Auto · ${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`
+        : `${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
 
   let tokenWarning: string | null = null;
   const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;

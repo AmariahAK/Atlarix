@@ -17,17 +17,23 @@ import type {
 } from "../../lib/schemas";
 
 /**
- * When Auto is ON and user has configured a provider with at least 2 favorite models,
+ * True when Auto routing should use configured tier models (not manual selectedModel).
+ * Requires at least one non-empty model id in autoModelIds (Fast/Balanced/Thinking slots).
+ */
+export function hasAutoRoutingModelConfig(settings: UserSettings): boolean {
+  if (!settings.autoModelRouting || !settings.autoProviderId) return false;
+  const ids = settings.autoModelIds;
+  if (!Array.isArray(ids)) return false;
+  return ids.some((s) => typeof s === "string" && s.trim().length > 0);
+}
+
+/**
+ * When Auto is ON and user has configured a provider with at least one tier model,
  * returns { provider: 'auto', name: 'auto' } so getModelClient builds the Fast/Medium/Thinking chain.
  * Otherwise returns the selected model for manual mode.
  */
 export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
-  if (
-    settings.autoModelRouting &&
-    settings.autoProviderId &&
-    Array.isArray(settings.autoModelIds) &&
-    settings.autoModelIds.length >= 2
-  ) {
+  if (hasAutoRoutingModelConfig(settings)) {
     return { provider: "auto", name: "auto" };
   }
   return settings.selectedModel;
@@ -35,19 +41,18 @@ export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
 
 /**
  * Returns the model to use for token/temperature options (must resolve to a real model).
- * When Auto is ON, uses the first model in the auto chain; otherwise selectedModel.
+ * When Auto is ON, uses the first configured tier model; otherwise selectedModel.
  */
 export function getEffectiveModelForOptions(settings: UserSettings): LargeLanguageModel {
-  if (
-    settings.autoModelRouting &&
-    settings.autoProviderId &&
-    Array.isArray(settings.autoModelIds) &&
-    settings.autoModelIds.length >= 2
-  ) {
-    return {
-      provider: settings.autoProviderId,
-      name: settings.autoModelIds[0],
-    };
+  if (hasAutoRoutingModelConfig(settings)) {
+    const ids = settings.autoModelIds!;
+    const first = ids.find((s) => typeof s === "string" && s.trim().length > 0);
+    if (first) {
+      return {
+        provider: settings.autoProviderId!,
+        name: first.trim(),
+      };
+    }
   }
   return settings.selectedModel;
 }
@@ -68,14 +73,12 @@ export function getFastModelForCurrentProvider(
   settings: UserSettings,
   openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
-  if (
-    settings.autoModelRouting &&
-    settings.autoProviderId &&
-    Array.isArray(settings.autoModelIds) &&
-    settings.autoModelIds.length >= 1 &&
-    settings.autoModelIds[0]
-  ) {
-    return { provider: settings.autoProviderId, name: settings.autoModelIds[0] };
+  const tier0 =
+    Array.isArray(settings.autoModelIds) && typeof settings.autoModelIds[0] === "string"
+      ? settings.autoModelIds[0].trim()
+      : "";
+  if (settings.autoModelRouting && settings.autoProviderId && tier0) {
+    return { provider: settings.autoProviderId, name: tier0 };
   }
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
@@ -100,14 +103,12 @@ export function getBalancedModelForCurrentProvider(
   settings: UserSettings,
   openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
-  if (
-    settings.autoModelRouting &&
-    settings.autoProviderId &&
-    Array.isArray(settings.autoModelIds) &&
-    settings.autoModelIds.length >= 2 &&
-    settings.autoModelIds[1]
-  ) {
-    return { provider: settings.autoProviderId, name: settings.autoModelIds[1] };
+  const tier1 =
+    Array.isArray(settings.autoModelIds) && typeof settings.autoModelIds[1] === "string"
+      ? settings.autoModelIds[1].trim()
+      : "";
+  if (settings.autoModelRouting && settings.autoProviderId && tier1) {
+    return { provider: settings.autoProviderId, name: tier1 };
   }
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
@@ -154,12 +155,7 @@ export function getDiagramFallbackModel(
   settings: UserSettings,
   openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
-  if (
-    settings.autoModelRouting &&
-    settings.autoProviderId &&
-    Array.isArray(settings.autoModelIds) &&
-    settings.autoModelIds.length >= 2
-  ) {
+  if (hasAutoRoutingModelConfig(settings)) {
     return { provider: "auto", name: "auto" };
   }
   return getFastModelForCurrentProvider(settings, openRouterFavoriteIds);
@@ -237,7 +233,11 @@ function getAutoTierIndex(
   const role = options?.delegationRole ?? "main";
   const depth = options?.delegationDepth ?? 0;
   const autoModelIds = settings.autoModelIds;
-  const hasThinking = Array.isArray(autoModelIds) && autoModelIds.length >= 3;
+  const thinkingSlot =
+    Array.isArray(autoModelIds) && typeof autoModelIds[2] === "string"
+      ? autoModelIds[2].trim()
+      : "";
+  const hasThinking = thinkingSlot.length > 0;
 
   if (role === "main") {
     if (mode === "direct" || mode === "guided") return 1; // Balanced
@@ -353,22 +353,28 @@ export async function getModelClient(
         isEngineEnabled: false,
       };
     }
-    // v2.1: When user configured one provider + 2 or 3 models (Fast/Medium/Thinking), use that
+    // v2.1: When user configured one provider + 1–3 models (Fast/Medium/Thinking), use that
     const autoProviderId = settings.autoProviderId ?? null;
     const autoModelIds = settings.autoModelIds;
-    if (
-      autoProviderId &&
-      Array.isArray(autoModelIds) &&
-      autoModelIds.length >= 2
-    ) {
+    const slots = Array.isArray(autoModelIds)
+      ? ([0, 1, 2] as const).map((i) => {
+          const s = autoModelIds[i];
+          return typeof s === "string" && s.trim().length > 0 ? s.trim() : "";
+        })
+      : ["", "", ""];
+    const hasAnySlot = slots.some(Boolean);
+    if (autoProviderId && hasAnySlot) {
       const providerInfo = allProviders.find((p) => p.id === autoProviderId);
       if (providerInfo) {
-        const modelNames = autoModelIds.slice(0, 3); // support 2 or 3
         const firstTier = getAutoTierIndex(settings, options);
-        const orderedNames = [
-          modelNames[firstTier],
-          ...modelNames.filter((_, i) => i !== firstTier),
-        ];
+        const orderedNames: string[] = [];
+        const pushUnique = (name: string) => {
+          if (name && !orderedNames.includes(name)) orderedNames.push(name);
+        };
+        pushUnique(slots[firstTier]);
+        for (let i = 0; i < 3; i++) {
+          if (i !== firstTier) pushUnique(slots[i]);
+        }
         const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
         for (const modelName of orderedNames) {
           try {

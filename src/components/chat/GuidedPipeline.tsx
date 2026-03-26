@@ -8,13 +8,14 @@ import { useAtomValue } from "jotai";
 import { activityStreamItemsAtom, type ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { Search, Box, Hammer, Eye, Loader2, Check, X, Bot } from "lucide-react";
+import { Search, Box, Hammer, Eye, Loader2, Check, X, Bot, Bug } from "lucide-react";
 
-const AGENT_IDS = ["research", "architect", "builder", "reviewer"] as const;
+const AGENT_IDS = ["research", "architect", "builder", "debugger", "reviewer"] as const;
 const AGENT_ICONS: Record<string, React.ElementType> = {
   research: Search,
   architect: Box,
   builder: Hammer,
+  debugger: Bug,
   reviewer: Eye,
 };
 
@@ -29,10 +30,11 @@ function getAgentLabel(agentId: string): string {
 
 /** Arc layout: 4 agents on a semi-circle. Positions as % of container (left, top). */
 const ARC_POSITIONS = [
-  { id: "research", left: 12, top: 12 },
-  { id: "architect", left: 38, top: 4 },
-  { id: "builder", left: 62, top: 4 },
-  { id: "reviewer", left: 88, top: 12 },
+  { id: "research", left: 8, top: 14 },
+  { id: "architect", left: 28, top: 4 },
+  { id: "builder", left: 48, top: 4 },
+  { id: "debugger", left: 68, top: 4 },
+  { id: "reviewer", left: 88, top: 14 },
 ];
 
 export function GuidedPipeline() {

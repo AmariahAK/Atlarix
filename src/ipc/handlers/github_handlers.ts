@@ -688,8 +688,6 @@ async function handleCloneRepoFromUrl(
           "Failed to clone repository. Please check the URL and try again.",
       };
     }
-    const aiRulesPath = path.join(appPath, "AI_RULES.md");
-    const hasAiRules = fs.existsSync(aiRulesPath);
     const [newApp] = await db
       .insert(schema.apps)
       .values({
@@ -713,7 +711,6 @@ async function handleCloneRepoFromUrl(
         supabaseProjectName: null,
         vercelTeamSlug: null,
       },
-      hasAiRules,
     };
   } catch (err: any) {
     // Catch any remaining unexpected errors and return an error object
