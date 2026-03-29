@@ -18,6 +18,7 @@ import {
   rejectInvite,
   leaveTeam,
   getOwnerEmailForTeam,
+  ensureWorkforceTeamIfMissing,
 } from "../../lib/teams/team-service";
 
 export function registerTeamHandlers(): void {
@@ -27,7 +28,13 @@ export function registerTeamHandlers(): void {
     if (SubscriptionManager.getEffectiveTier() !== "workforce") {
       return { team: null, error: "Workforce tier required" };
     }
-    const team = await getMyTeam(user.id);
+    let team = await getMyTeam(user.id);
+    if (!team) {
+      team = await ensureWorkforceTeamIfMissing(user.id, user.email);
+      if (team) {
+        await SubscriptionManager.refreshPlan();
+      }
+    }
     return { team };
   });
 

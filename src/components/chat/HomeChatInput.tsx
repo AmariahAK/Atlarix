@@ -14,6 +14,13 @@ import { ChatInputControls } from "../ChatInputControls";
 import { LexicalChatInput } from "./LexicalChatInput";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
 import { useTypingPlaceholder } from "@/hooks/useTypingPlaceholder";
+import { useCompassSendGate } from "@/hooks/useCompassSendGate";
+import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
+import { CompassUsageStrip } from "./CompassUsageStrip";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
+import { useAuth } from "@/lib/auth/useAuth";
+import { SignInToChatNotice } from "./SignInToChatNotice";
+
 export function HomeChatInput({
   onSubmit,
 }: {
@@ -25,6 +32,17 @@ export function HomeChatInput({
   const { isStreaming } = useStreamChat({
     hasChatId: false,
   }); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const {
+    compassExhausted,
+    usesCompass,
+    tier,
+    percentRemaining: compassPct,
+    monthlyLimit: compassLimit,
+    tokensUsedThisMonth: compassTokensUsed,
+    loading: compassUsageLoading,
+  } = useCompassSendGate();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const mustSignIn = !authLoading && !isAuthenticated;
   useChatModeToggle();
 
   const typingText = useTypingPlaceholder([
@@ -32,7 +50,9 @@ export function HomeChatInput({
     "an information page...",
     "a landing page...",
   ]);
-  const placeholder = `Ask Atlarix to build ${typingText ?? ""}`;
+  const placeholder = mustSignIn
+    ? "Sign in to start chatting…"
+    : `Ask Atlarix to build ${typingText ?? ""}`;
 
   // Use the attachments hook
   const {
@@ -50,6 +70,18 @@ export function HomeChatInput({
   // Custom submit function that wraps the provided onSubmit
   const handleCustomSubmit = () => {
     if ((!inputValue.trim() && attachments.length === 0) || isStreaming) {
+      return;
+    }
+    if (mustSignIn) {
+      import("@/lib/toast").then(({ showError }) => {
+        showError("Please sign in to use chat.");
+      });
+      return;
+    }
+    if (compassExhausted) {
+      import("@/lib/toast").then(({ showError }) => {
+        showError("Compass monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.");
+      });
       return;
     }
 
@@ -97,6 +129,27 @@ export function HomeChatInput({
           {/* Drag and drop overlay */}
           <DragDropOverlay isDraggingOver={isDraggingOver} />
 
+          {mustSignIn ? (
+            <div className="px-2 pt-1">
+              <SignInToChatNotice />
+            </div>
+          ) : null}
+
+          {usesCompass && compassLimit != null && compassLimit > 0 ? (
+            <CompassUsageStrip
+              subscriptionTierLabel={formatCompassSubscriptionTier(tier)}
+              tokensUsedThisMonth={compassTokensUsed}
+              monthlyLimit={compassLimit}
+              percentRemaining={compassPct}
+              loading={compassUsageLoading}
+            />
+          ) : null}
+          {compassExhausted ? (
+            <div className="px-2 pt-1">
+              <CompassExhaustedBanner tier={tier} />
+            </div>
+          ) : null}
+
           <div className="flex items-start space-x-2 ">
             <LexicalChatInput
               value={inputValue}
@@ -104,9 +157,9 @@ export function HomeChatInput({
               onSubmit={handleCustomSubmit}
               onPaste={handlePaste}
               placeholder={placeholder}
-              disabled={isStreaming}
+              disabled={isStreaming || compassExhausted || mustSignIn}
               excludeCurrentApp={false}
-              disableSendButton={false}
+              disableSendButton={compassExhausted || mustSignIn}
             />
 
             {/* File attachment dropdown */}
@@ -126,7 +179,11 @@ export function HomeChatInput({
             ) : (
               <button
                 onClick={handleCustomSubmit}
-                disabled={!inputValue.trim() && attachments.length === 0}
+                disabled={
+                  (!inputValue.trim() && attachments.length === 0) ||
+                  compassExhausted ||
+                  mustSignIn
+                }
                 className="px-2 py-2 mt-1 mr-2 hover:bg-(--background-darkest) text-(--sidebar-accent-fg) rounded-lg disabled:opacity-50"
                 title="Send message"
               >

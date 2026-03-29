@@ -5,18 +5,18 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { useNavigate } from "@tanstack/react-router";
-import { providerSettingsRoute } from "@/routes/settings/providers/$provider";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
 
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useCustomLanguageModelProvider } from "@/hooks/useCustomLanguageModelProvider";
-import { GiftIcon, PlusIcon, Trash2, Edit } from "lucide-react";
+import { GiftIcon, PlusIcon, Trash2, Edit, ChevronDown, ChevronUp } from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +34,32 @@ import {
 } from "@/components/ui/tooltip";
 
 import { CreateCustomProviderDialog } from "./CreateCustomProviderDialog";
+import { cn } from "@/lib/utils";
+
+const COMPASS_ID = "compass";
+const PAGE_SIZE = 6;
+
+function shuffleArray<T>(items: T[]): T[] {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function filterProviders(
+  list: LanguageModelProvider[],
+  query: string,
+): LanguageModelProvider[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q),
+  );
+}
 
 export function ProviderSettingsGrid() {
   const navigate = useNavigate();
@@ -41,6 +67,12 @@ export function ProviderSettingsGrid() {
   const [editingProvider, setEditingProvider] =
     useState<LanguageModelProvider | null>(null);
   const [providerToDelete, setProviderToDelete] = useState<string | null>(null);
+  const [sectionExpanded, setSectionExpanded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [shuffledNonCompass, setShuffledNonCompass] = useState<
+    LanguageModelProvider[]
+  >([]);
 
   const {
     data: providers,
@@ -52,8 +84,51 @@ export function ProviderSettingsGrid() {
 
   const { deleteProvider, isDeleting } = useCustomLanguageModelProvider();
 
+  const filtered = useMemo(
+    () => filterProviders(providers ?? [], searchQuery),
+    [providers, searchQuery],
+  );
+
+  const reshuffleForDisplay = useCallback(() => {
+    const rest = filtered.filter((p) => p.id !== COMPASS_ID);
+    setShuffledNonCompass(shuffleArray(rest));
+    setPage(1);
+  }, [filtered]);
+
+  useEffect(() => {
+    if (!sectionExpanded) return;
+    reshuffleForDisplay();
+  }, [sectionExpanded, reshuffleForDisplay]);
+
+  const orderedForPaging = useMemo(() => {
+    const compass = filtered.find((p) => p.id === COMPASS_ID);
+    const q = searchQuery.trim().toLowerCase();
+    const compassVisible =
+      compass &&
+      (!q ||
+        compass.name.toLowerCase().includes(q) ||
+        compass.id.toLowerCase().includes(q));
+    if (compassVisible) {
+      return [compass, ...shuffledNonCompass.filter((p) => p.id !== COMPASS_ID)];
+    }
+    return shuffledNonCompass.length > 0
+      ? shuffledNonCompass
+      : filtered;
+  }, [filtered, searchQuery, shuffledNonCompass]);
+
+  const totalPages = Math.max(1, Math.ceil(orderedForPaging.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageSlice = orderedForPaging.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+
+  const configuredCount = useMemo(() => {
+    if (!providers) return 0;
+    return providers.filter((p) => isProviderSetup(p.id)).length;
+  }, [providers, isProviderSetup]);
+
   const handleProviderClick = (providerId: string) => {
-    console.log(`[ProviderSettings] Navigating to provider: ${providerId}`);
     navigate({
       to: `/settings/providers/${providerId}`,
     });
@@ -74,17 +149,21 @@ export function ProviderSettingsGrid() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <h2 className="text-lg font-medium mb-6">AI Providers</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Card key={i} className="border-border">
-              <CardHeader className="p-4">
-                <Skeleton className="h-6 w-3/4 mb-2" />
-                <Skeleton className="h-4 w-1/2" />
-              </CardHeader>
-            </Card>
-          ))}
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="px-4 py-3 bg-muted/40">
+          <Skeleton className="h-5 w-48" />
+        </div>
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Card key={i} className="border-border">
+                <CardHeader className="p-4">
+                  <Skeleton className="h-6 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-1/2" />
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -92,108 +171,176 @@ export function ProviderSettingsGrid() {
 
   if (error) {
     return (
-      <div className="p-6">
-        <h2 className="text-lg font-medium mb-6">AI Providers</h2>
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            Failed to load AI providers: {error.message}
-          </AlertDescription>
-        </Alert>
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="px-4 py-3 bg-muted/40">
+          <span className="text-sm font-medium">Model providers</span>
+        </div>
+        <div className="p-6">
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>
+              Failed to load AI providers: {error.message}
+            </AlertDescription>
+          </Alert>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-lg font-medium mb-6">AI Providers</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {providers?.map((provider: LanguageModelProvider) => {
-            const isCustom = provider.type === "custom";
+    <div className="rounded-lg border border-border overflow-hidden bg-slate-900/20 dark:bg-slate-950/40">
+      <button
+        type="button"
+        onClick={() => setSectionExpanded((e) => !e)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-foreground">
+            Model providers
+          </span>
+          {!sectionExpanded && (
+            <span className="text-xs text-muted-foreground truncate">
+              {configuredCount} provider{configuredCount === 1 ? "" : "s"}{" "}
+              configured
+            </span>
+          )}
+        </div>
+        {sectionExpanded ? (
+          <ChevronUp className="w-4 h-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+        )}
+      </button>
 
-            return (
-              <Card
-                key={provider.id}
-                className="relative transition-all hover:shadow-md border-border cursor-pointer"
-                onClick={() => handleProviderClick(provider.id)}
+      {sectionExpanded && (
+        <div className="border-t border-border px-4 pb-4 pt-2 space-y-4">
+          <Input
+            placeholder="Search providers…"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
+            className="max-w-md"
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pageSlice.map((provider: LanguageModelProvider) => {
+              const isCustom = provider.type === "custom";
+
+              return (
+                <Card
+                  key={provider.id}
+                  className="relative transition-all hover:shadow-md border-border cursor-pointer"
+                  onClick={() => handleProviderClick(provider.id)}
+                >
+                  <CardHeader className="p-4">
+                    {isCustom && (
+                      <div
+                        className="flex items-center justify-end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              data-testid="edit-custom-provider"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 hover:bg-muted rounded-md"
+                              onClick={() => handleEditProvider(provider)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit Provider</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              data-testid="delete-custom-provider"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-md"
+                              onClick={() => setProviderToDelete(provider.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete Provider</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    )}
+                    <CardTitle className="text-lg font-medium mb-2">
+                      {provider.name}
+                      {isProviderSetup(provider.id) ? (
+                        <span className="ml-3 text-sm font-medium text-green-500 bg-green-50 dark:bg-green-900/30 border border-green-500/50 dark:border-green-500/50 px-2 py-1 rounded-full">
+                          Ready
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 dark:text-gray-300 px-2 py-1 rounded-full">
+                          Needs Setup
+                        </span>
+                      )}
+                    </CardTitle>
+                    <CardDescription>
+                      {provider.hasFreeTier && (
+                        <span className="text-blue-600 mt-2 dark:text-blue-400 text-sm font-medium bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded-full inline-flex items-center">
+                          <GiftIcon className="w-4 h-4 mr-1" />
+                          Free tier available
+                        </span>
+                      )}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              );
+            })}
+
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsDialogOpen(true)}
+            className={cn(
+              "flex flex-col items-center justify-center min-h-[100px] w-full rounded-lg border-2 border-dashed border-muted hover:border-muted-foreground transition cursor-pointer",
+            )}
+          >
+            <PlusIcon className="h-6 w-6 mb-2 text-muted-foreground" />
+            <span className="text-sm font-medium text-muted-foreground">
+              Add custom provider
+            </span>
+            <span className="text-xs text-muted-foreground mt-1 px-2 text-center">
+              API key + model name, max 3 (Fast / Balanced / Thinking)
+            </span>
+          </button>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                <CardHeader className="p-4">
-                  {isCustom && (
-                    <div
-                      className="flex items-center justify-end"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            data-testid="edit-custom-provider"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 hover:bg-muted rounded-md"
-                            onClick={() => handleEditProvider(provider)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Edit Provider</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            data-testid="delete-custom-provider"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-md"
-                            onClick={() => setProviderToDelete(provider.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Delete Provider</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  )}
-                  <CardTitle className="text-lg font-medium mb-2">
-                    {provider.name}
-                    {isProviderSetup(provider.id) ? (
-                      <span className="ml-3 text-sm font-medium text-green-500 bg-green-50 dark:bg-green-900/30 border border-green-500/50 dark:border-green-500/50 px-2 py-1 rounded-full">
-                        Ready
-                      </span>
-                    ) : (
-                      <span className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 dark:text-gray-300 px-2 py-1 rounded-full">
-                        Needs Setup
-                      </span>
-                    )}
-                  </CardTitle>
-                  <CardDescription>
-                    {provider.hasFreeTier && (
-                      <span className="text-blue-600 mt-2 dark:text-blue-400 text-sm font-medium bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded-full inline-flex items-center">
-                        <GiftIcon className="w-4 h-4 mr-1" />
-                        Free tier available
-                      </span>
-                    )}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            );
-          })}
-
-        {/* Manual / custom provider: API key + model name(s), max 3 tiers */}
-        <button
-          type="button"
-          onClick={() => setIsDialogOpen(true)}
-          className="flex flex-col items-center justify-center h-24 rounded-lg border-2 border-dashed border-muted hover:border-muted-foreground transition cursor-pointer"
-        >
-          <PlusIcon className="h-6 w-6 mb-2 text-muted-foreground" />
-          <span className="text-sm font-medium text-muted-foreground">
-            Add custom provider
-          </span>
-          <span className="text-xs text-muted-foreground mt-1">
-            API key + model name, max 3 (Fast / Balanced / Thinking)
-          </span>
-        </button>
-      </div>
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                Page {safePage} of {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <CreateCustomProviderDialog
         isOpen={isDialogOpen}

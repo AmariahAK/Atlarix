@@ -10,6 +10,11 @@ import {
   OpenAIResponsesProviderOptions,
 } from "@ai-sdk/openai";
 import { StartHelpChatParams } from "../ipc_types";
+import {
+  requireAuthSession,
+  AuthRequiredError,
+  formatAuthRequiredIpcError,
+} from "../../lib/auth/require_auth_session";
 
 const logger = log.scope("help-bot");
 
@@ -26,6 +31,19 @@ export function registerHelpBotHandlers() {
       try {
         if (!sessionId || !message?.trim()) {
           throw new Error("Missing sessionId or message");
+        }
+
+        try {
+          await requireAuthSession();
+        } catch (e) {
+          if (e instanceof AuthRequiredError) {
+            safeSend(event.sender, "help:chat:response:error", {
+              sessionId,
+              error: formatAuthRequiredIpcError(),
+            });
+            return { ok: false as const, error: formatAuthRequiredIpcError() };
+          }
+          throw e;
         }
 
         // Clear any existing active streams (only one session at a time)

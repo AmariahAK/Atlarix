@@ -19,8 +19,8 @@ const logger = log.scope("settings");
 // Need to maintain backwards compatibility!
 const DEFAULT_SETTINGS: UserSettings = {
   selectedModel: {
-    name: "auto",
-    provider: "auto",
+    name: "compass-fast",
+    provider: "compass",
   },
   providerSettings: {},
   telemetryConsent: "unset",
@@ -150,6 +150,16 @@ export function readSettings(): UserSettings {
     // "conservative" is deprecated, use undefined to use the default value
     if (validatedSettings.proSmartContextOption === "conservative") {
       validatedSettings.proSmartContextOption = undefined;
+    }
+    // v5.1: OpenRouter removed from product UI; migrate to Compass
+    if (validatedSettings.selectedModel?.provider === "openrouter") {
+      validatedSettings.selectedModel = {
+        provider: "compass",
+        name: "compass-fast",
+      };
+    }
+    if (validatedSettings.autoProviderId === "openrouter") {
+      validatedSettings.autoProviderId = "compass";
     }
     return validatedSettings;
   } catch (error) {

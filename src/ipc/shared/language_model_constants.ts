@@ -39,7 +39,6 @@ export const TURBO_MODELS: LanguageModel[] = [
 export const FREE_OPENROUTER_MODEL_NAMES: string[] = [];
 
 export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
-  openrouter: "OPENROUTER_API_KEY",
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
@@ -61,11 +60,10 @@ export const CLOUD_PROVIDERS: Record<
     secondary?: boolean;
   }
 > = {
-  openrouter: {
-    displayName: "OpenRouter",
-    hasFreeTier: true,
-    websiteUrl: "https://openrouter.ai/settings/keys",
-    gatewayPrefix: "openrouter/",
+  compass: {
+    displayName: "Compass",
+    hasFreeTier: false,
+    gatewayPrefix: "",
   },
   openai: {
     displayName: "OpenAI",

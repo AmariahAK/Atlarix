@@ -18,6 +18,7 @@ import { registerVersionHandlers } from "./handlers/version_handlers";
 import { registerLanguageModelHandlers } from "./handlers/language_model_handlers";
 import { registerProviderApiKeyHandlers } from "./handlers/provider_api_key_handlers";
 import { registerOpenRouterFavoritesHandlers } from "./handlers/openrouter_favorites_handlers";
+import { registerCompassHandlers } from "./handlers/compass_handlers";
 import { registerReleaseNoteHandlers } from "./handlers/release_note_handlers";
 import { registerImportHandlers } from "./handlers/import_handlers";
 import { registerSessionHandlers } from "./handlers/session_handlers";
@@ -81,6 +82,7 @@ export function registerIpcHandlers() {
   registerLanguageModelHandlers();
   registerProviderApiKeyHandlers();
   registerOpenRouterFavoritesHandlers();
+  registerCompassHandlers();
   registerReleaseNoteHandlers();
   registerImportHandlers();
   registerSessionHandlers();

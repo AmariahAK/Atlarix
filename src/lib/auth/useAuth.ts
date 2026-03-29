@@ -121,7 +121,6 @@ export function useAuth() {
                 const notification = document.createElement('div');
                 notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                 notification.innerHTML = `
-                    <span class="text-xl">✨</span>
                     <div>
                         <div class="font-medium">Welcome to Atlarix Pro!</div>
                         <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
@@ -134,7 +133,6 @@ export function useAuth() {
                 const notification = document.createElement('div');
                 notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                 notification.innerHTML = `
-                    <span class="text-xl">✨</span>
                     <div>
                         <div class="font-medium">Welcome to Atlarix Workforce!</div>
                         <div class="text-sm opacity-90">Teams, extensions, and workspace context are now unlocked.</div>
@@ -322,7 +320,6 @@ export function useAuth() {
                     const notification = document.createElement('div');
                     notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                     notification.innerHTML = `
-                        <span class="text-xl">✨</span>
                         <div>
                             <div class="font-medium">Welcome to Atlarix Pro!</div>
                             <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
@@ -335,7 +332,6 @@ export function useAuth() {
                     const notification = document.createElement('div');
                     notification.className = 'fixed bottom-4 right-4 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
                     notification.innerHTML = `
-                        <span class="text-xl">✨</span>
                         <div>
                             <div class="font-medium">Welcome to Atlarix Workforce!</div>
                             <div class="text-sm opacity-90">Teams and extensions are now unlocked.</div>

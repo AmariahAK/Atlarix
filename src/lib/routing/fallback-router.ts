@@ -48,7 +48,7 @@ export function resolveTierToModel(
 
   // Ultimate fallback (should not happen if settings are valid)
   return {
-    provider: "openrouter",
-    name: "qwen/qwen3-coder:free",
+    provider: "compass",
+    name: "compass-fast",
   };
 }

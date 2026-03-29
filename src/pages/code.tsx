@@ -3,7 +3,7 @@
  * Left: file tree, Center: single-file editor, Right: Chat | Errors | Terminal (same session as main)
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearch } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, currentAppAtom } from "@/atoms/appAtoms";
@@ -67,50 +67,10 @@ export default function CodePage() {
     };
   }, [context.data, browserErrors, terminalOutputs, devServerUrl, appId, currentApp?.path]);
 
-  // #region agent log
-  const rootRef = useRef<HTMLDivElement>(null);
-  const filesColRef = useRef<HTMLDivElement>(null);
-  const editorColRef = useRef<HTMLDivElement>(null);
-  const rightColRef = useRef<HTMLDivElement>(null);
-  const measureLayout = useCallback(() => {
-    const root = rootRef.current;
-    const files = filesColRef.current;
-    const editor = editorColRef.current;
-    const right = rightColRef.current;
-    if (!root || !files || !editor || !right) return;
-    const r = root.getBoundingClientRect();
-    const f = files.getBoundingClientRect();
-    const e = editor.getBoundingClientRect();
-    const rt = right.getBoundingClientRect();
-    fetch("http://127.0.0.1:7243/ingest/6fa43549-dcc1-439f-bea5-7f67bd27cdf1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "code.tsx:layout",
-        message: "Code page column widths",
-        data: {
-          containerWidth: r.width,
-          filesColWidth: f.width,
-          editorColWidth: e.width,
-          rightColWidth: rt.width,
-          sum: f.width + e.width + rt.width,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }, []);
-  useEffect(() => {
-    measureLayout();
-    const ro = new ResizeObserver(measureLayout);
-    if (rootRef.current) ro.observe(rootRef.current);
-    return () => ro.disconnect();
-  }, [measureLayout]);
-  // #endregion
-
   return (
-    <div ref={rootRef} className="flex h-full w-full">
+    <div className="flex h-full w-full">
       {/* Left: file tree (narrow to give editor more room; aligns with app sidebar when on /code) */}
-      <div ref={filesColRef} className="w-40 flex-shrink-0 border-r border-border flex flex-col bg-muted/20">
+      <div className="w-40 flex-shrink-0 border-r border-border flex flex-col bg-muted/20">
         <div className="px-2 py-2 text-xs font-medium text-muted-foreground border-b border-border">
           Files
         </div>
@@ -124,7 +84,7 @@ export default function CodePage() {
       </div>
 
       {/* Center: editor */}
-      <div ref={editorColRef} className="flex-1 flex flex-col min-w-[8rem] bg-background">
+      <div className="flex-1 flex flex-col min-w-[8rem] bg-background">
         {selectedFilePath && appId ? (
           <FileEditor appId={appId} filePath={selectedFilePath} />
         ) : (
@@ -135,7 +95,7 @@ export default function CodePage() {
       </div>
 
       {/* Right: Chat | Errors | Terminal */}
-      <div ref={rightColRef} className="w-72 flex-shrink min-w-32 border-l border-border flex flex-col bg-[#1e1e1e]">
+      <div className="w-72 flex-shrink min-w-32 border-l border-border flex flex-col bg-[#1e1e1e]">
         <div className="flex border-b border-zinc-800">
           {(
             [

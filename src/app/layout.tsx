@@ -34,6 +34,8 @@ import {
 import { activeExtensionIdsAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { useAuth } from "@/lib/auth/useAuth";
+import { showError } from "@/lib/toast";
 import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -66,6 +68,8 @@ function PersistentChatContainer() {
   const setDiagramState = useSetAtom(diagramStateAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
   const { isDarkMode } = useTheme();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const mustSignIn = !authLoading && !isAuthenticated;
 
   // Determine if we're on the home page
   const isHomePage = location.pathname === '/';
@@ -73,6 +77,10 @@ function PersistentChatContainer() {
   // Handle continuing the chat conversation (verify workspace path before send)
   const handleContinueChat = useCallback(async (prompt: string) => {
     if (!activeChatId || !prompt.trim()) return;
+    if (mustSignIn) {
+      showError("Please sign in to use chat.");
+      return;
+    }
     try {
       const chat = await IpcClient.getInstance().getChat(activeChatId);
       if (chat.appId != null) {
@@ -92,7 +100,7 @@ function PersistentChatContainer() {
       console.error("Continue chat check failed:", e);
       streamMessage({ prompt, chatId: activeChatId, attachments: [] });
     }
-  }, [activeChatId, streamMessage]);
+  }, [activeChatId, streamMessage, mustSignIn]);
 
   // Handle new chat - reset to home state
   const handleNewChat = useCallback(() => {
@@ -309,7 +317,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [setDiagramStaleness]);
 
-  const showOnboardingHighlight = onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 5;
+  const showOnboardingHighlight =
+    onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 3;
 
   return (
     <>
@@ -322,10 +331,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <OnboardingProgressBar />
           {showOnboardingHighlight && (
             <style>{`
-              [data-onboarding-step="2"] [data-onboarding="workspace-selector"],
-              [data-onboarding-step="3"] [data-onboarding="blueprint-tab"],
-              [data-onboarding-step="4"] [data-onboarding="settings-link"],
-              [data-onboarding-step="5"] [data-onboarding="general-settings"] {
+              [data-onboarding-step="2"] [data-onboarding="home-chat-input"],
+              [data-onboarding-step="3"] [data-onboarding="settings-link"] {
                 outline: 2px solid hsl(var(--primary));
                 outline-offset: 2px;
                 border-radius: 0.5rem;

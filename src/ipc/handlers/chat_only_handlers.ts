@@ -24,8 +24,21 @@ import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
 import log from "electron-log";
+import * as Sentry from "@sentry/electron/main";
 import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
-import { AI_STREAM_EMPTY_RESPONSE_FALLBACK } from "@/shared/texts";
+import {
+    AI_STREAM_EMPTY_RESPONSE_FALLBACK,
+    AI_STREAMING_ERROR_MESSAGE_PREFIX,
+} from "@/shared/texts";
+import {
+  getCompassUsageFromSupabase,
+  recordCompassUsageTokens,
+  totalTokensFromAiUsage,
+} from "../../lib/auth/compass_usage";
+import {
+    compassExhaustedUserMessage,
+    COMPASS_REACHABILITY_ERROR,
+} from "../shared/compass_constants";
 import { ToolRegistry } from "../../lib/tools";
 import { getSessionMemory } from "../../lib/session-memory";
 
@@ -170,6 +183,9 @@ export async function handleChatOnlyStream(
 ): Promise<string> {
     logger.log("Starting ephemeral chat-only stream for chat:", req.chatId);
 
+    let usedCompassThisStream = false;
+    let compassTierForEnd: string | undefined;
+    let compassTokensForEnd: number | undefined;
     try {
         const settings = await readSettings();
 
@@ -224,6 +240,33 @@ export async function handleChatOnlyStream(
             effectiveModel,
             settings
         );
+        usedCompassThisStream = modelClient.builtinProviderId === "compass";
+
+        if (modelClient.builtinProviderId === "compass") {
+            const usagePre = await getCompassUsageFromSupabase();
+            if (usagePre.ok && usagePre.tier) {
+                compassTierForEnd = usagePre.tier;
+            }
+            if (
+                usagePre.ok &&
+                usagePre.monthlyLimit > 0 &&
+                usagePre.tokensUsedThisMonth >= usagePre.monthlyLimit
+            ) {
+                safeSend(event.sender, "chat:response:error", {
+                    chatId: req.chatId,
+                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(usagePre.tier)}`,
+                });
+                safeSend(event.sender, "chat:response:end", {
+                    chatId: req.chatId,
+                    updatedFiles: false,
+                    hadToolCallsOrPermissions: false,
+                    usedCompass: true,
+                    compassTier: compassTierForEnd,
+                } satisfies ChatResponseEnd);
+                activeStreams.delete(req.chatId);
+                return "";
+            }
+        }
 
         // No workspace = read-only only (no write/run/delegation) + global MCP tools when provided
         const availableTools = ToolRegistry.getToolsForNoWorkspace();
@@ -314,6 +357,52 @@ export async function handleChatOnlyStream(
             abortSignal: abortController.signal,
             stopWhen: [stepCountIs(10)],
             maxRetries: 2,
+            onFinish: (response) => {
+                const totalTokens = totalTokensFromAiUsage(response.usage);
+                if (
+                    modelClient.builtinProviderId === "compass" &&
+                    typeof totalTokens === "number"
+                ) {
+                    compassTokensForEnd = totalTokens;
+                    void recordCompassUsageTokens(totalTokens).then((r) => {
+                        if (!r.ok && r.error === "limit_exceeded") {
+                            logger.warn(
+                                "[compass chat-only] Monthly limit hit while recording usage",
+                            );
+                        }
+                    });
+                }
+            },
+            onError: (err: unknown) => {
+                const errorMessage = (err as { error?: { message?: string } })?.error
+                    ?.message;
+                let message = errorMessage || JSON.stringify(err);
+                if (modelClient.builtinProviderId === "compass") {
+                    message = COMPASS_REACHABILITY_ERROR;
+                    Sentry.captureException(
+                        new Error(String(errorMessage || message).slice(0, 500)),
+                        {
+                            tags: { feature: "compass", source: "chat_only_stream" },
+                            extra: { chatId: req.chatId },
+                        },
+                    );
+                }
+                safeSend(event.sender, "chat:response:error", {
+                    chatId: req.chatId,
+                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
+                });
+                activeStreams.delete(req.chatId);
+            },
+        });
+
+        void result.usage.catch((usageErr: unknown) => {
+            if (
+                NoOutputGeneratedError.isInstance(usageErr) ||
+                NoContentGeneratedError.isInstance(usageErr)
+            ) {
+                return;
+            }
+            logger.warn("[chat-only] stream usage rejected:", usageErr);
         });
 
         // Process stream
@@ -481,6 +570,9 @@ export async function handleChatOnlyStream(
             chatId: req.chatId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
+            usedCompass: usedCompassThisStream,
+            compassTier: compassTierForEnd,
+            compassTokens: compassTokensForEnd,
             messages: [...chat.messages],
         } as ChatResponseEnd;
         safeSend(event.sender, "chat:response:end", endResponse);
@@ -498,15 +590,21 @@ export async function handleChatOnlyStream(
             NoContentGeneratedError.isInstance(error);
         const message = noOutput
             ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
-            : `Sorry, there was an error: ${error instanceof Error ? error.message : String(error)}`;
+            : usedCompassThisStream
+              ? COMPASS_REACHABILITY_ERROR
+              : `Sorry, there was an error: ${error instanceof Error ? error.message : String(error)}`;
         safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
-            error: message,
+            error: noOutput
+                ? message
+                : `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
         });
         safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
+            usedCompass: usedCompassThisStream,
+            compassTier: compassTierForEnd,
         } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
         throw error;

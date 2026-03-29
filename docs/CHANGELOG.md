@@ -1,3 +1,12 @@
+## v5.1.0 – Compass, usage limits, onboarding (2026-03-29)
+
+- **Compass:** Managed cloud provider (OpenRouter-backed, single build-time key). Default model **Compass Fast**; Pro/Workforce unlock Balanced and Thinking. OpenRouter removed from user-facing settings and model labels.
+- **Supabase:** `compass_tokens` + `get_compass_usage_state` / `record_compass_usage` for monthly token accounting (30-day reset). See `docs/compass-limits.md`.
+- **Settings:** Collapsible model-provider grid with search and pagination (Compass pinned on page 1); Compass card shows tier copy and usage bar.
+- **Chat:** Usage strip + exhausted state with upgrade / Settings CTAs; milestone toasts at ~50% / 25% / 10% remaining; usage refetches after Compass turns.
+- **Onboarding:** Three post-login product steps (Compass → BYOK in Settings); diagram/workspace funnel steps removed from the default tour.
+- **CI:** `COMPASS_*` secrets in `release.yml` and `vite.main.config.mts` `MAIN_KEYS` (main process only).
+
 ## v5.0.0 – Blueprint context & memory (2026-03-26)
 
 - **Tiered Blueprint prompt injection (Sections 1, 3, 4):** Blueprint context is now routed through `blueprintPromptTiers.ts` with explicit Ask / Plan / Build / Debug tiers. Settings and the chat Config dropdown can force a tier per session, and Auto mode falls back to heuristics based on work mode and prompt.

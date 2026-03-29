@@ -81,6 +81,12 @@ import { ToolIndicator } from "./ToolIndicator";
 import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
 import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEditingChangesDialog";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
+import { useCompassSendGate } from "@/hooks/useCompassSendGate";
+import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
+import { CompassUsageStrip } from "./CompassUsageStrip";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
+import { useAuth } from "@/lib/auth/useAuth";
+import { SignInToChatNotice } from "./SignInToChatNotice";
 
 const showTokenBarAtom = atom(false);
 
@@ -110,6 +116,17 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const [modelOverrideForNextMessage, setModelOverrideForNextMessage] = useState<
     { provider: string; name: string } | null
   >(null);
+  const {
+    compassExhausted,
+    usesCompass,
+    tier: compassTier,
+    percentRemaining: compassPct,
+    monthlyLimit: compassLimit,
+    tokensUsedThisMonth: compassTokensUsed,
+    loading: compassUsageLoading,
+  } = useCompassSendGate(modelOverrideForNextMessage);
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const mustSignIn = !authLoading && !isAuthenticated;
   const [selectedComponents, setSelectedComponents] = useAtom(
     selectedComponentsPreviewAtom,
   );
@@ -148,11 +165,13 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
   const lastMessage = (chatId ? (messagesById.get(chatId) ?? []) : []).at(-1);
   const disableSendButton =
-    lastMessage?.role === "assistant" &&
-    !lastMessage.approvalState &&
-    !!proposal &&
-    proposal.type === "code-proposal" &&
-    messageId === lastMessage.id;
+    (lastMessage?.role === "assistant" &&
+      !lastMessage.approvalState &&
+      !!proposal &&
+      proposal.type === "code-proposal" &&
+      messageId === lastMessage.id) ||
+    compassExhausted ||
+    mustSignIn;
 
   const { userBudget } = useUserBudgetInfo();
 
@@ -195,6 +214,18 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       isStreaming ||
       !chatId
     ) {
+      return;
+    }
+    if (mustSignIn) {
+      const { showError } = await import("@/lib/toast");
+      showError("Please sign in to use chat.");
+      return;
+    }
+    if (compassExhausted) {
+      const { showError } = await import("@/lib/toast");
+      showError(
+        "Compass monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.",
+      );
       return;
     }
 
@@ -422,15 +453,39 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
           {currentChatId != null && <UserQuestionBar chatId={currentChatId} />}
 
+          {mustSignIn ? (
+            <div className="px-2 pt-1">
+              <SignInToChatNotice />
+            </div>
+          ) : null}
+
+          {usesCompass && compassLimit != null && compassLimit > 0 ? (
+            <CompassUsageStrip
+              subscriptionTierLabel={formatCompassSubscriptionTier(compassTier)}
+              tokensUsedThisMonth={compassTokensUsed}
+              monthlyLimit={compassLimit}
+              percentRemaining={compassPct}
+              loading={compassUsageLoading}
+            />
+          ) : null}
+          {compassExhausted ? (
+            <div className="px-2 pt-1">
+              <CompassExhaustedBanner tier={compassTier} />
+            </div>
+          ) : null}
+
           <div className="flex items-start space-x-2 ">
             <LexicalChatInput
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}
               onPaste={handlePaste}
-              placeholder="Ask Atlarix to build..."
+              placeholder={
+                mustSignIn ? "Sign in to start chatting…" : "Ask Atlarix to build..."
+              }
               excludeCurrentApp={true}
               disableSendButton={disableSendButton}
+              disabled={isStreaming || compassExhausted || mustSignIn}
             />
 
             {isStreaming ? (

@@ -465,8 +465,13 @@ export function AccountSettings() {
                 )}
               </>
             ) : (
-              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                You are not in a team yet. Accept an invite from a team owner or upgrade to Workforce to create your own team.
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground space-y-3">
+                <p>
+                  No team loaded yet. If you just subscribed, open this page again — a team is created automatically for Workforce subscribers.
+                </p>
+                <p>
+                  Otherwise, accept an invite from a team owner, or use <strong>Invite</strong> above once your team appears.
+                </p>
               </div>
             )}
           </CardContent>

@@ -377,6 +377,43 @@ const PLAN_ROW_SELECT_BASE =
     'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
 const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
 
+const TIER_RANK: Record<UserPlanDb, number> = { free: 0, pro: 1, workforce: 2 };
+
+function maxUserPlan(a: UserPlanDb, b: UserPlanDb): UserPlanDb {
+    return TIER_RANK[a] >= TIER_RANK[b] ? a : b;
+}
+
+/**
+ * If the user is an active member of someone else's team, inherit the team owner's entitled tier
+ * (e.g. Workforce subscriber's members get workforce) even when users.effective_tier was not updated.
+ */
+async function tierFromActiveTeamMembership(
+    supabase: ReturnType<typeof getSupabaseClient>,
+    userId: string,
+): Promise<UserPlanDb | null> {
+    const { data: memberRow, error: mErr } = await supabase
+        .from("team_members")
+        .select("team_id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .maybeSingle();
+    if (mErr || !memberRow?.team_id) return null;
+
+    const { data: team, error: tErr } = await supabase
+        .from("teams")
+        .select("owner_user_id, active")
+        .eq("id", memberRow.team_id)
+        .maybeSingle();
+    if (tErr || !team?.active || !team.owner_user_id) return null;
+    if (team.owner_user_id === userId) return null;
+
+    const { data: ownerData, error: oErr } = await fetchPlanRowForUser(supabase, team.owner_user_id);
+    if (oErr || !ownerData) return null;
+    const ownerTier = computeEntitledPlan(ownerData);
+    if (ownerTier === "free") return null;
+    return ownerTier;
+}
+
 async function fetchPlanRowForUser(
     supabase: ReturnType<typeof getSupabaseClient>,
     userId: string,
@@ -424,15 +461,24 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
 }
 
 /**
- * v4.0: Get effective tier (max of own plan or team plan)
+ * v4.0: Get effective tier (max of own plan, users row, or active team owner's plan).
  */
 export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
     try {
         const supabase = getSupabaseClient();
         const { data, error } = await fetchPlanRowForUser(supabase, userId);
 
-        if (error || !data) return ownPlan || 'free';
-        return computeEntitledPlan(data);
+        if (error || !data) {
+            const fallback = ownPlan || 'free';
+            const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
+            return fromTeam ? maxUserPlan(fallback, fromTeam) : fallback;
+        }
+        let tier = computeEntitledPlan(data);
+        const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
+        if (fromTeam) {
+            tier = maxUserPlan(tier, fromTeam);
+        }
+        return tier;
     } catch (err) {
         logger.warn('[Supabase] getEffectiveTier exception:', err);
         return ownPlan || 'free';

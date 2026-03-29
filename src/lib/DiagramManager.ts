@@ -20,7 +20,6 @@ import {
     getDiagramFallbackModel,
     isDiagramModelNotFoundError,
 } from "@/ipc/utils/get_model_client";
-import { getFavoriteOpenRouterModels } from "@/db/openrouter_favorites";
 import { extractCodebase } from "@/utils/codebase";
 import { readSettings } from "@/main/settings";
 import { generateFingerprint } from "./analysis/fingerprint";
@@ -188,7 +187,6 @@ export class DiagramManager {
         }
 
         const settings = readSettings();
-        const openRouterFavorites = await getFavoriteOpenRouterModels();
 
         // Extract codebase context
         const chatContext: AppChatContext = {
@@ -204,7 +202,7 @@ export class DiagramManager {
         });
 
         // Prepare AI client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
-        let modelConfig = getDiagramModelConfig(settings, openRouterFavorites);
+        let modelConfig = getDiagramModelConfig(settings);
         let modelClientResult = await getModelClient(modelConfig, settings);
 
         // Build system prompt with optional focus from AI
@@ -242,9 +240,9 @@ Requirements:
                 messages: [{ role: 'user', content: userPrompt }],
             });
         } catch (genError) {
-            const modelNotFoundMessage = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose a model from Settings → OpenRouter → Favorite Models, then try again.";
+            const modelNotFoundMessage = "That model is not available on this provider (e.g. it may have been removed or renamed). Choose a different model in Settings → AI, then try again.";
             if (isDiagramModelNotFoundError(genError)) {
-                const fallback = getDiagramFallbackModel(settings, openRouterFavorites);
+                const fallback = getDiagramFallbackModel(settings);
                 if (fallback) {
                     try {
                         logger.warn(`[_generateDiagram] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);

@@ -54,9 +54,9 @@ export default function SettingsPage() {
     posthog.capture("settings_opened", { section: "general" });
   }, [setActiveSettingsSection]);
 
-  // Onboarding step 5: scroll to AI section when we land on settings
+  // Onboarding step 3: scroll to AI section when we land on settings
   useEffect(() => {
-    if (onboardingStep !== 5) return;
+    if (onboardingStep !== 3) return;
     const el = document.getElementById("ai");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [onboardingStep]);
@@ -99,18 +99,27 @@ export default function SettingsPage() {
         <div className="space-y-6">
           <GeneralSettings appVersion={appVersion} />
           <WorkflowSettings />
-          {onboardingStep === 5 && (
+          {onboardingStep === 3 && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
-              <p>Add your API key to start chatting. Atlarix works with OpenAI, Anthropic, Gemini, Ollama and more.</p>
+              <p>
+                Compass is already on. To use other cloud or local models, add your own API keys under{" "}
+                <strong>AI Settings</strong> below.
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   onClick={async () => {
-                    setOnboardingStep(6);
+                    try {
+                      const ipc = window.electron?.ipcRenderer;
+                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
+                    } catch {
+                      // ignore
+                    }
+                    setOnboardingStep(null);
                     navigate({ to: "/" });
                   }}
                 >
-                  Done, start building
+                  Done
                 </Button>
                 <Button
                   size="sm"
@@ -544,8 +553,8 @@ export function AISettings() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          Configure API keys for OpenRouter and other model providers. Models
-          are fetched from models.dev (refreshed hourly).
+          Compass is built in (no API key). Add keys for other providers as needed.
+          Models are fetched from models.dev (refreshed hourly).
         </p>
         <ProviderSettingsGrid />
       </div>

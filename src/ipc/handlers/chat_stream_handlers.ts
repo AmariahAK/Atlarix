@@ -44,6 +44,15 @@ import {
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
 import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
+import {
+  getCompassUsageFromSupabase,
+  recordCompassUsageTokens,
+  totalTokensFromAiUsage,
+} from "../../lib/auth/compass_usage";
+import {
+  COMPASS_REACHABILITY_ERROR,
+  compassExhaustedUserMessage,
+} from "../shared/compass_constants";
 import log from "electron-log";
 import {
   getSupabaseContext,
@@ -115,6 +124,12 @@ import {
 } from "@/lib/agents/agent-handoff-schemas";
 import { validateStructuredOutputWithSingleRetry } from "@/lib/agents/structured-output-validation";
 import { handleChatOnlyStream, type McpToolSet } from "./chat_only_handlers";
+import {
+  requireAuthSession,
+  formatAuthRequiredIpcError,
+  AuthRequiredError,
+} from "../../lib/auth/require_auth_session";
+import * as Sentry from "@sentry/electron/main";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
 import { PermissionInterceptor } from "./permissions/interceptor";
@@ -540,6 +555,25 @@ export function registerChatStreamHandlers() {
 
     const runStream = async () => {
       try {
+        try {
+          await requireAuthSession();
+        } catch (e) {
+          if (e instanceof AuthRequiredError) {
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: formatAuthRequiredIpcError(),
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            activeStreams.delete(req.chatId);
+            return;
+          }
+          throw e;
+        }
+
         const fileUploadsState = FileUploadsState.getInstance();
         let dyadRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
@@ -1008,6 +1042,30 @@ ${componentSnippet}
         }
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
+        const usedCompassThisStream = modelClient.builtinProviderId === "compass";
+        let compassStreamTier: string | undefined;
+        let compassStreamTokens: number | undefined;
+
+        if (modelClient.builtinProviderId === "compass") {
+          const usagePre = await getCompassUsageFromSupabase();
+          if (usagePre.ok) {
+            if (usagePre.tier) {
+              compassStreamTier = usagePre.tier;
+            }
+          }
+          if (
+            usagePre.ok &&
+            usagePre.monthlyLimit > 0 &&
+            usagePre.tokensUsedThisMonth >= usagePre.monthlyLimit
+          ) {
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(usagePre.tier)}`,
+            });
+            activeStreams.delete(req.chatId);
+            return;
+          }
+        }
 
         // Resolve effective workspace: sidebar selection (req.appId) overrides when present and different from chat's app
         let effectiveApp = updatedChat.app;
@@ -1876,12 +1934,21 @@ This conversation includes one or more image attachments. When the user uploads 
               tools,
               messages: chatMessages.filter((m) => m.content),
               onFinish: (response) => {
-                const totalTokens = response.usage?.totalTokens;
+                const totalTokens = totalTokensFromAiUsage(response.usage);
 
                 if (typeof totalTokens === "number") {
                   // We use the highest total tokens used (we are *not* accumulating)
                   // since we're trying to figure it out if we're near the context limit.
                   maxTokensUsed = Math.max(maxTokensUsed ?? 0, totalTokens);
+
+                  if (modelClient.builtinProviderId === "compass") {
+                    compassStreamTokens = totalTokens;
+                    void recordCompassUsageTokens(totalTokens).then((r) => {
+                      if (!r.ok && r.error === "limit_exceeded") {
+                        logger.warn("[compass] Monthly limit hit while recording usage");
+                      }
+                    });
+                  }
 
                   // Persist the aggregated token usage on the placeholder assistant message
                   // Only for non-ephemeral chats
@@ -1922,7 +1989,9 @@ This conversation includes one or more image attachments. When the user uploads 
                   errorMessage += "\n\nDetails: " + responseBody;
                 }
                 let message = errorMessage || JSON.stringify(error);
-                if (isDiagramModelNotFoundError(error)) {
+                if (modelClient.builtinProviderId === "compass") {
+                  message = COMPASS_REACHABILITY_ERROR;
+                } else if (isDiagramModelNotFoundError(error)) {
                   message = modelNotFoundUserMessage;
                 }
                 const requestIdPrefix = isEngineEnabled
@@ -1932,6 +2001,15 @@ This conversation includes one or more image attachments. When the user uploads 
                   `AI stream text error for request: ${requestIdPrefix} errorMessage=${errorMessage} error=`,
                   error,
                 );
+                if (modelClient.builtinProviderId === "compass") {
+                  Sentry.captureException(
+                    new Error(`${requestIdPrefix}${message}`.slice(0, 500)),
+                    {
+                      tags: { feature: "compass", source: "main_stream" },
+                      extra: { chatId: req.chatId },
+                    },
+                  );
+                }
                 event.sender.send("chat:response:error", {
                   chatId: req.chatId,
                   error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${requestIdPrefix}${message}`,
@@ -3596,6 +3674,9 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
               extraFiles: status.extraFiles,
               extraFilesError: status.extraFilesError,
               hadToolCallsOrPermissions: status.updatedFiles ?? (status.extraFiles?.length ? true : false),
+              usedCompass: usedCompassThisStream,
+              compassTier: compassStreamTier,
+              compassTokens: compassStreamTokens,
             } satisfies ChatResponseEnd);
           } else {
             // v2.1: Self-review activity in non-status path (ask/simple)
@@ -3652,6 +3733,9 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
               chatId: req.chatId,
               updatedFiles: false,
               hadToolCallsOrPermissions,
+              usedCompass: usedCompassThisStream,
+              compassTier: compassStreamTier,
+              compassTokens: compassStreamTokens,
             } satisfies ChatResponseEnd);
           }
         }

@@ -29,6 +29,7 @@ import type { FileAttachment } from '@/ipc/ipc_types';
 import { NEON_TEMPLATE_IDS } from '@/shared/templates';
 import { neonTemplateHook } from '@/client_logic/template_hook';
 import { HomeChatInput } from '@/components/chat/HomeChatInput';
+import { useAuth } from '@/lib/auth/useAuth';
 import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 import { RightPanel } from '@/components/RightPanel';
 import { rightPanelVisibleAtom, rightPanelSuppressAutoOpenAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
@@ -100,23 +101,8 @@ export default function AtlarixHome() {
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const onboardingStep = useAtomValue(onboardingStepAtom);
     const setOnboardingStep = useSetAtom(onboardingStepAtom);
-
-    // Onboarding step 6: show toast, mark completed, clear step
-    useEffect(() => {
-      if (onboardingStep !== 6) return;
-      const run = async () => {
-        try {
-          const ipc = window.electron?.ipcRenderer;
-          if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
-        } catch {
-          // ignore
-        }
-        setOnboardingStep(null);
-        const { toast } = await import("sonner");
-        toast.success("You're set up. Ask Atlarix anything.", { duration: 5000 });
-      };
-      run();
-    }, [onboardingStep, setOnboardingStep]);
+    const { isAuthenticated, loading: authLoading } = useAuth();
+    const mustSignIn = !authLoading && !isAuthenticated;
 
     // Clear sources when starting a new chat
     const handleNewChat = useCallback(() => {
@@ -254,6 +240,10 @@ export default function AtlarixHome() {
         const attachments = options?.attachments || [];
 
         if (!inputValue.trim() && attachments.length === 0) return;
+        if (mustSignIn) {
+            showError('Please sign in to use chat.');
+            return;
+        }
 
         try {
             let chatId: number;
@@ -305,6 +295,10 @@ export default function AtlarixHome() {
     // Handler for continuing chat conversation
     const handleContinueChat = async (prompt: string) => {
         if (!activeChatId || !prompt.trim()) return;
+        if (mustSignIn) {
+            showError('Please sign in to use chat.');
+            return;
+        }
         try {
             const chat = await IpcClient.getInstance().getChat(activeChatId);
             if (chat.appId != null) {
@@ -377,27 +371,14 @@ export default function AtlarixHome() {
             />
 
             <div className="w-full max-w-4xl px-8 pt-12 space-y-8">{/* Content centered within main area */}
-                {/* Onboarding step 2: workspace setup banner */}
                 {onboardingStep === 2 && (
-                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex items-center justify-between gap-4">
-                        <span>Let&apos;s set up your first workspace — point Atlarix to a project folder. Use the <strong>+</strong> button in the sidebar to add a workspace.</span>
-                        <button type="button" className="text-muted-foreground hover:text-foreground text-xs shrink-0" onClick={() => { setOnboardingStep(3); navigate({ to: '/diagram' }); }}>Skip</button>
-                    </div>
-                )}
-                {/* Onboarding step 4: Ask vs Build */}
-                {onboardingStep === 4 && (
-                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
-                        <p>Ask mode is read-only. Build mode lets the AI write and run code. Start in Ask mode to explore safely.</p>
-                        <div className="flex justify-end items-center gap-2">
-                            <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => { setOnboardingStep(5); navigate({ to: '/settings' }); }}>Skip</button>
-                            <Button
-                                size="sm"
-                                onClick={() => {
-                                    setOnboardingStep(5);
-                                    navigate({ to: '/settings' });
-                                }}
-                            >
-                                Next
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <span>
+                            <strong>Compass</strong> is ready — no API key needed. Start a chat below, then add your own keys in Settings if you want other models.
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Button size="sm" variant="outline" onClick={() => { setOnboardingStep(3); navigate({ to: '/settings' }); }}>
+                                Next: Settings
                             </Button>
                         </div>
                     </div>
@@ -486,8 +467,9 @@ export default function AtlarixHome() {
                         )}
                     </div>
 
-                    {/* HomeChatInput - with model validation, attachments, paperclip */}
-                    <HomeChatInput onSubmit={handleSubmit} />
+                    <div data-onboarding="home-chat-input">
+                      <HomeChatInput onSubmit={handleSubmit} />
+                    </div>
 
                     {/* Quick Action Templates with Preview Images */}
                     <div className="flex flex-col gap-4">

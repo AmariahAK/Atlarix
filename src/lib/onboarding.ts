@@ -1,5 +1,5 @@
 /**
- * Onboarding state — first-time guide (Code to Canvas, Blueprint, work modes, AI settings).
+ * Onboarding state — first-time guide (v5.1: sign in → Compass → BYOK in Settings).
  * Stored in localStorage so "Restart guide" in Settings can reset it.
  */
 
@@ -35,31 +35,25 @@ export const ONBOARDING_STEPS = [
   {
     id: "welcome",
     title: "Welcome to Atlarix",
-    body: "Code to Canvas, Canvas to Code. Design your architecture visually and generate code, or start from code and see it on the canvas.",
+    body: "Your private sovereign AI IDE — Blueprint memory, work modes, and Compass built in.",
     target: null as string | null,
   },
   {
-    id: "blueprint",
-    title: "Blueprint tab",
-    body: "Use the Diagram view to inspect architecture and Blueprint context. v5.0 discovery flow is: high-level map, explore folders, then targeted blueprint slices.",
-    target: "[data-onboarding=blueprint-tab]",
+    id: "compass-chat",
+    title: "Start with Compass",
+    body: "Compass works immediately — no API key. Type in the chat to get started.",
+    target: "[data-onboarding=home-chat-input]",
   },
   {
-    id: "ask-build",
-    title: "Work modes",
-    body: "Use Ask, Plan, Build, Debug, or Review (or Auto). Ask is read-only; Plan writes `.atlarix/ATLARIX_PLAN.md`; Build executes approved file/command changes.",
-    target: "[data-onboarding=ask-build-toggle]",
-  },
-  {
-    id: "ai-settings",
-    title: "Add your API key",
-    body: "Go to Settings → AI Settings to add your model provider API key so the AI can respond. You can use OpenRouter, OpenAI, or others.",
+    id: "byok",
+    title: "Bring your own models",
+    body: "Open Settings to add API keys for OpenAI, Anthropic, Gemini, Ollama, and more whenever you want.",
     target: "[data-onboarding=settings-link]",
   },
   {
     id: "done",
-    title: "You're all set",
-    body: "Start building. Ask for a plan to get a collapsible Plan card and a saved `.atlarix/ATLARIX_PLAN.md`, then switch to Build to execute tasks.",
+    title: "You're set",
+    body: "Explore workspaces, Blueprint, and work modes (Ask, Plan, Build, Debug, Review) when you're ready.",
     target: null,
   },
 ] as const;

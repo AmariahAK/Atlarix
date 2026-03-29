@@ -64,7 +64,7 @@ const providers = [
   "google",
   "vertex",
   "auto",
-  "openrouter",
+  "compass",
   "ollama",
   "lmstudio",
   "azure",

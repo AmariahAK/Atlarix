@@ -20,8 +20,6 @@ import { useEffect, useState } from "react";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
-import { useFavoriteOpenRouterModels } from "@/hooks/useFavoriteOpenRouterModels";
-
 import { LocalModel } from "@/ipc/ipc_types";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
@@ -30,12 +28,17 @@ import { TURBO_MODELS } from "@/ipc/shared/language_model_constants";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
-import { OpenRouterModelsModal } from "@/components/OpenRouterModelsModal";
+import { useAuth } from "@/lib/auth/useAuth";
+import {
+  COMPASS_TIER_BALANCED,
+  COMPASS_TIER_FAST,
+  COMPASS_TIER_THINKING,
+} from "@/ipc/shared/compass_constants";
 
 export function ModelPicker() {
   const { settings, updateSettings } = useSettings();
+  const { status } = useAuth();
   const queryClient = useQueryClient();
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const onModelSelect = (model: LargeLanguageModel) => {
     updateSettings({ selectedModel: model });
     // Invalidate token count when model changes since different models have different context windows
@@ -72,9 +75,6 @@ export function ModelPicker() {
     loadModels: loadLMStudioModels,
   } = useLocalLMSModels();
 
-  // Favorite OpenRouter models
-  const { data: favoriteModelIds = [] } = useFavoriteOpenRouterModels();
-
   // Local provider favorites (Ollama, LM Studio)
   const ollamaFavorites =
     (settings?.providerSettings?.ollama as { favoriteModelIds?: string[] })
@@ -98,6 +98,12 @@ export function ModelPicker() {
   const getModelDisplayName = () => {
     if (selectedModel.provider === "auto") {
       return "Auto";
+    }
+    if (selectedModel.provider === "compass") {
+      const cm = modelsByProviders?.compass?.find(
+        (m) => m.apiName === selectedModel.name,
+      );
+      return cm?.displayName ?? selectedModel.name;
     }
     if (selectedModel.provider === "ollama") {
       return (
@@ -176,8 +182,7 @@ export function ModelPicker() {
       )
       : [];
   const primaryProviders = providerEntries.filter(([providerId, models]) => {
-    // Always show OpenRouter even if 0 models (user needs to add API key)
-    if (providerId === "openrouter") return true;
+    if (providerId === "compass") return true;
     if (models.length === 0) return false;
     const provider = providers?.find((p) => p.id === providerId);
     return !(provider && provider.secondary);
@@ -331,107 +336,62 @@ export function ModelPicker() {
 
               {/* Primary providers (paginated) */}
               {primaryProvidersPaginated.map(([providerId, models]) => {
-                // Special handling for OpenRouter
-                if (providerId === "openrouter") {
-                  // Get favorite models
-                  const favoriteModels = models.filter((m) =>
-                    favoriteModelIds.includes(m.apiName)
-                  );
-
-                  // If user has favorites, show them inline like Ollama/LMStudio
-                  if (favoriteModels.length > 0) {
+                if (providerId === "compass") {
+                  const plan = status?.plan ?? "free";
+                  const compassModels = models.filter((m) => {
+                    if (plan === "free") return m.apiName === COMPASS_TIER_FAST;
                     return (
-                      <DropdownMenuSub key="openrouter">
-                        <DropdownMenuSubTrigger className="w-full font-normal">
-                          <div className="flex flex-col items-start w-full">
-                            <div className="flex items-center gap-2">
-                              <span>OpenRouter</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {favoriteModels.length} favorites
-                            </span>
-                          </div>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56 max-h-[min(60vh,360px)] overflow-y-auto">
-                          <DropdownMenuLabel>Favorite Models</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-
-                          {favoriteModels.map((model, idx) => {
-                            const tierLabels = ["Fast", "Balanced", "Deep"];
-                            const tierLabel = idx < 3 ? tierLabels[idx] : null;
-                            return (
-                              <Tooltip key={`openrouter-fav-${model.apiName}`}>
-                                <TooltipTrigger asChild>
-                                  <DropdownMenuItem
-                                    className={
-                                      selectedModel.provider === "openrouter" &&
-                                        selectedModel.name === model.apiName
-                                        ? "bg-secondary"
-                                        : ""
-                                    }
-                                    onClick={() => {
-                                      onModelSelect({
-                                        name: model.apiName,
-                                        provider: "openrouter",
-                                      });
-                                      setOpen(false);
-                                    }}
-                                  >
-                                    <div className="flex justify-between items-start w-full">
-                                      <span className="flex flex-col items-start gap-0.5">
-                                        <span>{model.displayName}</span>
-                                        {tierLabel && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            {tierLabel}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <div className="flex items-center gap-1.5">
-                                        <PriceBadge dollarSigns={model.dollarSigns} />
-                                      </div>
-                                    </div>
-                                  </DropdownMenuItem>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  {model.description}
-                                </TooltipContent>
-                              </Tooltip>
-                            );
-                          })}
-
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setIsModalOpen(true);
-                              setOpen(false);
-                            }}
-                            className="font-medium"
-                          >
-                            Show All Models ({models.length})...
-                          </DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                      m.apiName === COMPASS_TIER_FAST ||
+                      m.apiName === COMPASS_TIER_BALANCED ||
+                      m.apiName === COMPASS_TIER_THINKING
                     );
-                  }
-
-                  // No favorites: show button to open modal
+                  });
                   return (
-                    <DropdownMenuItem
-                      key="openrouter"
-                      onClick={() => {
-                        setIsModalOpen(true);
-                        setOpen(false);
-                      }}
-                      className="flex justify-between items-center"
-                    >
-                      <div className="flex flex-col items-start">
-                        <span>OpenRouter</span>
-                        <span className="text-xs text-muted-foreground">
-                          {models.length} tool-calling models
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">→</span>
-                    </DropdownMenuItem>
+                    <DropdownMenuSub key="compass">
+                      <DropdownMenuSubTrigger className="w-full font-normal">
+                        <div className="flex flex-col items-start w-full">
+                          <span>Compass</span>
+                          <span className="text-xs text-muted-foreground">
+                            Built-in · no API key
+                          </span>
+                        </div>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-64 max-h-[min(60vh,360px)] overflow-y-auto">
+                        <DropdownMenuLabel>Compass</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {compassModels.map((model) => (
+                          <Tooltip key={`compass-${model.apiName}`}>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuItem
+                                className={
+                                  selectedModel.provider === "compass" &&
+                                  selectedModel.name === model.apiName
+                                    ? "bg-secondary"
+                                    : ""
+                                }
+                                onClick={() => {
+                                  onModelSelect({
+                                    name: model.apiName,
+                                    provider: "compass",
+                                  });
+                                  setOpen(false);
+                                }}
+                              >
+                                <div className="flex flex-col items-start gap-0.5 w-full">
+                                  <span>{model.displayName}</span>
+                                  <span className="text-[10px] text-muted-foreground line-clamp-2">
+                                    {model.description}
+                                  </span>
+                                </div>
+                              </DropdownMenuItem>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              {model.description}
+                            </TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   );
                 }
 
@@ -897,21 +857,6 @@ export function ModelPicker() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* OpenRouter Models Modal */}
-      <OpenRouterModelsModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSelectModel={(apiName) => {
-          onModelSelect({
-            name: apiName,
-            provider: "openrouter",
-          });
-        }}
-        models={modelsByProviders?.["openrouter"] || []}
-        currentModelName={
-          selectedModel.provider === "openrouter" ? selectedModel.name : undefined
-        }
-      />
     </>
   );
 }

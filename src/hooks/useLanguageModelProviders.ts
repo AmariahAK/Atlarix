@@ -15,6 +15,7 @@ export function useLanguageModelProviders() {
 
   // State for database-configured providers
   const [dbConfiguredProviders, setDbConfiguredProviders] = useState<string[]>([]);
+  const [compassBuildOk, setCompassBuildOk] = useState(false);
 
   const queryResult = useQuery<LanguageModelProvider[], Error>({
     queryKey: ["languageModelProviders"],
@@ -36,6 +37,18 @@ export function useLanguageModelProviders() {
     fetchConfiguredProviders();
   }, []);
 
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const ok = await ipcClient.isCompassBuildConfigured();
+        setCompassBuildOk(ok);
+      } catch {
+        setCompassBuildOk(false);
+      }
+    };
+    void run();
+  }, [ipcClient]);
+
   const isProviderSetup = (provider: string) => {
     const providerSettings = settings?.providerSettings[provider];
     if (queryResult.isLoading) {
@@ -44,6 +57,9 @@ export function useLanguageModelProviders() {
     // Ollama & LM Studio don't need API keys - always "ready"
     if (provider === "ollama" || provider === "lmstudio") {
       return true;
+    }
+    if (provider === "compass") {
+      return compassBuildOk;
     }
     // Vertex uses service account credentials instead of an API key
     if (provider === "vertex") {
@@ -95,7 +111,7 @@ export function useLanguageModelProviders() {
       return true;
     }
 
-    // Check hardcoded cloud providers
+    // Check hardcoded cloud providers (includes compass when build has master key)
     if (cloudProviders.some((provider) => isProviderSetup(provider))) {
       return true;
     }

@@ -74,6 +74,7 @@ import type {
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
   DiscordInviteInfoResult,
+  CompassUsageIpcResult,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -2068,6 +2069,14 @@ export class IpcClient {
 
   public async getConfiguredProviders(): Promise<string[]> {
     return this.ipcRenderer.invoke("provider:get-configured");
+  }
+
+  public async isCompassBuildConfigured(): Promise<boolean> {
+    return this.ipcRenderer.invoke("compass:is-build-configured");
+  }
+
+  public async getCompassUsage(): Promise<CompassUsageIpcResult> {
+    return this.ipcRenderer.invoke("compass:get-usage");
   }
 
   // OpenRouter Favorites Management

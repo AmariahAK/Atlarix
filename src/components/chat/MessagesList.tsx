@@ -2,7 +2,7 @@ import type React from "react";
 import type { Message } from "@/ipc/ipc_types";
 import { forwardRef, useState } from "react";
 import ChatMessage from "./ChatMessage";
-import { OpenRouterSetupBanner, SetupBanner } from "../SetupBanner";
+import { SetupBanner } from "../SetupBanner";
 
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { selectedChatIdAtom, chatMessagesByIdAtom, questionsByMessageIdAtom, restartedAfterMessageIdAtom } from "@/atoms/chatAtoms";
@@ -50,11 +50,14 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const renderSetupBanner = () => {
       const selectedModel = settings?.selectedModel;
       if (
-        selectedModel?.name === "free" &&
         selectedModel?.provider === "auto" &&
-        !isProviderSetup("openrouter")
+        !isProviderSetup("compass")
       ) {
-        return <OpenRouterSetupBanner className="w-full" />;
+        return (
+          <div className="w-full">
+            <SetupBanner />
+          </div>
+        );
       }
       if (!isAnyProviderSetup()) {
         return <SetupBanner />;

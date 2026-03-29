@@ -1,8 +1,26 @@
 # Atlarix TODO
 
-**Current Version:** v5.0.0  
-**Next Version:** v5.1+ (planning)  
-**Last Updated:** 2026-03-27
+**Current Version:** v5.1.0  
+**Next Version:** v5.2+ (planning)  
+**Last Updated:** 2026-03-29
+
+---
+
+## Done: v5.1 — Compass & limits
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Compass provider + tier gating | **Done** | `compass_constants.ts`, `get_model_client.ts`, Free = Fast only; Pro/Workforce fallback chain |
+| Supabase migration + docs | **Done** | `20260329120000_compass_tokens.sql`, `docs/compass-limits.md` |
+| Settings UI + usage | **Done** | Collapsible providers, Compass page, `useCompassUsage` |
+| Chat usage + block + toasts | **Done** | IPC bump after stream, `useCompassSendGate`, banners/strip |
+| Onboarding 3-step | **Done** | `onboarding.ts`, home/settings banners, progress bar |
+| CI env | **Done** | `release.yml`, `vite.main.config.mts` MAIN_KEYS |
+
+### v5.1 follow-ups
+
+- Chat-only ephemeral streams do not yet record Compass usage RPC (main workspace path does).
+- Optional: centralize Compass usage in a single Jotai atom to avoid duplicate fetches if multiple panes mount usage hooks.
 
 ---
 

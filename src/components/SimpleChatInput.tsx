@@ -14,6 +14,8 @@ import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
+import { useAuth } from "@/lib/auth/useAuth";
+import { SignInToChatNotice } from "@/components/chat/SignInToChatNotice";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -29,6 +31,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+    const { isAuthenticated, loading: authLoading } = useAuth();
+    const mustSignIn = !authLoading && !isAuthenticated;
     // Prevent double-submit when clicking rapidly or "Fix with AI" triggers re-renders
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -43,6 +47,13 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!inputValue.trim() || isStreaming || isSubmitting) return;
+
+        if (mustSignIn) {
+            import("@/lib/toast").then(({ showError }) => {
+                showError("Please sign in to use chat.");
+            });
+            return;
+        }
 
         // Set submitting guard immediately
         setIsSubmitting(true);
@@ -78,8 +89,15 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
     if (!settings) return null;
 
+    const effectivePlaceholder = mustSignIn ? "Sign in to continue…" : placeholder;
+
     return (
         <div className="p-4 border-t border-border">
+            {mustSignIn ? (
+                <div className="mb-2">
+                    <SignInToChatNotice />
+                </div>
+            ) : null}
             <div className="flex flex-col space-y-2 border border-border rounded-lg bg-background/50 shadow-sm">
                 <form onSubmit={handleSubmit} className="flex items-center">
                     <textarea
@@ -87,8 +105,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={placeholder}
-                        disabled={isStreaming}
+                        placeholder={effectivePlaceholder}
+                        disabled={isStreaming || mustSignIn}
                         rows={1}
                         className="flex-1 px-4 py-3 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 resize-none max-h-40 overflow-y-auto"
                         style={{
@@ -108,7 +126,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         variant="ghost"
                         size="icon"
                         className="mx-1"
-                        disabled={isStreaming}
+                        disabled={isStreaming || mustSignIn}
                         title="Attach file"
                     >
                         <Paperclip className="h-4 w-4" />
@@ -137,7 +155,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             variant="ghost"
                             size="icon"
                             className="mx-1"
-                            disabled={!inputValue.trim()}
+                            disabled={!inputValue.trim() || mustSignIn}
                         >
                             <SendIcon className="h-4 w-4" />
                         </Button>

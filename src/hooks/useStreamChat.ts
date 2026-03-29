@@ -39,7 +39,7 @@ import {
   type QueuedOperation,
 } from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
-import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
+import { compassUsageBumpAtom, isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
 import { useChats } from "./useChats";
 import { useLoadApp } from "./useLoadApp";
@@ -52,6 +52,8 @@ import { useRunApp } from "./useRunApp";
 import { useCountTokens } from "./useCountTokens";
 import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
+import * as Sentry from "@sentry/electron/renderer";
+import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
 import { playNotify, playRemaining } from "@/lib/sounds";
@@ -508,6 +510,16 @@ export function useStreamChat({
 
             refetchUserBudget();
 
+            if (response.usedCompass) {
+              getDefaultStore().set(compassUsageBumpAtom, (n) => n + 1);
+              posthog?.capture("compass:turn_completed", {
+                chat_id: response.chatId,
+                tokens: response.compassTokens,
+                tier: response.compassTier,
+                surface: hasChatId ? "workspace_chat" : "floating_chat",
+              });
+            }
+
             // Keep the same as below
             setIsStreamingById((prev) => {
               const next = new Map(prev);
@@ -543,6 +555,23 @@ export function useStreamChat({
           },
           onError: (errorMessage: string) => {
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
+            if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
+              posthog?.capture("auth:chat_stream_blocked", { chat_id: chatId });
+              Sentry.captureMessage("Chat stream blocked — not signed in", {
+                level: "info",
+                tags: { feature: "auth" },
+                extra: { chatId },
+              });
+            } else if (/compass/i.test(errorMessage)) {
+              posthog?.capture("compass:turn_failed", {
+                chat_id: chatId,
+                error_snippet: errorMessage.slice(0, 240),
+              });
+              Sentry.captureException(new Error(errorMessage.slice(0, 500)), {
+                tags: { feature: "compass", source: "renderer_stream" },
+                extra: { chatId },
+              });
+            }
             setErrorById((prev) => {
               const next = new Map(prev);
               next.set(chatId, errorMessage);
@@ -600,6 +629,8 @@ export function useStreamChat({
       setRestartedAfterMessageId,
       setPendingUserQuestionByChatId,
       blueprintChatTierOverride,
+      posthog,
+      hasChatId,
     ],
   );
 

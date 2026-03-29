@@ -4,6 +4,11 @@ import { apps, chats, messages } from "../../db/schema";
 import { desc, eq, and, like } from "drizzle-orm";
 import type { ChatSearchResult, ChatSummary } from "../../lib/schemas";
 import { createLoggedHandler } from "./safe_handle";
+import {
+  requireAuthSession,
+  AuthRequiredError,
+  formatAuthRequiredIpcError,
+} from "../../lib/auth/require_auth_session";
 
 import log from "electron-log";
 import { getAtlarixAppPath } from "../../paths/paths";
@@ -18,6 +23,14 @@ export function registerChatHandlers() {
   // Create workspace chat - now uses EPHEMERAL storage (like incognito mode)
   // Chats are associated with workspace for context but NOT saved to database
   handle("create-chat", async (_, appId: number): Promise<number> => {
+    try {
+      await requireAuthSession();
+    } catch (e) {
+      if (e instanceof AuthRequiredError) {
+        throw new Error(formatAuthRequiredIpcError());
+      }
+      throw e;
+    }
     // NOTE: Don't clear session memories here!
     // Session memory should persist across mode switches (Ask -> Build) within the same workspace
     // Memory is only cleared when explicitly switching to a different workspace
@@ -51,6 +64,14 @@ export function registerChatHandlers() {
   });
 
   handle("create-chat-only", async (): Promise<number> => {
+    try {
+      await requireAuthSession();
+    } catch (e) {
+      if (e instanceof AuthRequiredError) {
+        throw new Error(formatAuthRequiredIpcError());
+      }
+      throw e;
+    }
     // NOTE: For chat-only (no workspace), we CAN clear previous session memory
     // since there's no workspace context to preserve
     clearAllSessionMemories();

@@ -57,21 +57,13 @@ export function getEffectiveModelForOptions(settings: UserSettings): LargeLangua
   return settings.selectedModel;
 }
 
-/** OpenRouter model IDs that return 404 (moved/renamed). Map to user's first favorite or a known-good model. */
-const DEPRECATED_OPENROUTER_MODEL_IDS = new Set([
-  "pony-alpha",
-  "openrouter/pony-alpha",
-  "z-ai/pony-alpha",
-]);
-
 /**
  * Returns the "fast" model for the current provider: Auto's first model, or manual's first favorite.
  * Used for summarization, diagram fallback, and any flow that should use the user's chosen fast model.
- * Pass openRouterFavoriteIds when caller has them (e.g. diagram handler); for OpenRouter manual mode.
  */
 export function getFastModelForCurrentProvider(
   settings: UserSettings,
-  openRouterFavoriteIds?: string[],
+  _openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
   const tier0 =
     Array.isArray(settings.autoModelIds) && typeof settings.autoModelIds[0] === "string"
@@ -82,8 +74,8 @@ export function getFastModelForCurrentProvider(
   }
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
-  if (effective.provider === "openrouter" && openRouterFavoriteIds?.length) {
-    return { provider: "openrouter", name: openRouterFavoriteIds[0] };
+  if (effective.provider === "compass") {
+    return { provider: "compass", name: COMPASS_TIER_FAST };
   }
   const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
   if (effective.provider === "ollama" && ollamaFavs?.length) {
@@ -101,7 +93,7 @@ export function getFastModelForCurrentProvider(
  */
 export function getBalancedModelForCurrentProvider(
   settings: UserSettings,
-  openRouterFavoriteIds?: string[],
+  _openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
   const tier1 =
     Array.isArray(settings.autoModelIds) && typeof settings.autoModelIds[1] === "string"
@@ -112,8 +104,8 @@ export function getBalancedModelForCurrentProvider(
   }
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
-  if (effective.provider === "openrouter" && openRouterFavoriteIds && openRouterFavoriteIds.length >= 2) {
-    return { provider: "openrouter", name: openRouterFavoriteIds[1] };
+  if (effective.provider === "compass") {
+    return { provider: "compass", name: COMPASS_TIER_BALANCED };
   }
   const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
   if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 2) {
@@ -127,24 +119,13 @@ export function getBalancedModelForCurrentProvider(
 }
 
 /**
- * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain;
- * when manual and OpenRouter model is known-deprecated, uses first OpenRouter favorite if provided.
+ * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain.
  */
 export function getDiagramModelConfig(
   settings: UserSettings,
-  openRouterFavoriteIds?: string[],
+  _openRouterFavoriteIds?: string[],
 ): LargeLanguageModel {
-  const effective = getEffectiveModel(settings);
-  if (effective.provider === "openrouter" && typeof effective.name === "string") {
-    const name = effective.name.split("/").pop() ?? effective.name;
-    if (DEPRECATED_OPENROUTER_MODEL_IDS.has(effective.name) || DEPRECATED_OPENROUTER_MODEL_IDS.has(name)) {
-      if (openRouterFavoriteIds?.length) {
-        return { provider: "openrouter", name: openRouterFavoriteIds[0] };
-      }
-      return effective;
-    }
-  }
-  return effective;
+  return getEffectiveModel(settings);
 }
 
 /**
@@ -153,12 +134,12 @@ export function getDiagramModelConfig(
  */
 export function getDiagramFallbackModel(
   settings: UserSettings,
-  openRouterFavoriteIds?: string[],
+  _openRouterFavoriteIds?: string[],
 ): LargeLanguageModel | null {
   if (hasAutoRoutingModelConfig(settings)) {
     return { provider: "auto", name: "auto" };
   }
-  return getFastModelForCurrentProvider(settings, openRouterFavoriteIds);
+  return getFastModelForCurrentProvider(settings);
 }
 
 /** True if the error indicates model not found (404) so diagram can retry with fallback. */
@@ -172,11 +153,18 @@ export function isDiagramModelNotFoundError(error: unknown): boolean {
 }
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
-import { FREE_OPENROUTER_MODEL_NAMES } from "../shared/language_model_constants";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import { createAtlarixEngine } from "./llm_engine_provider";
+import {
+  COMPASS_TIER_BALANCED,
+  COMPASS_TIER_FAST,
+  compassFallbackChain,
+  getCompassMasterApiKey,
+  getOpenRouterModelIdForCompassTier,
+} from "../shared/compass_constants";
+import { SubscriptionManager } from "../../lib/SubscriptionManager";
 
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
@@ -185,10 +173,10 @@ import { createFallback } from "./fallback_ai_model";
 
 const dyadEngineUrl = process.env.DYAD_ENGINE_URL;
 
-/** Default model per provider when using "Auto" (matches AI Providers grid). */
+/** Default model per provider when using "Auto" (Compass first when key present — usage + product default). */
 const AUTO_MODELS = [
+  { provider: "compass", name: COMPASS_TIER_FAST },
   { provider: "google", name: "gemini-2.5-flash" },
-  { provider: "openrouter", name: "qwen/qwen3-coder:free" },
   { provider: "anthropic", name: "claude-sonnet-4-20250514" },
   { provider: "openai", name: "gpt-4.1" },
   { provider: "xai", name: "grok-2-1212" },
@@ -267,6 +255,132 @@ export async function getModelClient(
 
   const dyadApiKey = settings.providerSettings?.auto?.apiKey?.value;
 
+  // Synthetic "auto" is not in allProviders — must run before providerConfig lookup
+  // Handle 'auto' provider: build fallback chain so we try next provider on failure (Phase 6)
+  if (model.provider === "auto") {
+    if (model.name === "free") {
+      const compassProvider = allProviders.find((p) => p.id === "compass");
+      if (!compassProvider || !getCompassMasterApiKey()) {
+        throw new Error(
+          "Compass is not available. Configure release credentials or add API keys in Settings.",
+        );
+      }
+      const { modelClient } = await getRegularModelClient(
+        { provider: "compass", name: COMPASS_TIER_FAST },
+        settings,
+        compassProvider,
+      );
+      return {
+        modelClient: {
+          model: modelClient.model,
+          builtinProviderId: "compass",
+        },
+        isEngineEnabled: false,
+      };
+    }
+    // v2.1: When user configured one provider + 1–3 models (Fast/Medium/Thinking), use that
+    const autoProviderId = settings.autoProviderId ?? null;
+    const autoModelIds = settings.autoModelIds;
+    const slots = Array.isArray(autoModelIds)
+      ? ([0, 1, 2] as const).map((i) => {
+          const s = autoModelIds[i];
+          return typeof s === "string" && s.trim().length > 0 ? s.trim() : "";
+        })
+      : ["", "", ""];
+    const hasAnySlot = slots.some(Boolean);
+    if (autoProviderId && hasAnySlot) {
+      const providerInfo = allProviders.find((p) => p.id === autoProviderId);
+      if (providerInfo) {
+        const firstTier = getAutoTierIndex(settings, options);
+        const orderedNames: string[] = [];
+        const pushUnique = (name: string) => {
+          if (name && !orderedNames.includes(name)) orderedNames.push(name);
+        };
+        pushUnique(slots[firstTier]);
+        for (let i = 0; i < 3; i++) {
+          if (i !== firstTier) pushUnique(slots[i]);
+        }
+        const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
+        let firstBuiltinInChain: string | undefined;
+        for (const modelName of orderedNames) {
+          try {
+            const { modelClient } = await getModelClient(
+              { provider: autoProviderId, name: modelName },
+              settings,
+            );
+            models.push(modelClient.model);
+            if (firstBuiltinInChain === undefined) {
+              firstBuiltinInChain = modelClient.builtinProviderId ?? autoProviderId;
+            }
+          } catch (err) {
+            logger.warn(
+              `Skip ${autoProviderId}/${modelName} for Auto: ${err instanceof Error ? err.message : err}`,
+            );
+          }
+        }
+        if (models.length > 0) {
+          logger.log(
+            `Auto: using provider ${autoProviderId} with ${models.length} model(s), first tier=${firstTier} (0=Fast,1=Balanced,2=Thinking)`,
+          );
+          return {
+            modelClient: {
+              model: createFallback({ models }),
+              builtinProviderId: firstBuiltinInChain ?? autoProviderId,
+            },
+            isEngineEnabled: false,
+          };
+        }
+      }
+    }
+    // Fallback: default provider order (first successful provider sets metering / builtin id)
+    const order = DEFAULT_AUTO_PROVIDER_ORDER;
+    const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
+    let firstProviderInChain: string | undefined;
+    for (const providerId of order) {
+      const modelName = AUTO_MODEL_BY_PROVIDER.get(providerId);
+      if (!modelName) continue;
+      const providerInfo = allProviders.find((p) => p.id === providerId);
+      if (!providerInfo) continue;
+      const envVarName = providerInfo.envVarName;
+      let apiKey =
+        settings.providerSettings?.[providerId]?.apiKey?.value ||
+        (envVarName ? getEnvVar(envVarName) : undefined);
+      if (providerId === "compass") {
+        apiKey = getCompassMasterApiKey();
+      }
+      if (!apiKey) continue;
+      try {
+        const { modelClient } = await getModelClient(
+          { provider: providerId, name: modelName },
+          settings,
+        );
+        models.push(modelClient.model);
+        if (firstProviderInChain === undefined) {
+          firstProviderInChain = modelClient.builtinProviderId ?? providerId;
+        }
+      } catch (err) {
+        logger.warn(
+          `Skip ${providerId} for Auto fallback: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    if (models.length === 0) {
+      throw new Error(
+        "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or configure Auto provider + 3 models in Config.",
+      );
+    }
+    logger.log(
+      `Auto: using fallback chain of ${models.length} provider(s). First in chain: ${firstProviderInChain ?? "?"}`,
+    );
+    return {
+      modelClient: {
+        model: createFallback({ models }),
+        builtinProviderId: firstProviderInChain ?? order[0],
+      },
+      isEngineEnabled: false,
+    };
+  }
+
   // --- Handle specific provider ---
   const providerConfig = allProviders.find((p) => p.id === model.provider);
 
@@ -274,8 +388,12 @@ export async function getModelClient(
     throw new Error(`Configuration not found for provider: ${model.provider}`);
   }
 
-  // Handle Atlarix Pro override
-  if (dyadApiKey && settings.enableAtlarixPro) {
+  // Handle Atlarix Pro override (Compass uses its own managed key, never the engine proxy)
+  if (
+    model.provider !== "compass" &&
+    dyadApiKey &&
+    settings.enableAtlarixPro
+  ) {
     // Check if the selected provider supports Atlarix Pro (has a gateway prefix) OR
     // we're using local engine.
     // IMPORTANT: some providers like OpenAI have an empty string gateway prefix,
@@ -306,7 +424,6 @@ export async function getModelClient(
         `\x1b[1;30;42m Using Atlarix Pro engine: ${dyadEngineUrl ?? "<prod>"} \x1b[0m`,
       );
 
-      // Do not use free variant (for openrouter).
       const modelName = model.name.split(":free")[0];
       const autoModelClient = {
         model: provider(`${providerConfig.gatewayPrefix || ""}${modelName}`),
@@ -325,125 +442,7 @@ export async function getModelClient(
       // Fall through to regular provider logic if gateway prefix is missing
     }
   }
-  // Handle 'auto' provider: build fallback chain so we try next provider on failure (Phase 6)
-  if (model.provider === "auto") {
-    if (model.name === "free") {
-      const openRouterProvider = allProviders.find(
-        (p) => p.id === "openrouter",
-      );
-      if (!openRouterProvider) {
-        throw new Error("OpenRouter provider not found");
-      }
-      return {
-        modelClient: {
-          model: createFallback({
-            models: await Promise.all(
-              FREE_OPENROUTER_MODEL_NAMES.map(async (name: string) => {
-                const { modelClient } = await getRegularModelClient(
-                  { provider: "openrouter", name },
-                  settings,
-                  openRouterProvider,
-                );
-                return modelClient.model;
-              }),
-            ),
-          }),
-          builtinProviderId: "openrouter",
-        },
-        isEngineEnabled: false,
-      };
-    }
-    // v2.1: When user configured one provider + 1–3 models (Fast/Medium/Thinking), use that
-    const autoProviderId = settings.autoProviderId ?? null;
-    const autoModelIds = settings.autoModelIds;
-    const slots = Array.isArray(autoModelIds)
-      ? ([0, 1, 2] as const).map((i) => {
-          const s = autoModelIds[i];
-          return typeof s === "string" && s.trim().length > 0 ? s.trim() : "";
-        })
-      : ["", "", ""];
-    const hasAnySlot = slots.some(Boolean);
-    if (autoProviderId && hasAnySlot) {
-      const providerInfo = allProviders.find((p) => p.id === autoProviderId);
-      if (providerInfo) {
-        const firstTier = getAutoTierIndex(settings, options);
-        const orderedNames: string[] = [];
-        const pushUnique = (name: string) => {
-          if (name && !orderedNames.includes(name)) orderedNames.push(name);
-        };
-        pushUnique(slots[firstTier]);
-        for (let i = 0; i < 3; i++) {
-          if (i !== firstTier) pushUnique(slots[i]);
-        }
-        const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
-        for (const modelName of orderedNames) {
-          try {
-            const { modelClient } = await getModelClient(
-              { provider: autoProviderId, name: modelName },
-              settings,
-            );
-            models.push(modelClient.model);
-          } catch (err) {
-            logger.warn(
-              `Skip ${autoProviderId}/${modelName} for Auto: ${err instanceof Error ? err.message : err}`,
-            );
-          }
-        }
-        if (models.length > 0) {
-          logger.log(
-            `Auto: using provider ${autoProviderId} with ${models.length} model(s), first tier=${firstTier} (0=Fast,1=Balanced,2=Thinking)`,
-          );
-          return {
-            modelClient: {
-              model: createFallback({ models }),
-              builtinProviderId: autoProviderId,
-            },
-            isEngineEnabled: false,
-          };
-        }
-      }
-    }
-    // Fallback: default provider order
-    const order = DEFAULT_AUTO_PROVIDER_ORDER;
-    const models: import("@ai-sdk/provider").LanguageModelV2[] = [];
-    for (const providerId of order) {
-      const modelName = AUTO_MODEL_BY_PROVIDER.get(providerId);
-      if (!modelName) continue;
-      const providerInfo = allProviders.find((p) => p.id === providerId);
-      if (!providerInfo) continue;
-      const envVarName = providerInfo.envVarName;
-      const apiKey =
-        settings.providerSettings?.[providerId]?.apiKey?.value ||
-        (envVarName ? getEnvVar(envVarName) : undefined);
-      if (!apiKey) continue;
-      try {
-        const { modelClient } = await getModelClient(
-          { provider: providerId, name: modelName },
-          settings,
-        );
-        models.push(modelClient.model);
-      } catch (err) {
-        logger.warn(
-          `Skip ${providerId} for Auto fallback: ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    }
-    if (models.length === 0) {
-      throw new Error(
-        "No API keys available for any model supported by the 'auto' provider. Set API keys in Settings or configure Auto provider + 3 models in Config.",
-      );
-    }
-    logger.log(
-      `Auto: using fallback chain of ${models.length} provider(s). First: ${order[0]}`,
-    );
-    return {
-      modelClient: {
-        model: createFallback({ models }),
-        builtinProviderId: order[0],
-      },
-      isEngineEnabled: false,
-    };
-  }
+
   return await getRegularModelClient(model, settings, providerConfig);
 }
 
@@ -553,12 +552,34 @@ async function getRegularModelClient(
         backupModelClients: [],
       };
     }
-    case "openrouter": {
-      const provider = createOpenRouter({ apiKey });
+    case "compass": {
+      const masterKey = getCompassMasterApiKey();
+      if (!masterKey) {
+        throw new Error(
+          "Compass is not configured for this build. Add your own API keys in Settings or use a release build.",
+        );
+      }
+      const eff = SubscriptionManager.getEffectiveTier();
+      const chain = compassFallbackChain(model.name, eff);
+      const or = createOpenRouter({ apiKey: masterKey });
+      const models: LanguageModelV2[] = [];
+      for (const tierId of chain) {
+        const openRouterModelId = getOpenRouterModelIdForCompassTier(tierId);
+        if (!openRouterModelId) {
+          logger.warn(`[Compass] Missing env model for tier ${tierId}`);
+          continue;
+        }
+        models.push(or(openRouterModelId));
+      }
+      if (models.length === 0) {
+        throw new Error(
+          "Compass model configuration is incomplete. Set COMPASS_MODEL_FAST (and Balanced/Thinking for Pro) in the build environment.",
+        );
+      }
       return {
         modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
+          model: models.length === 1 ? models[0]! : createFallback({ models }),
+          builtinProviderId: "compass",
         },
         backupModelClients: [],
       };

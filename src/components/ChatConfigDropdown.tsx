@@ -12,7 +12,13 @@ import {
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
-import { useFavoriteOpenRouterModels } from "@/hooks/useFavoriteOpenRouterModels";
+import { IpcClient } from "@/ipc/ipc_client";
+import { useEffect, useState } from "react";
+import {
+  COMPASS_TIER_BALANCED,
+  COMPASS_TIER_FAST,
+  COMPASS_TIER_THINKING,
+} from "@/ipc/shared/compass_constants";
 import {
   Select,
   SelectContent,
@@ -53,7 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  openrouter: "OpenRouter",
+  compass: "Compass",
   ollama: "Ollama",
   lmstudio: "LM Studio",
   openai: "OpenAI",
@@ -85,6 +91,11 @@ function useModelDisplayName(): string {
   }
   if (!selectedModel) return "—";
   if (selectedModel.provider === "auto") return "Auto";
+  if (selectedModel.provider === "compass") {
+    const list = modelsByProviders?.compass;
+    const found = list?.find((m) => m.apiName === selectedModel.name);
+    return found?.displayName ?? selectedModel.name;
+  }
   if (selectedModel.provider === "ollama") {
     const found = ollamaModels.find((m) => m.modelName === selectedModel.name);
     return found?.displayName ?? selectedModel.name;
@@ -128,8 +139,14 @@ export function ChatConfigDropdown({
   const blueprintTierRadioValue =
     blueprintChatOverride === null ? "settings" : blueprintChatOverride;
 
-  // When Auto is ON: show providers that have at least 1 favorite model (tiers seed from favorites)
-  const { data: openRouterFavorites = [] } = useFavoriteOpenRouterModels();
+  const [compassBuildOk, setCompassBuildOk] = useState(false);
+  useEffect(() => {
+    void IpcClient.getInstance()
+      .isCompassBuildConfigured()
+      .then(setCompassBuildOk)
+      .catch(() => setCompassBuildOk(false));
+  }, []);
+
   const ollamaFavs =
     (settings?.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds ?? [];
   const lmStudioFavs =
@@ -138,14 +155,14 @@ export function ChatConfigDropdown({
   const autoModelIds = settings?.autoModelIds;
 
   const providersForAuto = [
-    openRouterFavorites.length >= 1 && { id: "openrouter", name: "OpenRouter" },
+    compassBuildOk && { id: "compass", name: "Compass" },
     ollamaFavs.length >= 1 && { id: "ollama", name: "Ollama" },
     lmStudioFavs.length >= 1 && { id: "lmstudio", name: "LM Studio" },
     // Include current auto provider if it has tier model(s) configured and isn't already listed
     autoProviderId &&
       Array.isArray(autoModelIds) &&
       autoModelIds.filter(Boolean).length >= 1 &&
-      !["openrouter", "ollama", "lmstudio"].includes(autoProviderId) && {
+      !["compass", "ollama", "lmstudio"].includes(autoProviderId) && {
         id: autoProviderId,
         name: autoProviderId.charAt(0).toUpperCase() + autoProviderId.slice(1),
       },
@@ -168,10 +185,17 @@ export function ChatConfigDropdown({
     if (!providerId) {
       return { autoProviderId: null, autoModelIds: undefined };
     }
-    if (providerId === "openrouter") {
-      const t = tripleFromFavorites(openRouterFavorites);
-      if (t) return { autoProviderId: providerId, autoModelIds: t };
-    } else if (providerId === "ollama") {
+    if (providerId === "compass") {
+      return {
+        autoProviderId: providerId,
+        autoModelIds: [
+          COMPASS_TIER_FAST,
+          COMPASS_TIER_BALANCED,
+          COMPASS_TIER_THINKING,
+        ],
+      };
+    }
+    if (providerId === "ollama") {
       const t = tripleFromFavorites(ollamaFavs);
       if (t) return { autoProviderId: providerId, autoModelIds: t };
     } else if (providerId === "lmstudio") {

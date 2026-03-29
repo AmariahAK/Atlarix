@@ -225,7 +225,7 @@ export function AppSidebar() {
                         ? 'bg-primary/20 text-primary'
                         : 'bg-muted text-muted-foreground'
                         }`}>
-                        {status?.plan === 'workforce' ? '✨ Workforce' : status?.plan === 'pro' ? '✨ Pro' : 'Free Plan'}
+                        {status?.plan === 'workforce' ? 'Workforce' : status?.plan === 'pro' ? 'Pro' : 'Free Plan'}
                       </span>
                       {/* Free tier: primary upgrade = Workforce (LEMONSQUEEZY_WORKFORCE_VARIANT_ID) */}
                       {status?.plan === 'free' && (

@@ -57,17 +57,12 @@ export async function getSummarizationModelAsync(
   }
   const preferBalanced =
     (sessionStats?.toolCallCount ?? 0) > 15 || (sessionStats?.delegationCount ?? 0) > 5;
-  let openRouterFavoriteIds: string[] | undefined;
-  if (settings.selectedModel?.provider === "openrouter") {
-    const { getFavoriteOpenRouterModels } = await import("../db/openrouter_favorites");
-    openRouterFavoriteIds = await getFavoriteOpenRouterModels();
-  }
   if ((mode === "balanced" || mode === "fast") && preferBalanced) {
-    const balancedModel = getBalancedModelForCurrentProvider(settings, openRouterFavoriteIds);
+    const balancedModel = getBalancedModelForCurrentProvider(settings);
     if (balancedModel) return balancedModel;
   }
   if (mode === "fast" || mode === "balanced") {
-    const fastModel = getFastModelForCurrentProvider(settings, openRouterFavoriteIds);
+    const fastModel = getFastModelForCurrentProvider(settings);
     if (fastModel) return fastModel;
   }
   return getSummarizationModel(settings);

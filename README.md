@@ -7,11 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.0.0*
+*Current: v5.1.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 **Recent (v4.3):** UX and workflow upgrade: secure session persistence across restarts, guided Shepherd tours, corrected subscription entitlement timing/copy, Ask-mode planning improvements, Workforce Ask/Build read-write split, batch Token Auth permissions (`request_workspace_permissions`), and hardware-aware Ollama model recommendations in Settings.
+
+### What's New in v5.1 — Compass (managed AI, no API key)
+
+- **Compass** is a first-class cloud provider backed by OpenRouter with a **build-time** API key only (never user-facing OpenRouter). Three tiers in-product — **Fast**, **Balanced**, **Thinking** — with **Free** limited to Fast; **Pro** and **Workforce** get all three.
+- **Monthly token limits** are enforced per signed-in user via Supabase (`compass_tokens`, RPCs `get_compass_usage_state` / `record_compass_usage`); see [docs/compass-limits.md](docs/compass-limits.md).
+- **CI / local builds:** set repository secrets `COMPASS_OPENROUTER_API_KEY`, `COMPASS_MODEL_FAST`, `COMPASS_MODEL_BALANCED`, `COMPASS_MODEL_THINKING`. They are injected only into the **main** process via `vite.main.config.mts` (`MAIN_KEYS`), not the renderer bundle.
 
 ### What's New in v5.0 — Blueprint context, project memory, and ignore rules
 
@@ -57,7 +63,8 @@ v5.0 completes the Blueprint-context and project-memory work and ships it as the
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`, `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,  
   `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`,  
-  `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`.  
+  `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`,  
+  `COMPASS_OPENROUTER_API_KEY`, `COMPASS_MODEL_FAST`, `COMPASS_MODEL_BALANCED`, `COMPASS_MODEL_THINKING` (managed Compass; main bundle only).  
   For macOS builds: `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_IDENTITY`, `APPLE_TEAM_ID`.  
   For publishing to a separate releases repo: `RELEASES_TOKEN` (PAT with `repo` scope).  
   `GITHUB_TOKEN` is provided automatically for same-repo releases.

@@ -18,6 +18,7 @@ import {
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
 import log from "electron-log";
+import { COMPASS_PROVIDER_ID, COMPASS_SYNTHETIC_MODELS } from "./compass_constants";
 
 const lmHelpersLog = log.scope("language_model_helpers");
 
@@ -94,6 +95,12 @@ export async function getLanguageModelProviders(): Promise<
     }
   }
 
+  hardcodedProviders.sort((a, b) => {
+    if (a.id === COMPASS_PROVIDER_ID) return -1;
+    if (b.id === COMPASS_PROVIDER_ID) return 1;
+    return 0;
+  });
+
   return [...hardcodedProviders, ...customProvidersMap.values()];
 }
 
@@ -113,6 +120,10 @@ export async function getLanguageModels({
   if (!provider) {
     console.warn(`Provider with ID "${providerId}" not found.`);
     return [];
+  }
+
+  if (providerId === COMPASS_PROVIDER_ID) {
+    return [...COMPASS_SYNTHETIC_MODELS];
   }
 
   // Get custom models from DB for all provider types
@@ -279,53 +290,6 @@ export async function getLanguageModelsByProviders(): Promise<
         } catch {
           modelsByProvider[provider.id] = [];
         }
-      }
-      continue;
-    }
-
-    // Handle OpenRouter dynamically
-    if (provider.id === "openrouter") {
-      try {
-        const { fetchOpenRouterModels } = await import("./openrouter_api");
-
-        // Check if we're in the main process (database is only accessible there)
-        const isMainProcess = typeof process !== 'undefined' && process.type === 'browser';
-
-        if (!isMainProcess) {
-          console.warn("[OpenRouter] Cannot fetch models from renderer process. Models should be fetched via IPC.");
-          modelsByProvider[provider.id] = [];
-          continue;
-        }
-
-        // Get API key from database (main process only)
-        const { getProviderApiKey } = await import("./provider_api_keys");
-        const apiKey = await getProviderApiKey("openrouter");
-
-        // console.log(`[OpenRouter] API key from database: ${apiKey ? 'FOUND' : 'NOT FOUND'}`);
-
-        if (!apiKey) {
-          console.warn("[OpenRouter] No API key configured. Add your key in Settings > AI > Provider Settings");
-          modelsByProvider[provider.id] = [];
-          continue;
-        }
-
-        // console.log(`[OpenRouter] Fetching models with API key (length: ${apiKey.length})`);
-        const openRouterModels = await fetchOpenRouterModels(apiKey);
-
-        // console.log(`[OpenRouter] Fetch result: ${openRouterModels.length} models`);
-
-        if (openRouterModels.length > 0) {
-          modelsByProvider[provider.id] = openRouterModels;
-          // console.log(`[OpenRouter] Loaded ${openRouterModels.length} tool-calling models`);
-        } else {
-          // API returned no models
-          console.warn("[OpenRouter] API returned no models - check if API key is valid");
-          modelsByProvider[provider.id] = [];
-        }
-      } catch (error) {
-        console.error("[OpenRouter] Failed to fetch models:", error);
-        console.error("[OpenRouter] Error details:", error instanceof Error ? error.message : String(error));
-        modelsByProvider[provider.id] = [];
       }
       continue;
     }

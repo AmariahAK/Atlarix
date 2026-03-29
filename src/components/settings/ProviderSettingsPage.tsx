@@ -19,15 +19,14 @@ import {
 
 import { ProviderSettingsHeader } from "./ProviderSettingsHeader";
 import { ApiKeyConfiguration } from "./ApiKeyConfiguration";
-import { ProviderApiKeyInput } from "./ProviderApiKeyInput";
-import { FavoriteModelsSelector } from "./FavoriteModelsSelector";
+import { CompassProviderSettings } from "./CompassProviderSettings";
 import { ModelsSection } from "./ModelsSection";
 import { TokenBudgetInput } from "./TokenBudgetInput";
 import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector";
 import { OllamaRecommenderPanel } from "./OllamaRecommenderPanel";
 
 const PROVIDERS_WITH_TOKEN_BUDGET = [
-  "openai", "anthropic", "google", "openrouter",
+  "openai", "anthropic", "google",
   "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
 ];
 
@@ -362,27 +361,8 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   />
                 ) : null}
               </div>
-            ) : provider === "openrouter" ? (
-              <>
-                <ProviderApiKeyInput
-                  providerId={provider}
-                  providerName={providerDisplayName}
-                  providerWebsiteUrl={providerWebsiteUrl}
-                />
-
-                {/* OpenRouter Favorites Section */}
-                <div className="mt-6 space-y-4">
-                  <div>
-                    <h3 className="font-medium mb-1">Favorite Models</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Select 3 models for Fast / Balanced / Deep (max 3).
-                    </p>
-                  </div>
-                  <FavoriteModelsSelector />
-                </div>
-
-                <TokenBudgetInput providerId="openrouter" />
-              </>
+            ) : provider === "compass" ? (
+              <CompassProviderSettings />
             ) : (
               <>
                 <ApiKeyConfiguration
@@ -424,8 +404,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           </div>
         )}
 
-        {/* Custom Models removed - only show for non-OpenRouter providers */}
-        {supportsCustomModels && providerData && provider !== "openrouter" && (
+        {supportsCustomModels && providerData && provider !== "compass" && (
           <ModelsSection providerId={providerData.id} />
         )}
         <div className="h-24"></div>

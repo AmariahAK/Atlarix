@@ -16,7 +16,6 @@ import {
     getDiagramFallbackModel,
     isDiagramModelNotFoundError,
 } from "../utils/get_model_client";
-import { getFavoriteOpenRouterModels } from "../../db/openrouter_favorites";
 import { extractCodebase } from "../../utils/codebase";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
@@ -26,6 +25,7 @@ import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
 import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
+import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 
 // ============================================
 // TYPES
@@ -98,6 +98,17 @@ ipcMain.handle(
     "diagram:generate-ai",
     async (_, { workspaceId, title }: { workspaceId: number; title?: string }) => {
         try {
+            try {
+                await requireAuthSession();
+            } catch (e) {
+                if (e instanceof AuthRequiredError) {
+                    return {
+                        success: false,
+                        error: "Please sign in to generate diagrams with AI.",
+                    };
+                }
+                throw e;
+            }
             console.log(`[diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
 
             // 1. Get Workspace Path
@@ -107,8 +118,6 @@ ipcMain.handle(
             // Resolve path: absolute (imported) used as-is; relative (legacy) → atlarix-apps/name; new workspaces use absolute path.
             const appPath = getAtlarixAppPath(app.path);
             const settings = readSettings();
-            const openRouterFavorites = await getFavoriteOpenRouterModels();
-
             // 2. Extract Codebase Context
             // Use default context settings (empty paths = include all non-ignored)
             const chatContext: AppChatContext = {
@@ -167,8 +176,8 @@ ipcMain.handle(
                 };
             }
 
-            // 3. Prepare AI Client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
-            let modelConfig = getDiagramModelConfig(settings, openRouterFavorites);
+            // 3. Prepare AI Client (uses Auto when ON)
+            let modelConfig = getDiagramModelConfig(settings);
             let modelClientResult = await getModelClient(modelConfig, settings);
 
             // 4. Generate Diagram (retry once with fallback on 404 / model not found)
@@ -201,7 +210,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 });
             } catch (genError) {
                 if (isDiagramModelNotFoundError(genError)) {
-                    const fallback = getDiagramFallbackModel(settings, openRouterFavorites);
+                    const fallback = getDiagramFallbackModel(settings);
                     if (fallback) {
                         console.warn(`[diagram:generate-ai] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
                         modelConfig = fallback;
@@ -325,15 +334,15 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             console.error("[diagram:generate-ai] Error:", error);
             let message = error instanceof Error ? error.message : "Unknown error";
             if (isDiagramModelNotFoundError(error)) {
-                message = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose a model from Settings → OpenRouter → Favorite Models, then try again.";
+                message = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose another model in Settings, then try again.";
             } else if (typeof (error as { statusCode?: number })?.statusCode === "number") {
                 const code = (error as { statusCode: number }).statusCode;
-                if (code === 401) message = "API key invalid or user not found. Check your OpenRouter (or selected provider) API key in Settings.";
+                if (code === 401) message = "API key invalid or user not found. Check your provider API key in Settings.";
                 else if (code >= 400 && code < 500) message = `API error (${code}). Check your API key and model in Settings.`;
             }
             const msgLower = String(message).toLowerCase();
             if (msgLower.includes("user not found") || msgLower.includes("401")) {
-                message = "API key invalid or user not found. Check your OpenRouter (or selected provider) API key in Settings.";
+                message = "API key invalid or user not found. Check your provider API key in Settings.";
             }
             return {
                 success: false,
@@ -742,6 +751,14 @@ ipcMain.handle(
     "diagram:regenerate-background",
     async (_, { workspaceId }: { workspaceId: number }) => {
         try {
+            try {
+                await requireAuthSession();
+            } catch (e) {
+                if (e instanceof AuthRequiredError) {
+                    return { success: false, error: "Please sign in to regenerate diagrams." };
+                }
+                throw e;
+            }
             console.log(`[diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
 
             // 1. Get Workspace Path

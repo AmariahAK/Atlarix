@@ -241,22 +241,7 @@ function BlueprintCanvasInner({
   }, [blueprintLayoutKey, initialNodes, blueprint.rooms, blueprint.edges, setNodes, relayoutCounter]);
 
   // When blueprint.rooms or agent phase change, update node data (keep positions)
-  const roomDataEffectRuns = useRef(0);
   useEffect(() => {
-    roomDataEffectRuns.current += 1;
-    // #region agent log
-    fetch("http://127.0.0.1:7243/ingest/6fa43549-dcc1-439f-bea5-7f67bd27cdf1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hypothesisId: "H3",
-        location: "BlueprintCanvas.tsx:roomDataEffect",
-        message: "Room data effect ran, calling setNodes",
-        data: { run: roomDataEffectRuns.current },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const rooms = blueprint.rooms ?? [];
     setNodes((prev) =>
       prev.map((node) => {
@@ -291,25 +276,10 @@ function BlueprintCanvasInner({
 
   // Sync flow state to parent when nodes or edges change (preserve hidden rooms)
   const prevSync = useRef<string>("");
-  const syncEffectRuns = useRef(0);
   useEffect(() => {
     const key = `${nodes.length}-${edges.length}-${nodes.map((n) => n.id).join(",")}`;
     if (prevSync.current === key) return;
     prevSync.current = key;
-    syncEffectRuns.current += 1;
-    // #region agent log
-    fetch("http://127.0.0.1:7243/ingest/6fa43549-dcc1-439f-bea5-7f67bd27cdf1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hypothesisId: "H2",
-        location: "BlueprintCanvas.tsx:syncEffect",
-        message: "Sync effect calling onBlueprintChange",
-        data: { run: syncEffectRuns.current, nodesLen: nodes.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const fromFlow = flowToBlueprint(nodes, edges);
     const hiddenFromBlueprint = (blueprint.rooms ?? []).filter((r) => r.hidden);
     onBlueprintChange({

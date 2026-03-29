@@ -32,6 +32,83 @@ export interface TeamMember {
   created_at: string;
 }
 
+/**
+ * Workforce subscriber but no teams row yet (e.g. webhook lag or plan vs effective_tier mismatch).
+ * Creates a team owned by this user; RLS allows INSERT when owner_user_id = auth.uid().
+ * Skips if the user is already an active member of a team (avoid a second personal team for seat members).
+ */
+export async function ensureWorkforceTeamIfMissing(
+  userId: string,
+  userEmail: string,
+): Promise<Team | null> {
+  const existing = await getMyTeam(userId);
+  if (existing) return existing;
+
+  const supabase = getSupabaseClient();
+
+  const { data: activeMember, error: memErr } = await supabase
+    .from("team_members")
+    .select("team_id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (!memErr && activeMember?.team_id) {
+    const asMemberTeam = await getTeamById(activeMember.team_id);
+    if (asMemberTeam) return asMemberTeam;
+    logger.warn(
+      "[team-service] Active team_members row but teams row missing/unreadable; not auto-creating a second team",
+    );
+    return null;
+  }
+
+  const { data: userRow, error: uErr } = await supabase
+    .from("users")
+    .select("plan, effective_tier, lemon_subscription_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (uErr || !userRow) {
+    return null;
+  }
+
+  const plan = String(userRow.plan ?? "free");
+  const eff = String(userRow.effective_tier ?? plan);
+  const hasSub = !!userRow.lemon_subscription_id;
+
+  const workforceEntitled = plan === "workforce" || eff === "workforce";
+  if (!workforceEntitled) {
+    return null;
+  }
+
+  // Seat member: free plan row + workforce effective tier + no own subscription — do not create a personal org
+  if (plan === "free" && eff === "workforce" && !hasSub) {
+    return null;
+  }
+
+  const owned = await getTeamByOwner(userId);
+  if (owned) return owned;
+
+  const local = (userEmail || "team").split("@")[0] || "My";
+  const { data: inserted, error: insErr } = await supabase
+    .from("teams")
+    .insert({
+      name: `Team ${local}`,
+      owner_user_id: userId,
+      lemonsqueezy_subscription_id: userRow.lemon_subscription_id ?? null,
+      seat_limit: 20,
+      extra_seats: 0,
+      active: true,
+    })
+    .select("*")
+    .single();
+
+  if (insErr) {
+    logger.warn("[team-service] ensureWorkforceTeamIfMissing:", insErr.message);
+    return null;
+  }
+  return inserted as Team;
+}
+
 export async function getMyTeam(userId: string): Promise<Team | null> {
   try {
     const supabase = getSupabaseClient();

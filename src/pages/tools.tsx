@@ -122,7 +122,7 @@ const FEATURES: ToolFeature[] = [
   {
     id: "models",
     title: "Models & Providers",
-    shortDescription: "OpenRouter, Ollama, LM Studio, and others. Auto mode: one provider, up to 3 models (Fast/Balanced/Thinking).",
+    shortDescription: "Compass built in (no key). Plus Ollama, LM Studio, OpenAI, Anthropic, and more. Auto: one provider, up to 3 models (Fast/Balanced/Thinking).",
     category: "models",
     steps: ["Settings → Model Providers", "Add API keys for providers", "Config → Change model or Configure Auto (provider + Fast/Medium/Thinking)"],
     howItWorks: "Select a single model for manual control or turn on Auto to route by complexity using your chosen Fast/Balanced/Thinking models for a single provider.",

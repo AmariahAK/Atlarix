@@ -10,7 +10,7 @@ const DEFAULT_BUDGETS: Record<string, number> = {
   openai: 128000,
   anthropic: 200000,
   google: 1000000,
-  openrouter: 128000,
+  compass: 128000,
   groq: 128000,
   togetherai: 128000,
   mistral: 128000,

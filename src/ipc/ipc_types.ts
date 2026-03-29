@@ -71,7 +71,26 @@ export interface ChatResponseEnd {
   contextWindow?: number;
   /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
   hadToolCallsOrPermissions?: boolean;
+  /** True when the completed turn used the managed Compass provider (for usage refresh). */
+  usedCompass?: boolean;
+  /** Populated when usedCompass — for analytics (PostHog). */
+  compassTokens?: number;
+  compassTier?: string;
 }
+
+/** Result of `compass:get-usage` — use `reason` so UI does not treat RPC/migration failures as “signed out”. */
+export type CompassUsageIpcResult =
+  | {
+      ok: true;
+      tokensUsedThisMonth: number;
+      monthlyLimit: number;
+      tier: string;
+    }
+  | {
+      ok: false;
+      reason: "not_authenticated" | "rpc_error";
+      message?: string;
+    };
 
 export interface ChatProblemsEvent {
   chatId: number;
