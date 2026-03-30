@@ -1,3 +1,9 @@
+## v5.1.1 — SQLite MCP tables bootstrap (2026-03-30)
+
+- **SQLite:** `ensureMcpBaseTablesIfNeeded()` creates `mcp_servers` and `mcp_tool_consents` when missing (migration 0012 baseline). Fixes `mcp:list-servers` → `no such table: mcp_servers` when `__drizzle_migrations` was seeded so Drizzle skipped applying migration 0012.
+
+---
+
 ## v5.1.0 – Compass, usage limits, onboarding (2026-03-29)
 
 - **Compass:** Managed cloud provider (OpenRouter-backed, single build-time key). Default model **Compass Fast**; Pro/Workforce unlock Balanced and Thinking. OpenRouter removed from user-facing settings and model labels.

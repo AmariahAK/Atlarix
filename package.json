@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "5.1.0",
+  "version": "5.1.1",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {

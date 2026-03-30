@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v5.1.0  
+**Current Version:** v5.1.1  
 **Next Version:** v5.2+ (planning)  
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-03-30
 
 ---
 
@@ -16,6 +16,10 @@
 | Chat usage + block + toasts | **Done** | IPC bump after stream, `useCompassSendGate`, banners/strip |
 | Onboarding 3-step | **Done** | `onboarding.ts`, home/settings banners, progress bar |
 | CI env | **Done** | `release.yml`, `vite.main.config.mts` MAIN_KEYS |
+
+### v5.1.1 patch (2026-03-30)
+
+- MCP: `ensureMcpBaseTablesIfNeeded` in `db/index.ts` before `fixMcpServersSchemaIfNeeded` (see `docs/CHANGELOG.md`).
 
 ### v5.1 follow-ups
 

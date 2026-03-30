@@ -68,6 +68,15 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
     logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
   }
 
+  // PRE-MIGRATION FIX: Create MCP tables if missing (migration 0012 baseline).
+  // When __drizzle_migrations was seeded with all hashes, migrate() can skip every file — including 0012 —
+  // leaving mcp_servers absent while the app expects it (mcp:list-servers).
+  try {
+    ensureMcpBaseTablesIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal, continuing):", error);
+  }
+
   // PRE-MIGRATION FIX: Ensure mcp_servers has scope and app_id (avoids "no such column: scope")
   try {
     fixMcpServersSchemaIfNeeded(sqlite);
@@ -251,6 +260,52 @@ function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
 
   transaction();
   logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
+}
+
+/**
+ * Create mcp_servers + mcp_tool_consents if missing (matches drizzle/0012_bouncy_fenris.sql).
+ * Required when migrations were skipped after journal seeding but the app still uses MCP IPC.
+ */
+function ensureMcpBaseTablesIfNeeded(sqlite: Database.Database): void {
+  const hasServers = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'")
+    .get();
+  if (!hasServers) {
+    logger.log("[Schema Fix] Creating mcp_servers table (0012 baseline)");
+    sqlite.exec(`
+      CREATE TABLE mcp_servers (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        name text NOT NULL,
+        transport text NOT NULL,
+        command text,
+        args text,
+        env_json text,
+        url text,
+        enabled integer DEFAULT 0 NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )
+    `);
+  }
+  const hasConsents = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_tool_consents'")
+    .get();
+  if (!hasConsents) {
+    logger.log("[Schema Fix] Creating mcp_tool_consents table (0012 baseline)");
+    sqlite.exec(`
+      CREATE TABLE mcp_tool_consents (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        server_id integer NOT NULL,
+        tool_name text NOT NULL,
+        consent text DEFAULT 'ask' NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON UPDATE no action ON DELETE cascade
+      )
+    `);
+    sqlite.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS uniq_mcp_consent ON mcp_tool_consents (server_id, tool_name)",
+    );
+  }
 }
 
 /**
