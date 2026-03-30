@@ -46,6 +46,66 @@ function resolveDrizzleMigrationsCandidateFolders(): string[] {
   return out;
 }
 
+/** Minimum tables after baseline migrations; extend if core IPC assumes new tables. */
+const REQUIRED_CORE_TABLES = [
+  "apps",
+  "chats",
+  "messages",
+  "language_model_providers",
+  "language_models",
+  "prompts",
+] as const;
+
+function isCoreSchemaComplete(sqlite: Database.Database): boolean {
+  const stmt = sqlite.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+  );
+  return REQUIRED_CORE_TABLES.every((name) => !!stmt.get(name));
+}
+
+function isMigrationStateConsistent(
+  sqlite: Database.Database,
+  migrationsFolderFound: boolean,
+): boolean {
+  if (!migrationsFolderFound) {
+    return true;
+  }
+  const hasTable = sqlite
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+    )
+    .get();
+  if (!hasTable) {
+    return false;
+  }
+  const row = sqlite
+    .prepare("SELECT COUNT(*) as c FROM __drizzle_migrations")
+    .get() as { c: number };
+  return (row?.c ?? 0) >= 1;
+}
+
+function closeSqliteSilently(sqlite: Database.Database): void {
+  try {
+    sqlite.close();
+  } catch (e) {
+    logger.warn("[DB] Error closing SQLite (non-fatal):", e);
+  }
+}
+
+function deleteSqliteDbFiles(dbPath: string): void {
+  for (const extra of ["", "-wal", "-shm"] as const) {
+    const p = extra === "" ? dbPath : dbPath + extra;
+    try {
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+        logger.log("[DB] Removed:", p);
+      }
+    } catch (e) {
+      logger.warn("[DB] Could not remove file:", p, e);
+    }
+  }
+}
+
 // Database connection factory
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -63,7 +123,8 @@ export function getDatabasePath(): string {
 }
 
 /**
- * Initialize the database connection
+ * Initialize the database connection. On failure with bundled migrations available,
+ * deletes local sqlite.db (+ wal/shm) once and retries so partial bootstrap-only DBs recover.
  */
 export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   $client: Database.Database;
@@ -73,211 +134,146 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   const dbPath = getDatabasePath();
   logger.log("Initializing database at:", dbPath);
 
-  // Check if the database file exists and remove it if it has issues
-  try {
-    if (fs.existsSync(dbPath)) {
-      const stats = fs.statSync(dbPath);
-      if (stats.size < 100) {
-        logger.log("Database file exists but may be corrupted. Removing it...");
-        fs.unlinkSync(dbPath);
-      }
-    }
-  } catch (error) {
-    logger.error("Error checking database file:", error);
-  }
-
   fs.mkdirSync(getUserDataPath(), { recursive: true });
   fs.mkdirSync(getAtlarixAppPath("."), { recursive: true });
 
-  const sqlite = new Database(dbPath, { timeout: 10000 });
-  sqlite.pragma("foreign_keys = ON");
+  const maxAttempts = 2;
 
-  // #region agent log
-  {
-    const t = (name: string) =>
-      !!sqlite
-        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
-        .get(name);
-    void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "9a91a9",
-      },
-      body: JSON.stringify({
-        sessionId: "9a91a9",
-        location: "db/index.ts:initializeDatabase",
-        message: "sqlite open: core tables before pre-migration fixes",
-        data: {
-          hasApps: t("apps"),
-          hasChats: t("chats"),
-          hasMessages: t("messages"),
-          dbPath,
-        },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
-
-  // PRE-MIGRATION FIX: Check and fix prompts table schema before Drizzle migrations
-  // This handles the case where old schema (with 'title') exists but needs 'type' and 'workspace_id'
-  try {
-    fixPromptsSchemaIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
-  }
-
-  // PRE-MIGRATION FIX: chats + messages from 0000 / 0022 / 0029 baseline when journal seed skipped migrations.
-  try {
-    ensureChatCoreTablesIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring chats / messages tables (non-fatal, continuing):", error);
-  }
-
-  // #region agent log
-  {
-    const t = (name: string) =>
-      !!sqlite
-        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
-        .get(name);
-    let drizzleMigrationsRowCount = -1;
-    if (t("__drizzle_migrations")) {
-      drizzleMigrationsRowCount =
-        (sqlite.prepare("SELECT COUNT(*) as c FROM __drizzle_migrations").get() as { c: number })
-          .c ?? -1;
-    }
-    void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "9a91a9",
-      },
-      body: JSON.stringify({
-        sessionId: "9a91a9",
-        location: "db/index.ts:initializeDatabase",
-        message: "after ensureChatCoreTablesIfNeeded",
-        data: {
-          hasApps: t("apps"),
-          hasChats: t("chats"),
-          hasMessages: t("messages"),
-          drizzleMigrationsRowCount,
-        },
-        timestamp: Date.now(),
-        hypothesisId: "H3",
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
-
-  // PRE-MIGRATION FIX: Create MCP tables if missing (migration 0012 baseline).
-  // When __drizzle_migrations was seeded with all hashes, migrate() can skip every file — including 0012 —
-  // leaving mcp_servers absent while the app expects it (mcp:list-servers).
-  try {
-    ensureMcpBaseTablesIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal, continuing):", error);
-  }
-
-  // PRE-MIGRATION FIX: Ensure mcp_servers has scope and app_id (avoids "no such column: scope")
-  try {
-    fixMcpServersSchemaIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error fixing mcp_servers schema (non-fatal, continuing):", error);
-  }
-
-  // PRE-MIGRATION FIX: Ensure blueprints table exists (avoids "no such table: blueprints")
-  try {
-    ensureBlueprintsTableIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring blueprints table (non-fatal, continuing):", error);
-  }
-
-  // PRE-MIGRATION FIX: Ensure PIVOT tables exist (pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots)
-  try {
-    ensurePivotTablesIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring PIVOT tables (non-fatal, continuing):", error);
-  }
-
-  // v5.0: Ensure project_snapshots / project_memory (Section 2)
-  try {
-    ensureProjectMemoryTablesIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring project memory tables (non-fatal, continuing):", error);
-  }
-
-  // v3.6: Ensure review_patterns table (lightning review memory)
-  try {
-    ensureReviewPatternsTableIfNeeded(sqlite);
-  } catch (error) {
-    logger.error("Error ensuring review_patterns table (non-fatal, continuing):", error);
-  }
-
-  _db = drizzle(sqlite, { schema });
-
-  try {
-    const candidateFolders = resolveDrizzleMigrationsCandidateFolders();
-    for (const folder of candidateFolders) {
-      logger.log(`[Migrations] candidate exists=${fs.existsSync(folder)} path=${folder}`);
-    }
-
-    const migrationsFolder = candidateFolders.find((folder) =>
-      fs.existsSync(folder),
-    );
-
-    if (!migrationsFolder) {
-      logger.error(
-        "Migrations folder not found. Tried:",
-        candidateFolders.join(", "),
-      );
-    } else {
-      logger.log("[Migrations] using folder:", migrationsFolder);
-      // If apps table already exists but __drizzle_migrations is empty/missing,
-      // seed verified rows only; migrate() applies the rest.
-      seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
-      logger.log("Running migrations from:", migrationsFolder);
-      migrate(_db, { migrationsFolder });
-      // #region agent log
-      {
-        const t = (name: string) =>
-          !!sqlite
-            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
-            .get(name);
-        let drizzleMigrationsRowCount = -1;
-        if (t("__drizzle_migrations")) {
-          drizzleMigrationsRowCount =
-            (sqlite.prepare("SELECT COUNT(*) as c FROM __drizzle_migrations").get() as { c: number })
-              .c ?? -1;
-        }
-        void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Debug-Session-Id": "9a91a9",
-          },
-          body: JSON.stringify({
-            sessionId: "9a91a9",
-            location: "db/index.ts:initializeDatabase",
-            message: "post-migrate",
-            data: {
-              hasChats: t("chats"),
-              hasMessages: t("messages"),
-              drizzleMigrationsRowCount,
-            },
-            timestamp: Date.now(),
-            hypothesisId: "H4",
-          }),
-        }).catch(() => {});
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let sqlite: Database.Database | null = null;
+    try {
+      if (attempt > 0) {
+        logger.warn(
+          "[DB] Retrying database initialization after removing incomplete local DB (attempt 2/2)...",
+        );
       }
-      // #endregion
+
+      try {
+        if (fs.existsSync(dbPath)) {
+          const stats = fs.statSync(dbPath);
+          if (stats.size < 100) {
+            logger.log("Database file exists but may be corrupted. Removing it...");
+            fs.unlinkSync(dbPath);
+          }
+        }
+      } catch (error) {
+        logger.error("Error checking database file:", error);
+      }
+
+      sqlite = new Database(dbPath, { timeout: 10000 });
+      sqlite.pragma("foreign_keys = ON");
+
+      try {
+        fixPromptsSchemaIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensureChatCoreTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring chats / messages tables (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensureMcpBaseTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal, continuing):", error);
+      }
+
+      try {
+        fixMcpServersSchemaIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error fixing mcp_servers schema (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensureBlueprintsTableIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring blueprints table (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensurePivotTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring PIVOT tables (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensureProjectMemoryTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring project memory tables (non-fatal, continuing):", error);
+      }
+
+      try {
+        ensureReviewPatternsTableIfNeeded(sqlite);
+      } catch (error) {
+        logger.error("Error ensuring review_patterns table (non-fatal, continuing):", error);
+      }
+
+      const drizzleDb = drizzle(sqlite, { schema });
+
+      const candidateFolders = resolveDrizzleMigrationsCandidateFolders();
+      for (const folder of candidateFolders) {
+        logger.log(`[Migrations] candidate exists=${fs.existsSync(folder)} path=${folder}`);
+      }
+
+      const migrationsFolder = candidateFolders.find((folder) =>
+        fs.existsSync(folder),
+      );
+      const migrationsFolderFound = !!migrationsFolder;
+
+      if (!migrationsFolder) {
+        logger.error(
+          "Migrations folder not found. Tried:",
+          candidateFolders.join(", "),
+        );
+      } else {
+        logger.log("[Migrations] using folder:", migrationsFolder);
+        seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
+        logger.log("Running migrations from:", migrationsFolder);
+        migrate(drizzleDb, { migrationsFolder });
+      }
+
+      if (!isCoreSchemaComplete(sqlite)) {
+        throw new Error(
+          `SQLite core schema incomplete (missing one of: ${REQUIRED_CORE_TABLES.join(", ")}).`,
+        );
+      }
+      if (!isMigrationStateConsistent(sqlite, migrationsFolderFound)) {
+        throw new Error(
+          "SQLite __drizzle_migrations is missing or empty after migrate; journal state is inconsistent.",
+        );
+      }
+
+      _db = drizzleDb;
+      sqlite = null;
+      return _db as any;
+    } catch (error) {
+      logger.error(`[DB] Initialization attempt ${attempt + 1} failed:`, error);
+      if (sqlite) {
+        closeSqliteSilently(sqlite);
+        sqlite = null;
+      }
+
+      const migrationsFolderFound = resolveDrizzleMigrationsCandidateFolders().some((f) =>
+        fs.existsSync(f),
+      );
+      const canRetry = attempt < maxAttempts - 1 && migrationsFolderFound;
+
+      if (canRetry) {
+        logger.warn(
+          "[DB] Deleting local sqlite.db (and -wal/-shm) and retrying once — bundled migrations are available.",
+        );
+        deleteSqliteDbFiles(dbPath);
+        continue;
+      }
+
+      throw error;
     }
-  } catch (error) {
-    logger.error("Migration error:", error);
   }
 
-  return _db as any;
+  throw new Error("Database initialization failed after retries.");
 }
 
 /**
@@ -321,21 +317,18 @@ function seedDrizzleMigrationsIfNeeded(
     `INSERT INTO ${tableName} (hash, created_at) VALUES (?, ?)`,
   );
   let seeded = 0;
-  let stopBefore: string | null = null;
   for (const entry of entries) {
     const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
     if (!fs.existsSync(sqlPath)) {
       logger.warn(
         `[Schema Fix] Migration SQL missing (${entry.tag}); migrate() may fail. Expected at ${sqlPath}`,
       );
-      stopBefore = entry.tag;
       break;
     }
     if (!isJournalMigrationApplied(entry.tag, sqlite)) {
       logger.log(
         `[Schema Fix] Verified seed stops before ${entry.tag}; migrate() will apply pending migrations.`,
       );
-      stopBefore = entry.tag;
       break;
     }
     const query = fs.readFileSync(sqlPath, "utf8");
@@ -346,27 +339,6 @@ function seedDrizzleMigrationsIfNeeded(
   if (seeded > 0) {
     logger.log(`[Schema Fix] Recorded ${seeded} migration(s) as already applied.`);
   }
-  // #region agent log
-  void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "9a91a9",
-    },
-    body: JSON.stringify({
-      sessionId: "9a91a9",
-      location: "db/index.ts:seedDrizzleMigrationsIfNeeded",
-      message: "verified journal seed complete",
-      data: {
-        journalEntryCount: entries.length,
-        seededCount: seeded,
-        stopBefore,
-      },
-      timestamp: Date.now(),
-      hypothesisId: "H2",
-    }),
-  }).catch(() => {});
-  // #endregion
 }
 
 /**

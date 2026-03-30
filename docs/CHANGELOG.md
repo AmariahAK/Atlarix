@@ -1,3 +1,10 @@
+## v5.1.4 — SQLite auto-recovery on bad local DB (2026-03-31)
+
+- **SQLite:** After `migrate()`, the app verifies core tables (`apps`, `chats`, `messages`, `language_model_providers`, `language_models`, `prompts`) and, when bundled migrations are available, that `__drizzle_migrations` exists with at least one row. If validation fails, it closes the DB, deletes `sqlite.db` plus `-wal`/`-shm`, and retries initialization **once** (only when a `drizzle/` folder is found on disk—no infinite wipe if migrations are missing). Fixes partial “bootstrap-only” DBs (e.g. ensure* tables without `chats`). The renderer stays on the existing loading gate until init succeeds.
+- **Hygiene:** Removed temporary debug ingest `fetch` calls from `src/db/index.ts`.
+
+---
+
 ## v5.1.3 — Packaged app: Drizzle migrations path (2026-03-30)
 
 - **Production:** `drizzle/` is bundled via Electron Forge `extraResource` (unpacked under `Resources/drizzle`) so SQLite migrations are always on a real filesystem path.
