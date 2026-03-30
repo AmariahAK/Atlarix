@@ -163,52 +163,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       sqlite = new Database(dbPath, { timeout: 10000 });
       sqlite.pragma("foreign_keys = ON");
 
-      try {
-        fixPromptsSchemaIfNeeded(sqlite);
-      } catch (error) {
+      // PRE-MIGRATION: Only schema fixes that must run before migrate() (column renames, etc.)
+      try { fixPromptsSchemaIfNeeded(sqlite); } catch (error) {
         logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensureChatCoreTablesIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring chats / messages tables (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensureMcpBaseTablesIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal, continuing):", error);
-      }
-
-      try {
-        fixMcpServersSchemaIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error fixing mcp_servers schema (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensureBlueprintsTableIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring blueprints table (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensurePivotTablesIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring PIVOT tables (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensureProjectMemoryTablesIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring project memory tables (non-fatal, continuing):", error);
-      }
-
-      try {
-        ensureReviewPatternsTableIfNeeded(sqlite);
-      } catch (error) {
-        logger.error("Error ensuring review_patterns table (non-fatal, continuing):", error);
       }
 
       const drizzleDb = drizzle(sqlite, { schema });
@@ -235,6 +192,31 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         migrate(drizzleDb, { migrationsFolder });
       }
 
+      // POST-MIGRATION safety nets: create tables that migrations may have skipped
+      // (legacy DBs with seeded journals, partial upgrades, etc.)
+      // These use IF NOT EXISTS or check sqlite_master first, so they are no-ops after a clean migrate().
+      try { ensureChatCoreTablesIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring chats / messages tables (non-fatal):", error);
+      }
+      try { ensureMcpBaseTablesIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal):", error);
+      }
+      try { fixMcpServersSchemaIfNeeded(sqlite); } catch (error) {
+        logger.error("Error fixing mcp_servers schema (non-fatal):", error);
+      }
+      try { ensureBlueprintsTableIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring blueprints table (non-fatal):", error);
+      }
+      try { ensurePivotTablesIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring PIVOT tables (non-fatal):", error);
+      }
+      try { ensureProjectMemoryTablesIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring project memory tables (non-fatal):", error);
+      }
+      try { ensureReviewPatternsTableIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring review_patterns table (non-fatal):", error);
+      }
+
       if (!isCoreSchemaComplete(sqlite)) {
         throw new Error(
           `SQLite core schema incomplete (missing one of: ${REQUIRED_CORE_TABLES.join(", ")}).`,
@@ -246,11 +228,18 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         );
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'9a91a9'},body:JSON.stringify({sessionId:'9a91a9',location:'db/index.ts:initSuccess',message:'DB init success',data:{attempt,coreOk:isCoreSchemaComplete(sqlite),migOk:isMigrationStateConsistent(sqlite,migrationsFolderFound)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+
       _db = drizzleDb;
       sqlite = null;
       return _db as any;
     } catch (error) {
       logger.error(`[DB] Initialization attempt ${attempt + 1} failed:`, error);
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'9a91a9'},body:JSON.stringify({sessionId:'9a91a9',location:'db/index.ts:initFail',message:'DB init attempt failed',data:{attempt,error:String(error)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       if (sqlite) {
         closeSqliteSilently(sqlite);
         sqlite = null;

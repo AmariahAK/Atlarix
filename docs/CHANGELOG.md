@@ -1,3 +1,9 @@
+## v5.1.5 — Move ensure* safety nets after migrate() (2026-03-31)
+
+- **Fix:** Moved all `ensure*` table-bootstrap calls (mcp_servers, blueprints, pivot tables, etc.) to run **after** `migrate()` instead of before. On a fresh DB (e.g. after auto-recovery deletes the corrupt one), `ensure*` would create tables like `mcp_servers`, then `migrate()` would fail with `CREATE TABLE mcp_servers` (no `IF NOT EXISTS` in migration SQL). Now `migrate()` runs first on a clean slate, and `ensure*` only fills gaps for legacy DBs afterward.
+
+---
+
 ## v5.1.4 — SQLite auto-recovery on bad local DB (2026-03-31)
 
 - **SQLite:** After `migrate()`, the app verifies core tables (`apps`, `chats`, `messages`, `language_model_providers`, `language_models`, `prompts`) and, when bundled migrations are available, that `__drizzle_migrations` exists with at least one row. If validation fails, it closes the DB, deletes `sqlite.db` plus `-wal`/`-shm`, and retries initialization **once** (only when a `drizzle/` folder is found on disk—no infinite wipe if migrations are missing). Fixes partial “bootstrap-only” DBs (e.g. ensure* tables without `chats`). The renderer stays on the existing loading gate until init succeeds.
