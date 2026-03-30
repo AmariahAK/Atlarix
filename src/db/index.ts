@@ -9,11 +9,42 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
+import { getAtlarixAppPath, getElectron, getUserDataPath } from "../paths/paths";
 import log from "electron-log";
 import { isJournalMigrationApplied } from "./migration_seed_verification";
 
 const logger = log.scope("db");
+
+/**
+ * Ordered candidates for the Drizzle SQL folder. Packaged apps must not rely on
+ * process.cwd() (often "/" or launch dir). extraResource copies `drizzle` to
+ * process.resourcesPath/drizzle; app.getAppPath()/drizzle covers asar layout in dev/prod.
+ */
+function resolveDrizzleMigrationsCandidateFolders(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (dir: string) => {
+    const abs = path.resolve(dir);
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    out.push(abs);
+  };
+
+  push(path.join(process.cwd(), "drizzle"));
+  if (process.resourcesPath) {
+    push(path.join(process.resourcesPath, "drizzle"));
+  }
+  const electron = getElectron();
+  if (electron?.app) {
+    try {
+      push(path.join(electron.app.getAppPath(), "drizzle"));
+    } catch (e) {
+      logger.warn("[Migrations] app.getAppPath() unavailable:", e);
+    }
+  }
+  push(path.join(__dirname, "..", "..", "drizzle"));
+  return out;
+}
 
 // Database connection factory
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -187,15 +218,10 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   _db = drizzle(sqlite, { schema });
 
   try {
-    // In dev builds (Vite/Electron), __dirname often points at ".vite/build",
-    // so "..../drizzle" does not exist. Prefer the project-root drizzle folder
-    // when available, with a fallback to the bundled path.
-    const candidateFolders = [
-      // Project root (when running from source)
-      path.join(process.cwd(), "drizzle"),
-      // Bundled path (packaged app)
-      path.join(__dirname, "..", "..", "drizzle"),
-    ];
+    const candidateFolders = resolveDrizzleMigrationsCandidateFolders();
+    for (const folder of candidateFolders) {
+      logger.log(`[Migrations] candidate exists=${fs.existsSync(folder)} path=${folder}`);
+    }
 
     const migrationsFolder = candidateFolders.find((folder) =>
       fs.existsSync(folder),
@@ -207,8 +233,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         candidateFolders.join(", "),
       );
     } else {
+      logger.log("[Migrations] using folder:", migrationsFolder);
       // If apps table already exists but __drizzle_migrations is empty/missing,
-      // seed the migrations table so Drizzle skips already-applied migrations.
+      // seed verified rows only; migrate() applies the rest.
       seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
       logger.log("Running migrations from:", migrationsFolder);
       migrate(_db, { migrationsFolder });

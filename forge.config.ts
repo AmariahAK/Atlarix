@@ -84,7 +84,8 @@ const config: ForgeConfig = {
     osxNotarize: undefined,
     asar: true,
     ignore,
-    extraResource: ["node_modules/dugite/git"],
+    // drizzle: unpacked next to app.asar so migrate() always reads real files (not asar-only paths).
+    extraResource: ["node_modules/dugite/git", "drizzle"],
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
   rebuildConfig: {

@@ -1,3 +1,10 @@
+## v5.1.3 — Packaged app: Drizzle migrations path (2026-03-30)
+
+- **Production:** `drizzle/` is bundled via Electron Forge `extraResource` (unpacked under `Resources/drizzle`) so SQLite migrations are always on a real filesystem path.
+- **Runtime:** `resolveDrizzleMigrationsCandidateFolders()` tries `process.cwd()`, `process.resourcesPath`, `app.getAppPath()`, then `__dirname`-relative paths; logs each candidate’s existence and the folder used. Fixes packaged builds where `migrate()` never ran (`no such table: chats`, `language_model_providers`, etc.) while `npm start` worked.
+
+---
+
 ## v5.1.2 — Verified Drizzle journal seed + maintainer docs (2026-03-30)
 
 - **SQLite:** `seedDrizzleMigrationsIfNeeded` now inserts `__drizzle_migrations` rows only while each journal migration’s effects are detectable in the DB; `migrate()` applies genuinely pending SQL. Prevents “empty journal + partial schema” installs from skipping migrations and breaking features (`chats`, MCP, etc.). Verifiers live in [`src/db/migration_seed_verification.ts`](../src/db/migration_seed_verification.ts).
