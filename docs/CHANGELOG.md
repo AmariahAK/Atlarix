@@ -1,3 +1,10 @@
+## v5.1.2 — Verified Drizzle journal seed + maintainer docs (2026-03-30)
+
+- **SQLite:** `seedDrizzleMigrationsIfNeeded` now inserts `__drizzle_migrations` rows only while each journal migration’s effects are detectable in the DB; `migrate()` applies genuinely pending SQL. Prevents “empty journal + partial schema” installs from skipping migrations and breaking features (`chats`, MCP, etc.). Verifiers live in [`src/db/migration_seed_verification.ts`](../src/db/migration_seed_verification.ts).
+- **Docs:** README Development Setup documents the requirement to update `migration_seed_verification.ts` whenever `_journal.json` gains a migration.
+
+---
+
 ## v5.1.1 — SQLite MCP tables bootstrap (2026-03-30)
 
 - **SQLite:** `ensureMcpBaseTablesIfNeeded()` creates `mcp_servers` and `mcp_tool_consents` when missing (migration 0012 baseline). Fixes `mcp:list-servers` → `no such table: mcp_servers` when `__drizzle_migrations` was seeded so Drizzle skipped applying migration 0012.

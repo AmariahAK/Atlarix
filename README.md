@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.1.1*
+*Current: v5.1.2*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
@@ -275,6 +275,8 @@ Atlarix supports **code generation and modification**, **session/context summari
 ### Development Setup
 
 **Important — Schema changes:** Any update that modifies the database schema (adding columns, tables, indexes, or relations) must include a corresponding migration file so the auto-migrate system runs it correctly on app start. Do not rely on `db:push` alone in production builds. Migration files live in [`drizzle/`](drizzle/) at the project root and must follow the existing naming convention (see [`drizzle/meta/_journal.json`](drizzle/meta/_journal.json)). **v4.0** adds one local SQLite migration (`0030_v40_tool_session_loads`) and two Supabase migrations (`20260316_v40_teams.sql`, `20260316_v40_workforce_connected_services.sql`); the local migration runs automatically on first launch; run the Supabase migrations in your project (e.g. `supabase db push` or via Dashboard) when deploying v4.0.
+
+**Important — Verified journal seed (SQLite):** Some legacy databases had `apps` but an empty `__drizzle_migrations` table. Atlarix seeds that journal **only for migrations whose effects are already present** in the file-backed DB, then runs `migrate()` for the rest (see `seedDrizzleMigrationsIfNeeded` in [`src/db/index.ts`](src/db/index.ts)). **Every time you add a migration to [`drizzle/meta/_journal.json`](drizzle/meta/_journal.json), add a matching branch in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts)** (`isJournalMigrationApplied`) so we never mark a migration as done when its tables/columns are missing. A missing case is treated as “not applied” (safe: Drizzle runs that SQL), but a wrong or overly loose verifier can still over-seed—match each migration to concrete `sqlite_master` / `PRAGMA table_info` checks. Future releases should treat this as part of the migration checklist alongside generating the SQL file.
 
 ```bash
 git clone https://github.com/norahlabs/atlarix.git

@@ -11,6 +11,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
 import log from "electron-log";
+import { isJournalMigrationApplied } from "./migration_seed_verification";
 
 const logger = log.scope("db");
 
@@ -60,6 +61,35 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   const sqlite = new Database(dbPath, { timeout: 10000 });
   sqlite.pragma("foreign_keys = ON");
 
+  // #region agent log
+  {
+    const t = (name: string) =>
+      !!sqlite
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+        .get(name);
+    void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "9a91a9",
+      },
+      body: JSON.stringify({
+        sessionId: "9a91a9",
+        location: "db/index.ts:initializeDatabase",
+        message: "sqlite open: core tables before pre-migration fixes",
+        data: {
+          hasApps: t("apps"),
+          hasChats: t("chats"),
+          hasMessages: t("messages"),
+          dbPath,
+        },
+        timestamp: Date.now(),
+        hypothesisId: "H1",
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
+
   // PRE-MIGRATION FIX: Check and fix prompts table schema before Drizzle migrations
   // This handles the case where old schema (with 'title') exists but needs 'type' and 'workspace_id'
   try {
@@ -67,6 +97,48 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   } catch (error) {
     logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
   }
+
+  // PRE-MIGRATION FIX: chats + messages from 0000 / 0022 / 0029 baseline when journal seed skipped migrations.
+  try {
+    ensureChatCoreTablesIfNeeded(sqlite);
+  } catch (error) {
+    logger.error("Error ensuring chats / messages tables (non-fatal, continuing):", error);
+  }
+
+  // #region agent log
+  {
+    const t = (name: string) =>
+      !!sqlite
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+        .get(name);
+    let drizzleMigrationsRowCount = -1;
+    if (t("__drizzle_migrations")) {
+      drizzleMigrationsRowCount =
+        (sqlite.prepare("SELECT COUNT(*) as c FROM __drizzle_migrations").get() as { c: number })
+          .c ?? -1;
+    }
+    void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "9a91a9",
+      },
+      body: JSON.stringify({
+        sessionId: "9a91a9",
+        location: "db/index.ts:initializeDatabase",
+        message: "after ensureChatCoreTablesIfNeeded",
+        data: {
+          hasApps: t("apps"),
+          hasChats: t("chats"),
+          hasMessages: t("messages"),
+          drizzleMigrationsRowCount,
+        },
+        timestamp: Date.now(),
+        hypothesisId: "H3",
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
 
   // PRE-MIGRATION FIX: Create MCP tables if missing (migration 0012 baseline).
   // When __drizzle_migrations was seeded with all hashes, migrate() can skip every file — including 0012 —
@@ -140,6 +212,39 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
       logger.log("Running migrations from:", migrationsFolder);
       migrate(_db, { migrationsFolder });
+      // #region agent log
+      {
+        const t = (name: string) =>
+          !!sqlite
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+            .get(name);
+        let drizzleMigrationsRowCount = -1;
+        if (t("__drizzle_migrations")) {
+          drizzleMigrationsRowCount =
+            (sqlite.prepare("SELECT COUNT(*) as c FROM __drizzle_migrations").get() as { c: number })
+              .c ?? -1;
+        }
+        void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "9a91a9",
+          },
+          body: JSON.stringify({
+            sessionId: "9a91a9",
+            location: "db/index.ts:initializeDatabase",
+            message: "post-migrate",
+            data: {
+              hasChats: t("chats"),
+              hasMessages: t("messages"),
+              drizzleMigrationsRowCount,
+            },
+            timestamp: Date.now(),
+            hypothesisId: "H4",
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
     }
   } catch (error) {
     logger.error("Migration error:", error);
@@ -149,9 +254,11 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
 }
 
 /**
- * If the apps table already exists but __drizzle_migrations is empty or missing,
- * seed the migrations table with all journal entries (using file hash and when)
- * so that migrate() skips already-applied migrations and does not fail on CREATE TABLE apps.
+ * If `apps` exists but `__drizzle_migrations` is empty (legacy DB never tracked by Drizzle),
+ * insert hashes only for migrations whose effects are already present. Stop at the first
+ * migration that is not reflected in the schema; `migrate()` then runs that migration and
+ * everything after. This avoids marking the whole journal as done (which skipped real work
+ * and caused missing tables/columns).
  */
 function seedDrizzleMigrationsIfNeeded(
   sqlite: Database.Database,
@@ -180,17 +287,59 @@ function seedDrizzleMigrationsIfNeeded(
   const entries = journal?.entries ?? [];
   if (entries.length === 0) return;
 
-  logger.log("[Schema Fix] Seeding __drizzle_migrations so existing DB is not re-migrated.");
+  logger.log(
+    "[Schema Fix] Verified seed of __drizzle_migrations (only migrations already reflected in DB).",
+  );
   const insert = sqlite.prepare(
     `INSERT INTO ${tableName} (hash, created_at) VALUES (?, ?)`,
   );
+  let seeded = 0;
+  let stopBefore: string | null = null;
   for (const entry of entries) {
     const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
-    if (!fs.existsSync(sqlPath)) continue;
+    if (!fs.existsSync(sqlPath)) {
+      logger.warn(
+        `[Schema Fix] Migration SQL missing (${entry.tag}); migrate() may fail. Expected at ${sqlPath}`,
+      );
+      stopBefore = entry.tag;
+      break;
+    }
+    if (!isJournalMigrationApplied(entry.tag, sqlite)) {
+      logger.log(
+        `[Schema Fix] Verified seed stops before ${entry.tag}; migrate() will apply pending migrations.`,
+      );
+      stopBefore = entry.tag;
+      break;
+    }
     const query = fs.readFileSync(sqlPath, "utf8");
     const hash = crypto.createHash("sha256").update(query).digest("hex");
     insert.run(hash, entry.when);
+    seeded++;
   }
+  if (seeded > 0) {
+    logger.log(`[Schema Fix] Recorded ${seeded} migration(s) as already applied.`);
+  }
+  // #region agent log
+  void fetch("http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "9a91a9",
+    },
+    body: JSON.stringify({
+      sessionId: "9a91a9",
+      location: "db/index.ts:seedDrizzleMigrationsIfNeeded",
+      message: "verified journal seed complete",
+      data: {
+        journalEntryCount: entries.length,
+        seededCount: seeded,
+        stopBefore,
+      },
+      timestamp: Date.now(),
+      hypothesisId: "H2",
+    }),
+  }).catch(() => {});
+  // #endregion
 }
 
 /**
@@ -260,6 +409,64 @@ function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
 
   transaction();
   logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
+}
+
+/**
+ * Create chats + messages if missing (0000 / 0022 / 0029 baseline).
+ * When __drizzle_migrations is seeded with all hashes, migrate() skips every file — including 0000 —
+ * leaving chats absent while apps exists (get-chats / search-chats).
+ */
+function ensureChatCoreTablesIfNeeded(sqlite: Database.Database): void {
+  const appsExists = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps'")
+    .get();
+  if (!appsExists) {
+    return;
+  }
+
+  const hasChats = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chats'")
+    .get();
+  if (!hasChats) {
+    logger.log("[Schema Fix] Creating chats table (0000/0022/0029 baseline)");
+    sqlite.exec(`
+      CREATE TABLE chats (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        app_id integer,
+        title text,
+        initial_commit_hash text,
+        has_answered_questions integer NOT NULL DEFAULT 0,
+        last_used_at integer DEFAULT (unixepoch()) NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (app_id) REFERENCES apps(id) ON UPDATE no action ON DELETE cascade
+      )
+    `);
+  }
+
+  const hasMessages = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages'")
+    .get();
+  if (!hasMessages) {
+    logger.log("[Schema Fix] Creating messages table (0000+alters baseline)");
+    sqlite.exec(`
+      CREATE TABLE messages (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        chat_id integer NOT NULL,
+        role text NOT NULL,
+        content text NOT NULL,
+        approval_state text,
+        source_commit_hash text,
+        commit_hash text,
+        request_id text,
+        max_tokens_used integer,
+        exchange_index integer DEFAULT 0,
+        snapshot_id integer,
+        files_written text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (chat_id) REFERENCES chats(id) ON UPDATE no action ON DELETE cascade
+      )
+    `);
+  }
 }
 
 /**
