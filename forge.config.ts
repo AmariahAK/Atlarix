@@ -20,8 +20,9 @@ const ignore = (file: string) => {
   if (file === "/node_modules") {
     return false;
   }
+  // drizzle/*.sql is bundled into the main process via Vite ?raw — omit from asar to shrink the package.
   if (file.startsWith("/drizzle")) {
-    return false;
+    return true;
   }
   if (file.startsWith("/scaffold")) {
     return false;
@@ -84,8 +85,7 @@ const config: ForgeConfig = {
     osxNotarize: undefined,
     asar: true,
     ignore,
-    // drizzle: unpacked next to app.asar so migrate() always reads real files (not asar-only paths).
-    extraResource: ["node_modules/dugite/git", "drizzle"],
+    extraResource: ["node_modules/dugite/git"],
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
   rebuildConfig: {

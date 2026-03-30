@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "5.1.5",
+  "version": "5.2.0",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {
@@ -26,6 +26,8 @@
     "lint": "npx oxlint --fix",
     "lint:fix": "npx oxlint --fix --fix-suggestions --fix-dangerously",
     "db:generate": "drizzle-kit generate",
+    "db:bundle-sql": "node scripts/generate-bundled-sql-migrations.mjs",
+    "postdb:generate": "npm run db:bundle-sql",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "prettier:check": "npx prettier --check .",

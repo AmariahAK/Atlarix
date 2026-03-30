@@ -5,46 +5,18 @@ import {
 } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import * as schema from "./schema";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "node:path";
 import fs from "node:fs";
-import crypto from "node:crypto";
-import { getAtlarixAppPath, getElectron, getUserDataPath } from "../paths/paths";
+import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
 import log from "electron-log";
-import { isJournalMigrationApplied } from "./migration_seed_verification";
+import {
+  applyEmbeddedSqlMigrations,
+  countAtlarixMigrations,
+  expectedBundledMigrationCount,
+  UnknownDrizzleMigrationHashError,
+} from "./migrate_atlarix";
 
 const logger = log.scope("db");
-
-/**
- * Ordered candidates for the Drizzle SQL folder. Packaged apps must not rely on
- * process.cwd() (often "/" or launch dir). extraResource copies `drizzle` to
- * process.resourcesPath/drizzle; app.getAppPath()/drizzle covers asar layout in dev/prod.
- */
-function resolveDrizzleMigrationsCandidateFolders(): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const push = (dir: string) => {
-    const abs = path.resolve(dir);
-    if (seen.has(abs)) return;
-    seen.add(abs);
-    out.push(abs);
-  };
-
-  push(path.join(process.cwd(), "drizzle"));
-  if (process.resourcesPath) {
-    push(path.join(process.resourcesPath, "drizzle"));
-  }
-  const electron = getElectron();
-  if (electron?.app) {
-    try {
-      push(path.join(electron.app.getAppPath(), "drizzle"));
-    } catch (e) {
-      logger.warn("[Migrations] app.getAppPath() unavailable:", e);
-    }
-  }
-  push(path.join(__dirname, "..", "..", "drizzle"));
-  return out;
-}
 
 /** Minimum tables after baseline migrations; extend if core IPC assumes new tables. */
 const REQUIRED_CORE_TABLES = [
@@ -63,25 +35,24 @@ function isCoreSchemaComplete(sqlite: Database.Database): boolean {
   return REQUIRED_CORE_TABLES.every((name) => !!stmt.get(name));
 }
 
-function isMigrationStateConsistent(
-  sqlite: Database.Database,
-  migrationsFolderFound: boolean,
-): boolean {
-  if (!migrationsFolderFound) {
-    return true;
-  }
+function isMigrationStateConsistent(sqlite: Database.Database): boolean {
   const hasTable = sqlite
     .prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='__atlarix_migrations'",
     )
     .get();
   if (!hasTable) {
     return false;
   }
-  const row = sqlite
-    .prepare("SELECT COUNT(*) as c FROM __drizzle_migrations")
-    .get() as { c: number };
-  return (row?.c ?? 0) >= 1;
+  const n = countAtlarixMigrations(sqlite);
+  const expected = expectedBundledMigrationCount();
+  if (n !== expected) {
+    logger.warn(
+      `[DB] __atlarix_migrations count ${n} !== expected ${expected} (embedded bundle).`,
+    );
+    return false;
+  }
+  return true;
 }
 
 function closeSqliteSilently(sqlite: Database.Database): void {
@@ -170,27 +141,8 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
 
       const drizzleDb = drizzle(sqlite, { schema });
 
-      const candidateFolders = resolveDrizzleMigrationsCandidateFolders();
-      for (const folder of candidateFolders) {
-        logger.log(`[Migrations] candidate exists=${fs.existsSync(folder)} path=${folder}`);
-      }
-
-      const migrationsFolder = candidateFolders.find((folder) =>
-        fs.existsSync(folder),
-      );
-      const migrationsFolderFound = !!migrationsFolder;
-
-      if (!migrationsFolder) {
-        logger.error(
-          "Migrations folder not found. Tried:",
-          candidateFolders.join(", "),
-        );
-      } else {
-        logger.log("[Migrations] using folder:", migrationsFolder);
-        seedDrizzleMigrationsIfNeeded(sqlite, migrationsFolder);
-        logger.log("Running migrations from:", migrationsFolder);
-        migrate(drizzleDb, { migrationsFolder });
-      }
+      logger.log("[Migrations] Applying embedded SQL bundle (Vite ?raw, no drizzle/ path).");
+      applyEmbeddedSqlMigrations(sqlite);
 
       // POST-MIGRATION safety nets: create tables that migrations may have skipped
       // (legacy DBs with seeded journals, partial upgrades, etc.)
@@ -222,37 +174,30 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
           `SQLite core schema incomplete (missing one of: ${REQUIRED_CORE_TABLES.join(", ")}).`,
         );
       }
-      if (!isMigrationStateConsistent(sqlite, migrationsFolderFound)) {
+      if (!isMigrationStateConsistent(sqlite)) {
         throw new Error(
-          "SQLite __drizzle_migrations is missing or empty after migrate; journal state is inconsistent.",
+          "SQLite __atlarix_migrations is missing or does not match embedded migration count after apply.",
         );
       }
-
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'9a91a9'},body:JSON.stringify({sessionId:'9a91a9',location:'db/index.ts:initSuccess',message:'DB init success',data:{attempt,coreOk:isCoreSchemaComplete(sqlite),migOk:isMigrationStateConsistent(sqlite,migrationsFolderFound)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
 
       _db = drizzleDb;
       sqlite = null;
       return _db as any;
     } catch (error) {
       logger.error(`[DB] Initialization attempt ${attempt + 1} failed:`, error);
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'9a91a9'},body:JSON.stringify({sessionId:'9a91a9',location:'db/index.ts:initFail',message:'DB init attempt failed',data:{attempt,error:String(error)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       if (sqlite) {
         closeSqliteSilently(sqlite);
         sqlite = null;
       }
 
-      const migrationsFolderFound = resolveDrizzleMigrationsCandidateFolders().some((f) =>
-        fs.existsSync(f),
-      );
-      const canRetry = attempt < maxAttempts - 1 && migrationsFolderFound;
+      const unknownHash =
+        error instanceof UnknownDrizzleMigrationHashError;
+      const canRetry =
+        attempt < maxAttempts - 1 && !unknownHash;
 
       if (canRetry) {
         logger.warn(
-          "[DB] Deleting local sqlite.db (and -wal/-shm) and retrying once — bundled migrations are available.",
+          "[DB] Deleting local sqlite.db (and -wal/-shm) and retrying once — embedded migrations available (skipped on unknown Drizzle hash).",
         );
         deleteSqliteDbFiles(dbPath);
         continue;
@@ -263,71 +208,6 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   }
 
   throw new Error("Database initialization failed after retries.");
-}
-
-/**
- * If `apps` exists but `__drizzle_migrations` is empty (legacy DB never tracked by Drizzle),
- * insert hashes only for migrations whose effects are already present. Stop at the first
- * migration that is not reflected in the schema; `migrate()` then runs that migration and
- * everything after. This avoids marking the whole journal as done (which skipped real work
- * and caused missing tables/columns).
- */
-function seedDrizzleMigrationsIfNeeded(
-  sqlite: Database.Database,
-  migrationsFolder: string,
-): void {
-  const appsExists = sqlite.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps'",
-  ).get();
-  if (!appsExists) return;
-
-  const tableName = "__drizzle_migrations";
-  const createTable = sqlite.prepare(
-    `CREATE TABLE IF NOT EXISTS ${tableName} (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)`,
-  );
-  createTable.run();
-
-  const count = (sqlite.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c: number })?.c ?? 0;
-  if (count > 0) return;
-
-  const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
-  if (!fs.existsSync(journalPath)) return;
-
-  const journal = JSON.parse(fs.readFileSync(journalPath, "utf8")) as {
-    entries?: Array<{ tag: string; when: number }>;
-  };
-  const entries = journal?.entries ?? [];
-  if (entries.length === 0) return;
-
-  logger.log(
-    "[Schema Fix] Verified seed of __drizzle_migrations (only migrations already reflected in DB).",
-  );
-  const insert = sqlite.prepare(
-    `INSERT INTO ${tableName} (hash, created_at) VALUES (?, ?)`,
-  );
-  let seeded = 0;
-  for (const entry of entries) {
-    const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
-    if (!fs.existsSync(sqlPath)) {
-      logger.warn(
-        `[Schema Fix] Migration SQL missing (${entry.tag}); migrate() may fail. Expected at ${sqlPath}`,
-      );
-      break;
-    }
-    if (!isJournalMigrationApplied(entry.tag, sqlite)) {
-      logger.log(
-        `[Schema Fix] Verified seed stops before ${entry.tag}; migrate() will apply pending migrations.`,
-      );
-      break;
-    }
-    const query = fs.readFileSync(sqlPath, "utf8");
-    const hash = crypto.createHash("sha256").update(query).digest("hex");
-    insert.run(hash, entry.when);
-    seeded++;
-  }
-  if (seeded > 0) {
-    logger.log(`[Schema Fix] Recorded ${seeded} migration(s) as already applied.`);
-  }
 }
 
 /**
@@ -401,8 +281,7 @@ function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
 
 /**
  * Create chats + messages if missing (0000 / 0022 / 0029 baseline).
- * When __drizzle_migrations is seeded with all hashes, migrate() skips every file — including 0000 —
- * leaving chats absent while apps exists (get-chats / search-chats).
+ * When the migration ledger marks all migrations applied without running SQL, chats can be missing while apps exists (get-chats / search-chats).
  */
 function ensureChatCoreTablesIfNeeded(sqlite: Database.Database): void {
   const appsExists = sqlite
