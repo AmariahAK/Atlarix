@@ -10,7 +10,7 @@
 
 import { createClient, SupabaseClient, Session, User, SupportedStorage } from '@supabase/supabase-js';
 import log from 'electron-log';
-import { shell } from 'electron';
+import { clipboard, dialog, shell } from 'electron';
 import { createSecureSupabaseStorage, clearSupabaseSecureStorage } from './supabase-secure-storage';
 
 const logger = log.scope('supabase');
@@ -103,7 +103,32 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
         if (data?.url) {
             // Open the OAuth URL in the user's default browser
             logger.log(`[Supabase] Opening OAuth URL in browser`);
-            await shell.openExternal(data.url);
+            let browserOpened = false;
+            try {
+                await shell.openExternal(data.url);
+                browserOpened = true;
+                logger.log('[Supabase] shell.openExternal succeeded');
+            } catch (openErr) {
+                logger.error('[Supabase] shell.openExternal failed:', openErr);
+            }
+
+            // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
+            if (!browserOpened && process.platform === 'linux') {
+                logger.warn('[Supabase] Browser open failed on Linux — showing fallback dialog');
+                const { response } = await dialog.showMessageBox({
+                    type: 'info',
+                    title: 'Open this link to sign in',
+                    message: 'Atlarix could not open your browser automatically.\n\nCopy the link below and paste it into your browser:',
+                    detail: data.url,
+                    buttons: ['Copy Link', 'Cancel'],
+                    defaultId: 0,
+                    cancelId: 1,
+                });
+                if (response === 0) {
+                    clipboard.writeText(data.url);
+                    logger.log('[Supabase] OAuth URL copied to clipboard via fallback dialog');
+                }
+            }
         }
 
         return { error: null };

@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.2.0*
+*Current: v5.2.1*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
@@ -294,6 +294,8 @@ npm start
 ```
 
 **Dependencies & audit:** Run `npm audit` to check for known vulnerabilities (use default npm registry if your project uses a custom registry). Prefer `npm audit fix` without `--force` first. Top-level `glob` is already `^11`; transitive deprecations (`prebuild-install` from native deps like `better-sqlite3`, `node-domexception`) are accepted until upstream updates. See [TODO.md](TODO.md) § 4.0.5 for full deprecation cleanup notes.
+
+**Important — Supabase OAuth browser fallback (v5.2.1):** `signInWithOAuth()` now guards `shell.openExternal()` and logs both success and failure. If opening the browser fails on **Linux**, Atlarix shows a fallback dialog with the OAuth URL and a **Copy Link** action so sign-in can continue manually instead of silently stalling. The `atlarix://auth/callback` deep-link return flow in [`src/main.ts`](src/main.ts) is unchanged.
 
 ---
 
