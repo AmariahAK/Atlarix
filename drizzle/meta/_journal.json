@@ -225,6 +225,13 @@
       "when": 1766920000000,
       "tag": "0031_project_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1766930000000,
+      "tag": "0032_prompts_type_workspace",
+      "breakpoints": true
     }
   ]
 }

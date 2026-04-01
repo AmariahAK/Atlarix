@@ -35,6 +35,7 @@ import raw_28_0028_blueprints from "../../../drizzle/0028_blueprints.sql?raw";
 import raw_29_0029_v39_clarify_revert from "../../../drizzle/0029_v39_clarify_revert.sql?raw";
 import raw_30_0030_v40_tool_session_loads from "../../../drizzle/0030_v40_tool_session_loads.sql?raw";
 import raw_31_0031_project_memory from "../../../drizzle/0031_project_memory.sql?raw";
+import raw_32_0032_prompts_type_workspace from "../../../drizzle/0032_prompts_type_workspace.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -77,6 +78,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0029_v39_clarify_revert", sql: raw_29_0029_v39_clarify_revert as string, drizzleHash: "36c7cfc8c60b89f64a672cb7669631ad19af1757d7b48f2f469126e999076b1b", when: 1766900000000 },
   { name: "0030_v40_tool_session_loads", sql: raw_30_0030_v40_tool_session_loads as string, drizzleHash: "f8f3d4464dc631e5b4d2a558b9614287a0f882e20d5719fb097e36e4dbfdee32", when: 1766910000000 },
   { name: "0031_project_memory", sql: raw_31_0031_project_memory as string, drizzleHash: "40cd51ef39b46641a391eebcce1b760a3594c0fb180aaef6baf85b2dc8454aab", when: 1766920000000 },
+  { name: "0032_prompts_type_workspace", sql: raw_32_0032_prompts_type_workspace as string, drizzleHash: "df9122c6aab6157e5d9de84a665ba55427aa47edac1b22dc9af3e8da0c0ee3d5", when: 1766930000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -113,4 +115,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "36c7cfc8c60b89f64a672cb7669631ad19af1757d7b48f2f469126e999076b1b": "0029_v39_clarify_revert",
   "f8f3d4464dc631e5b4d2a558b9614287a0f882e20d5719fb097e36e4dbfdee32": "0030_v40_tool_session_loads",
   "40cd51ef39b46641a391eebcce1b760a3594c0fb180aaef6baf85b2dc8454aab": "0031_project_memory",
+  "df9122c6aab6157e5d9de84a665ba55427aa47edac1b22dc9af3e8da0c0ee3d5": "0032_prompts_type_workspace",
 };

@@ -35,6 +35,18 @@ function isCoreSchemaComplete(sqlite: Database.Database): boolean {
   return REQUIRED_CORE_TABLES.every((name) => !!stmt.get(name));
 }
 
+function hasExpectedPromptsSchema(sqlite: Database.Database): boolean {
+  const promptsExists = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='prompts'")
+    .get();
+  if (!promptsExists) {
+    return false;
+  }
+  const columns = sqlite.prepare("PRAGMA table_info(prompts)").all() as Array<{ name: string }>;
+  const names = new Set(columns.map((col) => col.name));
+  return names.has("content") && names.has("type") && names.has("workspace_id");
+}
+
 function isMigrationStateConsistent(sqlite: Database.Database): boolean {
   const hasTable = sqlite
     .prepare(
@@ -134,15 +146,13 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       sqlite = new Database(dbPath, { timeout: 10000 });
       sqlite.pragma("foreign_keys = ON");
 
-      // PRE-MIGRATION: Only schema fixes that must run before migrate() (column renames, etc.)
-      try { fixPromptsSchemaIfNeeded(sqlite); } catch (error) {
-        logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
-      }
-
       const drizzleDb = drizzle(sqlite, { schema });
 
       logger.log("[Migrations] Applying embedded SQL bundle (Vite ?raw, no drizzle/ path).");
       applyEmbeddedSqlMigrations(sqlite);
+
+      // POST-MIGRATION: fallback repair for odd legacy prompt schemas / partial installs.
+      fixPromptsSchemaIfNeeded(sqlite);
 
       // POST-MIGRATION safety nets: create tables that migrations may have skipped
       // (legacy DBs with seeded journals, partial upgrades, etc.)
@@ -172,6 +182,11 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       if (!isCoreSchemaComplete(sqlite)) {
         throw new Error(
           `SQLite core schema incomplete (missing one of: ${REQUIRED_CORE_TABLES.join(", ")}).`,
+        );
+      }
+      if (!hasExpectedPromptsSchema(sqlite)) {
+        throw new Error(
+          "SQLite prompts schema is invalid after repair/migrations (expected content, type, workspace_id).",
         );
       }
       if (!isMigrationStateConsistent(sqlite)) {
@@ -211,12 +226,11 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
 }
 
 /**
- * Fix prompts table schema if it has the old structure
- * OLD: id, title, description, content, created_at, updated_at
- * NEW: id, type, workspace_id, content, created_at, updated_at
+ * Repair prompts table so all runtime query columns exist.
+ * Old DBs had title/description but no type/workspace_id; additive repair is safer
+ * than destructive table replacement because it preserves already-upgraded rows too.
  */
 function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
-  // Check if prompts table exists
   const tableExists = sqlite.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='prompts'"
   ).get();
@@ -226,57 +240,40 @@ function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
     return;
   }
 
-  // Check if 'type' column exists (new schema indicator)
   const columns = sqlite.prepare("PRAGMA table_info(prompts)").all() as Array<{ name: string }>;
-  const hasTypeColumn = columns.some(col => col.name === 'type');
-  const hasTitleColumn = columns.some(col => col.name === 'title');
+  const hasTypeColumn = columns.some((col) => col.name === "type");
+  const hasWorkspaceIdColumn = columns.some((col) => col.name === "workspace_id");
+  const hasContentColumn = columns.some((col) => col.name === "content");
 
-  if (hasTypeColumn) {
-    logger.log("[Schema Fix] Prompts table already has correct schema (has 'type' column)");
+  if (hasTypeColumn && hasWorkspaceIdColumn && hasContentColumn) {
+    logger.log("[Schema Fix] Prompts table already has required schema");
     return;
   }
 
-  if (!hasTitleColumn) {
-    logger.log("[Schema Fix] Prompts table has unknown schema, skipping fix");
-    return;
+  if (!hasContentColumn) {
+    throw new Error("Prompts table exists but is missing content column; cannot auto-repair.");
   }
 
-  // Old schema detected - migrate to new schema
-  logger.log("[Schema Fix] Detected OLD prompts schema (has 'title'), migrating to new schema...");
-
-  // Begin transaction for safety
+  logger.log("[Schema Fix] Repairing prompts table to ensure type/workspace_id columns exist...");
   const transaction = sqlite.transaction(() => {
-    // 1. Rename old table
-    sqlite.exec("ALTER TABLE prompts RENAME TO prompts_old_backup");
-
-    // 2. Create new table with correct schema
-    sqlite.exec(`
-      CREATE TABLE prompts (
-        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-        type text NOT NULL DEFAULT 'global',
-        workspace_id integer,
-        content text NOT NULL,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL
-      )
-    `);
-
-    // 3. Create unique index
-    sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS prompts_workspace_unique ON prompts (workspace_id)");
-
-    // 4. Copy data from old table (content becomes global prompts)
-    sqlite.exec(`
-      INSERT INTO prompts (id, type, workspace_id, content, created_at, updated_at)
-      SELECT id, 'global', NULL, content, created_at, updated_at
-      FROM prompts_old_backup
-    `);
-
-    // 5. Drop old table
-    sqlite.exec("DROP TABLE prompts_old_backup");
+    if (!hasTypeColumn) {
+      sqlite.exec("ALTER TABLE prompts ADD COLUMN type TEXT NOT NULL DEFAULT 'global'");
+      logger.log("[Schema Fix] prompts: added type column");
+    }
+    if (!hasWorkspaceIdColumn) {
+      sqlite.exec("ALTER TABLE prompts ADD COLUMN workspace_id integer");
+      logger.log("[Schema Fix] prompts: added workspace_id column");
+    }
+    sqlite.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS prompts_workspace_unique ON prompts (workspace_id)",
+    );
   });
 
   transaction();
-  logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
+  if (!hasExpectedPromptsSchema(sqlite)) {
+    throw new Error("Prompts schema repair ran but expected columns are still missing.");
+  }
+  logger.log("[Schema Fix] Successfully repaired prompts table schema.");
 }
 
 /**

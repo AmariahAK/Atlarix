@@ -105,7 +105,9 @@ export function bridgeDrizzleMigrationsIfNeeded(sqlite: Database.Database): void
 }
 
 /**
- * Legacy: apps exists but __atlarix_migrations empty — seed names for migrations already reflected in schema.
+ * Reconcile journal tags whose effects are already visible in the DB.
+ * This is used both for legacy empty-ledger DBs and for DBs where a later migration's
+ * effects were already repaired by a prior runtime fix.
  */
 export function seedVerifiedAtlarixMigrationsIfNeeded(
   sqlite: Database.Database,
@@ -127,12 +129,11 @@ export function seedVerifiedAtlarixMigrationsIfNeeded(
         .prepare(`SELECT COUNT(*) as c FROM ${ATLARIX_MIGRATIONS_TABLE}`)
         .get() as { c: number }
     )?.c ?? 0;
-  if (count > 0) {
-    return;
-  }
 
   logger.log(
-    `[Schema Fix] Verified seed of ${ATLARIX_MIGRATIONS_TABLE} (only migrations already reflected in DB).`,
+    count === 0
+      ? `[Schema Fix] Verified seed of ${ATLARIX_MIGRATIONS_TABLE} (only migrations already reflected in DB).`
+      : `[Schema Fix] Reconciling already-reflected migrations into ${ATLARIX_MIGRATIONS_TABLE}.`,
   );
 
   const insert = sqlite.prepare(
@@ -142,6 +143,9 @@ export function seedVerifiedAtlarixMigrationsIfNeeded(
   let seeded = 0;
   const tx = sqlite.transaction(() => {
     for (const m of BUNDLED_MIGRATIONS) {
+      if (isMigrationApplied(sqlite, m.name)) {
+        continue;
+      }
       if (!isJournalMigrationApplied(m.name, sqlite)) {
         logger.log(
           `[Schema Fix] Verified seed stops before ${m.name}; pending migrations will run next.`,

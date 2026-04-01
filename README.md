@@ -7,7 +7,7 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.2.1*
+*Current: v5.2.2*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
@@ -284,6 +284,8 @@ Atlarix supports **code generation and modification**, **session/context summari
 **Important — Auto-recovery (local SQLite):** If `sqlite.db` under Electron `userData` is **inconsistent** (e.g. core tables missing while bootstrap `ensure*` tables exist, or `__atlarix_migrations` count does not match the embedded bundle after apply), the app **deletes** `sqlite.db` and `-wal`/`-shm` **once** and retries initialization. **Unknown Drizzle migration hashes** (bridge failure) **skip** this retry so user data is not wiped blindly. Workspace project folders on disk are not removed.
 
 **Important — Verified journal seed (SQLite):** Some legacy databases had `apps` but an empty migration ledger. Atlarix seeds **`__atlarix_migrations`** only for migrations whose effects are already present (`seedVerifiedAtlarixMigrationsIfNeeded` in [`src/db/migrate_atlarix.ts`](src/db/migrate_atlarix.ts)), then runs embedded SQL for the rest. **Every new migration** needs a matching `isJournalMigrationApplied` case so we never mark work as done when tables/columns are missing.
+
+**Important — Prompt schema compatibility (v5.2.2):** Atlarix now treats the `prompts` table schema as a **startup invariant**. The app expects `content`, `type`, and `workspace_id` to exist before `_db` is exposed to IPC handlers. A new embedded migration (`0032_prompts_type_workspace`) upgrades old installs created from the legacy prompt schema, and startup will retry/recover instead of letting later prompt queries fail with `no such column: type`.
 
 ```bash
 git clone https://github.com/norahlabs/atlarix.git

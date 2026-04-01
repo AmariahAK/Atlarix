@@ -119,6 +119,11 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "tool_session_loads");
     case "0031_project_memory":
       return tableExists(sqlite, "project_snapshots") && tableExists(sqlite, "project_memory");
+    case "0032_prompts_type_workspace":
+      return (
+        columnExists(sqlite, "prompts", "type") &&
+        columnExists(sqlite, "prompts", "workspace_id")
+      );
     default:
       return false;
   }

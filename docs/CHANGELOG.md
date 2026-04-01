@@ -1,3 +1,10 @@
+## v5.2.2 — Fix legacy prompts schema missing `type` (2026-04-01)
+
+- **SQLite:** Added embedded migration `0032_prompts_type_workspace` to upgrade the legacy `prompts` table created by `0011_light_zeigeist` so it has `type` and `workspace_id`. Startup now validates the prompts schema after migrations/repair and fails early into the existing retry path instead of letting prompt reads crash later with `SqliteError: no such column: type`.
+- **Migration ledger:** `seedVerifiedAtlarixMigrationsIfNeeded()` now reconciles already-reflected tail migrations even when `__atlarix_migrations` already has rows, preventing duplicate re-application of prompt upgrades on partially repaired legacy DBs.
+
+---
+
 ## v5.2.1 — Supabase OAuth browser-open fallback (2026-03-31)
 
 - **Auth:** `src/lib/auth/supabase-client.ts` now wraps `shell.openExternal()` for Supabase OAuth in a nested `try/catch`, logs success/failure explicitly, and on **Linux** shows a fallback dialog with the OAuth URL plus **Copy Link** when the browser cannot be opened automatically. This avoids silent sign-in failure while leaving the existing `atlarix://auth/callback` deep-link handling unchanged.
