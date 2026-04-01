@@ -1583,9 +1583,9 @@ export class IpcClient {
     });
   }
 
-  public async listLocalOllamaModels(): Promise<LocalModel[]> {
+  public async listLocalOllamaModels(): Promise<LocalModelListResponse> {
     const response = await this.ipcRenderer.invoke("local-models:list-ollama");
-    return response?.models || [];
+    return response;
   }
 
   public async listLocalLMStudioModels(): Promise<LocalModelListResponse> {

@@ -6,6 +6,9 @@ import {
   lmStudioModelsErrorAtom,
 } from "@/atoms/localModelsAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
+import { showWarning } from "@/lib/toast";
+
+let lastLmStudioWarning = "";
 
 export function useLocalLMSModels() {
   const [models, setModels] = useAtom(lmStudioModelsAtom);
@@ -24,6 +27,10 @@ export function useLocalLMSModels() {
 
       // Check if the response contains an error (LM Studio not running, etc.)
       if (response.error) {
+        if (response.error !== lastLmStudioWarning) {
+          showWarning(response.error);
+          lastLmStudioWarning = response.error;
+        }
         setModels([]);
         setError(new Error(response.error));
         return [];
@@ -31,11 +38,17 @@ export function useLocalLMSModels() {
 
       setModels(response.models);
       setError(null);
+      lastLmStudioWarning = "";
 
       return response.models;
     } catch (error) {
       console.error("Error loading local LMStudio models:", error);
-      setError(error instanceof Error ? error : new Error(String(error)));
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== lastLmStudioWarning) {
+        showWarning(message);
+        lastLmStudioWarning = message;
+      }
+      setError(error instanceof Error ? error : new Error(message));
       return [];
     } finally {
       setLoading(false);

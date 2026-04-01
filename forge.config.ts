@@ -63,6 +63,9 @@ const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // Electron Packager supports this flag even though Forge's type lags behind.
+    // @ts-expect-error chromiumSandbox is forwarded to electron-packager
+    chromiumSandbox: false,
     protocols: [
       {
         name: "Atlarix",
@@ -97,7 +100,11 @@ const config: ForgeConfig = {
         signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
       } : {})),
     new MakerDMG(),
-    new MakerRpm({}),
+    new MakerRpm({
+      options: {
+        mimeType: ["x-scheme-handler/atlarix"],
+      },
+    }),
     new MakerDeb({
       options: {
         mimeType: ["x-scheme-handler/atlarix"],

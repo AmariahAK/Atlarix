@@ -30,8 +30,6 @@ import {
 import { getEnvVar } from "../utils/read_env";
 import { readSettings } from "../../main/settings";
 
-import fixPath from "fix-path";
-
 import killPort from "kill-port";
 import util from "util";
 import log from "electron-log";
@@ -96,10 +94,6 @@ const logger = log.scope("app_handlers");
 const handle = createLoggedHandler(logger);
 
 let proxyWorker: Worker | null = null;
-
-// Needed, otherwise electron in MacOS/Linux will not be able
-// to find node/pnpm.
-fixPath();
 
 async function executeApp({
   appPath,

@@ -1,13 +1,11 @@
 import { ipcMain, dialog } from "electron";
-import { execSync } from "child_process";
 import { platform, arch } from "os";
 import { NodeSystemInfo } from "../ipc_types";
-import fixPath from "fix-path";
 import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
 import log from "electron-log";
 import { existsSync } from "fs";
 import { join } from "path";
-import { readSettings } from "../../main/settings";
+import { resolveSystemPath } from "../../lib/resolve-path";
 
 const logger = log.scope("node_handlers");
 
@@ -53,23 +51,7 @@ export function registerNodeHandlers() {
 
   ipcMain.handle("reload-env-path", async (): Promise<void> => {
     logger.debug("Reloading env path, previously:", process.env.PATH);
-    if (platform() === "win32") {
-      const newPath = execSync("cmd /c echo %PATH%", {
-        encoding: "utf8",
-      }).trim();
-      process.env.PATH = newPath;
-    } else {
-      fixPath();
-    }
-    const settings = readSettings();
-    if (settings.customNodePath) {
-      const separator = platform() === "win32" ? ";" : ":";
-      process.env.PATH = `${settings.customNodePath}${separator}${process.env.PATH}`;
-      logger.debug(
-        "Added custom Node.js path to PATH:",
-        settings.customNodePath,
-      );
-    }
+    resolveSystemPath();
     logger.debug("Reloaded env path, now:", process.env.PATH);
   });
   ipcMain.handle("select-node-folder", async () => {

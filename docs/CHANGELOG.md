@@ -1,3 +1,11 @@
+## v5.2.3 — Linux launch, OAuth, and local-model reliability (2026-04-01)
+
+- **Linux packaging:** Disabled Chromium sandboxing for packaged Linux builds in `forge.config.ts` and added `x-scheme-handler/atlarix` registration parity for both `.deb` and `.rpm` makers to reduce launch failures and improve deep-link install behavior.
+- **OAuth / deep links:** Tightened Linux deep-link handling in `src/main.ts` so `atlarix://auth/callback` can be processed reliably both when an existing app instance receives the callback and when the app is cold-started from the protocol URL.
+- **PATH / local models:** Centralized PATH refresh into `src/lib/resolve-path.ts`, reused it from startup and `reload-env-path`, and now show non-blocking warnings when Ollama or LM Studio are unreachable instead of relying on console-only failure paths.
+
+---
+
 ## v5.2.2 — Rename reserved `type` columns in SQLite graph tables (2026-04-01)
 
 - **SQLite / PIVOT:** Added migration `0033_rename_type_columns.sql` to rename `pivot_nodes.type` -> `node_type`, `pivot_edges.type` -> `edge_type`, and `diagrams.type` -> `diagram_type`. This fixes production crashes in packaged builds when SQLite prepares queries against those graph/diagram tables (`no such column: "type"` on `/diagram` -> `/tools` flows).

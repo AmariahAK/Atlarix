@@ -6,6 +6,10 @@ import { shellEnvSync } from "shell-env";
 
 let _env: Record<string, string> | null = null;
 
+export function resetEnvCache() {
+  _env = null;
+}
+
 export function getEnvVar(key: string) {
   // Cache it
   if (!_env) {

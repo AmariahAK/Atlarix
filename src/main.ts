@@ -38,6 +38,7 @@ import fs from "fs";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
+import { resolveSystemPath } from "./lib/resolve-path";
 
 log.errorHandler.startCatching();
 log.eventLogger.startLogging();
@@ -47,6 +48,7 @@ const logger = log.scope("main");
 
 // Load environment variables from .env file
 dotenv.config();
+resolveSystemPath();
 
 // Sentry: init in main process before app.whenReady(); DSN from env or fallback for packaged app
 if (SENTRY_DSN) {
@@ -247,6 +249,30 @@ declare global {
 
 let mainWindow: BrowserWindow | null = null;
 let pendingForceCloseData: any = null;
+let pendingDeepLinkUrl: string | null = extractDeepLinkUrl(process.argv);
+
+function extractDeepLinkUrl(argv: string[]): string | null {
+  for (const arg of argv) {
+    if (arg.startsWith("atlarix://")) {
+      return arg;
+    }
+  }
+  return null;
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function queueOrHandleDeepLink(url: string) {
+  if (mainWindow?.webContents?.isLoading()) {
+    pendingDeepLinkUrl = url;
+    return;
+  }
+  handleDeepLinkReturn(url);
+}
 
 function sendDbReadyToWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -340,6 +366,11 @@ const createWindow = () => {
       });
       pendingForceCloseData = null;
     }
+    if (pendingDeepLinkUrl) {
+      const url = pendingDeepLinkUrl;
+      pendingDeepLinkUrl = null;
+      handleDeepLinkReturn(url);
+    }
   });
 
   // Enable native context menu on right-click
@@ -418,12 +449,11 @@ if (!gotTheLock) {
   if (app.isPackaged) {
     app.on("second-instance", (_event, commandLine, _workingDirectory) => {
       // Someone tried to run a second instance, we should focus our window.
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
+      focusMainWindow();
+      const url = extractDeepLinkUrl(commandLine);
+      if (url) {
+        queueOrHandleDeepLink(url);
       }
-      // the commandLine is array of strings in which last element is deep link url
-      handleDeepLinkReturn(commandLine.pop()!);
     });
   }
   app.whenReady().then(() => {
@@ -443,12 +473,8 @@ app.on("open-url", (event, url) => {
   event.preventDefault(); // Prevent trying to open a new instance
 
   // Focus existing window
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
-
-  handleDeepLinkReturn(url);
+  focusMainWindow();
+  queueOrHandleDeepLink(url);
 });
 
 function handleDeepLinkReturn(url: string) {

@@ -7,9 +7,11 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.2.2*
+*Current: v5.2.3*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+**Important (v5.2.3 Linux):** packaged Linux builds now disable Chromium sandboxing in Forge packaging, register `atlarix://` for both `.deb` and `.rpm`, handle cold-start OAuth deep links in the main process, and refresh login-shell PATH earlier so Node/pnpm and local model providers resolve more reliably when launched from desktop installers.
 
 **Recent (v4.3):** UX and workflow upgrade: secure session persistence across restarts, guided Shepherd tours, corrected subscription entitlement timing/copy, Ask-mode planning improvements, Workforce Ask/Build read-write split, batch Token Auth permissions (`request_workspace_permissions`), and hardware-aware Ollama model recommendations in Settings.
 

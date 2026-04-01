@@ -100,7 +100,18 @@ export function registerOllamaHandlers() {
   ipcMain.handle(
     "local-models:list-ollama",
     async (): Promise<LocalModelListResponse> => {
-      return fetchOllamaModels();
+      try {
+        return await fetchOllamaModels();
+      } catch (error) {
+        logger.info("Ollama is not running or not accessible", error);
+        return {
+          models: [],
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not connect to Ollama. Make sure it is running.",
+        };
+      }
     },
   );
 }

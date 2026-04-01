@@ -6,6 +6,9 @@ import {
   localModelsErrorAtom,
 } from "@/atoms/localModelsAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
+import { showWarning } from "@/lib/toast";
+
+let lastOllamaWarning = "";
 
 export function useLocalModels() {
   const [models, setModels] = useAtom(localModelsAtom);
@@ -20,14 +23,30 @@ export function useLocalModels() {
   const loadModels = useCallback(async () => {
     setLoading(true);
     try {
-      const modelList = await ipcClient.listLocalOllamaModels();
-      setModels(modelList);
-      setError(null);
+      const response = await ipcClient.listLocalOllamaModels();
+      if (response.error) {
+        if (response.error !== lastOllamaWarning) {
+          showWarning(response.error);
+          lastOllamaWarning = response.error;
+        }
+        setModels([]);
+        setError(new Error(response.error));
+        return [];
+      }
 
-      return modelList;
+      setModels(response.models);
+      setError(null);
+      lastOllamaWarning = "";
+
+      return response.models;
     } catch (error) {
       console.error("Error loading local Ollama models:", error);
-      setError(error instanceof Error ? error : new Error(String(error)));
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== lastOllamaWarning) {
+        showWarning(message);
+        lastOllamaWarning = message;
+      }
+      setError(error instanceof Error ? error : new Error(message));
       return [];
     } finally {
       setLoading(false);
