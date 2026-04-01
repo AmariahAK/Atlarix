@@ -1,7 +1,7 @@
-## v5.2.2 — Fix legacy prompts schema missing `type` (2026-04-01)
+## v5.2.2 — Rename reserved `type` columns in SQLite graph tables (2026-04-01)
 
-- **SQLite:** Added embedded migration `0032_prompts_type_workspace` to upgrade the legacy `prompts` table created by `0011_light_zeigeist` so it has `type` and `workspace_id`. Startup now validates the prompts schema after migrations/repair and fails early into the existing retry path instead of letting prompt reads crash later with `SqliteError: no such column: type`.
-- **Migration ledger:** `seedVerifiedAtlarixMigrationsIfNeeded()` now reconciles already-reflected tail migrations even when `__atlarix_migrations` already has rows, preventing duplicate re-application of prompt upgrades on partially repaired legacy DBs.
+- **SQLite / PIVOT:** Added migration `0033_rename_type_columns.sql` to rename `pivot_nodes.type` -> `node_type`, `pivot_edges.type` -> `edge_type`, and `diagrams.type` -> `diagram_type`. This fixes production crashes in packaged builds when SQLite prepares queries against those graph/diagram tables (`no such column: "type"` on `/diagram` -> `/tools` flows).
+- **Drizzle ORM:** Updated `src/db/schema.ts` and the affected persistence/query code to use `nodeType`, `edgeType`, and `diagramType`, while keeping renderer IPC responses normalized to `diagram.type` for UI compatibility.
 
 ---
 

@@ -54,6 +54,14 @@ export interface DiagramInput {
     };
 }
 
+function toClientDiagram<T extends { diagramType?: string; [key: string]: unknown }>(diagram: T): Omit<T, "diagramType"> & { type: string } {
+    const { diagramType, ...rest } = diagram;
+    return {
+        ...rest,
+        type: typeof diagramType === "string" && diagramType.trim() ? diagramType : "mermaid",
+    };
+}
+
 // ============================================
 // DIAGRAM:GENERATE - Create new diagram
 // ============================================
@@ -67,7 +75,7 @@ ipcMain.handle(
                 .values({
                     workspaceId: input.workspaceId,
                     chatId: input.chatId,
-                    type: input.type,
+                    diagramType: input.type,
                     title: input.title,
                     content: input.content,
                     metadata: input.metadata,
@@ -78,7 +86,7 @@ ipcMain.handle(
 
             return {
                 success: true,
-                diagram,
+                diagram: toClientDiagram(diagram),
             };
         } catch (error) {
             console.error("[diagram:generate] Error:", error);
@@ -147,7 +155,7 @@ ipcMain.handle(
                         .update(diagrams)
                         .set({
                             content: placeholderContent,
-                            type: "mermaid",
+                            diagramType: "mermaid",
                             title: "No code found",
                             updatedAt: new Date(),
                             metadata: { focus: "no-code-placeholder" },
@@ -163,7 +171,7 @@ ipcMain.handle(
                 }
                 const [created] = await db.insert(diagrams).values({
                     workspaceId,
-                    type: "mermaid",
+                    diagramType: "mermaid",
                     title: "No code found",
                     content: placeholderContent,
                     metadata: { focus: "no-code-placeholder" },
@@ -288,7 +296,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .update(diagrams)
                     .set({
                         content,
-                        type: "mermaid",
+                        diagramType: "mermaid",
                         title: title || existingDiagram.title || `${app.name} Architecture (AI)`,
                         fingerprintHash: fingerprint.hash,
                         fingerprintData: fingerprint,
@@ -310,7 +318,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .insert(diagrams)
                     .values({
                         workspaceId,
-                        type: "mermaid",
+                        diagramType: "mermaid",
                         title: title || `${app.name} Architecture (AI)`,
                         content,
                         metadata: {
@@ -328,7 +336,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             }
 
             invalidateBlueprintCache(workspaceId);
-            return { success: true, diagram };
+            return { success: true, diagram: toClientDiagram(diagram) };
 
         } catch (error: unknown) {
             console.error("[diagram:generate-ai] Error:", error);
@@ -372,7 +380,7 @@ ipcMain.handle(
 
             return {
                 success: true,
-                diagrams: results,
+                diagrams: results.map(toClientDiagram),
             };
         } catch (error) {
             console.error("[diagram:list] Error:", error);
@@ -499,7 +507,7 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
-            return { success: true, diagram };
+            return { success: true, diagram: toClientDiagram(diagram) };
         } catch (error) {
             console.error("[diagram:get] Error:", error);
             return {
@@ -558,7 +566,7 @@ ipcMain.handle(
 
             console.log(`[diagram:update] Updated diagram ${id}, saved version`);
 
-            return { success: true, diagram: updated };
+            return { success: true, diagram: updated ? toClientDiagram(updated) : updated };
         } catch (error) {
             console.error("[diagram:update] Error:", error);
             return {
@@ -686,7 +694,7 @@ ipcMain.handle(
 
             console.log(`[diagram:restore] Restored diagram ${diagramId} to version ${versionId}`);
 
-            return { success: true, diagram: updated };
+            return { success: true, diagram: updated ? toClientDiagram(updated) : updated };
         } catch (error) {
             console.error("[diagram:restore] Error:", error);
             return {
@@ -728,7 +736,7 @@ ipcMain.handle(
             return {
                 success: true,
                 data: diagram.content,
-                type: diagram.type,
+                type: diagram.diagramType,
                 title: diagram.title,
                 format,
             };
@@ -849,7 +857,7 @@ Requirements:
                     .insert(diagrams)
                     .values({
                         workspaceId,
-                        type: "mermaid",
+                        diagramType: "mermaid",
                         title: `${app.name} Architecture`,
                         content,
                         metadata: { focus: "auto-generated" },

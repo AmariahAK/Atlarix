@@ -1443,7 +1443,7 @@ ${componentSnippet}
                   await db.insert(diagrams).values({
                     workspaceId: effectiveAppId ?? req.appId ?? null,
                     chatId: isEphemeralChat ? null : req.chatId,
-                    type: "architecture",
+                    diagramType: "architecture",
                     title: `Architecture - ${workspaceContext.summary}`,
                     content: workspaceContext.diagram,
                     metadata: { summary: workspaceContext.summary },

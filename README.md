@@ -60,6 +60,7 @@ v5.0 completes the Blueprint-context and project-memory work and ships it as the
 
 - **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — on push of a version tag (e.g. `v4.0.3.23`), creates a draft release on atlarix-releases, builds macOS (arm64/x64) and Linux, uploads assets, then publishes the release.
 - **SQLite migrations in installers:** As of **v5.2.0**, migration SQL is **embedded in the main process bundle** (Vite `?raw` imports via [`src/db/migrations/bundled.generated.ts`](src/db/migrations/bundled.generated.ts)); packaged apps do **not** depend on a `drizzle/` folder at runtime. Release builds still use [`forge.config.ts`](forge.config.ts) for natives and `dugite`; keep `npm run db:bundle-sql` (or `postdb:generate`) in sync after new Drizzle migrations.
+- **Important for future SQLite migrations:** Avoid bare `type` columns on the packaged SQLite graph/diagram tables. As of **v5.2.2**, `pivot_nodes`, `pivot_edges`, and `diagrams` use `node_type`, `edge_type`, and `diagram_type` plus matching Drizzle field names (`nodeType`, `edgeType`, `diagramType`) to prevent packaged production query failures and keep embedded migrations forward-safe.
 - **Secrets:** In the repo go to **Settings → Secrets and variables → Actions** and add the same variables as in [.env.example](.env.example). See [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for a step-by-step guide to obtain each. Required:  
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`, `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,  
   `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
@@ -284,8 +285,6 @@ Atlarix supports **code generation and modification**, **session/context summari
 **Important — Auto-recovery (local SQLite):** If `sqlite.db` under Electron `userData` is **inconsistent** (e.g. core tables missing while bootstrap `ensure*` tables exist, or `__atlarix_migrations` count does not match the embedded bundle after apply), the app **deletes** `sqlite.db` and `-wal`/`-shm` **once** and retries initialization. **Unknown Drizzle migration hashes** (bridge failure) **skip** this retry so user data is not wiped blindly. Workspace project folders on disk are not removed.
 
 **Important — Verified journal seed (SQLite):** Some legacy databases had `apps` but an empty migration ledger. Atlarix seeds **`__atlarix_migrations`** only for migrations whose effects are already present (`seedVerifiedAtlarixMigrationsIfNeeded` in [`src/db/migrate_atlarix.ts`](src/db/migrate_atlarix.ts)), then runs embedded SQL for the rest. **Every new migration** needs a matching `isJournalMigrationApplied` case so we never mark work as done when tables/columns are missing.
-
-**Important — Prompt schema compatibility (v5.2.2):** Atlarix now treats the `prompts` table schema as a **startup invariant**. The app expects `content`, `type`, and `workspace_id` to exist before `_db` is exposed to IPC handlers. A new embedded migration (`0032_prompts_type_workspace`) upgrades old installs created from the legacy prompt schema, and startup will retry/recover instead of letting later prompt queries fail with `no such column: type`.
 
 ```bash
 git clone https://github.com/norahlabs/atlarix.git

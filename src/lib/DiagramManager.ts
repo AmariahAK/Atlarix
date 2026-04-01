@@ -33,7 +33,7 @@ const logger = log.scope("DiagramManager");
 interface Diagram {
     id: number;
     workspaceId: number | null;
-    type: string;
+    diagramType: string;
     title: string;
     content: string;
     metadata: unknown;
@@ -330,7 +330,7 @@ Requirements:
                 .insert(diagrams)
                 .values({
                     workspaceId,
-                    type: "mermaid",
+                    diagramType: "mermaid",
                     title: `${app.name} Architecture`,
                     content,
                     metadata: {

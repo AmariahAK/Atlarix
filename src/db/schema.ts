@@ -373,7 +373,7 @@ export const diagrams = sqliteTable("diagrams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: integer("workspace_id").references(() => apps.id, { onDelete: "cascade" }),
   chatId: integer("chat_id").references(() => chats.id, { onDelete: "set null" }),
-  type: text("type", {
+  diagramType: text("diagram_type", {
     enum: ["mermaid", "architecture", "sequence", "class", "flowchart"],
   }).notNull(),
   title: text("title").notNull(),
@@ -649,7 +649,7 @@ export const pivotNodes = sqliteTable(
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
     externalId: text("external_id").notNull(), // Parser-generated id (e.g. file::symbol) for dedupe and edge refs
-    type: text("type", {
+    nodeType: text("node_type", {
       enum: ["file", "function", "class", "module"],
     }).notNull(),
     label: text("label").notNull(),
@@ -673,7 +673,7 @@ export const pivotEdges = sqliteTable(
       .references(() => apps.id, { onDelete: "cascade" }),
     fromId: text("from_id").notNull(),
     toId: text("to_id").notNull(),
-    type: text("type", {
+    edgeType: text("edge_type", {
       enum: ["import", "call", "extends", "api"],
     }).notNull(),
     metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),

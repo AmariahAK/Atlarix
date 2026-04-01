@@ -145,7 +145,7 @@ Use this to understand the codebase layout before making changes.
                     return {
                         success: true,
                         workspace,
-                        diagram_type: existingDiagram.type,
+                        diagram_type: existingDiagram.diagramType,
                         title: existingDiagram.title,
                         mermaid_code: existingDiagram.content,
                         saved: "Retrieved from saved diagram",

@@ -36,7 +36,7 @@ export async function saveNodesAndEdges(
       nodes.map((n) => ({
         workspaceId,
         externalId: n.id,
-        type: n.type,
+        nodeType: n.type,
         label: n.label,
         filePath: n.filePath,
         rangeStart: n.rangeStart ?? null,
@@ -51,7 +51,7 @@ export async function saveNodesAndEdges(
         workspaceId,
         fromId: e.fromId,
         toId: e.toId,
-        type: e.type,
+        edgeType: e.type,
         metadata: e.metadata ?? null,
       })),
     );
@@ -74,7 +74,7 @@ export async function loadNodesAndEdges(
 
   const nodes: PivotNode[] = rows.map((r) => ({
     id: r.externalId,
-    type: r.type as PivotNode["type"],
+    type: r.nodeType as PivotNode["type"],
     label: r.label,
     filePath: r.filePath,
     rangeStart: r.rangeStart ?? undefined,
@@ -85,7 +85,7 @@ export async function loadNodesAndEdges(
     id: `e_${r.id}`,
     fromId: r.fromId,
     toId: r.toId,
-    type: r.type as PivotEdge["type"],
+    type: r.edgeType as PivotEdge["type"],
     metadata: (r.metadata as Record<string, unknown>) ?? undefined,
   }));
   return { nodes, edges };
