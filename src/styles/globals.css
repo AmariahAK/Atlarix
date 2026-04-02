@@ -77,6 +77,11 @@ body[data-scroll-locked] .app-region-drag {
   app-region: no-drag;
 }
 
+/* Fix: Finding 1 — extra top margin is for custom title bar; tighten in fullscreen */
+html[data-fullscreen="true"] #layout-main-content-container {
+  margin-top: 0.25rem;
+}
+
 .h-screenish {
   height: calc(100vh - 64px);
 }

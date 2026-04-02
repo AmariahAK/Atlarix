@@ -8,10 +8,27 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import log from "electron-log";
+import { BrowserWindow } from "electron";
+import * as Sentry from "@sentry/electron/main";
 import { getUserDataPath } from "@/paths/paths";
 import type { LanguageModel } from "@/ipc/ipc_types";
 
 const logger = log.scope("models_dev");
+
+/** Fix: Finding 4 — notify renderer; do not block main chat. */
+const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
+
+function broadcastModelsDevStatus(message: string, timedOut?: boolean): void {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send("models-dev:status", { message, timedOut: !!timedOut });
+      }
+    }
+  } catch (e) {
+    logger.warn("models.dev status broadcast failed", e);
+  }
+}
 
 const MODELS_DEV_URL = process.env.ATLARIX_MODELS_URL ?? "https://models.dev";
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -75,13 +92,22 @@ async function saveToCache(data: ModelsDevData): Promise<void> {
   }
 }
 
+export type RefreshModelsDevOptions = {
+  /** When false, skip UI toast (e.g. hourly background refresh). Fix: Finding 4 */
+  notify?: boolean;
+};
+
 /**
  * Fetch models from models.dev API
  */
-export async function refreshModelsDev(): Promise<ModelsDevData> {
+export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<ModelsDevData> {
+  const notify = opts?.notify !== false;
+  if (notify) {
+    broadcastModelsDevStatus("Updating model catalog in background…");
+  }
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const timeout = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
 
     const res = await fetch(`${MODELS_DEV_URL}/api.json`, {
       headers: { "User-Agent": "Atlarix/1.0" },
@@ -98,10 +124,24 @@ export async function refreshModelsDev(): Promise<ModelsDevData> {
       await saveToCache(data);
       cachedData = data;
       logger.info(`[models.dev] Fetched ${Object.keys(data).length} providers`);
+      if (notify) broadcastModelsDevStatus("");
       return data;
     }
   } catch (e) {
-    logger.warn("[models.dev] Fetch failed, using cache", e);
+    const aborted = e instanceof Error && e.name === "AbortError";
+    if (aborted) {
+      logger.warn("[models.dev] Fetch timed out (30s), using cache");
+      Sentry.captureMessage("models.dev refresh exceeded 30s timeout", {
+        level: "warning",
+        tags: { feature: "models_dev" },
+      });
+      if (notify) {
+        broadcastModelsDevStatus("Model catalog update timed out; using cached list.", true);
+      }
+    } else {
+      logger.warn("[models.dev] Fetch failed, using cache", e);
+      if (notify) broadcastModelsDevStatus("");
+    }
   }
 
   // Fallback to cache
@@ -129,7 +169,7 @@ export async function getModelsDevData(): Promise<ModelsDevData> {
     return cached;
   }
 
-  return refreshModelsDev();
+  return refreshModelsDev({ notify: false });
 }
 
 /**
@@ -197,10 +237,10 @@ export async function getModelsFromModelsDev(
 export function startModelsDevRefresh(): void {
   if (refreshTimer) return;
 
-  refreshModelsDev().catch(() => {});
+  refreshModelsDev({ notify: true }).catch(() => {});
 
   refreshTimer = setInterval(() => {
-    refreshModelsDev().catch(() => {});
+    refreshModelsDev({ notify: false }).catch(() => {});
   }, REFRESH_INTERVAL_MS);
   refreshTimer.unref();
 }

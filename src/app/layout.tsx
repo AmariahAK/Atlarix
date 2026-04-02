@@ -2,7 +2,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
@@ -44,6 +44,7 @@ import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
+import { WorkforceSessionPromptDialog } from "@/components/WorkforceSessionPromptDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 
 /**
@@ -317,8 +318,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [setDiagramStaleness]);
 
+  // Fix: Finding 4 — models.dev background refresh (non-blocking notice)
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onModelsDevStatus(({ message, timedOut }) => {
+      if (!message?.trim()) return;
+      toast.message(message, { duration: timedOut ? 10_000 : 5_000 });
+    });
+    return () => unsub();
+  }, []);
+
   const showOnboardingHighlight =
-    onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 3;
+    onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 5;
 
   return (
     <>
@@ -328,11 +338,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <OnboardingTrigger />
           <TourManager />
           <CommunityDialog />
+          <WorkforceSessionPromptDialog />
           <OnboardingProgressBar />
           {showOnboardingHighlight && (
             <style>{`
               [data-onboarding-step="2"] [data-onboarding="home-chat-input"],
-              [data-onboarding-step="3"] [data-onboarding="settings-link"] {
+              [data-onboarding-step="3"] [data-onboarding="settings-link"],
+              [data-onboarding-step="4"] [data-onboarding="chat-continuity"],
+              [data-onboarding-step="5"] [data-onboarding="panel-resize-grip"] {
                 outline: 2px solid hsl(var(--primary));
                 outline-offset: 2px;
                 border-radius: 0.5rem;

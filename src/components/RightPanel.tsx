@@ -245,16 +245,43 @@ Please fix these errors in priority order (structural/build errors first, then r
                 />
             )}
 
-            {/* Drag Resize Handle - positioned at left edge */}
-            <div
-                onMouseDown={handleMouseDown}
-                className={cn(
-                    "absolute left-0 top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-50",
-                    "hover:bg-primary/30 transition-colors",
-                    isDragging && "bg-primary/50"
-                )}
-                style={{ touchAction: 'none' }}
-            />
+            {/* Fix: Finding 2 — visible resize grip + discoverability (see layout onboarding highlight) */}
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div
+                            data-onboarding="panel-resize-grip"
+                            role="separator"
+                            aria-orientation="vertical"
+                            aria-label="Drag to resize panel"
+                            title="Drag to resize panel"
+                            onMouseDown={(e) => {
+                                try {
+                                    localStorage.setItem("atlarix_panel_resize_hint_shown", "1");
+                                } catch {
+                                    /* ignore */
+                                }
+                                handleMouseDown(e);
+                            }}
+                            className={cn(
+                                "absolute left-0 top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-50 flex items-center justify-center",
+                                "hover:bg-primary/25 transition-colors group",
+                                isDragging && "bg-primary/50"
+                            )}
+                            style={{ touchAction: 'none' }}
+                        >
+                            <span className="flex flex-col gap-0.5 pointer-events-none opacity-60 group-hover:opacity-100">
+                                <span className="w-0.5 h-1 rounded-full bg-muted-foreground/80 mx-auto" />
+                                <span className="w-0.5 h-1 rounded-full bg-muted-foreground/80 mx-auto" />
+                                <span className="w-0.5 h-1 rounded-full bg-muted-foreground/80 mx-auto" />
+                            </span>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-[14rem]">
+                        Drag to resize the panel. Tabs switch between Preview, Code, Terminal, and more.
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
 
             {/* Header with Close Button */}
             <div className="flex items-center justify-end px-3 py-2 border-b border-border">

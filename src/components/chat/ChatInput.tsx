@@ -29,8 +29,10 @@ import {
   chatInputValueAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
+  streamLastActivityAtByChatIdAtom,
+  streamSlowWarningByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
+import { atom, useAtom, useSetAtom, useAtomValue, getDefaultStore } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { Button } from "@/components/ui/button";
@@ -83,12 +85,69 @@ import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEdi
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { useCompassSendGate } from "@/hooks/useCompassSendGate";
 import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
-import { CompassUsageStrip } from "./CompassUsageStrip";
-import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
 
 const showTokenBarAtom = atom(false);
+
+const STREAM_STALL_MS = 5 * 60 * 1000;
+
+/** Fix: Finding 4 — Build mode: warn if no stream activity for 5+ minutes */
+function SlowStreamWarningBar({
+  chatId,
+  isStreaming,
+}: {
+  chatId?: number | null;
+  isStreaming: boolean;
+}) {
+  const { settings } = useSettings();
+  const setSlow = useSetAtom(streamSlowWarningByChatIdAtom);
+  const slowMap = useAtomValue(streamSlowWarningByChatIdAtom);
+
+  useEffect(() => {
+    if (!isStreaming || chatId == null || settings?.selectedChatMode !== "build") {
+      return;
+    }
+    const tick = window.setInterval(() => {
+      const last = getDefaultStore().get(streamLastActivityAtByChatIdAtom).get(chatId);
+      if (last != null && Date.now() - last > STREAM_STALL_MS) {
+        setSlow((prev) => {
+          const n = new Map(prev);
+          n.set(chatId, true);
+          return n;
+        });
+      }
+    }, 15_000);
+    return () => clearInterval(tick);
+  }, [isStreaming, chatId, settings?.selectedChatMode, setSlow]);
+
+  if (chatId == null || !slowMap.get(chatId)) return null;
+
+  return (
+    <div className="mx-4 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 flex flex-wrap items-center gap-2">
+      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+      <span className="flex-1 min-w-[12rem]">
+        This is taking longer than usual. You can wait or stop and retry.
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="shrink-0 border-amber-600/50"
+        onClick={() => {
+          IpcClient.getInstance().cancelChatStream(chatId);
+          setSlow((prev) => {
+            const n = new Map(prev);
+            n.delete(chatId);
+            return n;
+          });
+        }}
+      >
+        Stop
+      </Button>
+    </div>
+  );
+}
 
 export function ChatInput({ chatId }: { chatId?: number }) {
   const posthog = usePostHog();
@@ -116,15 +175,9 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const [modelOverrideForNextMessage, setModelOverrideForNextMessage] = useState<
     { provider: string; name: string } | null
   >(null);
-  const {
-    compassExhausted,
-    usesCompass,
-    tier: compassTier,
-    percentRemaining: compassPct,
-    monthlyLimit: compassLimit,
-    tokensUsedThisMonth: compassTokensUsed,
-    loading: compassUsageLoading,
-  } = useCompassSendGate(modelOverrideForNextMessage);
+  const { compassExhausted, tier: compassTier } = useCompassSendGate(
+    modelOverrideForNextMessage,
+  );
   const { isAuthenticated, loading: authLoading } = useAuth();
   const mustSignIn = !authLoading && !isAuthenticated;
   const [selectedComponents, setSelectedComponents] = useAtom(
@@ -339,6 +392,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
 
   return (
     <>
+      <SlowStreamWarningBar chatId={currentChatId} isStreaming={isStreaming} />
       <ToolIndicator />
       {error && showError && (
         <ChatErrorBox
@@ -459,15 +513,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
             </div>
           ) : null}
 
-          {usesCompass && compassLimit != null && compassLimit > 0 ? (
-            <CompassUsageStrip
-              subscriptionTierLabel={formatCompassSubscriptionTier(compassTier)}
-              tokensUsedThisMonth={compassTokensUsed}
-              monthlyLimit={compassLimit}
-              percentRemaining={compassPct}
-              loading={compassUsageLoading}
-            />
-          ) : null}
           {compassExhausted ? (
             <div className="px-2 pt-1">
               <CompassExhaustedBanner tier={compassTier} />

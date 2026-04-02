@@ -53,6 +53,8 @@ export interface ToolIndicatorState {
   activeChatId: number | null;
   /** Live terminal output for the current tool run (e.g. run_command). */
   liveOutput: string;
+  /** Fix: Finding 4 — pre-tool "Thinking…" from main before first token */
+  phaseLabel: string | null;
 }
 export const toolIndicatorAtom = atom<ToolIndicatorState>({
   active: false,
@@ -60,7 +62,12 @@ export const toolIndicatorAtom = atom<ToolIndicatorState>({
   count: 0,
   activeChatId: null,
   liveOutput: "",
+  phaseLabel: null,
 });
+
+/** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */
+export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
+export const streamSlowWarningByChatIdAtom = atom<Map<number, boolean>>(new Map());
 
 /** v3.5: Show the "done" phase of the Atlarix animation until this timestamp (for the given chatId). */
 export const responseDoneAnimationAtom = atom<{ chatId: number; until: number } | null>(null);

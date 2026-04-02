@@ -6,7 +6,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useVersions } from "@/hooks/useVersions";
 import { Button } from "../ui/button";
@@ -18,7 +18,15 @@ import {
 } from "../ui/tooltip";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useRouter } from "@tanstack/react-router";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  selectedChatIdAtom,
+  toolIndicatorAtom,
+  streamLastActivityAtByChatIdAtom,
+  streamSlowWarningByChatIdAtom,
+  chatStreamCountByIdAtom,
+  isStreamingByIdAtom,
+  chatErrorByIdAtom,
+} from "@/atoms/chatAtoms";
 import { useChats } from "@/hooks/useChats";
 import { showError, showSuccess } from "@/lib/toast";
 import { useCallback, useEffect, useState } from "react";
@@ -29,6 +37,9 @@ import { useRenameBranch } from "@/hooks/useRenameBranch";
 import { isAnyCheckoutVersionInProgressAtom } from "@/store/appAtoms";
 import { LoadingBar } from "../ui/LoadingBar";
 import { WorkspaceSnapshotButton } from "../WorkspaceSnapshotButton";
+import { useCompassSendGate } from "@/hooks/useCompassSendGate";
+import { CompassUsageStrip } from "./CompassUsageStrip";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 
 interface ChatHeaderProps {
   isVersionPaneOpen: boolean;
@@ -47,6 +58,12 @@ export function ChatHeader({
   const { versions, loading: versionsLoading } = useVersions(appId);
   const { navigate } = useRouter();
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
+  const setToolIndicator = useSetAtom(toolIndicatorAtom);
+  const setStreamLastActivity = useSetAtom(streamLastActivityAtByChatIdAtom);
+  const setStreamSlowWarning = useSetAtom(streamSlowWarningByChatIdAtom);
+  const setChatStreamCount = useSetAtom(chatStreamCountByIdAtom);
+  const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
+  const setChatErrorById = useSetAtom(chatErrorByIdAtom);
   const { refreshChats } = useChats(appId);
   const { isStreaming } = useStreamChat();
   const isAnyCheckoutVersionInProgress = useAtomValue(
@@ -83,6 +100,15 @@ export function ChatHeader({
 
   const [vaultServices, setVaultServices] = useState<string[]>([]);
 
+  const {
+    usesCompass,
+    tier: compassTier,
+    percentRemaining: compassPct,
+    monthlyLimit: compassLimit,
+    tokensUsedThisMonth: compassTokensUsed,
+    loading: compassUsageLoading,
+  } = useCompassSendGate(null);
+
   const refreshVaultServices = useCallback(async () => {
     try {
       const ipc = window.electron?.ipcRenderer;
@@ -110,14 +136,61 @@ export function ChatHeader({
 
   const handleNewChat = async () => {
     if (appId) {
-      try {
         try {
-          await window.electron?.ipcRenderer?.invoke("token-vault:clear-all-sessions");
-        } catch {
-          /* non-fatal */
-        }
-        await refreshVaultServices();
+          const previousChatId = selectedChatId;
+          try {
+            await window.electron?.ipcRenderer?.invoke("token-vault:clear-all-sessions");
+          } catch {
+            /* non-fatal */
+          }
+          try {
+            if (previousChatId != null) {
+              await window.electron?.ipcRenderer?.invoke(
+                "workforce:session:clear",
+                previousChatId,
+              );
+            }
+          } catch {
+            /* non-fatal */
+          }
+          await refreshVaultServices();
         const chatId = await IpcClient.getInstance().createChat(appId);
+        // Fix: Finding 2 — clear per-chat stream / indicator state so the new session has no ghost UI
+        if (previousChatId != null) {
+          setStreamLastActivity((prev) => {
+            const n = new Map(prev);
+            n.delete(previousChatId);
+            return n;
+          });
+          setStreamSlowWarning((prev) => {
+            const n = new Map(prev);
+            n.delete(previousChatId);
+            return n;
+          });
+          setChatStreamCount((prev) => {
+            const n = new Map(prev);
+            n.delete(previousChatId);
+            return n;
+          });
+          setIsStreamingById((prev) => {
+            const n = new Map(prev);
+            n.delete(previousChatId);
+            return n;
+          });
+          setChatErrorById((prev) => {
+            const n = new Map(prev);
+            n.delete(previousChatId);
+            return n;
+          });
+        }
+        setToolIndicator({
+          active: false,
+          toolName: null,
+          count: 0,
+          activeChatId: null,
+          liveOutput: "",
+          phaseLabel: null,
+        });
         setSelectedChatId(chatId);
         navigate({
           to: "/chat",
@@ -246,7 +319,7 @@ export function ChatHeader({
           <Button
             onClick={handleNewChat}
             variant="ghost"
-            className="hidden @2xs:flex items-center justify-start gap-2 mx-2 py-3"
+            className="flex items-center justify-start gap-2 mx-2 py-3 shrink-0"
           >
             <PlusCircle size={16} />
             <span>New Chat</span>
@@ -276,6 +349,19 @@ export function ChatHeader({
           )}
         </button>
       </div>
+
+      {/* Fix: Finding 5 — Compass usage stays visible above the thread (not only above the input) */}
+      {usesCompass && compassLimit != null && compassLimit > 0 ? (
+        <div className="border-t border-border/40 bg-muted/5">
+          <CompassUsageStrip
+            subscriptionTierLabel={formatCompassSubscriptionTier(compassTier)}
+            tokensUsedThisMonth={compassTokensUsed}
+            monthlyLimit={compassLimit}
+            percentRemaining={compassPct}
+            loading={compassUsageLoading}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

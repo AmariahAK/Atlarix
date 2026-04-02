@@ -100,7 +100,16 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                         <div className="flex items-center justify-end px-2 py-1.5 border-b border-border/50 bg-muted/5 flex-shrink-0">
                             <button
                                 type="button"
-                                onClick={() => navigate({ to: '/code', search: { appId: currentAppId } })}
+                                onClick={() =>
+                                    navigate({
+                                        to: "/code",
+                                        search: {
+                                            appId: currentAppId!,
+                                            ...(currentFile?.path ? { file: currentFile.path } : {}),
+                                            tab: "errors",
+                                        },
+                                    })
+                                }
                                 className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
                             >
                                 <Maximize2 className="h-3.5 w-3.5" />

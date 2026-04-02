@@ -137,6 +137,13 @@ export class IpcClient {
   private terminalHandlers: Map<number, (payload: any) => void>;
   private toolStartHandlers: Set<(payload: { chatId: number; toolName: string }) => void> = new Set();
   private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
+  private streamPhaseHandlers: Set<
+    (payload: { chatId: number; phase: string; label: string }) => void
+  > = new Set();
+  private modelsDevStatusHandlers: Set<
+    (payload: { message: string; timedOut?: boolean }) => void
+  > = new Set();
+  private windowFullscreenHandlers: Set<(payload: { fullscreen: boolean }) => void> = new Set();
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
   /** v3.9: Clarifying questions from AI — handlers receive { messageId, questions }. */
   private questionsHandlers: Set<(payload: { messageId: number; questions: Question[] }) => void> = new Set();
@@ -229,6 +236,35 @@ export class IpcClient {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload as { chatId: number };
         this.toolEndHandlers.forEach((h) => h({ chatId }));
+      }
+    });
+
+    this.ipcRenderer.on("chat:stream:phase", (_e, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "phase" in payload
+      ) {
+        const p = payload as { chatId: number; phase: string; label?: string };
+        this.streamPhaseHandlers.forEach((h) =>
+          h({ chatId: p.chatId, phase: p.phase, label: p.label ?? "" }),
+        );
+      }
+    });
+
+    this.ipcRenderer.on("models-dev:status", (_e, payload: unknown) => {
+      if (payload && typeof payload === "object" && "message" in payload) {
+        const p = payload as { message: string; timedOut?: boolean };
+        this.modelsDevStatusHandlers.forEach((h) => h(p));
+      }
+    });
+
+    this.ipcRenderer.on("window:fullscreen-changed", (_e, payload: unknown) => {
+      if (payload && typeof payload === "object" && "fullscreen" in payload) {
+        const fs = Boolean((payload as { fullscreen: boolean }).fullscreen);
+        document.documentElement.dataset.fullscreen = fs ? "true" : "false";
+        this.windowFullscreenHandlers.forEach((h) => h({ fullscreen: fs }));
       }
     });
 
@@ -492,6 +528,36 @@ export class IpcClient {
     return () => {
       this.toolStartHandlers.delete(onStart);
       this.toolEndHandlers.delete(onEnd);
+    };
+  }
+
+  /** Fix: Finding 4 — thinking / responding phase from main process */
+  public onStreamPhase(
+    handler: (payload: { chatId: number; phase: string; label: string }) => void,
+  ): () => void {
+    this.streamPhaseHandlers.add(handler);
+    return () => {
+      this.streamPhaseHandlers.delete(handler);
+    };
+  }
+
+  /** Fix: Finding 4 — models.dev background refresh status */
+  public onModelsDevStatus(
+    handler: (payload: { message: string; timedOut?: boolean }) => void,
+  ): () => void {
+    this.modelsDevStatusHandlers.add(handler);
+    return () => {
+      this.modelsDevStatusHandlers.delete(handler);
+    };
+  }
+
+  /** Fix: Finding 1 — Electron fullscreen enter/leave */
+  public onWindowFullscreenChanged(
+    handler: (payload: { fullscreen: boolean }) => void,
+  ): () => void {
+    this.windowFullscreenHandlers.add(handler);
+    return () => {
+      this.windowFullscreenHandlers.delete(handler);
     };
   }
 

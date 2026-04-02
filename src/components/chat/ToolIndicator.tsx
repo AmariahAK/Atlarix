@@ -7,7 +7,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 
 /**
  * v3.5: Persistent "Working…" indicator shown while the AI is executing a tool.
- * When run_command is active, live terminal output can be shown in an expandable block.
+ * Fix: Finding 4 — also shows "Thinking…" before first token; human-readable tool labels from main.
  */
 export function ToolIndicator() {
   const state = useAtomValue(toolIndicatorAtom);
@@ -18,17 +18,20 @@ export function ToolIndicator() {
     const unsub = IpcClient.getInstance().onToolIndicator(
       ({ chatId, toolName }) => {
         setState((prev) => ({
+          ...prev,
           active: true,
           toolName,
+          phaseLabel: null,
           count: prev.count + 1,
           activeChatId: chatId,
-          liveOutput: "", // reset so we show output for the current tool run
+          liveOutput: "",
         }));
       },
       () => {
         setState((prev) => {
           const count = Math.max(0, prev.count - 1);
           return {
+            ...prev,
             count,
             active: count > 0,
             toolName: count > 0 ? prev.toolName : null,
@@ -41,9 +44,39 @@ export function ToolIndicator() {
     return unsub;
   }, [setState]);
 
-  if (!state.active || !state.toolName) return null;
+  // Fix: Finding 4
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onStreamPhase(({ chatId, phase, label }) => {
+      setState((prev) => {
+        if (phase === "thinking") {
+          return {
+            ...prev,
+            phaseLabel: label.trim() || "Thinking…",
+            activeChatId: chatId,
+          };
+        }
+        if (phase === "responding") {
+          if (prev.activeChatId !== chatId) return prev;
+          return { ...prev, phaseLabel: null };
+        }
+        return prev;
+      });
+    });
+    return unsub;
+  }, [setState]);
 
-  const showLiveOutput = state.liveOutput.length > 0 && (state.toolName === "run_command" || state.toolName === "execute_command");
+  const showPhaseOnly = Boolean(state.phaseLabel) && !state.active;
+  const showToolRow = state.active && Boolean(state.toolName);
+  if (!showPhaseOnly && !showToolRow) return null;
+
+  const displayLine = showToolRow
+    ? `Working… ${state.toolName}`
+    : (state.phaseLabel ?? "");
+
+  const showLiveOutput =
+    state.liveOutput.length > 0 &&
+    showToolRow &&
+    /\bcommand\b/i.test(state.toolName ?? "");
 
   return (
     <div className="rounded-lg border border-border bg-muted/50 text-muted-foreground text-sm overflow-hidden">
@@ -51,9 +84,7 @@ export function ToolIndicator() {
         <div className="shrink-0">
           <AtlarixAnimation size="xs" phase="thinking" />
         </div>
-        <span className="flex-1">
-          Working… <span className="font-medium">{state.toolName}</span>
-        </span>
+        <span className="flex-1 font-medium">{displayLine}</span>
       </div>
       {showLiveOutput && (
         <div className="border-t border-border">

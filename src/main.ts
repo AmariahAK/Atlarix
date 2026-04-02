@@ -360,6 +360,7 @@ const createWindow = () => {
   // Send force-close event if it was detected; also send db-ready when window loads (in case DB was ready before load)
   mainWindow.webContents.once("did-finish-load", () => {
     sendDbReadyToWindow();
+    broadcastFullscreen();
     if (pendingForceCloseData) {
       mainWindow?.webContents.send("force-close-detected", {
         performanceData: pendingForceCloseData,
@@ -434,6 +435,22 @@ const createWindow = () => {
   });
 
   setMainApplicationMenu();
+
+  // Fix: Finding 1 — sync fullscreen to renderer for hit-testing / CSS
+  const broadcastFullscreen = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const fs = mainWindow.isFullScreen();
+    mainWindow.webContents.send("window:fullscreen-changed", { fullscreen: fs });
+    if (process.platform === "darwin" && !fs) {
+      try {
+        mainWindow.setTrafficLightPosition({ x: 10, y: 8 });
+      } catch {
+        /* optional */
+      }
+    }
+  };
+  mainWindow.on("enter-full-screen", broadcastFullscreen);
+  mainWindow.on("leave-full-screen", broadcastFullscreen);
 };
 
 // Packaged app: single instance only. In dev, skip the lock so a second `npm start`

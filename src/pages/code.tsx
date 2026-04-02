@@ -21,8 +21,14 @@ import { useRightPanelContext } from "@/hooks/useRightPanelContext";
 type CodePageTab = "chat" | "errors" | "terminal";
 
 export default function CodePage() {
-  const search = useSearch({ strict: false }) as { appId?: number | string };
+  const search = useSearch({ strict: false }) as {
+    appId?: number | string;
+    file?: string;
+    tab?: "chat" | "errors" | "terminal";
+  };
   const appIdFromRoute = search?.appId != null ? Number(search.appId) : undefined;
+  const fileFromRoute = search?.file?.trim() || undefined;
+  const tabFromRoute = search?.tab;
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
@@ -39,6 +45,18 @@ export default function CodePage() {
 
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<CodePageTab>("errors");
+
+  // Fix: Finding 2 — deep-link from preview "Open in full screen" (?file= & optional ?tab=)
+  useEffect(() => {
+    if (fileFromRoute) {
+      setSelectedFilePath(fileFromRoute);
+    }
+    if (tabFromRoute === "chat" || tabFromRoute === "errors" || tabFromRoute === "terminal") {
+      setActiveTab(tabFromRoute);
+    } else if (fileFromRoute) {
+      setActiveTab("errors");
+    }
+  }, [fileFromRoute, tabFromRoute]);
 
   const files = currentApp?.files ?? [];
   const appId = currentApp?.id ?? selectedAppId;

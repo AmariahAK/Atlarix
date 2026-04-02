@@ -67,6 +67,8 @@ export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimatio
       const h   = canvas!.offsetHeight;
       canvas!.width  = w * dpr;
       canvas!.height = h * dpr;
+      // Refactor: ThoughtsPanel — also used full-screen for loading; avoid scale accumulation on resize
+      ctx!.setTransform(1, 0, 0, 1, 0, 0);
       ctx!.scale(dpr, dpr);
       init(w, h);
     }

@@ -305,28 +305,10 @@ function BlueprintCanvasInner({
   }, [nodes.length, setNodes]);
 
   return (
-    <div className={cn("h-full w-full rounded-lg overflow-hidden bg-muted/20", className)}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={(_e, node) => onRoomSelect?.(node.id)}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        defaultEdgeOptions={{ type: "smoothstep" }}
-        deleteKeyCode={["Backspace", "Delete"]}
-        proOptions={{ hideAttribution: true }}
-        nodesDraggable
-        nodesConnectable
-        elementsSelectable
-      >
-        <Background variant={BackgroundVariant.Dots} gap={12} size={1} className="bg-background" />
-        <Controls className="atlaflow-controls-theme !shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
-        <Panel position="top-right" className="flex items-center gap-2">
+    <div className={cn("relative h-full w-full rounded-lg overflow-hidden bg-muted/20", className)}>
+      {/* Fix: Blueprint panel hitboxes — avoid ReactFlow Panel overlays (transform hit-testing issues on some platforms) */}
+      <div className="pointer-events-none absolute inset-0 z-50">
+        <div className="pointer-events-auto absolute right-3 top-3 flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
@@ -348,28 +330,32 @@ function BlueprintCanvasInner({
             <Plus className="w-3.5 h-3.5" />
             Add container
           </button>
-        </Panel>
+        </div>
+
         {hiddenCount > 0 && (
-          <Panel position="bottom-left" className="relative">
-            <button
-              type="button"
-              onClick={() => setHiddenChipOpen((v) => !v)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground shadow-sm"
-            >
-              {hiddenCount} hidden item{hiddenCount !== 1 ? "s" : ""} (deps & config)
-            </button>
-            {hiddenChipOpen && (
-              <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-border bg-card p-2 text-xs shadow-md">
-                {hiddenRooms.map((r) => (
-                  <div key={r.id} className="truncate text-muted-foreground">
-                    {r.label}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
+          <div className="pointer-events-auto absolute left-3 bottom-3">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setHiddenChipOpen((v) => !v)}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground shadow-sm"
+              >
+                {hiddenCount} hidden item{hiddenCount !== 1 ? "s" : ""} (deps & config)
+              </button>
+              {hiddenChipOpen && (
+                <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-border bg-card p-2 text-xs shadow-md">
+                  {hiddenRooms.map((r) => (
+                    <div key={r.id} className="truncate text-muted-foreground">
+                      {r.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
-        <Panel position="bottom-right" className="z-50 flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm">
+
+        <div className="pointer-events-auto absolute right-3 bottom-3 z-50 flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm">
           <div className="flex items-center gap-2">
             <div className="h-0.5 w-6 bg-primary" />
             <span className="text-foreground">Confirmed connection</span>
@@ -385,7 +371,29 @@ function BlueprintCanvasInner({
           {isRteRunning && (
             <div className="mt-1 text-xs text-muted-foreground animate-pulse">Analyzing code...</div>
           )}
-        </Panel>
+        </div>
+      </div>
+
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={(_e, node) => onRoomSelect?.(node.id)}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        defaultEdgeOptions={{ type: "smoothstep" }}
+        deleteKeyCode={["Backspace", "Delete"]}
+        proOptions={{ hideAttribution: true }}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+      >
+        <Background variant={BackgroundVariant.Dots} gap={12} size={1} className="bg-background" />
+        <Controls className="atlaflow-controls-theme !shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
       </ReactFlow>
     </div>
   );

@@ -34,8 +34,10 @@ import { SimpleInlineChat } from '@/components/SimpleInlineChat';
 import { RightPanel } from '@/components/RightPanel';
 import { rightPanelVisibleAtom, rightPanelSuppressAutoOpenAtom, sourceListAtom, selectedSourceAtom } from '@/atoms/sourceAtoms';
 import { onboardingStepAtom } from '@/atoms/viewAtoms';
+import { persistOnboardingStep } from '@/lib/onboarding';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
+import AtlarixAnimation from '@/components/atlarix/AtlarixAnimation';
 // Current datetime for AI context
 const getCurrentDateTime = () => {
     return new Date().toLocaleString('en-US', {
@@ -322,36 +324,8 @@ export default function AtlarixHome() {
     // Loading state
     if (isLoading) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center bg-background">
-                <div className="flex flex-col items-center gap-8">
-                    {/* Atlarix Logo & Thinking Animation */}
-                    <div className="relative">
-                        <div className="w-24 h-24 rounded-full border-4 border-border flex items-center justify-center bg-background/50 backdrop-blur">
-                            <img
-                                src="/logo/Atlarix.png"
-                                alt="Atlarix"
-                                className="w-16 h-16 object-contain"
-                            />
-                        </div>
-                        {/* Rotating ring */}
-                        <div className="absolute inset-0 border-4 border-transparent border-t-primary rounded-full animate-spin" />
-                    </div>
-
-                    <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-semibold atlarix-thinking">
-                            Starting chat...
-                        </h2>
-                        <p className="text-muted-foreground max-w-md">
-                            Connecting to Atlarix AI.
-                            <br />
-                            This might take a moment...
-                        </p>
-                    </div>
-
-                    {/* Axis line effect */}
-                    <div className="axis-line-horizontal w-64 h-px" />
-                </div>
-            </div>
+            // Refactor: ThoughtsPanel — Compass animation loading (no logo)
+            <AtlarixAnimation size="full" phase="thinking" />
         );
     }
 
@@ -377,8 +351,33 @@ export default function AtlarixHome() {
                             <strong>Compass</strong> is ready — no API key needed. Start a chat below, then add your own keys in Settings if you want other models.
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
-                            <Button size="sm" variant="outline" onClick={() => { setOnboardingStep(3); navigate({ to: '/settings' }); }}>
+                            <Button size="sm" variant="outline" onClick={() => { setOnboardingStep(3); persistOnboardingStep(3); navigate({ to: '/settings' }); }}>
                                 Next: Settings
+                            </Button>
+                        </div>
+                    </div>
+                )}
+                {onboardingStep === 4 && (
+                    <div
+                        data-onboarding="chat-continuity"
+                        className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    >
+                        <span>
+                            <strong>No long-lived chat history.</strong> Continuity comes from your Blueprint and project files under{" "}
+                            <code className="text-xs bg-muted px-1 rounded">.atlarix</code> (including your plan file).
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                    setOnboardingStep(5);
+                                    persistOnboardingStep(5);
+                                    setSuppressRightAutoOpen(false);
+                                    setRightPanelVisible(true);
+                                }}
+                            >
+                                Next: Side panel
                             </Button>
                         </div>
                     </div>

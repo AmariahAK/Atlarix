@@ -309,6 +309,10 @@ const validInvokeChannels = [
   "token-vault:list-services",
   "token-vault:start-connect",
   "token-vault:clear-all-sessions",
+  "workforce:session:get",
+  "workforce:session:set-scope",
+  "workforce:session:clear",
+  "workforce:session:complete-prompt",
   // v4.0 Teams (Workforce)
   "team:get",
   "team:list-members",
@@ -330,6 +334,9 @@ const validReceiveChannels = [
   "chat:response:error",
   "chat:tool:start",
   "chat:tool:end",
+  "chat:stream:phase",
+  "models-dev:status",
+  "window:fullscreen-changed",
   "app:output",
   "github:flow-update",
   "github:flow-success",
@@ -347,6 +354,7 @@ const validReceiveChannels = [
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
+  "workforce:prompt-session-scope",
   "user-question-request", // ask_user: show question + options in chat UI
   "mode_change_requested",
   "terminal-output",

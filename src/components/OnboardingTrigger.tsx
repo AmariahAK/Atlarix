@@ -6,6 +6,7 @@
 import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { onboardingStepAtom } from "@/atoms/viewAtoms";
+import { persistOnboardingStep, readPersistedOnboardingStep } from "@/lib/onboarding";
 
 export function OnboardingTrigger() {
   const setStep = useSetAtom(onboardingStepAtom);
@@ -24,7 +25,15 @@ export function OnboardingTrigger() {
           return;
         }
         const result = (await ipc.invoke("onboarding:get-completed")) as { completed?: boolean };
-        if (!result?.completed) setStep(2);
+        if (!result?.completed) {
+          const persisted = readPersistedOnboardingStep();
+          if (persisted === 4 || persisted === 5) {
+            setStep(persisted);
+          } else {
+            setStep(2);
+            persistOnboardingStep(2);
+          }
+        }
       } catch {
         // ignore
       }

@@ -376,7 +376,7 @@ export function registerLanguageModelHandlers() {
     try {
       invalidateProviderModelCache();
       resetModelsDevCache();
-      await refreshModelsDev();
+      await refreshModelsDev({ notify: true });
       return { success: true };
     } catch (e) {
       logger.warn("models-dev refresh failed", e);

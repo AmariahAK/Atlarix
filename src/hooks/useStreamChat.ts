@@ -13,6 +13,8 @@ import {
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
   toolIndicatorAtom,
+  streamLastActivityAtByChatIdAtom,
+  streamSlowWarningByChatIdAtom,
   responseDoneAnimationAtom,
   questionsByMessageIdAtom,
   restartedAfterMessageIdAtom,
@@ -101,6 +103,8 @@ export function useStreamChat({
 }: { hasChatId?: boolean } = {}) {
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
+  const setStreamLastActivityAtByChatId = useSetAtom(streamLastActivityAtByChatIdAtom);
+  const setStreamSlowWarningByChatId = useSetAtom(streamSlowWarningByChatIdAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
@@ -190,6 +194,26 @@ export function useStreamChat({
         const next = new Map(prev);
         next.set(chatId, true);
         return next;
+      });
+
+      // Fix: Finding 4 — instant "Thinking…" before main round-trip
+      setToolIndicator({
+        active: false,
+        toolName: null,
+        count: 0,
+        activeChatId: chatId,
+        liveOutput: "",
+        phaseLabel: "Thinking…",
+      });
+      setStreamSlowWarningByChatId((prev) => {
+        const n = new Map(prev);
+        n.delete(chatId);
+        return n;
+      });
+      setStreamLastActivityAtByChatId((prev) => {
+        const n = new Map(prev);
+        n.set(chatId, Date.now());
+        return n;
       });
 
       let hasIncrementedStreamCount = false;
@@ -418,6 +442,12 @@ export function useStreamChat({
               hasIncrementedStreamCount = true;
             }
 
+            setStreamLastActivityAtByChatId((prev) => {
+              const n = new Map(prev);
+              n.set(chatId, Date.now());
+              return n;
+            });
+
             // Extract and enrich sources from messages
             const allSources: SourceItem[] = [];
             const seenUrls = new Set<string>();
@@ -543,7 +573,24 @@ export function useStreamChat({
             }));
 
             // v3.5: Clear persistent tool indicator when stream ends
-            setToolIndicator({ active: false, toolName: null, count: 0, activeChatId: null, liveOutput: "" });
+            setToolIndicator({
+              active: false,
+              toolName: null,
+              count: 0,
+              activeChatId: null,
+              liveOutput: "",
+              phaseLabel: null,
+            });
+            setStreamLastActivityAtByChatId((prev) => {
+              const n = new Map(prev);
+              n.delete(response.chatId);
+              return n;
+            });
+            setStreamSlowWarningByChatId((prev) => {
+              const n = new Map(prev);
+              n.delete(response.chatId);
+              return n;
+            });
 
             // v3.5: Brief "done" phase of Atlarix animation when response completes
             setResponseDoneAnimation({ chatId: response.chatId, until: Date.now() + 2000 });
@@ -584,6 +631,24 @@ export function useStreamChat({
               next.set(chatId, false);
               return next;
             });
+            setToolIndicator({
+              active: false,
+              toolName: null,
+              count: 0,
+              activeChatId: null,
+              liveOutput: "",
+              phaseLabel: null,
+            });
+            setStreamLastActivityAtByChatId((prev) => {
+              const n = new Map(prev);
+              n.delete(chatId);
+              return n;
+            });
+            setStreamSlowWarningByChatId((prev) => {
+              const n = new Map(prev);
+              n.delete(chatId);
+              return n;
+            });
             refreshChats();
             refreshApp();
             refreshVersions();
@@ -597,6 +662,26 @@ export function useStreamChat({
         // the case where the stream setup fails
       } catch (error) {
         console.error("[CHAT] Exception during streaming setup:", error);
+        setToolIndicator({
+          active: false,
+          toolName: null,
+          count: 0,
+          activeChatId: null,
+          liveOutput: "",
+          phaseLabel: null,
+        });
+        if (chatId) {
+          setStreamLastActivityAtByChatId((prev) => {
+            const n = new Map(prev);
+            n.delete(chatId);
+            return n;
+          });
+          setStreamSlowWarningByChatId((prev) => {
+            const n = new Map(prev);
+            n.delete(chatId);
+            return n;
+          });
+        }
         setIsStreamingById((prev) => {
           const next = new Map(prev);
           if (chatId) next.set(chatId, false);
@@ -618,6 +703,8 @@ export function useStreamChat({
       setMessagesById,
       setQuestionsByMessageId,
       setToolIndicator,
+      setStreamLastActivityAtByChatId,
+      setStreamSlowWarningByChatId,
       setResponseDoneAnimation,
       setIsStreamingById,
       setIsPreviewOpen,

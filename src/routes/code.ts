@@ -9,5 +9,8 @@ export const codeRoute = createRoute({
   component: CodePage,
   validateSearch: z.object({
     appId: z.number().optional(),
+    /** Fix: Finding 2 — open full-screen code page with this file in the editor */
+    file: z.string().optional(),
+    tab: z.enum(["chat", "errors", "terminal"]).optional(),
   }),
 });

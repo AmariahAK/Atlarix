@@ -16,9 +16,15 @@ export const selectedExtensionIdAtom = atom<string | null>(null);
 /** When true, show onboarding overlay (e.g. after "Restart guide" in Settings). */
 export const showOnboardingAtom = atom(false);
 
-/** Current onboarding step: 1 = login, 2 = start with Compass, 3 = BYOK in Settings, null = done / idle. */
-export type OnboardingStep = 1 | 2 | 3 | null;
+/**
+ * Current onboarding step: 1 = login, 2 = Compass, 3 = BYOK Settings, 4 = chat continuity copy, 5 = panel resize hint, null = done.
+ * Fix: Finding 2 — extended flow after Settings (local persistence in onboarding.ts).
+ */
+export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | null;
 export const onboardingStepAtom = atom<OnboardingStep>(null);
 
 /** Incremented after a Compass chat turn completes so usage hooks can refetch. */
 export const compassUsageBumpAtom = atom(0);
+
+/** Fix: Finding 5 — inline quota milestone message (dismiss clears; thresholds fire once per session). */
+export const compassMilestoneBannerAtom = atom<string | null>(null);

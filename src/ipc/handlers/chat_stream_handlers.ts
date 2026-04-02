@@ -43,7 +43,7 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, getFastModelForCurrentProvider, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -146,10 +146,65 @@ import { readAtlarixMd, writeAtlarixMd } from "../../lib/project-memory";
 import { estimateTokens, getContextWindow } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
+import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+// Auto routing: Stage 2 fast-LLM classifier (best-effort; heuristic fallback always applies).
+async function classifyAutoRouteWithFastLLM(
+  prompt: string,
+  settings: import("../../lib/schemas").UserSettings,
+  mainOptions: GetModelClientOptions,
+): Promise<{
+  category: import("../../lib/routing/signal-sets").RoutingCategory;
+  confidence: number;
+} | null> {
+  const fastModel = getFastModelForCurrentProvider(settings);
+  if (!fastModel) return null;
+
+  try {
+    const { modelClient } = await getModelClient(fastModel, settings, mainOptions);
+    const system = [
+      "You are a routing classifier for a coding copilot.",
+      "Return ONLY strict JSON with keys: category, confidence.",
+      'category must be one of: "chit_chat","simple_edit","code_generation","debugging","architecture","deep_research","security_review","complex_reasoning".',
+      "confidence must be a number 0..1.",
+      "No extra keys. No prose. No markdown.",
+    ].join("\n");
+
+    const res = await generateText({
+      model: modelClient.model,
+      system,
+      messages: [{ role: "user", content: prompt.slice(0, 4000) }],
+      temperature: 0,
+      maxTokens: 80,
+    } as Parameters<typeof generateText>[0]);
+
+    const raw = String((res as any)?.text ?? "").trim();
+    const parsed = JSON.parse(raw) as { category?: string; confidence?: number };
+    const allowed = new Set([
+      "chit_chat",
+      "simple_edit",
+      "code_generation",
+      "debugging",
+      "architecture",
+      "deep_research",
+      "security_review",
+      "complex_reasoning",
+    ]);
+    if (typeof parsed.category !== "string" || !allowed.has(parsed.category)) return null;
+    if (typeof parsed.confidence !== "number" || Number.isNaN(parsed.confidence)) return null;
+    return {
+      category: parsed.category as any,
+      confidence: Math.max(0, Math.min(1, parsed.confidence)),
+    };
+  } catch (e) {
+    logger.warn("[auto-router] fast LLM classification failed:", e);
+    return null;
+  }
+}
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
 const toolSessionLoaders = new Map<number, ToolSessionLoader>();
@@ -207,6 +262,33 @@ export function resolveWorkspacePermissionResponse(
     pendingWorkspacePermissionResolvers.delete(key);
     r.resolve(result);
   }
+}
+
+/** Fix: Workforce-2 — prompt UI for session scope, then re-run tool. */
+async function runToolExecuteWithWorkforceSessionGate(
+  toolName: string,
+  executeArgs: Record<string, unknown>,
+  sender: IpcMainInvokeEvent["sender"],
+  chatId: number,
+): Promise<unknown> {
+  let result: unknown = await ToolRegistry.execute(toolName, executeArgs);
+  if (
+    result &&
+    typeof result === "object" &&
+    (result as { __workforce_session_scope_needed?: boolean }).__workforce_session_scope_needed === true
+  ) {
+    const { waitForWorkforceSessionScope } = await import("./workforce_session_handlers");
+    safeSend(sender, "workforce:prompt-session-scope", { chatId });
+    const ok = await waitForWorkforceSessionScope(chatId, 600_000);
+    if (!ok) {
+      return {
+        success: false,
+        error: "Workforce session scope was not set (cancelled or timed out).",
+      };
+    }
+    result = await ToolRegistry.execute(toolName, executeArgs);
+  }
+  return result;
 }
 
 async function resolveAskUserToolResult(
@@ -389,6 +471,7 @@ async function processStreamChunks({
   abortController,
   chatId,
   processResponseChunkUpdate,
+  onFirstModelActivity,
 }: {
   fullStream: AsyncIterableStream<TextStreamPart<ToolSet>>;
   fullResponse: string;
@@ -397,9 +480,17 @@ async function processStreamChunks({
   processResponseChunkUpdate: (params: {
     fullResponse: string;
   }) => Promise<string>;
+  /** Fix: Finding 4 — clear "Thinking…" once the model emits text or tool activity */
+  onFirstModelActivity?: () => void;
 }): Promise<{ fullResponse: string; incrementalResponse: string }> {
   let incrementalResponse = "";
   let inThinkingBlock = false;
+  let firstModelActivitySent = false;
+  const markFirstModelActivity = () => {
+    if (firstModelActivitySent || !onFirstModelActivity) return;
+    firstModelActivitySent = true;
+    onFirstModelActivity();
+  };
 
   const applyEmptyFallback = async () => {
     const fb = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
@@ -424,6 +515,7 @@ async function processStreamChunks({
       inThinkingBlock = false;
     }
     if (part.type === "text-delta") {
+      if (part.text) markFirstModelActivity();
       chunk += part.text;
     } else if (part.type === "reasoning-delta") {
       if (!inThinkingBlock) {
@@ -433,6 +525,7 @@ async function processStreamChunks({
 
       chunk += escapeAtlarixTags(part.text);
     } else if (part.type === "tool-call") {
+      markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(JSON.stringify(part.input));
       // Use native tags for non-MCP tools (serverName is empty or matches toolName)
@@ -444,6 +537,7 @@ async function processStreamChunks({
         chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
       }
     } else if (part.type === "tool-result") {
+      markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(part.output);
       // Use native tags for non-MCP tools
@@ -574,6 +668,13 @@ export function registerChatStreamHandlers() {
           throw e;
         }
 
+        // Fix: Finding 4 — immediate feedback while context/model loads
+        safeSend(event.sender, "chat:stream:phase", {
+          chatId: req.chatId,
+          phase: "thinking",
+          label: "Thinking…",
+        });
+
         const fileUploadsState = FileUploadsState.getInstance();
         let dyadRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
@@ -592,7 +693,7 @@ export function registerChatStreamHandlers() {
           } else {
             // This is a pure chat-only (no workspace) - use simplified handler with global MCP tools
             logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
-            const mcpTools = await getMcpTools(event, null);
+            const mcpTools = await getMcpTools(event, null, req.chatId);
             await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
             return;
           }
@@ -648,7 +749,7 @@ export function registerChatStreamHandlers() {
         // Chat-only mode: route to simplified handler (no workspace/codebase) with global MCP tools
         if (!chat.app) {
           logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
-          const mcpTools = await getMcpTools(event, null);
+          const mcpTools = await getMcpTools(event, null, req.chatId);
           await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
           return;
         }
@@ -1016,8 +1117,13 @@ ${componentSnippet}
         if (req.modelOverride) {
           effectiveModel = req.modelOverride;
         } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
-          const { runAutoRouter, recommendModeRoute } = await import("../../lib/routing/auto-router");
-          const { decision, model } = runAutoRouter(req.prompt, settings, mainOptions);
+          const { runAutoRouterAsync, recommendModeRoute } = await import("../../lib/routing/auto-router");
+          const { decision, model } = await runAutoRouterAsync(
+            req.prompt,
+            settings,
+            mainOptions,
+            async (q) => classifyAutoRouteWithFastLLM(q, settings, mainOptions),
+          );
           const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
             String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
           );
@@ -1029,10 +1135,13 @@ ${componentSnippet}
           });
           effectiveModel = model;
           if (settings.autoRoutingShowReasoning !== false) {
+            const agentHint = decision.recommendedAgent
+              ? ` · delegate: ${String(decision.recommendedAgent).replace(/^./, (c) => c.toUpperCase())}`
+              : "";
             safeSend(event.sender, "chat:activity", {
               id: `routing-${req.chatId}-${Date.now()}`,
               type: "routing_decision",
-              label: `Auto → ${decision.targetModel} (${decision.category})`,
+              label: `Auto → ${decision.targetModel} (${decision.category})${agentHint}`,
               status: "done",
               timestamp: Date.now(),
               chatId: req.chatId,
@@ -1457,7 +1566,9 @@ ${componentSnippet}
 
             // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
             try {
-              const workforceBlock = await buildWorkforceWorkspaceContextBlock();
+              const workforceBlock = await buildWorkforceWorkspaceContextBlock(
+                req.chatId < 0 ? null : req.chatId,
+              );
               if (workforceBlock) {
                 contextSections.push({
                   name: "workspaceAnalysis",
@@ -2097,14 +2208,29 @@ This conversation includes one or more image attachments. When the user uploads 
             // Convert to tool set format expected by AI SDK
             const tools: ToolSet = {};
             for (const tool of workspaceFilteredTools) {
-              tools[tool.function.name] = {
+              const regName = tool.function.name;
+              tools[regName] = {
                 description: tool.function.description,
                 inputSchema: normalizeToolInputSchemaForAiSdk(
                   tool.function?.parameters ?? { type: "object", properties: {} },
                 ) as never,
                 execute: async (args: any) => {
-                  const result = await ToolRegistry.execute(tool.function.name, args);
-                  return JSON.stringify(result);
+                  // Fix: Finding 4
+                  safeSend(event.sender, "chat:tool:start", {
+                    chatId: req.chatId,
+                    toolName: getToolActivityLabel(regName),
+                  });
+                  try {
+                    const result = await runToolExecuteWithWorkforceSessionGate(
+                      regName,
+                      { ...args, _chatSessionId: req.chatId },
+                      event.sender,
+                      req.chatId,
+                    );
+                    return JSON.stringify(result);
+                  } finally {
+                    safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                  }
                 },
               };
             }
@@ -2118,7 +2244,7 @@ This conversation includes one or more image attachments. When the user uploads 
             };
 
             // Merge global + workspace MCP tools for Agent mode
-            const agentMcpTools = await getMcpTools(event, effectiveAppId ?? null);
+            const agentMcpTools = await getMcpTools(event, effectiveAppId ?? null, req.chatId);
             Object.assign(tools, agentMcpTools);
 
             const { fullStream } = await simpleStreamText({
@@ -2140,6 +2266,13 @@ This conversation includes one or more image attachments. When the user uploads 
               abortController,
               chatId: req.chatId,
               processResponseChunkUpdate,
+              onFirstModelActivity: () => {
+                safeSend(event.sender, "chat:stream:phase", {
+                  chatId: req.chatId,
+                  phase: "responding",
+                  label: "",
+                });
+              },
             });
             fullResponse = result.fullResponse;
             chatMessages.push({
@@ -2158,7 +2291,9 @@ This conversation includes one or more image attachments. When the user uploads 
 
           // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
           if (!blueprintRequiredBlockMessage && settings.selectedChatMode === "ask" && effectiveApp) {
-            logger.log("Ask mode with workspace - enabling read-only tools + plan writes (approval)");
+            logger.log(
+              `Ask tier with workspace — read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""} (approval where required)`,
+            );
 
             const askPermissionInterceptor = new PermissionInterceptor(
               appPath,
@@ -2275,11 +2410,22 @@ This conversation includes one or more image attachments. When the user uploads 
                 ) as never,
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
+                  const askIsStream =
+                    tool.name === "stream_terminal_output" ||
+                    tool.name === "stream_pipeline_logs";
+                  // Fix: Finding 4
+                  if (!askIsStream) {
+                    safeSend(event.sender, "chat:tool:start", {
+                      chatId: req.chatId,
+                      toolName: getToolActivityLabel(tool.name),
+                    });
+                  }
                   try {
                     const meta = ToolRegistry.get(tool.name);
                     const askAllowed =
                       tool.name === "request_mode_change" ||
-                      (effectiveWorkMode === "plan" && tool.name === "write_file") ||
+                      (effectiveWorkMode === "plan" &&
+                        (tool.name === "write_file" || tool.name === "write_implementation_plan")) ||
                       (meta?.isReadOnly === true || meta?.allowInAskMode === true);
                     if (!askAllowed) {
                       return JSON.stringify({
@@ -2291,7 +2437,9 @@ This conversation includes one or more image attachments. When the user uploads 
                       ...args,
                       workspace: appPath,
                       workspaceId: effectiveAppId!,
-                      chatMode: "ask",
+                      // Fix: Finding 3 — Plan work mode may write plan/memory files only (see write_file handler)
+                      chatMode: effectiveWorkMode === "plan" ? "plan" : "ask",
+                      _chatSessionId: req.chatId,
                     };
                     if (tool.name === "stream_terminal_output" || tool.name === "stream_pipeline_logs") {
                       execArgs.chatId = req.chatId;
@@ -2305,7 +2453,12 @@ This conversation includes one or more image attachments. When the user uploads 
                         };
                       };
                     }
-                    const result = await ToolRegistry.execute(tool.name, execArgs);
+                    const result = await runToolExecuteWithWorkforceSessionGate(
+                      tool.name,
+                      execArgs,
+                      event.sender,
+                      req.chatId,
+                    );
 
                     const askUserResolvedEarly = await resolveAskUserToolResult(
                       event,
@@ -2362,7 +2515,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         const planOpId = askPermissionInterceptor.generateOperationId();
                         askPermissionInterceptor.bufferOperation(planOpId, planPerm);
                         logger.log(
-                          `[Ask Mode] write_implementation_plan: executing without approval UI (${planOpId})`,
+                          `[Plan tools] write_implementation_plan: executing without approval UI (${planOpId})`,
                         );
                         const planExec = await askPermissionInterceptor.executeOperation(planOpId);
                         if (!planExec.approved) {
@@ -2488,6 +2641,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (error) {
                     return JSON.stringify({ success: false, error: String(error) });
+                  } finally {
+                    if (!askIsStream) {
+                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                    }
                   }
                 },
               };
@@ -2534,24 +2691,25 @@ This conversation includes one or more image attachments. When the user uploads 
             }
 
             // Merge global + workspace MCP tools so workspace chats can use MCP (e.g. GitHub)
-            const askMcpTools = await getMcpTools(event, effectiveAppId!);
+            const askMcpTools = await getMcpTools(event, effectiveAppId!, req.chatId);
             Object.assign(askTools, askMcpTools);
-            logger.log(`Ask mode: ${Object.keys(askTools).length} tools available (read-only + plan writes + MCP)`);
+            logger.log(
+              `Ask tier: ${Object.keys(askTools).length} tools (read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""} + MCP)`,
+            );
 
             const planModePrompt =
               effectiveWorkMode === "plan"
                 ? `
 
 ## Plan mode (required)
-You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace layout is ambiguous. Persist the implementation roadmap to **.atlarix/ATLARIX_PLAN.md** using **write_implementation_plan** (preferred for structured tasks) **or** **write_file** targeting that exact path. Update **.atlarix/ATLARIX.md** with **write_file** when the user needs project instructions or memory updates. Read the current plan with **read_implementation_plan** before revising. Keep the assistant prose short after saving; the UI renders a structured Plan card from the hidden plan payload—avoid duplicating the full plan as markdown in the visible reply.
+You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace layout is ambiguous. Persist the implementation roadmap to **.atlarix/ATLARIX_PLAN.md** using **write_implementation_plan** (preferred) **or** **write_file** only for that path. Update **.atlarix/ATLARIX.md** with **write_file** when the user needs project instructions or memory updates. Read the current plan with **read_implementation_plan** before revising. Keep prose short after saving; the UI renders a structured Plan card—avoid duplicating the full plan in the visible reply. Suggest switching to **Build** only **after** the plan is done and the user wants implementation—not during mid-conversation clarification.
 `
                 : "";
 
             const askModePrompt = `
-IMPORTANT: ASK mode — read-only exploration, plus optional **planning**. Quick questions: answer directly without creating a plan file. Multi-step or "how should we build this" work: clarify if needed, explore with read-only tools, then **write_implementation_plan** for .atlarix/ATLARIX_PLAN.md (applied in-app without a separate approval step). Execution of the plan is **Build mode**.
-If the user asks for a plan, write .atlarix/ATLARIX_PLAN.md directly in this turn via write_implementation_plan; do not ask the user to create it manually.
+IMPORTANT: **Ask** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps, phased implementation plans, or structured plan files, ask the user to switch to **Plan** mode (or call **request_mode_change** toward **plan**). Do **not** suggest **Build** for ordinary Q&A.
 
-Available tools (read-only + plan):
+Available tools (Ask — read-only):
 - read_file, explore_folder, list_files, search_code, find_file
 - web_search, deep_search, read_url
 - get_diagram: Architecture diagrams
@@ -2560,13 +2718,12 @@ Available tools (read-only + plan):
 - recall_memory, search_memory
 - parse_code_structure, get_change_impact, diagnose_issue, health_check
 - ask_user: Clarifications or choices — pass \`options\` as string array; do not fake widgets in prose only.
-- write_implementation_plan: Create/update .atlarix/ATLARIX_PLAN.md only (no extra approval prompt in Ask)
 - request_workspace_permissions: Batch Token Auth (narrate first, then wait)
-- request_mode_change: For edits beyond .atlarix/ATLARIX_PLAN.md — mode "build" + reason; wait for user.
+- request_mode_change: To move to **Plan** (plan file) or **Build** (code changes) when the user is ready.
 
-NOT in Ask mode (Build only): write_file, delete_file, rename_file (except plan via write_implementation_plan), run_command, run_tests, save_learning.
+NOT in Ask mode: write_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests, save_learning.
 
-If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mode_change. For workforce, explain services before request_workspace_permissions.`;
+For workforce, explain services before request_workspace_permissions.`;
 
             const { fullStream: askStream } = await simpleStreamText({
               chatMessages,
@@ -2592,6 +2749,13 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
               abortController,
               chatId: req.chatId,
               processResponseChunkUpdate,
+              onFirstModelActivity: () => {
+                safeSend(event.sender, "chat:stream:phase", {
+                  chatId: req.chatId,
+                  phase: "responding",
+                  label: "",
+                });
+              },
             });
             fullResponse = askResult.fullResponse;
           } else if (!blueprintRequiredBlockMessage) {
@@ -2662,6 +2826,17 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                   buildLoader.onToolCall(toolName);
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
                   let activityStatus: "done" | "error" = "done";
+                  const isStreamTool =
+                    toolName === "stream_terminal_output" ||
+                    toolName === "stream_pipeline_logs";
+                  // Fix: Finding 4 — status line (stream tools use inner _sendToolActivity only)
+                  const uiToolLabel = getToolActivityLabel(toolName);
+                  if (!isStreamTool) {
+                    safeSend(event.sender, "chat:tool:start", {
+                      chatId: req.chatId,
+                      toolName: uiToolLabel,
+                    });
+                  }
                   safeSend(event.sender, "chat:activity", {
                     id: toolActivityId,
                     type: "tool_use",
@@ -2672,14 +2847,12 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                   try {
                     const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
                     const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
-                    const isStreamTool =
-                      toolName === "stream_terminal_output" ||
-                      toolName === "stream_pipeline_logs";
                     const executeArgs: any = {
                       ...args,
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
                       chatMode: "build",
+                      _chatSessionId: req.chatId,
                     };
                     if (isStreamTool) {
                       executeArgs.chatId = req.chatId;
@@ -2693,7 +2866,12 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                         };
                       };
                     }
-                    const result = await ToolRegistry.execute(toolName, executeArgs);
+                    const result = await runToolExecuteWithWorkforceSessionGate(
+                      toolName,
+                      executeArgs,
+                      event.sender,
+                      req.chatId,
+                    );
 
                     const askUserResolvedBuild = await resolveAskUserToolResult(
                       event,
@@ -2856,6 +3034,9 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                     activityStatus = "error";
                     throw err;
                   } finally {
+                    if (!isStreamTool) {
+                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                    }
                     safeSend(event.sender, "chat:activity", {
                       id: toolActivityId,
                       type: "tool_use",
@@ -2869,7 +3050,7 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
             }
 
             // Merge global + workspace MCP tools so workspace Build chats can use MCP (e.g. GitHub)
-            const buildMcpTools = await getMcpTools(event, effectiveAppId ?? null);
+            const buildMcpTools = await getMcpTools(event, effectiveAppId ?? null, req.chatId);
             Object.assign(tools, buildMcpTools);
 
             // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
@@ -2883,55 +3064,72 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                     delegateTool.parameters ?? {},
                   ) as never,
                   execute: async (args: any) => {
-                    const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
-                    const agentId = String(args.agent_id ?? "agent");
-                    const task = String(args.task ?? "");
-                    const startTime = Date.now();
-                    safeSend(event.sender, "chat:activity", {
-                      type: "delegation_start",
-                      id,
-                      parentId: undefined,
-                      depth: 0,
-                      agent: agentId,
-                      task,
-                      status: "active",
-                      timestamp: startTime,
-                      label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                    // Fix: Finding 4
+                    safeSend(event.sender, "chat:tool:start", {
+                      chatId: req.chatId,
+                      toolName: getToolActivityLabel("delegate_to_agent"),
                     });
-                    const result = await ToolRegistry.execute("delegate_to_agent", {
-                      ...args,
-                      workspace: workspacePath || undefined,
-                      workspaceId: effectiveAppId ?? undefined,
-                      chatMode: "build",
-                      depth: 0,
-                    });
-                    const duration = Date.now() - startTime;
-                    const isError = result?.success === false;
-                    const validationInfo =
-                      result && typeof result === "object" ? (result as any).validation : undefined;
-                    safeSend(event.sender, "chat:activity", {
-                      type: isError ? "delegation_error" : "delegation_complete",
-                      id,
-                      status: isError ? "error" : "done",
-                      result: typeof result === "object" && result ? (result as any).summary : undefined,
-                      duration,
-                      timestamp: Date.now(),
-                      label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
-                      detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
-                    });
-                    if (validationInfo?.status === "fallback" || validationInfo?.warning) {
+                    try {
+                      const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
+                      const agentId = String(args.agent_id ?? "agent");
+                      const task = String(args.task ?? "");
+                      const startTime = Date.now();
                       safeSend(event.sender, "chat:activity", {
-                        id: `structured-validation-${Date.now()}`,
-                        type: "background",
-                        label: `Structured output validation (${agentId})`,
-                        status: validationInfo?.status === "fallback" ? "error" : "done",
-                        timestamp: Date.now(),
-                        detail:
-                          validationInfo?.warning ||
-                          `Schema ${validationInfo?.schema ?? "unknown"} validated in ${validationInfo?.attempts ?? 1} attempt(s).`,
+                        type: "delegation_start",
+                        id,
+                        parentId: undefined,
+                        depth: 0,
+                        agent: agentId,
+                        task,
+                        status: "active",
+                        timestamp: startTime,
+                        label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
                       });
+                      const delegationChatMode =
+                        effectiveWorkMode === "plan"
+                          ? ("plan" as const)
+                          : effectiveWorkMode === "build"
+                            ? ("build" as const)
+                            : ("ask" as const);
+                      const result = await ToolRegistry.execute("delegate_to_agent", {
+                        ...args,
+                        workspace: workspacePath || undefined,
+                        workspaceId: effectiveAppId ?? undefined,
+                        // Fix: Finding 3 — sub-agent tools respect parent work mode
+                        delegationChatMode,
+                        chatId: req.chatId,
+                        depth: 0,
+                      });
+                      const duration = Date.now() - startTime;
+                      const isError = result?.success === false;
+                      const validationInfo =
+                        result && typeof result === "object" ? (result as any).validation : undefined;
+                      safeSend(event.sender, "chat:activity", {
+                        type: isError ? "delegation_error" : "delegation_complete",
+                        id,
+                        status: isError ? "error" : "done",
+                        result: typeof result === "object" && result ? (result as any).summary : undefined,
+                        duration,
+                        timestamp: Date.now(),
+                        label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                        detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
+                      });
+                      if (validationInfo?.status === "fallback" || validationInfo?.warning) {
+                        safeSend(event.sender, "chat:activity", {
+                          id: `structured-validation-${Date.now()}`,
+                          type: "background",
+                          label: `Structured output validation (${agentId})`,
+                          status: validationInfo?.status === "fallback" ? "error" : "done",
+                          timestamp: Date.now(),
+                          detail:
+                            validationInfo?.warning ||
+                            `Schema ${validationInfo?.schema ?? "unknown"} validated in ${validationInfo?.attempts ?? 1} attempt(s).`,
+                        });
+                      }
+                      return typeof result === "string" ? result : JSON.stringify(result);
+                    } finally {
+                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                     }
-                    return typeof result === "string" ? result : JSON.stringify(result);
                   },
                 };
               }
@@ -3033,6 +3231,13 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                   abortController,
                   chatId: req.chatId,
                   processResponseChunkUpdate,
+                  onFirstModelActivity: () => {
+                    safeSend(event.sender, "chat:stream:phase", {
+                      chatId: req.chatId,
+                      phase: "responding",
+                      label: "",
+                    });
+                  },
                 });
                 fullResponse = result.fullResponse;
 
@@ -3095,7 +3300,7 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                   for (const tc of textToolCalls) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
-                      toolName: tc.toolName,
+                      toolName: getToolActivityLabel(tc.toolName),
                     });
                   }
                 }
@@ -3107,9 +3312,15 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                           workspace: workspacePath || undefined,
                           workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
+                          _chatSessionId: req.chatId,
                         };
                         try {
-                          const r = await ToolRegistry.execute(tc.toolName, argsWithWorkspace);
+                          const r = await runToolExecuteWithWorkforceSessionGate(
+                            tc.toolName,
+                            argsWithWorkspace,
+                            event.sender,
+                            req.chatId,
+                          );
                           return { toolCall: tc, toolResult: r };
                         } catch (e) {
                           return {
@@ -3130,7 +3341,7 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                   if (!toolCallsToProcess) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
-                      toolName: toolCall.toolName,
+                      toolName: getToolActivityLabel(toolCall.toolName),
                     });
                   }
                   let toolResult: unknown;
@@ -3147,8 +3358,14 @@ If the user wants code changes outside .atlarix/ATLARIX_PLAN.md, call request_mo
                           workspace: workspacePath || undefined,
                           workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
+                          _chatSessionId: req.chatId,
                         };
-                        toolResult = await ToolRegistry.execute(toolCall.toolName, argsWithWorkspace);
+                        toolResult = await runToolExecuteWithWorkforceSessionGate(
+                          toolCall.toolName,
+                          argsWithWorkspace,
+                          event.sender,
+                          req.chatId,
+                        );
                       }
                     } catch (toolError) {
                       toolResult = `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`;
@@ -4218,7 +4435,9 @@ function normalizeToolInputSchemaForAiSdk(schema: unknown) {
 /** When appId is null/undefined, only global MCPs; when set, global + that workspace's MCPs (same as list-servers). */
 async function getMcpTools(
   event: IpcMainInvokeEvent,
-  appId?: number | null
+  appId?: number | null,
+  /** Fix: Finding 4 — when set, emit chat:tool:start/end around MCP execution */
+  chatIdForToolIndicator?: number | null
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
   try {
@@ -4250,24 +4469,37 @@ async function getMcpTools(
           description: original?.description,
           inputSchema: normalizeToolInputSchemaForAiSdk(original?.inputSchema) as never,
           execute: async (args: any, execCtx: any) => {
-            const inputPreview =
-              typeof args === "string"
-                ? args
-                : Array.isArray(args)
-                  ? args.join(" ")
-                  : JSON.stringify(args).slice(0, 500);
-            const ok = await requireMcpToolConsent(event, {
-              serverId: s.id,
-              serverName: s.name,
-              toolName: name,
-              toolDescription: original?.description,
-              inputPreview,
-            });
+            const cid = chatIdForToolIndicator;
+            if (cid != null) {
+              safeSend(event.sender, "chat:tool:start", {
+                chatId: cid,
+                toolName: getToolActivityLabel(key),
+              });
+            }
+            try {
+              const inputPreview =
+                typeof args === "string"
+                  ? args
+                  : Array.isArray(args)
+                    ? args.join(" ")
+                    : JSON.stringify(args).slice(0, 500);
+              const ok = await requireMcpToolConsent(event, {
+                serverId: s.id,
+                serverName: s.name,
+                toolName: name,
+                toolDescription: original?.description,
+                inputPreview,
+              });
 
-            if (!ok) throw new Error(`User declined running tool ${key}`);
-            const res = await (original as { execute?: (a: unknown, c?: unknown) => Promise<unknown> }).execute?.(args, execCtx);
+              if (!ok) throw new Error(`User declined running tool ${key}`);
+              const res = await (original as { execute?: (a: unknown, c?: unknown) => Promise<unknown> }).execute?.(args, execCtx);
 
-            return typeof res === "string" ? res : JSON.stringify(res);
+              return typeof res === "string" ? res : JSON.stringify(res);
+            } finally {
+              if (cid != null) {
+                safeSend(event.sender, "chat:tool:end", { chatId: cid });
+              }
+            }
           },
         };
       }

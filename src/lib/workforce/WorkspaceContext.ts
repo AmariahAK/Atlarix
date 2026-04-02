@@ -2,6 +2,8 @@
  * Workforce Workspace Context — v4.0
  * Assembles data from connected extensions into a compact block (<300 tokens)
  * for injection after system prompt, before history. Workforce tier only.
+ *
+ * @param chatId — when set, appends session-only scope the user chose for this chat (Workforce-2).
  */
 
 import log from "electron-log";
@@ -50,7 +52,9 @@ function formatBlock(data: WorkspaceContextData): string {
  * Build the Workforce workspace context block. Returns null if not Workforce tier
  * or no data. Call from chat stream when building system prompt (after main prompt, before history).
  */
-export async function buildWorkforceWorkspaceContextBlock(): Promise<string | null> {
+export async function buildWorkforceWorkspaceContextBlock(
+  chatId: number | null = null,
+): Promise<string | null> {
   if (SubscriptionManager.getEffectiveTier() !== "workforce") {
     return null;
   }
@@ -113,5 +117,18 @@ export async function buildWorkforceWorkspaceContextBlock(): Promise<string | nu
     const { capture } = await import("../../main/lib/analytics");
     capture("workspace_context_built", { extensionCount: connected.length });
   } catch { /* non-fatal */ }
-  return "\n\n" + block;
+
+  let out = "\n\n" + block;
+  if (chatId != null && Number.isFinite(chatId)) {
+    try {
+      const { getWorkforceChatSession } = await import("../../main/workforce-chat-session");
+      const sess = getWorkforceChatSession(chatId);
+      if (sess?.scopeNote?.trim()) {
+        out += `\n\n**Connected workspace contexts (this session only):** ${sess.scopeNote.trim()}`;
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+  return out;
 }

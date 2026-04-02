@@ -1,22 +1,19 @@
 /**
- * Per-turn activity display: one of text-only, Guided pipeline, or Autonomous graph.
- * Direct -> text only. Guided + delegations -> GuidedPipeline. Autonomous + delegations -> AutonomousGraph.
+ * Per-turn activity display.
+ *
+ * Refactor: ThoughtsPanel — prefer a simple group-chat UI for guided/autonomous delegation.
  */
 
 import { useAtomValue } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
 import { activityStreamItemsAtom } from "@/atoms/sourceAtoms";
-import { ActivityStream } from "./ActivityStream";
-import { GuidedPipeline } from "./chat/GuidedPipeline";
-import { AutonomousGraph } from "./chat/AutonomousGraph";
+import { ThoughtsPanel } from "./chat/ThoughtsPanel";
 
 export function ActivityDisplay() {
   const { settings } = useSettings();
   const items = useAtomValue(activityStreamItemsAtom);
 
   const agentMode = settings?.agentMode ?? "guided";
-  const forceTextOnly =
-    settings?.aiConfiguration?.activityStream?.detailLevel === "minimal";
 
   const hasDelegationEvents = items.some(
     (i) =>
@@ -26,21 +23,15 @@ export function ActivityDisplay() {
       (i.type === "delegation" && i.id)
   );
 
-  if (forceTextOnly) {
-    return <ActivityStream />;
+  if (agentMode === "guided" || agentMode === "autonomous") {
+    return <ThoughtsPanel />;
   }
 
-  if (agentMode === "direct" || !hasDelegationEvents) {
-    return <ActivityStream />;
+  // If we have delegation events even in other modes, still show the panel.
+  if (hasDelegationEvents) {
+    return <ThoughtsPanel />;
   }
 
-  if (agentMode === "guided") {
-    return <GuidedPipeline />;
-  }
-
-  if (agentMode === "autonomous") {
-    return <AutonomousGraph />;
-  }
-
-  return <ActivityStream />;
+  // No delegation: nothing to render here (ToolIndicator + ThinkingCard cover normal status).
+  return null;
 }

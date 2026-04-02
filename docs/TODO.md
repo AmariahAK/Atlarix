@@ -1,8 +1,23 @@
 # Atlarix TODO
 
-**Current Version:** v5.1.1  
-**Next Version:** v5.2+ (planning)  
-**Last Updated:** 2026-03-30
+**Current Version:** v6.0.0  
+**Next Version:** v6.1+ (planning)  
+**Last Updated:** 2026-04-02
+
+---
+
+## Done: v6.0 — Workforce session scope, agents, UX
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Workforce session workspace selection | **Done** | In-memory per `chatId`; IPC + dialog; cleared on New Chat; prompt injection block |
+| Remove base-of-origin Workforce settings layer | **Done** | No persisted default repo/channel/workspace for tools |
+| Autonomous permission bypass (sub-agents) | **Done** | Guided unchanged; audit log line; summaries |
+| Tester findings batch | **Done** | Fullscreen, chat, modes, streaming/models.dev, Compass UI |
+| Thoughts + Compass loading + Blueprint hitboxes | **Done** | `ThoughtsPanel`, `AtlarixAnimation`, `BlueprintCanvas` overlays |
+| Two-stage auto-router + delegation hint | **Done** | `auto-router.ts`, `chat_stream_handlers.ts` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 ---
 

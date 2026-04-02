@@ -7,11 +7,19 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v5.2.3*
+*Current: v6.0.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
-**Important (v5.2.3 Linux):** packaged Linux builds now disable Chromium sandboxing in Forge packaging, register `atlarix://` for both `.deb` and `.rpm`, handle cold-start OAuth deep links in the main process, and refresh login-shell PATH earlier so Node/pnpm and local model providers resolve more reliably when launched from desktop installers.
+### What's New in v6.0
+
+- **Workforce (session scope):** Connected tools (Slack, GitHub, Jira, etc.) use **per-chat** workspace choices stored in memory only; starting a new chat clears them. The AI sees your selections in the Workforce context block for that session. Legacy “base of origin” pre-configuration for repos/channels was removed in favor of this flow.
+- **Autonomous mode:** Specialist runs can proceed **without per-tool approval dialogs** (Ask/Plan/Build restrictions still apply). You still confirm Workforce scope when needed; completed runs surface a **summary** of tools and changes for review before you commit.
+- **Chat & UX:** Clearer **Ask vs Plan** behavior, streaming **phase and tool labels**, **models.dev** refresh timeout + UI notice, **Compass** usage visible during chat with milestone warnings, **fullscreen** hit areas and title bar behavior fixes, **New Chat** always visible, deep links for code preview, and expanded onboarding (continuity, right panel).
+- **Agents UI & startup:** **Thoughts** panel (group-style activity from the activity stream), **Compass** canvas loading instead of a static logo on cold start and home loading, **Blueprint** canvas controls moved out of React Flow overlays for reliable **click targets**.
+- **Auto routing:** Two-stage routing — **heuristics** plus optional **fast-model** classification when confidence is low — picks **Fast / Balanced / Thinking**; activity can show a **suggested specialist** (e.g. Architect) for delegation hints.
+
+**Linux (v5.2.3+):** Packaged Linux builds disable Chromium sandboxing in Forge, register `atlarix://` for `.deb` / `.rpm`, handle cold-start OAuth deep links, and refresh login-shell PATH for local models. Details: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 **Recent (v4.3):** UX and workflow upgrade: secure session persistence across restarts, guided Shepherd tours, corrected subscription entitlement timing/copy, Ask-mode planning improvements, Workforce Ask/Build read-write split, batch Token Auth permissions (`request_workspace_permissions`), and hardware-aware Ollama model recommendations in Settings.
 
@@ -49,7 +57,7 @@ v5.0 completes the Blueprint-context and project-memory work and ships it as the
 
 - **Core workspace tools (all tiers)**: When you open a workspace and use **Build** mode, the model always has access to core tools for files, code, search, diagrams, git, and commands. In **Ask** mode it automatically filters to read‑only tools (`read_file`, `list_files`, `search_code`, `get_diagram`, `git_log`, `web_search`, etc.) using each tool’s `isReadOnly` flag (with explicit `allowInAskMode` exceptions, e.g. implementation-plan writes).
 - **MCP tools (`@mcp` mentions)**: Add MCP servers in **Settings → Tools → MCP**. In chat, type `@` and pick an MCP server (e.g. `@mcp:MyServer`). The mention is sent in your message so the AI can prefer that server’s tools, but you never call tools manually—the model chooses which MCP tools to invoke.
-- **Workforce tools (Slack, Jira/Linear, Sentry, calendar, CI)**: On the **Workforce** tier, connect services via **Token Vault**. Read tools are Ask-safe; write/trigger tools are Build-only with approval. For multi-service auth, the AI can call `request_workspace_permissions(services[])` to open one unified permission panel that excludes already-connected services.
+- **Workforce tools (Slack, Jira/Linear, Sentry, calendar, CI)**: On the **Workforce** tier, connect services via **Token Vault**. Per **chat session**, you pick workspace/repo/channel context when a tool first needs it; that choice is remembered until **New Chat**. Read tools are Ask-safe; write/trigger tools are Build-only with approval. For multi-service auth, the AI can call `request_workspace_permissions(services[])` to open one unified permission panel that excludes already-connected services.
 - **Database Extension (DB tools)**: Configure database connections (PostgreSQL, MySQL, SQLite) through the **AI and extensions flow** (no separate Workspace block in Settings). After a connection is active for a workspace, the AI gets DB tools:
   - `db_query` and `db_schema` for read‑only SELECTs and schema inspection  
   - `db_list` to list configured/active connections  

@@ -17,6 +17,7 @@ import { useTypingPlaceholder } from "@/hooks/useTypingPlaceholder";
 import { useCompassSendGate } from "@/hooks/useCompassSendGate";
 import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
 import { CompassUsageStrip } from "./CompassUsageStrip";
+import { CompassQuotaInlineBanner } from "./CompassQuotaInlineBanner";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
@@ -134,6 +135,8 @@ export function HomeChatInput({
               <SignInToChatNotice />
             </div>
           ) : null}
+
+          <CompassQuotaInlineBanner />
 
           {usesCompass && compassLimit != null && compassLimit > 0 ? (
             <CompassUsageStrip

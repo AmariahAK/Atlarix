@@ -37,6 +37,10 @@ type DelegateArgs = {
   workspaceId?: number;
   /** Set by caller; depth for nested delegation (0 = top level). */
   depth?: number;
+  /** Fix: Finding 3 — parent session tool mode for nested ToolRegistry.execute */
+  delegationChatMode?: "build" | "plan" | "ask";
+  /** Active chat (Build stream) — required for autonomous sub-agent permission auto-approve. */
+  chatId?: number;
 };
 
 /** Run a single delegation; used by handler and by nested execute when Autonomous. */
@@ -67,6 +71,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
   const agentMode = settings.agentMode ?? "guided";
   const maxDepth = settings.aiConfiguration?.autonomous?.maxDelegationDepth ?? 2;
   const depth = args.depth ?? 0;
+  const delegationChatMode = args.delegationChatMode ?? "build";
 
   if (agentMode === "autonomous" && depth >= maxDepth) {
     return {
@@ -99,12 +104,52 @@ async function runDelegation(args: DelegateArgs): Promise<{
         description: t.description,
         inputSchema: (t.parameters ?? {}) as never,
         execute: async (toolArgs: any) => {
-          const result = await ToolRegistry.execute(t.name, {
+          let result = await ToolRegistry.execute(t.name, {
             ...toolArgs,
             workspace: workspace || undefined,
             workspaceId,
-            chatMode: "build",
+            chatMode: delegationChatMode,
           });
+
+          // Fix: Workforce-3 — autonomous nested agents: run permissioned tools without user queue
+          if (
+            agentMode === "autonomous" &&
+            depth > 0 &&
+            args.chatId != null &&
+            result &&
+            typeof result === "object" &&
+            (result as { __permission_required?: boolean }).__permission_required === true
+          ) {
+            const { getInterceptor } = await import("../../ipc/handlers/permissions/handlers");
+            const interceptor = getInterceptor(args.chatId);
+            const perm = interceptor?.parsePermissionRequest(result) ?? null;
+            if (interceptor && perm) {
+              const operationId = interceptor.generateOperationId();
+              interceptor.bufferOperation(operationId, perm);
+              logger.info(
+                `[Autonomous] Tool executed without user approval: ${t.name} (${perm.operation})`,
+              );
+              const execMeta = await interceptor.executeOperation(operationId);
+              const detail = interceptor.getExecutionResult(operationId);
+              if (execMeta.approved) {
+                result = {
+                  success: true,
+                  message: `Executed ${perm.operation} (autonomous sub-agent)`,
+                  path: detail.path,
+                  output: detail.output,
+                  exitCode: detail.exitCode,
+                };
+              } else {
+                result = {
+                  success: false,
+                  error: execMeta.error ?? detail.error ?? "Execution failed",
+                  output: detail.output,
+                  exitCode: detail.exitCode,
+                };
+              }
+            }
+          }
+
           return typeof result === "object" && result !== null
             ? JSON.stringify(result)
             : String(result);
@@ -125,6 +170,8 @@ async function runDelegation(args: DelegateArgs): Promise<{
               workspace,
               workspaceId,
               depth: depth + 1,
+              delegationChatMode,
+              chatId: args.chatId,
             });
             return JSON.stringify(nestedResult);
           },
@@ -145,6 +192,22 @@ async function runDelegation(args: DelegateArgs): Promise<{
 
     const stepsUsed = result.steps?.length ?? 0;
     logger.info(`Delegation to ${agent.name} (depth=${depth}) completed; steps=${stepsUsed}`);
+
+    const toolNames: string[] = [];
+    for (const step of result.steps ?? []) {
+      const tc = (step as { toolCalls?: { toolName?: string }[] }).toolCalls;
+      if (Array.isArray(tc)) {
+        for (const c of tc) {
+          if (c?.toolName) toolNames.push(String(c.toolName));
+        }
+      }
+    }
+    const uniqTools = [...new Set(toolNames)];
+    // Fix: Workforce-4 — completion line for autonomous runs (tool visibility in returned summary)
+    const autonomousFooter =
+      agentMode === "autonomous" && uniqTools.length > 0
+        ? `\n\n— Autonomous run: tools invoked — ${uniqTools.join(", ")}`
+        : "";
 
     const schemaByAgent: Record<
       string,
@@ -181,7 +244,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     };
 
     const schemaConfig = schemaByAgent[resolvedAgentId];
-    const rawSummary = result.text?.trim() || "(No summary produced)";
+    const rawSummary = (result.text?.trim() || "(No summary produced)") + autonomousFooter;
     if (!schemaConfig) {
       return {
         success: true,

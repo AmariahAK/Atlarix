@@ -146,11 +146,12 @@ const FEATURES: ToolFeature[] = [
       "Create or select a workspace on Home",
       "Upgrade to Workforce in Settings → Subscription or sidebar Account menu",
       "Open Settings → Workspace to connect extensions via Token Vault (Slack, Jira, Linear, etc.)",
-      "Use the JSON \"Space selection\" to choose which Slack channels / Jira projects the AI can see for this workspace",
-      "Chat in Build or Ask mode and let Workforce tools fetch tickets, mentions, pipelines, and errors for the active workspace"
+      "When a Workforce tool runs, choose the service scope for this chat (e.g. Slack workspace, GitHub org/repo)—stored for the session, not in settings JSON",
+      "Chat in Build or Ask mode and let Workforce tools fetch tickets, mentions, pipelines, and errors for the active workspace",
     ],
+    /* Fix: Workforce-1 — session-scoped service context (picker), not a static per-workspace JSON \"space\" blob. */
     howItWorks:
-      "Each workspace has its own Team, plan (Free / Pro / Workforce), and extension configuration. Workforce users can connect external services via Auth0 Token Vault in Settings → Workspace (Slack, Jira, Linear, Sentry, Calendar, CI) and then narrow what the AI can see with per-workspace \"space\" selection (e.g. only specific Slack channels or Jira projects). When you chat in a Workforce workspace, Atlarix uses these connections to build a Workforce context block (assigned tickets, unread Slack mentions, failing pipelines, Sentry errors, today's meetings) and injects it into the system prompt so the AI understands your team's real workload. All Workforce tools are gated by your effective tier and respect the allowed space.",
+      "Each workspace has its own Team, plan (Free / Pro / Workforce), and Token Vault connections. Workforce users connect Slack, Jira, Linear, Sentry, Calendar, CI in Settings → Workspace. For each chat session, the first time a Workforce tool needs a scope, you pick the Slack workspace, default channel area, GitHub org/repo, or similar; that choice is remembered for that chat only (cleared on New Chat). Atlarix injects a Workforce context block into the prompt from those connections. Tools are gated by your effective tier.",
     link: { label: "Settings → Subscription & Workspace", to: "/settings" },
   },
   {

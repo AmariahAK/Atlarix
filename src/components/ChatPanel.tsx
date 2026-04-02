@@ -17,6 +17,7 @@ import { ChatError } from "./chat/ChatError";
 import { CommandOutputCard } from "./CommandOutputCard";
 import { IterationProgressBar } from "./IterationProgressBar";
 import { ModeChangeApproval, type ModeChangeRequest } from "./chat/ModeChangeApproval";
+import { CompassQuotaInlineBanner } from "./chat/CompassQuotaInlineBanner";
 import { Button } from "@/components/ui/button";
 import { ArrowDown } from "lucide-react";
 
@@ -256,6 +257,7 @@ export function ChatPanel({
         onTogglePreview={onTogglePreview}
         onVersionClick={() => setIsVersionPaneOpen(!isVersionPaneOpen)}
       />
+      <CompassQuotaInlineBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isVersionPaneOpen && (
           <div className="flex-1 flex flex-col min-w-0 min-h-0">

@@ -394,13 +394,28 @@ ToolRegistry.register({
         // In Ask mode, deny write operations
         if (chatMode === "ask") {
             return {
-                error: "Write operations not allowed in Ask mode. Switch to Build mode to make changes.",
+                error: "Write operations not allowed in Ask mode. Switch to Plan mode for the plan file, or Build mode to make code changes.",
                 operation: "write_file",
                 denied: true,
             };
         }
 
         const normalizedPath = safeRelativePathUnderWorkspace(filePath);
+
+        // Fix: Finding 3 — Plan mode: only .atlarix plan / project memory files
+        if (chatMode === "plan") {
+            const norm = normalizedPath.replace(/\\/g, "/");
+            const planOk = /(^|\/)\.atlarix\/ATLARIX_PLAN\.md$/.test(norm);
+            const memoryOk = /(^|\/)\.atlarix\/ATLARIX\.md$/i.test(norm);
+            if (!planOk && !memoryOk) {
+                return {
+                    error:
+                        "Plan mode may only write .atlarix/ATLARIX_PLAN.md (prefer write_implementation_plan) or .atlarix/ATLARIX.md. Switch to Build for application code.",
+                    operation: "write_file",
+                    denied: true,
+                };
+            }
+        }
 
         // Check if file exists (to set type as update vs create)
         let fileType: "create" | "update" = "create";

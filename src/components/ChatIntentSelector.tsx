@@ -36,8 +36,16 @@ import {
 const HAS_SEEN_INTENT_KEY = "atlarix.hasSeenIntentExplanation";
 
 const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[] = [
-  { value: "ask", icon: MessageCircle, desc: "Read-only tools; quick answers and exploration." },
-  { value: "plan", icon: ListTodo, desc: "Blueprint-first planning; Ask tools + ATLARIX_PLAN." },
+  {
+    value: "ask",
+    icon: MessageCircle,
+    desc: "Read-only exploration—no plan file writes. Use Plan for roadmaps, then Build to implement.",
+  },
+  {
+    value: "plan",
+    icon: ListTodo,
+    desc: "Plan file only (.atlarix/ATLARIX_PLAN.md + ATLARIX.md). Switch to Build after the plan is done.",
+  },
   { value: "build", icon: Hammer, desc: "Full write/run tools and Build-tier Blueprint context." },
   { value: "debug", icon: Bug, desc: "Investigation focus; Ask tools + Debug-tier Blueprint." },
   { value: "review", icon: ShieldCheck, desc: "Review and quality; Ask tools + review-style prompts." },

@@ -188,6 +188,23 @@ export class ToolRegistry {
         }
 
         try {
+            // Fix: Workforce-2 — require per-chat session scope before Workforce tools (except batch permission request)
+            if (
+                tool.category === ToolCategory.WORKFORCE &&
+                name !== "request_workspace_permissions"
+            ) {
+                const chatId = args?._chatSessionId as number | undefined;
+                if (typeof chatId === "number" && Number.isFinite(chatId)) {
+                    const { getWorkforceChatSession } = await import("../../main/workforce-chat-session");
+                    if (!getWorkforceChatSession(chatId)?.scopeNote?.trim()) {
+                        return {
+                            __workforce_session_scope_needed: true,
+                            chatId,
+                        };
+                    }
+                }
+            }
+
             const result = await tool.handler(args);
 
             // If this is a permission request, return it directly (unwrapped)

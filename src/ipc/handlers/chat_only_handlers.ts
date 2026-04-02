@@ -41,6 +41,7 @@ import {
 } from "../shared/compass_constants";
 import { ToolRegistry } from "../../lib/tools";
 import { getSessionMemory } from "../../lib/session-memory";
+import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 
 const logger = log.scope("chat_only_handlers");
 
@@ -284,6 +285,12 @@ export async function handleChatOnlyStream(
                 description: tool.description,
                 inputSchema: PERMISSIVE_SCHEMA,
                 execute: async (params: any) => {
+                    // Fix: Finding 4
+                    safeSend(event.sender, "chat:tool:start", {
+                        chatId: req.chatId,
+                        toolName: getToolActivityLabel(tool.name),
+                    });
+                    try {
                     logger.log(`Executing tool: ${tool.name}`);
                     const result = await tool.handler({ ...params, chatId: req.chatId });
 
@@ -312,6 +319,9 @@ export async function handleChatOnlyStream(
                     }
 
                     return result;
+                    } finally {
+                        safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                    }
                 },
             };
         }
@@ -407,10 +417,20 @@ export async function handleChatOnlyStream(
 
         // Process stream
         try {
+            let firstTextChunk = true;
             for await (const chunk of result.textStream) {
                 if (abortController.signal.aborted) {
                     logger.log("Ephemeral chat-only stream aborted");
                     break;
+                }
+
+                if (firstTextChunk) {
+                    firstTextChunk = false;
+                    safeSend(event.sender, "chat:stream:phase", {
+                        chatId: req.chatId,
+                        phase: "responding",
+                        label: "",
+                    });
                 }
 
                 fullResponse += chunk;

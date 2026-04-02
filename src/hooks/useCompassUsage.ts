@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
-import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
+import { compassMilestoneBannerAtom, compassUsageBumpAtom } from "@/atoms/viewAtoms";
 import { toast } from "sonner";
 
 export interface CompassUsageState {
@@ -23,6 +23,7 @@ export interface CompassUsageState {
  */
 export function useCompassUsage(): CompassUsageState {
   const bump = useAtomValue(compassUsageBumpAtom);
+  const setMilestoneBanner = useSetAtom(compassMilestoneBannerAtom);
   const [percentRemaining, setPercentRemaining] = useState<number | null>(null);
   const [tokensUsedThisMonth, setTokensUsedThisMonth] = useState<number | null>(null);
   const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
@@ -33,6 +34,8 @@ export function useCompassUsage(): CompassUsageState {
 
   const prevPercentRef = useRef<number | null>(null);
   const milestoneToastedRef = useRef<Set<string>>(new Set());
+  const prevConsumedRef = useRef<number | null>(null);
+  const milestoneInlineRef = useRef<Set<string>>(new Set());
 
   const refetch = useCallback(async () => {
     try {
@@ -83,23 +86,43 @@ export function useCompassUsage(): CompassUsageState {
     }
     const prev = prevPercentRef.current;
     prevPercentRef.current = percentRemaining;
-    if (prev === null) {
-      return;
-    }
-    for (const threshold of [50, 25, 10] as const) {
-      const key = `remain-${threshold}`;
-      if (
-        prev > threshold &&
-        percentRemaining <= threshold &&
-        !milestoneToastedRef.current.has(key)
-      ) {
-        milestoneToastedRef.current.add(key);
-        toast.message(`Compass: about ${threshold}% of your monthly tokens remaining`, {
-          duration: 6000,
-        });
+    if (prev !== null) {
+      for (const threshold of [50, 25, 10] as const) {
+        const key = `remain-${threshold}`;
+        if (
+          prev > threshold &&
+          percentRemaining <= threshold &&
+          !milestoneToastedRef.current.has(key)
+        ) {
+          milestoneToastedRef.current.add(key);
+          toast.message(`Compass: about ${threshold}% of your monthly tokens remaining`, {
+            duration: 6000,
+          });
+        }
       }
     }
-  }, [percentRemaining, loading, monthlyLimit]);
+
+    // Fix: Finding 5 — consumed % milestones for persistent inline banner (75% / 50% / 25% of quota used)
+    const consumedPct = 100 - percentRemaining;
+    const prevConsumed = prevConsumedRef.current;
+    prevConsumedRef.current = consumedPct;
+    if (prevConsumed === null) {
+      return;
+    }
+    for (const threshold of [25, 50, 75] as const) {
+      const key = `used-${threshold}`;
+      if (
+        prevConsumed < threshold &&
+        consumedPct >= threshold &&
+        !milestoneInlineRef.current.has(key)
+      ) {
+        milestoneInlineRef.current.add(key);
+        setMilestoneBanner(
+          `Compass: you've used about ${threshold}% of your monthly token quota. Add API keys in Settings or upgrade if you need more.`,
+        );
+      }
+    }
+  }, [percentRemaining, loading, monthlyLimit, setMilestoneBanner]);
 
   return {
     percentRemaining,

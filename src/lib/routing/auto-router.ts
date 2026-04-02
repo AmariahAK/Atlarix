@@ -140,6 +140,8 @@ export interface RoutingDecision {
   targetProvider: string;
   category: RoutingCategory;
   tier: ModelTier;
+  /** Optional: suggests a specialist agent when category implies it. */
+  recommendedAgent?: "research" | "architect" | "builder" | "debugger" | "reviewer";
 }
 
 export interface ModeRoutingDecision {
@@ -200,6 +202,31 @@ export function recommendModeRoute(params: {
   };
 }
 
+function categoryToRecommendedAgent(
+  category: RoutingCategory
+): RoutingDecision["recommendedAgent"] {
+  switch (category) {
+    case "deep_research":
+      return "research";
+    case "architecture":
+      return "architect";
+    case "code_generation":
+    case "simple_edit":
+      return "builder";
+    case "debugging":
+      return "debugger";
+    case "security_review":
+      return "reviewer";
+    default:
+      return undefined;
+  }
+}
+
+export type FastLLMClassifier = (query: string) => Promise<{
+  category: RoutingCategory;
+  confidence: number;
+} | null>;
+
 /**
  * Run auto router: Stage 1 classification, optional Stage 2 (caller may do LLM call), then resolve model with ceiling and fallback.
  */
@@ -211,10 +238,46 @@ export function runAutoRouter(
   const { category, confidence } = classifyHeuristic(query);
 
   let finalCategory = category;
-  // Stage 2 would run here if confidence < CONFIDENCE_THRESHOLD (e.g. call fast model for "category:confidence").
-  // For now we use heuristic only; Stage 2 can be added later with a fast model call.
-  if (confidence < CONFIDENCE_THRESHOLD) {
-    // Keep heuristic result; optional: await classifyWithLLM(query, settings) -> finalCategory
+  // Stage 2 is implemented in runAutoRouterAsync; keep sync version heuristic-only.
+
+  let tier = categoryToTier(finalCategory);
+  tier = applyCeiling(tier, settings, options);
+  const model = resolveTierToModel(settings, tier);
+
+  return {
+    decision: {
+      targetModel: model.name,
+      targetProvider: model.provider,
+      category: finalCategory,
+      tier,
+      recommendedAgent: categoryToRecommendedAgent(finalCategory),
+    },
+    model,
+  };
+}
+
+/**
+ * Run auto router with optional Stage-2 fast-LLM classifier when heuristic confidence is low.
+ */
+export async function runAutoRouterAsync(
+  query: string,
+  settings: UserSettings,
+  options: GetModelClientOptions | undefined,
+  fastClassify: FastLLMClassifier | undefined
+): Promise<{ decision: RoutingDecision; model: LargeLanguageModel }> {
+  const h = classifyHeuristic(query);
+  let finalCategory: RoutingCategory = h.category;
+  let finalConfidence = h.confidence;
+
+  if (fastClassify && h.confidence < CONFIDENCE_THRESHOLD) {
+    const llm = await fastClassify(query);
+    if (llm && llm.category && typeof llm.confidence === "number") {
+      // Only accept when it's meaningfully more confident than heuristic.
+      if (llm.confidence >= CONFIDENCE_THRESHOLD && llm.confidence >= finalConfidence) {
+        finalCategory = llm.category;
+        finalConfidence = llm.confidence;
+      }
+    }
   }
 
   let tier = categoryToTier(finalCategory);
@@ -227,6 +290,7 @@ export function runAutoRouter(
       targetProvider: model.provider,
       category: finalCategory,
       tier,
+      recommendedAgent: categoryToRecommendedAgent(finalCategory),
     },
     model,
   };

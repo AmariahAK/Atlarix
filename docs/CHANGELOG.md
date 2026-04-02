@@ -1,3 +1,17 @@
+## v6.0.0 — Workforce session scope, autonomous agents, UX hardening, Thoughts & routing (2026-04-02)
+
+- **Workforce — Change 1 / 2:** Removed stored “base of origin” / default group-repo-workspace pre-selection for Workforce services; selections are **in-memory per chat** (`workforce-chat-session`, IPC `workforce:session:*`, `WorkforceSessionPromptDialog`). First tool use can prompt for scope; **New Chat** clears session. `buildWorkforceWorkspaceContextBlock` and stream handlers append **Connected workspace contexts (this session only)** to the Workforce prompt block. Token Vault OAuth unchanged.
+- **Workforce — gate:** `ToolRegistry` / `runToolExecuteWithWorkforceSessionGate` block Workforce tools until session scope is set where required (`// Fix: Workforce-Change-N` trace comments in touched files).
+- **Autonomous — Change 3:** Nested autonomous sub-agents auto-execute permissioned tools (no user queue); `logger.info('[Autonomous] Tool executed without user approval: …')`. Guided delegation permission flow unchanged. Delegation summaries append autonomous tool footers where applicable.
+- **Onboarding — Change 4:** Extra steps for chat continuity, right panel resize, autonomous expectations, and session-only Workforce context (`onboarding.ts`, home/settings UI).
+- **Tester findings (pre-6.0 pass):** Fullscreen IPC + `data-fullscreen` / layout CSS; pinned New Chat + workforce session clear; code route `file`/`tab` params; Ask/Plan prompts and tool gating (`write_file` Plan-only paths, blueprint tool Ask rules); streaming `chat:stream:phase`, `chat:tool:start/end`, human labels; `models.dev` 30s timeout + Sentry + `models-dev:status` IPC; Compass strip in header + inline milestone banner; `RightPanel` resize grip.
+- **UI:** `ThoughtsPanel` from `activityStreamItemsAtom` (guided/autonomous); `ActivityDisplay` wiring; removed legacy `ActivityStream` / `GuidedPipeline` / `AutonomousGraph`; `AppLoadingScreen` + `atlarix-home` loading use `AtlarixAnimation`; canvas `setTransform` reset before `scale`.
+- **Auto router:** `runAutoRouterAsync` + optional Stage-2 `classifyAutoRouteWithFastLLM` via `getFastModelForCurrentProvider` in `chat_stream_handlers.ts`; `RoutingDecision.recommendedAgent`; `routing_decision` activity label may include `delegate: …`.
+- **Blueprint:** `BlueprintCanvas` overlay controls moved outside ReactFlow `<Panel>` to fix misaligned hit targets on **Re-layout** / **Add container** (and related overlays).
+- **Hygiene:** Fixed invalid escaped quotes in `classifyAutoRouteWithFastLLM` (esbuild parse error).
+
+---
+
 ## v5.2.3 — Linux launch, OAuth, and local-model reliability (2026-04-01)
 
 - **Linux packaging:** Disabled Chromium sandboxing for packaged Linux builds in `forge.config.ts` and added `x-scheme-handler/atlarix` registration parity for both `.deb` and `.rpm` makers to reduce launch failures and improve deep-link install behavior.

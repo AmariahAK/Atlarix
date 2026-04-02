@@ -30,6 +30,14 @@ export const TitleBar = () => {
   const { settings, refreshSettings } = useSettings();
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
   const [showWindowControls, setShowWindowControls] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onWindowFullscreenChanged(({ fullscreen }) => {
+      setIsFullscreen(fullscreen);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     // Check if we're running on Windows
@@ -78,16 +86,29 @@ export const TitleBar = () => {
 
   return (
     <>
-      <div className="@container z-11 w-full h-11 bg-(--sidebar) absolute top-0 left-0 app-region-drag flex items-center justify-end">
-        <div className="flex-1"></div>
+      {/* Fix: Finding 1 — fullscreen: collapse drag region so it does not steal clicks */}
+      <div
+        className={cn(
+          "@container z-11 w-full bg-(--sidebar) absolute top-0 left-0 flex items-center justify-end",
+          isFullscreen
+            ? "h-0 min-h-0 pointer-events-none overflow-visible"
+            : "h-11 app-region-drag",
+        )}
+      >
+        {!isFullscreen ? <div className="flex-1" /> : null}
 
-        {/* Logo and app name removed for clean minimal design */}
-        {isAtlarixPro && <AtlarixProButton isAtlarixProEnabled={isAtlarixProEnabled} />}
+        {isAtlarixPro ? (
+          <div className={cn(isFullscreen && "pointer-events-auto no-app-region-drag")}>
+            <AtlarixProButton isAtlarixProEnabled={isAtlarixProEnabled} />
+          </div>
+        ) : null}
 
-        {/* Action Header moved to RightPanel toolbar */}
-
-        {showWindowControls && <WindowsControls />}
-      </div >
+        {showWindowControls ? (
+          <div className={cn("ml-auto", isFullscreen && "pointer-events-auto")}>
+            <WindowsControls />
+          </div>
+        ) : null}
+      </div>
 
       <AtlarixProSuccessDialog
         isOpen={isSuccessDialogOpen}

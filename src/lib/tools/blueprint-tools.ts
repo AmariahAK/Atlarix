@@ -597,13 +597,14 @@ ToolRegistry.register({
 ToolRegistry.register({
   name: "write_implementation_plan",
   description:
-    "Create/update .atlarix/ATLARIX_PLAN.md. Use after compare_blueprint_to_live. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. In Ask mode the plan file is written without a separate approval step.",
+    "Create/update .atlarix/ATLARIX_PLAN.md. Use after compare_blueprint_to_live. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. **Plan mode only** — not available in Ask mode.",
   category: ToolCategory.DIAGRAM,
   cost: 3,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
-  allowInAskMode: true,
+  // Fix: Finding 3 — planning belongs in Plan mode (modeAllowlist.plan)
+  allowInAskMode: false,
   parameters: createParameters(
     {
       workspace: stringParam("Workspace root path (auto-injected)"),

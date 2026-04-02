@@ -34,6 +34,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
+import { persistOnboardingStep } from "@/lib/onboarding";
 
 const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 
@@ -108,14 +109,10 @@ export default function SettingsPage() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
-                  onClick={async () => {
-                    try {
-                      const ipc = window.electron?.ipcRenderer;
-                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
-                    } catch {
-                      // ignore
-                    }
-                    setOnboardingStep(null);
+                  onClick={() => {
+                    // Fix: Finding 2 — finish BYOK, then home steps 4–5 before marking onboarding complete
+                    setOnboardingStep(4);
+                    persistOnboardingStep(4);
                     navigate({ to: "/" });
                   }}
                 >
@@ -132,6 +129,7 @@ export default function SettingsPage() {
                     } catch {
                       // ignore
                     }
+                    persistOnboardingStep(null);
                     setOnboardingStep(null);
                     navigate({ to: "/" });
                   }}
@@ -291,6 +289,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
       // ignore
     }
     setOnboardingStep(2);
+    persistOnboardingStep(2);
     navigate({ to: "/" });
   };
 

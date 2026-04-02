@@ -1,6 +1,6 @@
 /**
  * Token Vault / Connected services UI — Workforce
- * Connect Slack, Jira, Linear via Auth0; disconnect; per-workspace space selection.
+ * Connect Slack, Jira, Linear via Auth0; disconnect. Service scope for AI is chosen per chat session when tools run.
  */
 
 import { useEffect, useState, useCallback } from "react";

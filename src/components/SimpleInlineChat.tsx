@@ -6,7 +6,7 @@
  * Receives all state as props or from atoms directly.
  */
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
     chatMessagesByIdAtom,
@@ -30,7 +30,6 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
-    const [isHoveringTop, setIsHoveringTop] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -74,34 +73,30 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
 
     return (
         <div className="flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden relative">
-            {/* Hover-reveal New Chat button at top-left */}
-            <div
-                className="absolute top-0 left-0 right-0 h-16 z-10"
-                onMouseEnter={() => setIsHoveringTop(true)}
-                onMouseLeave={() => setIsHoveringTop(false)}
-            >
-                <div
-                    className={`absolute top-3 left-4 transition-all duration-200 ${isHoveringTop ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
-                        }`}
+            {/* Fix: Finding 2 — pinned New Chat (always visible) */}
+            <div className="flex-shrink-0 z-10 flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-border/40 bg-background/95">
+                <button
+                    type="button"
+                    onClick={handleNewChat}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-muted/50 border border-border/50 rounded-lg hover:bg-accent transition-colors"
                 >
-                    <button
-                        onClick={handleNewChat}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-background/80 backdrop-blur-sm border border-border/50 rounded-lg hover:bg-accent transition-colors"
-                    >
-                        <Plus size={14} />
-                        <span>New Chat</span>
-                    </button>
-                </div>
+                    <Plus size={14} />
+                    <span>New Chat</span>
+                </button>
             </div>
 
             {/* Messages area - ONLY this should scroll */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto px-4 py-6 space-y-4 pt-10"
+                className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
             >
                 {messages.length === 0 && !isStreaming ? (
-                    <div className="flex items-center justify-center h-32 text-muted-foreground">
-                        Starting chat...
+                    <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
+                        <span>Starting chat…</span>
+                        <span className="text-xs max-w-sm">
+                            Chats are not kept as a long-lived history. Continuity comes from your Blueprint and files under{" "}
+                            <code className="text-[10px] bg-muted px-1 rounded">.atlarix</code> (including the plan file).
+                        </span>
                     </div>
                 ) : (
                     messages.map((message, index) => (
