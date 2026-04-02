@@ -7,9 +7,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.0.0*
+*Current: v6.0.1*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+### What's New in v6.0.1
+
+- **Streaming:** Reasoning blocks from the model are always closed when a turn ends (`reasoning-end` and end-of-stream flush), fixing replies that could appear cut off mid-message. Thinking-tag cleanup and post-thinking deduplication recognize both short `think` and long-form provider closing tags.
+- **Output budget:** If a model has no catalogued `maxOutputTokens`, the stream uses a safe floor so providers do not fall back to an overly small completion limit.
+- **Agent docs:** `AGENTS.md` / `AGENTS_COMPACT.md` updated with product identity (NorahLabs, atlarix.dev), current modes, Compass, Guided/Autonomous, and Workforce session behavior.
 
 ### What's New in v6.0
 

@@ -86,4 +86,25 @@ AFTER TAG
     const result = cleanFullResponse(input);
     expect(result).toBe(expected);
   });
+
+  it("deduplicates repeated answer after short think close", () => {
+    const open = "<" + "think" + ">";
+    const close = "</" + "think" + ">";
+    const half = "x".repeat(55);
+    const dup = half + half;
+    const input = `${open}thoughts${close}${dup}`;
+    const expected = `${open}thoughts${close}${half}`;
+    expect(cleanFullResponse(input)).toBe(expected);
+  });
+
+  it("deduplicates repeated answer after long-form think close", () => {
+    const open = "<" + "redacted_thinking" + ">";
+    const close = "</" + "redacted_thinking" + ">";
+    const half = "y".repeat(55);
+    const dup = half + half;
+    const input = `${open}x${close}${dup}`;
+    const expected = `${open}x${close}${half}`;
+    expect(cleanFullResponse(input)).toBe(expected);
+  });
 });
+

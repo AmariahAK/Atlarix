@@ -65,7 +65,10 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { readFile, writeFile, unlink } from "fs/promises";
-import { getMaxTokens, getTemperature } from "../utils/token_utils";
+import {
+  getMaxTokensWithFloor,
+  getTemperature,
+} from "../utils/token_utils";
 import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 import { validateChatContext } from "../utils/context_paths_utils";
 import { GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
@@ -76,6 +79,7 @@ import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
 import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
+import { removeThinkingTags } from "../utils/thinking_tags";
 import { generateProblemReport } from "../processors/tsc";
 import { createProblemFixPrompt } from "@/shared/problem_prompt";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
@@ -507,9 +511,7 @@ async function processStreamChunks({
     let chunk = "";
     if (
       inThinkingBlock &&
-      !["reasoning-delta", "reasoning-end", "reasoning-start"].includes(
-        part.type,
-      )
+      !["reasoning-delta", "reasoning-start"].includes(part.type)
     ) {
       chunk = "</think>";
       inThinkingBlock = false;
@@ -582,6 +584,17 @@ async function processStreamChunks({
     } else {
       throw err;
     }
+  }
+
+  if (inThinkingBlock) {
+    const flushChunk = "</think>";
+    fullResponse += flushChunk;
+    incrementalResponse += flushChunk;
+    inThinkingBlock = false;
+    fullResponse = cleanFullResponse(fullResponse);
+    fullResponse = await processResponseChunkUpdate({
+      fullResponse,
+    });
   }
 
   if (!abortController.signal.aborted && !fullResponse.trim()) {
@@ -2035,7 +2048,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   "anthropic-beta": "context-1m-2025-08-07",
                 }
                 : undefined,
-              maxOutputTokens: await getMaxTokens(optionsModel),
+              maxOutputTokens: await getMaxTokensWithFloor(optionsModel),
               temperature: await getTemperature(optionsModel),
               maxRetries: 2,
               model: modelClient.model,
@@ -4292,10 +4305,7 @@ function removeNonEssentialTags(text: string): string {
   return removeProblemReportTags(removeThinkingTags(text));
 }
 
-function removeThinkingTags(text: string): string {
-  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-  return text.replace(thinkRegex, "").trim();
-}
+export { removeThinkingTags };
 
 export function removeProblemReportTags(text: string): string {
   const problemReportRegex =

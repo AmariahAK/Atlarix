@@ -45,9 +45,11 @@ export function parseQuestions(fullResponse: string): { cleanContent: string; qu
 }
 
 export function cleanFullResponse(text: string): string {
-  // Replace < characters inside dyad-* attributes with fullwidth less-than sign ＜
+  // Replace < characters inside dyad-* / atlarix-* tag attributes with fullwidth less-than sign ＜
   // This prevents parsing issues when attributes contain HTML tags like <a> or <div>
-  let cleaned = text.replace(/<dyad-[^<>]*(?:"[^"]*"[^<>]*)*>/g, (match: string) => {
+  let cleaned = text.replace(
+    /<(?:dyad|atlarix)-[^<>]*(?:"[^"]*"[^<>]*)*>/g,
+    (match: string) => {
     // Find all attribute values (content within quotes) and replace < with ＜ and > with ＞
     const processedMatch = match.replace(
       /="([^"]*)"/g,
@@ -57,7 +59,8 @@ export function cleanFullResponse(text: string): string {
       },
     );
     return processedMatch;
-  });
+    },
+  );
 
   // Deduplicate content for reasoning models (MiniMax, etc.)
   // Some models output: <think>reasoning</think>content + content (full duplication)
@@ -74,17 +77,32 @@ export function cleanFullResponse(text: string): string {
  * Example (before): "<think>thoughts</think>Hey! How are you?Hey! How are you?"
  * Example (after):  "<think>thoughts</think>Hey! How are you?"
  */
-function deduplicateContent(text: string): string {
-  // Find thinking block if present
-  const thinkEndMatch = text.match(/<\/think>/);
+const THINK_END_TAGS = ["</redacted_thinking>", "</think>"] as const;
 
-  if (!thinkEndMatch) {
+function findFirstThinkEnd(text: string): {
+  index: number;
+  length: number;
+} | null {
+  let best: { index: number; length: number } | null = null;
+  for (const tag of THINK_END_TAGS) {
+    const i = text.indexOf(tag);
+    if (i === -1) continue;
+    if (!best || i < best.index) {
+      best = { index: i, length: tag.length };
+    }
+  }
+  return best;
+}
+
+function deduplicateContent(text: string): string {
+  const thinkEnd = findFirstThinkEnd(text);
+
+  if (!thinkEnd) {
     // No thinking block - check for simple exact duplication
     return deduplicateSimpleContent(text);
   }
 
-  // Extract content after </think>
-  const thinkEndIndex = (thinkEndMatch.index ?? 0) + thinkEndMatch[0].length;
+  const thinkEndIndex = thinkEnd.index + thinkEnd.length;
   const contentAfterThink = text.slice(thinkEndIndex);
 
   // Check if this content is exactly duplicated

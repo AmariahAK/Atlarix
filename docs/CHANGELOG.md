@@ -1,3 +1,12 @@
+## v6.0.1 — Reasoning stream closure, thinking-tag hygiene, agent docs (2026-04-02)
+
+- **Streaming (`processStreamChunks`):** Treat `reasoning-end` like other non-reasoning parts so an open stream thinking wrapper is closed; after the stream iterator, flush the matching closing tag if still inside a reasoning block and run a final `processResponseChunkUpdate` + `cleanFullResponse`.
+- **Tags / dedupe:** `removeThinkingTags` moved to [`src/ipc/utils/thinking_tags.ts`](../src/ipc/utils/thinking_tags.ts) (strip long- and short-form thinking wrappers). [`cleanFullResponse.ts`](../src/ipc/utils/cleanFullResponse.ts) `deduplicateContent` finds the earliest recognized thinking closing tag after duplicated model output.
+- **Tokens:** `getMaxTokensWithFloor` in [`token_utils.ts`](../src/ipc/utils/token_utils.ts) (8192 floor when catalog omits `maxOutputTokens`); main `streamText` uses it for `maxOutputTokens`.
+- **Prompt bundle:** `AGENTS.md`, `AGENTS_COMPACT.md` — identity, modes, Compass, delegation, Workforce session scope, 6.0.x version line.
+
+---
+
 ## v6.0.0 — Workforce session scope, autonomous agents, UX hardening, Thoughts & routing (2026-04-02)
 
 - **Workforce — Change 1 / 2:** Removed stored “base of origin” / default group-repo-workspace pre-selection for Workforce services; selections are **in-memory per chat** (`workforce-chat-session`, IPC `workforce:session:*`, `WorkforceSessionPromptDialog`). First tool use can prompt for scope; **New Chat** clears session. `buildWorkforceWorkspaceContextBlock` and stream handlers append **Connected workspace contexts (this session only)** to the Workforce prompt block. Token Vault OAuth unchanged.

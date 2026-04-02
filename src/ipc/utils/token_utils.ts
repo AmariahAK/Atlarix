@@ -57,6 +57,16 @@ export async function getMaxTokens(
   return modelOption?.maxOutputTokens ?? undefined;
 }
 
+/** When catalog has no max output, avoid tiny provider defaults that truncate mid-reply. */
+const MAX_OUTPUT_TOKENS_FLOOR = 8192;
+
+export async function getMaxTokensWithFloor(
+  model: LargeLanguageModel,
+): Promise<number> {
+  const n = await getMaxTokens(model);
+  return n ?? MAX_OUTPUT_TOKENS_FLOOR;
+}
+
 export async function getTemperature(
   model: LargeLanguageModel,
 ): Promise<number> {
