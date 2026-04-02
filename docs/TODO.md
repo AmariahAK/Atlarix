@@ -1,8 +1,19 @@
 # Atlarix TODO
 
-**Current Version:** v6.0.0  
+**Current Version:** v6.0.2  
 **Next Version:** v6.1+ (planning)  
 **Last Updated:** 2026-04-02
+
+---
+
+## Done: v6.0.2 — Workforce UI + diagram Auto
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Workforce add-workspace UI | **Done** | `AppList.tsx` — `canCreateWorkspace` + Pro/Workforce |
+| FallbackModel `doGenerate` | **Done** | `fallback_ai_model.ts` — `generateText` / diagram AI with Auto chain |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.0.2.
 
 ---
 

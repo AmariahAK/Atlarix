@@ -7,9 +7,14 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.0.1*
+*Current: v6.0.2*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+### What's New in v6.0.2
+
+- **Workforce:** The sidebar/workspace list again allows adding or importing additional project workspaces on the Workforce tier (the UI previously treated only Pro as unlimited).
+- **Diagrams:** AI diagram generation works when **Auto** model routing is enabled — the multi-model fallback wrapper now implements `doGenerate`, which `generateText` requires (fixes “doGenerate is not supported for fallback model” in production).
 
 ### What's New in v6.0.1
 

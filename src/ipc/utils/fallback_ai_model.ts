@@ -1,5 +1,5 @@
 import {
-  LanguageModelV2,
+  type LanguageModelV2,
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from "@ai-sdk/provider";
@@ -210,8 +210,13 @@ export class FallbackModel implements LanguageModelV2 {
     }
   }
 
-  async doGenerate(): Promise<any> {
-    throw new Error("doGenerate is not supported for fallback model");
+  async doGenerate(
+    options: LanguageModelV2CallOptions,
+  ): Promise<Awaited<ReturnType<LanguageModelV2["doGenerate"]>>> {
+    this.checkAndResetModel();
+    return this.retry(async () => {
+      return this.getCurrentModel().doGenerate(options);
+    }, "generate");
   }
 
   async doStream(options: LanguageModelV2CallOptions): Promise<StreamResult> {

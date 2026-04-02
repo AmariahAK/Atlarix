@@ -56,12 +56,12 @@ export function AppList({ show }: { show?: boolean }) {
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 
-  // Check if user can add more workspaces (must be logged in AND either Pro OR Free with 0 workspaces)
+  // Paid tiers + main-process limit (Workforce was incorrectly gated as Free before)
   const canAddWorkspace = useMemo(() => {
-    if (!isAuthenticated) return false; // Must be logged in
-    if (!status) return false; // Wait for status to load
-    if (status.plan === 'pro') return true; // Pro = unlimited
-    return apps.length < 1; // Free = only if 0 workspaces
+    if (!isAuthenticated || !status) return false;
+    if (status.canCreateWorkspace) return true;
+    if (status.plan === "pro" || status.plan === "workforce") return true;
+    return apps.length < 1;
   }, [status, apps.length, isAuthenticated]);
 
   // Load chats for each workspace

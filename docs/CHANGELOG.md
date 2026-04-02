@@ -1,3 +1,10 @@
+## v6.0.2 — Workforce workspace UI, FallbackModel doGenerate (2026-04-02)
+
+- **Workforce / workspaces:** [`AppList.tsx`](../src/components/AppList.tsx) `canAddWorkspace` now respects `status.canCreateWorkspace` and treats **Workforce** like Pro for the add/import affordance (previously only `plan === 'pro'` was unlimited; Workforce users were incorrectly limited to one workspace in the UI).
+- **Diagrams / Auto:** [`FallbackModel`](../src/ipc/utils/fallback_ai_model.ts) implements `doGenerate` by delegating to the current chain model inside the existing `retry` helper, matching `doStream` semantics. Fixes AI diagram generation when Auto wraps models in `createFallback` (`generateText` → `doGenerate`).
+
+---
+
 ## v6.0.1 — Reasoning stream closure, thinking-tag hygiene, agent docs (2026-04-02)
 
 - **Streaming (`processStreamChunks`):** Treat `reasoning-end` like other non-reasoning parts so an open stream thinking wrapper is closed; after the stream iterator, flush the matching closing tag if still inside a reasoning block and run a final `processResponseChunkUpdate` + `cleanFullResponse`.
