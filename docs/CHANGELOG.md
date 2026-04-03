@@ -1,3 +1,9 @@
+## v6.0.3 — Main Vite `?raw` SQL for embedded migrations (2026-04-02)
+
+- **Build / SQLite:** [`vite.main.config.mts`](../vite.main.config.mts) — `assetsInclude: ["**/*.sql"]` and a **`raw-sql`** plugin (`enforce: "pre"`) with `load()` that reads `pathOnly` from `*.sql?raw` ids via `fs.readFileSync` and emits `export default …`. Ensures [`bundled.generated.ts`](../src/db/migrations/bundled.generated.ts) Drizzle `?raw` imports embed migration SQL in the main bundle (avoids empty strings on Linux fresh builds and related `no such table` failures).
+
+---
+
 ## v6.0.2 — Workforce workspace UI, FallbackModel doGenerate (2026-04-02)
 
 - **Workforce / workspaces:** [`AppList.tsx`](../src/components/AppList.tsx) `canAddWorkspace` now respects `status.canCreateWorkspace` and treats **Workforce** like Pro for the add/import affordance (previously only `plan === 'pro'` was unlimited; Workforce users were incorrectly limited to one workspace in the UI).

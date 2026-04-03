@@ -7,9 +7,13 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.0.2*
+*Current: v6.0.3*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+### What's New in v6.0.3
+
+- **Embedded SQLite migrations (main bundle):** The main-process Vite config now treats `*.sql` as assets and adds a `raw-sql` plugin so `?raw` imports from [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) embed real SQL at build time. Fixes Linux (and other clean) builds where migration SQL could resolve to empty strings, leading to missing tables such as `pivot_nodes`.
 
 ### What's New in v6.0.2
 

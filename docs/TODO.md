@@ -1,8 +1,18 @@
 # Atlarix TODO
 
-**Current Version:** v6.0.2  
+**Current Version:** v6.0.3  
 **Next Version:** v6.1+ (planning)  
 **Last Updated:** 2026-04-02
+
+---
+
+## Done: v6.0.3 — Main bundle SQL ?raw
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Vite main `*.sql?raw` | **Done** | `vite.main.config.mts` — `assetsInclude` + `raw-sql` `load` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.0.3.
 
 ---
 

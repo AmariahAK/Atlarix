@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import path from "path";
+import fs from "node:fs";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -37,6 +38,9 @@ const MAIN_KEYS = [
 
 // https://vitejs.dev/config
 export default defineConfig({
+  // Main bundle: *.sql?raw (bundled.generated.ts) must embed file contents; without this, Linux
+  // fresh builds can resolve empty strings while cached/mac builds look fine.
+  assetsInclude: ["**/*.sql"],
   ssr: {
     noExternal: [],
     external: ["keytar", "better-sqlite3"],
@@ -80,6 +84,17 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: "raw-sql",
+      enforce: "pre",
+      load(id) {
+        if (!id.includes("?raw")) return null;
+        const pathOnly = id.split("?", 1)[0];
+        if (!pathOnly.endsWith(".sql")) return null;
+        const content = fs.readFileSync(pathOnly, "utf-8");
+        return `export default ${JSON.stringify(content)};\n`;
+      },
+    },
     {
       name: "restart",
       closeBundle() {
