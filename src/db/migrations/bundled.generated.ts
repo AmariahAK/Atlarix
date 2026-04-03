@@ -35,7 +35,9 @@ import raw_28_0028_blueprints from "../../../drizzle/0028_blueprints.sql?raw";
 import raw_29_0029_v39_clarify_revert from "../../../drizzle/0029_v39_clarify_revert.sql?raw";
 import raw_30_0030_v40_tool_session_loads from "../../../drizzle/0030_v40_tool_session_loads.sql?raw";
 import raw_31_0031_project_memory from "../../../drizzle/0031_project_memory.sql?raw";
-import raw_32_0033_rename_type_columns from "../../../drizzle/0033_rename_type_columns.sql?raw";
+import raw_32_0032_pivot_tables from "../../../drizzle/0032_pivot_tables.sql?raw";
+import raw_33_0033_rename_type_columns from "../../../drizzle/0033_rename_type_columns.sql?raw";
+import raw_34_0034_prompts_new_schema from "../../../drizzle/0034_prompts_new_schema.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -78,7 +80,9 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0029_v39_clarify_revert", sql: raw_29_0029_v39_clarify_revert as string, drizzleHash: "36c7cfc8c60b89f64a672cb7669631ad19af1757d7b48f2f469126e999076b1b", when: 1766900000000 },
   { name: "0030_v40_tool_session_loads", sql: raw_30_0030_v40_tool_session_loads as string, drizzleHash: "f8f3d4464dc631e5b4d2a558b9614287a0f882e20d5719fb097e36e4dbfdee32", when: 1766910000000 },
   { name: "0031_project_memory", sql: raw_31_0031_project_memory as string, drizzleHash: "40cd51ef39b46641a391eebcce1b760a3594c0fb180aaef6baf85b2dc8454aab", when: 1766920000000 },
-  { name: "0033_rename_type_columns", sql: raw_32_0033_rename_type_columns as string, drizzleHash: "26d1d753abf50145a3555617c40d22babe4c00fd43c525ee963e8e37a8c75b6c", when: 1766930000000 },
+  { name: "0032_pivot_tables", sql: raw_32_0032_pivot_tables as string, drizzleHash: "0d08cbb754c174d05cca846fe211cb59cebd0ca97af8827ef7c3404e1dbee8ec", when: 1766925000000 },
+  { name: "0033_rename_type_columns", sql: raw_33_0033_rename_type_columns as string, drizzleHash: "26d1d753abf50145a3555617c40d22babe4c00fd43c525ee963e8e37a8c75b6c", when: 1766930000000 },
+  { name: "0034_prompts_new_schema", sql: raw_34_0034_prompts_new_schema as string, drizzleHash: "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c", when: 1766940000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -115,5 +119,7 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "36c7cfc8c60b89f64a672cb7669631ad19af1757d7b48f2f469126e999076b1b": "0029_v39_clarify_revert",
   "f8f3d4464dc631e5b4d2a558b9614287a0f882e20d5719fb097e36e4dbfdee32": "0030_v40_tool_session_loads",
   "40cd51ef39b46641a391eebcce1b760a3594c0fb180aaef6baf85b2dc8454aab": "0031_project_memory",
+  "0d08cbb754c174d05cca846fe211cb59cebd0ca97af8827ef7c3404e1dbee8ec": "0032_pivot_tables",
   "26d1d753abf50145a3555617c40d22babe4c00fd43c525ee963e8e37a8c75b6c": "0033_rename_type_columns",
+  "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c": "0034_prompts_new_schema",
 };

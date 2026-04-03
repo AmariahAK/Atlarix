@@ -1,6 +1,13 @@
+## v6.1.0 — Main `raw-sql` transform, pivot + prompts migrations (2026-04-02)
+
+- **Build / SQLite:** [`vite.main.config.mts`](../vite.main.config.mts) — **`raw-sql`** plugin uses **`transform`** on `*.sql` (with **`enforce: "pre"`**), emits `export default` string modules. **`assetsInclude` for `.sql` removed** so Vite does not treat SQL as static assets (avoids empty or non-inlined bundles where the transform `id` never matched `?raw`). [`bundled.generated.ts`](../src/db/migrations/bundled.generated.ts) unchanged in workflow: `npm run db:bundle-sql` after journal/SQL edits.
+- **Drizzle:** New migration [`0032_pivot_tables.sql`](../drizzle/0032_pivot_tables.sql) — `pivot_nodes`, `pivot_edges`, `pivot_containers`, `pivot_beacons`, `blueprint_snapshots` (journal idx 32; `0033_rename_type_columns` is idx 33). New migration [`0034_prompts_new_schema.sql`](../drizzle/0034_prompts_new_schema.sql) — prompts table migrates to `type`, `workspace_id`, drops legacy `title`/`description` shape. [`migration_seed_verification.ts`](../src/db/migration_seed_verification.ts) updated for `0032` and `0034`.
+
+---
+
 ## v6.0.3 — Main Vite `?raw` SQL for embedded migrations (2026-04-02)
 
-- **Build / SQLite:** [`vite.main.config.mts`](../vite.main.config.mts) — `assetsInclude: ["**/*.sql"]` and a **`raw-sql`** plugin (`enforce: "pre"`) with `load()` that reads `pathOnly` from `*.sql?raw` ids via `fs.readFileSync` and emits `export default …`. Ensures [`bundled.generated.ts`](../src/db/migrations/bundled.generated.ts) Drizzle `?raw` imports embed migration SQL in the main bundle (avoids empty strings on Linux fresh builds and related `no such table` failures).
+- **Build / SQLite:** Superseded by **v6.1.0** (`transform`-based `raw-sql`). v6.0.3 briefly used `assetsInclude` + `load()` with `?raw` path checks.
 
 ---
 

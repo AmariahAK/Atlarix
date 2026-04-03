@@ -229,8 +229,22 @@
     {
       "idx": 32,
       "version": "6",
+      "when": 1766925000000,
+      "tag": "0032_pivot_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
       "when": 1766930000000,
       "tag": "0033_rename_type_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1766940000000,
+      "tag": "0034_prompts_new_schema",
       "breakpoints": true
     }
   ]

@@ -1,8 +1,19 @@
 # Atlarix TODO
 
-**Current Version:** v6.0.3  
-**Next Version:** v6.1+ (planning)  
+**Current Version:** v6.1.0  
+**Next Version:** v6.2+ (planning)  
 **Last Updated:** 2026-04-02
+
+---
+
+## Done: v6.1.0 — SQL inlining, pivot + prompts migrations
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Vite main `.sql` | **Done** | `vite.main.config.mts` — `raw-sql` `transform` + `enforce: "pre"` (no `assetsInclude`) |
+| Drizzle | **Done** | `0032_pivot_tables`, `0034_prompts_new_schema`; journal + `migration_seed_verification` + `db:bundle-sql` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.0.
 
 ---
 
@@ -10,7 +21,7 @@
 
 | Area | Status | Notes |
 |------|--------|--------|
-| Vite main `*.sql?raw` | **Done** | `vite.main.config.mts` — `assetsInclude` + `raw-sql` `load` |
+| Vite main `*.sql?raw` | **Done** | Superseded by v6.1.0 transform-based `raw-sql` |
 
 See [CHANGELOG.md](CHANGELOG.md) v6.0.3.
 

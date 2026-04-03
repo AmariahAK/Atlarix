@@ -7,13 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.0.3*
+*Current: v6.1.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
+### What's New in v6.1.0
+
+- **Build / migrations:** Main-process Vite uses a **`raw-sql`** plugin (`transform` + `enforce: "pre"`) so `.sql` modules from [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) stringify correctly (no conflicting `assetsInclude`). New migrations **`0032_pivot_tables`** (pivot graph + blueprint snapshots) and **`0034_prompts_new_schema`** (prompts `type` / `workspace_id`, drops legacy `title`); seed verification extended. **`prompts:get-global`** and related flows align with the new prompts schema.
+
 ### What's New in v6.0.3
 
-- **Embedded SQLite migrations (main bundle):** The main-process Vite config now treats `*.sql` as assets and adds a `raw-sql` plugin so `?raw` imports from [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) embed real SQL at build time. Fixes Linux (and other clean) builds where migration SQL could resolve to empty strings, leading to missing tables such as `pivot_nodes`.
+- **Embedded SQLite migrations (main bundle):** Earlier approach used `assetsInclude` + `load`; v6.1.0 replaces that with the transform plugin above for reliable inlining across environments.
 
 ### What's New in v6.0.2
 

@@ -119,11 +119,24 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "tool_session_loads");
     case "0031_project_memory":
       return tableExists(sqlite, "project_snapshots") && tableExists(sqlite, "project_memory");
+    case "0032_pivot_tables":
+      return (
+        tableExists(sqlite, "pivot_nodes") &&
+        tableExists(sqlite, "pivot_edges") &&
+        tableExists(sqlite, "pivot_containers") &&
+        tableExists(sqlite, "pivot_beacons") &&
+        tableExists(sqlite, "blueprint_snapshots")
+      );
     case "0033_rename_type_columns":
       return (
         columnExists(sqlite, "pivot_nodes", "node_type") &&
         columnExists(sqlite, "pivot_edges", "edge_type") &&
         columnExists(sqlite, "diagrams", "diagram_type")
+      );
+    case "0034_prompts_new_schema":
+      return (
+        columnExists(sqlite, "prompts", "type") &&
+        !columnExists(sqlite, "prompts", "title")
       );
     default:
       return false;
