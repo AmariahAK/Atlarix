@@ -18,13 +18,20 @@ import type { ChangeAnalysis, FileChange, FileChangeType } from "./git_change_tr
 
 const logger = log.scope("diagram-git-tracker");
 
-const IGNORE = new Set([
+/** Basenames to skip when mirroring (case-insensitive — macOS may use UserData vs userData). */
+const IGNORE_NAMES_LOWER = new Set([
     "node_modules", ".git", "dist", "build", ".next", ".nuxt", "coverage",
     ".cache", "__pycache__", ".vite", ".env", ".env.local",
-    // Avoid mirroring paths that confuse `git add` in the internal repo (e.g. ignored by parent .gitignore)
-    "userData",
+    // Avoid mirroring paths that confuse `git add` (global/parent .gitignore often ignores userData)
+    "userdata",
     ".cursor",
 ]);
+
+function isIgnoredEntryName(name: string): boolean {
+    if (IGNORE_NAMES_LOWER.has(name.toLowerCase())) return true;
+    if (name.startsWith(".") && name !== ".env") return true;
+    return false;
+}
 
 function emptyAnalysis(): ChangeAnalysis {
     return {
@@ -95,10 +102,10 @@ export class DiagramGitTracker {
             if (depth > 10) return;
             const entries = await fs.readdir(dir, { withFileTypes: true });
             for (const e of entries) {
-                if (IGNORE.has(e.name)) continue;
-                if (e.name.startsWith(".") && e.name !== ".env") continue;
+                if (isIgnoredEntryName(e.name)) continue;
                 const fullPath = path.join(dir, e.name);
                 const relPath = relDir ? path.join(relDir, e.name) : e.name;
+                if (relPath.split(/[/\\]/).some((s) => s.toLowerCase() === "userdata")) continue;
                 if (e.isDirectory()) {
                     const targetDir = path.join(this.internalRepoPath, relPath);
                     await fs.mkdir(targetDir, { recursive: true });
