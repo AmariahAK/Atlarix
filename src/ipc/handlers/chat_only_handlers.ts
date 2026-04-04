@@ -500,7 +500,7 @@ export async function handleChatOnlyStream(
         // Some models output tool calls as XML text instead of using
         // native function calling. Detect and execute them here.
         // ═══════════════════════════════════════════════════════════════
-        const { containsTextToolCall, parseTextToolCalls } = await import("../utils/text_tool_parser");
+        const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
 
         if (containsTextToolCall(fullResponse)) {
             logger.log("[Chat-Only] Detected text-based tool calls, parsing and executing...");
@@ -549,6 +549,8 @@ export async function handleChatOnlyStream(
                 ],
             });
         }
+
+        fullResponse = stripToolCallXML(fullResponse);
         // ═══════════════════════════════════════════════════════════════
 
         // Create assistant message (in-memory only) WITH SOURCES

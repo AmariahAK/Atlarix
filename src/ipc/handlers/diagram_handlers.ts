@@ -202,7 +202,10 @@ Requirements:
 - Use 'graph TB' or 'graph LR'.
 - Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
 - Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.`;
+- Group related components in subgraphs.
+- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
+- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).`;
 
             const userPrompt = `Generate an architecture diagram for this project:
 
@@ -810,7 +813,10 @@ Requirements:
 - Use 'graph TB' or 'graph LR'.
 - Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
 - Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.`;
+- Group related components in subgraphs.
+- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
+- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).`;
 
             const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 

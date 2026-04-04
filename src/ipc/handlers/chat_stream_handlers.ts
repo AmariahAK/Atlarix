@@ -3481,10 +3481,10 @@ For workforce, explain services before request_workspace_permissions.`;
                   `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`
                 ).join('\n\n');
 
-                // Add assistant's response (with tool calls) to message history
+                // Add assistant's response to message history (strip text-tool XML for cleaner follow-up + UI)
                 agenticMessages.push({
                   role: 'assistant' as const,
-                  content: fullResponse,
+                  content: stripToolCallXML(fullResponse),
                 });
 
                 // Add tool results as a user message so AI can continue
@@ -3536,6 +3536,8 @@ For workforce, explain services before request_workspace_permissions.`;
                   totalToolsExecuted: totalToolExecutions,
                 });
               }
+
+              fullResponse = stripToolCallXML(fullResponse);
 
               // Structured metrics logging
               logger.info(`[Agentic Loop] Completed:`, {

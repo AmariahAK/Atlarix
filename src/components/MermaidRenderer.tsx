@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { useTheme } from "@/contexts/ThemeContext";
+import { sanitizeMermaid } from "@/lib/sanitizeMermaid";
 import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize2, Move, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
@@ -186,11 +187,13 @@ export function MermaidRenderer({
             // Clear previous content
             containerRef.current.innerHTML = "";
 
+            const sanitized = sanitizeMermaid(code);
+
             // Validate syntax first
-            await mermaid.parse(code);
+            await mermaid.parse(sanitized);
 
             // Render the diagram
-            const { svg } = await mermaid.render(id, code);
+            const { svg } = await mermaid.render(id, sanitized);
 
             if (containerRef.current) {
                 containerRef.current.innerHTML = svg;
@@ -337,7 +340,7 @@ export function MermaidRenderer({
  */
 export async function validateMermaid(code: string): Promise<{ valid: boolean; error?: string }> {
     try {
-        await mermaid.parse(code);
+        await mermaid.parse(sanitizeMermaid(code));
         return { valid: true };
     } catch (err) {
         return {
@@ -352,7 +355,7 @@ export async function validateMermaid(code: string): Promise<{ valid: boolean; e
  */
 export async function renderToSvg(code: string): Promise<string> {
     const id = `mermaid-export-${++mermaidIdCounter}`;
-    const { svg } = await mermaid.render(id, code);
+    const { svg } = await mermaid.render(id, sanitizeMermaid(code));
     return svg;
 }
 

@@ -6,6 +6,7 @@
  * - MiniMax: <minimax:tool_call><invoke name="..."><parameter name="...">...</parameter></invoke></minimax:tool_call>
  * - Generic: <tool_call name="...">...</tool_call>
  * - Claude-style: <function_call name="...">...</function_call>
+ * - Legacy angle form: <tool_call><function=tool_name><parameter=key>value</parameter>...</function></tool_call>
  */
 
 import log from "electron-log";
@@ -112,6 +113,48 @@ function parseGenericXMLFormat(text: string): ParsedToolCall[] {
  * Example:
  * <function_call name="list_files">{"path": "."}</function_call>
  */
+function coerceAngleBracketParamValue(raw: string): unknown {
+    const t = raw.trim();
+    if (t === "True" || t === "true") return true;
+    if (t === "False" || t === "false") return false;
+    try {
+        return JSON.parse(t);
+    } catch {
+        return t;
+    }
+}
+
+/**
+ * Parse <tool_call><function=tool_name>...</function></tool_call> with <parameter=key>value</parameter>.
+ */
+function parseLegacyAngleFunctionFormat(text: string): ParsedToolCall[] {
+    const results: ParsedToolCall[] = [];
+    const blockRe =
+        /<tool_call\s*>\s*<function\s*=\s*([a-zA-Z0-9_]+)\s*>\s*([\s\S]*?)<\/function\s*>\s*<\/tool_call\s*>/gi;
+
+    let match;
+    while ((match = blockRe.exec(text)) !== null) {
+        const toolName = match[1];
+        const paramsBlock = match[2];
+        const args: Record<string, any> = {};
+        const paramRe = /<parameter\s*=\s*([a-zA-Z0-9_]+)\s*>\s*([\s\S]*?)<\/parameter\s*>/gi;
+        let pm;
+        while ((pm = paramRe.exec(paramsBlock)) !== null) {
+            args[pm[1]] = coerceAngleBracketParamValue(pm[2]);
+        }
+
+        results.push({
+            toolName,
+            args,
+            rawMatch: match[0],
+        });
+
+        logger.log(`[Legacy function=] Parsed tool call: ${toolName}`, args);
+    }
+
+    return results;
+}
+
 function parseFunctionCallFormat(text: string): ParsedToolCall[] {
     const results: ParsedToolCall[] = [];
     const regex = /<function_call\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/function_call>/gi;
@@ -189,6 +232,8 @@ export function containsTextToolCall(text: string): boolean {
     const patterns = [
         /<minimax:tool_call>/i,
         /<tool_call\s+name=/i,
+        /<tool_call\s*>\s*<function\s*=/i,
+        /<function\s*=\s*\w+/i,
         /<function_call\s+name=/i,
         /<invoke\s+name="[^"]+"\s*>/i,
     ];
@@ -206,8 +251,9 @@ export function parseTextToolCalls(text: string): ParsedToolCall[] {
     results.push(...parseMiniMaxFormat(text));
     results.push(...parseGenericXMLFormat(text));
     results.push(...parseFunctionCallFormat(text));
+    results.push(...parseLegacyAngleFunctionFormat(text));
 
-    // Only try invoke format if MiniMax didn't match (avoid duplicates)
+    // Only try invoke format if nothing else matched (avoid duplicates)
     if (results.length === 0) {
         results.push(...parseInvokeFormat(text));
     }
@@ -227,10 +273,11 @@ export function parseTextToolCalls(text: string): ParsedToolCall[] {
  */
 export function stripToolCallXML(text: string): string {
     return text
-        .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/gi, '')
-        .replace(/<tool_call\s+name="[^"]+">[\s\S]*?<\/tool_call>/gi, '')
-        .replace(/<function_call\s+name="[^"]+">[\s\S]*?<\/function_call>/gi, '')
-        .replace(/<invoke\s+name="[^"]+"[^>]*>[\s\S]*?<\/invoke>/gi, '')
+        .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/gi, "")
+        .replace(/<tool_call\s*>\s*<function\s*=\s*[a-zA-Z0-9_]+\s*>[\s\S]*?<\/function\s*>\s*<\/tool_call\s*>/gi, "")
+        .replace(/<tool_call\s+name="[^"]+">[\s\S]*?<\/tool_call>/gi, "")
+        .replace(/<function_call\s+name="[^"]+">[\s\S]*?<\/function_call>/gi, "")
+        .replace(/<invoke\s+name="[^"]+"[^>]*>[\s\S]*?<\/invoke>/gi, "")
         .trim();
 }
 

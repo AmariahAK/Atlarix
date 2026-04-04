@@ -163,6 +163,8 @@ function BlueprintCanvasInner({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const workspaceIdRef = useRef(workspaceId);
   const layoutKeyRef = useRef<string>("");
+  /** Set only after ELK IPC applies positions — avoids Strict Mode / failed IPC skipping layout forever. */
+  const elkCompletedForKeyRef = useRef<string>("");
   const blueprintLayoutKey = `${blueprint.rooms?.length ?? 0}-${(blueprint.rooms ?? []).filter((r) => !r.hidden).map((r) => r.id).join(",")}-${(blueprint.edges ?? []).length}`;
 
   // Reset canvas when workspace or blueprint structure changes (not when only isRteRunning changes).
@@ -194,6 +196,7 @@ function BlueprintCanvasInner({
         return merged;
       });
       layoutKeyRef.current = key;
+      elkCompletedForKeyRef.current = "";
     }
   }, [workspaceId, blueprintLayoutKey, blueprint, agentPhase, agentPhaseActive, isRteRunning, setNodes, setEdges]);
 
@@ -212,8 +215,8 @@ function BlueprintCanvasInner({
     if (initialNodes.length === 0) return;
     const needsLayout = initialNodes.every((n) => n.position.x === 0 && n.position.y === 0);
     if (!needsLayout) return;
-    if (layoutKeyRef.current === blueprintLayoutKey) return;
-    layoutKeyRef.current = blueprintLayoutKey;
+    const layoutFullKey = `${workspaceId ?? "null"}-${blueprintLayoutKey}`;
+    if (elkCompletedForKeyRef.current === layoutFullKey) return;
     const visibleRooms = (blueprint.rooms ?? []).filter((r) => !r.hidden);
     const roomPayload = visibleRooms.map((r) => ({ id: r.id }));
     const edgePayload = (blueprint.edges ?? []).map((e) => ({
@@ -233,12 +236,21 @@ function BlueprintCanvasInner({
             position: posMap.get(n.id) ?? n.position,
           }))
         );
+        elkCompletedForKeyRef.current = layoutFullKey;
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [blueprintLayoutKey, initialNodes, blueprint.rooms, blueprint.edges, setNodes, relayoutCounter]);
+  }, [
+    workspaceId,
+    blueprintLayoutKey,
+    initialNodes,
+    blueprint.rooms,
+    blueprint.edges,
+    setNodes,
+    relayoutCounter,
+  ]);
 
   // When blueprint.rooms or agent phase change, update node data (keep positions)
   useEffect(() => {
@@ -314,6 +326,7 @@ function BlueprintCanvasInner({
             onClick={() => {
               setNodes((prev) => prev.map((n) => ({ ...n, position: { x: 0, y: 0 } })));
               layoutKeyRef.current = "";
+              elkCompletedForKeyRef.current = "";
               setRelayoutCounter((c) => c + 1);
             }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"

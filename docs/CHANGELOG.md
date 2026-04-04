@@ -1,3 +1,11 @@
+## v6.1.1 — Diagram git ignore, blueprint ELK first paint, dev-server preview (2026-04-04)
+
+- **Diagram git:** [`diagram_git_tracker.ts`](../src/lib/diagram/diagram_git_tracker.ts) — skip `userData` and `.cursor` when mirroring the workspace into the internal diagram repo so `git add` no longer fails with “paths are ignored by .gitignore” when the project contains a `userData` tree.
+- **Blueprint:** [`BlueprintCanvas.tsx`](../src/components/preview_panel/BlueprintCanvas.tsx) — ELK layout dedupes only **after** IPC succeeds (`elkCompletedForKeyRef`), clears on structure reset and manual Re-layout, fixing Strict Mode / failed first attempt leaving nodes stacked at `(0,0)`.
+- **Preview:** [`PreviewIframe.tsx`](../src/components/preview_panel/PreviewIframe.tsx) — iframe uses **`appUrl ?? devServerUrl`** so managed Next/Vite dev servers show in Preview without dyad proxy `runApp` URL.
+
+---
+
 ## v6.1.0 — Main `raw-sql` transform, pivot + prompts migrations (2026-04-02)
 
 - **Build / SQLite:** [`vite.main.config.mts`](../vite.main.config.mts) — **`raw-sql`** plugin uses **`transform`** on `*.sql` (with **`enforce: "pre"`**), emits `export default` string modules. **`assetsInclude` for `.sql` removed** so Vite does not treat SQL as static assets (avoids empty or non-inlined bundles where the transform `id` never matched `?raw`). [`bundled.generated.ts`](../src/db/migrations/bundled.generated.ts) unchanged in workflow: `npm run db:bundle-sql` after journal/SQL edits.

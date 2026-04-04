@@ -4,7 +4,13 @@ import {
   appOutputAtom,
   previewErrorMessageAtom,
 } from "@/atoms/appAtoms";
-import { browserErrorsAtom, dismissedErrorSignaturesAtom, getErrorSignature, type BrowserError } from "@/atoms/sourceAtoms";
+import {
+  browserErrorsAtom,
+  dismissedErrorSignaturesAtom,
+  getErrorSignature,
+  type BrowserError,
+  devServerUrlAtom,
+} from "@/atoms/sourceAtoms";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -259,6 +265,9 @@ const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
 export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const { appUrl, originalUrl } = useAtomValue(appUrlAtom);
+  const devServerUrl = useAtomValue(devServerUrlAtom);
+  /** Proxy/runApp URL, or managed dev server (Next/Vite) when proxy not used */
+  const previewUrl = appUrl ?? devServerUrl ?? null;
   const setAppOutput = useSetAtom(appOutputAtom);
   // State to trigger iframe reload
   const [reloadKey, setReloadKey] = useState(0);
@@ -676,13 +685,13 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
 
   // Initialize navigation history when iframe loads
   useEffect(() => {
-    if (appUrl) {
-      setNavigationHistory([appUrl]);
+    if (previewUrl) {
+      setNavigationHistory([previewUrl]);
       setCurrentHistoryPosition(0);
       setCanGoBack(false);
       setCanGoForward(false);
     }
-  }, [appUrl]);
+  }, [previewUrl]);
 
   // Get current styles when component is selected for visual editing
   useEffect(() => {
@@ -793,9 +802,9 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
 
   // Function to navigate to a specific route
   const navigateToRoute = (path: string) => {
-    if (iframeRef.current?.contentWindow && appUrl) {
+    if (iframeRef.current?.contentWindow && previewUrl) {
       // Create the full URL by combining the base URL with the path
-      const baseUrl = new URL(appUrl).origin;
+      const baseUrl = new URL(previewUrl).origin;
       const newUrl = `${baseUrl}${path}`;
 
       // Navigate to the URL
@@ -1093,7 +1102,7 @@ ${errorMessage?.message}
 \`\`\`
 
 **Context:**
-- Dev server is running at ${appUrl || 'localhost'}
+- Dev server is running at ${previewUrl || "localhost"}
 - Error source: ${errorMessage?.source === 'preview-app' ? 'Preview application' : 'Atlarix internal'}
 - User is viewing live preview
 ${customNotes ? `
@@ -1110,7 +1119,7 @@ Please analyze this error and provide a fix.`;
           }}
         />
 
-        {!appUrl ? (
+        {!previewUrl ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-gray-50 dark:bg-gray-950">
             <Loader2 className="w-8 h-8 animate-spin text-gray-400 dark:text-gray-500" />
             <p className="text-gray-600 dark:text-gray-300">
@@ -1162,7 +1171,7 @@ Please analyze this error and provide a fix.`;
                       ? {}
                       : { width: `${deviceWidthConfig[deviceMode]}px` }
                   }
-                  src={appUrl}
+                  src={previewUrl}
                   allow="clipboard-read; clipboard-write; fullscreen; microphone; camera; display-capture; geolocation; autoplay; picture-in-picture"
                 />
                 {/* Visual Editing Toolbar */}

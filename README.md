@@ -7,9 +7,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.0*
+*Current: v6.1.1*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+### What's New in v6.1.1
+
+- **Diagram git:** Internal diagram snapshot repos no longer copy workspace `userData` / `.cursor`, avoiding `git add` failures during AI diagram updates.
+- **Blueprint:** Container canvas runs ELK layout reliably on first open (no more stacked “blob” until Re-layout under React Strict Mode).
+- **Preview:** When a managed dev server is up (e.g. Next on port 3000) but the dyad proxy URL is unset, the Preview tab uses the dev-server URL.
 
 ### What's New in v6.1.0
 

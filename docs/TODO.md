@@ -1,8 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.0  
+**Current Version:** v6.1.1  
 **Next Version:** v6.2+ (planning)  
-**Last Updated:** 2026-04-02
+**Last Updated:** 2026-04-04
+
+---
+
+## Done: v6.1.1 — Diagram git, blueprint layout, preview URL
+
+| Area | Status | Notes |
+|------|--------|--------|
+| DiagramGitTracker | **Done** | Ignore `userData`, `.cursor` in workspace walk |
+| Blueprint ELK | **Done** | Complete ref + reset / Re-layout clears |
+| Live preview | **Done** | `devServerUrlAtom` fallback in `PreviewIframe` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.1.
 
 ---
 

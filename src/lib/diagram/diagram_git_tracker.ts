@@ -21,6 +21,9 @@ const logger = log.scope("diagram-git-tracker");
 const IGNORE = new Set([
     "node_modules", ".git", "dist", "build", ".next", ".nuxt", "coverage",
     ".cache", "__pycache__", ".vite", ".env", ".env.local",
+    // Avoid mirroring paths that confuse `git add` in the internal repo (e.g. ignored by parent .gitignore)
+    "userData",
+    ".cursor",
 ]);
 
 function emptyAnalysis(): ChangeAnalysis {
