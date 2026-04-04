@@ -1,3 +1,11 @@
+## v6.1.12 — Mermaid normalize (diagram page + AI output) (2026-04-04)
+
+- **Mermaid:** New [`normalizeDiagramMermaid.ts`](../src/lib/normalizeDiagramMermaid.ts) — strip code fences, standalone `mermaid` lines, `mermaid graph` prefix, normalize `Style` → `style`, scrub corrupted `#hex` tokens on `style` / `linkStyle` / `classDef` lines (Unicode NFKC + zero-width strip). Used by [`sanitizeMermaid`](../src/lib/sanitizeMermaid.ts) for all parse/render paths.
+- **Persistence:** [`diagram_handlers.ts`](../src/ipc/handlers/diagram_handlers.ts) and [`DiagramManager.ts`](../src/lib/DiagramManager.ts) save diagrams via **`normalizeDiagramAiOutput`** so DB content is parse-ready (fixes “No diagram type detected” when the model prefixes `mermaid` or omits strict ``` fences).
+- **Diagrams page:** [`diagram.tsx`](../src/pages/diagram.tsx) — **`key={selectedDiagram.id}`** on [`MermaidRenderer`](../src/components/MermaidRenderer.tsx) so switching diagrams remounts cleanly; renderer **retries** up to ~12 animation frames if the container ref is not ready (first paint on `/diagram`).
+- **Blueprint:** [`mermaid_to_blueprint.ts`](../src/lib/blueprint/mermaid_to_blueprint.ts) uses **`prepareMermaidForParse`** when inferring graph structure.
+- **Tests:** [`normalizeDiagramMermaid.test.ts`](../src/lib/normalizeDiagramMermaid.test.ts) (Vitest).
+
 ## v6.1.1 — Diagram git ignore, blueprint ELK first paint, dev-server preview (2026-04-04)
 
 - **Diagram git:** [`diagram_git_tracker.ts`](../src/lib/diagram/diagram_git_tracker.ts) — skip `userData` and `.cursor` when mirroring the workspace into the internal diagram repo so `git add` no longer fails with “paths are ignored by .gitignore” when the project contains a `userData` tree.

@@ -26,6 +26,7 @@ import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/s
 import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
+import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
 
 // ============================================
 // TYPES
@@ -205,7 +206,9 @@ Requirements:
 - Group related components in subgraphs.
 - Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).`;
+- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
+- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
+- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
 
             const userPrompt = `Generate an architecture diagram for this project:
 
@@ -240,13 +243,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             }
 
             // 5. Parse Output
-            let content = result.text;
-            // distinct mermaid block
-            const match = content.match(/```mermaid\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
-            if (match) {
-                content = match[1];
-            }
-            content = content.trim();
+            let content = normalizeDiagramAiOutput(result.text);
 
             // 5b. Fallback: if AI returned empty or invalid, generate from AppMap
             if (!content || content.length < 10) {
@@ -816,7 +813,9 @@ Requirements:
 - Group related components in subgraphs.
 - Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).`;
+- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
+- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
+- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
 
             const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 
@@ -828,12 +827,7 @@ Requirements:
             });
 
             // 5. Parse Output
-            let content = result.text;
-            const match = content.match(/```mermaid\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
-            if (match) {
-                content = match[1];
-            }
-            content = content.trim();
+            let content = normalizeDiagramAiOutput(result.text);
 
             // 6. Generate fingerprint
             const fingerprint = await generateFingerprint(appPath);

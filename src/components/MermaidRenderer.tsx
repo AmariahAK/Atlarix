@@ -171,9 +171,18 @@ export function MermaidRenderer({
         });
     }, [theme]);
 
-    // Render diagram
+    // Render diagram (retry when container ref not mounted yet — e.g. first paint on /diagram)
     const renderDiagram = useCallback(async () => {
-        if (!containerRef.current || !code?.trim()) {
+        if (!code?.trim()) {
+            return;
+        }
+
+        let el = containerRef.current;
+        for (let i = 0; i < 12 && !el; i++) {
+            await new Promise<void>((r) => requestAnimationFrame(() => r()));
+            el = containerRef.current;
+        }
+        if (!el) {
             return;
         }
 
@@ -185,7 +194,7 @@ export function MermaidRenderer({
             const id = `mermaid-${++mermaidIdCounter}`;
 
             // Clear previous content
-            containerRef.current.innerHTML = "";
+            el.innerHTML = "";
 
             const sanitized = sanitizeMermaid(code);
 

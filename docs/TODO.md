@@ -1,10 +1,14 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.1  
+**Current Version:** v6.1.12  
 **Next Version:** v6.2+ (planning)  
 **Last Updated:** 2026-04-04
 
 ---
+
+## Done: v6.1.12 — Mermaid normalization, diagram page render
+
+- See [CHANGELOG.md](CHANGELOG.md) v6.1.12.
 
 ## Done: v6.1.1 — Diagram git, blueprint layout, preview URL
 

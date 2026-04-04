@@ -1,8 +1,10 @@
+import { prepareMermaidForParse } from "@/lib/normalizeDiagramMermaid";
+
 /**
  * Conservative fixes for common model-generated Mermaid mistakes before parse/render.
+ * Delegates to prepareMermaidForParse (fences, mermaid prefix, Style, style-line hex scrub).
  */
 export function sanitizeMermaid(code: string): string {
   if (!code) return code;
-  // Capital "Style" is invalid; Mermaid requires lowercase "style".
-  return code.replace(/^\s*Style\s/gm, (m) => m.replace("Style", "style"));
+  return prepareMermaidForParse(code);
 }

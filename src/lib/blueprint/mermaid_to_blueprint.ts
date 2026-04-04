@@ -5,22 +5,11 @@
 
 import type { Blueprint, BlueprintRoom, BlueprintEdge, BlueprintFunction } from "@/shared/blueprint-types";
 import { generateBlueprintId } from "@/shared/blueprint-types";
+import { prepareMermaidForParse } from "@/lib/normalizeDiagramMermaid";
 
 /** Normalize a Mermaid node id for use as a Blueprint room id (safe, unique) */
 function safeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || "node";
-}
-
-/** Strip ```mermaid ... ``` code fence if present */
-function stripCodeFence(raw: string): string {
-  let s = raw.trim();
-  if (s.startsWith("```")) {
-    const first = s.indexOf("\n");
-    if (first !== -1) s = s.slice(first + 1);
-    const close = s.lastIndexOf("```");
-    if (close !== -1) s = s.slice(0, close).trim();
-  }
-  return s;
 }
 
 /**
@@ -33,7 +22,7 @@ export function parseMermaidGraph(mermaidContent: string): {
 } {
   const nodes = new Map<string, string>();
   const edges: Array<{ from: string; to: string; label?: string }> = [];
-  const content = stripCodeFence(mermaidContent);
+  const content = prepareMermaidForParse(mermaidContent);
 
   const lines = content
     .split(/\r?\n/)

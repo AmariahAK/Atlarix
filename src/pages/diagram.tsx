@@ -441,6 +441,7 @@ export default function DiagramPage() {
                             <div className="flex-1 overflow-auto p-6">
                                 <div className="diagram-preview bg-card rounded-lg border border-border min-h-[500px] h-full" data-tour="tour-blueprint-canvas">
                                     <MermaidRenderer
+                                        key={selectedDiagram.id}
                                         code={selectedDiagram.content}
                                         className="w-full h-full"
                                         onError={(err) => console.error('[DiagramPage] Mermaid error:', err)}

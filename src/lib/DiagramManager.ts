@@ -25,6 +25,7 @@ import { readSettings } from "@/main/settings";
 import { generateFingerprint } from "./analysis/fingerprint";
 import type { AppChatContext } from "./schemas";
 import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
+import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
 import log from "electron-log";
 
 const logger = log.scope("DiagramManager");
@@ -222,7 +223,9 @@ Requirements:
 - Group related components in subgraphs.
 - Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).`;
+- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
+- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
+- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
 
         // Add focus context if provided by AI
         if (options?.focusComponents?.length) {
@@ -271,12 +274,7 @@ Requirements:
         }
 
         // Parse output
-        let content = result.text;
-        const match = content.match(/```mermaid\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
-        if (match) {
-            content = match[1];
-        }
-        content = content.trim();
+        let content = normalizeDiagramAiOutput(result.text);
 
         // Generate fingerprint for staleness tracking
         const fingerprint = await generateFingerprint(appPath);
