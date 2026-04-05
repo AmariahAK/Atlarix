@@ -387,7 +387,7 @@ export default function AtlarixHome() {
                     {/* Logo with glow effect - theme-aware */}
                     <div className="flex items-center justify-center gap-4 mb-2">
                         <div className="relative">
-                            <div className="absolute inset-0 bg-gradient-to-r from-[#10B981] to-[#F59E0B] blur-xl opacity-30 rounded-full" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-[#10B981] to-[#059669] blur-xl opacity-30 rounded-full" />
                             <img
                                 src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
                                 alt="Atlarix Logo"

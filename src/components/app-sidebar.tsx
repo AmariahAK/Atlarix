@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -87,6 +88,8 @@ export function AppSidebar() {
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
   const [upgradeChoiceOpen, setUpgradeChoiceOpen] = useState(false);
+  const [isLinux, setIsLinux] = useState(false);
+  const [showLinuxDeepLinkHint, setShowLinuxDeepLinkHint] = useState(false);
 
   // Auth hook for OAuth login
   const {
@@ -104,6 +107,21 @@ export function AppSidebar() {
       void refreshStatus?.();
     }
   }, [showAuthMenu, isAuthenticated, refreshStatus]);
+
+  useEffect(() => {
+    IpcClient.getInstance().getSystemPlatform().then((p) => {
+      setIsLinux(p === 'linux');
+    }).catch(() => { /* non-fatal */ });
+  }, []);
+
+  const handleSignInWithLinuxHint = useCallback((fn: () => void) => {
+    fn();
+    setShowAuthMenu(false);
+    if (isLinux) {
+      // Show the deep link registration hint after the OAuth browser opens
+      setTimeout(() => setShowLinuxDeepLinkHint(true), 1500);
+    }
+  }, [isLinux]);
 
   useEffect(() => {
     if (hoverState.startsWith("start-hover") && state === "collapsed") {
@@ -332,30 +350,43 @@ export function AppSidebar() {
 
                 {/* Dropdown menu for login options */}
                 {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-40 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
+                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
                     <div className="text-xs text-muted-foreground mb-2 px-2">
                       Sign in to sync
                     </div>
                     <button
-                      onClick={() => {
-                        signInWithGoogle();
-                        setShowAuthMenu(false);
-                      }}
+                      onClick={() => handleSignInWithLinuxHint(signInWithGoogle)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
                     >
                       <Chrome className="h-4 w-4" />
                       Google
                     </button>
                     <button
-                      onClick={() => {
-                        signInWithGitHub();
-                        setShowAuthMenu(false);
-                      }}
+                      onClick={() => handleSignInWithLinuxHint(signInWithGitHub)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
                     >
                       <Github className="h-4 w-4" />
                       GitHub
                     </button>
+                  </div>
+                )}
+
+                {/* Linux deep link registration hint — shown after a sign-in attempt on Linux */}
+                {showLinuxDeepLinkHint && isLinux && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-popover border border-amber-500/40 rounded-lg shadow-lg p-3 z-50 text-xs">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className="font-medium text-foreground">Deep link not registered?</span>
+                      <button
+                        onClick={() => setShowLinuxDeepLinkHint(false)}
+                        className="text-muted-foreground hover:text-foreground shrink-0"
+                        aria-label="Dismiss"
+                      >✕</button>
+                    </div>
+                    <p className="text-muted-foreground mb-2">If sign-in didn't redirect back, run these in Terminal:</p>
+                    <pre className="bg-muted rounded p-1.5 text-[10px] font-mono text-foreground whitespace-pre-wrap break-all">
+{`xdg-mime default atlarix.desktop x-scheme-handler/atlarix
+update-desktop-database ~/.local/share/applications`}
+                    </pre>
                   </div>
                 )}
               </div>

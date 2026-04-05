@@ -1,8 +1,25 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.12  
+**Current Version:** v6.1.13  
 **Next Version:** v6.2+ (planning)  
-**Last Updated:** 2026-04-04
+**Last Updated:** 2026-04-05
+
+---
+
+## Done: v6.1.13 — Linux OAuth fallback, theme toggle, contrast fixes, auto-updater in-app UI
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Linux OAuth timeout fallback | **Done** | 60s `setTimeout` in `supabase-client.ts`; `cancelPendingOAuthTimeout()` in `main.ts` deep-link handler |
+| Linux deep-link hint in sidebar | **Done** | `app-sidebar.tsx` — platform detection + dismissable `xdg-mime` notice on sign-in failure |
+| Theme toggle | **Done** | `settings.tsx` — `useTheme` + `<Select>` System/Light/Dark |
+| Hero glow contrast fix | **Done** | `atlarix-home.tsx` — glow `to-[#F59E0B]` → `to-[#059669]` |
+| Panel toggle button clip fix | **Done** | `layout.tsx` — `top-2 right-2` → `top-3 right-3` |
+| Auto-updater in-app UI | **Done** | `UpdateBanner.tsx`; `update:downloaded` IPC replaces native dialog; `update:defer` writes flag; cold-start deferred install in `onReady()` |
+| AppImage target | **Done** | `@reforged/maker-appimage` in `forge.config.ts` + `package.json` |
+| GitHub Actions Node 24 | **Done** | `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, softprops v2, `latest-mac.yml` + `latest-linux.yml` generation steps |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.13.
 
 ---
 

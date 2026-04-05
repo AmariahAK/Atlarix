@@ -41,6 +41,8 @@ env:
   COMPASS_MODEL_FAST: ${{ secrets.COMPASS_MODEL_FAST }}
   COMPASS_MODEL_BALANCED: ${{ secrets.COMPASS_MODEL_BALANCED }}
   COMPASS_MODEL_THINKING: ${{ secrets.COMPASS_MODEL_THINKING }}
+  # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   create-draft:
@@ -61,7 +63,7 @@ jobs:
 
       - name: Create draft release
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.set_tag.outputs.tag }}
           name: Atlarix ${{ steps.set_tag.outputs.tag }}
@@ -161,6 +163,42 @@ jobs:
               "$UPLOAD_URL?name=$(basename "$f")"
           done
 
+      - name: Generate and upload latest-mac.yml (electron-updater feed, arm64 only)
+        if: success() && matrix.arch == 'arm64'
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          DMG=$(find out/make -name "*.dmg" | head -1)
+          if [ -z "$DMG" ]; then
+            echo "No DMG found, skipping latest-mac.yml"
+            exit 0
+          fi
+          VERSION=$(node -p "require('./package.json').version")
+          FILENAME=$(basename "$DMG")
+          SIZE=$(stat -f%z "$DMG")
+          SHA512=$(openssl dgst -sha512 -binary "$DMG" | openssl base64 | tr -d '\n')
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          cat > latest-mac.yml << YAML
+          version: $VERSION
+          files:
+            - url: $FILENAME
+              sha512: $SHA512
+              size: $SIZE
+          path: $FILENAME
+          sha512: $SHA512
+          releaseDate: '$RELEASE_DATE'
+          YAML
+          sed -i '' 's/^          //' latest-mac.yml
+          echo "--- latest-mac.yml ---"
+          cat latest-mac.yml
+          curl -sS -X POST \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Content-Type: text/yaml" \
+            --data-binary @latest-mac.yml \
+            "$UPLOAD_URL?name=latest-mac.yml"
+
   build-linux:
     needs: create-draft
     runs-on: ubuntu-latest
@@ -179,6 +217,18 @@ jobs:
           sudo apt-get update
           # keytar (native module) needs libsecret headers/pkg-config on Linux
           sudo apt-get install -y dpkg fakeroot rpm libsecret-1-dev
+
+      - name: Install appimagetool (required by @reforged/maker-appimage)
+        run: |
+          wget -q -O /tmp/appimagetool.AppImage \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x /tmp/appimagetool.AppImage
+          # Extract in-place — FUSE is not available in GitHub runners
+          /tmp/appimagetool.AppImage --appimage-extract-and-run --help > /dev/null 2>&1 || true
+          cd /tmp && /tmp/appimagetool.AppImage --appimage-extract > /dev/null 2>&1
+          sudo mv /tmp/squashfs-root /opt/appimagetool
+          sudo ln -sf /opt/appimagetool/AppRun /usr/local/bin/appimagetool
+          appimagetool --version || echo "appimagetool installed"
 
       - name: Install dependencies
         run: npm ci
@@ -204,6 +254,43 @@ jobs:
               --data-binary "@$f" \
               "$UPLOAD_URL?name=$(basename "$f")"
           done
+
+      - name: Generate and upload latest-linux.yml (electron-updater feed)
+        if: success()
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          APPIMAGE=$(find out/make -name "*.AppImage" | head -1)
+          if [ -z "$APPIMAGE" ]; then
+            echo "No AppImage found, skipping latest-linux.yml"
+            exit 0
+          fi
+          VERSION=$(node -p "require('./package.json').version")
+          FILENAME=$(basename "$APPIMAGE")
+          SIZE=$(stat -c%s "$APPIMAGE")
+          SHA512=$(openssl dgst -sha512 -binary "$APPIMAGE" | openssl base64 | tr -d '\n')
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          cat > latest-linux.yml << YAML
+          version: $VERSION
+          files:
+            - url: $FILENAME
+              sha512: $SHA512
+              size: $SIZE
+          path: $FILENAME
+          sha512: $SHA512
+          releaseDate: '$RELEASE_DATE'
+          YAML
+          # Strip leading spaces (heredoc indentation)
+          sed -i 's/^          //' latest-linux.yml
+          echo "--- latest-linux.yml ---"
+          cat latest-linux.yml
+          curl -sS -X POST \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Content-Type: text/yaml" \
+            --data-binary @latest-linux.yml \
+            "$UPLOAD_URL?name=latest-linux.yml"
 
   build-windows:
     if: false  # Windows signing pending — re-enable when YubiKey and OV cert are ready.

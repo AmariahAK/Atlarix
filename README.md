@@ -7,9 +7,32 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.12*
+*Current: v6.1.13*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+### What's New in v6.1.13
+
+- **Linux OAuth fallback:** If the `atlarix://auth/callback` deep link never fires after the browser opens (common on minimal distros / VMs), a 60-second countdown triggers a native dialog with the OAuth URL and a **Copy Link** button. Linux users also see a dismissable registration tip in the sidebar with the `xdg-mime` commands needed to register the handler. See [Troubleshooting — Linux OAuth](#troubleshooting--linux-oauth) below.
+- **Theme toggle restored:** Settings → General now has an **Appearance** selector (System / Light / Dark) backed by `localStorage`.
+- **UI contrast fixes:** Hero glow background no longer bleeds amber behind amber gradient text (WCAG AA). The chat right-panel expand/collapse button is no longer clipped by the rounded container corner.
+- **Silent auto-update (in-app UI):** `electron-updater` replaces `update-electron-app`. A subtle "Downloading update…" strip appears while the update fetches; a dismissable **Restart Now / Remind me later** banner replaces the native dialog when the update is ready. "Remind me later" defers install to the next cold start.
+- **AppImage target:** Linux builds now produce an `.AppImage` in addition to `.deb` and `.rpm`, enabling `electron-updater`'s built-in auto-update on AppImage installs.
+- **GitHub Actions — Node 24 migration:** CI uses `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, `softprops/action-gh-release@v2`, and generates `latest-mac.yml` / `latest-linux.yml` feed files for `electron-updater`.
+
+### Troubleshooting — Linux OAuth
+
+If you sign in on Linux and the app stays on the loading screen after the browser opens:
+
+1. **Wait 60 seconds** — Atlarix will show a dialog with the OAuth URL and a **Copy Link** button. Paste that URL in your browser to complete login.
+2. **Register the deep link handler** (run once in Terminal, then sign in again):
+
+   ```bash
+   xdg-mime default atlarix.desktop x-scheme-handler/atlarix
+   update-desktop-database ~/.local/share/applications
+   ```
+
+The sidebar also shows these commands inline whenever a sign-in attempt fails on Linux.
 
 ### What's New in v6.1.12
 

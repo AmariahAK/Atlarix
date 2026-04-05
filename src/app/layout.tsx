@@ -19,6 +19,7 @@ import { RightPanel } from "@/components/RightPanel";
 import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { PendingInviteBanner } from "@/components/PendingInviteBanner";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import {
   rightPanelVisibleAtom,
@@ -367,7 +368,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={toggleRightPanel}
-                  className="absolute top-2 right-2 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
+                  className="absolute top-3 right-3 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
                   title={rightPanelVisible ? "Hide panel" : "Show panel"}
                   aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}
                 >
@@ -382,6 +383,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                 {/* Pending team invites (signed-in user) */}
                 <PendingInviteBanner />
+                {/* Auto-update: download progress + ready-to-install banner */}
+                <UpdateBanner />
                 {/* Workspace folder missing (deleted outside app) */}
                 {isOnChatPage && <WorkspaceNotFoundBanner />}
                 {/* Chat overlay on home when a chat is active; full-page routes still render their outlet */}

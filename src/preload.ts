@@ -326,6 +326,9 @@ const validInvokeChannels = [
   "team:send-test-email",
   // Community (Discord)
   "discord:get-invite-info",
+  // Auto-updater
+  "update:defer",        // write defer flag to userData; install on next cold start
+  "update:install-now",  // quit and install downloaded update immediately
 ];
 
 const validReceiveChannels = [
@@ -395,6 +398,9 @@ const validReceiveChannels = [
   // v3.9: GitHub Actions log stream
   "github-actions:log-chunk",
   "open-community-dialog",
+  // Auto-updater
+  "update:downloading",   // update is being fetched in background; payload: { version: string }
+  "update:downloaded",    // update ready to install; payload: { version: string }
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

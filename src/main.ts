@@ -1,10 +1,10 @@
-import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import dotenv from "dotenv";
 // @ts-ignore
 import started from "electron-squirrel-startup";
-import { updateElectronApp, UpdateSourceType } from "update-electron-app";
+import { autoUpdater } from "electron-updater";
 import log from "electron-log";
 import {
   getSettingsFilePath,
@@ -121,6 +121,19 @@ export async function onReady() {
     logger.warn("Auth session restore or subscription init (non-fatal):", e);
   }
 
+  // If user deferred an update on last session, install it silently on this cold start.
+  const deferFlagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
+  if (fs.existsSync(deferFlagPath)) {
+    try { fs.unlinkSync(deferFlagPath); } catch { /* ignore */ }
+    log.info("[AutoUpdater] Deferred update flag found — checking for update on cold start");
+    autoUpdater.once("update-downloaded", () => {
+      autoUpdater.quitAndInstall();
+    });
+    autoUpdater.checkForUpdates().catch((err) => {
+      log.warn("[AutoUpdater] Cold-start deferred check failed:", err?.message ?? err);
+    });
+  }
+
   createWindow();
 
   try {
@@ -182,22 +195,7 @@ export async function onReady() {
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
   if (settings.enableAutoUpdate) {
-    // Technically we could just pass the releaseChannel directly to the host,
-    // but this is more explicit and falls back to stable if there's an unknown
-    // release channel.
-    const postfix = settings.releaseChannel === "beta" ? "beta" : "stable";
-    // TODO: Phase 4.5 - Set up auto-update via GitHub releases
-    // For now, check GitHub API for latest release
-    const host = `https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest`;
-    logger.info("Auto-update release channel=", postfix);
-    updateElectronApp({
-      logger,
-      updateSource: {
-        type: UpdateSourceType.ElectronPublicUpdateService,
-        repo: "AmariahAK/atlarix-releases",
-        host,
-      },
-    }); // additional configuration options available
+    initAutoUpdater();
   }
 }
 
@@ -213,6 +211,76 @@ export async function onFirstRunMaybe(settings: UserSettings) {
       isTestMode: true,
     });
   }
+}
+
+/**
+ * Silent background auto-updater using electron-updater.
+ * Checks GitHub releases at AmariahAK/atlarix-releases for latest.yml.
+ * Shows a restart dialog when an update has downloaded.
+ */
+function initAutoUpdater(): void {
+  // Route electron-updater logs through electron-log so update history is traceable.
+  autoUpdater.logger = log;
+
+  // Point at the separate releases repo (not the source repo).
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "AmariahAK",
+    repo: "atlarix-releases",
+  });
+
+  // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.autoDownload = true;
+
+  autoUpdater.on("checking-for-update", () => {
+    log.info("[AutoUpdater] Checking for update…");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    log.info("[AutoUpdater] Update available:", info.version);
+    // Send a subtle in-app notice to the renderer so the user knows a download is happening.
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("update:downloading", { version: info.version });
+    }
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    log.info("[AutoUpdater] Up to date:", info.version);
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    log.info(`[AutoUpdater] Download progress: ${Math.round(progress.percent)}%`);
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info("[AutoUpdater] Update downloaded:", info.version);
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("update:downloaded", { version: info.version });
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    log.error("[AutoUpdater] Error:", err?.message ?? err);
+    // Don't surface to user — update errors are non-blocking.
+  });
+
+  // Kick off the check. Errors are caught by the 'error' event handler above.
+  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    log.warn("[AutoUpdater] checkForUpdatesAndNotify failed:", err?.message ?? err);
+  });
+
+  // IPC: renderer requests immediate install
+  ipcMain.handle("update:install-now", () => {
+    autoUpdater.quitAndInstall();
+  });
+
+  // IPC: renderer defers install to next cold start
+  ipcMain.handle("update:defer", () => {
+    const flagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
+    fs.writeFileSync(flagPath, JSON.stringify({ deferred: true, timestamp: Date.now() }));
+    log.info("[AutoUpdater] Update deferred to next launch");
+  });
 }
 
 /**
@@ -566,6 +634,11 @@ function handleDeepLinkReturn(url: string) {
   // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
   // Supabase OAuth returns tokens in hash fragment, not query params
   if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {
+    // Cancel the 60s inbound-timeout fallback — deep link was received successfully.
+    import('./lib/auth/supabase-client').then(({ cancelPendingOAuthTimeout }) => {
+      cancelPendingOAuthTimeout();
+    }).catch(() => { /* non-fatal */ });
+
     // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy
     // We need to pass the full URL to SubscriptionManager for parsing
     log.log("Handling Supabase OAuth callback");

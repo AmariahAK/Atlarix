@@ -1,3 +1,17 @@
+# Atlarix Changelog
+
+## v6.1.13 — Linux OAuth fallback, theme toggle, contrast fixes, auto-updater in-app UI (2026-04-05)
+
+- **Linux OAuth timeout fallback (`src/lib/auth/supabase-client.ts`):** After `shell.openExternal` succeeds, a 60-second `setTimeout` starts. If the `atlarix://auth/callback` deep link has not fired by then, `dialog.showMessageBox` surfaces the OAuth URL with a **Copy Link** button and (on Linux) the `xdg-mime` registration commands in the detail text. The timer is cleared via `cancelPendingOAuthTimeout()` the moment the callback arrives in `main.ts`.
+- **Linux deep-link hint in sidebar (`src/components/app-sidebar.tsx`):** On sign-in failure, Linux users see a dismissable amber notice with the two `xdg-mime` / `update-desktop-database` commands. Platform detected via `IpcClient.getSystemPlatform()`.
+- **Theme toggle (`src/pages/settings.tsx`):** `useTheme` + `<Select>` with System / Light / Dark options added to Settings → General after the analytics toggle. Persists via `localStorage.theme` (already handled by `ThemeContext`).
+- **Contrast fix — hero glow (`src/pages/atlarix-home.tsx`):** Glow div behind the "Atlarix" gradient heading changed from `to-[#F59E0B]` → `to-[#059669]`, eliminating amber-on-amber background that failed WCAG AA for large text.
+- **Contrast fix — panel toggle button (`src/app/layout.tsx`):** Expand/collapse button moved from `top-2 right-2` → `top-3 right-3` to clear the `rounded-lg overflow-hidden` parent's corner clip.
+- **Auto-updater in-app UI:** `dialog.showMessageBox` removed from the `update-downloaded` handler in `initAutoUpdater()`. Main process now sends `update:downloading` (on `update-available`) and `update:downloaded` IPC events to the renderer. New `UpdateBanner` component (`src/components/UpdateBanner.tsx`) renders a subtle download strip and a dismissable "Restart Now / Remind me later" banner. "Remind me later" calls `update:defer` IPC → writes `userData/atlarix-pending-update.json`; on next cold start `onReady()` detects the flag, deletes it, and calls `autoUpdater.quitAndInstall()` after the next `update-downloaded` event.
+- **AppImage target (`forge.config.ts`, `package.json`):** `@reforged/maker-appimage` added; produces `.AppImage` alongside `.deb` / `.rpm` on Linux builds, enabling `electron-updater`'s native AppImage auto-update.
+- **CI — Node 24 migration (`.github/workflows/release.yml`):** `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` env var; `softprops/action-gh-release@v1` → `@v2`; `appimagetool` extraction step added for build-linux; `latest-mac.yml` (arm64 leg only) and `latest-linux.yml` (AppImage SHA-512 + size) generated and uploaded as release assets for `electron-updater` feed.
+- **Launchpad hero placeholder (`atlarix-launchpad/src/components/Hero.tsx`):** Chat input placeholder updated to a concrete SaaS-dashboard example prompt.
+
 ## v6.1.12 — Mermaid normalize (diagram page + AI output) (2026-04-04)
 
 - **Mermaid:** New [`normalizeDiagramMermaid.ts`](../src/lib/normalizeDiagramMermaid.ts) — strip code fences, standalone `mermaid` lines, `mermaid graph` prefix, normalize `Style` → `style`, scrub corrupted `#hex` tokens on `style` / `linkStyle` / `classDef` lines (Unicode NFKC + zero-width strip). Used by [`sanitizeMermaid`](../src/lib/sanitizeMermaid.ts) for all parse/render paths.
@@ -139,10 +153,6 @@
 ---
 
 For detailed historical notes (v1.x–v4.x) and implementation phases, see [`docs/previous-versions.md`](previous-versions.md) and the v5.0 tables in [`docs/TODO.md`](TODO.md).
-
-# Atlarix Changelog
-
-All notable changes to Atlarix will be documented in this file.
 
 ## Atlarix product summary (for model and blueprint accuracy)
 

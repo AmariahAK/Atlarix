@@ -70,6 +70,22 @@ export function getSupabaseClient(): SupabaseClient {
 // OAUTH METHODS
 // ============================================
 
+// 60-second inbound deep-link timeout: if atlarix://auth/callback never arrives,
+// show a fallback dialog so the user can copy the OAuth URL or register the handler.
+let _oauthTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Cancel the pending OAuth inbound timeout (called from main.ts when the
+ * atlarix://auth/callback deep link is successfully received).
+ */
+export function cancelPendingOAuthTimeout(): void {
+    if (_oauthTimeoutHandle !== null) {
+        clearTimeout(_oauthTimeoutHandle);
+        _oauthTimeoutHandle = null;
+        logger.log('[Supabase] OAuth inbound timeout cancelled — deep link received');
+    }
+}
+
 export type OAuthProvider = 'google' | 'github';
 
 /**
@@ -110,6 +126,33 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
                 logger.log('[Supabase] shell.openExternal succeeded');
             } catch (openErr) {
                 logger.error('[Supabase] shell.openExternal failed:', openErr);
+            }
+
+            // Inbound deep-link timeout: if atlarix://auth/callback is not received within
+            // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
+            // show a fallback dialog so the user can copy the OAuth URL manually.
+            if (browserOpened) {
+                const oauthUrlForFallback = data.url;
+                _oauthTimeoutHandle = setTimeout(async () => {
+                    _oauthTimeoutHandle = null;
+                    logger.warn('[Supabase] OAuth inbound timeout — deep link not received after 60s');
+                    const linuxCommands = process.platform === 'linux'
+                        ? '\n\nTo register the deep link handler on Linux, run in Terminal:\n  xdg-mime default atlarix.desktop x-scheme-handler/atlarix\n  update-desktop-database ~/.local/share/applications\n\nThen try signing in again.'
+                        : '';
+                    const { response } = await dialog.showMessageBox({
+                        type: 'info',
+                        title: 'Sign-in not completing?',
+                        message: 'Atlarix has been waiting 60 seconds for the OAuth callback.\n\nThe deep link handler may not be registered on your system.',
+                        detail: `OAuth URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
+                        buttons: ['Copy Link', 'Dismiss'],
+                        defaultId: 0,
+                        cancelId: 1,
+                    });
+                    if (response === 0) {
+                        clipboard.writeText(oauthUrlForFallback);
+                        logger.log('[Supabase] OAuth URL copied via 60s inbound timeout fallback');
+                    }
+                }, 60_000);
             }
 
             // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.

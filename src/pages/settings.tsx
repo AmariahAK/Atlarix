@@ -25,6 +25,7 @@ import {
 import type { BlueprintInjectionModePreference } from "@/lib/schemas";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
+import { useTheme } from "@/contexts/ThemeContext";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
@@ -279,6 +280,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
   const setOnboardingStep = useSetAtom(onboardingStepAtom);
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
 
   const handleRestartOnboarding = async () => {
     try {
@@ -331,6 +333,29 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               });
             }}
           />
+        </div>
+        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium text-foreground">
+              Appearance
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Choose light, dark, or follow your system setting.
+            </p>
+          </div>
+          <Select
+            value={theme}
+            onValueChange={(v) => setTheme(v as "system" | "light" | "dark")}
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">System</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="pt-4 border-t border-border mt-4">
           <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>

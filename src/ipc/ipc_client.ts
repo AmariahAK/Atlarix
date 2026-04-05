@@ -147,6 +147,8 @@ export class IpcClient {
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
   /** v3.9: Clarifying questions from AI — handlers receive { messageId, questions }. */
   private questionsHandlers: Set<(payload: { messageId: number; questions: Question[] }) => void> = new Set();
+  private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
+  private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -409,6 +411,18 @@ export class IpcClient {
       if (payload && typeof payload === "object" && "messageId" in payload && "questions" in payload) {
         const { messageId, questions } = payload as { messageId: number; questions: Question[] };
         this.questionsHandlers.forEach((h) => h({ messageId, questions }));
+      }
+    });
+
+    this.ipcRenderer.on("update:downloading", (data) => {
+      if (data && typeof data === "object" && "version" in data) {
+        this.updateDownloadingHandlers.forEach((h) => h(data as { version: string }));
+      }
+    });
+
+    this.ipcRenderer.on("update:downloaded", (data) => {
+      if (data && typeof data === "object" && "version" in data) {
+        this.updateDownloadedHandlers.forEach((h) => h(data as { version: string }));
       }
     });
   }
@@ -2719,6 +2733,24 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("file:get-stats", { filePath });
+  }
+
+  public onUpdateDownloading(handler: (payload: { version: string }) => void): () => void {
+    this.updateDownloadingHandlers.add(handler);
+    return () => this.updateDownloadingHandlers.delete(handler);
+  }
+
+  public onUpdateDownloaded(handler: (payload: { version: string }) => void): () => void {
+    this.updateDownloadedHandlers.add(handler);
+    return () => this.updateDownloadedHandlers.delete(handler);
+  }
+
+  public async deferUpdate(): Promise<void> {
+    await this.ipcRenderer.invoke("update:defer");
+  }
+
+  public async installUpdateNow(): Promise<void> {
+    await this.ipcRenderer.invoke("update:install-now");
   }
 }
 

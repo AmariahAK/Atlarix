@@ -6,6 +6,7 @@ import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
 import { MakerRpm } from "@electron-forge/maker-rpm";
+import { MakerAppImage } from "@reforged/maker-appimage";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
@@ -107,6 +108,13 @@ const config: ForgeConfig = {
     }),
     new MakerDeb({
       options: {
+        mimeType: ["x-scheme-handler/atlarix"],
+      },
+    }),
+    new MakerAppImage({
+      options: {
+        // AppImage supports auto-update natively via electron-updater
+        // and avoids deep-link registration friction on minimal distros / VMs.
         mimeType: ["x-scheme-handler/atlarix"],
       },
     }),
