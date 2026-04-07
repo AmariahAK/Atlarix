@@ -41,10 +41,22 @@ interface TemplateCache {
   templates: Template[];
   fetchedAt: string; // ISO timestamp
   expiresAt: string; // ISO timestamp (midnight next day)
+  /** Local calendar day (YYYY-MM-DD) when GitHub template search last ran */
+  githubFetchedAtYmd?: string;
+  githubTemplates?: Template[];
 }
 
 let cache: TemplateCache | null = null;
 let refreshScheduled = false;
+let refreshInFlight: Promise<Template[]> | null = null;
+
+function localDateYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 /**
  * Get next midnight timestamp
@@ -85,10 +97,23 @@ async function loadCacheFromDisk(): Promise<TemplateCache | null> {
   }
 }
 
+/** Read cache JSON from disk without checking expiry (for GitHub same-day reuse). */
+async function loadDiskCacheRaw(): Promise<TemplateCache | null> {
+  try {
+    const data = await fs.readFile(getCacheFilePath(), "utf-8");
+    return JSON.parse(data) as TemplateCache;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Save cache to disk
  */
-async function saveCacheToDisk(templates: Template[]): Promise<void> {
+async function saveCacheToDisk(
+  templates: Template[],
+  githubMeta?: { githubFetchedAtYmd: string; githubTemplates: Template[] }
+): Promise<void> {
   const now = new Date();
   const midnight = getNextMidnight();
 
@@ -96,6 +121,12 @@ async function saveCacheToDisk(templates: Template[]): Promise<void> {
     templates,
     fetchedAt: now.toISOString(),
     expiresAt: midnight.toISOString(),
+    ...(githubMeta
+      ? {
+          githubFetchedAtYmd: githubMeta.githubFetchedAtYmd,
+          githubTemplates: githubMeta.githubTemplates,
+        }
+      : {}),
   };
 
   await fs.writeFile(getCacheFilePath(), JSON.stringify(cacheData, null, 2));
@@ -155,53 +186,105 @@ async function searchTemplatesViaSearxng(): Promise<Template[]> {
 }
 
 /**
- * Fetch fresh templates from all sources
+ * Fetch fresh templates from all sources (Vercel every time; GitHub at most once per local day).
  */
-async function fetchFreshTemplates(): Promise<Template[]> {
+async function fetchFreshTemplates(): Promise<{
+  templates: Template[];
+  githubFetchedAtYmd: string;
+  githubTemplates: Template[];
+}> {
   logger.info("Fetching fresh templates from all sources...");
 
+  const todayYmd = localDateYmd();
+  const staleRaw = await loadDiskCacheRaw();
+
   let githubTemplates: Template[] = [];
+  let githubFetchedAtYmd = todayYmd;
+
+  if (
+    staleRaw?.githubFetchedAtYmd === todayYmd &&
+    Array.isArray(staleRaw.githubTemplates) &&
+    staleRaw.githubTemplates.length > 0
+  ) {
+    logger.info(
+      "Reusing GitHub template list from earlier today (at most one search batch per local day)"
+    );
+    githubTemplates = staleRaw.githubTemplates;
+    githubFetchedAtYmd = staleRaw.githubFetchedAtYmd;
+  }
+
   let vercelExamples: Template[] = [];
   let searxngTemplates: Template[] = [];
 
   try {
-    // Fetch from all sources in parallel
-    [githubTemplates, vercelExamples] = await Promise.all([
-      fetchGitHubTemplates(),
-      fetchVercelExamples(),
-    ]);
+    vercelExamples = await fetchVercelExamples();
   } catch (error) {
-    logger.warn("GitHub/Vercel API failed, trying SearxNG fallback:", error);
-    // If GitHub fails (rate limiting), try SearxNG as fallback
-    searxngTemplates = await searchTemplatesViaSearxng();
+    logger.warn("Vercel examples fetch failed:", error);
   }
 
-  // If we got very few templates from primary sources, supplement with SearxNG
+  if (githubTemplates.length === 0) {
+    try {
+      githubTemplates = await fetchGitHubTemplates();
+      githubFetchedAtYmd = todayYmd;
+    } catch (error) {
+      logger.warn("GitHub template search failed, trying SearxNG fallback:", error);
+      searxngTemplates = await searchTemplatesViaSearxng();
+      githubFetchedAtYmd = todayYmd;
+    }
+  }
+
   if (githubTemplates.length < 5 && isSearxngEnabled()) {
     logger.info("Few GitHub templates found, supplementing with SearxNG...");
     searxngTemplates = await searchTemplatesViaSearxng();
   }
 
-  // Combine all sources
   const allTemplates = [
-    ...localTemplatesData, // Official templates first
+    ...localTemplatesData,
     ...vercelExamples,
     ...githubTemplates,
     ...searxngTemplates,
   ];
 
-  // Deduplicate by GitHub URL
   const unique = deduplicateTemplates(allTemplates);
-
-  // Score and rank
   const ranked = rankTemplates(unique);
 
   logger.info(
     `Fetched ${ranked.length} templates total (${localTemplatesData.length} local, ` +
-    `${vercelExamples.length} Vercel, ${githubTemplates.length} GitHub, ${searxngTemplates.length} SearxNG)`
+      `${vercelExamples.length} Vercel, ${githubTemplates.length} GitHub, ${searxngTemplates.length} SearxNG)`
   );
 
-  return ranked;
+  return {
+    templates: ranked,
+    githubFetchedAtYmd,
+    githubTemplates,
+  };
+}
+
+async function refreshTemplatesAndCache(): Promise<Template[]> {
+  const result = await fetchFreshTemplates();
+  await saveCacheToDisk(result.templates, {
+    githubFetchedAtYmd: result.githubFetchedAtYmd,
+    githubTemplates: result.githubTemplates,
+  });
+  cache = {
+    templates: result.templates,
+    fetchedAt: new Date().toISOString(),
+    expiresAt: getNextMidnight().toISOString(),
+    githubFetchedAtYmd: result.githubFetchedAtYmd,
+    githubTemplates: result.githubTemplates,
+  };
+  return result.templates;
+}
+
+async function refreshTemplatesAndCacheSingleFlight(): Promise<Template[]> {
+  if (refreshInFlight) {
+    logger.info("Template refresh already in flight, awaiting shared result");
+    return refreshInFlight;
+  }
+  refreshInFlight = refreshTemplatesAndCache().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 /**
@@ -220,17 +303,7 @@ function scheduleMidnightRefresh(): void {
     logger.info("Midnight reached - refreshing template cache");
 
     try {
-      const fresh = await fetchFreshTemplates();
-      await saveCacheToDisk(fresh);
-
-      // Update in-memory cache
-      cache = {
-        templates: fresh,
-        fetchedAt: new Date().toISOString(),
-        expiresAt: getNextMidnight().toISOString(),
-      };
-
-      // Schedule next refresh
+      await refreshTemplatesAndCacheSingleFlight();
       refreshScheduled = false;
       scheduleMidnightRefresh();
     } catch (error) {
@@ -270,24 +343,12 @@ export async function getAllTemplates(): Promise<Template[]> {
       return shuffleWithinTiers(diskCache.templates);
     }
 
-    // No valid cache - fetch fresh
+    // No valid cache - fetch fresh (single-flight if concurrent callers)
     logger.info("No valid cache - fetching fresh templates");
-    const fresh = await fetchFreshTemplates();
+    const fresh = await refreshTemplatesAndCacheSingleFlight();
 
-    // Save to disk
-    await saveCacheToDisk(fresh);
-
-    // Update in-memory cache
-    cache = {
-      templates: fresh,
-      fetchedAt: new Date().toISOString(),
-      expiresAt: getNextMidnight().toISOString(),
-    };
-
-    // Schedule midnight refresh
     scheduleMidnightRefresh();
 
-    // Return fresh (already sorted, no shuffle needed)
     return fresh;
   } catch (error) {
     logger.error("Error getting templates:", error);

@@ -104,7 +104,13 @@ import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
+  SAFETY_FILTER_BLOCKED_MESSAGE,
 } from "@/shared/texts";
+import {
+  prepareUserChatTurnInput,
+  ChatPromptSafetyError,
+} from "../../lib/security/chat-prompt-gate";
+import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot, restoreSnapshot } from "../../lib/workspace-snapshots";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
@@ -627,6 +633,40 @@ export function registerChatStreamHandlers() {
           throw e;
         }
 
+        try {
+          if (!req.continueAfterQuestions) {
+            req.prompt = prepareUserChatTurnInput(req.prompt);
+          }
+        } catch (e) {
+          if (e instanceof ChatPromptSafetyError) {
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${SAFETY_FILTER_BLOCKED_MESSAGE}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            activeStreams.delete(req.chatId);
+            return;
+          }
+          if (e instanceof Error && /maximum length|Invalid prompt/i.test(e.message)) {
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${e.message}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            activeStreams.delete(req.chatId);
+            return;
+          }
+          throw e;
+        }
+
         // Fix: Finding 4 — immediate feedback while context/model loads
         safeSend(event.sender, "chat:stream:phase", {
           chatId: req.chatId,
@@ -771,7 +811,7 @@ export function registerChatStreamHandlers() {
         if (!lastUser?.content) {
           throw new Error("Continue after questions: no user message content found");
         }
-        userPrompt = lastUser.content;
+        userPrompt = prepareUserChatTurnInput(lastUser.content);
       }
 
       // Process attachments if any (skip when continuing after questions)
@@ -3705,7 +3745,8 @@ For workforce, explain services before request_workspace_permissions.`;
           }
           // v3.9: Parse and strip <questions> block; emit chat:questions if present (first block only)
           const { cleanContent: contentAfterQuestions, questions } = parseQuestions(fullResponse);
-          const responseToStore = questions != null ? contentAfterQuestions : fullResponse;
+          let responseToStore = questions != null ? contentAfterQuestions : fullResponse;
+          responseToStore = sanitizeAssistantOutput(responseToStore);
           if (questions != null && questions.length > 0) {
             safeSend(event.sender, "chat:questions", {
               messageId: placeholderAssistantMessage.id,
@@ -3960,6 +4001,37 @@ For workforce, explain services before request_workspace_permissions.`;
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
         logger.error("Error calling LLM:", error);
+        if (error instanceof ChatPromptSafetyError) {
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${SAFETY_FILTER_BLOCKED_MESSAGE}`,
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
+          activeStreams.delete(req.chatId);
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
+        if (
+          error instanceof Error &&
+          /maximum length|Invalid prompt/i.test(error.message)
+        ) {
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error.message}`,
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
+          activeStreams.delete(req.chatId);
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
         const errMessage = isDiagramModelNotFoundError(error)
           ? "The selected model was not found for any provider. Please choose a different model in Settings."
           : NoOutputGeneratedError.isInstance(error) ||

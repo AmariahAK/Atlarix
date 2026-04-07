@@ -511,7 +511,7 @@ const createWindow = () => {
     mainWindow.webContents.send("window:fullscreen-changed", { fullscreen: fs });
     if (process.platform === "darwin" && !fs) {
       try {
-        mainWindow.setTrafficLightPosition({ x: 10, y: 8 });
+        mainWindow.setWindowButtonPosition({ x: 10, y: 8 });
       } catch {
         /* optional */
       }

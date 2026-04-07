@@ -53,7 +53,14 @@ export function useCompassUsage(): CompassUsageState {
           setNeedsSignIn(true);
         } else {
           setNeedsSignIn(false);
-          setError(result.message ?? "Could not load usage");
+          if (result.reason === "network_error") {
+            setError(
+              result.message ??
+                "Unable to load Compass usage (network). You can keep using the app; limits refresh when online.",
+            );
+          } else {
+            setError(result.message ?? "Could not load usage");
+          }
         }
         return;
       }

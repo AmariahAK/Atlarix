@@ -88,7 +88,7 @@ export type CompassUsageIpcResult =
     }
   | {
       ok: false;
-      reason: "not_authenticated" | "rpc_error";
+      reason: "not_authenticated" | "rpc_error" | "network_error";
       message?: string;
     };
 

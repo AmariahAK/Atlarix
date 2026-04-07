@@ -2,6 +2,7 @@ import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
 import type { CompassUsageIpcResult } from "../../ipc/ipc_types";
 import { getSupabaseClient } from "./supabase-client";
+import { isLikelyNetworkFailure } from "./network-failure";
 
 const logger = log.scope("compass_usage");
 
@@ -51,10 +52,25 @@ export async function getCompassUsageFromSupabase(): Promise<CompassUsageIpcResu
     const { data, error } = await supabase.rpc("get_compass_usage_state");
     if (error) {
       logger.warn("[compass] get_compass_usage_state:", error.message);
-      Sentry.captureException(
-        new Error(`Compass get_compass_usage_state: ${error.message}`),
-        { tags: { feature: "compass", compass_op: "get_usage" } },
-      );
+      if (isLikelyNetworkFailure(error)) {
+        Sentry.captureMessage(`Compass get_compass_usage_state (network): ${error.message}`, {
+          level: "warning",
+          tags: { feature: "compass", compass_op: "get_usage", transient: "network" },
+        });
+      } else {
+        Sentry.captureException(
+          new Error(`Compass get_compass_usage_state: ${error.message}`),
+          { tags: { feature: "compass", compass_op: "get_usage" } },
+        );
+      }
+      if (isLikelyNetworkFailure(error)) {
+        return {
+          ok: false,
+          reason: "network_error",
+          message:
+            "Could not reach Compass usage service. Check your connection; usage limits were not verified for this action.",
+        };
+      }
       const missingFn = /could not find the function|schema cache|does not exist/i.test(
         error.message,
       );
@@ -91,6 +107,21 @@ export async function getCompassUsageFromSupabase(): Promise<CompassUsageIpcResu
     };
   } catch (e) {
     logger.warn("[compass] getCompassUsageFromSupabase:", e);
+    if (isLikelyNetworkFailure(e)) {
+      Sentry.captureMessage(
+        `Compass get_compass_usage_state (network): ${e instanceof Error ? e.message : String(e)}`,
+        {
+          level: "warning",
+          tags: { feature: "compass", compass_op: "get_usage", transient: "network" },
+        },
+      );
+      return {
+        ok: false,
+        reason: "network_error",
+        message:
+          "Could not reach Compass usage service. Check your connection; usage limits were not verified for this action.",
+      };
+    }
     Sentry.captureException(e instanceof Error ? e : new Error(String(e)), {
       tags: { feature: "compass", compass_op: "get_usage" },
     });
@@ -120,13 +151,21 @@ export async function recordCompassUsageTokens(totalTokens: number): Promise<Rec
     });
     if (error) {
       logger.warn("[compass] record_compass_usage:", error.message);
-      Sentry.captureException(
-        new Error(`Compass record_compass_usage: ${error.message}`),
-        {
-          tags: { feature: "compass", compass_op: "record_usage" },
+      if (isLikelyNetworkFailure(error)) {
+        Sentry.captureMessage(`Compass record_compass_usage (network): ${error.message}`, {
+          level: "warning",
+          tags: { feature: "compass", compass_op: "record_usage", transient: "network" },
           extra: { totalTokens: Math.round(totalTokens) },
-        },
-      );
+        });
+      } else {
+        Sentry.captureException(
+          new Error(`Compass record_compass_usage: ${error.message}`),
+          {
+            tags: { feature: "compass", compass_op: "record_usage" },
+            extra: { totalTokens: Math.round(totalTokens) },
+          },
+        );
+      }
       return { ok: false, error: "rpc_error", message: error.message };
     }
     const row = data as {
@@ -155,10 +194,21 @@ export async function recordCompassUsageTokens(totalTokens: number): Promise<Rec
     return { ok: true };
   } catch (e) {
     logger.warn("[compass] recordCompassUsageTokens:", e);
-    Sentry.captureException(e instanceof Error ? e : new Error(String(e)), {
-      tags: { feature: "compass", compass_op: "record_usage" },
-      extra: { totalTokens: Math.round(totalTokens) },
-    });
+    if (isLikelyNetworkFailure(e)) {
+      Sentry.captureMessage(
+        `Compass record_compass_usage (network): ${e instanceof Error ? e.message : String(e)}`,
+        {
+          level: "warning",
+          tags: { feature: "compass", compass_op: "record_usage", transient: "network" },
+          extra: { totalTokens: Math.round(totalTokens) },
+        },
+      );
+    } else {
+      Sentry.captureException(e instanceof Error ? e : new Error(String(e)), {
+        tags: { feature: "compass", compass_op: "record_usage" },
+        extra: { totalTokens: Math.round(totalTokens) },
+      });
+    }
     return { ok: false, error: "rpc_error", message: e instanceof Error ? e.message : String(e) };
   }
 }

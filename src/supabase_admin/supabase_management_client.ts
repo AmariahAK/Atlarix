@@ -182,8 +182,11 @@ export async function executeSupabaseSql({
     return "{}";
   }
 
+  const { assertSqlSafeForRemoteExecution } = await import("../lib/security/sql-exec-guards");
+  const safeQuery = assertSqlSafeForRemoteExecution(query);
+
   const supabase = await getSupabaseClient();
-  const result = await supabase.runQuery(supabaseProjectId, query);
+  const result = await supabase.runQuery(supabaseProjectId, safeQuery);
   return JSON.stringify(result);
 }
 

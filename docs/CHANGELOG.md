@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## v6.1.15 — Safety: Compass network noise, SQL guards, prompt hygiene, profanity filter (2026-04-07)
+
+- **Compass (`compass_usage.ts`, `network-failure.ts`, `ipc_types.ts`, `useCompassUsage.ts`):** Transient Supabase failures (`fetch failed`, `ECONNRESET`, etc.) return **`reason: "network_error"`** with **`Sentry.captureMessage`** at **warning** instead of **`captureException`**. UI treats offline reachability as transient (not “sign out” / migration copy).
+- **SQL execution (`sql-exec-guards.ts`, `supabase_management_client.ts`):** Before **`executeSupabaseSql`** → **`runQuery`**, SQL is normalized (NUL strip, max length), checked for disallowed patterns (e.g. `INTO OUTFILE`), and **single-statement** only (no `;` outside strings except an optional trailing `;`). **`assertSafeReadOnlySql`** / **`assertSafeMutatingSql`** exported for future read-only vs mutating callers.
+- **Prompt hygiene (`prompt-hygiene.ts`, `chat-prompt-gate.ts`):** At **`chat:stream`** and chat-only IPC entry — NFC normalize, NUL strip, max length (**200k** chars). Documented as **not** a substitute for execution-boundary checks.
+- **Profanity (`bad-words`, `profanity-filter.ts`):** User turns matching the list are rejected with **`SAFETY_FILTER_BLOCKED_MESSAGE`** (`texts.ts`). Assistant text is **`sanitizeAssistantOutput`** after stream (skips **\`\`\` fenced** regions) before DB / ephemeral persistence and before **`processFullResponseActions`**. List-based only — not full moderation.
+- **Developer experience:** Added **`tsconfig.main.json`** (extends `tsconfig.app.json`) for `tsc -p tsconfig.main.json`. **`ts:main`** / **`ts:workers`** invoke **`node node_modules/typescript/lib/tsc.js`** instead of **`npx tsc`** to avoid spurious npm config warnings. macOS window controls: **`setWindowButtonPosition`** replaces removed **`setTrafficLightPosition`** typings (Electron 38).
+
 ## v6.1.14 — Groq external auto-router classifier, balanced baseline, tier floors (2026-04-07)
 
 - **Groq classifier (`src/lib/routing/groq-classifier.ts`):** Main-process-only `classifyPromptWithGroq()` calls `https://api.groq.com/openai/v1/chat/completions` with JSON-only tier + confidence output. Credentials: `GROQ_CLASSIFIER_API_KEY` and `GROQ_CLASSIFIER_MODEL` (embedded via [`vite.main.config.mts`](../vite.main.config.mts) `MAIN_KEYS`, same pattern as Compass keys). `max_tokens: 30`, `temperature: 0`, **2s** timeout; returns `null` on any failure or if key/model missing. **429** rate limits: `electron-log` message `"Groq classifier rate limited, using fallback"` then `null` (no user toast).

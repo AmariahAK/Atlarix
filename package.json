@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "6.1.14",
+  "version": "6.1.15",
   "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
   "main": ".vite/build/main.js",
   "repository": {
@@ -21,8 +21,8 @@
     "publish": "npm run clean && electron-forge publish",
     "verify-release": "node scripts/verify-release-assets.js",
     "ts": "npm run ts:main && npm run ts:workers",
-    "ts:main": "npx tsc -p tsconfig.app.json --noEmit",
-    "ts:workers": "npx tsc -p workers/tsc/tsconfig.json --noEmit",
+    "ts:main": "node node_modules/typescript/lib/tsc.js -p tsconfig.main.json --noEmit",
+    "ts:workers": "node node_modules/typescript/lib/tsc.js -p workers/tsc/tsconfig.json --noEmit",
     "lint": "npx oxlint --fix",
     "lint:fix": "npx oxlint --fix --fix-suggestions --fix-dangerously",
     "db:generate": "drizzle-kit generate",
@@ -150,6 +150,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.10.0",
     "ai": "^5.0.15",
+    "bad-words": "^4.0.0",
     "better-sqlite3": "^12.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

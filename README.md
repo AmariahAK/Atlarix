@@ -7,11 +7,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.14*
+*Current: v6.1.15*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 ---
+
+### What's New in v6.1.15
+
+- **Safer chat and SQL:** Chat input is normalized at the IPC boundary; model-driven **Supabase SQL** runs through guards (length, dangerous patterns, single-statement) before execution. User messages can be blocked by a **local profanity filter**; assistant replies are sanitized before persistence (code inside \`\`\` fences is left unchanged). **Compass** usage checks treat transient network failures as offline reachability instead of firing high-priority error telemetry. See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detail.
 
 ### What's New in v6.1.14
 
@@ -108,6 +112,7 @@ Releases are built and published via GitHub Actions on every version tag push (`
   `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`,  
   `COMPASS_OPENROUTER_API_KEY`, `COMPASS_MODEL_FAST`, `COMPASS_MODEL_BALANCED`, `COMPASS_MODEL_THINKING`,  
   `GROQ_CLASSIFIER_API_KEY`, `GROQ_CLASSIFIER_MODEL`,  
+  `TEMPLATE_TOKEN` (optional — higher GitHub API rate limits for the in-app template catalog),  
   `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,  
   `RELEASES_TOKEN` (PAT with `repo` scope for publishing to `atlarix-releases`).
 

@@ -9,6 +9,17 @@ const logger = log.scope("github_template_source");
 // GitHub API base URL
 const GITHUB_API = "https://api.github.com";
 
+function githubAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+  };
+  const token = (process.env.TEMPLATE_TOKEN ?? "").trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // Search queries for different template types
 const TEMPLATE_QUERIES = [
     "nextjs template stars:>100",
@@ -59,9 +70,7 @@ async function searchGitHub(query: string, perPage: number = 30): Promise<Templa
         const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=${perPage}`;
 
         const response = await fetch(url, {
-            headers: {
-                'Accept': 'application/vnd.github.v3+json',
-            },
+            headers: githubAuthHeaders(),
         });
 
         if (!response.ok) {
@@ -87,9 +96,7 @@ export async function fetchVercelExamples(): Promise<Template[]> {
 
         const url = `${GITHUB_API}/repos/vercel/next.js/contents/examples`;
         const response = await fetch(url, {
-            headers: {
-                'Accept': 'application/vnd.github.v3+json',
-            },
+            headers: githubAuthHeaders(),
         });
 
         if (!response.ok) {

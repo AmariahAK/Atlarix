@@ -21,7 +21,11 @@ import {
     NoContentGeneratedError,
 } from "ai";
 import { readSettings } from "../../main/settings";
-import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
+import {
+  getModelClient,
+  getEffectiveModel,
+  type GetModelClientOptions,
+} from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
 import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
@@ -29,7 +33,13 @@ import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
 import {
     AI_STREAM_EMPTY_RESPONSE_FALLBACK,
     AI_STREAMING_ERROR_MESSAGE_PREFIX,
+    SAFETY_FILTER_BLOCKED_MESSAGE,
 } from "@/shared/texts";
+import {
+    prepareUserChatTurnInput,
+    ChatPromptSafetyError,
+} from "../../lib/security/chat-prompt-gate";
+import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -190,6 +200,42 @@ export async function handleChatOnlyStream(
     try {
         const settings = await readSettings();
 
+        let gatedPrompt: string;
+        try {
+            gatedPrompt = prepareUserChatTurnInput(req.prompt);
+        } catch (gateErr) {
+            if (gateErr instanceof ChatPromptSafetyError) {
+                safeSend(event.sender, "chat:response:error", {
+                    chatId: req.chatId,
+                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${SAFETY_FILTER_BLOCKED_MESSAGE}`,
+                });
+                safeSend(event.sender, "chat:response:end", {
+                    chatId: req.chatId,
+                    updatedFiles: false,
+                    hadToolCallsOrPermissions: false,
+                } satisfies ChatResponseEnd);
+                activeStreams.delete(req.chatId);
+                return "";
+            }
+            if (
+                gateErr instanceof Error &&
+                /maximum length|Invalid prompt/i.test(gateErr.message)
+            ) {
+                safeSend(event.sender, "chat:response:error", {
+                    chatId: req.chatId,
+                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${gateErr.message}`,
+                });
+                safeSend(event.sender, "chat:response:end", {
+                    chatId: req.chatId,
+                    updatedFiles: false,
+                    hadToolCallsOrPermissions: false,
+                } satisfies ChatResponseEnd);
+                activeStreams.delete(req.chatId);
+                return "";
+            }
+            throw gateErr;
+        }
+
         // Get or create ephemeral chat
         let chat = ephemeralChats.get(req.chatId);
         if (!chat) {
@@ -208,14 +254,14 @@ export async function handleChatOnlyStream(
             id: Date.now(), // Use timestamp as ID
             chatId: req.chatId,
             role: "user",
-            content: req.prompt,
+            content: gatedPrompt,
             createdAt: new Date(),
         };
         chat.messages.push(userMessage);
 
         // Set chat title from first message
         if (chat.messages.length === 1) {
-            const words = req.prompt.split(' ').slice(0, 5).join(' ');
+            const words = gatedPrompt.split(' ').slice(0, 5).join(' ');
             chat.title = words.length > 30 ? words.substring(0, 30) + '...' : words;
             logger.info(`Set ephemeral chat ${req.chatId} title: "${chat.title}"`);
         }
@@ -227,7 +273,15 @@ export async function handleChatOnlyStream(
         });
 
         // Log which model is being used (helps verify Auto vs single model)
-        const effectiveModel = getEffectiveModel(settings);
+        const mainOptions: GetModelClientOptions = {
+            agentMode: settings.agentMode ?? "guided",
+            delegationRole: "main",
+        };
+        let effectiveModel = getEffectiveModel(settings);
+        if (req.modelOverride) {
+            effectiveModel = req.modelOverride;
+        }
+
         const sel = effectiveModel as { provider?: string; name?: string };
         if (sel?.provider === "auto") {
             const ids = settings.autoModelIds;
@@ -236,10 +290,65 @@ export async function handleChatOnlyStream(
             logger.log(`Chat-only model: ${sel?.provider ?? "?"}/${sel?.name ?? "?"}`);
         }
 
-        // Get model client (uses Auto chain when autoModelRouting is ON)
+        if (
+            !req.modelOverride &&
+            settings.autoModelRouting &&
+            effectiveModel.provider === "auto"
+        ) {
+            const { runAutoRouterAsync, recommendModeRoute } = await import(
+                "../../lib/routing/auto-router"
+            );
+            const { decision, model, classifierMeta } = await runAutoRouterAsync(
+                gatedPrompt,
+                settings,
+                mainOptions,
+            );
+            effectiveModel = model;
+            const modeRoute = recommendModeRoute({
+                prompt: gatedPrompt,
+                hasPlan: false,
+                activeBuild: settings.selectedChatMode === "build",
+                lastMode: settings.workModePreference,
+            });
+            if (settings.autoRoutingShowReasoning !== false) {
+                const srcLabel =
+                    classifierMeta.source === "groq"
+                        ? "groq"
+                        : classifierMeta.source === "fast-model"
+                          ? "fast-model"
+                          : "fallback";
+                const pctPart =
+                    classifierMeta.confidence != null
+                        ? ` (${Math.round(classifierMeta.confidence * 100)}%)`
+                        : "";
+                safeSend(event.sender, "chat:activity", {
+                    id: `classifier-${req.chatId}-${Date.now()}`,
+                    type: "classifier_routing",
+                    label: `Classifier → ${classifierMeta.tier}${pctPart} via ${srcLabel}`,
+                    status: "done",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                });
+                const agentHint = decision.recommendedAgent
+                    ? ` · delegate: ${String(decision.recommendedAgent).replace(/^./, (c) => c.toUpperCase())}`
+                    : "";
+                safeSend(event.sender, "chat:activity", {
+                    id: `routing-${req.chatId}-${Date.now()}`,
+                    type: "routing_decision",
+                    label: `Auto → ${decision.targetModel} (${decision.category})${agentHint}`,
+                    status: "done",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                    detail: `${modeRoute.recommended_mode}: ${modeRoute.reason}`,
+                });
+            }
+        }
+
+        // Get model client (resolved tier when auto routing ran above)
         const { modelClient } = await getModelClient(
             effectiveModel,
-            settings
+            settings,
+            mainOptions,
         );
         usedCompassThisStream = modelClient.builtinProviderId === "compass";
 
@@ -551,6 +660,7 @@ export async function handleChatOnlyStream(
         }
 
         fullResponse = stripToolCallXML(fullResponse);
+        fullResponse = sanitizeAssistantOutput(fullResponse);
         // ═══════════════════════════════════════════════════════════════
 
         // Create assistant message (in-memory only) WITH SOURCES
@@ -575,7 +685,7 @@ export async function handleChatOnlyStream(
                 .replace(/<[^>]*>/g, '')
                 .replace(/```[\s\S]*?```/g, '[code]')
                 .trim();
-            sessionMemory.addExchange(req.prompt, cleanResponse);
+            sessionMemory.addExchange(gatedPrompt, cleanResponse);
             logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
         } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);

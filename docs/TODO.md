@@ -1,8 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.14  
+**Current Version:** v6.1.15  
 **Next Version:** v6.2+ (planning)  
 **Last Updated:** 2026-04-07
+
+---
+
+## Done: v6.1.15 — Safety: Compass network, SQL guards, prompt hygiene, profanity filter
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Compass transient network | **Done** | `network_error` + quieter Sentry; `useCompassUsage` copy |
+| SQL exec guards | **Done** | `sql-exec-guards.ts`; `executeSupabaseSql` before `runQuery` |
+| Prompt hygiene + profanity | **Done** | IPC gate; `bad-words` input reject + output sanitize |
+| DX / tooling | **Done** | `tsconfig.main.json`; `node …/tsc.js` for `ts:main` / `ts:workers`; `setWindowButtonPosition` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.15.
 
 ---
 
