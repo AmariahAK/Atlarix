@@ -1,109 +1,85 @@
 /**
- * Two-stage auto router: classify query → tier (with ceiling) → resolve model.
- * Stage 1: heuristic keyword signals; Stage 2: fast model when confidence < 0.85.
+ * Auto router: Groq tier classifier → user fast-model word → balanced fallback,
+ * then applyCeiling → applyTierFloor → resolve model.
  */
 
 import type { UserSettings } from "../schemas";
 import type { LargeLanguageModel } from "../schemas";
 import type { GetModelClientOptions } from "@/ipc/utils/get_model_client";
-import {
-  ARCHITECTURE_SIGNALS,
-  DEBUG_SIGNALS,
-  RESEARCH_SIGNALS,
-  SECURITY_SIGNALS,
-  REASONING_SIGNALS,
-  CODE_GENERATION_SIGNALS,
-  SIMPLE_EDIT_SIGNALS,
-  CHIT_CHAT_PATTERNS,
-  type RoutingCategory,
-} from "./signal-sets";
+import { getFastModelForCurrentProvider, getModelClient } from "@/ipc/utils/get_model_client";
+import { generateText } from "ai";
+import type { RoutingCategory } from "./signal-sets";
 import { resolveTierToModel } from "./fallback-router";
 import type { ModelTier } from "./capability-registry";
+import { classifyPromptWithGroq } from "./groq-classifier";
 
-const CONFIDENCE_THRESHOLD = 0.85;
+const GROQ_CONFIDENCE_MIN = 0.65;
+const FAST_MODEL_CLASSIFY_MS = 1500;
 
-function countSignals(text: string, signals: string[]): number {
-  const lower = text.toLowerCase();
-  return signals.filter((s) => lower.includes(s)).length;
+export type ClassifierSource = "groq" | "fast-model" | "fallback";
+
+export interface AutoRouterClassifierMeta {
+  tier: ModelTier;
+  confidence: number | null;
+  source: ClassifierSource;
 }
 
-function matchChitChat(text: string): boolean {
-  const trimmed = text.trim();
-  return CHIT_CHAT_PATTERNS.some((p) => p.test(trimmed));
-}
-
-/**
- * Stage 1: heuristic classification. Returns category and confidence 0..1.
- */
-export function classifyHeuristic(
-  query: string
-): { category: RoutingCategory; confidence: number } {
-  const text = query.trim();
-  if (!text) {
-    return { category: "chit_chat", confidence: 1 };
-  }
-
-  if (matchChitChat(text)) {
-    return { category: "chit_chat", confidence: 0.95 };
-  }
-
-  const arch = countSignals(text, ARCHITECTURE_SIGNALS);
-  const debug = countSignals(text, DEBUG_SIGNALS);
-  const research = countSignals(text, RESEARCH_SIGNALS);
-  const security = countSignals(text, SECURITY_SIGNALS);
-  const reasoning = countSignals(text, REASONING_SIGNALS);
-  const codeGen = countSignals(text, CODE_GENERATION_SIGNALS);
-  const simpleEdit = countSignals(text, SIMPLE_EDIT_SIGNALS);
-
-  const scores = [
-    { category: "architecture" as const, score: arch },
-    { category: "debugging" as const, score: debug },
-    { category: "deep_research" as const, score: research },
-    { category: "security_review" as const, score: security },
-    { category: "complex_reasoning" as const, score: reasoning },
-    { category: "code_generation" as const, score: codeGen },
-    { category: "simple_edit" as const, score: simpleEdit },
-  ].filter((s) => s.score > 0) as { category: RoutingCategory; score: number }[];
-
-  if (scores.length === 0) {
-    return { category: "complex_reasoning", confidence: 0.3 };
-  }
-
-  scores.sort((a, b) => b.score - a.score);
-  const top = scores[0];
-  const second = scores[1];
-  const total = scores.reduce((t, s) => t + s.score, 0);
-  const confidence =
-    total >= 3 ? Math.min(0.85, 0.4 + top.score * 0.15) : 0.4 + top.score * 0.1;
-  const normalized =
-    second && second.score === top.score
-      ? Math.min(confidence, 0.7)
-      : confidence;
-
-  return {
-    category: top.category,
-    confidence: Math.min(1, normalized),
-  };
-}
-
-/**
- * Map category to tier (fast / balanced / thinking).
- */
-export function categoryToTier(category: RoutingCategory): ModelTier {
-  switch (category) {
-    case "chit_chat":
-    case "simple_edit":
-      return "fast";
-    case "debugging":
-    case "code_generation":
-    case "architecture":
-    case "deep_research":
-      return "balanced";
-    case "security_review":
-    case "complex_reasoning":
-      return "thinking";
+function tierToSyntheticCategory(tier: ModelTier): RoutingCategory {
+  switch (tier) {
+    case "fast":
+      return "simple_edit";
+    case "balanced":
+      return "code_generation";
+    case "thinking":
+      return "complex_reasoning";
     default:
-      return "balanced";
+      return "code_generation";
+  }
+}
+
+function parseTierFromWord(text: string): ModelTier | null {
+  const raw = text.trim();
+  if (!raw) return null;
+  const word = raw.split(/\s+/)[0] ?? "";
+  const w = word.replace(/[^a-zA-Z]/g, "").toLowerCase();
+  if (!w) return null;
+  if (w === "fast" || w.startsWith("fast")) return "fast";
+  if (w === "balanced" || w === "balance" || w.startsWith("balanc")) return "balanced";
+  if (w === "thinking" || w.startsWith("think")) return "thinking";
+  return null;
+}
+
+async function classifyTierWithUserFastModel(
+  query: string,
+  settings: UserSettings,
+  options: GetModelClientOptions | undefined
+): Promise<ModelTier | null> {
+  const fastModel = getFastModelForCurrentProvider(settings);
+  if (!fastModel) return null;
+  try {
+    const { modelClient } = await getModelClient(fastModel, settings, options);
+    const instruction =
+      "Classify this prompt as fast, balanced, or thinking for an AI coding assistant. Respond with ONLY one word.";
+    const res = await Promise.race([
+      generateText({
+        model: modelClient.model,
+        messages: [
+          {
+            role: "user",
+            content: `${instruction}\n\n${query.slice(0, 4000)}`,
+          },
+        ],
+        temperature: 0,
+        maxTokens: 20,
+      } as Parameters<typeof generateText>[0]),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), FAST_MODEL_CLASSIFY_MS)
+      ),
+    ]);
+    const raw = String((res as { text?: string })?.text ?? "").trim();
+    return parseTierFromWord(raw);
+  } catch {
+    return null;
   }
 }
 
@@ -133,6 +109,36 @@ function applyCeiling(
 
   const cappedIdx = Math.min(tierIdx, ceilingIdx);
   return tierOrder[cappedIdx];
+}
+
+/**
+ * Minimum tier after ceiling: autonomous main and guided main in plan/build/debug never below balanced.
+ */
+function applyTierFloor(
+  tier: ModelTier,
+  settings: UserSettings,
+  options: GetModelClientOptions | undefined
+): ModelTier {
+  const mode = options?.agentMode ?? settings.agentMode ?? "guided";
+  const role = options?.delegationRole ?? "main";
+  const work = settings.workModePreference ?? "ask";
+
+  const tierOrder: ModelTier[] = ["fast", "balanced", "thinking"];
+  const tierIdx = tierOrder.indexOf(tier);
+  let floorIdx = 0;
+
+  if (role === "main") {
+    if (mode === "autonomous") {
+      floorIdx = 1;
+    } else if (
+      mode === "guided" &&
+      (work === "plan" || work === "build" || work === "debug")
+    ) {
+      floorIdx = 1;
+    }
+  }
+
+  return tierOrder[Math.max(tierIdx, floorIdx)];
 }
 
 export interface RoutingDecision {
@@ -222,76 +228,58 @@ function categoryToRecommendedAgent(
   }
 }
 
-export type FastLLMClassifier = (query: string) => Promise<{
-  category: RoutingCategory;
-  confidence: number;
-} | null>;
-
 /**
- * Run auto router: Stage 1 classification, optional Stage 2 (caller may do LLM call), then resolve model with ceiling and fallback.
- */
-export function runAutoRouter(
-  query: string,
-  settings: UserSettings,
-  options?: GetModelClientOptions
-): { decision: RoutingDecision; model: LargeLanguageModel } {
-  const { category, confidence } = classifyHeuristic(query);
-
-  let finalCategory = category;
-  // Stage 2 is implemented in runAutoRouterAsync; keep sync version heuristic-only.
-
-  let tier = categoryToTier(finalCategory);
-  tier = applyCeiling(tier, settings, options);
-  const model = resolveTierToModel(settings, tier);
-
-  return {
-    decision: {
-      targetModel: model.name,
-      targetProvider: model.provider,
-      category: finalCategory,
-      tier,
-      recommendedAgent: categoryToRecommendedAgent(finalCategory),
-    },
-    model,
-  };
-}
-
-/**
- * Run auto router with optional Stage-2 fast-LLM classifier when heuristic confidence is low.
+ * Async auto router: Groq classifier (optional) → fast-model one-word → balanced default;
+ * then ceiling, tier floor, resolve model.
  */
 export async function runAutoRouterAsync(
   query: string,
   settings: UserSettings,
-  options: GetModelClientOptions | undefined,
-  fastClassify: FastLLMClassifier | undefined
-): Promise<{ decision: RoutingDecision; model: LargeLanguageModel }> {
-  const h = classifyHeuristic(query);
-  let finalCategory: RoutingCategory = h.category;
-  let finalConfidence = h.confidence;
+  options: GetModelClientOptions | undefined
+): Promise<{
+  decision: RoutingDecision;
+  model: LargeLanguageModel;
+  classifierMeta: AutoRouterClassifierMeta;
+}> {
+  let tier: ModelTier;
+  let confidence: number | null = null;
+  let source: ClassifierSource = "fallback";
 
-  if (fastClassify && h.confidence < CONFIDENCE_THRESHOLD) {
-    const llm = await fastClassify(query);
-    if (llm && llm.category && typeof llm.confidence === "number") {
-      // Only accept when it's meaningfully more confident than heuristic.
-      if (llm.confidence >= CONFIDENCE_THRESHOLD && llm.confidence >= finalConfidence) {
-        finalCategory = llm.category;
-        finalConfidence = llm.confidence;
-      }
+  const groq = await classifyPromptWithGroq(query);
+  if (groq && groq.confidence >= GROQ_CONFIDENCE_MIN) {
+    tier = groq.tier;
+    confidence = groq.confidence;
+    source = "groq";
+  } else {
+    const fastTier = await classifyTierWithUserFastModel(query, settings, options);
+    if (fastTier) {
+      tier = fastTier;
+      source = "fast-model";
+    } else {
+      tier = "balanced";
+      source = "fallback";
     }
   }
 
-  let tier = categoryToTier(finalCategory);
-  tier = applyCeiling(tier, settings, options);
-  const model = resolveTierToModel(settings, tier);
+  let finalTier = tier;
+  finalTier = applyCeiling(finalTier, settings, options);
+  finalTier = applyTierFloor(finalTier, settings, options);
+  const syntheticCategory = tierToSyntheticCategory(finalTier);
+  const model = resolveTierToModel(settings, finalTier);
 
   return {
     decision: {
       targetModel: model.name,
       targetProvider: model.provider,
-      category: finalCategory,
-      tier,
-      recommendedAgent: categoryToRecommendedAgent(finalCategory),
+      category: syntheticCategory,
+      tier: finalTier,
+      recommendedAgent: categoryToRecommendedAgent(syntheticCategory),
     },
     model,
+    classifierMeta: {
+      tier: finalTier,
+      confidence,
+      source,
+    },
   };
 }

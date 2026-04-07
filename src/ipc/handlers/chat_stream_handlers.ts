@@ -43,7 +43,7 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, getFastModelForCurrentProvider, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -155,60 +155,6 @@ import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
-
-// Auto routing: Stage 2 fast-LLM classifier (best-effort; heuristic fallback always applies).
-async function classifyAutoRouteWithFastLLM(
-  prompt: string,
-  settings: import("../../lib/schemas").UserSettings,
-  mainOptions: GetModelClientOptions,
-): Promise<{
-  category: import("../../lib/routing/signal-sets").RoutingCategory;
-  confidence: number;
-} | null> {
-  const fastModel = getFastModelForCurrentProvider(settings);
-  if (!fastModel) return null;
-
-  try {
-    const { modelClient } = await getModelClient(fastModel, settings, mainOptions);
-    const system = [
-      "You are a routing classifier for a coding copilot.",
-      "Return ONLY strict JSON with keys: category, confidence.",
-      'category must be one of: "chit_chat","simple_edit","code_generation","debugging","architecture","deep_research","security_review","complex_reasoning".',
-      "confidence must be a number 0..1.",
-      "No extra keys. No prose. No markdown.",
-    ].join("\n");
-
-    const res = await generateText({
-      model: modelClient.model,
-      system,
-      messages: [{ role: "user", content: prompt.slice(0, 4000) }],
-      temperature: 0,
-      maxTokens: 80,
-    } as Parameters<typeof generateText>[0]);
-
-    const raw = String((res as any)?.text ?? "").trim();
-    const parsed = JSON.parse(raw) as { category?: string; confidence?: number };
-    const allowed = new Set([
-      "chit_chat",
-      "simple_edit",
-      "code_generation",
-      "debugging",
-      "architecture",
-      "deep_research",
-      "security_review",
-      "complex_reasoning",
-    ]);
-    if (typeof parsed.category !== "string" || !allowed.has(parsed.category)) return null;
-    if (typeof parsed.confidence !== "number" || Number.isNaN(parsed.confidence)) return null;
-    return {
-      category: parsed.category as any,
-      confidence: Math.max(0, Math.min(1, parsed.confidence)),
-    };
-  } catch (e) {
-    logger.warn("[auto-router] fast LLM classification failed:", e);
-    return null;
-  }
-}
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
 const toolSessionLoaders = new Map<number, ToolSessionLoader>();
@@ -1131,11 +1077,10 @@ ${componentSnippet}
           effectiveModel = req.modelOverride;
         } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
           const { runAutoRouterAsync, recommendModeRoute } = await import("../../lib/routing/auto-router");
-          const { decision, model } = await runAutoRouterAsync(
+          const { decision, model, classifierMeta } = await runAutoRouterAsync(
             req.prompt,
             settings,
             mainOptions,
-            async (q) => classifyAutoRouteWithFastLLM(q, settings, mainOptions),
           );
           const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
             String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
@@ -1148,6 +1093,24 @@ ${componentSnippet}
           });
           effectiveModel = model;
           if (settings.autoRoutingShowReasoning !== false) {
+            const srcLabel =
+              classifierMeta.source === "groq"
+                ? "groq"
+                : classifierMeta.source === "fast-model"
+                  ? "fast-model"
+                  : "fallback";
+            const pctPart =
+              classifierMeta.confidence != null
+                ? ` (${Math.round(classifierMeta.confidence * 100)}%)`
+                : "";
+            safeSend(event.sender, "chat:activity", {
+              id: `classifier-${req.chatId}-${Date.now()}`,
+              type: "classifier_routing",
+              label: `Classifier → ${classifierMeta.tier}${pctPart} via ${srcLabel}`,
+              status: "done",
+              timestamp: Date.now(),
+              chatId: req.chatId,
+            });
             const agentHint = decision.recommendedAgent
               ? ` · delegate: ${String(decision.recommendedAgent).replace(/^./, (c) => c.toUpperCase())}`
               : "";

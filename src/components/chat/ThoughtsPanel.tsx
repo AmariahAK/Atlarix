@@ -117,7 +117,12 @@ function PixelAvatar({
  
 function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string; side: Side } {
   // Main/leader messages: right side
-  if (item.type === "routing_decision" || item.type === "turn_summary" || item.type === "mode_change") {
+  if (
+    item.type === "routing_decision" ||
+    item.type === "classifier_routing" ||
+    item.type === "turn_summary" ||
+    item.type === "mode_change"
+  ) {
     return { id: "main", label: "Main", side: "right" };
   }
  
@@ -153,6 +158,8 @@ function bubbleTextFor(item: ActivityStreamItem): string {
   switch (item.type) {
     case "routing_decision":
       return item.detail?.trim() || item.label?.trim() || "Routing decision";
+    case "classifier_routing":
+      return item.label?.trim() || "Classifier";
     case "agent_message": {
       const from = item.fromAgent ? String(item.fromAgent) : "agent";
       const to = item.toAgent ? String(item.toAgent) : "agent";

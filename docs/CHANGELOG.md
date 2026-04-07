@@ -1,5 +1,14 @@
 # Atlarix Changelog
 
+## v6.1.14 — Groq external auto-router classifier, balanced baseline, tier floors (2026-04-07)
+
+- **Groq classifier (`src/lib/routing/groq-classifier.ts`):** Main-process-only `classifyPromptWithGroq()` calls `https://api.groq.com/openai/v1/chat/completions` with JSON-only tier + confidence output. Credentials: `GROQ_CLASSIFIER_API_KEY` and `GROQ_CLASSIFIER_MODEL` (embedded via [`vite.main.config.mts`](../vite.main.config.mts) `MAIN_KEYS`, same pattern as Compass keys). `max_tokens: 30`, `temperature: 0`, **2s** timeout; returns `null` on any failure or if key/model missing. **429** rate limits: `electron-log` message `"Groq classifier rate limited, using fallback"` then `null` (no user toast).
+- **Auto router (`src/lib/routing/auto-router.ts`):** Removed heuristic Stage-1 + conditional Stage-2 JSON classifier. New chain: (1) Groq if confidence ≥ **0.65**; else (2) user’s **fast** model with one-word prompt, **1500ms** timeout; else (3) tier **`balanced`** (never default to fast). Then **`applyCeiling`** (unchanged), new **`applyTierFloor`**: autonomous **main** and guided **main** in **plan / build / debug** work modes enforce minimum **balanced**; agents/subagents unchanged. Tier → synthetic `RoutingCategory` for `recommendedAgent` / UI. **`runAutoRouter`** removed; **`runAutoRouterAsync`** returns **`classifierMeta`** `{ tier, confidence, source }`.
+- **IPC / Activity Stream (`chat_stream_handlers.ts`, `routing_handlers.ts`):** `routing:preview` uses `runAutoRouterAsync`. When Auto routing runs, emits **`classifier_routing`** activity: `Classifier → [tier] ([pct]%) via [groq|fast-model|fallback]` (percentage omitted when confidence unknown), then existing `routing_decision` line.
+- **UI (`sourceAtoms.ts`, `ThoughtsPanel.tsx`):** `ActivityStreamItem` type **`classifier_routing`**; Thoughts panel treats it like routing (Main / right).
+- **CI (`.github/workflows/release.yml`):** `GROQ_CLASSIFIER_API_KEY`, `GROQ_CLASSIFIER_MODEL` in workflow `env` for packaged builds.
+- **Env (`.env.example`):** Documents Groq classifier variables.
+
 ## v6.1.13 — Linux OAuth fallback, theme toggle, contrast fixes, auto-updater in-app UI (2026-04-05)
 
 - **Linux OAuth timeout fallback (`src/lib/auth/supabase-client.ts`):** After `shell.openExternal` succeeds, a 60-second `setTimeout` starts. If the `atlarix://auth/callback` deep link has not fired by then, `dialog.showMessageBox` surfaces the OAuth URL with a **Copy Link** button and (on Linux) the `xdg-mime` registration commands in the detail text. The timer is cleared via `cancelPendingOAuthTimeout()` the moment the callback arrives in `main.ts`.

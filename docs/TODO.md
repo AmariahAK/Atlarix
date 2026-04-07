@@ -1,8 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.13  
+**Current Version:** v6.1.14  
 **Next Version:** v6.2+ (planning)  
-**Last Updated:** 2026-04-05
+**Last Updated:** 2026-04-07
+
+---
+
+## Done: v6.1.14 — Groq external auto-router classifier, balanced baseline, tier floors
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Groq tier classifier (`groq-classifier.ts`) | **Done** | `GROQ_CLASSIFIER_API_KEY` + `GROQ_CLASSIFIER_MODEL`; 2s timeout; 429 → log + fallback |
+| Auto router fallback chain | **Done** | Groq (≥0.65) → fast model one-word (1.5s) → balanced; `applyTierFloor` after ceiling |
+| Activity Stream classifier line | **Done** | `classifier_routing` + ThoughtsPanel |
+| CI / Vite MAIN_KEYS | **Done** | `release.yml`, `vite.main.config.mts` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.14.
 
 ---
 
@@ -80,7 +93,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.2.
 | Autonomous permission bypass (sub-agents) | **Done** | Guided unchanged; audit log line; summaries |
 | Tester findings batch | **Done** | Fullscreen, chat, modes, streaming/models.dev, Compass UI |
 | Thoughts + Compass loading + Blueprint hitboxes | **Done** | `ThoughtsPanel`, `AtlarixAnimation`, `BlueprintCanvas` overlays |
-| Two-stage auto-router + delegation hint | **Done** | `auto-router.ts`, `chat_stream_handlers.ts` |
+| Two-stage auto-router + delegation hint | **Superseded (v6.1.14)** | Groq + fast-model fallback + tier floors; see `auto-router.ts`, `groq-classifier.ts` |
 
 See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 

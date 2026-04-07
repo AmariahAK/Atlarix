@@ -33,6 +33,8 @@ const MAIN_KEYS = [
   "COMPASS_MODEL_FAST",
   "COMPASS_MODEL_BALANCED",
   "COMPASS_MODEL_THINKING",
+  "GROQ_CLASSIFIER_API_KEY",
+  "GROQ_CLASSIFIER_MODEL",
 ] as const;
 
 // https://vitejs.dev/config

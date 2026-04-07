@@ -7,9 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.13*
+*Current: v6.1.14*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
+
+---
+
+### What's New in v6.1.14
+
+- **Smarter Auto routing:** When you use **Auto** model routing, Atlarix calls an external **Groq** classifier (with your configured model id) to pick **Fast / Balanced / Thinking** per message. If Groq is unavailable or rate-limited, the app falls back to a one-word classification on **your** fast model, then defaults to **Balanced** (never silently defaulting to Fast). See [docs/CHANGELOG.md](docs/CHANGELOG.md) for technical detail.
+
+For full history see [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -21,8 +29,6 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 - **Silent auto-update (in-app UI):** `electron-updater` replaces `update-electron-app`. A subtle "Downloading update…" strip appears while the update fetches; a **Restart Now / Remind me later** banner replaces the old native dialog when the update is ready. "Remind me later" defers install to the next cold start.
 - **AppImage target:** Linux builds now produce an `.AppImage` in addition to `.deb` and `.rpm`, enabling `electron-updater`'s built-in auto-update on AppImage installs.
 - **GitHub Actions — Node 24 migration:** CI uses `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, `softprops/action-gh-release@v2`, and generates `latest-mac.yml` / `latest-linux.yml` feed files for `electron-updater`.
-
-For full history see [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -56,7 +62,7 @@ The sidebar also shows these commands inline whenever a sign-in attempt fails on
 
 ### AI Agents & Modes
 
-- **Work modes:** Ask (read-only), Plan, Build, Debug, Review — plus **Auto** routing that picks Fast / Balanced / Thinking based on task complexity.
+- **Work modes:** Ask (read-only), Plan, Build, Debug, Review — plus **Auto** routing that picks Fast / Balanced / Thinking using an external **Groq** classifier (with fallback to your fast model and a **Balanced** baseline when classification is uncertain).
 - **Built-in specialists:** Research, Architect, Builder, Reviewer, Debugger — each with a dedicated tool set.
 - **Delegation:** Guided (flat) or Autonomous (nested sub-agents, depth-limited).
 - **Compass:** Managed cloud provider (OpenRouter-backed, no user-facing API key). Fast / Balanced / Thinking tiers. Free tier: Fast only; Pro / Workforce: all three.
@@ -101,6 +107,7 @@ Releases are built and published via GitHub Actions on every version tag push (`
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`,  
   `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`,  
   `COMPASS_OPENROUTER_API_KEY`, `COMPASS_MODEL_FAST`, `COMPASS_MODEL_BALANCED`, `COMPASS_MODEL_THINKING`,  
+  `GROQ_CLASSIFIER_API_KEY`, `GROQ_CLASSIFIER_MODEL`,  
   `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,  
   `RELEASES_TOKEN` (PAT with `repo` scope for publishing to `atlarix-releases`).
 

@@ -174,7 +174,7 @@ export const toolTimelineAtom = atom<ToolExecution[]>([]);
 /** v2.1: Activity Stream items (model selection, delegation, compaction, tool use) */
 export interface ActivityStreamItem {
   id: string;
-  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change' | 'agent_message' | 'routing_decision';
+  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change' | 'agent_message' | 'routing_decision' | 'classifier_routing';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
   tokens?: number;
