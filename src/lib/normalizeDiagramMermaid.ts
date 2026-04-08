@@ -58,6 +58,31 @@ export function scrubHexInStyleLines(line: string): string {
   });
 }
 
+function sanitizeMermaidIdentifier(raw: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "id";
+  // Mermaid IDs are safest as [A-Za-z0-9_]. Preserve existing underscores.
+  let out = s.replace(/[^A-Za-z0-9_]/g, "_");
+  out = out.replace(/_+/g, "_").replace(/^_+/, "").replace(/_+$/, "");
+  return out || "id";
+}
+
+/** Fix invalid IDs in style/classDef lines (models sometimes use labels like `Auth & Services`). */
+export function scrubDirectiveIdentifiers(line: string): string {
+  const m = line.match(/^\s*(style|classDef)\s+(.+?)\s+(.+)$/i);
+  if (!m) return line;
+  const directive = m[1];
+  const rest = m[2] + " " + m[3];
+  const tokens = rest.trim().split(/\s+/);
+  // Find the first token that looks like a property boundary (contains ':' or is like 'fill:' 'stroke:' etc).
+  const propIdx = tokens.findIndex((t) => t.includes(":") || t.includes(","));
+  if (propIdx <= 0) return line;
+  const idTokens = tokens.slice(0, propIdx);
+  const propTokens = tokens.slice(propIdx);
+  const safeId = sanitizeMermaidIdentifier(idTokens.join("_"));
+  return line.replace(/^\s*(style|classDef)\s+(.+?)\s+(.+)$/i, (_full, d) => `${d} ${safeId} ${propTokens.join(" ")}`);
+}
+
 /**
  * Full normalization before mermaid.parse / mermaid.render (DB content or post-AI extract).
  */
@@ -77,7 +102,7 @@ export function prepareMermaidForParse(code: string): string {
   s = s.replace(/^\s*Style\s/gm, (m) => m.replace("Style", "style"));
   s = s
     .split(/\r?\n/)
-    .map((line) => scrubHexInStyleLines(line))
+    .map((line) => scrubDirectiveIdentifiers(scrubHexInStyleLines(line)))
     .join("\n");
   return s.trim();
 }

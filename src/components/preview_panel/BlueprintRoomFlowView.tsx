@@ -219,6 +219,7 @@ function BlueprintRoomFlowViewInner({
         defaultEdgeOptions={{ type: "smoothstep" }}
         deleteKeyCode={["Backspace", "Delete"]}
         proOptions={{ hideAttribution: true }}
+        onlyRenderVisibleElements
         nodesConnectable
         elementsSelectable
         nodesDraggable

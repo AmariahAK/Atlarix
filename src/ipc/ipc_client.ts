@@ -2271,18 +2271,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("diagram:history", { diagramId });
   }
 
-  /** Storage-based diagram history from internal git (real dates, for previous diagrams / AI comparison). */
-  public async getDiagramHistoryFromGit(params: {
-    workspaceId: number;
-    maxCount?: number;
-  }): Promise<{
-    success: boolean;
-    versions: Array<{ commit: string; date: string; message: string; content?: string }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("diagram:history-from-git", params);
-  }
-
   public async restoreDiagramVersion(params: {
     diagramId: number;
     versionId: number;

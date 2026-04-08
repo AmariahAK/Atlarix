@@ -26,6 +26,7 @@ import { generateFingerprint } from "./analysis/fingerprint";
 import type { AppChatContext } from "./schemas";
 import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
 import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
+import { persistWorkspaceSnapshotHashes } from "./snapshot/snapshot-manager";
 import log from "electron-log";
 
 const logger = log.scope("DiagramManager");
@@ -279,19 +280,6 @@ Requirements:
         // Generate fingerprint for staleness tracking
         const fingerprint = await generateFingerprint(appPath);
 
-        // Phase 8: Internal diagram git – capture snapshot + diagram content (storage-based history)
-        let diagramGitCommit: string | undefined;
-        try {
-            const { DiagramGitTracker } = await import("./diagram/diagram_git_tracker");
-            const diagramGit = new DiagramGitTracker(workspaceId);
-            diagramGitCommit = await diagramGit.captureSnapshot(appPath, content);
-            if (diagramGitCommit) {
-                logger.info(`[_generateDiagram] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
-            }
-        } catch (e) {
-            logger.warn("[_generateDiagram] Diagram git capture skipped:", e);
-        }
-
         const updateType: "regenerate" | "update" | undefined = "regenerate";
 
         // Check for existing diagram and update or create
@@ -303,7 +291,8 @@ Requirements:
 
         if (existingDiagram) {
             // Update existing diagram
-            const meta = (existingDiagram.metadata as Record<string, unknown>) || {};
+            const meta = { ...((existingDiagram.metadata as Record<string, unknown>) || {}) };
+            delete meta.diagramGitCommit;
             const updatePayload: Record<string, unknown> = {
                 content,
                 fingerprintHash: fingerprint.hash,
@@ -312,7 +301,6 @@ Requirements:
                 updatedAt: new Date(),
                 metadata: {
                     ...meta,
-                    ...(diagramGitCommit && { diagramGitCommit }),
                     updateType,
                 },
             };
@@ -324,6 +312,11 @@ Requirements:
 
             diagram = updated as Diagram;
             logger.info(`[_generateDiagram] Updated diagram ${existingDiagram.id}`);
+            try {
+                await persistWorkspaceSnapshotHashes(existingDiagram.id, appPath);
+            } catch (e) {
+                logger.warn("[_generateDiagram] snapshot_hashes persist skipped:", e);
+            }
             invalidateBlueprintCache(workspaceId);
         } else {
             // Create new diagram
@@ -336,7 +329,6 @@ Requirements:
                     content,
                     metadata: {
                         focus: "auto-generated",
-                        ...(diagramGitCommit && { diagramGitCommit }),
                         updateType,
                     },
                     fingerprintHash: fingerprint.hash,
@@ -347,6 +339,11 @@ Requirements:
 
             diagram = created as Diagram;
             logger.info(`[_generateDiagram] Created new diagram ${created.id}`);
+            try {
+                await persistWorkspaceSnapshotHashes(created.id, appPath);
+            } catch (e) {
+                logger.warn("[_generateDiagram] snapshot_hashes persist skipped:", e);
+            }
             invalidateBlueprintCache(workspaceId);
         }
 

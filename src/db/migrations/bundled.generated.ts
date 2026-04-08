@@ -38,6 +38,7 @@ import raw_31_0031_project_memory from "../../../drizzle/0031_project_memory.sql
 import raw_32_0032_pivot_tables from "../../../drizzle/0032_pivot_tables.sql?raw";
 import raw_33_0033_rename_type_columns from "../../../drizzle/0033_rename_type_columns.sql?raw";
 import raw_34_0034_prompts_new_schema from "../../../drizzle/0034_prompts_new_schema.sql?raw";
+import raw_35_0035_unified_snapshots_revert from "../../../drizzle/0035_unified_snapshots_revert.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -83,6 +84,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0032_pivot_tables", sql: raw_32_0032_pivot_tables as string, drizzleHash: "0d08cbb754c174d05cca846fe211cb59cebd0ca97af8827ef7c3404e1dbee8ec", when: 1766925000000 },
   { name: "0033_rename_type_columns", sql: raw_33_0033_rename_type_columns as string, drizzleHash: "26d1d753abf50145a3555617c40d22babe4c00fd43c525ee963e8e37a8c75b6c", when: 1766930000000 },
   { name: "0034_prompts_new_schema", sql: raw_34_0034_prompts_new_schema as string, drizzleHash: "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c", when: 1766940000000 },
+  { name: "0035_unified_snapshots_revert", sql: raw_35_0035_unified_snapshots_revert as string, drizzleHash: "c763ab25182273b16980a83dc3e03aff7510b76be86a21724aaee4e6774ce22c", when: 1766950000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -122,4 +124,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "0d08cbb754c174d05cca846fe211cb59cebd0ca97af8827ef7c3404e1dbee8ec": "0032_pivot_tables",
   "26d1d753abf50145a3555617c40d22babe4c00fd43c525ee963e8e37a8c75b6c": "0033_rename_type_columns",
   "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c": "0034_prompts_new_schema",
+  "c763ab25182273b16980a83dc3e03aff7510b76be86a21724aaee4e6774ce22c": "0035_unified_snapshots_revert",
 };

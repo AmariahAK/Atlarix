@@ -30,6 +30,10 @@ import {
 import { runShellCommand, runShellCommandStreaming, CommandResult } from "../../utils/runShellCommand";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
 import { queueCapture } from "../../../lib/diagram-timeline";
+import { db } from "@/db";
+import { diagrams } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
 import * as TokenVault from "../../../lib/auth/TokenVaultService";
@@ -93,14 +97,23 @@ export class PermissionInterceptor extends EventEmitter {
     /** Workspace ID for diagram refresh */
     private workspaceId: number | null = null;
 
+    /** Assistant message id for this exchange — `.atlarix/snapshots/<turnId>/` */
+    private snapshotTurnId: string | null = null;
+
+    /** Cached diagram mermaid for first snapshot in this turn */
+    private diagramContentCache: string | undefined | null = null;
+
     /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
     private allowedRoots: Set<string> = new Set();
 
-    constructor(workspacePath: string, workspaceId?: number) {
+    constructor(workspacePath: string, workspaceId?: number, snapshotTurnId?: string | number) {
         super();
         this.workspacePath = workspacePath;
         this.workspaceId = workspaceId ?? null;
-        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId})`);
+        if (snapshotTurnId !== undefined && snapshotTurnId !== null) {
+            this.snapshotTurnId = String(snapshotTurnId);
+        }
+        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"})`);
     }
 
     /**
@@ -955,6 +968,47 @@ export class PermissionInterceptor extends EventEmitter {
         );
     }
 
+    private toWorkspaceRelativePosix(filePath: string): string {
+        const full = this.resolvePathWithinWorkspace(filePath);
+        const rel = path.relative(this.workspacePath, full);
+        return rel.split(path.sep).join("/");
+    }
+
+    private async getDiagramContentForSnapshot(): Promise<string | undefined> {
+        if (this.diagramContentCache !== null) {
+            return this.diagramContentCache ?? undefined;
+        }
+        if (this.workspaceId == null) {
+            this.diagramContentCache = undefined;
+            return undefined;
+        }
+        const [row] = await db
+            .select({ content: diagrams.content })
+            .from(diagrams)
+            .where(eq(diagrams.workspaceId, this.workspaceId))
+            .limit(1);
+        this.diagramContentCache = row?.content ?? undefined;
+        return this.diagramContentCache;
+    }
+
+    /** Capture pre-write file state under `.atlarix/snapshots/<turnId>/`. */
+    private async maybeCaptureWorkspaceSnapshot(relativePaths: string[]): Promise<void> {
+        if (!this.snapshotTurnId || !this.workspacePath) return;
+        const paths = relativePaths.map((p) => p.split(path.sep).join("/")).filter(Boolean);
+        if (paths.length === 0) return;
+        try {
+            const diagramBefore = await this.getDiagramContentForSnapshot();
+            await captureSnapshot({
+                workspacePath: this.workspacePath,
+                turnId: this.snapshotTurnId,
+                relativePaths: paths,
+                diagramBefore,
+            });
+        } catch (e) {
+            logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
+        }
+    }
+
     private async executeRevertProjectSnapshot(request: PermissionRequest): Promise<void> {
         const preview = request.preview as { snapshotId: number; label: string; planExcerpt?: string };
         if (this.workspaceId == null) {
@@ -974,6 +1028,7 @@ export class PermissionInterceptor extends EventEmitter {
 
     private async executeWriteFile(request: PermissionRequest): Promise<void> {
         const preview = request.preview as FileOperationPreview;
+        await this.maybeCaptureWorkspaceSnapshot([this.toWorkspaceRelativePosix(preview.path)]);
         const fullPath = this.resolvePathWithinWorkspace(preview.path);
 
         // Ensure directory exists
@@ -987,6 +1042,10 @@ export class PermissionInterceptor extends EventEmitter {
     private async executeWriteMultipleFiles(request: PermissionRequest): Promise<void> {
         const previews = request.preview as FileOperationPreview[];
 
+        await this.maybeCaptureWorkspaceSnapshot(
+            previews.map((p) => this.toWorkspaceRelativePosix(p.path)),
+        );
+
         for (const preview of previews) {
             const fullPath = this.resolvePathWithinWorkspace(preview.path);
             await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -997,6 +1056,7 @@ export class PermissionInterceptor extends EventEmitter {
 
     private async executeDeleteFile(request: PermissionRequest): Promise<void> {
         const preview = request.preview as FileOperationPreview;
+        await this.maybeCaptureWorkspaceSnapshot([this.toWorkspaceRelativePosix(preview.path)]);
         const fullPath = this.resolvePathWithinWorkspace(preview.path);
 
         await fs.unlink(fullPath);
@@ -1008,6 +1068,8 @@ export class PermissionInterceptor extends EventEmitter {
         if (!preview.fromPath || !preview.toPath) {
             throw new Error("Rename operation requires fromPath and toPath");
         }
+
+        await this.maybeCaptureWorkspaceSnapshot([this.toWorkspaceRelativePosix(preview.fromPath)]);
 
         const fromFullPath = this.resolvePathWithinWorkspace(preview.fromPath);
         const toFullPath = this.resolvePathWithinWorkspace(preview.toPath);

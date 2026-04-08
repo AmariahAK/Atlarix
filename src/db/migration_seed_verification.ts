@@ -138,6 +138,12 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "prompts", "type") &&
         !columnExists(sqlite, "prompts", "title")
       );
+    case "0035_unified_snapshots_revert":
+      return (
+        columnExists(sqlite, "diagram_versions", "chat_turn_id") &&
+        columnExists(sqlite, "diagrams", "last_snapshot_hashes") &&
+        columnExists(sqlite, "messages", "is_reverted")
+      );
     default:
       return false;
   }

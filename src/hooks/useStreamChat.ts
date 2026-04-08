@@ -335,14 +335,24 @@ export function useStreamChat({
         const unsubscribeDiagram = IpcClient.getInstance().onWorkspaceDiagram(
           chatId,
           (payload) => {
+            const code =
+              (payload as any).mermaidCode ??
+              (payload as any).diagram ??
+              '';
+            const title =
+              (payload as any).title ??
+              ((payload as any).summary ? `Architecture - ${(payload as any).summary}` : 'Architecture Diagram');
+            const typeRaw = (payload as any).type;
+
             // Set diagram state from workspace context
             setDiagramState({
-              code: payload.mermaidCode || '',
-              type: payload.type === 'class' ? 'class' :
-                payload.type === 'sequence' ? 'sequence' :
-                  payload.type === 'flowchart' ? 'flowchart' : 'mermaid',
+              code,
+              type: typeRaw === 'class' ? 'class' :
+                typeRaw === 'sequence' ? 'sequence' :
+                  typeRaw === 'flowchart' ? 'flowchart' : 'mermaid',
               compareMode: 'current',
-              title: payload.title,
+              title,
+              workspaceId: selectedAppId ?? undefined,
             });
             maybeAutoOpenRightPanel(); // Show panel for diagram unless user dismissed it
           }
@@ -601,6 +611,7 @@ export function useStreamChat({
                           diagramData.diagram_type === 'flowchart' ? 'flowchart' : 'mermaid',
                       compareMode: 'current',
                       title: diagramData.title,
+                      workspaceId: selectedAppId ?? undefined,
                     });
                     maybeAutoOpenRightPanel(); // Show panel for diagram
                   }

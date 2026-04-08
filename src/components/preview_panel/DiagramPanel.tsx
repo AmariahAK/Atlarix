@@ -78,6 +78,12 @@ interface DiagramRecord {
     metadata?: unknown;
 }
 
+function isDiagramStateLike(v: unknown): v is DiagramState {
+    if (!v || typeof v !== 'object') return false;
+    const anyV = v as any;
+    return typeof anyV.code === 'string' && typeof anyV.type === 'string' && typeof anyV.compareMode === 'string';
+}
+
 export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProps) {
     const navigate = useNavigate();
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
@@ -162,11 +168,27 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
 
     // Prefer diagramState when we have loaded allDiagrams for this workspace so selector and display stay in sync
     const diagram = useMemo(() => {
-        if (allDiagrams.length > 0 && diagramState && (diagramState as any).workspaceId === app?.id) {
-            return diagramState;
+        const state = isDiagramStateLike(diagramState) ? diagramState : null;
+        const fallback = isDiagramStateLike(data) ? data : null;
+
+        if (allDiagrams.length > 0 && state && state.workspaceId === app?.id) {
+            const match = state.id != null ? allDiagrams.find((d) => d.id === state.id) : null;
+            if (match) {
+                return {
+                    ...state,
+                    id: match.id,
+                    code: match.content ?? state.code,
+                    title: match.title ?? state.title,
+                    type: (match.type as any) ?? state.type,
+                    workspaceId: app?.id ?? state.workspaceId,
+                } as DiagramState;
+            }
+            return state;
         }
-        return data || diagramState;
-    }, [allDiagrams.length, app?.id, diagramState, data]);
+
+        // When diagramState is missing workspaceId (e.g. streamed/tool diagram), prefer it over unrelated props.
+        return state ?? fallback;
+    }, [allDiagrams, app?.id, diagramState, data]);
 
     // Load ALL diagrams for workspace (same as Diagrams page) so user can switch between them
     useEffect(() => {
@@ -237,6 +259,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     type: d.type || 'mermaid',
                     title: d.title,
                     compareMode: 'current',
+                    workspaceId: app.id,
                 });
                 setStaleness(null); // Clear staleness warning
                 toast.success('Diagram regenerated');
@@ -603,10 +626,14 @@ function DiagramViewer({
     const handleRestore = useCallback(async (version: DiagramVersion) => {
         if (!(diagram as any).id) return;
         try {
-            await IpcClient.getInstance().restoreDiagramVersion({
+            const result = await IpcClient.getInstance().restoreDiagramVersion({
                 diagramId: (diagram as any).id,
                 versionId: version.id,
             });
+            if (!result?.success) {
+                toast.error((result as any)?.error ?? "Failed to restore diagram version");
+                return;
+            }
             setShowHistory(false);
             await onAfterRestore?.();
             toast.success("Restored diagram version");

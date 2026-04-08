@@ -140,6 +140,8 @@ export interface Message {
   snapshotId?: number | null;
   /** v3.9: Paths written in this exchange. */
   filesWritten?: string[] | null;
+  /** Non-destructive revert: message stays in transcript, styled as reverted. */
+  isReverted?: boolean | null;
 }
 
 export interface Chat {

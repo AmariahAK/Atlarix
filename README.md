@@ -7,11 +7,15 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.16*
+*Current: v6.2.0*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 ---
+
+### What's New in v6.2.0
+
+- **Unified workspace snapshots:** Revert files and diagram from `.atlarix/snapshots/` without internal git; **non-destructive** chat revert (`is_reverted` styling, no message deletion). See [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ### What's New in v6.1.16
 
@@ -95,7 +99,7 @@ The sidebar also shows these commands inline whenever a sign-in attempt fails on
 - **Context bar** — Real-time token usage with color-coded warnings.
 - **Auto-summarize** — Long conversations compressed automatically.
 - **Project memory** — `.atlarix/ATLARIX.md` for persistent workspace instructions.
-- **Conversation revert** — Revert to any prior message and continue from there.
+- **Conversation revert** — Revert workspace files and diagram to before a turn while keeping the full transcript (`is_reverted` markers).
 - **Permission queue** — Approve / reject AI file and command changes before execution, with diff preview.
 
 ### Multi-Provider AI
@@ -141,7 +145,7 @@ cp .env.example .env
 npm start
 ```
 
-**Schema changes:** Any update that modifies the database schema must include a Drizzle migration under [`drizzle/`](drizzle/) and regenerate [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) via `npm run db:generate`. Every new migration also needs a matching `isJournalMigrationApplied` case in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts).
+**Schema changes:** Any update that modifies the database schema must include a Drizzle migration under [`drizzle/`](drizzle/) and regenerate [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) via `npm run db:generate` (which runs `db:bundle-sql` via `postdb:generate`). Every new migration also needs a matching `isJournalMigrationApplied` case in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts) (e.g. `0035_unified_snapshots_revert` checks `diagram_versions.chat_turn_id`, `diagrams.last_snapshot_hashes`, and `messages.is_reverted`).
 
 ---
 

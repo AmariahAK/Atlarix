@@ -1,5 +1,14 @@
 # Atlarix Changelog
 
+## v6.2.0 — Unified workspace snapshots + non-destructive revert (2026-04-08)
+
+- **SQLite migration `0035_unified_snapshots_revert`:** `diagram_versions.chat_turn_id`, `diagrams.last_snapshot_hashes`, `messages.is_reverted`; `migration_seed_verification` case; `npm run db:bundle-sql`.
+- **Removed internal diagram git:** Deleted `DiagramGitTracker`, `git_change_tracker`, and `simple-git`. Staleness uses `.atlarix/snapshot_hashes.json` + `last_snapshot_hashes` vs live workspace MD5 map.
+- **`.atlarix/snapshots/<turnId>/`:** Permission queue captures pre-write file state before approved writes; manifests tie diagram + files for revert.
+- **`chat:revert-to-message`:** Restores files + diagram via snapshot manager; sets `messages.is_reverted` instead of deleting messages; removed `diagram:history-from-git` IPC.
+- **Diagram history:** SQL `diagram:history` filters out `trigger = auto_sync` noise; version cap (20) via `insertDiagramVersionWithCap`.
+- **Blueprint canvas performance:** `BlueprintEdge` uses one SVG `animateMotion` dot per edge (no stacked particles, filters, or extra CSS keyframes on moving dots); `prefers-reduced-motion` disables motion; `onlyRenderVisibleElements` on Blueprint React Flow views.
+
 ## v6.1.16 — Diagram stability + Compass context safety (2026-04-08)
 
 - **/diagram Sentry noise:** Normalize `onunhandledrejection` cases where the rejection reason is an `Event` (e.g. script load errors) so telemetry captures actionable details instead of `Error: [object Event]`.
@@ -233,7 +242,7 @@ For detailed historical notes (v1.x–v4.x) and implementation phases, see [`doc
 - **Progressive Tool Reveal**: Tool manifest (one line per tool) in system prompt; full schemas loaded on first use; core tools always loaded.
 - **New AI tools**: get_slack_mentions, get_slack_channel, post_to_slack; get_assigned_tickets, update_ticket_status, create_ticket, get_sprint_status; get_sentry_errors, get_sentry_error_detail; get_today_schedule; trigger_pipeline, cancel_pipeline. Read-only in Ask mode; write/trigger with approval in Build.
 - **GitLab CI & Bitbucket Pipelines**: CIPlatform implementations using Token Vault; list runs, jobs, logs, stream.
-- **File revert**: "Revert to here" on an assistant message restores workspace file state from the snapshot taken at that exchange.
+- **Conversation rollback** *(superseded in v6.2.0 by unified snapshots):* Earlier releases restored file state from a snapshot tied to a chat turn. **Current behavior (v6.2.0+):** restore files and diagram from `.atlarix/snapshots/`; the full transcript stays visible with `is_reverted` markers — messages are not deleted.
 
 ### Changed
 

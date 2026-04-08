@@ -26,10 +26,6 @@ import {
     Layout,
     Check,
     Sparkles,
-    History,
-    RotateCcw,
-    Calendar,
-    X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,16 +39,6 @@ interface Diagram {
     updatedAt: Date;
 }
 
-interface DiagramVersion {
-    id: number;
-    diagramId: number;
-    content: string;
-    summary?: string;
-    trigger?: string;
-    changeDescription?: string;
-    createdAt: Date;
-}
-
 export default function DiagramPage() {
     const search = useSearch({ strict: false }) as { appId?: number | string };
     const appIdFromRoute = search?.appId != null ? Number(search.appId) : undefined;
@@ -64,11 +50,6 @@ export default function DiagramPage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [copied, setCopied] = useState(false);
     const [loadingDiagrams, setLoadingDiagrams] = useState(false);
-
-    // History state
-    const [showHistory, setShowHistory] = useState(false);
-    const [versions, setVersions] = useState<DiagramVersion[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState(false);
 
     // Auto-select workspace: from route appId or first
     useEffect(() => {
@@ -133,9 +114,10 @@ export default function DiagramPage() {
             console.log("[DiagramPage] Generation result:", result);
 
             if (result.success && result.diagram) {
-                setDiagrams((prev) => [result.diagram, ...prev]);
+                // Backend may update an existing diagram id; ensure state doesn't duplicate ids.
+                await loadDiagrams(selectedWorkspace.id);
                 setSelectedDiagram(result.diagram);
-                console.log("[DiagramPage] Diagram added to state");
+                console.log("[DiagramPage] Diagram refreshed in state");
             } else {
                 console.error("[DiagramPage] Generation failed:", result.error);
                 alert(`Failed to generate diagram: ${result.error}`);
@@ -182,49 +164,6 @@ export default function DiagramPage() {
             a.download = `${selectedDiagram?.title || 'diagram'}.svg`;
             a.click();
             URL.revokeObjectURL(url);
-        }
-    };
-
-    // Load version history for selected diagram
-    const loadHistory = async (diagramId: number) => {
-        setLoadingHistory(true);
-        try {
-            const result = await IpcClient.getInstance().getDiagramHistory(diagramId);
-            if (result.success) {
-                setVersions(result.versions || []);
-            }
-        } catch (error) {
-            console.error("Failed to load diagram history:", error);
-            setVersions([]);
-        } finally {
-            setLoadingHistory(false);
-        }
-    };
-
-    // Load history when showing panel and diagram is selected
-    useEffect(() => {
-        if (showHistory && selectedDiagram) {
-            loadHistory(selectedDiagram.id);
-        }
-    }, [showHistory, selectedDiagram]);
-
-    // Restore a previous version
-    const handleRestoreVersion = async (version: DiagramVersion) => {
-        if (!selectedDiagram) return;
-        try {
-            const result = await IpcClient.getInstance().restoreDiagramVersion({
-                diagramId: selectedDiagram.id,
-                versionId: version.id
-            });
-            if (result.success) {
-                // Reload diagrams to get updated content
-                if (selectedWorkspace) {
-                    await loadDiagrams(selectedWorkspace.id);
-                }
-                setShowHistory(false);
-            }
-        } catch (error) {
-            console.error("Failed to restore diagram version:", error);
         }
     };
 
@@ -425,119 +364,20 @@ export default function DiagramPage() {
                                     <Download className="h-4 w-4" />
                                     <span className="ml-1">SVG</span>
                                 </Button>
-                                <div className="w-px h-5 bg-border" />
-                                <Button
-                                    variant={showHistory ? "default" : "ghost"}
-                                    size="sm"
-                                    onClick={() => setShowHistory(!showHistory)}
-                                >
-                                    <History className="h-4 w-4" />
-                                    <span className="ml-1">History</span>
-                                </Button>
                             </div>
                         </div>
 
-                        {/* Diagram Preview with History Sidebar */}
-                        <div className="flex-1 flex overflow-hidden">
-                            {/* Main Diagram Area */}
-                            <div className="flex-1 overflow-auto p-6">
-                                <div className="diagram-preview bg-card rounded-lg border border-border min-h-[500px] h-full" data-tour="tour-blueprint-canvas">
-                                    <MermaidRenderer
-                                        key={selectedDiagram.id}
-                                        code={selectedDiagram.content}
-                                        className="w-full h-full"
-                                        onError={(err) => console.error('[DiagramPage] Mermaid error:', err)}
-                                        onRender={() => console.log('[DiagramPage] Diagram rendered successfully')}
-                                    />
-                                </div>
+                        {/* Diagram Preview */}
+                        <div className="flex-1 overflow-auto p-6">
+                            <div className="diagram-preview bg-card rounded-lg border border-border min-h-[500px] h-full" data-tour="tour-blueprint-canvas">
+                                <MermaidRenderer
+                                    key={selectedDiagram.id}
+                                    code={selectedDiagram.content}
+                                    className="w-full h-full"
+                                    onError={(err) => console.error('[DiagramPage] Mermaid error:', err)}
+                                    onRender={() => console.log('[DiagramPage] Diagram rendered successfully')}
+                                />
                             </div>
-
-                            {/* History Sidebar */}
-                            {showHistory && (
-                                <div className="w-80 border-l border-border bg-muted/30 flex flex-col overflow-hidden">
-                                    <div className="flex items-center justify-between p-4 border-b border-border">
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="h-4 w-4 text-primary" />
-                                            <h3 className="font-semibold text-sm">Version History</h3>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6"
-                                            onClick={() => setShowHistory(false)}
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-
-                                    <ScrollArea className="flex-1 p-4">
-                                        {loadingHistory ? (
-                                            <div className="flex items-center justify-center py-8">
-                                                <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
-                                            </div>
-                                        ) : versions.length === 0 ? (
-                                            <div className="text-center py-8 text-muted-foreground">
-                                                <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                                <p className="text-sm">No version history yet</p>
-                                                <p className="text-xs mt-1">Versions are saved when diagrams are updated</p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {versions.map((version, index) => {
-                                                    const date = new Date(version.createdAt);
-                                                    const isToday = date.toDateString() === new Date().toDateString();
-                                                    const timeStr = date.toLocaleTimeString(undefined, {
-                                                        hour: '2-digit',
-                                                        minute: '2-digit',
-                                                    });
-                                                    const dateStr = isToday
-                                                        ? `Today at ${timeStr}`
-                                                        : date.toLocaleDateString(undefined, {
-                                                            month: 'short',
-                                                            day: 'numeric',
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                        });
-
-                                                    return (
-                                                        <div
-                                                            key={version.id}
-                                                            className="p-3 bg-background rounded-lg border border-border hover:border-primary/50 transition-colors group"
-                                                        >
-                                                            <div className="flex items-start justify-between gap-2">
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-medium text-foreground">
-                                                                        {index === 0 ? 'Current' : `Version ${versions.length - index}`}
-                                                                    </p>
-                                                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                                                        {dateStr}
-                                                                    </p>
-                                                                    {version.summary && (
-                                                                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                                                            {version.summary}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                                {index !== 0 && (
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="opacity-0 group-hover:opacity-100 transition-opacity h-7 px-2"
-                                                                        onClick={() => handleRestoreVersion(version)}
-                                                                    >
-                                                                        <RotateCcw className="h-3 w-3 mr-1" />
-                                                                        Restore
-                                                                    </Button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </ScrollArea>
-                                </div>
-                            )}
                         </div>
 
                         {/* Code Preview */}

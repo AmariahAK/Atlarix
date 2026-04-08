@@ -1,11 +1,12 @@
 /**
- * Diagram lib - Git-based change tracking and update strategy
+ * Diagram lib — update strategy (hash-based change analysis)
  */
 
-export { GitChangeTracker, type FileChange, type FileChangeType, type ChangeAnalysis } from "./git_change_tracker";
-export { DiagramGitTracker } from "./diagram_git_tracker";
 export {
     DiagramUpdateStrategy,
     type DiagramDecision,
     type DiagramAction,
+    type ChangeAnalysis,
+    type FileChange,
+    type FileChangeType,
 } from "./diagram_update_strategy";

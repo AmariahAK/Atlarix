@@ -1,8 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.16  
-**Next Version:** v6.2+ (planning)  
-**Last Updated:** 2026-04-07
+**Current Version:** v6.2.0  
+**Next Version:** v6.3+ (planning)  
+**Last Updated:** 2026-04-08
+
+---
+
+## Done: v6.2.0 — Unified snapshots + non-destructive revert
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Migration 0035 + seed verification | **Done** | `chat_turn_id`, `last_snapshot_hashes`, `is_reverted` |
+| Remove DiagramGitTracker / simple-git | **Done** | Staleness + `.atlarix/snapshot_hashes.json` |
+| Permission capture + `revertSnapshot` | **Done** | `chat:revert-to-message` repurposed |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.2.0.
 
 ---
 

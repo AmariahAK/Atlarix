@@ -151,13 +151,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   };
 
   const handleRevertClick = async () => {
-    if (currentChatId == null || message.role !== "assistant" || !message.snapshotId) return;
-    const filesNote =
-      message.filesWritten && message.filesWritten.length > 0
-        ? ` ${message.filesWritten.length} file(s) were written after this point — code revert coming in v3.10.`
-        : "";
+    if (currentChatId == null || message.role !== "assistant" || !appId) return;
     const ok = window.confirm(
-      `Revert conversation?\n\nThis will remove all messages after this one.${filesNote}`
+      "Revert workspace files and diagram to the state before this assistant reply?\n\nYour conversation stays visible; this turn and later messages will be marked as reverted.",
     );
     if (!ok) return;
     try {
@@ -169,7 +165,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         return next;
       });
       setRestartedAfterMessageId(message.id);
-      showInfo("Conversation reverted. Code changes from removed exchanges are still on disk — file revert coming in a future update.");
+      showInfo("Revert applied. Files and diagram restored; conversation unchanged.");
     } catch (err) {
       showError(err);
     }
@@ -185,7 +181,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         <div
           className={`rounded-lg p-2 relative ${
             message.role === "assistant" ? "" : "ml-24 bg-(--sidebar-accent)"
-          }`}
+          } ${message.isReverted ? "ring-1 ring-amber-500/40 bg-muted/30" : ""}`}
         >
           {message.role === "user" && isEditing ? (
             <>
@@ -320,17 +316,33 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             </div>
           ) : null}
         </div>
-        {/* v3.9: Revert to here (assistant messages with snapshot) */}
-        {message.role === "assistant" && message.snapshotId != null && !isStreaming && (
+        {message.role === "assistant" && !isStreaming && (
           <div className="mt-1">
-            <button
-              type="button"
-              onClick={handleRevertClick}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-            >
-              <Undo2 className="h-3 w-3" />
-              Revert to here
-            </button>
+            {appId ? (
+              <button
+                type="button"
+                onClick={handleRevertClick}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                <Undo2 className="h-3 w-3" />
+                Revert workspace to here
+              </button>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-xs text-muted-foreground/50 flex items-center gap-1 cursor-not-allowed">
+                      <Undo2 className="h-3 w-3" />
+                      Revert workspace to here
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Attach a workspace to enable code revert</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {message.isReverted ? (
+              <span className="ml-2 text-xs text-amber-600 dark:text-amber-500">Reverted</span>
+            ) : null}
           </div>
         )}
         {/* Timestamp and commit info for assistant messages - only visible on hover */}

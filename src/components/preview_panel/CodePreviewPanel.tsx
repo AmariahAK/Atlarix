@@ -160,7 +160,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 />
             )}
             {activeTab === 'diagram' && (
-                <DiagramPanel data={data as any} activeTab="diagram" />
+                <DiagramPanel data={null} activeTab="diagram" />
             )}
         </div>
     );

@@ -18,6 +18,19 @@ import {
 
 const logger = log.scope("system_prompt");
 
+/** Injected into system prompt so the model can answer "what version" / who built Atlarix accurately */
+function getElectronAppVersion(): string {
+    try {
+        const electron = require("electron") as { app?: { getVersion?: () => string } };
+        if (electron.app?.getVersion) {
+            return electron.app.getVersion();
+        }
+    } catch {
+        /* not in Electron */
+    }
+    return "unknown";
+}
+
 // ═══════════════════════════════════════════════════════════
 // AGENTS.MD LOADING
 // ═══════════════════════════════════════════════════════════
@@ -266,6 +279,15 @@ Rules:
 - If you emit <questions>, do not write any other response text in that turn
 `;
     }
+
+    const appVersion = getElectronAppVersion();
+    prompt += `
+
+# Atlarix runtime identity
+You run inside the **Atlarix** desktop app by **NorahLabs** (norahlabs.com). Product: atlarix.dev.
+- **App version:** \`${appVersion}\`
+- If asked who made Atlarix, what you are, what version you or the app are, or similar: you are the **Atlarix** in-app assistant; **NorahLabs** builds Atlarix; state the app version exactly as **${appVersion}**. Do not say you have no version, or that you were created by an unnamed "development team."
+`;
 
     return prompt;
 };

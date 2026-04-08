@@ -3,7 +3,7 @@
  * and arrow labels (>> / << / ⇄) at multiple points along the path.
  */
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getSmoothStepPath, type EdgeProps } from "@xyflow/react";
 
 /** Fractions of path length for label positions (spread along the line) */
@@ -23,9 +23,22 @@ const DIRECTION_LABELS: Record<EdgeDirection, string> = {
   both: "⇄",
 };
 
-/** Stagger delays (s) for live-flow particles along the edge path */
-const PARTICLE_BEGINS = ["0s", "1s", "2s"];
-const PARTICLE_DUR = "1.5s";
+/** Single particle per edge keeps tile memory and compositor cost down on large graphs */
+const PARTICLE_DUR = "2.5s";
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handler = () => setReduced(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return reduced;
+}
 
 export function BlueprintEdge({
   id,
@@ -36,9 +49,9 @@ export function BlueprintEdge({
   sourcePosition,
   targetPosition,
   data,
-  style,
   markerEnd,
 }: EdgeProps) {
+  const reducedMotion = usePrefersReducedMotion();
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -76,6 +89,11 @@ export function BlueprintEdge({
   };
 
   const pathId = `atlarix-edge-path-${id}`;
+
+  const showParticle = !reducedMotion;
+  /** One dot per edge; "both" uses a single forward motion (labels show ⇄) */
+  const particleKeyPoints = reverseMotion ? "1;0" : "0;1";
+
   return (
     <g>
       <path
@@ -105,66 +123,12 @@ export function BlueprintEdge({
           {arrowLabel}
         </text>
       ))}
-      {/* Live-flow particles: dots traveling along the edge path */}
-      {direction === "both" ? (
-        <>
-          {/* Forward: source → target */}
-          {PARTICLE_BEGINS.map((begin, i) => (
-            <circle
-              key={`fwd-${i}`}
-              r={3}
-              fill={strokeColor}
-              className="atlarix-edge-particle"
-              style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
-            >
-              <animateMotion calcMode="linear" dur={PARTICLE_DUR} repeatCount="indefinite" begin={begin} keyPoints="0;1" keyTimes="0;1">
-                <mpath href={`#${pathId}`} />
-              </animateMotion>
-            </circle>
-          ))}
-          {/* Reverse: target → source (staggered so both directions visible) */}
-          {PARTICLE_BEGINS.map((begin, i) => (
-            <circle
-              key={`rev-${i}`}
-              r={3}
-              fill={strokeColor}
-              className="atlarix-edge-particle"
-              style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
-            >
-              <animateMotion
-                calcMode="linear"
-                dur={PARTICLE_DUR}
-                repeatCount="indefinite"
-                begin={`${1.5 + i}s`}
-                keyPoints="1;0"
-                keyTimes="0;1"
-              >
-                <mpath href={`#${pathId}`} />
-              </animateMotion>
-            </circle>
-          ))}
-        </>
-      ) : (
-        PARTICLE_BEGINS.map((begin, i) => (
-          <circle
-            key={i}
-            r={3}
-            fill={strokeColor}
-            className="atlarix-edge-particle"
-            style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
-          >
-            <animateMotion
-              calcMode="linear"
-              dur={PARTICLE_DUR}
-              repeatCount="indefinite"
-              begin={begin}
-              keyPoints={reverseMotion ? "1;0" : "0;1"}
-              keyTimes="0;1"
-            >
-              <mpath href={`#${pathId}`} />
-            </animateMotion>
-          </circle>
-        ))
+      {showParticle && (
+        <circle r={2} fill={strokeColor} className="pointer-events-none" opacity={0.85}>
+          <animateMotion calcMode="linear" dur={PARTICLE_DUR} repeatCount="indefinite" begin="0s" keyPoints={particleKeyPoints} keyTimes="0;1">
+            <mpath href={`#${pathId}`} />
+          </animateMotion>
+        </circle>
       )}
       {inferred && (
         <title>Inferred connection — refresh from code to confirm</title>

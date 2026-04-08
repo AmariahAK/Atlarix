@@ -27,6 +27,13 @@ describe("normalizeDiagramMermaid", () => {
     expect(out).not.toMatch(/333[^\n;0-9a-fA-F]/);
   });
 
+  it("sanitizes invalid style identifiers containing & and spaces", () => {
+    const raw = "graph TB\n  A[Ok]\n  A --> B\n  style Auth & Services fill:#fff,stroke:#333";
+    const out = prepareMermaidForParse(raw);
+    expect(out).toContain("style Auth_Services fill:#fff,stroke:#333");
+    expect(out).not.toContain("style Auth & Services");
+  });
+
   it("stripStandaloneMermaidLanguageLine handles CRLF", () => {
     expect(stripStandaloneMermaidLanguageLine("mermaid\r\ngraph TB")).toBe("graph TB");
   });

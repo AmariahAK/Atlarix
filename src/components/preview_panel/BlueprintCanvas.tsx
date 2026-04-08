@@ -464,7 +464,7 @@ function BlueprintCanvasInner({
             <span className="text-muted-foreground">Inferred (refresh to confirm)</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary atlarix-edge-particle" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary atlarix-blueprint-legend-particle" />
             <span className="text-muted-foreground">Live flow</span>
           </div>
           {isRteRunning && (
@@ -487,6 +487,7 @@ function BlueprintCanvasInner({
         defaultEdgeOptions={{ type: "smoothstep" }}
         deleteKeyCode={["Backspace", "Delete"]}
         proOptions={{ hideAttribution: true }}
+        onlyRenderVisibleElements
         nodesDraggable
         nodesConnectable
         elementsSelectable

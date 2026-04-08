@@ -1,25 +1,41 @@
 /**
- * DiagramUpdateStrategy - Decide update vs regenerate from git-based change analysis
- * ===================================================================================
- * Thresholds: <5% = skip (bug fixes), 5–15% = update, 15–30% = update with caution,
- * >30% or architectural = regenerate.
+ * DiagramUpdateStrategy — thresholds for update vs regenerate from change analysis
+ * (hash diff, git-less).
  */
 
-import { GitChangeTracker, ChangeAnalysis } from "./git_change_tracker";
-import log from "electron-log";
-
-const logger = log.scope("diagram-update-strategy");
 
 // ═══════════════════════════════════════════════════════════
-// TYPES
+// TYPES (ex-git; used by snapshot staleness + strategy)
 // ═══════════════════════════════════════════════════════════
+
+export type FileChangeType = "A" | "M" | "D" | "R";
+
+export interface FileChange {
+    path: string;
+    type: FileChangeType;
+    insertions: number;
+    deletions: number;
+    binary: boolean;
+}
+
+export interface ChangeAnalysis {
+    totalFiles: number;
+    filesAdded: number;
+    filesModified: number;
+    filesDeleted: number;
+    linesAdded: number;
+    linesDeleted: number;
+    changePercentage: number;
+    isArchitecturalChange: boolean;
+    changes: FileChange[];
+}
 
 export type DiagramAction = "none" | "update" | "regenerate";
 
 export interface DiagramDecision {
     action: DiagramAction;
     reason: string;
-    confidence: number; // 0–100
+    confidence: number;
     changes: ChangeAnalysis;
 }
 
@@ -28,33 +44,18 @@ export interface DiagramDecision {
 // ═══════════════════════════════════════════════════════════
 
 export class DiagramUpdateStrategy {
-    private readonly MINOR_THRESHOLD = 5;   // < 5% = skip (bug fix)
-    private readonly MODERATE_THRESHOLD = 15; // 5–15% = update
-    private readonly MAJOR_THRESHOLD = 30;   // > 30% = regenerate
+    private readonly MINOR_THRESHOLD = 5;
+    private readonly MODERATE_THRESHOLD = 15;
+    private readonly MAJOR_THRESHOLD = 30;
 
-    constructor(private workspacePath: string) {}
+    constructor(_workspacePath: string) {}
 
-    /**
-     * Decide diagram action from a precomputed ChangeAnalysis (e.g. from DiagramGitTracker).
-     * Use this when using internal diagram git (Phase 8) so the same thresholds apply.
-     */
     static decideFromChangeAnalysis(changes: ChangeAnalysis): DiagramDecision {
         const strategy = new DiagramUpdateStrategy("");
         return strategy.decideFromChanges(changes);
     }
 
-    /**
-     * Decide diagram action from project git analysis (optional; diagram staleness uses internal diagram git only).
-     */
-    async decideDiagramAction(lastDiagramCommit?: string): Promise<DiagramDecision> {
-        const tracker = new GitChangeTracker(this.workspacePath);
-        const changes = await tracker.analyzeChanges(lastDiagramCommit);
-        return this.decideFromChanges(changes);
-    }
-
     private decideFromChanges(changes: ChangeAnalysis): DiagramDecision {
-
-        // No changes
         if (changes.totalFiles === 0) {
             return {
                 action: "none",
@@ -64,7 +65,6 @@ export class DiagramUpdateStrategy {
             };
         }
 
-        // Minor: bug fixes / typos
         if (this.isMinorChange(changes)) {
             return {
                 action: "none",
@@ -74,7 +74,6 @@ export class DiagramUpdateStrategy {
             };
         }
 
-        // Architectural → regenerate
         if (changes.isArchitecturalChange) {
             return {
                 action: "regenerate",
@@ -84,7 +83,6 @@ export class DiagramUpdateStrategy {
             };
         }
 
-        // Major % → regenerate
         if (changes.changePercentage >= this.MAJOR_THRESHOLD) {
             return {
                 action: "regenerate",
@@ -94,7 +92,6 @@ export class DiagramUpdateStrategy {
             };
         }
 
-        // Moderate: update
         if (changes.changePercentage >= this.MINOR_THRESHOLD && changes.changePercentage < this.MODERATE_THRESHOLD) {
             return {
                 action: "update",
@@ -104,7 +101,6 @@ export class DiagramUpdateStrategy {
             };
         }
 
-        // 15–30%: update with caution
         if (changes.changePercentage < this.MAJOR_THRESHOLD) {
             return {
                 action: "update",
@@ -131,9 +127,6 @@ export class DiagramUpdateStrategy {
         );
     }
 
-    /**
-     * Generate AI prompt for diagram update (not full regeneration)
-     */
     generateUpdatePrompt(changes: ChangeAnalysis): string {
         const fileList = changes.changes
             .slice(0, 50)

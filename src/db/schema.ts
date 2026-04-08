@@ -115,6 +115,10 @@ export const messages = sqliteTable("messages", {
   snapshotId: integer("snapshot_id"),
   /** v3.9: Paths written in this exchange (Build mode). */
   filesWritten: text("files_written", { mode: "json" }).$type<string[]>(),
+  /** Non-destructive revert: message stays visible, styled as reverted in UI. */
+  isReverted: integer("is_reverted", { mode: "boolean" })
+    .notNull()
+    .default(sql`0`),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -378,11 +382,17 @@ export const diagrams = sqliteTable("diagrams", {
   }).notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(), // Mermaid diagram code
+  /** MD5 map path → hash at last diagram generation (staleness; replaces metadata.diagramGitCommit). */
+  lastSnapshotHashes: text("last_snapshot_hashes", { mode: "json" }).$type<
+    Record<string, string> | null
+  >(),
   metadata: text("metadata", { mode: "json" }).$type<{
     files?: string[];
     entities?: string[];
     focus?: string;
     summary?: string;
+    /** @deprecated Legacy internal-git commit; use lastSnapshotHashes + .atlarix/snapshot_hashes.json */
+    diagramGitCommit?: string;
     /** Git commit when diagram was saved (for update vs regenerate decision) */
     gitCommit?: string;
     /** 'regenerate' | 'update' */
@@ -423,6 +433,8 @@ export const diagramVersions = sqliteTable("diagram_versions", {
     enum: ["user_request", "auto_sync", "template_clone", "file_change"],
   }),
   summary: text("summary"), // AI-generated: "Refactored auth to use JWT"
+  /** Stable turn key (e.g. assistant message id) for revert / diagram linkage. */
+  chatTurnId: text("chat_turn_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

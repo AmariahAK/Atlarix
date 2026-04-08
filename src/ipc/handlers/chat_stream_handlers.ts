@@ -94,7 +94,7 @@ import { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { prompts as promptsTable } from "../../db/schema";
-import { inArray } from "drizzle-orm";
+import { inArray, asc } from "drizzle-orm";
 import { replacePromptReference } from "../utils/replacePromptReference";
 import { mcpManager } from "../utils/mcp_manager";
 import { logMcpError } from "./mcp_handlers";
@@ -112,7 +112,8 @@ import {
 } from "../../lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
 import { getCurrentCommitHash } from "../utils/git_utils";
-import { createSnapshot, restoreSnapshot } from "../../lib/workspace-snapshots";
+import { createSnapshot } from "../../lib/workspace-snapshots";
+import { revertSnapshot } from "../../lib/snapshot/snapshot-manager";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -1565,15 +1566,37 @@ ${componentSnippet}
                 try {
                   // For ephemeral chats (negative IDs), don't save chatId (FK constraint would fail)
                   const isEphemeralChat = req.chatId < 0;
-                  await db.insert(diagrams).values({
-                    workspaceId: effectiveAppId ?? req.appId ?? null,
-                    chatId: isEphemeralChat ? null : req.chatId,
-                    diagramType: "architecture",
-                    title: `Architecture - ${workspaceContext.summary}`,
-                    content: workspaceContext.diagram,
-                    metadata: { summary: workspaceContext.summary },
-                  });
-                  logger.info(`Saved workspace diagram to database for appId: ${effectiveAppId ?? req.appId}`);
+                  const workspaceId = effectiveAppId ?? req.appId ?? null;
+                  if (workspaceId != null) {
+                    const existing = await db.query.diagrams.findFirst({
+                      where: eq(diagrams.workspaceId, workspaceId),
+                    });
+
+                    if (existing) {
+                      await db
+                        .update(diagrams)
+                        .set({
+                          chatId: isEphemeralChat ? null : req.chatId,
+                          diagramType: "architecture",
+                          title: `Architecture - ${workspaceContext.summary}`,
+                          content: workspaceContext.diagram,
+                          metadata: { summary: workspaceContext.summary },
+                          updatedAt: new Date(),
+                        })
+                        .where(eq(diagrams.id, existing.id));
+                      logger.info(`Updated workspace diagram in database for appId: ${workspaceId}`);
+                    } else {
+                      await db.insert(diagrams).values({
+                        workspaceId,
+                        chatId: isEphemeralChat ? null : req.chatId,
+                        diagramType: "architecture",
+                        title: `Architecture - ${workspaceContext.summary}`,
+                        content: workspaceContext.diagram,
+                        metadata: { summary: workspaceContext.summary },
+                      });
+                      logger.info(`Saved workspace diagram to database for appId: ${workspaceId}`);
+                    }
+                  }
                 } catch (dbError) {
                   logger.warn("Failed to save diagram to database:", dbError);
                 }
@@ -2337,6 +2360,7 @@ This conversation includes one or more image attachments. When the user uploads 
             const askPermissionInterceptor = new PermissionInterceptor(
               appPath,
               effectiveAppId ?? undefined,
+              !isEphemeralWorkspace ? placeholderAssistantMessage.id : undefined,
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
 
@@ -2835,6 +2859,7 @@ For workforce, explain services before request_workspace_permissions.`;
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
               effectiveAppId ?? undefined,
+              !isEphemeralWorkspace ? placeholderAssistantMessage.id : undefined,
             );
 
             // Register interceptor for IPC handlers (so UI can approve/reject)
@@ -4203,19 +4228,20 @@ For workforce, explain services before request_workspace_permissions.`;
       if (!msg || msg.role !== "assistant") {
         throw new Error("Assistant message not found");
       }
-      // v4.0: Restore workspace file state from snapshot taken at this exchange
-      const snapshotId = msg.snapshotId ?? null;
-      if (snapshotId != null) {
-        const [chatRow] = await db.select().from(chats).where(eq(chats.id, chatId));
-        const appId = chatRow?.appId ?? null;
-        if (appId != null) {
-          const [app] = await db.select().from(apps).where(eq(apps.id, appId));
-          if (app) {
-            const appPath = resolveAppPath(app.path);
-            const restoreResult = await restoreSnapshot(snapshotId, appPath);
-            if (!restoreResult.success) {
-              logger.warn("Revert: snapshot restore failed:", restoreResult.error);
-            }
+      const [chatRow] = await db.select().from(chats).where(eq(chats.id, chatId));
+      const appId = chatRow?.appId ?? null;
+      if (appId != null) {
+        const [app] = await db.select().from(apps).where(eq(apps.id, appId));
+        if (app) {
+          const appPath = resolveAppPath(app.path);
+          const turnId = String(assistantMessageId);
+          const result = await revertSnapshot({
+            workspacePath: appPath,
+            turnId,
+            workspaceId: appId,
+          });
+          if (!result.success) {
+            logger.warn("Revert: .atlarix snapshot restore failed:", result.error);
           }
         }
       }
@@ -4223,12 +4249,13 @@ For workforce, explain services before request_workspace_permissions.`;
         .select({ id: messages.id })
         .from(messages)
         .where(eq(messages.chatId, chatId))
-        .orderBy(messages.createdAt);
+        .orderBy(asc(messages.createdAt));
       const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
       if (idx < 0) throw new Error("Message not in chat");
-      const idsToDelete = chatMessages.slice(idx + 1).map((m) => m.id);
-      if (idsToDelete.length > 0) {
-        await db.delete(messages).where(inArray(messages.id, idsToDelete));
+      const idsToMark = chatMessages.slice(idx).map((m) => m.id);
+      await db.update(messages).set({ isReverted: false }).where(eq(messages.chatId, chatId));
+      if (idsToMark.length > 0) {
+        await db.update(messages).set({ isReverted: true }).where(inArray(messages.id, idsToMark));
       }
       await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
       return { success: true };

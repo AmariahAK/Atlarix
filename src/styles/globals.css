@@ -496,13 +496,13 @@ html[data-fullscreen="true"] #layout-main-content-container {
   50% { opacity: 1; }
 }
 
-/* Live-flow edge particles: subtle opacity pulse along the path */
-@keyframes atlarix-particle-glow {
+/* Blueprint legend dot only — moving edge dots use SVG animateMotion only (no extra keyframes) */
+@keyframes atlarix-particle-glow-legend {
   0%, 100% { opacity: 0.25; }
   50% { opacity: 0.9; }
 }
-.atlarix-edge-particle {
-  animation: atlarix-particle-glow 1.5s ease-in-out infinite;
+.atlarix-blueprint-legend-particle {
+  animation: atlarix-particle-glow-legend 1.5s ease-in-out infinite;
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -227,7 +227,6 @@ const validInvokeChannels = [
   "diagram:update",
   "diagram:delete",
   "diagram:history",
-  "diagram:history-from-git",
   "diagram:restore",
   "diagram:check-staleness",
   "diagram:mark-stale",

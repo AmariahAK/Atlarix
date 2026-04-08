@@ -7,7 +7,7 @@
 import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
 import { diagrams, diagramVersions } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, or, isNull, ne } from "drizzle-orm";
 import { generateText } from "ai";
 import {
     getModelClient,
@@ -23,7 +23,11 @@ import { AppChatContext } from "../../lib/schemas";
 import { apps } from "@/db/schema";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
-import { DiagramUpdateStrategy } from "../../lib/diagram/diagram_update_strategy";
+import { checkSnapshotStaleness } from "../../lib/snapshot/staleness";
+import {
+    persistWorkspaceSnapshotHashes,
+    insertDiagramVersionWithCap,
+} from "../../lib/snapshot/snapshot-manager";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
@@ -205,6 +209,7 @@ Requirements:
 - Keep the diagram clean and readable (avoid too many nodes).
 - Group related components in subgraphs.
 - Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+- Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
 - Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
 - Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
@@ -262,20 +267,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             // 6. Generate fingerprint for staleness tracking
             const fingerprint = await generateFingerprint(appPath);
 
-            // 7. Internal diagram git – capture snapshot + diagram content (storage-based history)
-            let diagramGitCommit: string | undefined;
-            try {
-                const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
-                const diagramGit = new DiagramGitTracker(workspaceId);
-                diagramGitCommit = await diagramGit.captureSnapshot(appPath, content);
-                if (diagramGitCommit) {
-                    console.log(`[diagram:generate-ai] Diagram git snapshot: ${diagramGitCommit.slice(0, 7)}`);
-                }
-            } catch (e) {
-                console.warn("[diagram:generate-ai] Diagram git capture skipped:", e);
-            }
-
-            // 8. Update existing diagram or create one (one diagram per workspace – no duplicates)
+            // 7. Update existing diagram or create one (one diagram per workspace – no duplicates)
             const existingDiagram = await db.query.diagrams.findFirst({
                 where: eq(diagrams.workspaceId, workspaceId),
             });
@@ -283,15 +275,9 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             let diagram: typeof diagrams.$inferSelect;
 
             if (existingDiagram) {
-                // Save previous content to diagram_versions for in-app history
-                await db.insert(diagramVersions).values({
-                    diagramId: existingDiagram.id,
-                    content: existingDiagram.content,
-                    changeDescription: "Regenerated (AI)",
-                    trigger: "auto_sync",
-                }).catch(() => {});
+                const meta = { ...((existingDiagram.metadata as Record<string, unknown>) || {}) };
+                delete meta.diagramGitCommit;
 
-                const meta = (existingDiagram.metadata as Record<string, unknown>) || {};
                 const [updated] = await db
                     .update(diagrams)
                     .set({
@@ -305,7 +291,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                         metadata: {
                             ...meta,
                             focus: "ai-generated",
-                            ...(diagramGitCommit && { diagramGitCommit }),
                         },
                     })
                     .where(eq(diagrams.id, existingDiagram.id))
@@ -323,7 +308,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                         content,
                         metadata: {
                             focus: "ai-generated",
-                            ...(diagramGitCommit && { diagramGitCommit }),
                         },
                         fingerprintHash: fingerprint.hash,
                         fingerprintData: fingerprint,
@@ -333,6 +317,12 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
 
                 diagram = created;
                 console.log(`[diagram:generate-ai] Created diagram ${diagram.id}`);
+            }
+
+            try {
+                await persistWorkspaceSnapshotHashes(diagram.id, appPath);
+            } catch (e) {
+                console.warn("[diagram:generate-ai] snapshot_hashes persist skipped:", e);
             }
 
             invalidateBlueprintCache(workspaceId);
@@ -376,11 +366,21 @@ ipcMain.handle(
 
             const results = await query.orderBy(desc(diagrams.updatedAt));
 
-            console.log(`[diagram:list] Found ${results.length} diagrams`);
+            // Defensive: older versions and some flows created multiple rows per workspace.
+            // For UI consistency, only return the most-recent diagram per workspace.
+            const seenWorkspaceIds = new Set<number | null>();
+            const deduped = results.filter((d) => {
+                const wid = (d as { workspaceId: number | null }).workspaceId ?? null;
+                if (seenWorkspaceIds.has(wid)) return false;
+                seenWorkspaceIds.add(wid);
+                return true;
+            });
+
+            console.log(`[diagram:list] Found ${results.length} diagrams (deduped: ${deduped.length})`);
 
             return {
                 success: true,
-                diagrams: results.map(toClientDiagram),
+                diagrams: deduped.map(toClientDiagram),
             };
         } catch (error) {
             console.error("[diagram:list] Error:", error);
@@ -420,45 +420,39 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
+            let gitDecision: GitDiagramDecision | undefined;
+            try {
+                const { staleness, snapshotDecision } = await checkSnapshotStaleness(
+                    workspacePath,
+                    diagram.lastSnapshotHashes ?? undefined,
+                );
+                if (snapshotDecision && snapshotDecision.action !== "none") {
+                    const d = snapshotDecision;
+                    gitDecision = {
+                        action: d.action,
+                        reason: d.reason,
+                        confidence: d.confidence,
+                        totalFiles: d.changes.totalFiles,
+                        linesAdded: d.changes.linesAdded,
+                        linesDeleted: d.changes.linesDeleted,
+                    };
+                    console.log(`[diagram:check-staleness] Snapshot hash decision: ${d.action} (${d.reason})`);
+                }
+                console.log(`[diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
+                return { success: true, staleness, gitDecision };
+            } catch (err) {
+                console.warn("[diagram:check-staleness] Snapshot staleness failed, fingerprint fallback:", err);
+            }
+
             const staleness = await checkDiagramStaleness(
                 diagram.fingerprintData,
                 diagram.createdFromFileCount,
                 workspacePath
             );
 
-            // Phase 8: Use only internal diagram git (simple-git snapshot in userData/diagram-git/<workspaceId>).
-            // No fallback to project git – we do not use the project's repo for diagram decisions.
-            let gitDecision: GitDiagramDecision | undefined;
-            const meta = diagram.metadata as { diagramGitCommit?: string } | null | undefined;
-            const diagramGitCommit = meta?.diagramGitCommit;
-            const workspaceId = diagram.workspaceId;
-
-            if (workspaceId && workspacePath && diagramGitCommit) {
-                try {
-                    const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
-                    const { DiagramUpdateStrategy } = await import("../../lib/diagram/diagram_update_strategy");
-                    const diagramGit = new DiagramGitTracker(workspaceId);
-                    const changes = await diagramGit.analyzeChanges(workspacePath, diagramGitCommit);
-                    const decision = DiagramUpdateStrategy.decideFromChangeAnalysis(changes);
-                    if (decision.action !== "none") {
-                        gitDecision = {
-                            action: decision.action,
-                            reason: decision.reason,
-                            confidence: decision.confidence,
-                            totalFiles: decision.changes.totalFiles,
-                            linesAdded: decision.changes.linesAdded,
-                            linesDeleted: decision.changes.linesDeleted,
-                        };
-                        console.log(`[diagram:check-staleness] Diagram git decision: ${decision.action} (${decision.reason})`);
-                    }
-                } catch (err) {
-                    console.warn("[diagram:check-staleness] Diagram git skipped:", err);
-                }
-            }
-
             console.log(`[diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
 
-            return { success: true, staleness, gitDecision };
+            return { success: true, staleness, gitDecision: undefined };
         } catch (error) {
             console.error("[diagram:check-staleness] Error:", error);
             return {
@@ -547,11 +541,11 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
-            // Save current version before updating
-            await db.insert(diagramVersions).values({
+            await insertDiagramVersionWithCap({
                 diagramId: id,
                 content: currentDiagram.content,
                 changeDescription: changeDescription || "Updated diagram",
+                trigger: "user_request",
             });
 
             // Update diagram with new content
@@ -563,6 +557,17 @@ ipcMain.handle(
                 })
                 .where(eq(diagrams.id, id))
                 .returning();
+
+            if (updated?.workspaceId) {
+                const [app] = await db.select().from(apps).where(eq(apps.id, updated.workspaceId));
+                if (app) {
+                    try {
+                        await persistWorkspaceSnapshotHashes(id, getAtlarixAppPath(app.path));
+                    } catch (e) {
+                        console.warn("[diagram:update] snapshot_hashes persist skipped:", e);
+                    }
+                }
+            }
 
             console.log(`[diagram:update] Updated diagram ${id}, saved version`);
 
@@ -606,7 +611,12 @@ ipcMain.handle(
             const versions = await db
                 .select()
                 .from(diagramVersions)
-                .where(eq(diagramVersions.diagramId, diagramId))
+                .where(
+                    and(
+                        eq(diagramVersions.diagramId, diagramId),
+                        or(isNull(diagramVersions.trigger), ne(diagramVersions.trigger, "auto_sync")),
+                    ),
+                )
                 .orderBy(desc(diagramVersions.createdAt));
 
             console.log(`[diagram:history] Found ${versions.length} versions for diagram ${diagramId}`);
@@ -614,30 +624,6 @@ ipcMain.handle(
             return { success: true, versions };
         } catch (error) {
             console.error("[diagram:history] Error:", error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-                versions: [],
-            };
-        }
-    }
-);
-
-// ============================================
-// DIAGRAM:HISTORY-FROM-GIT - Storage-based version history (git log)
-// ============================================
-
-ipcMain.handle(
-    "diagram:history-from-git",
-    async (_, { workspaceId, maxCount }: { workspaceId: number; maxCount?: number }) => {
-        try {
-            const { DiagramGitTracker } = await import("../../lib/diagram/diagram_git_tracker");
-            const diagramGit = new DiagramGitTracker(workspaceId);
-            const history = await diagramGit.getDiagramHistory(maxCount ?? 50);
-            console.log(`[diagram:history-from-git] Found ${history.length} commits for workspace ${workspaceId}`);
-            return { success: true, versions: history };
-        } catch (error) {
-            console.error("[diagram:history-from-git] Error:", error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Unknown error",
@@ -659,7 +645,7 @@ ipcMain.handle(
             const [version] = await db
                 .select()
                 .from(diagramVersions)
-                .where(eq(diagramVersions.id, versionId));
+                .where(and(eq(diagramVersions.id, versionId), eq(diagramVersions.diagramId, diagramId)));
 
             if (!version) {
                 return { success: false, error: "Version not found" };
@@ -675,11 +661,11 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
-            // Save current as version
-            await db.insert(diagramVersions).values({
+            await insertDiagramVersionWithCap({
                 diagramId,
                 content: currentDiagram.content,
                 changeDescription: "Before restore",
+                trigger: "user_request",
             });
 
             // Restore the old version
@@ -691,6 +677,17 @@ ipcMain.handle(
                 })
                 .where(eq(diagrams.id, diagramId))
                 .returning();
+
+            if (updated?.workspaceId) {
+                const [app] = await db.select().from(apps).where(eq(apps.id, updated.workspaceId));
+                if (app) {
+                    try {
+                        await persistWorkspaceSnapshotHashes(diagramId, getAtlarixAppPath(app.path));
+                    } catch (e) {
+                        console.warn("[diagram:restore] snapshot_hashes persist skipped:", e);
+                    }
+                }
+            }
 
             console.log(`[diagram:restore] Restored diagram ${diagramId} to version ${versionId}`);
 
@@ -812,6 +809,7 @@ Requirements:
 - Keep the diagram clean and readable (avoid too many nodes).
 - Group related components in subgraphs.
 - Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+- Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
 - Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
 - Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
@@ -850,6 +848,11 @@ Requirements:
                     .where(eq(diagrams.id, existingDiagram.id));
 
                 console.log(`[diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
+                try {
+                    await persistWorkspaceSnapshotHashes(existingDiagram.id, appPath);
+                } catch (e) {
+                    console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
+                }
                 invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'updated', diagramId: existingDiagram.id };
             } else {
@@ -868,6 +871,11 @@ Requirements:
                     .returning();
 
                 console.log(`[diagram:regenerate-background] Created new diagram ${diagram.id}`);
+                try {
+                    await persistWorkspaceSnapshotHashes(diagram.id, appPath);
+                } catch (e) {
+                    console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
+                }
                 invalidateBlueprintCache(workspaceId);
                 return { success: true, action: 'created', diagramId: diagram.id };
             }
