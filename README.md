@@ -7,11 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.2.0*
+*Current: v6.2.1*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 ---
+
+### What's New in v6.2.1
+
+- **Autonomous runs:** When several agents work on your behalf, you get a clearer wrap-up — review what changed and revert selectively before you keep everything.
+- **Thinking:** Reasoning from the model shows in the Thinking card again (including provider “redacted thinking” style tags); multi-agent tool use is summarized more readably, with recent bus messages in one place.
+- **Rollback files:** Snapshot hash metadata for staleness now lives under **`.atlarix/snapshots/`** (existing workspaces migrate automatically from the old single file). See [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ### What's New in v6.2.0
 

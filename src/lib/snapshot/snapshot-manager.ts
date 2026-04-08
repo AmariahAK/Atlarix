@@ -8,7 +8,7 @@ import { db } from "@/db";
 import { diagrams, diagramVersions } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
 import { atlasDir, computeWorkspaceFileHashes } from "./workspace-hash";
-import { snapshotHashesJsonPath } from "./staleness";
+import { writeSnapshotHashesToWorkspace } from "./staleness";
 
 const SNAPSHOTS_SUBDIR = "snapshots";
 const MANIFEST = "manifest.json";
@@ -35,16 +35,7 @@ async function ensureDir(p: string): Promise<void> {
     await fs.mkdir(p, { recursive: true });
 }
 
-export async function writeSnapshotHashesToWorkspace(
-    workspacePath: string,
-    hashes: Record<string, string>,
-): Promise<void> {
-    const dir = atlasDir(workspacePath);
-    await ensureDir(dir);
-    await fs.writeFile(snapshotHashesJsonPath(workspacePath), JSON.stringify(hashes, null, 0), "utf8");
-}
-
-/** Compute workspace file hashes, write `.atlarix/snapshot_hashes.json`, and persist on the diagram row. */
+/** Compute workspace file hashes, write `.atlarix/snapshots/snapshot_hashes.json`, and persist on the diagram row. */
 export async function persistWorkspaceSnapshotHashes(diagramId: number, workspacePath: string): Promise<void> {
     const hashes = await computeWorkspaceFileHashes(workspacePath);
     await writeSnapshotHashesToWorkspace(workspacePath, hashes);
@@ -235,5 +226,44 @@ export async function revertSnapshot(params: {
         // non-fatal
     }
 
+    return { success: true, restoredFiles: restored };
+}
+
+/**
+ * Restore only specific workspace-relative paths from `.atlarix/snapshots/<turnId>/files/*.bak`.
+ * Does not change diagram (use full `revertSnapshot` for diagram + all files).
+ */
+export async function revertSnapshotFiles(params: {
+    workspacePath: string;
+    turnId: string;
+    relativePaths: string[];
+}): Promise<RevertSnapshotResult> {
+    const { workspacePath, turnId, relativePaths } = params;
+    if (relativePaths.length === 0) {
+        return { success: true, restoredFiles: 0 };
+    }
+    const root = path.join(atlasDir(workspacePath), SNAPSHOTS_SUBDIR, turnId);
+    const filesDir = path.join(root, FILES_DIR);
+    let restored = 0;
+    const normalized = relativePaths.map((p) => p.split(path.sep).join("/")).filter(Boolean);
+    for (const rel of normalized) {
+        const bakName = encodeRelToBak(rel);
+        const bakPath = path.join(filesDir, bakName);
+        const abs = path.join(workspacePath, rel);
+        try {
+            const buf = await fs.readFile(bakPath);
+            await ensureDir(path.dirname(abs));
+            await fs.writeFile(abs, buf);
+            restored++;
+        } catch {
+            // no .bak for this path in this turn
+        }
+    }
+    try {
+        const hashes = await computeWorkspaceFileHashes(workspacePath);
+        await writeSnapshotHashesToWorkspace(workspacePath, hashes);
+    } catch {
+        // non-fatal
+    }
     return { success: true, restoredFiles: restored };
 }

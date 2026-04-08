@@ -26,6 +26,8 @@ const validInvokeChannels = [
   "workspace:prewarm-cache",
   "chat:edit-message",             // v3.9: edit user message and truncate after
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
+  "autonomous:revert-op",
+  "autonomous:accept-all",
   "stream:open",                  // v3.9: open terminal/pipeline stream
   "stream:close",                 // v3.9: close stream
   "stream:get-lines",             // v3.9: get collected lines
@@ -385,6 +387,7 @@ const validReceiveChannels = [
   "chat:iteration:timeout",     // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
+  "autonomous:session-complete",
   // v3.9: Clarifying questions from AI (render QuestionsWidget)
   "chat:questions",
   // Blueprint: AI editing indicator (Diagram tab)

@@ -174,7 +174,7 @@ export const toolTimelineAtom = atom<ToolExecution[]>([]);
 /** v2.1: Activity Stream items (model selection, delegation, compaction, tool use) */
 export interface ActivityStreamItem {
   id: string;
-  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change' | 'agent_message' | 'routing_decision' | 'classifier_routing';
+  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change' | 'agent_message' | 'routing_decision' | 'classifier_routing' | 'orchestrator_blocker';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
   tokens?: number;
@@ -193,8 +193,23 @@ export interface ActivityStreamItem {
   fromAgent?: string;
   toAgent?: string;
   threadId?: string;
+  /** When set, activity was scoped to this chat (used for stream-local buffers). */
+  chatId?: number;
 }
+
+/** Last N agent-bus lines for the Thinking card (keyed by chat id). */
+export interface AgentBusExchange {
+  id: string;
+  label: string;
+  fromAgent?: string;
+  toAgent?: string;
+  timestamp: number;
+  type: string;
+}
+
 export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);
+
+export const agentBusRingByChatIdAtom = atom<Record<number, AgentBusExchange[]>>({});
 
 /** v2.5: Current agent phase from activity stream for canvas animations (architect → containers, builder → beacons, reviewer → edges). */
 export type AgentPhase = "architect" | "builder" | "reviewer" | null;

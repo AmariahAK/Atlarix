@@ -145,6 +145,14 @@ import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
+import { shouldAutoApprovePermissions } from "./autonomous-permissions";
+import {
+  appendAutonomousOp,
+  autonomousOpFromPermissionExec,
+  appendAgentActivitySnapshot,
+  getAutonomousSessionLog,
+  getAgentActivityForTurn,
+} from "./autonomous-session-state";
 import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
 import {
   shouldCompact,
@@ -614,6 +622,7 @@ export function registerChatStreamHandlers() {
     activeStreams.set(req.chatId, abortController);
 
     const runStream = async () => {
+      let stopAgentOrchestrator: (() => void) | undefined;
       try {
         try {
           await requireAuthSession();
@@ -2599,6 +2608,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           status: "done",
                           timestamp: Date.now(),
                           detail: planResult.path ?? planPreview.path ?? ".atlarix/ATLARIX_PLAN.md",
+                          chatId: req.chatId,
                         });
                         return JSON.stringify({
                           success: true,
@@ -2865,6 +2875,61 @@ For workforce, explain services before request_workspace_permissions.`;
             // Register interceptor for IPC handlers (so UI can approve/reject)
             registerInterceptor(req.chatId, permissionInterceptor);
 
+            const autonomousTurnId = String(placeholderAssistantMessage.id);
+
+            if (shouldAutoApprovePermissions(settings.agentMode, req.chatId)) {
+              const { startOrchestratorForTurn } = await import("../../lib/agents/orchestrator");
+              const { publishAgentMessage: publishCorrection } = await import("../../lib/agents/agent-bus");
+              const { subscribeAgentBus } = await import("../../lib/agents/agent-bus");
+              const stopOrch = startOrchestratorForTurn({
+                chatId: req.chatId,
+                turnId: autonomousTurnId,
+                emitBlockerActivity: (label, detail) => {
+                  safeSend(event.sender, "chat:activity", {
+                    id: `orch-${Date.now()}`,
+                    type: "orchestrator_blocker",
+                    label,
+                    status: "done",
+                    timestamp: Date.now(),
+                    detail,
+                    chatId: req.chatId,
+                  });
+                },
+                onCorrectionNeeded: (agentRole, correctionText) => {
+                  publishCorrection({
+                    from: "main",
+                    to: agentRole,
+                    type: "correction",
+                    content: correctionText,
+                    turnId: autonomousTurnId,
+                    chatId: req.chatId,
+                    payload: {},
+                  });
+                },
+              });
+              const stopCap = subscribeAgentBus((msg) => {
+                if (msg.turnId !== autonomousTurnId) return;
+                if (msg.chatId != null && msg.chatId !== req.chatId) return;
+                appendAgentActivitySnapshot(req.chatId, autonomousTurnId, {
+                  id: msg.id,
+                  from: msg.from,
+                  to: msg.to,
+                  type: msg.type,
+                  timestamp: msg.timestamp,
+                  content: msg.content,
+                  turnId: msg.turnId,
+                  depth: msg.depth,
+                  parentMessageId: msg.parentMessageId,
+                  chatId: msg.chatId,
+                  payload: msg.payload,
+                });
+              });
+              stopAgentOrchestrator = () => {
+                stopOrch();
+                stopCap();
+              };
+            }
+
             // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
             permissionInterceptor.on('terminal-output', (payload: any) => {
               feedTerminalOutput(req.chatId, payload.output ?? "");
@@ -2907,6 +2972,7 @@ For workforce, explain services before request_workspace_permissions.`;
                     label: toolName,
                     status: "running",
                     timestamp: Date.now(),
+                    chatId: req.chatId,
                   });
                   try {
                     const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
@@ -3004,7 +3070,104 @@ For workforce, explain services before request_workspace_permissions.`;
                     const permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
                       const operationId = permissionInterceptor.generateOperationId();
-                      permissionInterceptor.bufferOperation(operationId, permRequest);
+                      const skipPermissionWait = shouldAutoApprovePermissions(
+                        settings.agentMode,
+                        req.chatId,
+                      );
+                      permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
+
+                      const pushWrittenPaths = () => {
+                        const preview = permRequest.preview as { path?: string; paths?: string[] };
+                        if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
+                          filesWrittenInThisExchange.push(...preview.paths);
+                        } else if (preview.path) {
+                          filesWrittenInThisExchange.push(preview.path);
+                        }
+                      };
+
+                      const jsonAfterSuccessfulExec = (execResult: {
+                        path?: string;
+                        output?: string;
+                        exitCode?: number;
+                        error?: string;
+                      }) => {
+                        pushWrittenPaths();
+                        const output = execResult.output || "";
+                        const hasCompilationErrors =
+                          /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
+                            output,
+                          );
+                        if (hasCompilationErrors) {
+                          logger.log(`[Build Mode] Command output contains errors: ${operationId}`);
+                          return JSON.stringify({
+                            success: true,
+                            hasErrors: true,
+                            warning:
+                              "The command ran but the output shows errors. Please review the output and fix the underlying code issue before running the same command again.",
+                            message: `Command started but output shows errors`,
+                            path: execResult.path,
+                            output: output.slice(-2000),
+                          });
+                        }
+                        return JSON.stringify({
+                          success: true,
+                          message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                          path: execResult.path,
+                          output: execResult.output,
+                        });
+                      };
+
+                      if (skipPermissionWait) {
+                        try {
+                          logger.log(`[Build Mode] Autonomous auto-exec: ${operationId}`);
+                          const execMeta = await permissionInterceptor.executeOperation(operationId);
+                          const execResult = permissionInterceptor.getExecutionResult(operationId);
+                          appendAutonomousOp(
+                            req.chatId,
+                            autonomousTurnId,
+                            autonomousOpFromPermissionExec(
+                              operationId,
+                              permRequest.operation,
+                              permRequest.preview,
+                              execMeta.approved,
+                            ),
+                          );
+                          if (execMeta.approved) {
+                            logger.log(`[Build Mode] Autonomous permission executed: ${operationId}`);
+                            return jsonAfterSuccessfulExec(execResult);
+                          }
+                          if (execResult.exitCode !== undefined) {
+                            logger.log(
+                              `[Build Mode] Autonomous exec command failed: ${operationId} (exit ${execResult.exitCode})`,
+                            );
+                            return JSON.stringify({
+                              success: false,
+                              error:
+                                execResult.error ||
+                                `Command failed with exit code ${execResult.exitCode}`,
+                              exitCode: execResult.exitCode,
+                              output: execResult.output,
+                              operation: permRequest.operation,
+                              path:
+                                (permRequest.preview as { path?: string; command?: string }).path ||
+                                (permRequest.preview as { command?: string }).command,
+                            });
+                          }
+                          return JSON.stringify({
+                            success: false,
+                            error: execMeta.error ?? execResult.error ?? "Execution failed",
+                            operation: permRequest.operation,
+                            path: (permRequest.preview as { path?: string }).path,
+                          });
+                        } catch (error) {
+                          logger.error(`[Build Mode] Autonomous permission error: ${operationId}`, error);
+                          return JSON.stringify({
+                            success: false,
+                            error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
+                            timedOut: true,
+                          });
+                        }
+                      }
 
                       // Send permission request to frontend for display
                       safeSend(event.sender, "permission-request", {
@@ -3024,37 +3187,7 @@ For workforce, explain services before request_workspace_permissions.`;
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
                           logger.log(`[Build Mode] Permission approved: ${operationId}`);
 
-                          // v3.9: Record written paths for this exchange (revert UI)
-                          const preview = permRequest.preview as { path?: string; paths?: string[] };
-                          if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                            filesWrittenInThisExchange.push(...preview.paths);
-                          } else if (preview.path) {
-                            filesWrittenInThisExchange.push(preview.path);
-                          }
-
-                          // Check if output contains error patterns (dev server may start but have compilation errors)
-                          const output = execResult.output || '';
-                          const hasCompilationErrors = /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(output);
-
-                          if (hasCompilationErrors) {
-                            // Command ran but has errors in output - tell AI there are issues
-                            logger.log(`[Build Mode] Command output contains errors: ${operationId}`);
-                            return JSON.stringify({
-                              success: true, // Command started
-                              hasErrors: true, // But has compilation/runtime errors
-                              warning: "The command ran but the output shows errors. Please review the output and fix the underlying code issue before running the same command again.",
-                              message: `Command started but output shows errors`,
-                              path: execResult.path,
-                              output: output.slice(-2000), // Last 2000 chars for context
-                            });
-                          }
-
-                          return JSON.stringify({
-                            success: true,
-                            message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as any).path || "operation"}`,
-                            path: execResult.path,
-                            output: execResult.output,
-                          });
+                          return jsonAfterSuccessfulExec(execResult);
                         } else {
                           // Check if this was a command failure vs user rejection
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
@@ -3107,6 +3240,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       label: toolName,
                       status: activityStatus,
                       timestamp: Date.now(),
+                      chatId: req.chatId,
                     });
                   }
                 },
@@ -3148,6 +3282,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         status: "active",
                         timestamp: startTime,
                         label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                        chatId: req.chatId,
                       });
                       const delegationChatMode =
                         effectiveWorkMode === "plan"
@@ -3163,6 +3298,8 @@ For workforce, explain services before request_workspace_permissions.`;
                         delegationChatMode,
                         chatId: req.chatId,
                         depth: 0,
+                        turnId: autonomousTurnId,
+                        parentAgentRole: "main",
                       });
                       const duration = Date.now() - startTime;
                       const isError = result?.success === false;
@@ -3177,6 +3314,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         timestamp: Date.now(),
                         label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
                         detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
+                        chatId: req.chatId,
                       });
                       if (validationInfo?.status === "fallback" || validationInfo?.warning) {
                         safeSend(event.sender, "chat:activity", {
@@ -3188,6 +3326,7 @@ For workforce, explain services before request_workspace_permissions.`;
                           detail:
                             validationInfo?.warning ||
                             `Schema ${validationInfo?.schema ?? "unknown"} validated in ${validationInfo?.attempts ?? 1} attempt(s).`,
+                          chatId: req.chatId,
                         });
                       }
                       return typeof result === "string" ? result : JSON.stringify(result);
@@ -3231,6 +3370,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       status: "done",
                       timestamp: Date.now(),
                       detail: (result as any).reason,
+                      chatId: req.chatId,
                     });
                   }
                   return typeof result === "string" ? result : JSON.stringify(result);
@@ -3459,35 +3599,53 @@ For workforce, explain services before request_workspace_permissions.`;
                       const permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
                       if (permRequest) {
                         const operationId = permissionInterceptor.generateOperationId();
-                        permissionInterceptor.bufferOperation(operationId, permRequest);
-                        safeSend(event.sender, "permission-request", {
-                          chatId: req.chatId,
-                          operationId,
-                          request: permRequest,
-                        });
-                        logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
-                        hasPermissionRequest = true;
-                        try {
-                          const approved = await permissionInterceptor.waitForApproval(operationId);
-                          if (approved) {
+                        const skipPermissionWait = shouldAutoApprovePermissions(
+                          settings.agentMode,
+                          req.chatId,
+                        );
+                        permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
+                        const pushAgenticWrittenPaths = () => {
+                          const preview = permRequest.preview as { path?: string; paths?: string[] };
+                          if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
+                            filesWrittenInThisExchange.push(...preview.paths);
+                          } else if (preview.path) {
+                            filesWrittenInThisExchange.push(preview.path);
+                          }
+                        };
+                        if (skipPermissionWait) {
+                          hasPermissionRequest = true;
+                          try {
+                            const execMeta = await permissionInterceptor.executeOperation(operationId);
                             const execResult = permissionInterceptor.getExecutionResult(operationId);
-                            iterationResults.push({
-                              tool: toolCall.toolName,
-                              result: JSON.stringify({
-                                success: true,
-                                message: `Operation completed`,
-                                path: execResult.path,
-                                output: execResult.output,
-                              }),
-                            });
-                          } else {
-                            const execResult = permissionInterceptor.getExecutionResult(operationId);
-                            if (execResult.exitCode !== undefined) {
+                            appendAutonomousOp(
+                              req.chatId,
+                              autonomousTurnId,
+                              autonomousOpFromPermissionExec(
+                                operationId,
+                                permRequest.operation,
+                                permRequest.preview,
+                                execMeta.approved,
+                              ),
+                            );
+                            if (execMeta.approved) {
+                              pushAgenticWrittenPaths();
+                              iterationResults.push({
+                                tool: toolCall.toolName,
+                                result: JSON.stringify({
+                                  success: true,
+                                  message: `Operation completed`,
+                                  path: execResult.path,
+                                  output: execResult.output,
+                                }),
+                              });
+                            } else if (execResult.exitCode !== undefined) {
                               iterationResults.push({
                                 tool: toolCall.toolName,
                                 result: JSON.stringify({
                                   success: false,
-                                  error: execResult.error || `Command failed with exit code ${execResult.exitCode}`,
+                                  error:
+                                    execResult.error ||
+                                    `Command failed with exit code ${execResult.exitCode}`,
                                   exitCode: execResult.exitCode,
                                   output: execResult.output,
                                 }),
@@ -3495,18 +3653,79 @@ For workforce, explain services before request_workspace_permissions.`;
                             } else {
                               iterationResults.push({
                                 tool: toolCall.toolName,
-                                result: JSON.stringify({ success: false, error: "Permission denied by user" }),
+                                result: JSON.stringify({
+                                  success: false,
+                                  error:
+                                    execMeta.error ??
+                                    execResult.error ??
+                                    "Execution failed",
+                                }),
                               });
                             }
+                          } catch (error) {
+                            iterationResults.push({
+                              tool: toolCall.toolName,
+                              result: JSON.stringify({
+                                success: false,
+                                error: `Permission error: ${error instanceof Error ? error.message : String(error)}`,
+                              }),
+                            });
                           }
-                        } catch (error) {
-                          iterationResults.push({
-                            tool: toolCall.toolName,
-                            result: JSON.stringify({
-                              success: false,
-                              error: `Permission timeout: ${error instanceof Error ? error.message : String(error)}`,
-                            }),
+                        } else {
+                          safeSend(event.sender, "permission-request", {
+                            chatId: req.chatId,
+                            operationId,
+                            request: permRequest,
                           });
+                          logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
+                          hasPermissionRequest = true;
+                          try {
+                            const approved = await permissionInterceptor.waitForApproval(operationId);
+                            if (approved) {
+                              const execResult = permissionInterceptor.getExecutionResult(operationId);
+                              pushAgenticWrittenPaths();
+                              iterationResults.push({
+                                tool: toolCall.toolName,
+                                result: JSON.stringify({
+                                  success: true,
+                                  message: `Operation completed`,
+                                  path: execResult.path,
+                                  output: execResult.output,
+                                }),
+                              });
+                            } else {
+                              const execResult = permissionInterceptor.getExecutionResult(operationId);
+                              if (execResult.exitCode !== undefined) {
+                                iterationResults.push({
+                                  tool: toolCall.toolName,
+                                  result: JSON.stringify({
+                                    success: false,
+                                    error:
+                                      execResult.error ||
+                                      `Command failed with exit code ${execResult.exitCode}`,
+                                    exitCode: execResult.exitCode,
+                                    output: execResult.output,
+                                  }),
+                                });
+                              } else {
+                                iterationResults.push({
+                                  tool: toolCall.toolName,
+                                  result: JSON.stringify({
+                                    success: false,
+                                    error: "Permission denied by user",
+                                  }),
+                                });
+                              }
+                            }
+                          } catch (error) {
+                            iterationResults.push({
+                              tool: toolCall.toolName,
+                              result: JSON.stringify({
+                                success: false,
+                                error: `Permission timeout: ${error instanceof Error ? error.message : String(error)}`,
+                              }),
+                            });
+                          }
                         }
                       }
                     } else {
@@ -3772,6 +3991,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   status: "done",
                   timestamp: Date.now(),
                   detail: validation.warning,
+                  chatId: req.chatId,
                 });
               }
             } else {
@@ -3784,6 +4004,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 status: "error",
                 timestamp: Date.now(),
                 detail: validation.warning,
+                chatId: req.chatId,
               });
             }
           }
@@ -3899,6 +4120,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 label: "Self-reviewing response",
                 status: "running",
                 timestamp: Date.now(),
+                chatId: req.chatId,
               });
               safeSend(event.sender, "chat:activity", {
                 id,
@@ -3907,6 +4129,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 status: "done",
                 timestamp: Date.now(),
                 detail: `Score: ${(selfReview.qualityThreshold ?? 0.85).toFixed(2)} (threshold met)`,
+                chatId: req.chatId,
               });
             }
 
@@ -3919,6 +4142,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 status: "done",
                 timestamp: Date.now(),
                 tokens: maxTokensUsed,
+                chatId: req.chatId,
               });
             }
 
@@ -3951,6 +4175,25 @@ For workforce, explain services before request_workspace_permissions.`;
               );
             }
 
+            if (
+              settings.agentMode === "autonomous" &&
+              isBuildModeTurn &&
+              !abortController.signal.aborted
+            ) {
+              const tid = String(placeholderAssistantMessage.id);
+              const ops = getAutonomousSessionLog(req.chatId, tid);
+              const agentActivity = getAgentActivityForTurn(req.chatId, tid);
+              if (ops.length > 0 || agentActivity.length > 0) {
+                safeSend(event.sender, "autonomous:session-complete", {
+                  chatId: req.chatId,
+                  turnId: tid,
+                  workspaceId: effectiveAppId ?? null,
+                  ops,
+                  agentActivity,
+                });
+              }
+            }
+
             // Signal that the stream has completed
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
@@ -3977,6 +4220,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 label: "Self-reviewing response",
                 status: "running",
                 timestamp: Date.now(),
+                chatId: req.chatId,
               });
               safeSend(event.sender, "chat:activity", {
                 id,
@@ -3985,6 +4229,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 status: "done",
                 timestamp: Date.now(),
                 detail: `Score: ${(selfReviewElse.qualityThreshold ?? 0.85).toFixed(2)} (threshold met)`,
+                chatId: req.chatId,
               });
             }
             if (
@@ -4012,6 +4257,24 @@ For workforce, explain services before request_workspace_permissions.`;
                 appPath,
                 userPrompt?.slice(0, 500),
               );
+            }
+            if (
+              settings.agentMode === "autonomous" &&
+              isBuildModeTurn &&
+              !abortController.signal.aborted
+            ) {
+              const tid = String(placeholderAssistantMessage.id);
+              const ops = getAutonomousSessionLog(req.chatId, tid);
+              const agentActivity = getAgentActivityForTurn(req.chatId, tid);
+              if (ops.length > 0 || agentActivity.length > 0) {
+                safeSend(event.sender, "autonomous:session-complete", {
+                  chatId: req.chatId,
+                  turnId: tid,
+                  workspaceId: effectiveAppId ?? null,
+                  ops,
+                  agentActivity,
+                });
+              }
             }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
@@ -4092,6 +4355,8 @@ For workforce, explain services before request_workspace_permissions.`;
         });
         activeStreams.delete(req.chatId);
         FileUploadsState.getInstance().clear(req.chatId);
+      } finally {
+        stopAgentOrchestrator?.();
       }
     };
 
@@ -4260,6 +4525,48 @@ For workforce, explain services before request_workspace_permissions.`;
       await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
       return { success: true };
     }
+  );
+
+  ipcMain.handle(
+    "autonomous:revert-op",
+    async (
+      _event,
+      payload: { chatId: number; turnId: string; operationId: string },
+    ) => {
+      const { findAutonomousOp, markAutonomousOpReverted } = await import("./autonomous-session-state");
+      const { revertSnapshotFiles } = await import("../../lib/snapshot/snapshot-manager");
+      const op = findAutonomousOp(payload.chatId, payload.turnId, payload.operationId);
+      if (!op?.path) {
+        return { success: false, error: "No file path for this operation" };
+      }
+      const chatRow = await db.query.chats.findFirst({
+        where: eq(chats.id, payload.chatId),
+        with: { app: true },
+      });
+      if (!chatRow?.app?.path) {
+        return { success: false, error: "Chat has no workspace" };
+      }
+      const workspacePath = resolveAppPath(chatRow.app.path);
+      const rel = op.path.split(path.sep).join("/");
+      const result = await revertSnapshotFiles({
+        workspacePath,
+        turnId: payload.turnId,
+        relativePaths: [rel],
+      });
+      if (result.success) {
+        markAutonomousOpReverted(payload.chatId, payload.turnId, payload.operationId);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    "autonomous:accept-all",
+    async (_event, payload: { chatId: number; turnId: string }) => {
+      const { clearAutonomousSession } = await import("./autonomous-session-state");
+      clearAutonomousSession(payload.chatId, payload.turnId);
+      return { success: true };
+    },
   );
 }
 

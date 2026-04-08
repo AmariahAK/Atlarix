@@ -16,6 +16,7 @@ import { VersionPane } from "./chat/VersionPane";
 import { ChatError } from "./chat/ChatError";
 import { CommandOutputCard } from "./CommandOutputCard";
 import { IterationProgressBar } from "./IterationProgressBar";
+import { AutonomousReviewPanel } from "./chat/AutonomousReviewPanel";
 import { ModeChangeApproval, type ModeChangeRequest } from "./chat/ModeChangeApproval";
 import { CompassQuotaInlineBanner } from "./chat/CompassQuotaInlineBanner";
 import { Button } from "@/components/ui/button";
@@ -288,6 +289,8 @@ export function ChatPanel({
             </div>
 
             <ChatError error={error} onDismiss={() => setError(null)} />
+
+            <AutonomousReviewPanel chatId={chatId} />
 
             {/* Running and failed commands - show above input with recovery actions */}
             {activeCommands.length > 0 && (

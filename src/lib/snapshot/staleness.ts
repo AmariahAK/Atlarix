@@ -1,5 +1,6 @@
 /**
- * Diagram staleness from `.atlarix/snapshot_hashes.json` vs current workspace hashes.
+ * Diagram staleness from `.atlarix/snapshots/snapshot_hashes.json` vs current workspace hashes.
+ * Legacy path `.atlarix/snapshot_hashes.json` is read for migration then removed on next write.
  */
 
 import * as fs from "fs/promises";
@@ -10,18 +11,51 @@ import type { ChangeAnalysis, FileChange } from "../diagram/diagram_update_strat
 import { DiagramUpdateStrategy, type DiagramDecision } from "../diagram/diagram_update_strategy";
 
 const SNAPSHOT_HASHES_FILE = "snapshot_hashes.json";
+const SNAPSHOTS_SUBDIR = "snapshots";
 
+async function ensureDir(dir: string): Promise<void> {
+    await fs.mkdir(dir, { recursive: true });
+}
+
+/** Canonical path under `.atlarix/snapshots/`. */
 export function snapshotHashesJsonPath(workspacePath: string): string {
+    return path.join(atlasDir(workspacePath), SNAPSHOTS_SUBDIR, SNAPSHOT_HASHES_FILE);
+}
+
+/** Pre–unified layout (root `.atlarix/`). */
+export function legacySnapshotHashesJsonPath(workspacePath: string): string {
     return path.join(atlasDir(workspacePath), SNAPSHOT_HASHES_FILE);
 }
 
 export async function readSnapshotHashesFile(workspacePath: string): Promise<Record<string, string> | null> {
+    const tryParse = async (filePath: string): Promise<Record<string, string> | null> => {
+        try {
+            const raw = await fs.readFile(filePath, "utf8");
+            const j = JSON.parse(raw) as Record<string, string>;
+            return typeof j === "object" && j !== null ? j : null;
+        } catch {
+            return null;
+        }
+    };
+    const primary = await tryParse(snapshotHashesJsonPath(workspacePath));
+    if (primary) return primary;
+    return tryParse(legacySnapshotHashesJsonPath(workspacePath));
+}
+
+export async function writeSnapshotHashesToWorkspace(
+    workspacePath: string,
+    hashes: Record<string, string>,
+): Promise<void> {
+    const dest = snapshotHashesJsonPath(workspacePath);
+    await ensureDir(path.dirname(dest));
+    await fs.writeFile(dest, JSON.stringify(hashes, null, 0), "utf8");
     try {
-        const raw = await fs.readFile(snapshotHashesJsonPath(workspacePath), "utf8");
-        const j = JSON.parse(raw) as Record<string, string>;
-        return typeof j === "object" && j !== null ? j : null;
+        const leg = legacySnapshotHashesJsonPath(workspacePath);
+        if (leg !== dest) {
+            await fs.unlink(leg);
+        }
     } catch {
-        return null;
+        // ignore missing legacy file
     }
 }
 

@@ -9,6 +9,7 @@ import {
 } from "../lib/schemas";
 import type {
   AppOutput,
+  AutonomousSessionCompletePayload,
   Chat,
   ChatResponseEnd,
   ChatProblemsEvent,
@@ -86,6 +87,8 @@ import type {
 } from "@/lib/schemas";
 import { showError } from "@/lib/toast";
 import { DeepLinkData } from "./deep_link_data";
+import { getDefaultStore } from "jotai";
+import { autonomousSessionReviewAtom } from "@/atoms/chatAtoms";
 
 export interface ChatStreamCallbacks {
   onUpdate: (messages: Message[]) => void;
@@ -425,6 +428,20 @@ export class IpcClient {
         this.updateDownloadedHandlers.forEach((h) => h(data as { version: string }));
       }
     });
+
+    this.ipcRenderer.on("autonomous:session-complete", (_e, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "turnId" in payload
+      ) {
+        getDefaultStore().set(
+          autonomousSessionReviewAtom,
+          payload as AutonomousSessionCompletePayload,
+        );
+      }
+    });
   }
 
   /** v3.9: Register for clarifying questions. Returns unsubscribe. */
@@ -468,6 +485,21 @@ export class IpcClient {
       chatId,
       assistantMessageId,
     });
+  }
+
+  public async autonomousRevertOp(params: {
+    chatId: number;
+    turnId: string;
+    operationId: string;
+  }): Promise<{ success: boolean; error?: string; restoredFiles?: number }> {
+    return this.ipcRenderer.invoke("autonomous:revert-op", params);
+  }
+
+  public async autonomousAcceptAll(params: {
+    chatId: number;
+    turnId: string;
+  }): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("autonomous:accept-all", params);
   }
 
   /** v3.9: GitHub Actions — list runs for workspace */

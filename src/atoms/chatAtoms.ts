@@ -1,4 +1,8 @@
-import type { FileAttachment, Message } from "@/ipc/ipc_types";
+import type {
+  AutonomousSessionCompletePayload,
+  FileAttachment,
+  Message,
+} from "@/ipc/ipc_types";
 import { atom } from "jotai";
 import type { ChatSummary } from "@/lib/schemas";
 
@@ -29,6 +33,9 @@ export const attachmentsAtom = atom<FileAttachment[]>([]);
 
 /** Per-chat: whether the last completed turn had tool runs or a permission request. Used to show "No actions this turn" when false in agent mode. */
 export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({});
+
+/** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
+export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 
 /** v3.9: Pending clarifying questions per assistant message (messageId -> questions). Cleared when user submits answers. */
 export const questionsByMessageIdAtom = atom<Record<number, import("@/ipc/ipc_types").Question[]>>({});

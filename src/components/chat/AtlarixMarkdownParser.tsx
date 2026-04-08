@@ -14,6 +14,7 @@ import { AtlarixThink } from "./AtlarixThink";
 import { CodeHighlight } from "./CodeHighlight";
 import { useAtomValue } from "jotai";
 import { isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activityStreamItemsAtom, agentBusRingByChatIdAtom } from "@/atoms/sourceAtoms";
 import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
 import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
@@ -94,6 +95,10 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
 }) => {
   const chatId = useAtomValue(selectedChatIdAtom);
   const isStreaming = useAtomValue(isStreamingByIdAtom).get(chatId!) ?? false;
+  const activityStreamItems = useAtomValue(activityStreamItemsAtom);
+  const agentBusRingByChatId = useAtomValue(agentBusRingByChatIdAtom);
+  const busExchanges =
+    chatId != null ? (agentBusRingByChatId[chatId] ?? []) : [];
   const displayContent = useMemo(
     () => stripAssistantPlanForDisplay(content),
     [content],
@@ -149,8 +154,8 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       if (piece.type === 'custom-tag') {
         const tag = piece.tagInfo.tag;
 
-        // Thoughts go to thinking card
-        if (tag === 'think') {
+        // Thoughts go to thinking card (provider reasoning uses redacted_thinking)
+        if (tag === 'think' || tag === 'redacted_thinking') {
           const content = piece.tagInfo.content?.trim();
           if (content) thoughts.push(content);
         }
@@ -254,11 +259,35 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     return { thoughts, toolCalls: deduplicatedTools, answerPieces: deduplicatedAnswer };
   }, [contentPieces]);
 
+  const multiAgentFromActivity = useMemo(() => {
+    const agents = new Set<string>();
+    for (const i of activityStreamItems) {
+      if (
+        (i.type === "delegation_start" ||
+          i.type === "delegation_complete" ||
+          i.type === "delegation_error") &&
+        i.agent
+      ) {
+        agents.add(String(i.agent).toLowerCase());
+      }
+      if (i.type === "agent_message" && i.fromAgent) {
+        agents.add(String(i.fromAgent).toLowerCase());
+      }
+    }
+    return agents.size >= 2;
+  }, [activityStreamItems]);
+
+  const compactTools = useMemo(() => {
+    if (isStreaming && multiAgentFromActivity) return true;
+    return toolCalls.length >= 2 && thoughts.length >= 2;
+  }, [isStreaming, multiAgentFromActivity, toolCalls.length, thoughts.length]);
+
   // Import ThinkingCard - moved to static import to prevent lazy-loading flicker
   // const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
 
   // Stability guard: Delay hiding to prevent flicker during streaming
-  const hasThinkingContent = thoughts.length > 0 || toolCalls.length > 0;
+  const hasThinkingContent =
+    thoughts.length > 0 || toolCalls.length > 0 || busExchanges.length > 0;
 
   useEffect(() => {
     if (hasThinkingContent) {
@@ -293,6 +322,8 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
         <ThinkingCard
           thoughts={thoughts}
           toolCalls={toolCalls}
+          compactTools={compactTools}
+          busExchanges={busExchanges}
         />
       )}
 
@@ -377,6 +408,7 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-web-crawl",
     "atlarix-read",
     "think",
+    "redacted_thinking",
     "atlarix-command",
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
@@ -454,6 +486,7 @@ function parseCustomTags(content: string): ContentPiece[] {
     "atlarix-code-search",
     "atlarix-read",
     "think",
+    "redacted_thinking",
     "atlarix-command",
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
@@ -609,6 +642,7 @@ function renderCustomTag(
         </AtlarixWebSearchResult>
       );
     case "think":
+    case "redacted_thinking":
       return (
         <AtlarixThink
           node={{

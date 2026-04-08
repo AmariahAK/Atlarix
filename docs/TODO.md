@@ -1,8 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v6.2.0  
+**Current Version:** v6.2.1  
 **Next Version:** v6.3+ (planning)  
 **Last Updated:** 2026-04-08
+
+---
+
+## Done: v6.2.1 — Autonomous session polish + Thinking UI + snapshot hash path
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Autonomous bus / review / IPC | **Done** | Session-complete, revert-op, accept-all; review panel; snapshot revert per turn |
+| Thinking / activity | **Done** | `think` / `redacted_thinking` in markdown parser; activity + bus ring wired with `chatId` |
+| `snapshot_hashes.json` migration | **Done** | Canonical path under `.atlarix/snapshots/`; legacy root file migrated then removed |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.2.1.
 
 ---
 
@@ -183,6 +195,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 ### v5.0 follow-ups / incomplete
 
+- **v6.2.1 vs S5b/S5c:** **v6.2.1** improves **visibility** for multi-agent work (activity stream population, bus lines in Thinking, autonomous review before accept) but does **not** replace **S5b** (structured handoff blocks in parent thread) or **S5c** (dedicated handoff Activity events + collapsible handoff UI). Those remain **planned** until implemented.
 - **S6 execution detail:** S6a validates `delegate_to_agent` + child handoff payloads first (highest-risk surface). S6b extends validation to mode-scoped stream outputs for Plan/Debug/Review only. Ask and general Build remain prose-first.
 - **S6 resilience contract:** Structured output failures should retry once with schema instructions, then emit a non-blocking fallback warning (Activity/chat) while preserving turn continuity.
 - **S7 integration note:** `chat_stream_handlers` now assembles additive context blocks via `ContextAssembler` before final prompt injection. Keep future context sources in assembler section order to preserve cap behavior and predictable trims.
@@ -194,16 +207,6 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 - **Default `.atlarixignore`:** Patterns are intentionally aggressive (e.g. lockfiles, large binaries); product may want softer defaults or onboarding copy.
 - **File-tree Blueprint:** Confirm whether `buildBlueprintFromFileTree` / non-RTE paths respect `.atlarixignore` everywhere; unify if gaps remain.
 - **Per-turn Blueprint tier (future):** S4 uses a session-level atom (applies to every stream until cleared). Optional: reset override after each send, or a per-chat map keyed by `chatId`.
-
----
-
-## Product context (for AI and blueprint accuracy)
-
-- **PIVOT:** Code to Canvas, Canvas to Code. **Containers** = top-level diagram nodes; **Beacons** = functions/features inside a container. **Blueprint** = living diagram from RTE (Round-Trip Engineering) and RAG. RTE parsers (TS, Python) produce single-project blueprints; combined blueprints span projects. Diagram types: architecture, dependencies, flows.
-- **Blueprint connections:** Inferred edges are **import-based** only (file A imports file B → edge A→B). No call-graph or data-flow analysis; add manual edges for other relationships. Cross-room edges into test-like rooms from non-test rooms are filtered out.
-- **Ask vs Build:** Ask mode = read-only tools only (read_file, search_code, web_search, get_diagram, git_status; no run_command, no write_file/code gen). Build mode = full tool set with user approval.
-- **Agents:** Research, Architect, Builder, Reviewer, Debugger; delegate_to_agent; Guided or Autonomous; Fast/Balanced/Thinking model tiers. Work mode sets a default specialist (see `src/lib/agents/work-mode-agents.ts`).
-- **Workspace:** `.atlarix/ATLARIX.md` (single memory/instructions file, legacy memory/spec auto-migrated); token budget; permission queue; summarization.
 
 ---
 

@@ -126,6 +126,10 @@ function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string;
     return { id: "main", label: "Main", side: "right" };
   }
  
+  if (item.type === "orchestrator_blocker") {
+    return { id: "orchestrator", label: "Orchestrator", side: "left" };
+  }
+
   // Agent bus messages: fromAgent is the speaker (left)
   if (item.type === "agent_message" && item.fromAgent) {
     const from = String(item.fromAgent);
@@ -149,6 +153,7 @@ function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string;
 }
  
 function statusFor(item: ActivityStreamItem): BubbleStatus {
+  if (item.type === "orchestrator_blocker") return "error";
   if (item.status === "error" || item.type === "delegation_error") return "error";
   if (item.status === "done" || item.type === "delegation_complete") return "done";
   return "active";
@@ -160,6 +165,11 @@ function bubbleTextFor(item: ActivityStreamItem): string {
       return item.detail?.trim() || item.label?.trim() || "Routing decision";
     case "classifier_routing":
       return item.label?.trim() || "Classifier";
+    case "orchestrator_blocker": {
+      const head = item.label?.trim() || "Blocker";
+      const body = item.detail?.trim();
+      return body ? `${head}\n${body}` : head;
+    }
     case "agent_message": {
       const from = item.fromAgent ? String(item.fromAgent) : "agent";
       const to = item.toAgent ? String(item.toAgent) : "agent";

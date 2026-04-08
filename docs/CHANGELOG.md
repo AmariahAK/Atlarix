@@ -1,5 +1,11 @@
 # Atlarix Changelog
 
+## v6.2.1 — Autonomous session polish + Thinking UI + snapshot hash path (2026-04-08)
+
+- **Autonomous Build / agent mesh:** Auto-approve permissioned tools in autonomous and workspace chat paths; in-memory session op log and agent-activity capture; agent bus lifecycle (`task_assign`, `task_result`, `blocker`, `correction`); `message_agent` + `waitForBusReply`; turn-scoped orchestrator wired from the Build stream; correction suffix on delegated tool results; `AutonomousReviewPanel` with `autonomous:session-complete`, `autonomous:revert-op`, and `autonomous:accept-all` IPC; selective `revertSnapshotFiles` under `.atlarix/snapshots/<turnId>/`. Key areas: [`chat_stream_handlers.ts`](../src/ipc/handlers/chat_stream_handlers.ts), [`agent-bus.ts`](../src/lib/agents/agent-bus.ts), [`orchestrator.ts`](../src/lib/agents/orchestrator.ts), [`agent-tools.ts`](../src/lib/tools/agent-tools.ts), [`snapshot-manager.ts`](../src/lib/snapshot/snapshot-manager.ts), [`AutonomousReviewPanel.tsx`](../src/components/chat/AutonomousReviewPanel.tsx).
+- **Thinking card + activity stream:** Parse `think` and `redacted_thinking` tag pairs (provider reasoning) in [`AtlarixMarkdownParser.tsx`](../src/components/chat/AtlarixMarkdownParser.tsx); wire `chat:activity` into [`activityStreamItemsAtom`](../src/atoms/sourceAtoms.ts) / [`agentBusRingByChatIdAtom`](../src/atoms/sourceAtoms.ts) from [`useStreamChat.ts`](../src/hooks/useStreamChat.ts); [`ThinkingSection.tsx`](../src/components/chat/ThinkingSection.tsx) — compact multi-agent tool summary and last bus lines; `chatId` on activity payloads in [`chat_stream_handlers.ts`](../src/ipc/handlers/chat_stream_handlers.ts) where needed for routing.
+- **Snapshot metadata layout:** Canonical `snapshot_hashes.json` lives under **`.atlarix/snapshots/`** (see [`staleness.ts`](../src/lib/snapshot/staleness.ts)); read path migrates legacy `.atlarix/snapshot_hashes.json`; successful write removes the legacy file.
+
 ## v6.2.0 — Unified workspace snapshots + non-destructive revert (2026-04-08)
 
 - **SQLite migration `0035_unified_snapshots_revert`:** `diagram_versions.chat_turn_id`, `diagrams.last_snapshot_hashes`, `messages.is_reverted`; `migration_seed_verification` case; `npm run db:bundle-sql`.
@@ -242,7 +248,7 @@ For detailed historical notes (v1.x–v4.x) and implementation phases, see [`doc
 - **Progressive Tool Reveal**: Tool manifest (one line per tool) in system prompt; full schemas loaded on first use; core tools always loaded.
 - **New AI tools**: get_slack_mentions, get_slack_channel, post_to_slack; get_assigned_tickets, update_ticket_status, create_ticket, get_sprint_status; get_sentry_errors, get_sentry_error_detail; get_today_schedule; trigger_pipeline, cancel_pipeline. Read-only in Ask mode; write/trigger with approval in Build.
 - **GitLab CI & Bitbucket Pipelines**: CIPlatform implementations using Token Vault; list runs, jobs, logs, stream.
-- **Conversation rollback** *(superseded in v6.2.0 by unified snapshots):* Earlier releases restored file state from a snapshot tied to a chat turn. **Current behavior (v6.2.0+):** restore files and diagram from `.atlarix/snapshots/`; the full transcript stays visible with `is_reverted` markers — messages are not deleted.
+- **Conversation rollback** *(superseded in v6.2.0 by unified snapshots):* Earlier releases restored file state from a snapshot tied to a chat turn. **Current behavior (v6.2.0+):** restore files and diagram from `.atlarix/snapshots/`; the full transcript stays visible with `is_reverted` markers — messages are not deleted. **Hash metadata (v6.2.1+):** `snapshot_hashes.json` is stored under `.atlarix/snapshots/` with one-time migration from the legacy root `.atlarix/snapshot_hashes.json`.
 
 ### Changed
 

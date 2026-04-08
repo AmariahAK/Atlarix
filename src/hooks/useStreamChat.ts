@@ -6,6 +6,10 @@ import type {
 } from "@/ipc/ipc_types";
 import { useAtom, useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
+  normalizeChatActivityPayload,
+  MAX_ACTIVITY_STREAM_ITEMS,
+} from "@/lib/chat-activity-normalize";
+import {
   chatErrorByIdAtom,
   chatMessagesByIdAtom,
   chatStreamCountByIdAtom,
@@ -29,6 +33,8 @@ import {
   diagramStateAtom,
   previewTabAtom,
   terminalOutputsAtom,
+  activityStreamItemsAtom,
+  agentBusRingByChatIdAtom,
   type SourceItem,
   type FileProposal,
   type DiagramState,
@@ -246,6 +252,9 @@ export function useStreamChat({
       let hasIncrementedStreamCount = false;
       let cleanupStreamListeners: (() => void) | null = null;
       try {
+        getDefaultStore().set(activityStreamItemsAtom, []);
+        getDefaultStore().set(agentBusRingByChatIdAtom, (prev) => ({ ...prev, [chatId]: [] }));
+
         // Register permission handler for this chat
         const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
           chatId,
@@ -487,6 +496,37 @@ export function useStreamChat({
           }
         );
 
+        const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
+          if (!payload || typeof payload !== "object") return;
+          const p = payload as { chatId?: number; type?: string; id?: unknown; label?: unknown; timestamp?: number; fromAgent?: unknown; toAgent?: unknown };
+          if (typeof p.chatId !== "number" || p.chatId !== chatId) return;
+
+          const item = normalizeChatActivityPayload(payload);
+          if (item) {
+            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
+              const next = [...prev, item];
+              return next.length > MAX_ACTIVITY_STREAM_ITEMS
+                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
+                : next;
+            });
+          }
+
+          if (p.type === "agent_message") {
+            getDefaultStore().set(agentBusRingByChatIdAtom, (prev) => {
+              const ring = [...(prev[chatId] ?? [])];
+              ring.push({
+                id: String(p.id ?? `bus-${Date.now()}`),
+                label: String(p.label ?? ""),
+                fromAgent: p.fromAgent != null ? String(p.fromAgent) : undefined,
+                toAgent: p.toAgent != null ? String(p.toAgent) : undefined,
+                timestamp: typeof p.timestamp === "number" ? p.timestamp : Date.now(),
+                type: "agent_message",
+              });
+              return { ...prev, [chatId]: ring.slice(-5) };
+            });
+          }
+        });
+
         cleanupStreamListeners = () => {
           if (toolLiveFlushTimer) {
             clearTimeout(toolLiveFlushTimer);
@@ -500,6 +540,7 @@ export function useStreamChat({
           unsubscribeDiagram?.();
           unsubscribeTerminal?.();
           unsubscribeOperationStatus?.();
+          unsubscribeChatActivity?.();
         };
 
         const intentMode =

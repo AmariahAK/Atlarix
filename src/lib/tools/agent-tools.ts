@@ -3,7 +3,7 @@
  * Guided: flat delegation only. Autonomous: agents can call delegate_to_agent (nested) up to max depth.
  */
 
-import { generateText } from "ai";
+import { generateText, zodSchema } from "ai";
 import type { ToolSet } from "ai";
 import {
   ToolRegistry,
@@ -15,7 +15,7 @@ import { getBuiltinAgent } from "../agents/builtin";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
-import type { ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import {
   ArchitectPlanPayloadSchema,
   BuilderExecutionSummarySchema,
@@ -24,6 +24,16 @@ import {
 } from "../agents/agent-handoff-schemas";
 import { validateStructuredOutputWithSingleRetry } from "../agents/structured-output-validation";
 import { defaultAgentForWorkMode } from "../agents/work-mode-agents";
+import {
+  appendAutonomousOp,
+  autonomousOpFromPermissionExec,
+} from "../../ipc/handlers/autonomous-session-state";
+import {
+  publishAgentMessage,
+  toAgentId,
+  waitForBusReply,
+  drainAgentCorrections,
+} from "../agents/agent-bus";
 
 const logger = log.scope("agent-tools");
 
@@ -41,6 +51,10 @@ type DelegateArgs = {
   delegationChatMode?: "build" | "plan" | "ask";
   /** Active chat (Build stream) — required for autonomous sub-agent permission auto-approve. */
   chatId?: number;
+  /** Assistant message id for this turn — autonomous session log + snapshots. */
+  turnId?: string;
+  /** Role of the delegating agent (for bus); omit for main. */
+  parentAgentRole?: string;
 };
 
 /** Run a single delegation; used by handler and by nested execute when Autonomous. */
@@ -83,6 +97,8 @@ async function runDelegation(args: DelegateArgs): Promise<{
 
   const workspace = args.workspace ?? "";
   const workspaceId = args.workspaceId;
+  const parentRole = toAgentId(args.parentAgentRole ?? "main");
+  const targetAgent = toAgentId(resolvedAgentId);
 
   try {
     // v2.5: Mode/role-aware model for delegation (Guided: Fast; Autonomous depth 0: Balanced; depth > 0: Fast)
@@ -111,10 +127,9 @@ async function runDelegation(args: DelegateArgs): Promise<{
             chatMode: delegationChatMode,
           });
 
-          // Fix: Workforce-3 — autonomous nested agents: run permissioned tools without user queue
+          // Autonomous: run permissioned tools without user queue (all delegation depths when chatId set)
           if (
             agentMode === "autonomous" &&
-            depth > 0 &&
             args.chatId != null &&
             result &&
             typeof result === "object" &&
@@ -125,12 +140,24 @@ async function runDelegation(args: DelegateArgs): Promise<{
             const perm = interceptor?.parsePermissionRequest(result) ?? null;
             if (interceptor && perm) {
               const operationId = interceptor.generateOperationId();
-              interceptor.bufferOperation(operationId, perm);
+              interceptor.bufferOperation(operationId, perm, true);
               logger.info(
                 `[Autonomous] Tool executed without user approval: ${t.name} (${perm.operation})`,
               );
               const execMeta = await interceptor.executeOperation(operationId);
               const detail = interceptor.getExecutionResult(operationId);
+              if (args.turnId != null && args.turnId !== "") {
+                appendAutonomousOp(
+                  args.chatId,
+                  args.turnId,
+                  autonomousOpFromPermissionExec(
+                    operationId,
+                    perm.operation,
+                    perm.preview,
+                    execMeta.approved,
+                  ),
+                );
+              }
               if (execMeta.approved) {
                 result = {
                   success: true,
@@ -150,9 +177,17 @@ async function runDelegation(args: DelegateArgs): Promise<{
             }
           }
 
-          return typeof result === "object" && result !== null
-            ? JSON.stringify(result)
-            : String(result);
+          let out =
+            typeof result === "object" && result !== null
+              ? JSON.stringify(result)
+              : String(result);
+          if (args.turnId) {
+            const notes = drainAgentCorrections(args.turnId, targetAgent);
+            if (notes.length > 0) {
+              out += `\n\n[Main correction]\n${notes.map((n) => `- ${n}`).join("\n")}`;
+            }
+          }
+          return out;
         },
       };
     }
@@ -172,12 +207,87 @@ async function runDelegation(args: DelegateArgs): Promise<{
               depth: depth + 1,
               delegationChatMode,
               chatId: args.chatId,
+              turnId: args.turnId,
+              parentAgentRole: resolvedAgentId,
             });
             return JSON.stringify(nestedResult);
           },
         };
       }
     }
+
+    if (agentMode === "autonomous" && args.chatId != null && args.turnId) {
+      const messageAgentSchema = z.object({
+        to: z.enum(["research", "architect", "builder", "reviewer", "debugger", "main"]),
+        type: z.enum(["question", "answer", "status", "blocker"]),
+        content: z.string(),
+      });
+      toolSet["message_agent"] = {
+        description:
+          "Send a message to another specialist agent and wait for their response. Use when you need information or a decision from a peer before continuing. Available agents: research, architect, builder, reviewer, debugger, main. Replies require the peer to publish an answer on the agent bus (otherwise you get no_reply after 10s).",
+        inputSchema: zodSchema(messageAgentSchema),
+        execute: async (params: z.infer<typeof messageAgentSchema>) => {
+          const { to, type, content } = params;
+          const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+          const toId = toAgentId(to);
+          const fromId = targetAgent;
+          publishAgentMessage({
+            id: messageId,
+            from: fromId,
+            to: toId,
+            type,
+            payload: { content },
+            content,
+            turnId: args.turnId,
+            depth,
+            chatId: args.chatId,
+          });
+          const reply = await waitForBusReply(messageId, {
+            expectFrom: toId,
+            expectTo: fromId,
+            timeoutMs: 10_000,
+          });
+          if (!reply) {
+            return JSON.stringify({
+              status: "no_reply",
+              message: "Agent did not respond within timeout, continuing.",
+            });
+          }
+          return JSON.stringify({
+            status: "replied",
+            from: reply.from,
+            content: reply.content ?? String(reply.payload ?? ""),
+          });
+        },
+      };
+    }
+
+    if (args.turnId) {
+      publishAgentMessage({
+        from: parentRole,
+        to: targetAgent,
+        type: "task_assign",
+        payload: { task: args.task, context: args.context ?? null },
+        content: args.task,
+        turnId: args.turnId,
+        depth,
+        chatId: args.chatId,
+      });
+    }
+
+    const emitTaskResult = (summary: string) => {
+      if (!args.turnId) return;
+      publishAgentMessage({
+        from: targetAgent,
+        to: parentRole,
+        type: "task_result",
+        payload: { summary: summary.slice(0, 4000) },
+        content: summary.slice(0, 2000),
+        turnId: args.turnId,
+        depth,
+        chatId: args.chatId,
+      });
+    };
 
     const userContent =
       args.task + (args.context ? `\n\nContext:\n${args.context}` : "");
@@ -246,6 +356,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     const schemaConfig = schemaByAgent[resolvedAgentId];
     const rawSummary = (result.text?.trim() || "(No summary produced)") + autonomousFooter;
     if (!schemaConfig) {
+      emitTaskResult(rawSummary);
       return {
         success: true,
         agent: agent.name,
@@ -270,6 +381,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     });
 
     if (validated.status === "ok") {
+      emitTaskResult(validated.normalizedText);
       return {
         success: true,
         agent: agent.name,
@@ -285,6 +397,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       };
     }
 
+    emitTaskResult(rawSummary);
     return {
       success: true,
       agent: agent.name,
@@ -299,9 +412,22 @@ async function runDelegation(args: DelegateArgs): Promise<{
     };
   } catch (err) {
     logger.error("delegate_to_agent failed:", err);
+    const errMessage = err instanceof Error ? err.message : String(err);
+    if (args.turnId) {
+      publishAgentMessage({
+        from: targetAgent,
+        to: parentRole,
+        type: "blocker",
+        content: errMessage,
+        payload: { error: errMessage },
+        turnId: args.turnId,
+        depth,
+        chatId: args.chatId,
+      });
+    }
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage,
       agent: agent.name,
     };
   }

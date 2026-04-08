@@ -2,14 +2,20 @@
  * Orchestrator: Main observes agent-to-agent traffic and can intervene (inject message, redirect).
  */
 
-import { publishAgentMessage, subscribeAgentBus, type AgentMessage, type AgentId } from "./agent-bus";
+import {
+  publishAgentMessage,
+  subscribeAgentBus,
+  type AgentMessage,
+  type AgentId,
+  type AgentMessageInput,
+} from "./agent-bus";
 
 export type InterventionAction = "none" | "inject" | "redirect" | "block";
 
 export interface OrchestratorDecision {
   action: InterventionAction;
   /** When action is inject: message to publish as Main */
-  injectMessage?: Omit<AgentMessage, "id" | "timestamp">;
+  injectMessage?: AgentMessageInput;
   /** When action is redirect: override target agent */
   redirectTo?: AgentId;
 }
@@ -19,7 +25,9 @@ let orchestratorHandler: ((msg: AgentMessage) => OrchestratorDecision) | null = 
 /**
  * Set the orchestrator handler. Main process or UI can set this to observe and optionally intervene.
  */
-export function setOrchestratorHandler(handler: (msg: AgentMessage) => OrchestratorDecision | void): () => void {
+export function setOrchestratorHandler(
+  handler: (msg: AgentMessage) => OrchestratorDecision | void,
+): () => void {
   const fn = (msg: AgentMessage): OrchestratorDecision => {
     const decision = handler(msg);
     if (decision && decision.action !== "none") {
@@ -30,7 +38,6 @@ export function setOrchestratorHandler(handler: (msg: AgentMessage) => Orchestra
           type: "intervention",
         });
       }
-      // redirect/block would be applied by the caller when processing the decision
     }
     return decision ?? { action: "none" };
   };
@@ -58,4 +65,40 @@ export function notifyOrchestrator(msg: AgentMessage): void {
  */
 export function startOrchestrator(): () => void {
   return subscribeAgentBus(notifyOrchestrator);
+}
+
+export interface OrchestratorTurnOptions {
+  chatId: number;
+  turnId: string;
+  /** Surface blockers in the Activity Stream (renderer). */
+  emitBlockerActivity: (label: string, detail?: string) => void;
+  /**
+   * Publish a correction to an agent on the bus (from main).
+   * Reserved for future orchestrator logic / UI triggers.
+   */
+  onCorrectionNeeded?: (agentRole: AgentId, correctionText: string) => void;
+}
+
+/**
+ * Scoped subscription: only messages for this chat + turnId. Surfaces `blocker` on Activity Stream.
+ */
+export function startOrchestratorForTurn(options: OrchestratorTurnOptions): () => void {
+  const { chatId, turnId, emitBlockerActivity, onCorrectionNeeded } = options;
+  void onCorrectionNeeded;
+
+  return subscribeAgentBus((msg: AgentMessage) => {
+    if (msg.turnId !== turnId) return;
+    if (msg.chatId != null && msg.chatId !== chatId) return;
+    if (msg.type === "blocker") {
+      const from = msg.from;
+      const to = msg.to;
+      const snippet = (msg.content ?? "").slice(0, 280);
+      emitBlockerActivity(
+        `Blocker: ${from} → ${to}`,
+        snippet || (typeof msg.payload === "object" && msg.payload && "error" in msg.payload
+          ? String((msg.payload as { error?: string }).error ?? "")
+          : undefined),
+      );
+    }
+  });
 }

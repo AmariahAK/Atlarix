@@ -62,6 +62,26 @@ export interface Question {
   allowCustom: boolean;
 }
 
+/** Autonomous session review: one executed permission op logged in main. */
+export interface AutonomousOpDto {
+  operationId: string;
+  type: string;
+  path?: string;
+  summary?: string;
+  timestamp: number;
+  result: "success" | "failed";
+  reverted: boolean;
+}
+
+/** Main → renderer when an autonomous Build turn finishes with ops or bus activity. */
+export interface AutonomousSessionCompletePayload {
+  chatId: number;
+  turnId: string;
+  workspaceId?: number | null;
+  ops: AutonomousOpDto[];
+  agentActivity: Record<string, unknown>[];
+}
+
 export interface ChatResponseEnd {
   chatId: number;
   updatedFiles: boolean;

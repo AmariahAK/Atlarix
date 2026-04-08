@@ -296,8 +296,9 @@ export class PermissionInterceptor extends EventEmitter {
 
     /**
      * Buffer an operation for batch approval
+     * @param silent When true, do not emit permission-request (autonomous auto-approve path).
      */
-    bufferOperation(operationId: string, request: PermissionRequest): void {
+    bufferOperation(operationId: string, request: PermissionRequest, silent = false): void {
         const operation: BufferedOperation = {
             id: operationId,
             request,
@@ -315,12 +316,14 @@ export class PermissionInterceptor extends EventEmitter {
             timestamp: new Date().toISOString(),
         });
 
-        // Emit event for frontend to pick up
-        this.emit('permission-request', {
-            operationId,
-            request,
-            timestamp: Date.now(),
-        });
+        if (!silent) {
+            // Emit event for frontend to pick up
+            this.emit('permission-request', {
+                operationId,
+                request,
+                timestamp: Date.now(),
+            });
+        }
     }
 
     /**
