@@ -163,7 +163,9 @@ export default function DiagramPage() {
 
     const handleCopyCode = () => {
         if (selectedDiagram) {
-            navigator.clipboard.writeText(selectedDiagram.content);
+            void navigator.clipboard.writeText(selectedDiagram.content).catch((e) => {
+                console.error("[DiagramPage] Failed to copy:", e);
+            });
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }

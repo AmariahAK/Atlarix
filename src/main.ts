@@ -420,8 +420,9 @@ const createWindow = () => {
       path.join(__dirname, "../renderer/main_window/index.html"),
     );
   }
-  if (process.env.NODE_ENV === "development") {
-    // Open the DevTools.
+  // DevTools can generate noisy Chromium protocol console errors in dev.
+  // Only open them when explicitly requested.
+  if (process.env.NODE_ENV === "development" && process.env.OPEN_DEVTOOLS === "1") {
     mainWindow.webContents.openDevTools();
   }
 

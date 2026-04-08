@@ -27,6 +27,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    watch: {
+      // The Electron main process writes runtime state under ./userData in dev.
+      // If Vite watches it, it triggers infinite reload loops (diagram git tracker snapshots, etc.).
+      ignored: ["**/userData/**"],
+    },
+  },
   define: Object.fromEntries(
     RENDERER_KEYS.map((k) => [
       `import.meta.env.${k}`,

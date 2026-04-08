@@ -1892,7 +1892,7 @@ This conversation includes one or more image attachments. When the user uploads 
           limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
 
           type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
-          const limitedHistoryChatMessages = limitedMessageHistory.map((msg: HistoryMsg) => {
+          let limitedHistoryChatMessages: ModelMessage[] = limitedMessageHistory.map((msg: HistoryMsg) => {
             const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
               role: msg.role as "user" | "assistant" | "system",
               // Why remove thinking tags?
@@ -1917,6 +1917,22 @@ This conversation includes one or more image attachments. When the user uploads 
 
             return baseMsg;
           });
+
+          // Compass/OpenRouter: last-resort safety cap to avoid massive prompts.
+          // Compaction is the primary path; this only kicks in when history is still very large.
+          if (modelClient.builtinProviderId === "compass") {
+            const nonSystem = limitedHistoryChatMessages.filter((m: ModelMessage) => m.role !== "system");
+            const MAX_EXCHANGES = 7;
+            const maxMsgs = MAX_EXCHANGES * 2;
+            if (nonSystem.length > maxMsgs) {
+              let recent = nonSystem.slice(-maxMsgs);
+              if (recent.length > 0 && recent[0]?.role !== "user") {
+                const firstUser = recent.findIndex((m: ModelMessage) => m.role === "user");
+                recent = firstUser >= 0 ? recent.slice(firstUser) : [];
+              }
+              limitedHistoryChatMessages = recent;
+            }
+          }
 
 
           let chatMessages: ModelMessage[] = [
@@ -2015,6 +2031,13 @@ This conversation includes one or more image attachments. When the user uploads 
                 reasoningSummary: "auto",
               } satisfies OpenAIResponsesProviderOptions,
             };
+
+            // Compass runs via OpenRouter. Enable OpenRouter context compression as a fallback near large windows.
+            if (modelClient.builtinProviderId === "compass") {
+              providerOptions.openrouter = {
+                plugins: [{ id: "context-compression" }],
+              };
+            }
 
             // Conditionally include Google thinking config only for supported models
             const optionsModel = getEffectiveModelForOptions(settings);

@@ -188,7 +188,10 @@ export function ChatHeader({
           toolName: null,
           count: 0,
           activeChatId: null,
-          liveOutput: "",
+          liveOutputLines: [],
+          liveErrorLines: [],
+          liveProgressLines: [],
+          liveViewMode: "error_first",
           phaseLabel: null,
         });
         setSelectedChatId(chatId);

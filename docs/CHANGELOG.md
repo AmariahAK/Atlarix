@@ -1,5 +1,15 @@
 # Atlarix Changelog
 
+## v6.1.16 — Diagram stability + Compass context safety (2026-04-08)
+
+- **/diagram Sentry noise:** Normalize `onunhandledrejection` cases where the rejection reason is an `Event` (e.g. script load errors) so telemetry captures actionable details instead of `Error: [object Event]`.
+- **Blueprint canvas layout:** Replace grid/ELK with a deterministic **file-tree** layout (top→bottom) based on `room.parentId`/`room.path`.
+- **Diagram history restore:** Restoring a previous diagram version refreshes the diagram + history panel immediately.
+- **Compass/OpenRouter context safety:** Enable OpenRouter **context compression** as a fallback near the context limit, and hard-cap history to the **last 7 exchanges** when needed.
+- **Long-running commands UX:** Terminal-like output now streams into the persistent tool indicator with capped buffers (Errors / Progress / Raw) and throttled UI updates to keep the app responsive.
+- **Dev stability polish:** Fix a diagram-panel refresh loop that could spam diagram history updates; ignore `userData/` in Vite dev watch to prevent reload storms; use avatar previews instead of GitHub OpenGraph images to avoid 429 rate limits during template browsing.
+- **DevTools noise:** In development, DevTools only auto-opens when `OPEN_DEVTOOLS=1` to avoid noisy Chromium protocol console errors.
+
 ## v6.1.15 — Safety: Compass network noise, SQL guards, prompt hygiene, profanity filter (2026-04-07)
 
 - **Compass (`compass_usage.ts`, `network-failure.ts`, `ipc_types.ts`, `useCompassUsage.ts`):** Transient Supabase failures (`fetch failed`, `ECONNRESET`, etc.) return **`reason: "network_error"`** with **`Sentry.captureMessage`** at **warning** instead of **`captureException`**. UI treats offline reachability as transient (not “sign out” / migration copy).

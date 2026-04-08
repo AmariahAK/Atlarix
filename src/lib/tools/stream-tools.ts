@@ -39,9 +39,16 @@ ToolRegistry.register({
       pattern: stringParam(
         "Optional regex pattern to filter lines (e.g. 'error|Error|ERROR'). If omitted, all lines are collected."
       ),
+      mode: stringParam(
+        "Optional collection mode when pattern is omitted: error_first | progress_first | raw_capped (default: error_first)."
+      ),
       maxLines: {
         type: "number",
         description: `Max lines to collect (default ${DEFAULT_MAX_LINES}, max ${MAX_MAX_LINES})`,
+      },
+      maxBytes: {
+        type: "number",
+        description: "Max bytes to collect (approx; default 64000, max 1000000).",
       },
       timeoutMs: {
         type: "number",
@@ -52,10 +59,16 @@ ToolRegistry.register({
   ),
   handler: async (args: any) => {
     const pattern = args.pattern ?? "";
+    const modeRaw = String(args.mode ?? "").trim();
+    const mode =
+      modeRaw === "progress_first" || modeRaw === "raw_capped" || modeRaw === "error_first"
+        ? modeRaw
+        : "error_first";
     const maxLines = Math.min(
       MAX_MAX_LINES,
       Math.max(1, Number(args.maxLines) || DEFAULT_MAX_LINES)
     );
+    const maxBytes = Math.min(1_000_000, Math.max(1024, Number(args.maxBytes) || 64_000));
     const timeoutMs = Math.max(1000, Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS);
     const chatId = args.chatId ?? null;
     const sendToolActivity = args._sendToolActivity as
@@ -71,7 +84,9 @@ ToolRegistry.register({
       const streamId = openStream("terminal", {
         chatId,
         filter: pattern || null,
+        mode: pattern ? undefined : (mode as any),
         maxLines,
+        maxBytes,
         timeoutMs,
       });
 

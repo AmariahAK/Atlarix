@@ -38,6 +38,129 @@ const NODE_WIDTH = 160;
 const NODE_HEIGHT = 80;
 const GAP = 24;
 
+function normalizeFsPath(p: string): string {
+  return String(p || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "");
+}
+
+function dirnameFsPath(p: string): string | null {
+  const s = normalizeFsPath(p);
+  const idx = s.lastIndexOf("/");
+  if (idx <= 0) return null;
+  return s.slice(0, idx);
+}
+
+function computeFileTreeLayoutTB(rooms: BlueprintRoom[]): Map<string, { x: number; y: number }> {
+  const visible = rooms.filter((r) => !r.hidden);
+  const byId = new Map(visible.map((r) => [r.id, r]));
+
+  const idsWithParent = new Map<string, string | null>();
+  const pathById = new Map<string, string>();
+  const idsWithPath: string[] = [];
+  for (const r of visible) {
+    if (r.parentId && byId.has(r.parentId)) {
+      idsWithParent.set(r.id, r.parentId);
+      continue;
+    }
+    const p = r.path ? normalizeFsPath(r.path) : "";
+    if (p) {
+      pathById.set(r.id, p);
+      idsWithPath.push(r.id);
+    }
+    idsWithParent.set(r.id, null);
+  }
+
+  // Infer parent by path when parentId is not set.
+  const byPath = new Map<string, string>();
+  for (const id of idsWithPath) {
+    const p = pathById.get(id);
+    if (p) byPath.set(p, id);
+  }
+  for (const id of idsWithPath) {
+    if (idsWithParent.get(id)) continue;
+    const p = pathById.get(id);
+    if (!p) continue;
+    const direct = dirnameFsPath(p);
+    if (direct && byPath.has(direct)) {
+      idsWithParent.set(id, byPath.get(direct)!);
+      continue;
+    }
+    // Fallback: longest prefix match among other room paths.
+    let best: { parentId: string; len: number } | null = null;
+    for (const other of idsWithPath) {
+      if (other === id) continue;
+      const op = pathById.get(other);
+      if (!op) continue;
+      if (p.startsWith(op + "/") || p === op) {
+        const len = op.length;
+        if (!best || len > best.len) best = { parentId: other, len };
+      }
+    }
+    if (best && best.parentId !== id) {
+      idsWithParent.set(id, best.parentId);
+    }
+  }
+
+  const children = new Map<string, string[]>();
+  for (const r of visible) children.set(r.id, []);
+  for (const [id, parentId] of idsWithParent.entries()) {
+    if (parentId && children.has(parentId)) {
+      children.get(parentId)!.push(id);
+    }
+  }
+  for (const [pid, list] of children.entries()) {
+    list.sort((a, b) => {
+      const ra = byId.get(a);
+      const rb = byId.get(b);
+      return String(ra?.label ?? a).localeCompare(String(rb?.label ?? b));
+    });
+    children.set(pid, list);
+  }
+
+  const roots = visible
+    .filter((r) => !idsWithParent.get(r.id))
+    .map((r) => r.id)
+    .sort((a, b) => String(byId.get(a)?.label ?? a).localeCompare(String(byId.get(b)?.label ?? b)));
+
+  const pos = new Map<string, { x: number; y: number }>();
+  const xStep = NODE_WIDTH + 80;
+  const yStep = NODE_HEIGHT + 64;
+  let nextLeafX = 0;
+
+  const visit = (id: string, depth: number): number => {
+    const kids = children.get(id) ?? [];
+    let x: number;
+    if (kids.length === 0) {
+      x = nextLeafX;
+      nextLeafX += xStep;
+    } else {
+      const xs = kids.map((k) => visit(k, depth + 1));
+      x = xs.reduce((a, b) => a + b, 0) / xs.length;
+    }
+    pos.set(id, { x, y: depth * yStep });
+    return x;
+  };
+
+  for (const r of roots) visit(r, 0);
+
+  // Ensure all rooms are placed (cycles / missing roots fallback).
+  for (const r of visible) {
+    if (!pos.has(r.id)) {
+      pos.set(r.id, { x: nextLeafX, y: 0 });
+      nextLeafX += xStep;
+    }
+  }
+
+  const minX = Math.min(...Array.from(pos.values()).map((p) => p.x), 0);
+  if (minX !== 0) {
+    for (const [id, p] of pos.entries()) pos.set(id, { x: p.x - minX, y: p.y });
+  }
+  return pos;
+}
+
 function blueprintToNodesAndEdges(
   blueprint: Blueprint,
   agentPhase?: AgentPhase | null,
@@ -47,16 +170,12 @@ function blueprintToNodesAndEdges(
   const allRooms = blueprint.rooms ?? [];
   const visibleRooms = allRooms.filter((r) => !r.hidden);
   const hiddenRooms = allRooms.filter((r) => r.hidden);
-  const useGrid = (blueprint.edges ?? []).length === 0;
+  const layout = computeFileTreeLayoutTB(visibleRooms);
   const nodes: Node<RoomNodeData>[] = visibleRooms.map((room, i) => {
-    const col = i % GRID_COLS;
-    const row = Math.floor(i / GRID_COLS);
     return {
       id: room.id,
       type: NODE_TYPE,
-      position: useGrid
-        ? { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) }
-        : { x: 0, y: 0 },
+      position: layout.get(room.id) ?? { x: 0, y: 0 },
       data: { room, agentPhase: agentPhase ?? undefined, agentPhaseActive: agentPhaseActive ?? false },
     };
   });
@@ -163,8 +282,6 @@ function BlueprintCanvasInner({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const workspaceIdRef = useRef(workspaceId);
   const layoutKeyRef = useRef<string>("");
-  /** Set only after ELK IPC applies positions — avoids Strict Mode / failed IPC skipping layout forever. */
-  const elkCompletedForKeyRef = useRef<string>("");
   const blueprintLayoutKey = `${blueprint.rooms?.length ?? 0}-${(blueprint.rooms ?? []).filter((r) => !r.hidden).map((r) => r.id).join(",")}-${(blueprint.edges ?? []).length}`;
 
   // Reset canvas when workspace or blueprint structure changes (not when only isRteRunning changes).
@@ -196,7 +313,6 @@ function BlueprintCanvasInner({
         return merged;
       });
       layoutKeyRef.current = key;
-      elkCompletedForKeyRef.current = "";
     }
   }, [workspaceId, blueprintLayoutKey, blueprint, agentPhase, agentPhaseActive, isRteRunning, setNodes, setEdges]);
 
@@ -210,47 +326,19 @@ function BlueprintCanvasInner({
     );
   }, [isRteRunning, setEdges]);
 
-  // When nodes have 0,0 positions (ELK needed), run layout via IPC
+  // Re-layout (file-tree): recompute deterministic positions
   useEffect(() => {
     if (initialNodes.length === 0) return;
-    const needsLayout = initialNodes.every((n) => n.position.x === 0 && n.position.y === 0);
-    if (!needsLayout) return;
-    const layoutFullKey = `${workspaceId ?? "null"}-${blueprintLayoutKey}`;
-    if (elkCompletedForKeyRef.current === layoutFullKey) return;
+    if (relayoutCounter <= 0) return;
     const visibleRooms = (blueprint.rooms ?? []).filter((r) => !r.hidden);
-    const roomPayload = visibleRooms.map((r) => ({ id: r.id }));
-    const edgePayload = (blueprint.edges ?? []).map((e) => ({
-      id: e.id ?? `edge-${e.from}-${e.to}`,
-      from: e.from,
-      to: e.to,
-    }));
-    let cancelled = false;
-    IpcClient.getInstance()
-      .layoutContainerCanvas(roomPayload, edgePayload)
-      .then((positions) => {
-        if (cancelled) return;
-        const posMap = new Map(positions.map((p) => [p.id, p]));
-        setNodes((prev) =>
-          prev.map((n) => ({
-            ...n,
-            position: posMap.get(n.id) ?? n.position,
-          }))
-        );
-        elkCompletedForKeyRef.current = layoutFullKey;
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    workspaceId,
-    blueprintLayoutKey,
-    initialNodes,
-    blueprint.rooms,
-    blueprint.edges,
-    setNodes,
-    relayoutCounter,
-  ]);
+    const layout = computeFileTreeLayoutTB(visibleRooms);
+    setNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        position: layout.get(n.id) ?? n.position,
+      })),
+    );
+  }, [relayoutCounter, blueprint.rooms, initialNodes.length, setNodes]);
 
   // When blueprint.rooms or agent phase change, update node data (keep positions)
   useEffect(() => {
@@ -324,13 +412,11 @@ function BlueprintCanvasInner({
           <button
             type="button"
             onClick={() => {
-              setNodes((prev) => prev.map((n) => ({ ...n, position: { x: 0, y: 0 } })));
               layoutKeyRef.current = "";
-              elkCompletedForKeyRef.current = "";
               setRelayoutCounter((c) => c + 1);
             }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"
-            title="Re-run ELK layout"
+            title="Re-run file-tree layout"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
             Re-layout

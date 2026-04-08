@@ -10,7 +10,7 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { getDefaultStore, useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { diagramStateAtom, diagramStalenessAtom, diagramViewModeAtom, blueprintStateAtom, blueprintAiEditingAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
@@ -95,6 +95,54 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
     const [savingBlueprint, setSavingBlueprint] = useState(false);
     const [allDiagrams, setAllDiagrams] = useState<DiagramRecord[]>([]);
 
+    const refreshDiagramsForWorkspace = useCallback(
+        async (opts?: { preferDiagramId?: number }) => {
+            if (!app?.id) return;
+            setLoadingDiagram(true);
+            try {
+                const result = await IpcClient.getInstance().listDiagrams({ workspaceId: app.id });
+                if (result.success && result.diagrams && result.diagrams.length > 0) {
+                    const diagrams = result.diagrams as DiagramRecord[];
+                    setAllDiagrams(diagrams);
+                    const preferred =
+                        opts?.preferDiagramId != null
+                            ? diagrams.find((d) => d.id === opts.preferDiagramId)
+                            : null;
+                    const currentDiagramState = getDefaultStore().get(diagramStateAtom) as DiagramState | null;
+                    const currentInList =
+                        currentDiagramState && (currentDiagramState as any).workspaceId === app.id
+                            ? diagrams.find((d) => d.id === (currentDiagramState as any).id)
+                            : null;
+                    const toShow = preferred || currentInList || diagrams[0];
+                    const nextState: DiagramState = {
+                        id: toShow.id,
+                        code: toShow.content ?? '',
+                        type: toShow.type || 'mermaid',
+                        title: toShow.title,
+                        compareMode: 'current',
+                        workspaceId: app.id,
+                    } as DiagramState;
+
+                    // Avoid noisy re-renders / history refresh loops if nothing materially changed.
+                    const currentId = (currentDiagramState as any)?.id;
+                    const currentCode = (currentDiagramState as any)?.code;
+                    if (currentId !== nextState.id || currentCode !== nextState.code) {
+                        setDiagramState(nextState);
+                    }
+                } else {
+                    setAllDiagrams([]);
+                    setDiagramState(null);
+                }
+            } catch (e) {
+                console.error("[DiagramPanel] Failed to refresh diagrams:", e);
+                setAllDiagrams([]);
+            } finally {
+                setLoadingDiagram(false);
+            }
+        },
+        [app?.id, setDiagramState],
+    );
+
     // Subscribe to "AI is editing blueprint" for visual indicator
     useEffect(() => {
         const unsub = IpcClient.getInstance().onBlueprintAiEditing((payload) => {
@@ -124,44 +172,20 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
     useEffect(() => {
         if (!app?.id) return;
 
-        const loadExistingDiagrams = async () => {
-            setLoadingDiagram(true);
+        void refreshDiagramsForWorkspace();
+    }, [app?.id, refreshDiagramsForWorkspace]);
+
+    const refreshHistoryForDiagram = useCallback(
+        async (diagramId: number) => {
             try {
-                console.log(`[DiagramPanel] Loading diagrams for workspace ${app.id}`);
-                const result = await IpcClient.getInstance().listDiagrams({ workspaceId: app.id });
-
-                if (result.success && result.diagrams && result.diagrams.length > 0) {
-                    const diagrams = result.diagrams as DiagramRecord[];
-                    setAllDiagrams(diagrams);
-                    console.log(`[DiagramPanel] Found ${diagrams.length} diagrams`);
-                    // If current diagram is not in the list or from another workspace, show first
-                    const currentInList = diagram && (diagram as any).workspaceId === app.id
-                        ? diagrams.find((d) => d.id === (diagram as any).id)
-                        : null;
-                    const toShow = currentInList || diagrams[0];
-                    setDiagramState({
-                        id: toShow.id,
-                        code: toShow.content ?? '',
-                        type: toShow.type || 'mermaid',
-                        title: toShow.title,
-                        compareMode: 'current',
-                        workspaceId: app.id,
-                    } as DiagramState);
-                } else {
-                    setAllDiagrams([]);
-                    setDiagramState(null);
-                    console.log(`[DiagramPanel] No diagrams found for workspace ${app.id}`);
-                }
-            } catch (error) {
-                console.error('[DiagramPanel] Failed to load diagrams:', error);
-                setAllDiagrams([]);
-            } finally {
-                setLoadingDiagram(false);
+                const result = await IpcClient.getInstance().getDiagramHistory(diagramId);
+                if (result.success) setVersions(result.versions);
+            } catch (e) {
+                console.error("[DiagramPanel] Failed to refresh history:", e);
             }
-        };
-
-        loadExistingDiagrams();
-    }, [app?.id, setDiagramState]);
+        },
+        [],
+    );
 
     // Load blueprint when workspace changes and in Blueprint mode
     useEffect(() => {
@@ -189,18 +213,12 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
     }, [app?.id, setDiagramState]);
 
     // Fetch version history if we have a diagram ID
+    const diagramId = (diagram as any)?.id as number | undefined;
     useEffect(() => {
-        if (diagram && (diagram as any).id) {
-            IpcClient.getInstance()
-                .getDiagramHistory((diagram as any).id)
-                .then((result) => {
-                    if (result.success) {
-                        setVersions(result.versions);
-                    }
-                })
-                .catch(console.error);
+        if (diagramId != null) {
+            void refreshHistoryForDiagram(diagramId);
         }
-    }, [diagram]);
+    }, [diagramId, refreshHistoryForDiagram]);
 
     // Handle refresh click
     const handleRefreshDiagram = useCallback(async () => {
@@ -423,6 +441,13 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     versions={versions}
                     showHistory={showHistory}
                     setShowHistory={setShowHistory}
+                    onAfterRestore={async () => {
+                        const id = (diagram as any).id as number | undefined;
+                        await refreshDiagramsForWorkspace({ preferDiagramId: id });
+                        if (id != null) {
+                            await refreshHistoryForDiagram(id);
+                        }
+                    }}
                 />
             )}
             {activeTab === 'logs' && <DiagramLogs />}
@@ -527,6 +552,7 @@ function DiagramViewer({
     versions,
     showHistory,
     setShowHistory,
+    onAfterRestore,
 }: {
     diagram: DiagramState;
     compareMode: CompareMode;
@@ -535,6 +561,7 @@ function DiagramViewer({
     versions: DiagramVersion[];
     showHistory: boolean;
     setShowHistory: (show: boolean) => void;
+    onAfterRestore?: () => Promise<void>;
 }) {
     const [copied, setCopied] = useState(false);
     const [renderedSvg, setRenderedSvg] = useState<string | null>(null);
@@ -553,7 +580,9 @@ function DiagramViewer({
 
     // Copy diagram code
     const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(displayCode);
+        void navigator.clipboard.writeText(displayCode).catch((e) => {
+            console.error("[DiagramPanel] Failed to copy:", e);
+        });
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     }, [displayCode]);
@@ -579,11 +608,13 @@ function DiagramViewer({
                 versionId: version.id,
             });
             setShowHistory(false);
-            // TODO: Refresh diagram state
+            await onAfterRestore?.();
+            toast.success("Restored diagram version");
         } catch (error) {
             console.error('Failed to restore version:', error);
+            toast.error("Failed to restore diagram version");
         }
-    }, [diagram, setShowHistory]);
+    }, [diagram, onAfterRestore, setShowHistory]);
 
     return (
         <div className="flex flex-col h-full">

@@ -1,8 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v6.1.15  
+**Current Version:** v6.1.16  
 **Next Version:** v6.2+ (planning)  
 **Last Updated:** 2026-04-07
+
+---
+
+## Done: v6.1.16 — Diagram stability + Compass context safety
+
+| Area | Status | Notes |
+|------|--------|--------|
+| /diagram Sentry noise fix | **Done** | Normalize `onunhandledrejection` Event reasons; capture actionable details |
+| Blueprint file-tree layout | **Done** | Replace grid/ELK with top→bottom file-tree layout |
+| Diagram restore refresh | **Done** | Restore version triggers diagram + history refresh |
+| Compass context safety | **Done** | OpenRouter context compression fallback; last-7 exchanges safety cap |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.1.16.
 
 ---
 
@@ -237,11 +250,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 ## Next session (to be done)
 
-- **Diagram: file-tree layout**
-  - Replace grid/ELK with a **hierarchical file-tree style** so users see what is connected to what and how data flows.
-  - **Beacons:** Horizontal tree for main beacons (e.g. DB ←→ API); under each main beacon, a **vertical file tree** for sub-beacons (e.g. User Profile with children Edit, Delete; Signup/Login with OAuth, Manual). Layout should reflect real structure (main beacons with sub-beacons underneath doing tasks).
-  - **Containers:** Same file-tree idea for the container canvas (no sub-containers); main containers in a horizontal or vertical tree so connections and hierarchy are clear.
-- **Optional:** Ensure edge labels or tooltips show what data is sent where when supported by the model.
+- **Diagram/Blueprint layout:** File-tree layout for the Blueprint container canvas shipped in **v6.1.16** (top→bottom). Remaining work is beacon-level file-tree layout and richer edge/tooltips if desired.
 
 ---
 
@@ -258,7 +267,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 ## Later
 
 - [ ] Re-enable Windows build in CI when EV/OV code signing is ready.
-- [ ] Optional: stream terminal output into tool indicator for long-running commands.
+- [x] Optional: stream terminal output into tool indicator for long-running commands.
 - [ ] Optional: brief "done" phase of Atlarix animation when response completes.
 
 ---

@@ -216,7 +216,8 @@ export default function AtlarixHome() {
                     id: item.full_name,
                     title: item.name,
                     description: item.description || 'No description',
-                    imageUrl: `https://opengraph.githubassets.com/1/${item.full_name}`,
+                    // GitHub OpenGraph endpoint is rate-limited (429). Use owner avatar instead.
+                    imageUrl: `https://github.com/${item.owner?.login ?? item.full_name.split('/')[0]}.png?size=200`,
                     githubUrl: item.html_url,
                     techStack: item.topics?.slice(0, 4) || [],
                     stars: item.stargazers_count,

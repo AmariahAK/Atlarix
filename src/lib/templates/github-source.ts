@@ -113,7 +113,8 @@ export async function fetchVercelExamples(): Promise<Template[]> {
                 id: `vercel-${item.name}`,
                 title: formatExampleName(item.name),
                 description: `Next.js official example: ${item.name}`,
-                imageUrl: `https://opengraph.githubassets.com/1/vercel/next.js`, // Vercel repo OG image
+                // GitHub OpenGraph endpoint is rate-limited (429). Use org avatar instead.
+                imageUrl: `https://github.com/vercel.png?size=200`,
                 githubUrl: `https://github.com/vercel/next.js/tree/canary/examples/${item.name}`,
                 category: 'fullstack' as const,
                 techStack: ['Next.js', 'React', 'TypeScript'],
@@ -150,8 +151,8 @@ function convertGitHubRepoToTemplate(repo: any): Template {
         id: repo.full_name,
         title: repo.name,
         description: repo.description || 'No description available',
-        // Use GitHub OG image for preview
-        imageUrl: `https://opengraph.githubassets.com/1/${owner}/${name}`,
+        // GitHub OpenGraph endpoint is rate-limited (429). Use owner avatar instead.
+        imageUrl: `https://github.com/${owner}.png?size=200`,
         githubUrl: repo.html_url,
         category,
         techStack,
@@ -310,7 +311,8 @@ async function fetchAwesomeListTemplates(list: string): Promise<Template[]> {
       id: `${owner}/${repo}`,
       title: repo,
       description: '',
-      imageUrl: `https://opengraph.githubassets.com/1/${owner}/${repo}`,
+      // GitHub OpenGraph endpoint is rate-limited (429). Use owner avatar instead.
+      imageUrl: `https://github.com/${owner}.png?size=200`,
       githubUrl: url,
       category: 'frontend',
       techStack: [],

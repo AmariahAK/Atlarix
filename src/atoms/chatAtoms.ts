@@ -51,8 +51,14 @@ export interface ToolIndicatorState {
   count: number;
   /** Chat id for the active tool run; used to associate terminal-output with this indicator. */
   activeChatId: number | null;
-  /** Live terminal output for the current tool run (e.g. run_command). */
-  liveOutput: string;
+  /** Live terminal output for the current tool run (ring buffer; last N lines). */
+  liveOutputLines: string[];
+  /** Error-first filtered view (ring buffer). */
+  liveErrorLines: string[];
+  /** Progress-ish view (ring buffer). */
+  liveProgressLines: string[];
+  /** Which view to show by default. */
+  liveViewMode: "error_first" | "progress_first" | "raw_capped";
   /** Fix: Finding 4 — pre-tool "Thinking…" from main before first token */
   phaseLabel: string | null;
 }
@@ -61,7 +67,10 @@ export const toolIndicatorAtom = atom<ToolIndicatorState>({
   toolName: null,
   count: 0,
   activeChatId: null,
-  liveOutput: "",
+  liveOutputLines: [],
+  liveErrorLines: [],
+  liveProgressLines: [],
+  liveViewMode: "error_first",
   phaseLabel: null,
 });
 

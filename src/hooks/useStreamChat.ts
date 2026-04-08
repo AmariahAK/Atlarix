@@ -58,6 +58,30 @@ import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
+
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function isSpammyProgressLine(line: string): boolean {
+  const s = line.trim();
+  if (!s) return true;
+  if (/^\d+%$/.test(s)) return true;
+  if (/^\[=+>\s*\]\s*\d+%/.test(s)) return true;
+  if (/^(?:\u25A0|\u25A1|\u2591|\u2592|\u2593)+$/.test(s)) return true;
+  return false;
+}
+
+function isErrorLikeLine(line: string): boolean {
+  return /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i.test(line);
+}
+
+function pushRing(buf: string[], lines: string[], max: number): string[] {
+  if (max <= 0) return [];
+  const next = buf.length ? [...buf, ...lines] : [...lines];
+  if (next.length <= max) return next;
+  return next.slice(next.length - max);
+}
 import { playNotify, playRemaining } from "@/lib/sounds";
 import { blueprintTierForWorkMode } from "@/lib/work-mode";
 import type { WorkMode } from "@/lib/schemas";
@@ -202,7 +226,10 @@ export function useStreamChat({
         toolName: null,
         count: 0,
         activeChatId: chatId,
-        liveOutput: "",
+        liveOutputLines: [],
+        liveErrorLines: [],
+        liveProgressLines: [],
+        liveViewMode: "error_first",
         phaseLabel: "Thinking…",
       });
       setStreamSlowWarningByChatId((prev) => {
@@ -217,6 +244,7 @@ export function useStreamChat({
       });
 
       let hasIncrementedStreamCount = false;
+      let cleanupStreamListeners: (() => void) | null = null;
       try {
         // Register permission handler for this chat
         const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
@@ -321,16 +349,66 @@ export function useStreamChat({
         );
 
         // Register terminal output handler for this chat
+        const pendingToolLiveRef = {
+          rawLines: [] as string[],
+          errLines: [] as string[],
+          progLines: [] as string[],
+          lastIncomingLine: null as string | null,
+        };
+        let toolLiveFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushToolLive = () => {
+          toolLiveFlushTimer = null;
+          const rawLines = pendingToolLiveRef.rawLines;
+          const errLines = pendingToolLiveRef.errLines;
+          const progLines = pendingToolLiveRef.progLines;
+          if (rawLines.length === 0 && errLines.length === 0 && progLines.length === 0) return;
+
+          pendingToolLiveRef.rawLines = [];
+          pendingToolLiveRef.errLines = [];
+          pendingToolLiveRef.progLines = [];
+
+          setToolIndicator((prev) => {
+            if (!prev.active || prev.activeChatId !== chatId) return prev;
+            const maxRaw = 300;
+            const maxErr = 120;
+            const maxProg = 120;
+            return {
+              ...prev,
+              liveOutputLines: pushRing(prev.liveOutputLines, rawLines, maxRaw),
+              liveErrorLines: pushRing(prev.liveErrorLines, errLines, maxErr),
+              liveProgressLines: pushRing(prev.liveProgressLines, progLines, maxProg),
+            };
+          });
+        };
+
         const unsubscribeTerminal = IpcClient.getInstance().onTerminalOutput(
           chatId,
           (payload) => {
             // Stream live output into tool indicator when it's active for this chat
-            setToolIndicator((prev) => {
-              if (prev.active && prev.activeChatId === chatId) {
-                return { ...prev, liveOutput: payload.output ?? "" };
+            const raw = stripAnsi(payload.output ?? "");
+            const incomingLines = raw
+              .split(/\r?\n/)
+              .map((l) => l.trimEnd())
+              .filter(Boolean);
+            if (incomingLines.length > 0) {
+              // Dedupe (cheap): avoid repeating the exact same last incoming line endlessly.
+              const lastIncoming = pendingToolLiveRef.lastIncomingLine;
+              if (incomingLines.length === 1 && lastIncoming && incomingLines[0] === lastIncoming) {
+                // no-op
+              } else {
+                pendingToolLiveRef.lastIncomingLine = incomingLines[incomingLines.length - 1] ?? lastIncoming;
+                for (const ln of incomingLines) {
+                  pendingToolLiveRef.rawLines.push(ln);
+                  if (isErrorLikeLine(ln)) pendingToolLiveRef.errLines.push(ln);
+                  if (!isSpammyProgressLine(ln)) pendingToolLiveRef.progLines.push(ln);
+                }
               }
-              return prev;
-            });
+
+              // Throttle UI updates to avoid render storms.
+              if (!toolLiveFlushTimer) {
+                toolLiveFlushTimer = setTimeout(flushToolLive, 250);
+              }
+            }
 
             // Update terminal outputs Map for CommandOutputCard display
             setTerminalOutputs((prev) => {
@@ -398,6 +476,21 @@ export function useStreamChat({
             });
           }
         );
+
+        cleanupStreamListeners = () => {
+          if (toolLiveFlushTimer) {
+            clearTimeout(toolLiveFlushTimer);
+            toolLiveFlushTimer = null;
+          }
+          // Best-effort: flush anything pending once at the end.
+          flushToolLive();
+
+          unsubscribeUserQuestion?.();
+          unsubscribePermission?.();
+          unsubscribeDiagram?.();
+          unsubscribeTerminal?.();
+          unsubscribeOperationStatus?.();
+        };
 
         const intentMode =
           settings?.intentMode ??
@@ -522,6 +615,7 @@ export function useStreamChat({
             });
           },
           onEnd: (response: ChatResponseEnd) => {
+            cleanupStreamListeners?.();
             if (response.updatedFiles) {
               setIsPreviewOpen(true);
               refreshAppIframe();
@@ -578,7 +672,10 @@ export function useStreamChat({
               toolName: null,
               count: 0,
               activeChatId: null,
-              liveOutput: "",
+              liveOutputLines: [],
+              liveErrorLines: [],
+              liveProgressLines: [],
+              liveViewMode: "error_first",
               phaseLabel: null,
             });
             setStreamLastActivityAtByChatId((prev) => {
@@ -601,6 +698,7 @@ export function useStreamChat({
             onSettled?.();
           },
           onError: (errorMessage: string) => {
+            cleanupStreamListeners?.();
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
             if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
               posthog?.capture("auth:chat_stream_blocked", { chat_id: chatId });
@@ -636,7 +734,10 @@ export function useStreamChat({
               toolName: null,
               count: 0,
               activeChatId: null,
-              liveOutput: "",
+              liveOutputLines: [],
+              liveErrorLines: [],
+              liveProgressLines: [],
+              liveViewMode: "error_first",
               phaseLabel: null,
             });
             setStreamLastActivityAtByChatId((prev) => {
@@ -662,12 +763,20 @@ export function useStreamChat({
         // the case where the stream setup fails
       } catch (error) {
         console.error("[CHAT] Exception during streaming setup:", error);
+        try {
+          cleanupStreamListeners?.();
+        } catch {
+          // ignore
+        }
         setToolIndicator({
           active: false,
           toolName: null,
           count: 0,
           activeChatId: null,
-          liveOutput: "",
+          liveOutputLines: [],
+          liveErrorLines: [],
+          liveProgressLines: [],
+          liveViewMode: "error_first",
           phaseLabel: null,
         });
         if (chatId) {

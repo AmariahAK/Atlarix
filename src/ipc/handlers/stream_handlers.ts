@@ -23,17 +23,21 @@ export function registerStreamHandlers(): void {
         chatId?: number | null;
         filter?: string | null;
         maxLines?: number;
+        maxBytes?: number;
         timeoutMs?: number;
         jobId?: number;
+        mode?: "error_first" | "progress_first" | "raw_capped";
       }
     ) => {
-      const { source, chatId, filter, maxLines, timeoutMs, jobId } = payload;
+      const { source, chatId, filter, maxLines, maxBytes, timeoutMs, jobId, mode } = payload;
       return openStream(source, {
         chatId: chatId ?? null,
         filter: filter ?? null,
         maxLines,
+        maxBytes,
         timeoutMs,
         jobId,
+        mode,
       });
     }
   );

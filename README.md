@@ -7,11 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.1.15*
+*Current: v6.1.16*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 ---
+
+### What's New in v6.1.16
+
+- **Diagrams stability:** Reduced noisy `/diagram` issues by normalizing unhandled promise rejections (so telemetry reports actionable details rather than `[object Event]`). Blueprint canvas now uses a **file-tree** layout (top→bottom) for clearer hierarchy; restoring a diagram version refreshes the view immediately.
+- **Long-running commands UX:** Terminal output now streams into the persistent tool indicator (with capped views for Errors / Progress / Raw) so you can follow builds and installs without overwhelming the UI.
+- **Compass large-context safety:** When Compass prompts approach the context limit, OpenRouter **context compression** may be enabled as a fallback, with a final “last 7 exchanges” safety cap.
 
 ### What's New in v6.1.15
 

@@ -226,8 +226,35 @@ export function MermaidRenderer({
                 onRender?.(svg);
             }
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : "Failed to render diagram";
-            console.error("[MermaidRenderer] Error:", err);
+            let errorMessage = "Failed to render diagram";
+            if (err instanceof Error) {
+                errorMessage = err.message || errorMessage;
+            } else if (err instanceof Event) {
+                const t = err.target as unknown;
+                const el = t && typeof t === "object" ? (t as Element) : null;
+                const tag =
+                    el && "tagName" in el ? String((el as Element).tagName ?? "") : "";
+                const src =
+                    el && "getAttribute" in el
+                        ? (el as Element).getAttribute?.("src") ?? ""
+                        : "";
+                const href =
+                    el && "getAttribute" in el
+                        ? (el as Element).getAttribute?.("href") ?? ""
+                        : "";
+                errorMessage = `Mermaid render failed (Event: ${err.type}${tag ? ` @ <${tag.toLowerCase()}>` : ""}${src ? ` src=${src}` : ""}${href ? ` href=${href}` : ""})`;
+            } else if (typeof err === "string" && err.trim()) {
+                errorMessage = err.trim();
+            } else if (err && typeof err === "object") {
+                const maybeMsg =
+                    typeof (err as { message?: unknown }).message === "string"
+                        ? String((err as { message?: unknown }).message)
+                        : "";
+                if (maybeMsg.trim()) {
+                    errorMessage = maybeMsg.trim();
+                }
+            }
+            console.error("[MermaidRenderer] Error:", err, { errorMessage });
             setError(errorMessage);
             onError?.(errorMessage);
         } finally {

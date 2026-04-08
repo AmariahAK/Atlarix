@@ -5,13 +5,22 @@
 
 export type StreamSource = "terminal" | "pipeline";
 
+export type TerminalStreamMode = "error_first" | "progress_first" | "raw_capped";
+
 export interface Stream {
   id: string;
   source: StreamSource;
   chatId: number | null;
   filter: RegExp | null;
   maxLines: number;
+  /** Optional max bytes collected (approx). */
+  maxBytes: number;
+  collectedBytes: number;
   collectedLines: string[];
+  /** Stream mode used when filter is not provided (terminal only). */
+  mode?: TerminalStreamMode;
+  /** Dedupe: last collected line. */
+  lastLine?: string | null;
   active: boolean;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   /** For pipeline: optional job id. */
@@ -34,16 +43,20 @@ export function openStream(
     chatId?: number | null;
     filter?: string | null;
     maxLines?: number;
+    maxBytes?: number;
     timeoutMs?: number;
     jobId?: number;
+    mode?: TerminalStreamMode;
   } = {}
 ): string {
   const {
     chatId = null,
     filter = null,
     maxLines = 50,
+    maxBytes = 64_000,
     timeoutMs = 30_000,
     jobId,
+    mode,
   } = options;
 
   const id = nextStreamId();
@@ -53,7 +66,11 @@ export function openStream(
     chatId,
     filter: filter ? new RegExp(filter, "i") : null,
     maxLines: Math.min(Math.max(1, maxLines), 200),
+    maxBytes: Math.max(1024, Math.min(Number(maxBytes) || 64_000, 1_000_000)),
+    collectedBytes: 0,
     collectedLines: [],
+    mode,
+    lastLine: null,
     active: true,
     timeoutHandle: null,
     jobId,
@@ -100,41 +117,59 @@ export function listActiveStreams(): Array<{ id: string; source: StreamSource; c
 export function feedTerminalOutput(chatId: number, output: string): void {
   const text = typeof output === "string" ? output : String(output);
   const lines = text.split(/\r?\n/);
+  const defaultErrorRe = /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i;
 
   for (const stream of streams.values()) {
     if (!stream.active || stream.source !== "terminal") continue;
     if (stream.chatId != null && stream.chatId !== chatId) continue;
 
     const re = stream.filter;
+    const mode: TerminalStreamMode = stream.mode ?? "error_first";
+
+    const pushLine = (line: string) => {
+      const s = line ?? "";
+      if (stream.lastLine && s === stream.lastLine) return;
+      stream.lastLine = s;
+      const bytes = Buffer.byteLength(s, "utf8") + 1;
+      if (stream.collectedLines.length >= stream.maxLines || stream.collectedBytes + bytes > stream.maxBytes) {
+        stream.active = false;
+        if (stream.timeoutHandle) {
+          clearTimeout(stream.timeoutHandle);
+          stream.timeoutHandle = null;
+        }
+        return;
+      }
+      stream.collectedLines.push(s);
+      stream.collectedBytes += bytes;
+    };
+
     if (re) {
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
           const start = Math.max(0, i - 2);
           const end = Math.min(lines.length, i + 3);
           for (let j = start; j < end; j++) {
-            if (stream.collectedLines.length >= stream.maxLines) {
-              stream.active = false;
-              if (stream.timeoutHandle) {
-                clearTimeout(stream.timeoutHandle);
-                stream.timeoutHandle = null;
-              }
-              break;
-            }
-            stream.collectedLines.push(lines[j]);
+            pushLine(lines[j]);
+            if (!stream.active) break;
           }
         }
       }
     } else {
       for (const line of lines) {
-        if (stream.collectedLines.length >= stream.maxLines) {
-          stream.active = false;
-          if (stream.timeoutHandle) {
-            clearTimeout(stream.timeoutHandle);
-            stream.timeoutHandle = null;
+        if (!line) continue;
+        if (mode === "error_first") {
+          if (defaultErrorRe.test(line)) {
+            pushLine(line);
           }
-          break;
+        } else if (mode === "progress_first") {
+          // Keep most lines but avoid obvious spammy progress bars.
+          if (!/^\s*(\d+%|\[=+>\s*\]\s*\d+%|(?:\u25A0|\u25A1|\u2591|\u2592|\u2593)+)\s*$/.test(line)) {
+            pushLine(line);
+          }
+        } else {
+          pushLine(line);
         }
-        stream.collectedLines.push(line);
+        if (!stream.active) break;
       }
     }
   }

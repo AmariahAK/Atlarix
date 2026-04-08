@@ -24,6 +24,65 @@ console.log("Running in mode:", import.meta.env.MODE);
 
 let sentryIsPackaged = true; // set by bootstrap before render
 
+function eventRejectionDetails(reason: Event): {
+  type: string;
+  tagName?: string;
+  src?: string;
+  href?: string;
+  id?: string;
+  className?: string;
+} {
+  const target = reason.target as unknown;
+  const el = target && typeof target === "object" ? (target as Element) : null;
+  const tagName = el && "tagName" in el ? String((el as Element).tagName ?? "") : undefined;
+  const src =
+    el && "getAttribute" in el ? (el as Element).getAttribute?.("src") ?? undefined : undefined;
+  const href =
+    el && "getAttribute" in el ? (el as Element).getAttribute?.("href") ?? undefined : undefined;
+  const id = el && "id" in el ? String((el as Element).id ?? "") : undefined;
+  const className =
+    el && "className" in el ? String((el as Element).className ?? "") : undefined;
+  return { type: reason.type, tagName, src, href, id, className };
+}
+
+// Normalize Promise rejections that are `Event` objects (common for <script> load errors),
+// so Sentry does not capture unhelpful `Error: [object Event]`.
+window.addEventListener("unhandledrejection", (ev) => {
+  const reason = (ev as PromiseRejectionEvent).reason;
+  if (reason instanceof Event) {
+    const d = eventRejectionDetails(reason);
+    Sentry.captureMessage(
+      `Unhandled promise rejection (Event): ${d.type}${d.tagName ? ` @ <${d.tagName.toLowerCase()}>` : ""}${d.src ? ` src=${d.src}` : ""}${d.href ? ` href=${d.href}` : ""}`,
+      {
+        level: "warning",
+        tags: { kind: "event_rejection", area: "renderer" },
+        extra: d,
+      },
+    );
+    ev.preventDefault();
+    return;
+  }
+  // Some libraries reject with plain objects/strings; normalize so Sentry gets a real message.
+  if (!(reason instanceof Error)) {
+    let msg = "";
+    try {
+      if (typeof reason === "string") msg = reason;
+      else msg = JSON.stringify(reason);
+    } catch {
+      msg = String(reason);
+    }
+    if (msg && msg !== "[object Object]" && msg !== "[object Event]") {
+      Sentry.captureException(new Error(`Unhandled promise rejection: ${msg.slice(0, 1000)}`), {
+        level: "warning",
+        tags: { kind: "non_error_rejection", area: "renderer" },
+        extra: { reasonType: typeof reason },
+      });
+      // Avoid duplicate capture from default handlers for this normalized case.
+      ev.preventDefault();
+    }
+  }
+});
+
 interface MyMeta extends Record<string, unknown> {
   showErrorToast: boolean;
 }

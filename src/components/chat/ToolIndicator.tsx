@@ -13,6 +13,9 @@ export function ToolIndicator() {
   const state = useAtomValue(toolIndicatorAtom);
   const setState = useSetAtom(toolIndicatorAtom);
   const [outputExpanded, setOutputExpanded] = useState(false);
+  const [viewMode, setViewMode] = useState<
+    "error_first" | "progress_first" | "raw_capped"
+  >("error_first");
 
   useEffect(() => {
     const unsub = IpcClient.getInstance().onToolIndicator(
@@ -24,7 +27,10 @@ export function ToolIndicator() {
           phaseLabel: null,
           count: prev.count + 1,
           activeChatId: chatId,
-          liveOutput: "",
+          liveOutputLines: [],
+          liveErrorLines: [],
+          liveProgressLines: [],
+          liveViewMode: "error_first",
         }));
       },
       () => {
@@ -36,7 +42,9 @@ export function ToolIndicator() {
             active: count > 0,
             toolName: count > 0 ? prev.toolName : null,
             activeChatId: count > 0 ? prev.activeChatId : null,
-            liveOutput: count > 0 ? prev.liveOutput : "",
+            liveOutputLines: count > 0 ? prev.liveOutputLines : [],
+            liveErrorLines: count > 0 ? prev.liveErrorLines : [],
+            liveProgressLines: count > 0 ? prev.liveProgressLines : [],
           };
         });
       },
@@ -73,10 +81,18 @@ export function ToolIndicator() {
     ? `Working… ${state.toolName}`
     : (state.phaseLabel ?? "");
 
-  const showLiveOutput =
-    state.liveOutput.length > 0 &&
-    showToolRow &&
-    /\bcommand\b/i.test(state.toolName ?? "");
+  const showLiveOutput = showToolRow && state.liveOutputLines.length > 0;
+
+  const effectiveMode = viewMode ?? state.liveViewMode ?? "error_first";
+  const lines =
+    effectiveMode === "raw_capped"
+      ? state.liveOutputLines
+      : effectiveMode === "progress_first"
+        ? state.liveProgressLines
+        : state.liveErrorLines.length > 0
+          ? state.liveErrorLines
+          : state.liveOutputLines;
+  const text = lines.join("\n");
 
   return (
     <div className="rounded-lg border border-border bg-muted/50 text-muted-foreground text-sm overflow-hidden">
@@ -93,12 +109,35 @@ export function ToolIndicator() {
             onClick={() => setOutputExpanded((e) => !e)}
             className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-muted/50"
           >
-            {outputExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            <span>{outputExpanded ? "Hide output" : "Show output"}</span>
+            <div className="flex items-center gap-2">
+              {outputExpanded ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              <span>{outputExpanded ? "Hide output" : "Show output"}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {(["error_first", "progress_first", "raw_capped"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setViewMode(m);
+                  }}
+                  className={`rounded px-2 py-0.5 text-[10px] border ${viewMode === m ? "bg-muted text-foreground border-border" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  title={m === "error_first" ? "Errors" : m === "progress_first" ? "Progress" : "Raw"}
+                >
+                  {m === "error_first" ? "Errors" : m === "progress_first" ? "Progress" : "Raw"}
+                </button>
+              ))}
+            </div>
           </button>
           {outputExpanded && (
             <pre className="px-3 py-2 max-h-40 overflow-auto text-xs font-mono bg-background/50 whitespace-pre-wrap break-words border-t border-border">
-              {state.liveOutput || "(no output yet)"}
+              {text || "(no output yet)"}
             </pre>
           )}
         </div>
