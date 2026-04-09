@@ -162,6 +162,8 @@ export interface Message {
   filesWritten?: string[] | null;
   /** Non-destructive revert: message stays in transcript, styled as reverted. */
   isReverted?: boolean | null;
+  /** When this assistant turn used Auto routing, the resolved tier (ephemeral / UI). */
+  autoRoutedTier?: "fast" | "balanced" | "thinking" | null;
 }
 
 export interface Chat {

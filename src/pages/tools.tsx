@@ -1,6 +1,6 @@
 /**
  * Tools page – 4 features per view, search, categories, short descriptions and in-app links.
- * Updated for Atlarix 5.0 (Auto routing, Blueprint context, MCP tools, Workforce).
+ * Atlarix 6.2.2: Auto + Compass tier-aware context; Build vs Agent tool surfacing documented.
  */
 
 import { useState, useMemo } from "react";
@@ -125,7 +125,8 @@ const FEATURES: ToolFeature[] = [
     shortDescription: "Compass built in (no key). Plus Ollama, LM Studio, OpenAI, Anthropic, and more. Auto: one provider, up to 3 models (Fast/Balanced/Thinking).",
     category: "models",
     steps: ["Settings → Model Providers", "Add API keys for providers", "Config → Change model or Configure Auto (provider + Fast/Medium/Thinking)"],
-    howItWorks: "Select a single model for manual control or turn on Auto to route by complexity using your chosen Fast/Balanced/Thinking models for a single provider.",
+    howItWorks:
+      "Select a single model for manual control or turn on Auto to route by complexity using your chosen Fast/Balanced/Thinking models for a single provider. Auto and Compass tiers use context sized for that tier so Balanced and Thinking stay reliable on long threads—replies are much less likely to stop mid-answer when context grows.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
@@ -160,7 +161,22 @@ const FEATURES: ToolFeature[] = [
     shortDescription: "Hand off to Research, Architect, Builder, or Reviewer. Guided (flat) or Autonomous (nested) delegation.",
     category: "ai",
     steps: ["Select Guided or Autonomous mode in chat", "Ask for research, architecture, or implementation", "AI delegates to the right agent; see activity in the response"],
-    howItWorks: "In Guided mode the main model delegates once to a specialist. In Autonomous mode agents can delegate to each other up to a depth limit.",
+    howItWorks:
+      "In Guided mode the main model delegates once to a specialist. In Autonomous mode agents can delegate to each other up to a depth limit. Context is managed across those steps so the main thread stays coherent for long autonomous runs.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "tool-discovery",
+    title: "How tools appear to the model",
+    shortDescription: "Build: core tools callable first + full manifest in the prompt. Agent: wider tool set at once. Ask: read-only allowlist.",
+    category: "ai",
+    steps: [
+      "Build mode: start chatting—core file/search/command tools are registered for function-calling immediately",
+      "The system prompt still lists every workspace tool by name with a one-line description (manifest)",
+      "After a tool runs once, it stays in the callable set for that chat; Agent mode passes a broader set in one go",
+    ],
+    howItWorks:
+      "Build uses progressive registration: core tools plus tools already used this session get full schemas for the API; the manifest tells the model what else exists. Agent mode uses a single broader tool bundle. Ask mode uses read-only and allowlisted tools with the same loader pattern for eligible tools.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
@@ -223,7 +239,7 @@ export default function ToolsPage() {
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Setup models</p>
           <p className="text-muted-foreground mb-2">
-            Add API keys in Settings → Model Providers. For Auto mode, use Config → Configure Auto (provider + 3 models).
+            Add API keys in Settings → Model Providers. For Auto mode, use Config → Configure Auto (provider + Fast/Balanced/Thinking). With Compass, pick your tier in settings—Balanced and Thinking get context matched to those models for long chats.
           </p>
           <Button variant="outline" size="sm" onClick={() => goTo("/settings")}>
             Open Settings

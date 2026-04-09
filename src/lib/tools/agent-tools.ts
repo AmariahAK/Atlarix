@@ -57,10 +57,20 @@ type DelegateArgs = {
   parentAgentRole?: string;
 };
 
+/** Builtin specialist id persisted on delegate JSON for HandoffResultCard labels. */
+export type DelegationAgentRole =
+  | "research"
+  | "architect"
+  | "builder"
+  | "reviewer"
+  | "debugger";
+
 /** Run a single delegation; used by handler and by nested execute when Autonomous. */
 async function runDelegation(args: DelegateArgs): Promise<{
   success: boolean;
   agent?: string;
+  /** Resolved specialist id (for parent-thread HandoffResultCard). */
+  agentRole?: DelegationAgentRole;
   summary?: string;
   stepsUsed?: number;
   error?: string;
@@ -80,7 +90,16 @@ async function runDelegation(args: DelegateArgs): Promise<{
       : defaultAgentForWorkMode(settings.workModePreference);
   const agent = getBuiltinAgent(resolvedAgentId);
   if (!agent) {
-    return { success: false, error: `Unknown agent: ${resolvedAgentId}` };
+    const roleUnknown = requestedAgentId as DelegationAgentRole;
+    return {
+      success: false,
+      error: `Unknown agent: ${resolvedAgentId}`,
+      agentRole: ["research", "architect", "builder", "reviewer", "debugger"].includes(
+        roleUnknown,
+      )
+        ? roleUnknown
+        : undefined,
+    };
   }
   const agentMode = settings.agentMode ?? "guided";
   const maxDepth = settings.aiConfiguration?.autonomous?.maxDelegationDepth ?? 2;
@@ -92,6 +111,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       success: false,
       error: `Max delegation depth (${maxDepth}) reached. Cannot nest further.`,
       agent: agent.name,
+      agentRole: resolvedAgentId as DelegationAgentRole,
     };
   }
 
@@ -360,6 +380,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       return {
         success: true,
         agent: agent.name,
+        agentRole: resolvedAgentId as DelegationAgentRole,
         summary: rawSummary,
         stepsUsed,
       };
@@ -385,6 +406,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       return {
         success: true,
         agent: agent.name,
+        agentRole: resolvedAgentId as DelegationAgentRole,
         summary: validated.normalizedText,
         stepsUsed,
         structuredPayload: validated.data,
@@ -401,6 +423,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     return {
       success: true,
       agent: agent.name,
+      agentRole: resolvedAgentId as DelegationAgentRole,
       summary: rawSummary,
       stepsUsed,
       validation: {
@@ -429,6 +452,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       success: false,
       error: errMessage,
       agent: agent.name,
+      agentRole: resolvedAgentId as DelegationAgentRole,
     };
   }
 }

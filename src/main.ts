@@ -39,6 +39,13 @@ import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
 import { resolveSystemPath } from "./lib/resolve-path";
+import { warmTierContextCache } from "./lib/routing/tier-context-limits";
+import {
+  COMPASS_TIER_BALANCED,
+  COMPASS_TIER_FAST,
+  COMPASS_TIER_THINKING,
+  getOpenRouterModelIdForCompassTier,
+} from "./ipc/shared/compass_constants";
 
 log.errorHandler.startCatching();
 log.eventLogger.startLogging();
@@ -155,6 +162,15 @@ export async function onReady() {
   } catch (e) {
     logger.warn("Telemetry init failed (non-fatal):", e);
   }
+
+  void warmTierContextCache(
+    getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
+    getOpenRouterModelIdForCompassTier(COMPASS_TIER_BALANCED) ?? "",
+    getOpenRouterModelIdForCompassTier(COMPASS_TIER_THINKING) ?? "",
+  ).catch(() => {
+    /* best-effort */
+  });
+
   const settings = readSettings();
 
   // Check if app was force-closed

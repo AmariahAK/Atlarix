@@ -253,6 +253,13 @@
       "when": 1766950000000,
       "tag": "0035_unified_snapshots_revert",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1766960000000,
+      "tag": "0036_auto_routed_tier",
+      "breakpoints": true
     }
   ]
 }

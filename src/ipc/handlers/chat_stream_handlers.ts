@@ -19,7 +19,7 @@ import type { JSONSchema7 } from "json-schema";
 
 import { db } from "../../db";
 import { apps, chats, messages, diagrams } from "../../db/schema";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { SmartContextMode, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
@@ -111,6 +111,13 @@ import {
   ChatPromptSafetyError,
 } from "../../lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
+import type { ModelTier } from "@/lib/routing/capability-registry";
+import {
+  needsOpenRouterContextSafety,
+  resolveContextBudgetTier,
+} from "@/lib/routing/context_budget_routing";
+import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
+import { getRecentAssistantRoutingTiers } from "@/lib/routing/auto-router-context";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
 import { revertSnapshot } from "../../lib/snapshot/snapshot-manager";
@@ -565,6 +572,24 @@ async function processStreamChunks({
   return { fullResponse, incrementalResponse };
 }
 
+async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier[]> {
+  const rows = await db
+    .select({ tier: messages.autoRoutedTier })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.chatId, chatId),
+        eq(messages.role, "assistant"),
+        isNotNull(messages.autoRoutedTier),
+      ),
+    )
+    .orderBy(desc(messages.id))
+    .limit(3);
+  return rows
+    .map((r) => r.tier)
+    .filter((t): t is ModelTier => t === "fast" || t === "balanced" || t === "thinking");
+}
+
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
@@ -687,6 +712,7 @@ export function registerChatStreamHandlers() {
         const fileUploadsState = FileUploadsState.getInstance();
         let dyadRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
+        let autoRoutedTierForTurn: ModelTier | null = null;
 
         // Check if this is an ephemeral (incognito) chat BEFORE querying database
         const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
@@ -1127,13 +1153,36 @@ ${componentSnippet}
           effectiveModel = req.modelOverride;
         } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
           const { runAutoRouterAsync, recommendModeRoute } = await import("../../lib/routing/auto-router");
+          const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
+            String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
+          );
+          const routingMsgs = (updatedChat.messages ?? []).map((m: any) => ({
+            role: m.role,
+            content: String(m.content ?? ""),
+            autoRoutedTier: m.autoRoutedTier as ModelTier | null | undefined,
+          }));
+          const recentAssistantTiers =
+            !isEphemeralWorkspace && req.chatId > 0
+              ? await getRecentAutoRoutedTiersFromDb(req.chatId)
+              : getRecentAssistantRoutingTiers(routingMsgs, 3);
+          const lastTier = recentAssistantTiers[0] ?? null;
+          const messageIndex = (updatedChat.messages ?? []).filter((m: any) => m.role === "user").length;
           const { decision, model, classifierMeta } = await runAutoRouterAsync(
             req.prompt,
             settings,
             mainOptions,
-          );
-          const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
-            String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
+            {
+              messages: routingMsgs,
+              taskState: {
+                currentMode: settings.selectedChatMode ?? "ask",
+                workModePreference: settings.workModePreference ?? "ask",
+                agentMode: settings.agentMode ?? "guided",
+                hasActivePlan: hasPlanHint,
+                lastTier,
+                messageIndex,
+                recentAssistantTiers,
+              },
+            },
           );
           const modeRoute = recommendModeRoute({
             prompt: req.prompt,
@@ -1142,6 +1191,7 @@ ${componentSnippet}
             lastMode: settings.workModePreference,
           });
           effectiveModel = model;
+          autoRoutedTierForTurn = decision.tier;
           if (settings.autoRoutingShowReasoning !== false) {
             const srcLabel =
               classifierMeta.source === "groq"
@@ -1177,6 +1227,7 @@ ${componentSnippet}
         }
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
+        const contextBudgetTier = resolveContextBudgetTier(effectiveModel, settings);
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
         let compassStreamTokens: number | undefined;
@@ -1503,6 +1554,7 @@ ${componentSnippet}
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
           let systemPrompt: string;
+          let contextAssemblerBlob = "";
           let blueprintRequiredBlockMessage: string | null = null;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
@@ -1769,7 +1821,8 @@ ${componentSnippet}
             sections: contextSections,
           });
           if (assembledContext.finalSystemPromptAddition.trim()) {
-            systemPrompt += `\n\n${assembledContext.finalSystemPromptAddition}`;
+            contextAssemblerBlob = assembledContext.finalSystemPromptAddition;
+            systemPrompt += `\n\n${contextAssemblerBlob}`;
           }
           logger.info(
             `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
@@ -1923,6 +1976,20 @@ This conversation includes one or more image attachments. When the user uploads 
           // Prune long tool outputs to prevent context bloat (OpenCode style)
           limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
 
+          const tierBudgeted = await enforceTierContextBudget({
+            resolvedTier: contextBudgetTier,
+            settings,
+            effectiveModel,
+            userPrompt,
+            systemPrompt,
+            contextAssemblerBlob,
+            limitedMessageHistory,
+            codebasePrefixMessages: [...codebasePrefix],
+            otherCodebasePrefixMessages: [...otherCodebasePrefix],
+          });
+          systemPrompt = tierBudgeted.systemPrompt;
+          limitedMessageHistory = tierBudgeted.limitedMessageHistory;
+
           type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
           let limitedHistoryChatMessages: ModelMessage[] = limitedMessageHistory.map((msg: HistoryMsg) => {
             const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
@@ -1950,9 +2017,9 @@ This conversation includes one or more image attachments. When the user uploads 
             return baseMsg;
           });
 
-          // Compass/OpenRouter: last-resort safety cap to avoid massive prompts.
-          // Compaction is the primary path; this only kicks in when history is still very large.
-          if (modelClient.builtinProviderId === "compass") {
+          // OpenRouter (Compass + BYOK): last-resort safety cap for balanced/thinking tiers.
+          // Tier pre-budget runs first; this only kicks in when history is still very large.
+          if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
             const nonSystem = limitedHistoryChatMessages.filter((m: ModelMessage) => m.role !== "system");
             const MAX_EXCHANGES = 7;
             const maxMsgs = MAX_EXCHANGES * 2;
@@ -2064,8 +2131,8 @@ This conversation includes one or more image attachments. When the user uploads 
               } satisfies OpenAIResponsesProviderOptions,
             };
 
-            // Compass runs via OpenRouter. Enable OpenRouter context compression as a fallback near large windows.
-            if (modelClient.builtinProviderId === "compass") {
+            // OpenRouter context compression fallback (balanced/thinking: Compass + BYOK).
+            if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
               providerOptions.openrouter = {
                 plugins: [{ id: "context-compression" }],
               };
@@ -4044,12 +4111,17 @@ For workforce, explain services before request_workspace_permissions.`;
                 content: responseToStore,
                 ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
                 ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
+                ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
               })
               .where(eq(messages.id, placeholderAssistantMessage.id));
           } else {
             // For ephemeral workspace chats, save to in-memory store
             const { addEphemeralMessage } = await import("./chat_only_handlers");
-            addEphemeralMessage(req.chatId, { role: "assistant", content: responseToStore });
+            addEphemeralMessage(req.chatId, {
+              role: "assistant",
+              content: responseToStore,
+              ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
+            });
           }
 
           // Record exchange in session memory for conversation continuity

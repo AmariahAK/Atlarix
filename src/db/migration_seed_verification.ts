@@ -144,6 +144,8 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "diagrams", "last_snapshot_hashes") &&
         columnExists(sqlite, "messages", "is_reverted")
       );
+    case "0036_auto_routed_tier":
+      return columnExists(sqlite, "messages", "auto_routed_tier");
     default:
       return false;
   }

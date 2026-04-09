@@ -7,11 +7,17 @@ Atlarix is your premium AI coding copilot — a powerful desktop application tha
 **Created by:** [NorahLabs](https://norahlabs.com)  
 **Website:** [atlarix.dev](https://atlarix.dev)
 
-*Current: v6.2.1*
+*Current: v6.2.2*
 
 **Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
 
 ---
+
+### What's New in v6.2.2
+
+- **Compass Balanced & Thinking:** Longer chats are handled more reliably—**replies are much less likely to stop or split mid-answer** when context grows large. Limits follow each model’s real context window (via OpenRouter metadata), with sensible fallbacks if lookup fails.
+- **BYOK OpenRouter:** The same reliability improvements apply when you use your own OpenRouter key on **Balanced/Thinking**-style models—not only Compass.
+- **Fast tier:** Unchanged by design—large-window Fast stays lightweight without extra compression steps.
 
 ### What's New in v6.2.1
 

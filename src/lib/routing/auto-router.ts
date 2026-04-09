@@ -12,9 +12,21 @@ import type { RoutingCategory } from "./signal-sets";
 import { resolveTierToModel } from "./fallback-router";
 import type { ModelTier } from "./capability-registry";
 import { classifyPromptWithGroq } from "./groq-classifier";
+import {
+  buildClassifierUserText,
+  formatRoutingHistoryWindow,
+  sliceMessagesBeforeCurrentTurn,
+  GROQ_CLASSIFIER_MAX_CHARS,
+  FAST_CLASSIFIER_MAX_CHARS,
+  type AutoRouterTaskState,
+  type RoutingMessage,
+} from "./auto-router-context";
 
 const GROQ_CONFIDENCE_MIN = 0.65;
 const FAST_MODEL_CLASSIFY_MS = 1500;
+const MOMENTUM_HIGH_CONFIDENCE = 0.85;
+const STREAK_ALL_THINKING_FAST_MIN = 0.9;
+const STREAK_THINKING_TO_BALANCED_MIN = 0.8;
 
 export type ClassifierSource = "groq" | "fast-model" | "fallback";
 
@@ -50,7 +62,7 @@ function parseTierFromWord(text: string): ModelTier | null {
 }
 
 async function classifyTierWithUserFastModel(
-  query: string,
+  userBlob: string,
   settings: UserSettings,
   options: GetModelClientOptions | undefined
 ): Promise<ModelTier | null> {
@@ -59,14 +71,14 @@ async function classifyTierWithUserFastModel(
   try {
     const { modelClient } = await getModelClient(fastModel, settings, options);
     const instruction =
-      "Classify this prompt as fast, balanced, or thinking for an AI coding assistant. Respond with ONLY one word.";
+      "You are routing for an AI coding assistant. The text below includes task state, recent turns, and the current message. Classify the CURRENT message tier as fast, balanced, or thinking. Respond with ONLY one word.";
     const res = await Promise.race([
       generateText({
         model: modelClient.model,
         messages: [
           {
             role: "user",
-            content: `${instruction}\n\n${query.slice(0, 4000)}`,
+            content: `${instruction}\n\n${userBlob.slice(0, FAST_CLASSIFIER_MAX_CHARS)}`,
           },
         ],
         temperature: 0,
@@ -81,6 +93,80 @@ async function classifyTierWithUserFastModel(
   } catch {
     return null;
   }
+}
+
+export interface AutoRouterCallContext {
+  messages?: RoutingMessage[];
+  taskState: AutoRouterTaskState;
+}
+
+export function defaultAutoRouterCallContext(
+  settings: UserSettings,
+  options: GetModelClientOptions | undefined,
+): AutoRouterCallContext {
+  return {
+    messages: [],
+    taskState: {
+      currentMode: settings.selectedChatMode ?? "ask",
+      workModePreference: settings.workModePreference ?? "ask",
+      agentMode: settings.agentMode ?? "guided",
+      hasActivePlan: false,
+      lastTier: null,
+      messageIndex: 0,
+      recentAssistantTiers: [],
+    },
+  };
+}
+
+/**
+ * Limit tier drops after classifier output: at most one step down from lastTier unless high confidence;
+ * stricter rules when the last three auto-routed assistant turns were all thinking.
+ */
+export function applyMomentumTierClamp(
+  tier: ModelTier,
+  ctx: {
+    lastTier: ModelTier | null;
+    recentAssistantTiers: ModelTier[];
+    confidence: number | null;
+  },
+): ModelTier {
+  const order: ModelTier[] = ["fast", "balanced", "thinking"];
+  const idx = (t: ModelTier) => order.indexOf(t);
+
+  let t = tier;
+  const { lastTier, recentAssistantTiers, confidence } = ctx;
+
+  if (lastTier) {
+    const li = idx(lastTier);
+    const ti = idx(t);
+    if (li - ti > 1) {
+      const allowMultiDrop = confidence != null && confidence >= MOMENTUM_HIGH_CONFIDENCE;
+      if (!allowMultiDrop) {
+        t = order[li - 1];
+      }
+    }
+  }
+
+  const threeThinking =
+    recentAssistantTiers.length >= 3 &&
+    recentAssistantTiers[0] === "thinking" &&
+    recentAssistantTiers[1] === "thinking" &&
+    recentAssistantTiers[2] === "thinking";
+
+  if (threeThinking) {
+    if (t === "fast" && (confidence == null || confidence < STREAK_ALL_THINKING_FAST_MIN)) {
+      t = "balanced";
+    }
+    if (
+      lastTier === "thinking" &&
+      t === "balanced" &&
+      (confidence == null || confidence < STREAK_THINKING_TO_BALANCED_MIN)
+    ) {
+      t = "thinking";
+    }
+  }
+
+  return t;
 }
 
 /**
@@ -230,28 +316,45 @@ function categoryToRecommendedAgent(
 
 /**
  * Async auto router: Groq classifier (optional) → fast-model one-word → balanced default;
- * then ceiling, tier floor, resolve model.
+ * then momentum clamp, ceiling, tier floor, resolve model.
  */
 export async function runAutoRouterAsync(
   query: string,
   settings: UserSettings,
-  options: GetModelClientOptions | undefined
+  options: GetModelClientOptions | undefined,
+  callContext?: AutoRouterCallContext,
 ): Promise<{
   decision: RoutingDecision;
   model: LargeLanguageModel;
   classifierMeta: AutoRouterClassifierMeta;
 }> {
+  const ctx = callContext ?? defaultAutoRouterCallContext(settings, options);
+  const prior = sliceMessagesBeforeCurrentTurn(ctx.messages ?? []);
+  const historyWindow = formatRoutingHistoryWindow(prior);
+  const groqBlob = buildClassifierUserText({
+    taskState: ctx.taskState,
+    historyWindow,
+    currentPrompt: query,
+    maxTotalChars: GROQ_CLASSIFIER_MAX_CHARS,
+  });
+  const fastBlob = buildClassifierUserText({
+    taskState: ctx.taskState,
+    historyWindow,
+    currentPrompt: query,
+    maxTotalChars: FAST_CLASSIFIER_MAX_CHARS,
+  });
+
   let tier: ModelTier;
   let confidence: number | null = null;
   let source: ClassifierSource = "fallback";
 
-  const groq = await classifyPromptWithGroq(query);
+  const groq = await classifyPromptWithGroq(groqBlob);
   if (groq && groq.confidence >= GROQ_CONFIDENCE_MIN) {
     tier = groq.tier;
     confidence = groq.confidence;
     source = "groq";
   } else {
-    const fastTier = await classifyTierWithUserFastModel(query, settings, options);
+    const fastTier = await classifyTierWithUserFastModel(fastBlob, settings, options);
     if (fastTier) {
       tier = fastTier;
       source = "fast-model";
@@ -261,7 +364,11 @@ export async function runAutoRouterAsync(
     }
   }
 
-  let finalTier = tier;
+  let finalTier = applyMomentumTierClamp(tier, {
+    lastTier: ctx.taskState.lastTier,
+    recentAssistantTiers: ctx.taskState.recentAssistantTiers,
+    confidence,
+  });
   finalTier = applyCeiling(finalTier, settings, options);
   finalTier = applyTierFloor(finalTier, settings, options);
   const syntheticCategory = tierToSyntheticCategory(finalTier);

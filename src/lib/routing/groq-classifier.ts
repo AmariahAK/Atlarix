@@ -10,7 +10,11 @@ const logger = log.scope("groq-classifier");
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SYSTEM_PROMPT = `You are a routing classifier for an AI coding copilot.
-Given a developer prompt, respond with ONLY valid JSON and nothing else:
+The user message includes: (1) Task state — current UI mode, agent mode, whether a plan exists, prior auto-routing tiers; (2) Recent conversation — prior user/assistant turns; (3) Current message — the new user turn to classify.
+
+Choose tier for the **current message** only, using task state and recent turns for disambiguation (e.g. short replies like "ok" or "try again" follow the thread depth).
+
+Respond with ONLY valid JSON and nothing else:
 {"tier": "fast" | "balanced" | "thinking", "confidence": 0.0-1.0}
 
 fast: simple questions, quick edits, one-liners, chit-chat, syntax help
@@ -51,11 +55,12 @@ function parseTierJson(text: string): { tier: ModelTier; confidence: number } | 
 }
 
 /**
- * Classify prompt tier via Groq. Returns null on any failure (missing key, timeout, error).
- * Never throws.
+ * Classify tier via Groq from a pre-built user blob (task state + history + current message).
+ * Returns null on any failure (missing key, timeout, error). Never throws.
  */
 export async function classifyPromptWithGroq(
-  prompt: string
+  userBlob: string,
+  maxUserChars = 12_000,
 ): Promise<{ tier: ModelTier; confidence: number } | null> {
   const apiKey = (process.env.GROQ_CLASSIFIER_API_KEY ?? "").trim();
   const model = (process.env.GROQ_CLASSIFIER_MODEL ?? "").trim();
@@ -63,7 +68,7 @@ export async function classifyPromptWithGroq(
     return null;
   }
 
-  const userContent = prompt.slice(0, 12000);
+  const userContent = userBlob.slice(0, maxUserChars);
 
   try {
     const res = await fetch(GROQ_CHAT_URL, {

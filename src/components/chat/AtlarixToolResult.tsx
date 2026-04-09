@@ -7,10 +7,45 @@
 import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, CheckCircle2, XCircle } from "lucide-react";
 import { CodeHighlight } from "./CodeHighlight";
+import {
+    HandoffResultCard,
+    type HandoffAgentRole,
+} from "./HandoffResultCard";
 
 interface AtlarixToolResultProps {
     node?: any;
     children?: React.ReactNode;
+}
+
+const HANDOFF_AGENT_ROLES: HandoffAgentRole[] = [
+    "research",
+    "architect",
+    "builder",
+    "reviewer",
+    "debugger",
+];
+
+const SCHEMA_TO_HANDOFF_ROLE: Record<string, HandoffAgentRole> = {
+    ArchitectPlanPayload: "architect",
+    BuilderExecutionSummary: "builder",
+    ReviewerFindings: "reviewer",
+    DebuggerRootCause: "debugger",
+};
+
+function resolveHandoffAgentRole(parsed: Record<string, unknown>): HandoffAgentRole {
+    const r = parsed.agentRole;
+    if (
+        typeof r === "string" &&
+        (HANDOFF_AGENT_ROLES as readonly string[]).includes(r)
+    ) {
+        return r as HandoffAgentRole;
+    }
+    const validation = parsed.validation as { schema?: string } | undefined;
+    const schema = validation?.schema;
+    if (typeof schema === "string" && SCHEMA_TO_HANDOFF_ROLE[schema]) {
+        return SCHEMA_TO_HANDOFF_ROLE[schema];
+    }
+    return "research";
 }
 
 export const AtlarixToolResult: React.FC<AtlarixToolResultProps> = ({
@@ -24,6 +59,43 @@ export const AtlarixToolResult: React.FC<AtlarixToolResultProps> = ({
     const [expanded, setExpanded] = useState(isError); // Auto-expand on error
 
     const raw = typeof children === "string" ? children : String(children ?? "");
+
+    if (toolName === "delegate_to_agent" && !isError) {
+        try {
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            if (
+                parsed &&
+                typeof parsed === "object" &&
+                parsed.success === true
+            ) {
+                const summary =
+                    typeof parsed.summary === "string"
+                        ? parsed.summary
+                        : String(parsed.summary ?? "");
+                const validation = parsed.validation as
+                    | { status?: string }
+                    | undefined;
+                const validationStatus =
+                    validation?.status === "fallback"
+                        ? "fallback"
+                        : "success";
+                return (
+                    <HandoffResultCard
+                        agentRole={resolveHandoffAgentRole(parsed)}
+                        summary={summary}
+                        structuredPayload={
+                            parsed.structuredPayload !== undefined
+                                ? parsed.structuredPayload
+                                : undefined
+                        }
+                        validationStatus={validationStatus}
+                    />
+                );
+            }
+        } catch {
+            /* fall through to default tool result UI */
+        }
+    }
 
     // Format result content
     const formattedContent = useMemo(() => {

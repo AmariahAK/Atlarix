@@ -146,6 +146,48 @@ export async function shouldCompact(params: {
 }
 
 /**
+ * Same summarization path as runCompaction (CONTEXT_COMPACTION_* + summarization model), no DB writes.
+ * Used for pre-dispatch tier context budgeting.
+ */
+export async function summarizeMessagesWithCompactionPrompt(params: {
+  messages: { role: string; content: string }[];
+  sessionStats?: { toolCallCount?: number; delegationCount?: number };
+}): Promise<string | null> {
+  const { messages, sessionStats } = params;
+  if (messages.length === 0) return null;
+
+  const formatted = messages
+    .map(
+      (m) =>
+        `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "")
+          .replace(/\n/g, " ")
+          .slice(0, 2000)}`,
+    )
+    .join("\n\n");
+
+  const userPrompt = CONTEXT_COMPACTION_USER_PREFIX + formatted;
+
+  try {
+    const settings = readSettings();
+    const summarizationModel = await getSummarizationModelAsync(settings, sessionStats);
+    const { modelClient } = await getModelClient(summarizationModel, settings);
+
+    const result = await generateText({
+      model: modelClient.model,
+      system: CONTEXT_COMPACTION_SYSTEM,
+      messages: [{ role: "user" as const, content: userPrompt }],
+      maxTokens: 1500,
+    } as Parameters<typeof generateText>[0]);
+
+    const summaryText = result.text.trim();
+    return summaryText || null;
+  } catch (error) {
+    logger.error("summarizeMessagesWithCompactionPrompt failed:", error);
+    return null;
+  }
+}
+
+/**
  * Run compaction: summarize oldest N messages, save, return summary + remaining.
  * v3.6: Accepts sessionStats for balanced model when session is complex.
  */
@@ -207,26 +249,13 @@ export async function runCompaction(params: {
   const messagesAfterSummary = chatMessages.slice(lastSummarizedIndex + 1);
   const lastMessageId = toSummarize[toSummarize.length - 1].id;
 
-  const formatted = toSummarize
-    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "").replace(/\n/g, " ").slice(0, 2000)}`)
-    .join("\n\n");
-
-  const userPrompt = CONTEXT_COMPACTION_USER_PREFIX + formatted;
+  const summaryText = await summarizeMessagesWithCompactionPrompt({
+    messages: toSummarize.map((m) => ({ role: m.role, content: m.content || "" })),
+    sessionStats,
+  });
+  if (!summaryText) return null;
 
   try {
-    const summarizationModel = await getSummarizationModelAsync(settings, sessionStats);
-    const { modelClient } = await getModelClient(summarizationModel, settings);
-
-    const result = await generateText({
-      model: modelClient.model,
-      system: CONTEXT_COMPACTION_SYSTEM,
-      messages: [{ role: "user" as const, content: userPrompt }],
-      maxTokens: 1500,
-    } as Parameters<typeof generateText>[0]);
-
-    const summaryText = result.text.trim();
-    if (!summaryText) return null;
-
     // Upsert summary
     await db
       .insert(chatContextSummaries)

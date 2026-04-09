@@ -135,7 +135,14 @@ export function clearEphemeralChats(): void {
 /**
  * Add a message to an ephemeral chat
  */
-export function addEphemeralMessage(chatId: number, message: { role: string; content: string }): void {
+export function addEphemeralMessage(
+    chatId: number,
+    message: {
+        role: string;
+        content: string;
+        autoRoutedTier?: "fast" | "balanced" | "thinking";
+    },
+): void {
     const chat = ephemeralChats.get(chatId);
     if (chat) {
         chat.messages.push({
@@ -294,6 +301,9 @@ export async function handleChatOnlyStream(
             logger.log(`Chat-only model: ${sel?.provider ?? "?"}/${sel?.name ?? "?"}`);
         }
 
+        let autoRoutedTierForTurn: import("@/lib/routing/capability-registry").ModelTier | null =
+            null;
+
         if (
             !req.modelOverride &&
             settings.autoModelRouting &&
@@ -302,12 +312,36 @@ export async function handleChatOnlyStream(
             const { runAutoRouterAsync, recommendModeRoute } = await import(
                 "../../lib/routing/auto-router"
             );
+            const { getRecentAssistantRoutingTiers } = await import(
+                "../../lib/routing/auto-router-context"
+            );
+            const routingMsgs = chat.messages.map((m) => ({
+                role: m.role,
+                content: m.content ?? "",
+                autoRoutedTier: m.autoRoutedTier,
+            }));
+            const recentAssistantTiers = getRecentAssistantRoutingTiers(routingMsgs, 3);
+            const lastTier = recentAssistantTiers[0] ?? null;
+            const messageIndex = chat.messages.filter((m) => m.role === "user").length;
             const { decision, model, classifierMeta } = await runAutoRouterAsync(
                 gatedPrompt,
                 settings,
                 mainOptions,
+                {
+                    messages: routingMsgs,
+                    taskState: {
+                        currentMode: settings.selectedChatMode ?? "ask",
+                        workModePreference: settings.workModePreference ?? "ask",
+                        agentMode: settings.agentMode ?? "guided",
+                        hasActivePlan: false,
+                        lastTier,
+                        messageIndex,
+                        recentAssistantTiers,
+                    },
+                },
             );
             effectiveModel = model;
+            autoRoutedTierForTurn = decision.tier;
             const modeRoute = recommendModeRoute({
                 prompt: gatedPrompt,
                 hasPlan: false,
@@ -680,6 +714,7 @@ export async function handleChatOnlyStream(
             content: fullResponse,
             sources: collectedSources.length > 0 ? collectedSources : undefined,
             createdAt: new Date(),
+            ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
         };
         chat.messages.push(assistantMessage);
 

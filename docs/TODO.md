@@ -1,8 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v6.2.1  
+**Current Version:** v6.2.2  
 **Next Version:** v6.3+ (planning)  
-**Last Updated:** 2026-04-08
+**Last Updated:** 2026-04-09
+
+---
+
+## Done: v6.2.2 — Tier-aware Compass context + pre-dispatch budgeting
+
+| Area | Status | Notes |
+|------|--------|--------|
+| OpenRouter tier limits + cache | **Done** | `tier-context-limits.ts`; warm on startup; keyed cache |
+| Pre-dispatch budget + routing helpers | **Done** | `tier_context_budget.ts`, `context_budget_routing.ts`; Fast skipped |
+| OpenRouter safety for BYOK + tier gate | **Done** | `needsOpenRouterContextSafety`; balanced/thinking only |
+| Compaction summarize reuse | **Done** | `summarizeMessagesWithCompactionPrompt` |
+
+See [CHANGELOG.md](CHANGELOG.md) v6.2.2.
 
 ---
 
@@ -187,15 +200,15 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 | **Work modes** Ask / Plan / Build / Debug / Review + Auto | **Done** | `workModePreference` in settings; maps to `selectedChatMode` + Blueprint tier via `src/lib/work-mode.ts`; `useStreamChat` precedence: chat override → work mode (non-Auto) → settings; `ChatIntentSelector` + context bar; duplicate Ask/Build removed from `ChatModeSelector` |
 | **Subscription Realtime dedupe** | **Done** | Material-change gate in `supabase-client` `subscribeToPlanChanges`; serialized setup + fingerprint dedupe in `SubscriptionManager.setupRealtimeSubscription` |
 | **S5a** Agent–mode foundation | **Done (kickoff)** | `debugger` in `builtin` / `agent-bus` / `delegate_to_agent`; `work-mode-agents.ts` (default agent + `workModeSystemHint`); stream injects hint after base prompt in `chat_stream_handlers.ts` |
-| **S5b** Structured handoffs | **Planned** | Thread child JSON into parent as isolated blocks from `delegate_to_agent`; explicit Blueprint tier per sub-agent role; reuse `agent-handoff-schemas.ts` (ArchitectPlanPayload, BuilderExecutionSummary, ReviewerFindings) |
-| **S5c** Handoff polish | **Planned** | Activity Stream send/receive events; collapsible handoff preview in UI |
+| **S5b** Structured handoffs | **Done** | Structured payloads validated via `agent-handoff-schemas`; `HandoffResultCard` renders isolated blocks in parent thread (collapsed by default). |
+| **S5c** Handoff polish | **Done** | Superseded: bus emits typed `task_assign` / `task_result` activity events; autonomous review panel provides post-run collapsible handoff summary; `HandoffResultCard` provides inline preview. |
 | **S6** Structured outputs per mode | **Done** | Delegate/handoff schema validation + one retry; Plan/Debug/Review stream validation + warning fallback; structured report rendering for supported mode outputs |
 | **S7** ContextAssembler | **Done** | `src/lib/context/ContextAssembler.ts` + `context-assembly-cache.ts`; deterministic section ordering, per-mode caps (Review: 2000), low-priority-first trimming, cache hit/miss + trim diagnostics in stream logs |
 | **S7** Tiered discovery flow + folder tooling | **Done** | Added `explore_folder` (structured directory exploration with `.atlarixignore` filtering), `get_blueprint_slice` (targeted architecture slices), and conditional diagram-prefix messaging to prevent synthetic context claims |
 
 ### v5.0 follow-ups / incomplete
 
-- **v6.2.1 vs S5b/S5c:** **v6.2.1** improves **visibility** for multi-agent work (activity stream population, bus lines in Thinking, autonomous review before accept) but does **not** replace **S5b** (structured handoff blocks in parent thread) or **S5c** (dedicated handoff Activity events + collapsible handoff UI). Those remain **planned** until implemented.
+- **S5b / S5c closure (v6.2.1+):** **S5b** is **done**: validated delegate handoffs plus `HandoffResultCard` in the parent thread for `delegate_to_agent` results. **S5c** is **done** under a superseded definition: the agent bus supplies typed multi-agent activity; **AutonomousReviewPanel** covers post-run review; **HandoffResultCard** covers inline collapsed/expandable handoff preview. No separate duplicate “handoff preview” system is planned.
 - **S6 execution detail:** S6a validates `delegate_to_agent` + child handoff payloads first (highest-risk surface). S6b extends validation to mode-scoped stream outputs for Plan/Debug/Review only. Ask and general Build remain prose-first.
 - **S6 resilience contract:** Structured output failures should retry once with schema instructions, then emit a non-blocking fallback warning (Activity/chat) while preserving turn continuity.
 - **S7 integration note:** `chat_stream_handlers` now assembles additive context blocks via `ContextAssembler` before final prompt injection. Keep future context sources in assembler section order to preserve cap behavior and predictable trims.

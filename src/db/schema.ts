@@ -119,6 +119,10 @@ export const messages = sqliteTable("messages", {
   isReverted: integer("is_reverted", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
+  /** When the turn used Auto model routing, the resolved tier (fast / balanced / thinking). */
+  autoRoutedTier: text("auto_routed_tier", {
+    enum: ["fast", "balanced", "thinking"],
+  }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
