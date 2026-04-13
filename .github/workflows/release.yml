@@ -114,6 +114,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Patch tree-sitter binding.gyp for Electron C++20
+        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
+
       - name: Import Apple certificate
         uses: apple-actions/import-codesign-certs@v3
         with:
@@ -236,6 +239,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Patch tree-sitter binding.gyp for Electron C++20
+        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
+
       - name: Build for Linux
         run: npm run make
         env:
@@ -311,6 +317,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Patch tree-sitter binding.gyp for Electron C++20
+        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
 
       - name: Build for Windows
         run: npm run make

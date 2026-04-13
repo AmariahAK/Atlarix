@@ -205,6 +205,23 @@ const config: ForgeConfig = {
           proc.on("error", reject);
         });
       }
+      // Fresh `npm install` in the pruned app dir pulls pristine tree-sitter; postinstall
+      // from the repo root does not run here — patch binding.gyp before Electron rebuild.
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(
+          process.execPath,
+          [
+            path.join(process.cwd(), "scripts", "patch-tree-sitter-electron-cpp20.cjs"),
+            buildPath,
+          ],
+          { stdio: "inherit", cwd: process.cwd(), shell: false },
+        );
+        proc.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`patch-tree-sitter exited with code ${code}`));
+        });
+        proc.on("error", reject);
+      });
       // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
       // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
       await rebuild({
