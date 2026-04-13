@@ -2,7 +2,7 @@
   "name": "atlarix",
   "productName": "Atlarix",
   "version": "7.0.0",
-  "description": "Atlas + Axis + Intelligence - Your Premium AI Coding Copilot",
+  "description": "The Private Sovereign AI IDE",
   "main": ".vite/build/main.js",
   "repository": {
     "type": "git",
