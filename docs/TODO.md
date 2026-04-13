@@ -7,7 +7,7 @@
 
 ## Shipped in v7.0.0
 
-Includes everything previously tracked as **Project Vanguard / v6.5.0**, now released as **Atlarix 7**:
+Includes everything previously tracked as **Project Vanguard / v6.5.0**, now released as **Atlarix v7**:
 
 | Area | Status | Notes |
 |------|--------|--------|

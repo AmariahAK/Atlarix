@@ -12,11 +12,11 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 ---
 
-## v7.0.0 — Atlarix 7 (Project Vanguard)
+## v7.0.0 — Atlarix v7 (Project Vanguard)
 
 *April 2026*
 
-Atlarix 7 is a complete rebuild of the agent and context systems on top of the Blueprint foundation.
+Atlarix v7 is a complete rebuild of the agent and context systems on top of the Blueprint foundation.
 
 ### What changed
 

@@ -1,6 +1,6 @@
 # Atlarix Changelog
 
-## v7.0.0 — Atlarix 7 (Project Vanguard) (2026-04-11)
+## v7.0.0 — Atlarix v7 (Project Vanguard) (2026-04-11)
 
 Major architectural release: agent execution, context, snapshots, parallel work, and plan UX are rebuilt on the existing Blueprint foundation.
 
