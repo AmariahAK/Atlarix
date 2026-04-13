@@ -1,6 +1,7 @@
 /**
  * Dynamic per-tier context limits from OpenRouter's public models API.
  * Cached 24h; no hardcoded model windows for budgeting beyond fallbacks.
+ * Also caches full model rows for reasoning-capability lookup (same refresh).
  */
 
 export interface TierContextLimits {
@@ -13,18 +14,24 @@ const SAFETY_FACTOR = 0.8;
 const FALLBACK_LIMIT = 100_000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-interface OpenRouterModelRow {
+export interface OpenRouterModelRowExtended {
   id: string;
   context_length?: number;
+  /** Present on some OpenRouter API responses; shape may vary. */
+  supported_parameters?: unknown;
+  architecture?: { modality?: string; tokenizer?: string };
+  top_provider?: { name?: string; context_length?: number };
 }
 
 interface OpenRouterModelsResponse {
-  data?: OpenRouterModelRow[];
+  data?: OpenRouterModelRowExtended[];
 }
 
 let cachedLimits: TierContextLimits | null = null;
 let cacheTimestamp = 0;
 let cacheKey = "";
+/** Populated on last successful models fetch; keyed by OpenRouter model id (e.g. anthropic/claude-3.5-sonnet). */
+let openRouterModelsById: Map<string, OpenRouterModelRowExtended> | null = null;
 
 function fallbackLimitsOnFetchFailure(): TierContextLimits {
   return {
@@ -32,6 +39,24 @@ function fallbackLimitsOnFetchFailure(): TierContextLimits {
     balanced: FALLBACK_LIMIT,
     thinking: FALLBACK_LIMIT,
   };
+}
+
+function rebuildModelIndex(data: OpenRouterModelRowExtended[]): void {
+  const m = new Map<string, OpenRouterModelRowExtended>();
+  for (const row of data) {
+    if (row?.id && typeof row.id === "string") {
+      m.set(row.id, row);
+    }
+  }
+  openRouterModelsById = m;
+}
+
+/** Sync lookup from the last successful OpenRouter models fetch (same 24h cache as tier limits). */
+export function getCachedOpenRouterModelRow(
+  modelId: string,
+): OpenRouterModelRowExtended | undefined {
+  if (!modelId.trim() || !openRouterModelsById) return undefined;
+  return openRouterModelsById.get(modelId.trim());
 }
 
 export async function getTierContextLimits(
@@ -57,6 +82,7 @@ export async function getTierContextLimits(
     }
     const json = (await res.json()) as OpenRouterModelsResponse;
     const data = Array.isArray(json.data) ? json.data : [];
+    rebuildModelIndex(data);
 
     const getLimit = (id: string): number => {
       if (!id.trim()) return FALLBACK_LIMIT;

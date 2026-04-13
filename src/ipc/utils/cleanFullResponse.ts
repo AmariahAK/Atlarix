@@ -1,47 +1,135 @@
 import type { Question } from "../ipc_types";
 
 const QUESTIONS_REGEX = /<questions>([\s\S]*?)<\/questions>/i;
+const QUESTIONS_LOOSE_OPEN = /<questions\s*>([\s\S]*?)(?:<\/questions>|$)/i;
+const FENCED_JSON_ARRAY = /```(?:json)?\s*(\[[\s\S]*?\])\s*```/i;
+
+function normalizeQuestionItem(raw: unknown): Question | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id : null;
+  const question = typeof o.question === "string" ? o.question : null;
+  if (!id || !question) return null;
+  const choices = Array.isArray(o.choices)
+    ? (o.choices as unknown[]).map((c) => String(c)).filter(Boolean)
+    : [];
+  const allowCustom =
+    typeof o.allowCustom === "boolean"
+      ? o.allowCustom
+      : String(o.allowCustom ?? "false").toLowerCase() === "true";
+  return { id, question, choices, allowCustom };
+}
+
+function parseQuestionsFromJsonText(raw: string): Question[] | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const questions: Question[] = [];
+    for (const item of parsed) {
+      const q = normalizeQuestionItem(item);
+      if (q) questions.push(q);
+    }
+    return questions.length > 0 ? questions : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Find first top-level JSON array starting at `[` with bracket depth (strings ignored roughly). */
+function extractBalancedJsonArray(s: string, fromIndex: number): string | null {
+  const i = s.indexOf("[", fromIndex);
+  if (i === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let esc = false;
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (inString) {
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (c === "\\") {
+        esc = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) return s.slice(i, j + 1);
+    }
+  }
+  return null;
+}
 
 /**
  * Parse and remove the <questions>...</questions> block from the response.
  * Returns cleaned content and parsed questions, or null if malformed/missing.
  */
 export function parseQuestions(fullResponse: string): { cleanContent: string; questions: Question[] | null } {
-  const match = fullResponse.match(QUESTIONS_REGEX);
-  if (!match) {
-    return { cleanContent: fullResponse, questions: null };
+  let match = fullResponse.match(QUESTIONS_REGEX);
+  if (match) {
+    const raw = match[1].trim();
+    const questions = parseQuestionsFromJsonText(raw);
+    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
+    return { cleanContent, questions };
   }
-  const raw = match[1].trim();
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return { cleanContent: fullResponse.replace(QUESTIONS_REGEX, "").trim(), questions: null };
+
+  match = fullResponse.match(QUESTIONS_LOOSE_OPEN);
+  if (match) {
+    const raw = match[1].trim();
+    let questions = parseQuestionsFromJsonText(raw);
+    if (!questions) {
+      const arr = extractBalancedJsonArray(match[1], 0);
+      if (arr) questions = parseQuestionsFromJsonText(arr);
     }
-    const questions: Question[] = [];
-    for (const item of parsed) {
-      if (
-        item &&
-        typeof item === "object" &&
-        typeof (item as Question).id === "string" &&
-        typeof (item as Question).question === "string" &&
-        Array.isArray((item as Question).choices) &&
-        typeof (item as Question).allowCustom === "boolean"
-      ) {
-        questions.push({
-          id: (item as Question).id,
-          question: (item as Question).question,
-          choices: (item as Question).choices,
-          allowCustom: (item as Question).allowCustom,
-        });
-      }
-    }
-    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
-    return { cleanContent, questions: questions.length > 0 ? questions : null };
-  } catch (err) {
-    console.warn("[parseQuestions] Malformed <questions> JSON, treating as no questions:", err);
-    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
+    const cleanContent = fullResponse.replace(QUESTIONS_LOOSE_OPEN, "").trim();
+    if (questions?.length) return { cleanContent, questions };
     return { cleanContent, questions: null };
   }
+
+  const fence = fullResponse.match(FENCED_JSON_ARRAY);
+  if (fence?.[1]) {
+    const questions = parseQuestionsFromJsonText(fence[1]);
+    if (questions?.length) {
+      const cleanContent = fullResponse.replace(FENCED_JSON_ARRAY, "").trim();
+      return { cleanContent, questions };
+    }
+  }
+
+  const qOpen = fullResponse.search(/<questions\b/i);
+  if (qOpen !== -1) {
+    const after = fullResponse.slice(qOpen);
+    const arr = extractBalancedJsonArray(after, 0);
+    if (arr) {
+      const questions = parseQuestionsFromJsonText(arr);
+      if (questions?.length) {
+        const endArr = qOpen + after.indexOf(arr) + arr.length;
+        const cleanContent = (fullResponse.slice(0, qOpen) + fullResponse.slice(endArr)).replace(/\n{3,}/g, "\n\n").trim();
+        return { cleanContent, questions };
+      }
+    }
+  }
+
+  return { cleanContent: fullResponse, questions: null };
+}
+
+/** While streaming: hide prose after an unclosed `<questions>` block so raw JSON does not flash in the bubble. */
+export function stripPartialQuestionsBlockForDisplay(text: string): string {
+  const open = text.search(/<questions\b/i);
+  if (open === -1) return text;
+  const rest = text.slice(open);
+  if (/<\/questions>/i.test(rest)) return text;
+  return text.slice(0, open).trimEnd();
 }
 
 export function cleanFullResponse(text: string): string {
@@ -50,7 +138,7 @@ export function cleanFullResponse(text: string): string {
   let cleaned = text.replace(
     /<(?:dyad|atlarix)-[^<>]*(?:"[^"]*"[^<>]*)*>/g,
     (match: string) => {
-    // Find all attribute values (content within quotes) and replace < with ＜ and > with ＞
+    // Find all attribute values (within quotes) and replace < with ＜ and > with ＞
     const processedMatch = match.replace(
       /="([^"]*)"/g,
       (attrMatch: string, attrValue: string) => {
@@ -73,11 +161,11 @@ export function cleanFullResponse(text: string): string {
 /**
  * Detect and remove duplicate content that some reasoning models output.
  * MiniMax 2.1 and similar models sometimes repeat the entire response after the thinking block.
- * 
+ *
  * Example (before): "<think>thoughts</think>Hey! How are you?Hey! How are you?"
  * Example (after):  "<think>thoughts</think>Hey! How are you?"
  */
-const THINK_END_TAGS = ["</redacted_thinking>", "</think>"] as const;
+const THINK_END_TAGS = ["</think>", "</think>"] as const;
 
 function findFirstThinkEnd(text: string): {
   index: number;

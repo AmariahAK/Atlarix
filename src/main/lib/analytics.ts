@@ -73,6 +73,18 @@ export function capture(
   posthog.capture({ distinctId, event, properties });
 }
 
+/** Fire-and-forget capture; never throws (analytics must not break the app). */
+export function captureSafe(
+  event: string,
+  properties?: Record<string, unknown>,
+): void {
+  try {
+    capture(event, properties);
+  } catch {
+    /* noop */
+  }
+}
+
 /**
  * Flush and shutdown the client. Call before app quit.
  */

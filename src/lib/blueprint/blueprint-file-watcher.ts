@@ -8,6 +8,7 @@ import * as path from "path";
 import { loadBlueprintCache, saveBlueprintCache } from "@/lib/cache/blueprint-cache";
 import { generateBlueprint, PARSERS } from "@/lib/blueprint/rte/parsers";
 import type { BlueprintNode } from "./rte/parsers/types";
+import { clearParseTreeCacheForWorkspace } from "@/lib/pivot/parsers/parse-tree-cache";
 
 const CODE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".py"]);
 const DEBOUNCE_MS = 500;
@@ -15,6 +16,7 @@ const DEBOUNCE_MS = 500;
 let watcher: fs.FSWatcher | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProjectPath: string | null = null;
+let lastWorkspaceId: number | null = null;
 
 function getLanguageFromExt(ext: string): "typescript" | "python" | null {
   if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) return "typescript";
@@ -59,12 +61,17 @@ export async function updateBlueprintCacheForFile(
 }
 
 /**
- * Register a file watcher for projectPath. On change, updates blueprint cache and calls onUpdated(workspaceId).
+ * Register a file watcher for projectPath. On change, updates blueprint cache and calls onUpdated.
  * Only one workspace can be watched at a time; call with projectPath: null to stop.
  */
 export function registerBlueprintFileWatcher(
   projectPath: string | null,
-  onUpdated?: (projectPath: string, relativePath: string) => void
+  workspaceId: number | null,
+  onUpdated?: (
+    projectPath: string,
+    relativePath: string,
+    workspaceId: number
+  ) => void | Promise<void>
 ): void {
   if (watcher) {
     watcher.close();
@@ -74,7 +81,14 @@ export function registerBlueprintFileWatcher(
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
+  if (lastProjectPath && lastProjectPath !== projectPath) {
+    clearParseTreeCacheForWorkspace(lastProjectPath);
+  }
+  if (projectPath === null && lastProjectPath) {
+    clearParseTreeCacheForWorkspace(lastProjectPath);
+  }
   lastProjectPath = projectPath;
+  lastWorkspaceId = workspaceId;
 
   if (!projectPath) return;
 
@@ -97,7 +111,9 @@ export function registerBlueprintFileWatcher(
         for (const f of files) {
           try {
             const ok = await updateBlueprintCacheForFile(projectPath, f);
-            if (ok) onUpdated?.(projectPath, f);
+            if (ok && lastWorkspaceId != null) {
+              await onUpdated?.(projectPath, f, lastWorkspaceId);
+            }
           } catch {
             // ignore
           }

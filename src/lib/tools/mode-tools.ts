@@ -1,6 +1,7 @@
 /**
- * request_mode_change: Let the model request Ask <-> Build. In Ask mode requires user approval for Build.
- * In Auto mode switches without approval. Build -> Ask can switch directly.
+ * request_mode_change: Let the model switch between any WorkMode (Ask / Plan / Build / Debug / Review).
+ * All valid transitions apply immediately via settings (no confirmation). In Auto intent mode, switches
+ * keep intentMode as "auto" while updating work mode fields.
  */
 
 import {
@@ -10,9 +11,18 @@ import {
   stringParam,
 } from "./registry";
 import { writeSettings } from "../../main/settings";
+import { settingsPatchForWorkMode, labelForWorkMode } from "@/lib/work-mode";
+import type { WorkMode } from "@/lib/schemas";
+
+function modeChangeAckMessage(modeLabel: string): string {
+  return `Mode switched to ${modeLabel}. Continue with the user's request in this mode.`;
+}
+
+const ALL_MODES = ["ask", "plan", "build", "debug", "review"] as const;
+type ToolMode = (typeof ALL_MODES)[number];
 
 type ModeChangeArgs = {
-  mode: "ask" | "build";
+  mode: ToolMode;
   reason: string;
   /** Injected by stream handler */
   hasWorkspace?: boolean;
@@ -25,7 +35,7 @@ type ModeChangeArgs = {
 ToolRegistry.register({
   name: "request_mode_change",
   description:
-    "Request to switch between Ask (read-only) and Build (can write/run) mode. Use when the user wants implementation or code changes but you are in Ask mode (request Build with a reason and wait for approval), or to switch back to Ask when in Build. In Auto mode, switches are applied without user confirmation.",
+    "Switch between work modes: Ask (read-only), Plan (read + plan writing), Build (write/run), Debug (diagnostic tools), Review (code review). Valid switches apply immediately. In Auto intent mode, the app stays in Auto while updating the active work mode.",
   category: ToolCategory.TASK,
   cost: 0,
   requiresWorkspace: false,
@@ -35,30 +45,35 @@ ToolRegistry.register({
     {
       mode: {
         type: "string",
-        enum: ["ask", "build"],
-        description: "Target mode: 'ask' for read-only, 'build' for write/run.",
+        enum: [...ALL_MODES],
+        description:
+          "Target mode: 'ask' (read-only), 'plan' (read + plan writing), 'build' (write/run), 'debug' (diagnostics), 'review' (code review).",
       },
       reason: stringParam("Short reason for the switch (e.g. 'User asked to implement the feature')."),
     },
     ["mode", "reason"]
   ),
   handler: async (args: ModeChangeArgs): Promise<Record<string, unknown>> => {
-    const mode = args.mode as "ask" | "build";
+    const mode = args.mode as ToolMode;
     const reason = String(args.reason ?? "");
     const hasWorkspace = args.hasWorkspace === true;
     const currentMode = (args.currentMode ?? "build") as "ask" | "build";
     const intentMode = (args.intentMode ?? "ask") as "ask" | "build" | "auto";
     const hasPendingPermissions = args.hasPendingPermissions === true;
 
+    const workMode = mode as WorkMode;
+    const patch = settingsPatchForWorkMode(workMode);
+    const label = labelForWorkMode(workMode);
+
     if (mode === currentMode) {
       return { success: true, message: "Already in that mode." };
     }
 
-    if (!hasWorkspace && mode === "build") {
+    if (!hasWorkspace && mode !== "ask") {
       return {
         success: false,
         error:
-          "Cannot switch to Build without a workspace. Please select a workspace first.",
+          "Cannot switch to this mode without a workspace. Please select a workspace first.",
       };
     }
 
@@ -69,41 +84,19 @@ ToolRegistry.register({
       };
     }
 
-    // Auto mode: apply switch without approval
+    // Auto intent: apply any switch and keep intent in Auto
     if (intentMode === "auto") {
-      writeSettings({
-        selectedChatMode: mode,
-        intentMode: "auto",
-        workModePreference: mode === "build" ? "build" : "ask",
-      });
+      writeSettings({ ...patch, intentMode: "auto" });
       return {
         success: true,
-        message: `Switched to ${mode === "build" ? "Build" : "Ask"}.`,
+        message: modeChangeAckMessage(label),
         __emit_mode_change_activity: true,
         requestedMode: mode,
         reason,
       };
     }
 
-    // Build -> Ask: allow direct switch
-    if (currentMode === "build" && mode === "ask") {
-      writeSettings({
-        selectedChatMode: "ask",
-        intentMode: "ask",
-        workModePreference: "ask",
-      });
-      return { success: true, message: "Switched to Ask mode." };
-    }
-
-    // Ask -> Build: require user approval (stream handler will emit and wait)
-    if (currentMode === "ask" && mode === "build") {
-      return {
-        __mode_change_requested: true,
-        requestedMode: "build" as const,
-        reason,
-      };
-    }
-
-    return { success: true, message: "Mode unchanged." };
+    writeSettings(patch);
+    return { success: true, message: modeChangeAckMessage(label), requestedMode: mode, reason };
   },
 });

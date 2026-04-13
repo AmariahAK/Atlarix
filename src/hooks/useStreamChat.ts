@@ -16,6 +16,7 @@ import {
   isStreamingByIdAtom,
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
+  lastReasoningTokensByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
@@ -24,6 +25,8 @@ import {
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
   blueprintInjectionChatOverrideAtom,
+  livePlanUpdateByAssistantMessageIdAtom,
+  planSnapshotByAssistantMessageIdAtom,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
@@ -190,6 +193,8 @@ export function useStreamChat({
       modelOverride,
       onSettled,
       continueAfterQuestions,
+      prefillTaskLedger,
+      forceThinkingTier,
     }: {
       prompt: string;
       chatId: number;
@@ -200,6 +205,12 @@ export function useStreamChat({
       onSettled?: () => void;
       /** v3.9: Continue after clarifying questions (no new user message). */
       continueAfterQuestions?: boolean;
+      prefillTaskLedger?: {
+        steps: { description: string }[];
+        sourcePlanMessageId?: number;
+      };
+      /** Auto: one-shot thinking tier for this message. */
+      forceThinkingTier?: boolean;
     }) => {
       if (!chatId) return;
       if (
@@ -254,6 +265,15 @@ export function useStreamChat({
       try {
         getDefaultStore().set(activityStreamItemsAtom, []);
         getDefaultStore().set(agentBusRingByChatIdAtom, (prev) => ({ ...prev, [chatId]: [] }));
+        getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
+          const n = new Map(prev);
+          for (const [messageId, payload] of n) {
+            if (payload.chatId === chatId) {
+              n.delete(messageId);
+            }
+          }
+          return n;
+        });
 
         // Register permission handler for this chat
         const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
@@ -496,6 +516,14 @@ export function useStreamChat({
           }
         );
 
+        const unsubPlanUpdate = IpcClient.getInstance().onPlanUpdate(chatId, (payload) => {
+          getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
+            const n = new Map(prev);
+            n.set(payload.assistantMessageId, payload);
+            return n;
+          });
+        });
+
         const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
           if (!payload || typeof payload !== "object") return;
           const p = payload as { chatId?: number; type?: string; id?: unknown; label?: unknown; timestamp?: number; fromAgent?: unknown; toAgent?: unknown };
@@ -541,6 +569,7 @@ export function useStreamChat({
           unsubscribeTerminal?.();
           unsubscribeOperationStatus?.();
           unsubscribeChatActivity?.();
+          unsubPlanUpdate?.();
         };
 
         const intentMode =
@@ -576,6 +605,8 @@ export function useStreamChat({
           blueprintInjectionMode: streamBlueprintMode,
           blueprintDebugTrace: streamBlueprintTrace || undefined,
           blueprintDebugFile: streamBlueprintFile || undefined,
+          prefillTaskLedger,
+          forceThinkingTier,
           onUpdate: (updatedMessages: Message[]) => {
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
@@ -667,6 +698,24 @@ export function useStreamChat({
             });
           },
           onEnd: (response: ChatResponseEnd) => {
+            const liveMap = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
+            for (const [messageId, live] of liveMap) {
+              if (live.chatId === response.chatId && live.steps.length > 0) {
+                getDefaultStore().set(planSnapshotByAssistantMessageIdAtom, (prev) => ({
+                  ...prev,
+                  [messageId]: live,
+                }));
+              }
+            }
+            getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
+              const n = new Map(prev);
+              for (const [messageId, live] of n) {
+                if (live.chatId === response.chatId) {
+                  n.delete(messageId);
+                }
+              }
+              return n;
+            });
             cleanupStreamListeners?.();
             if (response.updatedFiles) {
               setIsPreviewOpen(true);
@@ -694,6 +743,16 @@ export function useStreamChat({
                 tier: response.compassTier,
                 surface: hasChatId ? "workspace_chat" : "floating_chat",
               });
+            }
+
+            if (
+              typeof response.reasoningTokens === "number" &&
+              response.reasoningTokens > 0
+            ) {
+              getDefaultStore().set(lastReasoningTokensByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]: response.reasoningTokens!,
+              }));
             }
 
             // Keep the same as below
@@ -750,6 +809,24 @@ export function useStreamChat({
             onSettled?.();
           },
           onError: (errorMessage: string) => {
+            const liveMapErr = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
+            for (const [messageId, liveErr] of liveMapErr) {
+              if (liveErr.chatId === chatId && liveErr.steps.length > 0) {
+                getDefaultStore().set(planSnapshotByAssistantMessageIdAtom, (prev) => ({
+                  ...prev,
+                  [messageId]: liveErr,
+                }));
+              }
+            }
+            getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
+              const n = new Map(prev);
+              for (const [messageId, live] of n) {
+                if (live.chatId === chatId) {
+                  n.delete(messageId);
+                }
+              }
+              return n;
+            });
             cleanupStreamListeners?.();
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
             if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {

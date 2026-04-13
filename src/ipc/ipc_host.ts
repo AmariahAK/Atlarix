@@ -47,6 +47,8 @@ import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
 import { registerRoutingHandlers } from "./handlers/routing_handlers";
+import { registerHooksHandlers } from "./handlers/hooks_handlers";
+import { registerCommandsHandlers } from "./handlers/commands_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
 import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
 import { registerTokenVaultHandlers } from "./handlers/token_vault_handlers";
@@ -56,8 +58,10 @@ import { registerWorkforceSessionHandlers } from "./handlers/workforce_session_h
 import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
+import { registerCounselHandlers } from "./handlers/counsel_handlers";
 import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
+import { registerFsDiagramSnapshotHandlers } from "./handlers/fs_diagram_snapshot_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
 export function registerIpcHandlers() {
@@ -109,10 +113,13 @@ export function registerIpcHandlers() {
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
+  registerFsDiagramSnapshotHandlers(); // `.atlarix/snapshots/` diagram timeline + revert
   registerBlueprintHandlers(); // Phase 7 Additive Blueprint
   registerPivotAnalysisHandlers(); // PIVOT analysis (SonarQube, Semgrep, SCIP)
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
-  registerRoutingHandlers(); // v3.6 Auto routing preview
+  registerRoutingHandlers();
+  registerHooksHandlers();
+  registerCommandsHandlers(); // v3.6 Auto routing preview
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel
   registerTokenVaultHandlers(); // v4.0 Token Vault (Workforce)
@@ -122,5 +129,6 @@ export function registerIpcHandlers() {
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
+  registerCounselHandlers(); // Renderer-triggered counsel + cancel (abortSignal)
   wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

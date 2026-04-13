@@ -5,7 +5,6 @@
  */
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
 import { useAuth } from '@/lib/auth/useAuth';
 import { LogIn, LogOut, User, Github, Chrome } from 'lucide-react';
 

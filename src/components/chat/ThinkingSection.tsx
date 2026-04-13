@@ -19,104 +19,168 @@ export interface ToolCallInfo {
 
 interface ThinkingCardProps {
     thoughts: string[];
+    /** Content from `<reasoning>` blocks in the stream (distinct from provider redacted reasoning). */
+    reasoningFromTags?: string;
+    /** Streamed provider reasoning (`<think>`), shown above tools. */
+    modelReasoning?: string;
     toolCalls: ToolCallInfo[];
     /** When true, show a single tool count instead of per-tool pills (multi-agent turns). */
     compactTools?: boolean;
     /** Recent agent-bus lines for this chat (e.g. last 5). */
     busExchanges?: AgentBusExchange[];
+    /** Smaller chrome while the assistant message is still streaming. */
+    size?: "default" | "compact";
 }
 
-export function ThinkingCard({ thoughts, toolCalls, compactTools = false, busExchanges = [] }: ThinkingCardProps) {
+export function ThinkingCard({
+    thoughts,
+    reasoningFromTags,
+    modelReasoning,
+    toolCalls,
+    compactTools = false,
+    busExchanges = [],
+    size = "default",
+}: ThinkingCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [modelReasoningOpen, setModelReasoningOpen] = useState(false);
+    const reasoningTagPresent = Boolean(reasoningFromTags?.trim());
 
     // Calculate stats
     const stats = useMemo(() => {
-        const toolCounts: Record<string, number> = {};
-        toolCalls.forEach(tool => {
-            toolCounts[tool.toolName] = (toolCounts[tool.toolName] || 0) + 1;
-        });
-
-        const toolSummary = Object.entries(toolCounts)
-            .map(([name, count]) => count > 1 ? `${name}×${count}` : name)
-            .join(' • ');
-
         return {
             thoughtCount: thoughts.length,
+            reasoningPresent:
+                Boolean(modelReasoning?.trim()) || reasoningTagPresent,
             toolCount: toolCalls.length,
-            toolSummary,
             hasErrors: toolCalls.some(t => t.status === 'error'),
             isRunning: toolCalls.some(t => t.status === 'running'),
         };
-    }, [thoughts, toolCalls]);
+    }, [thoughts, toolCalls, modelReasoning, reasoningTagPresent]);
 
-    if (thoughts.length === 0 && toolCalls.length === 0 && busExchanges.length === 0) return null;
+    if (
+        thoughts.length === 0 &&
+        !reasoningTagPresent &&
+        !modelReasoning?.trim() &&
+        toolCalls.length === 0 &&
+        busExchanges.length === 0
+    )
+        return null;
+
+    const compact = size === "compact";
 
     return (
         <div
             className={cn(
-                "mb-3 rounded-lg border overflow-hidden",
+                "rounded-lg border overflow-hidden",
+                compact ? "mb-1.5 mt-1.5" : "mb-3",
                 "bg-slate-900/60 border-slate-700/50",
                 stats.isRunning && "border-amber-500/30",
                 // Smooth animation on appear
-                "animate-in fade-in slide-in-from-top-2 duration-200"
+                "animate-in fade-in slide-in-from-bottom-1 duration-200"
             )}
         >
             {/* Header - Click to expand/collapse */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
+                className={cn(
+                    "w-full flex items-center justify-between hover:bg-slate-800/30 transition-colors",
+                    compact ? "px-2 py-1.5" : "px-4 py-2.5",
+                )}
             >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
                     <Brain className={cn(
-                        "w-4 h-4",
+                        compact ? "w-3 h-3 shrink-0" : "w-4 h-4",
                         stats.hasErrors ? "text-rose-400"
                             : stats.isRunning ? "text-amber-400"
                                 : "text-teal-400"
                     )} />
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className={cn(
+                        "font-medium text-slate-200 truncate",
+                        compact ? "text-xs" : "text-sm",
+                    )}>
                         Thinking
                         {stats.isRunning && (
                             <Loader2 className="w-3 h-3 inline ml-2 animate-spin text-amber-400" />
                         )}
                     </span>
-                    <span className="text-xs text-slate-500">
+                    <span className={cn("text-slate-500", compact ? "text-[10px]" : "text-xs")}>
+                        {stats.reasoningPresent && "reasoning"}
+                        {stats.reasoningPresent && stats.thoughtCount > 0 && " · "}
                         {stats.thoughtCount > 0 && `${stats.thoughtCount} thought${stats.thoughtCount > 1 ? 's' : ''}`}
-                        {stats.thoughtCount > 0 && (stats.toolCount > 0 || busExchanges.length > 0) && ' • '}
+                        {(stats.thoughtCount > 0 || stats.reasoningPresent) && (stats.toolCount > 0 || busExchanges.length > 0) && ' • '}
                         {stats.toolCount > 0 && `${stats.toolCount} tool${stats.toolCount > 1 ? 's' : ''}`}
                         {stats.toolCount > 0 && busExchanges.length > 0 && ' • '}
                         {busExchanges.length > 0 && `bus ${busExchanges.length}`}
                     </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    {!isExpanded && stats.toolSummary && !compactTools && (
-                        <span className="hidden sm:inline text-xs text-slate-600 truncate max-w-[200px]">
-                            {stats.toolSummary}
-                        </span>
-                    )}
+                <div className="flex items-center gap-1 shrink-0">
                     {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-slate-500" />
+                        <ChevronUp className={cn("text-slate-500", compact ? "w-3 h-3" : "w-4 h-4")} />
                     ) : (
-                        <ChevronDown className="w-4 h-4 text-slate-500" />
+                        <ChevronDown className={cn("text-slate-500", compact ? "w-3 h-3" : "w-4 h-4")} />
                     )}
                 </div>
             </button>
 
             {/* Expanded content */}
             {isExpanded && (
-                <div className="px-4 pb-3 border-t border-slate-700/50 pt-3 space-y-3">
-                    {/* Thoughts */}
+                <div className={cn(
+                    "border-t border-slate-700/50 space-y-3",
+                    compact ? "px-2 pb-2 pt-2" : "px-4 pb-3 pt-3",
+                )}>
                     {thoughts.length > 0 && (
                         <div className="space-y-2">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                Thinking
+                            </div>
                             {thoughts.map((thought, idx) => (
                                 <div
                                     key={idx}
                                     className="flex items-start gap-2 text-sm text-slate-400"
                                 >
                                     <Sparkles className="w-3 h-3 mt-1 text-teal-500/70 flex-shrink-0" />
-                                    <span className="italic">"{thought}"</span>
+                                    <span className="italic whitespace-pre-wrap">"{thought}"</span>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                    {reasoningFromTags?.trim() && (
+                        <div className="space-y-1.5">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                Reasoning
+                            </div>
+                            <div
+                                className={cn(
+                                    "text-sm text-slate-300/95 whitespace-pre-wrap leading-snug font-mono",
+                                )}
+                            >
+                                {reasoningFromTags.trim()}
+                            </div>
+                        </div>
+                    )}
+                    {modelReasoning?.trim() && (
+                        <div className="space-y-1.5">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                Model reasoning
+                            </div>
+                            <div
+                                className={cn(
+                                    "text-sm text-slate-300/95 whitespace-pre-wrap leading-snug font-mono",
+                                    !modelReasoningOpen && "line-clamp-3",
+                                )}
+                            >
+                                {modelReasoning.trim()}
+                            </div>
+                            {(modelReasoning.length > 180 || modelReasoning.split("\n").length > 3) && (
+                                <button
+                                    type="button"
+                                    className="text-xs text-teal-400/90 hover:text-teal-300"
+                                    onClick={() => setModelReasoningOpen((v) => !v)}
+                                >
+                                    {modelReasoningOpen ? "Show less" : "Show more"}
+                                </button>
+                            )}
                         </div>
                     )}
 

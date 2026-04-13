@@ -123,7 +123,61 @@ export const messages = sqliteTable("messages", {
   autoRoutedTier: text("auto_routed_tier", {
     enum: ["fast", "balanced", "thinking"],
   }),
+  /** Compaction continuation: system-inserted user line (hide or style softly in UI). */
+  isSynthetic: integer("is_synthetic", { mode: "boolean" })
+    .notNull()
+    .default(sql`0`),
   createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/** Persisted multi-model counsel sessions (optional history). */
+export const counselSessions = sqliteTable("counsel_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  chatId: integer("chat_id").notNull(),
+  turnId: text("turn_id").notNull(),
+  trigger: text("trigger").notNull(),
+  mode: text("mode").notNull(),
+  question: text("question").notNull(),
+  fastResponse: text("fast_response"),
+  balancedResponse: text("balanced_response"),
+  thinkingResponse: text("thinking_response"),
+  synthesis: text("synthesis"),
+  status: text("status").notNull(),
+  createdAt: integer("created_at", { mode: "number" }).notNull(),
+  completedAt: integer("completed_at", { mode: "number" }),
+});
+
+/** Advisory shell hooks: before/after file writes and run_command (non-blocking). */
+export const atlarixHooks = sqliteTable("atlarix_hooks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  trigger: text("trigger").notNull(),
+  command: text("command").notNull(),
+  argsJson: text("args_json"),
+  workspaceId: integer("workspace_id"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(sql`1`),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/** Workspace-scoped slash commands: expand user message before stream. */
+export const customCommands = sqliteTable("custom_commands", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  promptTemplate: text("prompt_template").notNull(),
+  modeOverride: text("mode_override"),
+  workspaceId: integer("workspace_id"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -229,7 +283,7 @@ export const providerApiKeys = sqliteTable("provider_api_keys", {
 });
 
 // Chat Context Summaries - Phase 6 context bar + auto-summarize
-// One rolling summary per chat; each compaction overwrites the previous
+// One row per chat; newer compactions prepend `<summary id="N">` and nest prior text.
 export const chatContextSummaries = sqliteTable("chat_context_summaries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   chatId: integer("chat_id")
@@ -238,6 +292,7 @@ export const chatContextSummaries = sqliteTable("chat_context_summaries", {
     .references(() => chats.id, { onDelete: "cascade" }),
   summaryText: text("summary_text").notNull(),
   lastMessageId: integer("last_message_id").notNull(),
+  compactionGeneration: integer("compaction_generation").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -423,27 +478,6 @@ export const diagrams = sqliteTable("diagrams", {
     .default(sql`(unixepoch())`),
 });
 
-// Diagram Versions - Track history of diagram modifications
-// Enhanced for Diagram-First Context System
-export const diagramVersions = sqliteTable("diagram_versions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  diagramId: integer("diagram_id")
-    .notNull()
-    .references(() => diagrams.id, { onDelete: "cascade" }),
-  content: text("content").notNull(), // Previous Mermaid diagram code
-  changeDescription: text("change_description"), // AI: "Added authentication flow"
-  // New fields for Diagram-First Context System
-  trigger: text("trigger", {
-    enum: ["user_request", "auto_sync", "template_clone", "file_change"],
-  }),
-  summary: text("summary"), // AI-generated: "Refactored auth to use JWT"
-  /** Stable turn key (e.g. assistant message id) for revert / diagram linkage. */
-  chatTurnId: text("chat_turn_id"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
 // --- Daily Logs (Diagram-First Context System) ---
 // AI-generated micro-changelog for workspace activity
 // Replaces chat history as context source
@@ -479,7 +513,7 @@ export const dailyLogs = sqliteTable("daily_logs", {
 });
 
 // Diagram relations
-export const diagramsRelations = relations(diagrams, ({ one, many }) => ({
+export const diagramsRelations = relations(diagrams, ({ one }) => ({
   workspace: one(apps, {
     fields: [diagrams.workspaceId],
     references: [apps.id],
@@ -487,14 +521,6 @@ export const diagramsRelations = relations(diagrams, ({ one, many }) => ({
   chat: one(chats, {
     fields: [diagrams.chatId],
     references: [chats.id],
-  }),
-  versions: many(diagramVersions),
-}));
-
-export const diagramVersionsRelations = relations(diagramVersions, ({ one }) => ({
-  diagram: one(diagrams, {
-    fields: [diagramVersions.diagramId],
-    references: [diagrams.id],
   }),
 }));
 

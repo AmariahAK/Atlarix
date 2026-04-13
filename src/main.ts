@@ -46,12 +46,24 @@ import {
   COMPASS_TIER_THINKING,
   getOpenRouterModelIdForCompassTier,
 } from "./ipc/shared/compass_constants";
+import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 
 log.errorHandler.startCatching();
 log.eventLogger.startLogging();
 log.scope.labelPadding = false;
 
 const logger = log.scope("main");
+
+process.on("unhandledRejection", (reason: unknown) => {
+  if (isNoUsableModelOutputError(reason)) {
+    logger.warn(
+      "[main] Swallowed unhandled AI empty-output error (handled upstream or benign flush):",
+      reason,
+    );
+    return;
+  }
+  logger.error("[main] Unhandled rejection:", reason);
+});
 
 // Load environment variables from .env file
 dotenv.config();

@@ -212,10 +212,6 @@ export class ToolRegistry {
             if (result && typeof result === 'object' && result.__permission_required) {
                 return result;
             }
-            // If this is a mode change request (Ask -> Build), return raw so stream handler can emit and wait
-            if (result && typeof result === 'object' && result.__mode_change_requested) {
-                return result;
-            }
             // Workspace permission panel request (batch Token Auth)
             if (result && typeof result === 'object' && (result as any).__workspace_permissions_requested) {
                 return result;

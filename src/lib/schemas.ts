@@ -411,6 +411,33 @@ export const UserSettingsSchema = z.object({
   /** When true, selecting a container opens Edit Internals (beacon view) directly instead of Summary Card. */
   blueprintAlwaysShowBeacons: z.boolean().optional(),
 
+  /** Multi-model counsel (fast / balanced / thinking) before main reply. */
+  counsel: z
+    .object({
+      enabled: z.boolean().optional(),
+      autoTriggerOnThinking: z.boolean().optional(),
+      showParticipantPreviews: z.boolean().optional(),
+      timeoutSeconds: z.number().min(5).max(120).optional(),
+    })
+    .optional(),
+
+  /** After autonomous task_complete: parallel reviewer + debugger on files written. */
+  buildVerification: z
+    .object({
+      enabled: z.boolean().optional(),
+    })
+    .optional(),
+
+  /** Append high-signal turn notes to workspace `.atlarix/ATLARIX.md` when files were written. */
+  autoMemory: z
+    .object({
+      enabled: z.boolean().optional(),
+      minConfidence: z.number().min(0).max(1).optional(),
+      /** When false, skip writing ATLARIX.md (in-memory / UI-only use). Default true. */
+      writeToFile: z.boolean().optional(),
+    })
+    .optional(),
+
   /** v5.0: How much Blueprint detail is injected into the system prompt. Auto = chat mode + message heuristics. */
   blueprintInjectionModePreference:
     BlueprintInjectionModePreferenceSchema.optional(),

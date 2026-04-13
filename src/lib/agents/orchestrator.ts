@@ -73,20 +73,60 @@ export interface OrchestratorTurnOptions {
   /** Surface blockers in the Activity Stream (renderer). */
   emitBlockerActivity: (label: string, detail?: string) => void;
   /**
-   * Publish a correction to an agent on the bus (from main).
-   * Reserved for future orchestrator logic / UI triggers.
+   * Optional hook after main publishes a correction to the bus (e.g. extra UI).
    */
   onCorrectionNeeded?: (agentRole: AgentId, correctionText: string) => void;
+}
+
+const turnCorrectionEmitters = new Map<
+  string,
+  (agentRole: AgentId, correctionText: string) => void
+>();
+
+function turnCorrectionKey(chatId: number, turnId: string): string {
+  return `${chatId}:${turnId}`;
+}
+
+/**
+ * Emit a main→agent correction for an active autonomous turn (IPC / orchestrator logic).
+ */
+export function emitCorrectionForChatTurn(
+  chatId: number,
+  turnId: string,
+  agentRole: AgentId,
+  correctionText: string,
+): void {
+  turnCorrectionEmitters.get(turnCorrectionKey(chatId, turnId))?.(agentRole, correctionText);
+}
+
+export interface OrchestratorTurnHandle {
+  stop: () => void;
+  emitCorrection: (agentRole: AgentId, correctionText: string) => void;
 }
 
 /**
  * Scoped subscription: only messages for this chat + turnId. Surfaces `blocker` on Activity Stream.
  */
-export function startOrchestratorForTurn(options: OrchestratorTurnOptions): () => void {
+export function startOrchestratorForTurn(options: OrchestratorTurnOptions): OrchestratorTurnHandle {
   const { chatId, turnId, emitBlockerActivity, onCorrectionNeeded } = options;
-  void onCorrectionNeeded;
 
-  return subscribeAgentBus((msg: AgentMessage) => {
+  const emitCorrection = (agentRole: AgentId, correctionText: string) => {
+    publishAgentMessage({
+      from: "main",
+      to: agentRole,
+      type: "correction",
+      content: correctionText,
+      turnId,
+      chatId,
+      payload: {},
+    });
+    onCorrectionNeeded?.(agentRole, correctionText);
+  };
+
+  const k = turnCorrectionKey(chatId, turnId);
+  turnCorrectionEmitters.set(k, emitCorrection);
+
+  const unsub = subscribeAgentBus((msg: AgentMessage) => {
     if (msg.turnId !== turnId) return;
     if (msg.chatId != null && msg.chatId !== chatId) return;
     if (msg.type === "blocker") {
@@ -101,4 +141,12 @@ export function startOrchestratorForTurn(options: OrchestratorTurnOptions): () =
       );
     }
   });
+
+  return {
+    stop: () => {
+      turnCorrectionEmitters.delete(k);
+      unsub();
+    },
+    emitCorrection,
+  };
 }

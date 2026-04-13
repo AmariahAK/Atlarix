@@ -9,6 +9,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import { createHash } from "crypto";
 import log from "electron-log";
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
@@ -34,10 +35,21 @@ import { db } from "@/db";
 import { diagrams } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
+import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
+import {
+    isAlwaysAutoApproveAtlarixRelativePath,
+    isAtlarixPlanRelativePath,
+} from "../../../lib/tasks/plan-sync";
 import { clearAllConsoleBuffers } from "../console_debugger";
+import { readSettings } from "../../../main/settings";
+import { runDiagramRegenerateBackground } from "../diagram_regenerate_background";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
 import * as TokenVault from "../../../lib/auth/TokenVaultService";
 import * as SlackApi from "../../../lib/workforce/slack-api";
+import {
+    runHooksForTrigger,
+    type HookTrigger,
+} from "../../../lib/hooks/hooks-manager";
 
 const logger = log.scope("permission-interceptor");
 
@@ -88,6 +100,9 @@ export class PermissionInterceptor extends EventEmitter {
     /** Map of operation ID to command execution results */
     private commandOutputs: Map<string, CommandResult> = new Map();
 
+    /** Skip redundant full re-seeds when the model writes the same plan twice in quick succession. */
+    private static planLedgerRefreshGuard = new Map<string, { hash: string; at: number }>();
+
     /** Track executed operations for diagram refresh analysis */
     private executedOperations: ApprovedOperation[] = [];
 
@@ -97,8 +112,17 @@ export class PermissionInterceptor extends EventEmitter {
     /** Workspace ID for diagram refresh */
     private workspaceId: number | null = null;
 
-    /** Assistant message id for this exchange — `.atlarix/snapshots/<turnId>/` */
+    /**
+     * Assistant / turn id used as `.atlarix/snapshots/<turnId>/` directory name.
+     * When unset, `maybeCaptureWorkspaceSnapshot` is a no-op (no manifest or .bak files).
+     * Ephemeral Ask chats omit this (see chat_stream_handlers: PermissionInterceptor gets no turn id),
+     * so those sessions never write workspace snapshots. Build uses a stable stream turn id even for
+     * ephemeral workspaces, so pre-write capture can still run there.
+     */
     private snapshotTurnId: string | null = null;
+
+    /** Active chat id for plan-ledger attribution (Build / Ask stream). */
+    private activeChatId: number;
 
     /** Cached diagram mermaid for first snapshot in this turn */
     private diagramContentCache: string | undefined | null = null;
@@ -106,14 +130,150 @@ export class PermissionInterceptor extends EventEmitter {
     /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
     private allowedRoots: Set<string> = new Set();
 
-    constructor(workspacePath: string, workspaceId?: number, snapshotTurnId?: string | number) {
+    constructor(
+        workspacePath: string,
+        workspaceId?: number,
+        snapshotTurnId?: string | number,
+        activeChatId?: number,
+    ) {
         super();
         this.workspacePath = workspacePath;
         this.workspaceId = workspaceId ?? null;
+        this.activeChatId = activeChatId ?? 0;
         if (snapshotTurnId !== undefined && snapshotTurnId !== null) {
             this.snapshotTurnId = String(snapshotTurnId);
         }
-        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"})`);
+        // snapshotTurnId left null → disk snapshots disabled for this interceptor instance (e.g. Ask + ephemeral).
+        logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"}, chat: ${this.activeChatId})`);
+    }
+
+    /** Live chat mode from settings (never cache on the instance). */
+    private getEffectiveChatMode(): string {
+        return readSettings().selectedChatMode ?? "ask";
+    }
+
+    /**
+     * File / batch file operations under `.atlarix/` or `.atlarixignore` auto-approve without user prompt.
+     */
+    shouldAlwaysAutoApprove(request: PermissionRequest): boolean {
+        const checkPath = (filePath: string): boolean => {
+            try {
+                const rel = this.toWorkspaceRelativePosix(filePath);
+                return isAlwaysAutoApproveAtlarixRelativePath(rel);
+            } catch {
+                return false;
+            }
+        };
+
+        switch (request.operation) {
+            case "write_file":
+            case "replace_code":
+            case "insert_code":
+            case "delete_lines":
+            case "delete_file": {
+                const preview = request.preview as FileOperationPreview;
+                return Boolean(preview?.path && checkPath(preview.path));
+            }
+            case "rename_file": {
+                const preview = request.preview as FileOperationPreview;
+                return Boolean(
+                    preview?.fromPath &&
+                        preview?.toPath &&
+                        checkPath(preview.fromPath) &&
+                        checkPath(preview.toPath),
+                );
+            }
+            case "write_multiple_files": {
+                const previews = request.preview as FileOperationPreview[];
+                if (!Array.isArray(previews) || previews.length === 0) return false;
+                return previews.every((p) => p?.path && checkPath(p.path));
+            }
+            case "batch_plan": {
+                const batch = request.preview as BatchPlanPreview;
+                if (!batch?.operations?.length) return false;
+                for (const op of batch.operations) {
+                    if ("command" in op && typeof (op as CommandOperationPreview).command === "string") {
+                        return false;
+                    }
+                    const fp = op as FileOperationPreview;
+                    if (!fp?.path || !checkPath(fp.path)) return false;
+                }
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    /** After writing ATLARIX_PLAN.md: refresh workspace `plan:<id>` ledger without re-archiving. */
+    private async refreshPlanLedgerFromWrittenFile(fullPath: string, rel: string): Promise<void> {
+        if (!this.workspaceId || !isAtlarixPlanRelativePath(rel)) return;
+        let content: string;
+        try {
+            content = await fs.readFile(fullPath, "utf8");
+        } catch (e) {
+            logger.warn("[refreshPlanLedgerFromWrittenFile] read failed:", e);
+            return;
+        }
+        const digest = createHash("sha256").update(content, "utf8").digest("hex");
+        const guardKey = `${this.workspaceId}:${rel.replace(/\\/g, "/")}`;
+        const now = Date.now();
+        const prev = PermissionInterceptor.planLedgerRefreshGuard.get(guardKey);
+        if (prev?.hash === digest && now - prev.at < 450) {
+            logger.log("[refreshPlanLedgerFromWrittenFile] skip duplicate plan body (debounced)");
+            return;
+        }
+        PermissionInterceptor.planLedgerRefreshGuard.set(guardKey, { hash: digest, at: now });
+
+        const { parsePlanToSteps, extractPlanTitle } = await import("@/lib/tasks/atlarix-plan-steps");
+        const steps = parsePlanToSteps(content);
+        if (steps.length === 0) return;
+
+        const {
+            planLedgerTurnId,
+            getLedger,
+            createLedger,
+            setLedgerSteps,
+            persistLedgerToDisk,
+        } = await import("@/lib/tasks/task-ledger");
+        const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
+        const planTurnId = planLedgerTurnId(this.workspaceId);
+        if (planTurnId == null) return;
+        const taskHead = extractPlanTitle(content, "Implementation plan");
+
+        const existing = getLedger(planTurnId);
+        if (existing) {
+            await setLedgerSteps(planTurnId, steps, { archive: false });
+            const L = getLedger(planTurnId);
+            if (L) {
+                L.chatId = this.activeChatId;
+                await persistLedgerToDisk(L);
+                await syncPlanFile(this.workspacePath, L);
+            }
+        } else {
+            createLedger({
+                turnId: planTurnId,
+                chatId: this.activeChatId,
+                originalTask: taskHead,
+                chatType: "workspace",
+                workspacePath: this.workspacePath,
+                stepDescriptions: steps,
+            });
+            const L = getLedger(planTurnId);
+            if (L) await syncPlanFile(this.workspacePath, L);
+        }
+    }
+
+    private async runAdvisoryHooks(
+        trigger: HookTrigger,
+        extraEnv: Record<string, string>,
+    ): Promise<void> {
+        await runHooksForTrigger({
+            trigger,
+            workspacePath: this.workspacePath,
+            workspaceId: this.workspaceId,
+            extraEnv,
+        });
     }
 
     /**
@@ -316,7 +476,8 @@ export class PermissionInterceptor extends EventEmitter {
             timestamp: new Date().toISOString(),
         });
 
-        if (!silent) {
+        const silentOut = silent || this.shouldAlwaysAutoApprove(request);
+        if (!silentOut) {
             // Emit event for frontend to pick up
             this.emit('permission-request', {
                 operationId,
@@ -819,7 +980,7 @@ export class PermissionInterceptor extends EventEmitter {
         // SESSION TRACKER: Batch-complete staleness check (v0.9.16)
         // Emit staleness ONCE after all operations complete, not per-file
         // ═══════════════════════════════════════════════════════════════
-        if (this.workspaceId) {
+        if (this.workspaceId && this.getEffectiveChatMode() !== "ask") {
             const tracker = SessionTracker.getInstance(this.workspaceId);
             const status = tracker.getDiagramStatus();
             if (status !== 'current') {
@@ -849,6 +1010,10 @@ export class PermissionInterceptor extends EventEmitter {
      */
     private async evaluateDiagramRefresh(): Promise<void> {
         if (!this.workspaceId) return;
+        if (this.getEffectiveChatMode() === "ask") {
+            logger.log("[Diagram Refresh] Skipped: Ask mode (no auto regen or staleness IPC)");
+            return;
+        }
 
         try {
             const decision = await decideDiagramAction(this.workspaceId, this.executedOperations);
@@ -886,12 +1051,8 @@ export class PermissionInterceptor extends EventEmitter {
                 const workspaceId = this.workspaceId;
                 setImmediate(async () => {
                     try {
-                        const { ipcMain } = await import('electron');
                         logger.log(`[Diagram Refresh] Triggering background regeneration for workspace ${workspaceId}`);
-                        // Invoke the diagram regeneration handler directly
-                        // Note: This is in the main process, so we need to invoke the handler manually
-                        // The handler is registered in diagram_handlers.ts
-                        ipcMain.emit('diagram:regenerate-background', {}, { workspaceId });
+                        await runDiagramRegenerateBackground(workspaceId);
                     } catch (err) {
                         logger.error('[Diagram Refresh] Background regeneration failed:', err);
                     }
@@ -994,7 +1155,11 @@ export class PermissionInterceptor extends EventEmitter {
         return this.diagramContentCache;
     }
 
-    /** Capture pre-write file state under `.atlarix/snapshots/<turnId>/`. */
+    /**
+     * Capture pre-write file state under `.atlarix/snapshots/<turnId>/`.
+     * Requires `snapshotTurnId` (see field doc). `captureSnapshot` itself does not read chatId;
+     * gating is entirely whether the stream passed a turn id into this interceptor.
+     */
     private async maybeCaptureWorkspaceSnapshot(relativePaths: string[]): Promise<void> {
         if (!this.snapshotTurnId || !this.workspacePath) return;
         const paths = relativePaths.map((p) => p.split(path.sep).join("/")).filter(Boolean);
@@ -1033,13 +1198,28 @@ export class PermissionInterceptor extends EventEmitter {
         const preview = request.preview as FileOperationPreview;
         await this.maybeCaptureWorkspaceSnapshot([this.toWorkspaceRelativePosix(preview.path)]);
         const fullPath = this.resolvePathWithinWorkspace(preview.path);
+        const rel = this.toWorkspaceRelativePosix(preview.path);
+        if (isAtlarixPlanRelativePath(rel)) {
+            const { archiveCurrentPlan } = await import("@/lib/tasks/plan-sync");
+            await archiveCurrentPlan(this.workspacePath, rel);
+        }
+        await this.runAdvisoryHooks("before_file_write", { ATLARIX_FILE_PATH: rel });
 
         // Ensure directory exists
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
         // Write file
         await fs.writeFile(fullPath, preview.content || "", "utf-8");
+        await this.runAdvisoryHooks("after_file_write", { ATLARIX_FILE_PATH: rel });
         logger.log(`Wrote file: ${fullPath}`);
+        if (this.snapshotTurnId) {
+            appendLedgerFilesWritten(this.snapshotTurnId, [
+                this.toWorkspaceRelativePosix(preview.path),
+            ]);
+        }
+        if (isAtlarixPlanRelativePath(rel)) {
+            await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
+        }
     }
 
     private async executeWriteMultipleFiles(request: PermissionRequest): Promise<void> {
@@ -1049,11 +1229,26 @@ export class PermissionInterceptor extends EventEmitter {
             previews.map((p) => this.toWorkspaceRelativePosix(p.path)),
         );
 
+        const relPaths: string[] = [];
         for (const preview of previews) {
             const fullPath = this.resolvePathWithinWorkspace(preview.path);
+            const rel = this.toWorkspaceRelativePosix(preview.path);
+            if (isAtlarixPlanRelativePath(rel)) {
+                const { archiveCurrentPlan } = await import("@/lib/tasks/plan-sync");
+                await archiveCurrentPlan(this.workspacePath, rel);
+            }
+            await this.runAdvisoryHooks("before_file_write", { ATLARIX_FILE_PATH: rel });
             await fs.mkdir(path.dirname(fullPath), { recursive: true });
             await fs.writeFile(fullPath, preview.content || "", "utf-8");
             logger.log(`Wrote file: ${fullPath}`);
+            relPaths.push(rel);
+            await this.runAdvisoryHooks("after_file_write", { ATLARIX_FILE_PATH: rel });
+            if (isAtlarixPlanRelativePath(rel)) {
+                await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
+            }
+        }
+        if (this.snapshotTurnId && relPaths.length > 0) {
+            appendLedgerFilesWritten(this.snapshotTurnId, relPaths);
         }
     }
 
@@ -1257,104 +1452,116 @@ export class PermissionInterceptor extends EventEmitter {
             }, timeoutMs);
         });
 
+        await this.runAdvisoryHooks("before_run_command", {
+            ATLARIX_COMMAND: commandToRun,
+            ATLARIX_WORKING_DIR: workingDir,
+        });
+
         try {
-            // Stream stdout/stderr and emit on each chunk for live tool indicator
-            const result = await Promise.race([
-                runShellCommandStreaming(commandToRun, workingDir, {
-                    onOutput: ({ stdout, stderr }) => {
-                        const output = stdout + (stderr ? `\n${stderr}` : '');
-                        this.emit('terminal-output', {
-                            operationId,
-                            command: commandToRun,
-                            output,
-                            status: 'running' as const,
-                        });
-                    },
-                }),
-                timeoutPromise
-            ]);
+            try {
+                // Stream stdout/stderr and emit on each chunk for live tool indicator
+                const result = await Promise.race([
+                    runShellCommandStreaming(commandToRun, workingDir, {
+                        onOutput: ({ stdout, stderr }) => {
+                            const output = stdout + (stderr ? `\n${stderr}` : '');
+                            this.emit('terminal-output', {
+                                operationId,
+                                command: commandToRun,
+                                output,
+                                status: 'running' as const,
+                            });
+                        },
+                    }),
+                    timeoutPromise
+                ]);
 
-            const duration = Date.now() - startTime;
+                const duration = Date.now() - startTime;
 
-            // Store output for UI display and AI feedback
-            this.commandOutputs.set(operationId, {
-                ...result,
-                // Add duration to result (extending CommandResult)
-            } as CommandResult);
-
-            // Emit final output
-            this.emit('terminal-output', {
-                operationId,
-                command: commandToRun,
-                output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
-                status: result.success ? 'completed' as const : 'error' as const,
-                exitCode: result.exitCode,
-                duration,
-            });
-
-            if (result.success) {
-                logger.log(`[executeRunCommand] Success: ${commandToRun} (${(duration / 1000).toFixed(1)}s)`);
-            } else {
-                logger.error(`[executeRunCommand] Failed: ${commandToRun} (exit ${result.exitCode})`);
-                if (result.stderr) {
-                    logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
-                }
-                // Include stderr in thrown error so user and logs see the real reason
-                const errDetail = result.stderr
-                    ? `\n\n${result.stderr.slice(0, 500)}`
-                    : (result.stdout ? `\n\n${result.stdout.slice(0, 200)}` : "");
-                throw new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
-            }
-        } catch (error) {
-            const duration = Date.now() - startTime;
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            const isTimeout = errorMessage.includes('timed out');
-
-            // Dev server timeout = success (server is still running after 10 seconds)
-            if (isDevServerCommand && isTimeout) {
-                logger.log(`[executeRunCommand] Dev server started: ${commandToRun} (running in background)`);
-
-                // Store success result for AI context
+                // Store output for UI display and AI feedback
                 this.commandOutputs.set(operationId, {
-                    stdout: `Dev server started successfully and is running in background`,
-                    stderr: '',
-                    exitCode: 0,
-                    success: true,
-                });
+                    ...result,
+                    // Add duration to result (extending CommandResult)
+                } as CommandResult);
 
-                // Emit success for dev server
+                // Emit final output
                 this.emit('terminal-output', {
                     operationId,
                     command: commandToRun,
-                    output: 'Dev server started successfully (running in background)',
-                    status: 'completed' as const,
-                    exitCode: 0,
+                    output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+                    status: result.success ? 'completed' as const : 'error' as const,
+                    exitCode: result.exitCode,
                     duration,
                 });
 
-                return; // Don't throw - treat as success
+                if (result.success) {
+                    logger.log(`[executeRunCommand] Success: ${commandToRun} (${(duration / 1000).toFixed(1)}s)`);
+                } else {
+                    logger.error(`[executeRunCommand] Failed: ${commandToRun} (exit ${result.exitCode})`);
+                    if (result.stderr) {
+                        logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
+                    }
+                    // Include stderr in thrown error so user and logs see the real reason
+                    const errDetail = result.stderr
+                        ? `\n\n${result.stderr.slice(0, 500)}`
+                        : (result.stdout ? `\n\n${result.stdout.slice(0, 200)}` : "");
+                    throw new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
+                }
+            } catch (error) {
+                const duration = Date.now() - startTime;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isTimeout = errorMessage.includes('timed out');
+
+                // Dev server timeout = success (server is still running after 10 seconds)
+                if (isDevServerCommand && isTimeout) {
+                    logger.log(`[executeRunCommand] Dev server started: ${commandToRun} (running in background)`);
+
+                    // Store success result for AI context
+                    this.commandOutputs.set(operationId, {
+                        stdout: `Dev server started successfully and is running in background`,
+                        stderr: '',
+                        exitCode: 0,
+                        success: true,
+                    });
+
+                    // Emit success for dev server
+                    this.emit('terminal-output', {
+                        operationId,
+                        command: commandToRun,
+                        output: 'Dev server started successfully (running in background)',
+                        status: 'completed' as const,
+                        exitCode: 0,
+                        duration,
+                    });
+
+                    return; // Don't throw - treat as success
+                }
+
+                // Regular timeout or error - store error result for AI context
+                this.commandOutputs.set(operationId, {
+                    stdout: '',
+                    stderr: errorMessage,
+                    exitCode: -1,
+                    success: false,
+                });
+
+                // Emit error output
+                this.emit('terminal-output', {
+                    operationId,
+                    command: commandToRun,
+                    output: errorMessage,
+                    status: 'error' as const,
+                    exitCode: -1,
+                    duration,
+                });
+
+                logger.error(`[executeRunCommand] Error: ${commandToRun} - ${errorMessage}`);
+                throw error;
             }
-
-            // Regular timeout or error - store error result for AI context
-            this.commandOutputs.set(operationId, {
-                stdout: '',
-                stderr: errorMessage,
-                exitCode: -1,
-                success: false,
+        } finally {
+            await this.runAdvisoryHooks("after_run_command", {
+                ATLARIX_COMMAND: commandToRun,
+                ATLARIX_WORKING_DIR: workingDir,
             });
-
-            // Emit error output
-            this.emit('terminal-output', {
-                operationId,
-                command: commandToRun,
-                output: errorMessage,
-                status: 'error' as const,
-                exitCode: -1,
-                duration,
-            });
-
-            logger.error(`[executeRunCommand] Error: ${commandToRun} - ${errorMessage}`);
-            throw error;
         }
     }
 

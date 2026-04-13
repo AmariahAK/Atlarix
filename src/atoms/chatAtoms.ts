@@ -2,9 +2,11 @@ import type {
   AutonomousSessionCompletePayload,
   FileAttachment,
   Message,
+  PlanUpdatePayload,
 } from "@/ipc/ipc_types";
 import { atom } from "jotai";
 import type { ChatSummary } from "@/lib/schemas";
+import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 
 // Per-chat atoms implemented with maps keyed by chatId
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
@@ -31,14 +33,29 @@ export const recentStreamChatIdsAtom = atom<Set<number>>(new Set<number>());
 
 export const attachmentsAtom = atom<FileAttachment[]>([]);
 
+/** One-shot: next send uses Auto thinking tier when configured (`forceThinkingTier` in stream). */
+export const forceDeepThinkNextAtom = atom(false);
+
 /** Per-chat: whether the last completed turn had tool runs or a permission request. Used to show "No actions this turn" when false in agent mode. */
 export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({});
+
+/** Per-chat: last reported reasoning / thinking token count from stream end (thinking-tier turns). */
+export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 
 /** v3.9: Pending clarifying questions per assistant message (messageId -> questions). Cleared when user submits answers. */
 export const questionsByMessageIdAtom = atom<Record<number, import("@/ipc/ipc_types").Question[]>>({});
+
+/** Counsel session activity rows pinned to an assistant message (survives activity stream clear). */
+export const counselPreviewByMessageIdAtom = atom<Record<number, ActivityStreamItem[]>>({});
+
+/** Latest live plan IPC payload per assistant message (cleared for that chat when a new stream starts). */
+export const livePlanUpdateByAssistantMessageIdAtom = atom<Map<number, PlanUpdatePayload>>(new Map());
+
+/** Frozen plan card per assistant message id after stream completes. */
+export const planSnapshotByAssistantMessageIdAtom = atom<Record<number, PlanUpdatePayload>>({});
 
 /** ask_user tool: pending interactive question for a chat (cleared after submit). */
 export type PendingUserQuestion = {

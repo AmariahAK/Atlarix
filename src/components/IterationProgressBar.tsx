@@ -123,9 +123,12 @@ export function IterationProgressBar({ chatId }: Props) {
 
     if (!progress) return null;
 
-    const percentage = (progress.iteration / progress.maxIterations) * 100;
-    const isWarningZone = percentage > 75;
-    const isDangerZone = percentage > 90;
+    const unboundedProgress = progress.maxIterations <= 0;
+    const percentage = unboundedProgress
+      ? 0
+      : Math.min(100, (progress.iteration / progress.maxIterations) * 100);
+    const isWarningZone = !unboundedProgress && percentage > 75;
+    const isDangerZone = !unboundedProgress && percentage > 90;
 
     return (
         <>
@@ -183,20 +186,25 @@ export function IterationProgressBar({ chatId }: Props) {
                         {/* Iteration count */}
                         <div className="flex-shrink-0 text-xs font-mono">
                             <span className={cn(
-                                isDangerZone ? "text-destructive"
+                                unboundedProgress ? "text-primary"
+                                    : isDangerZone ? "text-destructive"
                                     : isWarningZone ? "text-accent"
                                         : "text-primary"
                             )}>
                                 {progress.iteration}
                             </span>
-                            <span className="text-muted-foreground">/{progress.maxIterations}</span>
+                            {!unboundedProgress ? (
+                              <span className="text-muted-foreground">/{progress.maxIterations}</span>
+                            ) : (
+                              <span className="text-muted-foreground"> rounds</span>
+                            )}
                         </div>
                     </div>
 
                     {/* Tool counter */}
                     <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
                         <span>{progress.totalToolsExecuted} tools executed</span>
-                        {isWarningZone && !showContinueModal && (
+                        {!unboundedProgress && isWarningZone && !showContinueModal && (
                             <span className="text-accent animate-pulse">
                                 Approaching limit...
                             </span>

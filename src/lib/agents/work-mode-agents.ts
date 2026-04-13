@@ -3,10 +3,10 @@
  */
 
 import type { WorkMode } from "@/lib/schemas";
-import type { BuiltinAgentId } from "./builtin";
+import type { DelegationAgentId } from "@/lib/skills/skill-registry";
 
 /** Preferred delegate_to_agent target for each work mode. */
-export function defaultAgentForWorkMode(mode: WorkMode): BuiltinAgentId {
+export function defaultAgentForWorkMode(mode: WorkMode): DelegationAgentId {
   switch (mode) {
     case "ask":
       return "research";

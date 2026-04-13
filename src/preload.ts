@@ -28,6 +28,8 @@ const validInvokeChannels = [
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
   "autonomous:revert-op",
   "autonomous:accept-all",
+  "revert:snapshot",
+  "snapshot:exists",
   "stream:open",                  // v3.9: open terminal/pipeline stream
   "stream:close",                 // v3.9: close stream
   "stream:get-lines",             // v3.9: get collected lines
@@ -66,6 +68,17 @@ const validInvokeChannels = [
   "get-user-settings",
   "set-user-settings",
   "routing:preview",
+  "hooks:list",
+  "hooks:create",
+  "hooks:update",
+  "hooks:delete",
+  "hooks:toggle",
+  "commands:list",
+  "commands:create",
+  "commands:update",
+  "commands:delete",
+  "counsel:start",
+  "counsel:cancel",
   "get-env-vars",
   "get-db-ready",
   "open-external-url",
@@ -228,8 +241,6 @@ const validInvokeChannels = [
   "diagram:generate-ai",
   "diagram:update",
   "diagram:delete",
-  "diagram:history",
-  "diagram:restore",
   "diagram:check-staleness",
   "diagram:mark-stale",
   // Dev Server (Live Preview)
@@ -250,6 +261,8 @@ const validInvokeChannels = [
   "diagram:queue-capture",
   "diagram:flush-pending",
   "diagram:capture-initial",
+  "snapshots:diagram-timeline",
+  "snapshots:revert-diagram",
   // Blueprint (Phase 7 Additive Blueprint)
   "blueprint:get",
   "blueprint:set",
@@ -361,6 +374,7 @@ const validReceiveChannels = [
   "workforce:prompt-session-scope",
   "user-question-request", // ask_user: show question + options in chat UI
   "mode_change_requested",
+  "mode:changed",
   "terminal-output",
   "operation-status",         // Permission queue status updates
   // v4.0 Token Vault (Workforce)
@@ -387,9 +401,13 @@ const validReceiveChannels = [
   "chat:iteration:timeout",     // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
+  "chat:plan-update",
+  "counsel:participant-update",
+  "counsel:complete",
   "autonomous:session-complete",
   // v3.9: Clarifying questions from AI (render QuestionsWidget)
   "chat:questions",
+  "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // Blueprint: AI editing indicator (Diagram tab)
   "blueprint:ai-editing",
   "blueprint:updated",

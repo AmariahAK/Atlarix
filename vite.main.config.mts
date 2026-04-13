@@ -43,7 +43,14 @@ export default defineConfig({
   // NO assetsInclude for .sql — conflicts with raw-sql inlining for bundled.generated.ts.
   ssr: {
     noExternal: [],
-    external: ["keytar", "better-sqlite3"],
+    external: [
+      "keytar",
+      "better-sqlite3",
+      "tree-sitter",
+      "tree-sitter-typescript",
+      "tree-sitter-javascript",
+      "tree-sitter-python",
+    ],
   },
   resolve: {
     alias: {
@@ -58,6 +65,10 @@ export default defineConfig({
       external: [
         "better-sqlite3",
         "keytar",
+        "tree-sitter",
+        "tree-sitter-typescript",
+        "tree-sitter-javascript",
+        "tree-sitter-python",
         "mysql2",
         // elkjs is bundled (use main entry 'elkjs' in code so it bundles without defineProperty issues).
         // OpenTelemetry packages are bundled so the packaged app finds them (no runtime require from node_modules).

@@ -37,7 +37,22 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoModelIds: undefined,
   autoRoutingShowReasoning: true,
   autoRoutingExchangeThreshold: 6,
-  enableAutoFixProblems: false,
+  counsel: {
+    enabled: true,
+    autoTriggerOnThinking: true,
+    showParticipantPreviews: true,
+    timeoutSeconds: 30,
+  },
+  buildVerification: {
+    enabled: true,
+  },
+  autoMemory: {
+    enabled: true,
+    minConfidence: 0.7,
+    writeToFile: true,
+  },
+  /** When true, after a build-mode turn completes, may auto-queue up to 2 synthetic fix turns (TS / dev output / tests). Ask-only chats are unaffected. */
+  enableAutoFixProblems: true,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   blueprintAlwaysShowBeacons: false,
   blueprintInjectionModePreference: "auto",

@@ -6,8 +6,8 @@
 
 import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
-import { diagrams, diagramVersions } from "@/db/schema";
-import { eq, desc, and, or, isNull, ne } from "drizzle-orm";
+import { diagrams } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
 import { generateText } from "ai";
 import {
     getModelClient,
@@ -24,13 +24,11 @@ import { apps } from "@/db/schema";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
 import { checkSnapshotStaleness } from "../../lib/snapshot/staleness";
-import {
-    persistWorkspaceSnapshotHashes,
-    insertDiagramVersionWithCap,
-} from "../../lib/snapshot/snapshot-manager";
+import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
+import { runDiagramRegenerateBackground } from "./diagram_regenerate_background";
 
 // ============================================
 // TYPES
@@ -121,6 +119,13 @@ ipcMain.handle(
                     };
                 }
                 throw e;
+            }
+            if (readSettings().selectedChatMode === "ask") {
+                return {
+                    success: false,
+                    error:
+                        "Diagram AI generation is disabled in Ask mode. Switch to Build or Agent to generate or refresh diagrams.",
+                };
             }
             console.log(`[diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
 
@@ -404,11 +409,31 @@ ipcMain.handle(
         { diagramId, workspacePath }: { diagramId: number; workspacePath: string }
     ): Promise<{
         success: boolean;
+        action?: "none";
         staleness?: StalenessCheck;
         gitDecision?: GitDiagramDecision;
         error?: string;
     }> => {
         try {
+            if (readSettings().selectedChatMode === "ask") {
+                return {
+                    success: true,
+                    action: "none",
+                    staleness: {
+                        isStale: false,
+                        severity: "none",
+                        reason: "Ask mode: diagram auto-refresh is disabled",
+                        changes: {
+                            filesAdded: 0,
+                            filesRemoved: 0,
+                            fileCountChange: 0,
+                            percentChange: 0,
+                        },
+                        recommendation: "keep",
+                    },
+                };
+            }
+
             console.log(`[diagram:check-staleness] Checking diagram ${diagramId}`);
 
             const [diagram] = await db
@@ -541,13 +566,6 @@ ipcMain.handle(
                 return { success: false, error: "Diagram not found" };
             }
 
-            await insertDiagramVersionWithCap({
-                diagramId: id,
-                content: currentDiagram.content,
-                changeDescription: changeDescription || "Updated diagram",
-                trigger: "user_request",
-            });
-
             // Update diagram with new content
             const [updated] = await db
                 .update(diagrams)
@@ -601,108 +619,6 @@ ipcMain.handle("diagram:delete", async (_, { id }: { id: number }) => {
 });
 
 // ============================================
-// DIAGRAM:HISTORY - Get version history
-// ============================================
-
-ipcMain.handle(
-    "diagram:history",
-    async (_, { diagramId }: { diagramId: number }) => {
-        try {
-            const versions = await db
-                .select()
-                .from(diagramVersions)
-                .where(
-                    and(
-                        eq(diagramVersions.diagramId, diagramId),
-                        or(isNull(diagramVersions.trigger), ne(diagramVersions.trigger, "auto_sync")),
-                    ),
-                )
-                .orderBy(desc(diagramVersions.createdAt));
-
-            console.log(`[diagram:history] Found ${versions.length} versions for diagram ${diagramId}`);
-
-            return { success: true, versions };
-        } catch (error) {
-            console.error("[diagram:history] Error:", error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-                versions: [],
-            };
-        }
-    }
-);
-
-// ============================================
-// DIAGRAM:RESTORE - Restore a previous version
-// ============================================
-
-ipcMain.handle(
-    "diagram:restore",
-    async (_, { diagramId, versionId }: { diagramId: number; versionId: number }) => {
-        try {
-            // Get the version to restore
-            const [version] = await db
-                .select()
-                .from(diagramVersions)
-                .where(and(eq(diagramVersions.id, versionId), eq(diagramVersions.diagramId, diagramId)));
-
-            if (!version) {
-                return { success: false, error: "Version not found" };
-            }
-
-            // Get current diagram to save as version first
-            const [currentDiagram] = await db
-                .select()
-                .from(diagrams)
-                .where(eq(diagrams.id, diagramId));
-
-            if (!currentDiagram) {
-                return { success: false, error: "Diagram not found" };
-            }
-
-            await insertDiagramVersionWithCap({
-                diagramId,
-                content: currentDiagram.content,
-                changeDescription: "Before restore",
-                trigger: "user_request",
-            });
-
-            // Restore the old version
-            const [updated] = await db
-                .update(diagrams)
-                .set({
-                    content: version.content,
-                    updatedAt: new Date(),
-                })
-                .where(eq(diagrams.id, diagramId))
-                .returning();
-
-            if (updated?.workspaceId) {
-                const [app] = await db.select().from(apps).where(eq(apps.id, updated.workspaceId));
-                if (app) {
-                    try {
-                        await persistWorkspaceSnapshotHashes(diagramId, getAtlarixAppPath(app.path));
-                    } catch (e) {
-                        console.warn("[diagram:restore] snapshot_hashes persist skipped:", e);
-                    }
-                }
-            }
-
-            console.log(`[diagram:restore] Restored diagram ${diagramId} to version ${versionId}`);
-
-            return { success: true, diagram: updated ? toClientDiagram(updated) : updated };
-        } catch (error) {
-            console.error("[diagram:restore] Error:", error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
-    }
-);
-
-// ============================================
 // DIAGRAM:EXPORT - Export as SVG
 // ============================================
 
@@ -752,140 +668,6 @@ ipcMain.handle(
 // Triggered by post-sequence diagram refresh engine
 // ============================================
 
-ipcMain.handle(
-    "diagram:regenerate-background",
-    async (_, { workspaceId }: { workspaceId: number }) => {
-        try {
-            try {
-                await requireAuthSession();
-            } catch (e) {
-                if (e instanceof AuthRequiredError) {
-                    return { success: false, error: "Please sign in to regenerate diagrams." };
-                }
-                throw e;
-            }
-            console.log(`[diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
-
-            // 1. Get Workspace Path
-            const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
-            if (!app) {
-                console.log(`[diagram:regenerate-background] Workspace not found: ${workspaceId}`);
-                return { success: false, error: "Workspace not found" };
-            }
-
-            const appPath = getAtlarixAppPath(app.path);
-            const settings = readSettings();
-
-            // 2. Extract Codebase Context
-            const chatContext: AppChatContext = {
-                contextPaths: [],
-                smartContextAutoIncludes: [],
-                excludePaths: []
-            };
-
-            console.log(`[diagram:regenerate-background] Extracting codebase from ${appPath}`);
-            const { formattedOutput } = await extractCodebase({
-                appPath,
-                chatContext
-            });
-
-            // 3. Prepare AI Client (uses Auto chain when autoModelRouting is ON)
-            const modelConfig = getEffectiveModel(settings);
-            const { modelClient } = await getModelClient(modelConfig, settings);
-
-            // 4. Generate Diagram
-            const systemPrompt = `You are an expert software architect.
-Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
-Focus on:
-- Major components/modules
-- Data flow
-- relationships between files
-- External dependencies (if obvious)
-
-Requirements:
-- Return ONLY the mermaid code block.
-- Use 'graph TB' or 'graph LR'.
-- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
-- Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.
-- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
-- Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
-- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
-- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
-- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
-
-            const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
-
-            console.log(`[diagram:regenerate-background] Sending prompt to model ${modelConfig.name}`);
-            const result = await generateText({
-                model: modelClient.model,
-                system: systemPrompt,
-                messages: [{ role: 'user', content: userPrompt }],
-            });
-
-            // 5. Parse Output
-            let content = normalizeDiagramAiOutput(result.text);
-
-            // 6. Generate fingerprint
-            const fingerprint = await generateFingerprint(appPath);
-
-            // 7. Check for existing diagram and update or create
-            const existingDiagram = await db.query.diagrams.findFirst({
-                where: eq(diagrams.workspaceId, workspaceId),
-            });
-
-            if (existingDiagram) {
-                await db
-                    .update(diagrams)
-                    .set({
-                        content,
-                        fingerprintHash: fingerprint.hash,
-                        fingerprintData: fingerprint,
-                        createdFromFileCount: fingerprint.fileCount,
-                        updatedAt: new Date(),
-                    })
-                    .where(eq(diagrams.id, existingDiagram.id));
-
-                console.log(`[diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
-                try {
-                    await persistWorkspaceSnapshotHashes(existingDiagram.id, appPath);
-                } catch (e) {
-                    console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
-                }
-                invalidateBlueprintCache(workspaceId);
-                return { success: true, action: 'updated', diagramId: existingDiagram.id };
-            } else {
-                const [diagram] = await db
-                    .insert(diagrams)
-                    .values({
-                        workspaceId,
-                        diagramType: "mermaid",
-                        title: `${app.name} Architecture`,
-                        content,
-                        metadata: { focus: "auto-generated" },
-                        fingerprintHash: fingerprint.hash,
-                        fingerprintData: fingerprint,
-                        createdFromFileCount: fingerprint.fileCount,
-                    })
-                    .returning();
-
-                console.log(`[diagram:regenerate-background] Created new diagram ${diagram.id}`);
-                try {
-                    await persistWorkspaceSnapshotHashes(diagram.id, appPath);
-                } catch (e) {
-                    console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
-                }
-                invalidateBlueprintCache(workspaceId);
-                return { success: true, action: 'created', diagramId: diagram.id };
-            }
-
-        } catch (error) {
-            console.error("[diagram:regenerate-background] Error:", error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
-    }
-);
+ipcMain.handle("diagram:regenerate-background", async (_, { workspaceId }: { workspaceId: number }) => {
+    return runDiagramRegenerateBackground(workspaceId);
+});

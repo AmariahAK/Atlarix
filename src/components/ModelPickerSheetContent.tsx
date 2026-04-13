@@ -24,7 +24,14 @@ import { cn } from "@/lib/utils";
 import type { LargeLanguageModel } from "@/lib/schemas";
 import type { LanguageModel } from "@/ipc/ipc_types";
 
-export function ModelPickerSheetContent({ onClose }: { onClose: () => void }) {
+export function ModelPickerSheetContent({
+  onClose,
+  disabled,
+}: {
+  onClose: () => void;
+  /** When Auto routing is on — sheet should not be used; guard for safety. */
+  disabled?: boolean;
+}) {
   const { settings, updateSettings } = useSettings();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -51,6 +58,25 @@ export function ModelPickerSheetContent({ onClose }: { onClose: () => void }) {
   };
 
   if (!settings) return null;
+
+  if (disabled) {
+    return (
+      <div className="flex flex-col gap-3 pt-2">
+        <p className="text-sm text-muted-foreground">
+          <strong>Auto</strong> is on — the model is chosen per message. Turn off{" "}
+          <strong>Auto mode</strong> in the chat config menu (sliders icon) to pick a
+          fixed model.
+        </p>
+        <button
+          type="button"
+          className="text-sm text-primary underline-offset-2 hover:underline w-fit"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 pt-2">

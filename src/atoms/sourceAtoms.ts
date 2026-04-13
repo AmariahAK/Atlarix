@@ -174,7 +174,33 @@ export const toolTimelineAtom = atom<ToolExecution[]>([]);
 /** v2.1: Activity Stream items (model selection, delegation, compaction, tool use) */
 export interface ActivityStreamItem {
   id: string;
-  type: 'model_selection' | 'delegation' | 'delegation_start' | 'delegation_complete' | 'delegation_error' | 'self_review' | 'background' | 'tool_use' | 'turn_summary' | 'mode_change' | 'agent_message' | 'routing_decision' | 'classifier_routing' | 'orchestrator_blocker';
+  type:
+    | 'model_selection'
+    | 'delegation'
+    | 'delegation_start'
+    | 'delegation_complete'
+    | 'delegation_error'
+    | 'self_review'
+    | 'background'
+    | 'tool_use'
+    | 'turn_summary'
+    | 'mode_change'
+    | 'agent_message'
+    | 'routing_decision'
+    | 'classifier_routing'
+    | 'orchestrator_blocker'
+    | 'parallel_prefetch_start'
+    | 'parallel_prefetch_complete'
+    | 'counsel_start'
+    | 'counsel_participant_complete'
+    | 'counsel_synthesising'
+    | 'counsel_complete'
+    | 'build_verification_complete'
+    | 'memory_saved'
+    | 'plan_created'
+    | 'duration_limit_reached'
+    | 'loop_detected'
+    | 'loop_repetition_aborted';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
   tokens?: number;
@@ -195,6 +221,24 @@ export interface ActivityStreamItem {
   threadId?: string;
   /** When set, activity was scoped to this chat (used for stream-local buffers). */
   chatId?: number;
+  /** Counsel: groups ThoughtsPanel rows for one multi-model session. */
+  sessionId?: string;
+  participantCount?: number;
+  counselRole?: 'fast' | 'balanced' | 'thinking' | 'synthesis';
+  /** Short preview text (e.g. counsel participant snippet). */
+  preview?: string;
+  /** plan_created: number of steps */
+  stepCount?: number;
+  /** Counsel complete: synthesis character count (not token usage). */
+  synthesisLength?: number;
+  /** Agent bus mirror on chat:activity — original bus `type` for filtering internal rows. */
+  agentMessageType?: string;
+  /** loop_detected / loop_repetition_aborted: tool that repeated (write_file | run_command). */
+  toolName?: string;
+  /** Normalized path or command key for repetition detection. */
+  loopTarget?: string;
+  /** Occurrences in sliding window when stuck was detected. */
+  loopCount?: number;
 }
 
 /** Last N agent-bus lines for the Thinking card (keyed by chat id). */

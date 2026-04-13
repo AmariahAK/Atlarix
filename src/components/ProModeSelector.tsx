@@ -325,7 +325,7 @@ function SmartContextSelector({
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Label className={!isTogglable ? "text-muted-foreground/50" : ""}>
-          Smart Context
+          Auto file context
         </Label>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -355,7 +355,7 @@ function SmartContextSelector({
               Off
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Disable Smart Context</TooltipContent>
+          <TooltipContent>Disable automatic file context</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

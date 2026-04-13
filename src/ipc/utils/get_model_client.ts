@@ -119,6 +119,36 @@ export function getBalancedModelForCurrentProvider(
 }
 
 /**
+ * Returns the thinking (third-tier) model when Auto slots or Compass / favorites provide it.
+ */
+export function getThinkingModelForCurrentProvider(
+  settings: UserSettings,
+  _openRouterFavoriteIds?: string[],
+): LargeLanguageModel | null {
+  const tier2 =
+    Array.isArray(settings.autoModelIds) && typeof settings.autoModelIds[2] === "string"
+      ? settings.autoModelIds[2].trim()
+      : "";
+  if (settings.autoModelRouting && settings.autoProviderId && tier2) {
+    return { provider: settings.autoProviderId, name: tier2 };
+  }
+  const effective = settings.selectedModel;
+  if (!effective?.provider) return null;
+  if (effective.provider === "compass") {
+    return { provider: "compass", name: COMPASS_TIER_THINKING };
+  }
+  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 3) {
+    return { provider: "ollama", name: ollamaFavs[2] };
+  }
+  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
+  if (effective.provider === "lmstudio" && lmStudioFavs && lmStudioFavs.length >= 3) {
+    return { provider: "lmstudio", name: lmStudioFavs[2] };
+  }
+  return null;
+}
+
+/**
  * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain.
  */
 export function getDiagramModelConfig(
@@ -160,6 +190,7 @@ import { createAtlarixEngine } from "./llm_engine_provider";
 import {
   COMPASS_TIER_BALANCED,
   COMPASS_TIER_FAST,
+  COMPASS_TIER_THINKING,
   compassFallbackChain,
   getCompassMasterApiKey,
   getOpenRouterModelIdForCompassTier,
@@ -170,6 +201,7 @@ import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
 import { createFallback } from "./fallback_ai_model";
+import { resolveContextBudgetTier } from "../../lib/routing/context_budget_routing";
 
 const dyadEngineUrl = process.env.DYAD_ENGINE_URL;
 
@@ -400,10 +432,13 @@ export async function getModelClient(
     // so we do a nullish and not a truthy check here.
     if (providerConfig.gatewayPrefix != null || dyadEngineUrl) {
       const enableSmartFilesContext = settings.enableProSmartFilesContextMode;
+      const includeExtendedThinking =
+        resolveContextBudgetTier(model, settings) === "thinking";
       const provider = createAtlarixEngine({
         apiKey: dyadApiKey,
         baseURL: dyadEngineUrl ?? "https://engine.atlarix.dev/v1",
         originalProviderId: model.provider,
+        includeExtendedThinking,
         dyadOptions: {
           enableLazyEdits:
             settings.selectedChatMode === "ask"

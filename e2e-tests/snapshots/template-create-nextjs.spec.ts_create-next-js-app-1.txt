@@ -14,7 +14,7 @@
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "next",
   "selectedChatMode": "build",
-  "enableAutoFixProblems": false,
+  "enableAutoFixProblems": true,
   "enableAutoUpdate": true,
   "releaseChannel": "stable",
   "isRunning": true,

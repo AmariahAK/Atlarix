@@ -3,7 +3,21 @@
  * Guided: flat delegation only. Autonomous: agents can call delegate_to_agent (nested) up to max depth.
  */
 
-import { generateText, zodSchema } from "ai";
+import { generateText, zodSchema, type ModelMessage } from "ai";
+import {
+  buildContinuationPrompt,
+  shouldContinue,
+} from "../streaming/continuation-handler";
+import {
+  createLedger,
+  getLedger,
+  planLedgerTurnId,
+  recordDelegationToolOnLedger,
+  advanceLedgerAfterDelegation,
+  seedLedgerFromHandoff,
+  setLedgerSteps,
+  descriptionsFromArchitectPayload,
+} from "../tasks/task-ledger";
 import type { ToolSet } from "ai";
 import {
   ToolRegistry,
@@ -11,7 +25,13 @@ import {
   createParameters,
   stringParam,
 } from "./registry";
-import { getBuiltinAgent } from "../agents/builtin";
+import { loadSkill } from "../skills/skill-loader";
+import {
+  getAgentMetadata,
+  getFocusedSkillNameForAgent,
+  getSkillNameForAgent,
+} from "../skills/skill-registry";
+import { getToolManifest } from "../skills/tool-manifest";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
@@ -28,6 +48,7 @@ import {
   appendAutonomousOp,
   autonomousOpFromPermissionExec,
 } from "../../ipc/handlers/autonomous-session-state";
+import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
 import {
   publishAgentMessage,
   toAgentId,
@@ -37,9 +58,34 @@ import {
 
 const logger = log.scope("agent-tools");
 
-const DELEGATE_MAX_STEPS = 8;
+const DELEGATION_LENGTH_CONTINUATION_MAX = 3;
 
-type DelegateArgs = {
+function collectFilesWrittenFromLedger(turnId: string | undefined): string[] {
+  if (!turnId) return [];
+  const L = getLedger(turnId);
+  if (!L) return [];
+  return [
+    ...new Set(L.steps.flatMap((s) => s.filesWritten ?? []).map((p) => String(p).trim())),
+  ].filter(Boolean);
+}
+
+/** Stable JSON string for tool consumers when schema validation fails or research has no schema. */
+function structuredDelegationEnvelope(args: {
+  agentRole: DelegationAgentRole;
+  status: "research" | "fallback";
+  summary: string;
+  turnId?: string;
+}): string {
+  return JSON.stringify({
+    agentRole: args.agentRole,
+    status: args.status,
+    summary: args.summary,
+    filesWritten: collectFilesWrittenFromLedger(args.turnId),
+    completedAt: Date.now(),
+  });
+}
+
+export type DelegateArgs = {
   agent_id: string;
   task: string;
   context?: string;
@@ -65,11 +111,9 @@ export type DelegationAgentRole =
   | "reviewer"
   | "debugger";
 
-/** Run a single delegation; used by handler and by nested execute when Autonomous. */
-async function runDelegation(args: DelegateArgs): Promise<{
+export type DelegationResult = {
   success: boolean;
   agent?: string;
-  /** Resolved specialist id (for parent-thread HandoffResultCard). */
   agentRole?: DelegationAgentRole;
   summary?: string;
   stepsUsed?: number;
@@ -81,15 +125,18 @@ async function runDelegation(args: DelegateArgs): Promise<{
     attempts: 1 | 2;
     warning?: string;
   };
-}> {
+};
+
+/** Run a single delegation; used by handler, nested execute, and parallel-runner. */
+export async function runDelegation(args: DelegateArgs): Promise<DelegationResult> {
   const settings = readSettings();
   const requestedAgentId = args.agent_id;
   const resolvedAgentId =
     settings.intentMode === "auto" || !settings.workModePreference
       ? requestedAgentId
       : defaultAgentForWorkMode(settings.workModePreference);
-  const agent = getBuiltinAgent(resolvedAgentId);
-  if (!agent) {
+  const meta = getAgentMetadata(resolvedAgentId);
+  if (!meta) {
     const roleUnknown = requestedAgentId as DelegationAgentRole;
     return {
       success: false,
@@ -110,7 +157,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     return {
       success: false,
       error: `Max delegation depth (${maxDepth}) reached. Cannot nest further.`,
-      agent: agent.name,
+      agent: meta.name,
       agentRole: resolvedAgentId as DelegationAgentRole,
     };
   }
@@ -130,9 +177,29 @@ async function runDelegation(args: DelegateArgs): Promise<{
     };
     const { modelClient } = await getModelClient(effectiveModel, settings, delegationOptions);
 
+    const skillName =
+      depth > 0
+        ? getFocusedSkillNameForAgent(resolvedAgentId)
+        : getSkillNameForAgent(resolvedAgentId);
+    const skillMarkdown = await loadSkill(skillName, workspace || undefined);
+    const trimmedSkill = skillMarkdown.trim();
+    if (!trimmedSkill) {
+      return {
+        success: false,
+        error: `Empty or missing skill for agent: ${skillName}`,
+        agent: meta.name,
+        agentRole: resolvedAgentId as DelegationAgentRole,
+      };
+    }
+    const manifest = getToolManifest(skillName);
+    const delegationSystem = trimmedSkill;
+
     const allTools = ToolRegistry.getAll();
-    const agentToolNames = new Set(agent.toolSet);
-    let toolsForAgent = allTools.filter((t) => agentToolNames.has(t.name));
+    const allowAll = manifest.allowed.includes("*");
+    const allowSet = new Set(manifest.allowed.filter((n) => n !== "*"));
+    let toolsForAgent = allowAll
+      ? allTools
+      : allTools.filter((t) => allowSet.has(t.name));
 
     const toolSet: ToolSet = {};
     for (const t of toolsForAgent) {
@@ -197,6 +264,10 @@ async function runDelegation(args: DelegateArgs): Promise<{
             }
           }
 
+          if (args.turnId) {
+            recordToolUseForTurn(args.turnId, t.name);
+          }
+
           let out =
             typeof result === "object" && result !== null
               ? JSON.stringify(result)
@@ -206,6 +277,10 @@ async function runDelegation(args: DelegateArgs): Promise<{
             if (notes.length > 0) {
               out += `\n\n[Main correction]\n${notes.map((n) => `- ${n}`).join("\n")}`;
             }
+            recordDelegationToolOnLedger(args.turnId, {
+              toolName: t.name,
+              summary: out.slice(0, 400),
+            });
           }
           return out;
         },
@@ -312,16 +387,51 @@ async function runDelegation(args: DelegateArgs): Promise<{
     const userContent =
       args.task + (args.context ? `\n\nContext:\n${args.context}` : "");
 
-    const result = await generateText({
+    let delegMsgs: ModelMessage[] = [{ role: "user", content: userContent }];
+    let delegLengthAttempts = 0;
+    let totalDelegSteps = 0;
+    let result = await generateText({
       model: modelClient.model,
-      system: agent.systemPrompt,
-      messages: [{ role: "user" as const, content: userContent }],
+      system: delegationSystem,
+      messages: delegMsgs,
       tools: toolSet,
-      maxSteps: DELEGATE_MAX_STEPS,
+      stopWhen: [() => false],
     } as Parameters<typeof generateText>[0]);
+    totalDelegSteps += result.steps?.length ?? 0;
 
-    const stepsUsed = result.steps?.length ?? 0;
-    logger.info(`Delegation to ${agent.name} (depth=${depth}) completed; steps=${stepsUsed}`);
+    while (
+      shouldContinue(result.finishReason, {
+        attemptCount: delegLengthAttempts,
+        maxAttempts: DELEGATION_LENGTH_CONTINUATION_MAX,
+      })
+    ) {
+      delegLengthAttempts++;
+      delegMsgs = [
+        ...delegMsgs,
+        ...(result.response.messages as ModelMessage[]),
+        {
+          role: "user",
+          content: buildContinuationPrompt({
+            chatId: args.chatId ?? 0,
+            turnId: args.turnId ?? "delegation",
+            attemptCount: delegLengthAttempts,
+            maxAttempts: DELEGATION_LENGTH_CONTINUATION_MAX,
+            lastContent: result.text ?? "",
+          }),
+        },
+      ];
+      result = await generateText({
+        model: modelClient.model,
+        system: delegationSystem,
+        messages: delegMsgs,
+        tools: toolSet,
+        stopWhen: [() => false],
+      } as Parameters<typeof generateText>[0]);
+      totalDelegSteps += result.steps?.length ?? 0;
+    }
+
+    const stepsUsed = totalDelegSteps;
+    logger.info(`Delegation to ${meta.name} (depth=${depth}) completed; steps=${stepsUsed}`);
 
     const toolNames: string[] = [];
     for (const step of result.steps ?? []) {
@@ -376,12 +486,19 @@ async function runDelegation(args: DelegateArgs): Promise<{
     const schemaConfig = schemaByAgent[resolvedAgentId];
     const rawSummary = (result.text?.trim() || "(No summary produced)") + autonomousFooter;
     if (!schemaConfig) {
-      emitTaskResult(rawSummary);
+      const envelope = structuredDelegationEnvelope({
+        agentRole: resolvedAgentId as DelegationAgentRole,
+        status: "research",
+        summary: rawSummary,
+        turnId: args.turnId,
+      });
+      emitTaskResult(envelope);
+      if (args.turnId) advanceLedgerAfterDelegation(args.turnId, envelope);
       return {
         success: true,
-        agent: agent.name,
+        agent: meta.name,
         agentRole: resolvedAgentId as DelegationAgentRole,
-        summary: rawSummary,
+        summary: envelope,
         stepsUsed,
       };
     }
@@ -394,7 +511,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
       retry: async (retryPrompt) => {
         const retryResult = await generateText({
           model: modelClient.model,
-          system: `${agent.systemPrompt}\n\nReturn only valid JSON for structured handoff output.`,
+          system: `${delegationSystem}\n\nReturn only valid JSON for structured handoff output.`,
           messages: [{ role: "user" as const, content: retryPrompt }],
         } as Parameters<typeof generateText>[0]);
         return retryResult.text?.trim() || "";
@@ -403,9 +520,38 @@ async function runDelegation(args: DelegateArgs): Promise<{
 
     if (validated.status === "ok") {
       emitTaskResult(validated.normalizedText);
+      if (args.turnId) {
+        const seeded =
+          resolvedAgentId === "architect" &&
+          (await seedLedgerFromHandoff(args.turnId, validated.data));
+        if (!seeded) {
+          advanceLedgerAfterDelegation(args.turnId, validated.normalizedText);
+        }
+        if (seeded && resolvedAgentId === "architect" && workspaceId != null) {
+          const descriptions = descriptionsFromArchitectPayload(validated.data);
+          if (descriptions?.length) {
+            const pid = planLedgerTurnId(workspaceId);
+            if (pid != null) {
+              const planL = getLedger(pid);
+              if (planL) {
+                await setLedgerSteps(pid, descriptions, { archive: false });
+              } else if (workspace.trim()) {
+                createLedger({
+                  turnId: pid,
+                  chatId: args.chatId ?? 0,
+                  originalTask: args.task.slice(0, 8000),
+                  chatType: "workspace",
+                  workspacePath: workspace,
+                  stepDescriptions: descriptions,
+                });
+              }
+            }
+          }
+        }
+      }
       return {
         success: true,
-        agent: agent.name,
+        agent: meta.name,
         agentRole: resolvedAgentId as DelegationAgentRole,
         summary: validated.normalizedText,
         stepsUsed,
@@ -419,12 +565,19 @@ async function runDelegation(args: DelegateArgs): Promise<{
       };
     }
 
-    emitTaskResult(rawSummary);
+    const fallbackEnvelope = structuredDelegationEnvelope({
+      agentRole: resolvedAgentId as DelegationAgentRole,
+      status: "fallback",
+      summary: rawSummary,
+      turnId: args.turnId,
+    });
+    emitTaskResult(fallbackEnvelope);
+    if (args.turnId) advanceLedgerAfterDelegation(args.turnId, fallbackEnvelope);
     return {
       success: true,
-      agent: agent.name,
+      agent: meta.name,
       agentRole: resolvedAgentId as DelegationAgentRole,
-      summary: rawSummary,
+      summary: fallbackEnvelope,
       stepsUsed,
       validation: {
         status: "fallback",
@@ -451,7 +604,7 @@ async function runDelegation(args: DelegateArgs): Promise<{
     return {
       success: false,
       error: errMessage,
-      agent: agent.name,
+      agent: meta.name,
       agentRole: resolvedAgentId as DelegationAgentRole,
     };
   }

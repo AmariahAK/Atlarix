@@ -7,6 +7,8 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BlueprintNode, FrameworkInfo, LanguageParser } from "./types";
+import { parseSourceToTree } from "@/lib/pivot/parsers/parse-source-tree";
+import { extractBlueprintNodesFromPython } from "@/lib/pivot/parsers/python-ts-parser";
 
 const FASTAPI_ROUTE = /@(?:app|router)\s*\.(get|post|put|patch|delete)\s*\(\s*["']([^"']+)["']/gi;
 const FLASK_ROUTE = /@(?:app|bp|[\w]+)\s*\.route\s*\(\s*["']([^"']+)["']/gi;
@@ -45,6 +47,13 @@ async function parseFile(
   const lineOf = (offset: number) => (content.slice(0, offset).match(/\n/g) || []).length + 1;
 
   let m: RegExpExecArray | null;
+
+  let usedTreeSitter = false;
+  const pyTree = parseSourceToTree(content, absolutePath);
+  if (pyTree) {
+    nodes.push(...extractBlueprintNodesFromPython(content, pyTree, relPath, nodes.length));
+    usedTreeSitter = true;
+  }
 
   FASTAPI_ROUTE.lastIndex = 0;
   while ((m = FASTAPI_ROUTE.exec(content)) !== null) {
@@ -90,28 +99,30 @@ async function parseFile(
     });
   }
 
-  CLASS_DECL.lastIndex = 0;
-  while ((m = CLASS_DECL.exec(content)) !== null) {
-    const name = m[1] || "Anonymous";
-    nodes.push({
-      id: safeId("cls", relPath, name, nodes.length),
-      type: "class",
-      name,
-      file: relPath,
-      line: lineOf(m.index),
-    });
-  }
+  if (!usedTreeSitter) {
+    CLASS_DECL.lastIndex = 0;
+    while ((m = CLASS_DECL.exec(content)) !== null) {
+      const name = m[1] || "Anonymous";
+      nodes.push({
+        id: safeId("cls", relPath, name, nodes.length),
+        type: "class",
+        name,
+        file: relPath,
+        line: lineOf(m.index),
+      });
+    }
 
-  FUNCTION_DECL.lastIndex = 0;
-  while ((m = FUNCTION_DECL.exec(content)) !== null) {
-    const name = m[1] || "anonymous";
-    nodes.push({
-      id: safeId("fn", relPath, name, nodes.length),
-      type: "function",
-      name,
-      file: relPath,
-      line: lineOf(m.index),
-    });
+    FUNCTION_DECL.lastIndex = 0;
+    while ((m = FUNCTION_DECL.exec(content)) !== null) {
+      const name = m[1] || "anonymous";
+      nodes.push({
+        id: safeId("fn", relPath, name, nodes.length),
+        type: "function",
+        name,
+        file: relPath,
+        line: lineOf(m.index),
+      });
+    }
   }
 }
 

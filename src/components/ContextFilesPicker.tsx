@@ -152,8 +152,8 @@ export function ContextFilesPicker() {
                   <TooltipContent className="max-w-[300px]">
                     {isSmartContextEnabled ? (
                       <p>
-                        With Smart Context, Atlarix uses the most relevant files as
-                        context.
+                        With automatic file context, Atlarix uses the most relevant
+                        files as context.
                       </p>
                     ) : (
                       <p>By default, Atlarix uses your whole codebase.</p>
@@ -226,7 +226,7 @@ export function ContextFilesPicker() {
               <div className="rounded-md border border-dashed p-4 text-center">
                 <p className="text-sm text-muted-foreground">
                   {isSmartContextEnabled
-                    ? "Atlarix will use Smart Context to automatically find the most relevant files to use as context."
+                    ? "Atlarix will automatically pick the most relevant files for context."
                     : "Atlarix will use the entire codebase as context."}
                 </p>
               </div>
@@ -321,7 +321,7 @@ export function ContextFilesPicker() {
           {isSmartContextEnabled && (
             <div className="pt-2">
               <div>
-                <h3 className="font-medium">Smart Context Auto-includes</h3>
+                <h3 className="font-medium">Auto-include files</h3>
                 <p className="text-sm text-muted-foreground">
                   <TooltipProvider>
                     <Tooltip>
@@ -334,8 +334,7 @@ export function ContextFilesPicker() {
                       <TooltipContent className="max-w-[300px]">
                         <p>
                           Auto-include files are always included in the context
-                          in addition to the files selected as relevant by Smart
-                          Context.
+                          in addition to files selected as relevant automatically.
                         </p>
                       </TooltipContent>
                     </Tooltip>

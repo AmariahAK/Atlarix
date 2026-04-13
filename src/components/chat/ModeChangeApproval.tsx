@@ -17,7 +17,7 @@ import { MessageCircle, Hammer } from "lucide-react";
 
 export interface ModeChangeRequest {
   chatId: number;
-  requestedMode: "ask" | "build";
+  requestedMode: string;
   reason: string;
 }
 

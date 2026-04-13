@@ -1,5 +1,28 @@
 # Atlarix Changelog
 
+## v7.0.0 — Atlarix 7 (Project Vanguard) (2026-04-11)
+
+Major architectural release: agent execution, context, snapshots, parallel work, and plan UX are rebuilt on the existing Blueprint foundation.
+
+- **Skills (`src/lib/skills/`):** Mode and specialist behavior driven from versioned skill files; workspace overrides under `.atlarix/skills/`.
+- **Task ledger (`task-ledger.ts`, `completion-detector.ts`):** Structured steps, tool attribution, delegation advances, and disk-backed state for workspace plans; survives compaction and long sessions.
+- **Plan sync + archive (`plan-sync.ts`):** Living `.atlarix/ATLARIX_PLAN.md`; archives prior markdown under `.atlarix/plans/archive/` before replace.
+- **Plan viewer (renderer):** New `chat:plan-update` IPC (`ipc_types.ts`, `preload.ts`, `ipc_client.ts`, `emit_plan_update.ts`); `registerLedgerPlanUiNotifier` / `unregisterLedgerPlanUiNotifier` in `task-ledger.ts`; `TaskLedgerPlanCard.tsx` + `globals.css` plan-card styles; `livePlanUpdateByChatIdAtom` / `planSnapshotByAssistantMessageIdAtom` in `chatAtoms.ts`; `useStreamChat.ts` subscribes and snapshots on stream end; `ChatMessage.tsx` renders the card between `AgentActivityLog` and markdown.
+- **Activity Stream:** `plan_created` type (`chat-activity-normalize.ts`, `sourceAtoms.ts`, `AgentActivityLog.tsx`) emitted from `chat_stream_handlers.ts` when a multi-step plan is first seeded for the turn.
+- **Parallel agents + counsel + verification:** Unchanged themes from 6.5.x but shipped as the default 7.x story—see README “What changed” for the user-facing summary.
+- **Snapshots / diagram:** Prior 6.x snapshot and revert work remains; path sanitization and plan archive directory follow ledger rules (see 6.5.x notes).
+
+## v6.5.0 — Project Vanguard (2026-04-09)
+
+- **Living plan (`plan-sync.ts`):** Workspace **`.atlarix/ATLARIX_PLAN.md`** stays aligned with the **task ledger**—status, steps with `[ ]` / `[~]` / `[x]` / `[!]`, notes placeholder, and a **## Completion** file list when the run finishes cleanly. Updates run from ledger create/replace, tool recording, delegation advances, and stream completion (never throws).
+- **Plan archive:** Replacing steps from a parsed plan **or** approving a write to the plan file **archives** the previous markdown under **`.atlarix/plan-archive/`** before overwrite (permission interceptor + `setLedgerSteps`).
+- **`parsePlanToSteps`:** Supports checkbox lines (`1. [ ] …`, `[~]`, `[!]`, `[x]`); **completed `[x]` lines are skipped** when seeding the ledger; plain numbered lines still work.
+- **Auto memory:** Settings add **`autoMemory.writeToFile`** (default **true**); when false, **`.atlarix/ATLARIX.md`** is not written. Per-turn **tool names** are tracked for auto-memory bullets (cleared after each turn’s auto-memory pass).
+- **Counsel IPC:** **`counsel:start`** / **`counsel:cancel`** invoke handlers; main emits **`counsel:participant-update`** and **`counsel:complete`** (also mirrored on **`chat:activity`**). `runCounselPipeline` accepts **`abortSignal`** for cooperative cancel. Preload whitelist + **`IpcClient`** helpers + **`ipc_types`** payloads.
+- **Provider-agnostic task flow:** Audited continuation, completion, build verification, compaction, and parallel delegation paths—**no Compass-only gates** on ledger continuation or autonomous verification; Compass-specific code remains usage, limits, and telemetry.
+- **Build verification:** Confirmed **pattern 2** after task-complete: parallel **reviewer + debugger** at **`depth: 1`**, **`recordOnParentLedger: false`** (parent `turnId` omitted inside `runDelegation` to avoid ledger races).
+- **Migrations:** Journal through **0040** and **`migration_seed_verification`** cases verified for counsel, hooks, custom commands, compaction/synthetic columns, and snapshot/revert fields (no new SQL in this release).
+
 ## v6.2.2 — Tier-aware Compass context + pre-dispatch budgeting (2026-04-09)
 
 - **Dynamic tier limits (`tier-context-limits.ts`):** Fetches per-model `context_length` from OpenRouter’s public `GET /api/v1/models`, applies a safety factor, caches results **24h** (keyed by the three model id strings). Warmed at app startup from Compass env model ids. Unknown ids or fetch failures use conservative fallbacks without throwing.

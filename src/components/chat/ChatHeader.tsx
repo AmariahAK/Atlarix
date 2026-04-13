@@ -37,10 +37,6 @@ import { useRenameBranch } from "@/hooks/useRenameBranch";
 import { isAnyCheckoutVersionInProgressAtom } from "@/store/appAtoms";
 import { LoadingBar } from "../ui/LoadingBar";
 import { WorkspaceSnapshotButton } from "../WorkspaceSnapshotButton";
-import { useCompassSendGate } from "@/hooks/useCompassSendGate";
-import { CompassUsageStrip } from "./CompassUsageStrip";
-import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
-
 interface ChatHeaderProps {
   isVersionPaneOpen: boolean;
   isPreviewOpen: boolean;
@@ -99,15 +95,6 @@ export function ChatHeader({
   };
 
   const [vaultServices, setVaultServices] = useState<string[]>([]);
-
-  const {
-    usesCompass,
-    tier: compassTier,
-    percentRemaining: compassPct,
-    monthlyLimit: compassLimit,
-    tokensUsedThisMonth: compassTokensUsed,
-    loading: compassUsageLoading,
-  } = useCompassSendGate(null);
 
   const refreshVaultServices = useCallback(async () => {
     try {
@@ -352,19 +339,6 @@ export function ChatHeader({
           )}
         </button>
       </div>
-
-      {/* Fix: Finding 5 — Compass usage stays visible above the thread (not only above the input) */}
-      {usesCompass && compassLimit != null && compassLimit > 0 ? (
-        <div className="border-t border-border/40 bg-muted/5">
-          <CompassUsageStrip
-            subscriptionTierLabel={formatCompassSubscriptionTier(compassTier)}
-            tokensUsedThisMonth={compassTokensUsed}
-            monthlyLimit={compassLimit}
-            percentRemaining={compassPct}
-            loading={compassUsageLoading}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

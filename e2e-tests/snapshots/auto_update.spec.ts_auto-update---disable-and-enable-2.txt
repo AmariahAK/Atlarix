@@ -13,7 +13,7 @@
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "react",
   "selectedChatMode": "build",
-  "enableAutoFixProblems": false,
+  "enableAutoFixProblems": true,
   "enableAutoUpdate": true,
   "releaseChannel": "stable",
   "isRunning": true,

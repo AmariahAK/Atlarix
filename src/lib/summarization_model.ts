@@ -67,3 +67,13 @@ export async function getSummarizationModelAsync(
   }
   return getSummarizationModel(settings);
 }
+
+/**
+ * Compaction summarization only: always prefer the fast tier model (ignore complex-session bump).
+ */
+export async function getCompactionSummarizationModel(
+  settings: UserSettings,
+): Promise<{ provider: string; name: string; customModelId?: number }> {
+  const fast = getFastModelForCurrentProvider(settings);
+  return fast ?? settings.selectedModel;
+}

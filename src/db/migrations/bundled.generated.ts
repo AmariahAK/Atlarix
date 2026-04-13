@@ -40,6 +40,11 @@ import raw_33_0033_rename_type_columns from "../../../drizzle/0033_rename_type_c
 import raw_34_0034_prompts_new_schema from "../../../drizzle/0034_prompts_new_schema.sql?raw";
 import raw_35_0035_unified_snapshots_revert from "../../../drizzle/0035_unified_snapshots_revert.sql?raw";
 import raw_36_0036_auto_routed_tier from "../../../drizzle/0036_auto_routed_tier.sql?raw";
+import raw_37_0037_compaction_nested_and_synthetic from "../../../drizzle/0037_compaction_nested_and_synthetic.sql?raw";
+import raw_38_0038_counsel_sessions from "../../../drizzle/0038_counsel_sessions.sql?raw";
+import raw_39_0039_atlarix_hooks from "../../../drizzle/0039_atlarix_hooks.sql?raw";
+import raw_40_0040_custom_commands from "../../../drizzle/0040_custom_commands.sql?raw";
+import raw_41_0041_drop_diagram_versions from "../../../drizzle/0041_drop_diagram_versions.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -87,6 +92,11 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0034_prompts_new_schema", sql: raw_34_0034_prompts_new_schema as string, drizzleHash: "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c", when: 1766940000000 },
   { name: "0035_unified_snapshots_revert", sql: raw_35_0035_unified_snapshots_revert as string, drizzleHash: "c763ab25182273b16980a83dc3e03aff7510b76be86a21724aaee4e6774ce22c", when: 1766950000000 },
   { name: "0036_auto_routed_tier", sql: raw_36_0036_auto_routed_tier as string, drizzleHash: "3f329dbcb6aa65902707b0545713192f5d54a3ca0672d07d735e39f8bb9af5d5", when: 1766960000000 },
+  { name: "0037_compaction_nested_and_synthetic", sql: raw_37_0037_compaction_nested_and_synthetic as string, drizzleHash: "81f4956bc91ecc02fb1ae57451ff9ad12efefc1b09e47a9e076f04e7ab3b38b3", when: 1766970000000 },
+  { name: "0038_counsel_sessions", sql: raw_38_0038_counsel_sessions as string, drizzleHash: "6bddfba802ff1be824e3ed25a83ff92ea2a0250032be7ce2c9a7a9ae4404bf36", when: 1766980000000 },
+  { name: "0039_atlarix_hooks", sql: raw_39_0039_atlarix_hooks as string, drizzleHash: "471bcf8141fc6271fdc70e11a04216745fa7f789ca4142ea3619c138ae0f5a23", when: 1766990000000 },
+  { name: "0040_custom_commands", sql: raw_40_0040_custom_commands as string, drizzleHash: "4508ad13dba0f1fa1e7f04e52d9435769a71f14814e5661f41ecec45f3a57040", when: 1767000000000 },
+  { name: "0041_drop_diagram_versions", sql: raw_41_0041_drop_diagram_versions as string, drizzleHash: "d2bf9149a2ae22979526e810c427aa81a220a3202986909333b521d9f200f9a5", when: 1767010000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -128,4 +138,9 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "365310cc9bc05049b46dda1a77b85198f1d853f726fd194d26c7965ae960c14c": "0034_prompts_new_schema",
   "c763ab25182273b16980a83dc3e03aff7510b76be86a21724aaee4e6774ce22c": "0035_unified_snapshots_revert",
   "3f329dbcb6aa65902707b0545713192f5d54a3ca0672d07d735e39f8bb9af5d5": "0036_auto_routed_tier",
+  "81f4956bc91ecc02fb1ae57451ff9ad12efefc1b09e47a9e076f04e7ab3b38b3": "0037_compaction_nested_and_synthetic",
+  "6bddfba802ff1be824e3ed25a83ff92ea2a0250032be7ce2c9a7a9ae4404bf36": "0038_counsel_sessions",
+  "471bcf8141fc6271fdc70e11a04216745fa7f789ca4142ea3619c138ae0f5a23": "0039_atlarix_hooks",
+  "4508ad13dba0f1fa1e7f04e52d9435769a71f14814e5661f41ecec45f3a57040": "0040_custom_commands",
+  "d2bf9149a2ae22979526e810c427aa81a220a3202986909333b521d9f200f9a5": "0041_drop_diagram_versions",
 };

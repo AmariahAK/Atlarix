@@ -15,6 +15,7 @@ import { getAtlarixAppPath } from "../../paths/paths";
 import { UpdateChatParams } from "../ipc_types";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { clearAllSessionMemories } from "../../lib/session-memory";
+import { clearInMemoryTaskLedgers } from "../../lib/tasks/task-ledger";
 
 const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
@@ -50,6 +51,7 @@ export function registerChatHandlers() {
 
     // Create ephemeral workspace chat - NOT saved to database
     // This makes workspace chats "incognito" while maintaining workspace context
+    clearInMemoryTaskLedgers();
     const { createEphemeralWorkspaceChat } = await import("./chat_only_handlers");
     const chatId = createEphemeralWorkspaceChat(appId);
 
@@ -75,6 +77,7 @@ export function registerChatHandlers() {
     // NOTE: For chat-only (no workspace), we CAN clear previous session memory
     // since there's no workspace context to preserve
     clearAllSessionMemories();
+    clearInMemoryTaskLedgers();
 
     // Import ephemeral chat creator from chat_only_handlers
     const { createEphemeralChat } = await import("./chat_only_handlers");

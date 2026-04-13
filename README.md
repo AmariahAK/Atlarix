@@ -2,59 +2,52 @@
 
 **Atlas + Axis + Intelligence**
 
-Atlarix is your premium AI coding copilot — a powerful desktop application that combines intelligent code understanding with visual architecture design.
+Atlarix is a desktop AI coding copilot that pairs **structural codebase understanding** with **visual architecture** and **controlled execution**: you see what the model plans, approve writes and commands, and keep context across long sessions without drowning in raw tokens.
 
-**Created by:** [NorahLabs](https://norahlabs.com)  
+**Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
+**Current release:** **v7.0.0**
 
-*Current: v6.2.2*
-
-**Downloads:** The latest installers (macOS and Linux) are on [atlarix.dev](https://atlarix.dev). The **Windows** build is currently in development and not yet available; once EV/OV code signing is in place, Windows will be added to releases.
-
----
-
-### What's New in v6.2.2
-
-- **Compass Balanced & Thinking:** Longer chats are handled more reliably—**replies are much less likely to stop or split mid-answer** when context grows large. Limits follow each model’s real context window (via OpenRouter metadata), with sensible fallbacks if lookup fails.
-- **BYOK OpenRouter:** The same reliability improvements apply when you use your own OpenRouter key on **Balanced/Thinking**-style models—not only Compass.
-- **Fast tier:** Unchanged by design—large-window Fast stays lightweight without extra compression steps.
-
-### What's New in v6.2.1
-
-- **Autonomous runs:** When several agents work on your behalf, you get a clearer wrap-up — review what changed and revert selectively before you keep everything.
-- **Thinking:** Reasoning from the model shows in the Thinking card again (including provider “redacted thinking” style tags); multi-agent tool use is summarized more readably, with recent bus messages in one place.
-- **Rollback files:** Snapshot hash metadata for staleness now lives under **`.atlarix/snapshots/`** (existing workspaces migrate automatically from the old single file). See [docs/CHANGELOG.md](docs/CHANGELOG.md).
-
-### What's New in v6.2.0
-
-- **Unified workspace snapshots:** Revert files and diagram from `.atlarix/snapshots/` without internal git; **non-destructive** chat revert (`is_reverted` styling, no message deletion). See [docs/CHANGELOG.md](docs/CHANGELOG.md).
-
-### What's New in v6.1.16
-
-- **Diagrams stability:** Reduced noisy `/diagram` issues by normalizing unhandled promise rejections (so telemetry reports actionable details rather than `[object Event]`). Blueprint canvas now uses a **file-tree** layout (top→bottom) for clearer hierarchy; restoring a diagram version refreshes the view immediately.
-- **Long-running commands UX:** Terminal output now streams into the persistent tool indicator (with capped views for Errors / Progress / Raw) so you can follow builds and installs without overwhelming the UI.
-- **Compass large-context safety:** When Compass prompts approach the context limit, OpenRouter **context compression** may be enabled as a fallback, with a final “last 7 exchanges” safety cap.
-
-### What's New in v6.1.15
-
-- **Safer chat and SQL:** Chat input is normalized at the IPC boundary; model-driven **Supabase SQL** runs through guards (length, dangerous patterns, single-statement) before execution. User messages can be blocked by a **local profanity filter**; assistant replies are sanitized before persistence (code inside \`\`\` fences is left unchanged). **Compass** usage checks treat transient network failures as offline reachability instead of firing high-priority error telemetry. See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detail.
-
-### What's New in v6.1.14
-
-- **Smarter Auto routing:** When you use **Auto** model routing, Atlarix calls an external **Groq** classifier (with your configured model id) to pick **Fast / Balanced / Thinking** per message. If Groq is unavailable or rate-limited, the app falls back to a one-word classification on **your** fast model, then defaults to **Balanced** (never silently defaulting to Fast). See [docs/CHANGELOG.md](docs/CHANGELOG.md) for technical detail.
-
-For full history see [docs/CHANGELOG.md](docs/CHANGELOG.md).
+**Downloads:** Installers for **macOS** and **Linux** are on [atlarix.dev](https://atlarix.dev). **Windows** is still in progress pending code signing.
 
 ---
 
-### What's New in v6.1.13
+## v7.0.0 — Atlarix 7 (Project Vanguard)
 
-- **Linux OAuth fallback:** If the `atlarix://auth/callback` deep link never fires after the browser opens (common on minimal distros / VMs), a 60-second countdown triggers a dialog with the OAuth URL and a **Copy Link** button. Linux users also see a dismissable tip in the sidebar with the `xdg-mime` commands to register the handler. See [Troubleshooting — Linux OAuth](#troubleshooting--linux-oauth) below.
-- **Theme toggle:** Settings → General now has an **Appearance** selector (System / Light / Dark) backed by `localStorage`.
-- **UI fixes:** Hero glow no longer bleeds amber behind amber gradient text (WCAG AA). The right-panel expand/collapse button is no longer clipped by the rounded container corner.
-- **Silent auto-update (in-app UI):** `electron-updater` replaces `update-electron-app`. A subtle "Downloading update…" strip appears while the update fetches; a **Restart Now / Remind me later** banner replaces the old native dialog when the update is ready. "Remind me later" defers install to the next cold start.
-- **AppImage target:** Linux builds now produce an `.AppImage` in addition to `.deb` and `.rpm`, enabling `electron-updater`'s built-in auto-update on AppImage installs.
-- **GitHub Actions — Node 24 migration:** CI uses `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, `softprops/action-gh-release@v2`, and generates `latest-mac.yml` / `latest-linux.yml` feed files for `electron-updater`.
+*April 2026*
+
+Atlarix 7 is a complete rebuild of the agent and context systems on top of the Blueprint foundation.
+
+### What changed
+
+- **Skills system**: Every agent (Architect, Builder, Reviewer, Debugger, Researcher) now operates from a readable skill file. Override any skill per workspace in `.atlarix/skills/`.
+- **Task ledger**: Tasks survive context resets. Agents always know what is done and what remains, regardless of session length.
+- **Parallel agents**: Research and Architect run simultaneously in Autonomous mode. Reviewer and Debugger verify after Builder completes.
+- **Counsel**: Complex questions run Fast, Balanced, and Thinking models in parallel. Works with every provider including local Ollama.
+- **Visual git**: Every code change creates a snapshot with the architecture diagram at that moment. See how your system evolved. Stored in `.atlarix/` and travels with your repo.
+- **Plan viewer**: When Atlarix creates a plan, it is shown as a live card with step-by-step progress — not buried in text.
+- **Tree-sitter RTE**: Blueprint now uses AST-level parsing for TypeScript, JavaScript, and Python with regex fallback. More accurate node/edge extraction.
+- **Self-correction**: TypeScript errors, dev server failures, and test failures trigger automatic fix attempts after each build.
+- **Hooks and custom commands**: Shell hooks around file writes and terminal commands. Custom `/commands` for repeatable workflows.
+- **Per-model compaction**: Context compression uses each model's actual context window size dynamically.
+
+---
+
+## What makes Atlarix different
+
+- **Blueprint (RTE + graph):** Your repo is parsed into a live graph (rooms, beacons, edges). The AI queries structure first, not just open files—so context stays focused on the architecture that matters.
+- **Skills & workspace memory:** Project instructions and skills shape behavior without repeating yourself every turn.
+- **Task ledger:** Multi-step work gets an external **task ledger** that survives compaction—clear pending steps, progress, and file touch lists for the model.
+- **Counsel:** Optional **fast / balanced / thinking** perspectives run ahead of the main reply (or via IPC for UI-triggered runs), then synthesize—useful for hard design questions.
+- **Parallel agents:** Research and architect-style **parallel prefetch** and **post-task verification** (reviewer + debugger) run with safe depth and ledger rules so sub-runs do not fight the parent turn.
+- **Self-correction:** Capped synthetic follow-ups can address test or diagnostics output after substantive build turns.
+- **Living plan:** **`.atlarix/ATLARIX_PLAN.md`** can track execution with checkboxes and a completion section; previous versions are archived under **`.atlarix/plans/archive/`** when the plan is replaced.
+- **Hooks & custom commands:** Advisory **hooks** around file and command operations; **slash commands** expand prompts with optional mode overrides.
+- **Auto memory:** High-signal turn summaries can append under **`.atlarix/ATLARIX.md`** (optional **`writeToFile`** toggle), with tool names reflected when available.
+
+**Providers:** Compass (managed tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, local via Ollama / LM Studio, and more). Core product behaviors—ledger, continuation, verification, compaction—are **not** tied to a single provider; tier limits and billing remain provider-specific where applicable.
+
+For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ---
 

@@ -15,11 +15,13 @@ import { app, IpcMainInvokeEvent } from "electron";
 import {
     streamText,
     ToolSet,
-    stepCountIs,
     jsonSchema as aiJsonSchema,
-    NoOutputGeneratedError,
-    NoContentGeneratedError,
+    type ModelMessage,
 } from "ai";
+import {
+    buildContinuationPrompt,
+    shouldContinue,
+} from "../../lib/streaming/continuation-handler";
 import { readSettings } from "../../main/settings";
 import {
   getModelClient,
@@ -35,11 +37,17 @@ import {
     AI_STREAMING_ERROR_MESSAGE_PREFIX,
     SAFETY_FILTER_BLOCKED_MESSAGE,
 } from "@/shared/texts";
+import { STREAM_TOOL_LOOP_DURATION_CAP_MS } from "@/constants/settings_constants";
 import {
     prepareUserChatTurnInput,
     ChatPromptSafetyError,
 } from "../../lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
+import {
+    attachEmptyOutputSafeRejectHandlers,
+    isNoUsableModelOutputError,
+    MODEL_EMPTY_RESPONSE_USER_MESSAGE,
+} from "../utils/no_usable_model_output";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -505,124 +513,204 @@ export async function handleChatOnlyStream(
         }
 
         let fullResponse = "";
-        const result = streamText({
-            model: modelClient.model,
-            system: systemPrompt,
-            messages: messageHistory,
-            tools,
-            temperature: 0.7,
-            abortSignal: abortController.signal,
-            stopWhen: [stepCountIs(10)],
-            maxRetries: 2,
-            onFinish: (response) => {
-                const totalTokens = totalTokensFromAiUsage(response.usage);
-                if (
-                    modelClient.builtinProviderId === "compass" &&
-                    typeof totalTokens === "number"
-                ) {
-                    compassTokensForEnd = totalTokens;
-                    void recordCompassUsageTokens(totalTokens).then((r) => {
-                        if (!r.ok && r.error === "limit_exceeded") {
+        let chatOnlyStreamMessages: ModelMessage[] = messageHistory as ModelMessage[];
+        let chatOnlyContinuationAttempts = 0;
+        const CHAT_ONLY_CONTINUATION_MAX = 3;
+
+        const chatOnlyStreamLoopStartMs = Date.now();
+        while (true) {
+            if (Date.now() - chatOnlyStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+                logger.warn("[chat-only] Hit duration limit (30 minutes)");
+                safeSend(event.sender, "chat:activity", {
+                    id: `duration-limit-${Date.now()}`,
+                    type: "duration_limit_reached",
+                    label: "Task paused after 30 minutes",
+                    detail: "Send a message to continue",
+                    status: "done",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                });
+                break;
+            }
+            const CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS = 2;
+            const CHAT_ONLY_EMPTY_OUTPUT_RETRY_DELAY_MS = 1000;
+
+            let fr: string | undefined;
+            let lastStreamResult!: ReturnType<typeof streamText>;
+            emptyOutputRetry: for (
+                let emptyOutAttempt = 1;
+                emptyOutAttempt <= CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS;
+                emptyOutAttempt++
+            ) {
+                const result = streamText({
+                    model: modelClient.model,
+                    system: systemPrompt,
+                    messages: chatOnlyStreamMessages,
+                    tools,
+                    temperature: 0.7,
+                    abortSignal: abortController.signal,
+                    stopWhen: [() => false],
+                    maxRetries: 2,
+                    onFinish: (response) => {
+                        const totalTokens = totalTokensFromAiUsage(response.usage);
+                        if (
+                            modelClient.builtinProviderId === "compass" &&
+                            typeof totalTokens === "number"
+                        ) {
+                            compassTokensForEnd = totalTokens;
+                            void recordCompassUsageTokens(totalTokens).then((r) => {
+                                if (!r.ok && r.error === "limit_exceeded") {
+                                    logger.warn(
+                                        "[compass chat-only] Monthly limit hit while recording usage",
+                                    );
+                                }
+                            });
+                        }
+                    },
+                    onError: (err: unknown) => {
+                        if (isNoUsableModelOutputError(err)) {
                             logger.warn(
-                                "[compass chat-only] Monthly limit hit while recording usage",
+                                "[chat-only] onError: empty/no usable model output (handled by retry/consumption)",
+                                err,
+                            );
+                            return;
+                        }
+                        const errorMessage = (err as { error?: { message?: string } })?.error
+                            ?.message;
+                        let message = errorMessage || JSON.stringify(err);
+                        if (modelClient.builtinProviderId === "compass") {
+                            message = COMPASS_REACHABILITY_ERROR;
+                            Sentry.captureException(
+                                new Error(String(errorMessage || message).slice(0, 500)),
+                                {
+                                    tags: { feature: "compass", source: "chat_only_stream" },
+                                    extra: { chatId: req.chatId },
+                                },
                             );
                         }
-                    });
-                }
-            },
-            onError: (err: unknown) => {
-                const errorMessage = (err as { error?: { message?: string } })?.error
-                    ?.message;
-                let message = errorMessage || JSON.stringify(err);
-                if (modelClient.builtinProviderId === "compass") {
-                    message = COMPASS_REACHABILITY_ERROR;
-                    Sentry.captureException(
-                        new Error(String(errorMessage || message).slice(0, 500)),
-                        {
-                            tags: { feature: "compass", source: "chat_only_stream" },
-                            extra: { chatId: req.chatId },
-                        },
-                    );
-                }
-                safeSend(event.sender, "chat:response:error", {
-                    chatId: req.chatId,
-                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
-                });
-                activeStreams.delete(req.chatId);
-            },
-        });
-
-        void result.usage.catch((usageErr: unknown) => {
-            if (
-                NoOutputGeneratedError.isInstance(usageErr) ||
-                NoContentGeneratedError.isInstance(usageErr)
-            ) {
-                return;
-            }
-            logger.warn("[chat-only] stream usage rejected:", usageErr);
-        });
-
-        // Process stream
-        try {
-            let firstTextChunk = true;
-            for await (const chunk of result.textStream) {
-                if (abortController.signal.aborted) {
-                    logger.log("Ephemeral chat-only stream aborted");
-                    break;
-                }
-
-                if (firstTextChunk) {
-                    firstTextChunk = false;
-                    safeSend(event.sender, "chat:stream:phase", {
-                        chatId: req.chatId,
-                        phase: "responding",
-                        label: "",
-                    });
-                }
-
-                fullResponse += chunk;
-
-                // Send chunk to UI (with temporary assistant message)
-                safeSend(event.sender, "chat:response:chunk", {
-                    chatId: req.chatId,
-                    messages: [
-                        ...chat.messages,
-                        {
-                            id: -1,
+                        safeSend(event.sender, "chat:response:error", {
                             chatId: req.chatId,
-                            role: "assistant",
-                            content: fullResponse,
-                            createdAt: new Date(),
-                        },
-                    ],
+                            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
+                        });
+                        activeStreams.delete(req.chatId);
+                    },
                 });
-            }
-        } catch (streamErr) {
-            if (
-                (NoOutputGeneratedError.isInstance(streamErr) ||
-                    NoContentGeneratedError.isInstance(streamErr)) &&
-                !abortController.signal.aborted
-            ) {
-                logger.warn("Chat-only stream: no usable text from model:", streamErr);
-                if (!fullResponse.trim()) {
-                    fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
-                    safeSend(event.sender, "chat:response:chunk", {
-                        chatId: req.chatId,
-                        messages: [
-                            ...chat.messages,
-                            {
-                                id: -1,
+                lastStreamResult = result;
+
+                attachEmptyOutputSafeRejectHandlers(
+                    result,
+                    logger.warn.bind(logger),
+                    "chat_only",
+                );
+
+                try {
+                    let firstTextChunk = true;
+                    for await (const chunk of result.textStream) {
+                        if (abortController.signal.aborted) {
+                            logger.log("Ephemeral chat-only stream aborted");
+                            break;
+                        }
+
+                        if (firstTextChunk) {
+                            firstTextChunk = false;
+                            safeSend(event.sender, "chat:stream:phase", {
                                 chatId: req.chatId,
-                                role: "assistant",
-                                content: fullResponse,
-                                createdAt: new Date(),
-                            },
-                        ],
-                    });
+                                phase: "responding",
+                                label: "",
+                            });
+                        }
+
+                        fullResponse += chunk;
+
+                        safeSend(event.sender, "chat:response:chunk", {
+                            chatId: req.chatId,
+                            messages: [
+                                ...chat.messages,
+                                {
+                                    id: -1,
+                                    chatId: req.chatId,
+                                    role: "assistant",
+                                    content: fullResponse,
+                                    createdAt: new Date(),
+                                },
+                            ],
+                        });
+                    }
+                } catch (streamErr) {
+                    if (
+                        isNoUsableModelOutputError(streamErr) &&
+                        !abortController.signal.aborted
+                    ) {
+                        logger.warn("Chat-only stream: no usable text from model:", streamErr);
+                        if (emptyOutAttempt < CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS) {
+                            await new Promise((r) =>
+                                setTimeout(r, CHAT_ONLY_EMPTY_OUTPUT_RETRY_DELAY_MS),
+                            );
+                            continue emptyOutputRetry;
+                        }
+                        if (!fullResponse.trim()) {
+                            safeSend(event.sender, "chat:response:error", {
+                                chatId: req.chatId,
+                                error: MODEL_EMPTY_RESPONSE_USER_MESSAGE,
+                            });
+                            activeStreams.delete(req.chatId);
+                            return "";
+                        }
+                    } else {
+                        throw streamErr;
+                    }
                 }
-            } else {
-                throw streamErr;
+
+                try {
+                    fr = await result.finishReason;
+                } catch (finishErr) {
+                    if (
+                        isNoUsableModelOutputError(finishErr) &&
+                        !abortController.signal.aborted
+                    ) {
+                        if (emptyOutAttempt < CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS) {
+                            await new Promise((r) =>
+                                setTimeout(r, CHAT_ONLY_EMPTY_OUTPUT_RETRY_DELAY_MS),
+                            );
+                            continue emptyOutputRetry;
+                        }
+                        safeSend(event.sender, "chat:response:error", {
+                            chatId: req.chatId,
+                            error: MODEL_EMPTY_RESPONSE_USER_MESSAGE,
+                        });
+                        activeStreams.delete(req.chatId);
+                        return "";
+                    }
+                    throw finishErr;
+                }
+
+                break emptyOutputRetry;
             }
+            if (
+                !shouldContinue(fr, {
+                    attemptCount: chatOnlyContinuationAttempts,
+                    maxAttempts: CHAT_ONLY_CONTINUATION_MAX,
+                }) ||
+                abortController.signal.aborted
+            ) {
+                break;
+            }
+            chatOnlyContinuationAttempts++;
+            const resp = await lastStreamResult.response;
+            chatOnlyStreamMessages = [
+                ...chatOnlyStreamMessages,
+                ...(resp.messages as ModelMessage[]),
+                {
+                    role: "user",
+                    content: buildContinuationPrompt({
+                        chatId: req.chatId,
+                        turnId: `chat-only-${req.chatId}`,
+                        attemptCount: chatOnlyContinuationAttempts,
+                        maxAttempts: CHAT_ONLY_CONTINUATION_MAX,
+                        lastContent: fullResponse,
+                    }),
+                },
+            ];
         }
 
         if (!abortController.signal.aborted && !fullResponse.trim()) {
@@ -756,9 +844,7 @@ export async function handleChatOnlyStream(
 
     } catch (error) {
         logger.error("Error in ephemeral chat-only stream:", error);
-        const noOutput =
-            NoOutputGeneratedError.isInstance(error) ||
-            NoContentGeneratedError.isInstance(error);
+        const noOutput = isNoUsableModelOutputError(error);
         const message = noOutput
             ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
             : usedCompassThisStream

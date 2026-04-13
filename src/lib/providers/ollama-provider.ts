@@ -122,11 +122,11 @@ export class OllamaProvider extends BaseProvider {
         const tools = this.getAvailableTools();
 
         let fullResponse = "";
-        const maxIterations = 10; // Prevent infinite loops
-
-        for (let iteration = 0; iteration < maxIterations; iteration++) {
+        let iteration = 0;
+        while (true) {
+            iteration++;
             if (this.debug) {
-                console.log(`[Ollama] Iteration ${iteration + 1}`);
+                console.log(`[Ollama] Iteration ${iteration}`);
             }
 
             try {

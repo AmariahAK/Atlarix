@@ -2,7 +2,7 @@
  * Atlarix Memory Tools - Database-Backed
  * =======================================
  * Tools for recalling workspace activity and history
- * Uses dailyLogs and diagramVersions tables
+ * Uses dailyLogs and `.atlarix/snapshots/` diagram timeline
  * 
  * MIGRATED from file-based storage to SQLite database
  * Aligns with Diagram-First Context System
@@ -15,11 +15,13 @@ import {
     stringParam,
 } from "./registry";
 import { db } from "../../db";
-import { dailyLogs, diagramVersions, diagrams } from "../../db/schema";
+import { dailyLogs, apps } from "../../db/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { getAtlarixAppPath } from "../../paths/paths";
+import { listDiagramSnapshotTimeline } from "../snapshot/snapshot-manager";
 
 // ═══════════════════════════════════════════════════════════
-// MEMORY RECALL - Query dailyLogs + diagramVersions
+// MEMORY RECALL - Query dailyLogs + snapshot timeline
 // ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
@@ -78,24 +80,25 @@ ToolRegistry.register({
                 .orderBy(desc(dailyLogs.date))
                 .limit(limit);
 
-            // Query diagram versions (architectural changes) via join
-            const diagramChanges = await db
-                .select({
-                    timestamp: diagramVersions.createdAt,
-                    summary: diagramVersions.summary,
-                    trigger: diagramVersions.trigger,
-                    changeDescription: diagramVersions.changeDescription,
-                })
-                .from(diagramVersions)
-                .innerJoin(diagrams, eq(diagramVersions.diagramId, diagrams.id))
-                .where(
-                    and(
-                        eq(diagrams.workspaceId, workspaceId),
-                        gte(diagramVersions.createdAt, threshold)
-                    )
-                )
-                .orderBy(desc(diagramVersions.createdAt))
-                .limit(limit);
+            const [app] = await db
+                .select()
+                .from(apps)
+                .where(eq(apps.id, workspaceId))
+                .limit(1);
+
+            let diagramChanges: { timestamp: Date; label: string }[] = [];
+            if (app) {
+                const timeline = await listDiagramSnapshotTimeline(getAtlarixAppPath(app.path));
+                diagramChanges = timeline
+                    .filter((e) => new Date(e.timestamp) >= threshold)
+                    .map((e) => ({
+                        timestamp: new Date(e.timestamp),
+                        label: e.isInitial
+                            ? "Initial diagram snapshot"
+                            : e.prompt?.trim() || `Snapshot ${e.turnId}`,
+                    }))
+                    .slice(0, limit);
+            }
 
             // Format response
             if (logs.length === 0 && diagramChanges.length === 0) {
@@ -137,10 +140,8 @@ ToolRegistry.register({
             if (diagramChanges.length > 0) {
                 result += `\n## Architectural Evolution\n`;
                 diagramChanges.forEach((change) => {
-                    const timeStr = change.timestamp ? new Date(change.timestamp).toLocaleDateString() : "Unknown";
-                    result += `\n- **${timeStr}** (${change.trigger || "manual"}): `;
-                    result += change.summary || change.changeDescription || "Diagram updated";
-                    result += `\n`;
+                    const timeStr = change.timestamp.toLocaleDateString();
+                    result += `\n- **${timeStr}**: ${change.label}\n`;
                 });
             }
 
@@ -225,32 +226,22 @@ ToolRegistry.register({
                 }
             });
 
-            // Search in diagram versions - summary
-            const diagramResults = await db
-                .select({
-                    timestamp: diagramVersions.createdAt,
-                    summary: diagramVersions.summary,
-                    changeDescription: diagramVersions.changeDescription,
-                    trigger: diagramVersions.trigger,
-                })
-                .from(diagramVersions)
-                .innerJoin(diagrams, eq(diagramVersions.diagramId, diagrams.id))
-                .where(eq(diagrams.workspaceId, workspaceId))
-                .orderBy(desc(diagramVersions.createdAt))
-                .limit(50);
-
-            // Filter diagram results that match
-            diagramResults.forEach((d) => {
-                const searchText = `${d.summary || ""} ${d.changeDescription || ""}`.toLowerCase();
-                if (searchText.includes(query.toLowerCase())) {
-                    const dateStr = d.timestamp ? new Date(d.timestamp).toLocaleDateString() : "Unknown";
-                    results.push({
-                        type: "architecture",
-                        date: dateStr,
-                        content: d.summary || d.changeDescription || "Diagram change",
-                    });
-                }
-            });
+            const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+            if (appRow) {
+                const timeline = await listDiagramSnapshotTimeline(getAtlarixAppPath(appRow.path));
+                const q = query.toLowerCase();
+                timeline.forEach((e) => {
+                    const searchText = `${e.prompt || ""} ${e.turnId}`.toLowerCase();
+                    if (searchText.includes(q)) {
+                        const dateStr = new Date(e.timestamp).toLocaleDateString();
+                        results.push({
+                            type: "architecture",
+                            date: dateStr,
+                            content: e.prompt?.trim() || `Snapshot ${e.turnId}`,
+                        });
+                    }
+                });
+            }
 
             // Format response
             if (results.length === 0) {

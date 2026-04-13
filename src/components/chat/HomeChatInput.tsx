@@ -16,8 +16,8 @@ import { useChatModeToggle } from "@/hooks/useChatModeToggle";
 import { useTypingPlaceholder } from "@/hooks/useTypingPlaceholder";
 import { useCompassSendGate } from "@/hooks/useCompassSendGate";
 import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
-import { CompassUsageStrip } from "./CompassUsageStrip";
 import { CompassQuotaInlineBanner } from "./CompassQuotaInlineBanner";
+import { CompassUsageStrip } from "./CompassUsageStrip";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
@@ -35,8 +35,8 @@ export function HomeChatInput({
   }); // eslint-disable-line @typescript-eslint/no-unused-vars
   const {
     compassExhausted,
-    usesCompass,
     tier,
+    usesCompass,
     percentRemaining: compassPct,
     monthlyLimit: compassLimit,
     tokensUsedThisMonth: compassTokensUsed,
@@ -138,15 +138,6 @@ export function HomeChatInput({
 
           <CompassQuotaInlineBanner />
 
-          {usesCompass && compassLimit != null && compassLimit > 0 ? (
-            <CompassUsageStrip
-              subscriptionTierLabel={formatCompassSubscriptionTier(tier)}
-              tokensUsedThisMonth={compassTokensUsed}
-              monthlyLimit={compassLimit}
-              percentRemaining={compassPct}
-              loading={compassUsageLoading}
-            />
-          ) : null}
           {compassExhausted ? (
             <div className="px-2 pt-1">
               <CompassExhaustedBanner tier={tier} />
@@ -197,6 +188,18 @@ export function HomeChatInput({
           <div className="px-2 pb-2">
             <ChatInputControls />
           </div>
+
+          {usesCompass && compassLimit != null && compassLimit > 0 ? (
+            <div className="border-t border-border/40 bg-muted/5 rounded-b-lg overflow-hidden">
+              <CompassUsageStrip
+                subscriptionTierLabel={formatCompassSubscriptionTier(tier)}
+                tokensUsedThisMonth={compassTokensUsed}
+                monthlyLimit={compassLimit}
+                percentRemaining={compassPct}
+                loading={compassUsageLoading}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </>

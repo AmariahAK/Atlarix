@@ -24,9 +24,12 @@ import type { LanguageModel } from "@/ipc/ipc_types";
 export function CompactModelSearch({
   triggerLabel,
   className,
+  disabled,
 }: {
   triggerLabel?: string;
   className?: string;
+  /** When true (Auto routing): no model picking; matches ChatConfigDropdown behavior. */
+  disabled?: boolean;
 }) {
   const { settings, updateSettings } = useSettings();
   const queryClient = useQueryClient();
@@ -74,6 +77,25 @@ export function CompactModelSearch({
       : "Select model";
 
   if (!settings) return null;
+
+  if (disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        title="Auto routing is on — the model is chosen per message."
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm opacity-60 cursor-not-allowed pointer-events-none select-none",
+          className,
+        )}
+        onClick={(e) => e.preventDefault()}
+      >
+        <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="truncate max-w-[180px]">{triggerLabel ?? displayName}</span>
+      </button>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

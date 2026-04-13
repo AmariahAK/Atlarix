@@ -234,10 +234,11 @@ export class PageObject {
   async setUp({
     autoApprove = false,
     nativeGit = false,
-    enableAutoFixProblems = false,
+    enableAutoFixProblems,
   }: {
     autoApprove?: boolean;
     nativeGit?: boolean;
+    /** Omit to keep default (on). Pass false to turn off. */
     enableAutoFixProblems?: boolean;
   } = {}) {
     await this.baseSetup();
@@ -248,7 +249,8 @@ export class PageObject {
     if (nativeGit) {
       await this.toggleNativeGit();
     }
-    if (enableAutoFixProblems) {
+    if (enableAutoFixProblems === false) {
+      await this.page.locator("#ai").scrollIntoViewIfNeeded();
       await this.toggleAutoFixProblems();
     }
     await this.setUpTestProvider();
@@ -978,7 +980,9 @@ export class PageObject {
   }
 
   async toggleAutoFixProblems() {
-    await this.page.getByRole("switch", { name: "Auto-fix problems" }).click();
+    await this.page
+      .getByRole("switch", { name: "Auto-fix errors after build" })
+      .click();
   }
 
   async snapshotSettings() {

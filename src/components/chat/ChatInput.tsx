@@ -29,10 +29,11 @@ import {
   chatInputValueAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
+  forceDeepThinkNextAtom,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { atom, useAtom, useSetAtom, useAtomValue, getDefaultStore } from "jotai";
+import { useAtom, useSetAtom, useAtomValue, getDefaultStore } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover";
 
 import { useVersions } from "@/hooks/useVersions";
 import { useAttachments } from "@/hooks/useAttachments";
@@ -88,9 +94,16 @@ import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
 
-const showTokenBarAtom = atom(false);
-
 const STREAM_STALL_MS = 5 * 60 * 1000;
+
+type SlashCommandSuggestion = { name: string; description: string };
+
+/** Shown in slash menu; merged with workspace commands from DB. */
+const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
+  { name: "review", description: "Review recent changes" },
+  { name: "explain", description: "Explain code or concept" },
+  { name: "fix", description: "Fix a specific issue" },
+];
 
 /** Fix: Finding 4 — Build mode: warn if no stream activity for 5+ minutes */
 function SlowStreamWarningBar({
@@ -166,7 +179,8 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const messagesById = useAtomValue(chatMessagesByIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
-  const [showTokenBar, setShowTokenBar] = useAtom(showTokenBarAtom);
+  const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
+  const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
   const [routingPreview, setRoutingPreview] = useState<{
     category: string;
     targetModel: string;
@@ -249,6 +263,37 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     return () => clearTimeout(timer);
   }, [inputValue, settings?.autoModelRouting]);
 
+  const [slashCommandSuggestions, setSlashCommandSuggestions] = useState<SlashCommandSuggestion[]>(
+    BUILTIN_SLASH_COMMANDS,
+  );
+  useEffect(() => {
+    if (!appId) {
+      setSlashCommandSuggestions(BUILTIN_SLASH_COMMANDS);
+      return;
+    }
+    IpcClient.getInstance()
+      .listCustomCommands(appId)
+      .then((rows: { name?: string; promptTemplate?: string }[]) => {
+        const map = new Map<string, SlashCommandSuggestion>();
+        for (const r of rows ?? []) {
+          const name = String(r.name ?? "").trim();
+          if (!name) continue;
+          const firstLine = (r.promptTemplate ?? "").split("\n")[0]?.trim() ?? "";
+          map.set(name.toLowerCase(), {
+            name,
+            description: firstLine.slice(0, 120) || "Custom command",
+          });
+        }
+        for (const b of BUILTIN_SLASH_COMMANDS) {
+          map.set(b.name.toLowerCase(), { ...b });
+        }
+        setSlashCommandSuggestions(
+          [...map.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      })
+      .catch(() => setSlashCommandSuggestions(BUILTIN_SLASH_COMMANDS));
+  }, [appId]);
+
   const fetchChatMessages = useCallback(async () => {
     if (!chatId) {
       return;
@@ -301,6 +346,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     }
 
     // Send message with attachments and clear them after sending
+    const deepOnce = forceDeepThinkNext;
     await streamMessage({
       prompt: currentInput,
       chatId,
@@ -308,8 +354,10 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       redo: false,
       selectedComponents: componentsToSend,
       modelOverride: modelOverrideForNextMessage ?? undefined,
+      forceThinkingTier: deepOnce ? true : undefined,
     });
     setModelOverrideForNextMessage(null);
+    setForceDeepThinkNext(false);
     clearAttachments();
     posthog.capture("chat:submit");
   };
@@ -328,9 +376,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const handleApprove = async () => {
     if (!chatId || !messageId || isApproving || isRejecting || isStreaming)
       return;
-    console.log(
-      `Approving proposal for chatId: ${chatId}, messageId: ${messageId}`,
-    );
     setIsApproving(true);
     posthog.capture("chat:approve");
     try {
@@ -365,9 +410,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const handleReject = async () => {
     if (!chatId || !messageId || isApproving || isRejecting || isStreaming)
       return;
-    console.log(
-      `Rejecting proposal for chatId: ${chatId}, messageId: ${messageId}`,
-    );
     setIsRejecting(true);
     posthog.capture("chat:reject");
     try {
@@ -520,18 +562,62 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           ) : null}
 
           <div className="flex items-start space-x-2 ">
-            <LexicalChatInput
-              value={inputValue}
-              onChange={setInputValue}
-              onSubmit={handleSubmit}
-              onPaste={handlePaste}
-              placeholder={
-                mustSignIn ? "Sign in to start chatting…" : "Ask Atlarix to build..."
-              }
-              excludeCurrentApp={true}
-              disableSendButton={disableSendButton}
-              disabled={isStreaming || compassExhausted || mustSignIn}
-            />
+            <div className="relative flex-1 min-w-0">
+              {(() => {
+                const t = inputValue.trimStart();
+                const slashIdx = t.startsWith("/") ? 0 : -1;
+                const rest = slashIdx === 0 ? t.slice(1) : "";
+                const showSlash =
+                  !isStreaming && slashIdx === 0 && !/\s/.test(rest) && slashCommandSuggestions.length > 0;
+                const prefix = rest.toLowerCase();
+                const filtered = slashCommandSuggestions.filter((s) =>
+                  s.name.toLowerCase().startsWith(prefix),
+                );
+                return (
+                  <>
+                    <LexicalChatInput
+                      value={inputValue}
+                      onChange={setInputValue}
+                      onSubmit={handleSubmit}
+                      onPaste={handlePaste}
+                      placeholder={
+                        mustSignIn ? "Sign in to start chatting…" : "Ask Atlarix to build..."
+                      }
+                      excludeCurrentApp={true}
+                      disableSendButton={disableSendButton}
+                      disabled={isStreaming || compassExhausted || mustSignIn}
+                    />
+                    {showSlash && filtered.length > 0 ? (
+                      <div
+                        className="absolute left-0 bottom-full z-20 mb-1 max-h-48 min-w-[12rem] max-w-[min(24rem,100%)] overflow-auto rounded-md border border-border bg-popover p-1 text-xs shadow-md"
+                        role="listbox"
+                        aria-label="Slash commands"
+                      >
+                        {filtered.map((s) => (
+                          <button
+                            key={s.name}
+                            type="button"
+                            role="option"
+                            className="block w-full rounded px-2 py-1.5 text-left hover:bg-muted"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setInputValue(`/${s.name} `);
+                            }}
+                          >
+                            <span className="font-mono font-medium">/{s.name}</span>
+                            {s.description ? (
+                              <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                                {s.description}
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </div>
 
             {isStreaming ? (
               <button
@@ -597,28 +683,53 @@ export function ChatInput({ chatId }: { chatId?: number }) {
               />
             </div>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={() => setShowTokenBar(!showTokenBar)}
-                    variant="ghost"
-                    className={`has-[>svg]:px-2 ${showTokenBar ? "text-purple-500 bg-purple-100" : ""
-                      }`}
-                    size="sm"
-                    data-testid="token-bar-toggle"
-                  >
-                    <ChartColumnIncreasing size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {showTokenBar ? "Hide token usage" : "Show token usage"}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Popover
+              open={tokenUsagePopoverOpen}
+              onOpenChange={setTokenUsagePopoverOpen}
+            >
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className={`has-[>svg]:px-2 ${tokenUsagePopoverOpen ? "text-purple-500 bg-purple-100 dark:bg-purple-950/40" : ""
+                          }`}
+                        size="sm"
+                        data-testid="token-bar-toggle"
+                        aria-expanded={tokenUsagePopoverOpen}
+                      >
+                        <ChartColumnIncreasing size={14} />
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {tokenUsagePopoverOpen
+                      ? "Close token usage"
+                      : "Show token usage"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <PopoverContent
+                align="end"
+                side="top"
+                className="w-auto max-w-[min(100vw,22rem)] p-0"
+                sideOffset={8}
+              >
+                {chatId != null ? (
+                  <TokenBar
+                    chatId={chatId}
+                    includeCompassMonthlyStrip={false}
+                  />
+                ) : (
+                  <div className="p-3 text-xs text-muted-foreground">
+                    Open a chat to see token usage.
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
-          {/* TokenBar is only displayed when showTokenBar is true */}
-          {showTokenBar && <TokenBar chatId={chatId} />}
         </div>
       </div>
     </>

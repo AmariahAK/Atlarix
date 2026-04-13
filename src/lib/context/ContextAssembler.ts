@@ -4,12 +4,17 @@ import type { WorkMode } from "@/lib/schemas";
 import { getContextAssemblyCache, setContextAssemblyCache } from "./context-assembly-cache";
 
 export type ContextSectionName =
+  | "activeSkill"
+  | "taskProgress"
+  | "fileSystemTruth"
   | "workModeHint"
   | "blueprint"
   | "workspaceAnalysis"
   | "projectMemory"
   | "contextSummary"
-  | "sessionMemory";
+  | "sessionMemory"
+  | "counsel"
+  | "parallelPrefetch";
 
 export type ContextSection = {
   name: ContextSectionName;
@@ -26,6 +31,12 @@ export type ContextAssemblerInput = {
 };
 
 export type ContextAssemblerOutput = {
+  /** Active mode/agent skill markdown — protected from mode-cap trim (re-injected each assembly). */
+  activeSkillAddition: string;
+  /** Task ledger / progress — not counted against mode cap; keep out of tier blob trim. */
+  taskProgressAddition: string;
+  /** On-disk excerpts for last completed ledger step — protected like task progress (not in tier-trimmed blob). */
+  fileSystemTruthAddition: string;
   finalSystemPromptAddition: string;
   assembledPromptSections: Array<ContextSection & { tokens: number; included: boolean; truncated: boolean }>;
   tokenUsageBySection: Record<string, number>;
@@ -41,6 +52,11 @@ const MODE_CONTEXT_CAPS: Record<WorkMode, number> = {
   debug: 3500,
   review: 2000,
 };
+
+/** Hard safety ceiling only; normal task progress should stay well under this. */
+const ACTIVE_SKILL_TOKEN_CEILING = 8000;
+const TASK_PROGRESS_TOKEN_CEILING = 6000;
+const FILESYSTEM_TRUTH_TOKEN_CEILING = 8000;
 
 function truncateToTokens(content: string, maxTokens: number): string {
   if (estimateTokens(content) <= maxTokens) return content;
@@ -61,6 +77,37 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     .filter((s) => s.content.trim().length > 0)
     .sort((a, b) => a.priority - b.priority);
 
+  const activeSkillSections = normalizedSections.filter((s) => s.name === "activeSkill");
+  const taskProgressSections = normalizedSections.filter((s) => s.name === "taskProgress");
+  const fileSystemTruthSections = normalizedSections.filter((s) => s.name === "fileSystemTruth");
+  const otherSections = normalizedSections.filter(
+    (s) =>
+      s.name !== "activeSkill" &&
+      s.name !== "taskProgress" &&
+      s.name !== "fileSystemTruth",
+  );
+
+  let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
+  if (activeSkillAddition && estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
+    activeSkillAddition = truncateToTokens(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING);
+  }
+
+  let taskProgressAddition = taskProgressSections.map((s) => s.content.trim()).join("\n\n");
+  if (taskProgressAddition && estimateTokens(taskProgressAddition) > TASK_PROGRESS_TOKEN_CEILING) {
+    taskProgressAddition = truncateToTokens(taskProgressAddition, TASK_PROGRESS_TOKEN_CEILING);
+  }
+
+  let fileSystemTruthAddition = fileSystemTruthSections.map((s) => s.content.trim()).join("\n\n");
+  if (
+    fileSystemTruthAddition &&
+    estimateTokens(fileSystemTruthAddition) > FILESYSTEM_TRUTH_TOKEN_CEILING
+  ) {
+    fileSystemTruthAddition = truncateToTokens(
+      fileSystemTruthAddition,
+      FILESYSTEM_TRUTH_TOKEN_CEILING,
+    );
+  }
+
   const cacheKey = createHash("sha256")
     .update(
       JSON.stringify({
@@ -74,7 +121,15 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     .digest("hex");
 
   const cached = getContextAssemblyCache<ContextAssemblerOutput>(cacheKey);
-  if (cached) return { ...cached, cache: { key: cacheKey, hit: true } };
+  if (cached) {
+    return {
+      ...cached,
+      activeSkillAddition: cached.activeSkillAddition ?? "",
+      taskProgressAddition: cached.taskProgressAddition ?? "",
+      fileSystemTruthAddition: cached.fileSystemTruthAddition ?? "",
+      cache: { key: cacheKey, hit: true },
+    };
+  }
 
   let remaining = modeCap;
   const trimReport: string[] = [];
@@ -82,7 +137,40 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
   const tokenUsageBySection: Record<string, number> = {};
   const includedBlocks: string[] = [];
 
-  for (const section of normalizedSections) {
+  for (const section of activeSkillSections) {
+    const sectionTokens = estimateTokens(section.content);
+    tokenUsageBySection[section.name] = sectionTokens;
+    assembledPromptSections.push({
+      ...section,
+      tokens: sectionTokens,
+      included: true,
+      truncated: estimateTokens(activeSkillAddition) < sectionTokens,
+    });
+  }
+
+  for (const section of taskProgressSections) {
+    const sectionTokens = estimateTokens(section.content);
+    tokenUsageBySection[section.name] = sectionTokens;
+    assembledPromptSections.push({
+      ...section,
+      tokens: sectionTokens,
+      included: true,
+      truncated: estimateTokens(taskProgressAddition) < sectionTokens,
+    });
+  }
+
+  for (const section of fileSystemTruthSections) {
+    const sectionTokens = estimateTokens(section.content);
+    tokenUsageBySection[section.name] = sectionTokens;
+    assembledPromptSections.push({
+      ...section,
+      tokens: sectionTokens,
+      included: true,
+      truncated: estimateTokens(fileSystemTruthAddition) < sectionTokens,
+    });
+  }
+
+  for (const section of otherSections) {
     const sectionTokens = estimateTokens(section.content);
     tokenUsageBySection[section.name] = sectionTokens;
 
@@ -133,6 +221,9 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
   }
 
   const output: ContextAssemblerOutput = {
+    activeSkillAddition,
+    taskProgressAddition,
+    fileSystemTruthAddition,
     finalSystemPromptAddition: includedBlocks.join("\n\n"),
     assembledPromptSections,
     tokenUsageBySection,

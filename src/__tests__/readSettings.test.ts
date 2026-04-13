@@ -53,24 +53,35 @@ describe("readSettings", () => {
       );
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "enableAutoFixProblems": false,
+          "agentMode": "guided",
+          "autoModelIds": undefined,
+          "autoModelRouting": false,
+          "autoProviderId": null,
+          "autoRoutingExchangeThreshold": 6,
+          "autoRoutingShowReasoning": true,
+          "blueprintAlwaysShowBeacons": false,
+          "blueprintInjectionModePreference": "auto",
+          "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
+          "enableContextAutoSummarize": true,
           "enableProLazyEditsMode": true,
           "enableProSmartFilesContextMode": true,
           "experiments": {},
           "hasRunBefore": false,
+          "includeAtlarixCoAuthor": true,
           "isRunning": false,
           "lastKnownPerformance": undefined,
           "providerSettings": {},
           "releaseChannel": "stable",
-          "selectedChatMode": "build",
+          "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "auto",
-            "provider": "auto",
+            "name": "compass-fast",
+            "provider": "compass",
           },
-          "selectedTemplateId": "react",
+          "selectedTemplateId": "react-vite-ts",
           "telemetryConsent": "unset",
           "telemetryUserId": "[scrubbed]",
+          "workModePreference": "ask",
         }
       `);
     });
@@ -301,24 +312,35 @@ describe("readSettings", () => {
 
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "enableAutoFixProblems": false,
+          "agentMode": "guided",
+          "autoModelIds": undefined,
+          "autoModelRouting": false,
+          "autoProviderId": null,
+          "autoRoutingExchangeThreshold": 6,
+          "autoRoutingShowReasoning": true,
+          "blueprintAlwaysShowBeacons": false,
+          "blueprintInjectionModePreference": "auto",
+          "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
+          "enableContextAutoSummarize": true,
           "enableProLazyEditsMode": true,
           "enableProSmartFilesContextMode": true,
           "experiments": {},
           "hasRunBefore": false,
+          "includeAtlarixCoAuthor": true,
           "isRunning": false,
           "lastKnownPerformance": undefined,
           "providerSettings": {},
           "releaseChannel": "stable",
-          "selectedChatMode": "build",
+          "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "auto",
-            "provider": "auto",
+            "name": "compass-fast",
+            "provider": "compass",
           },
-          "selectedTemplateId": "react",
+          "selectedTemplateId": "react-vite-ts",
           "telemetryConsent": "unset",
           "telemetryUserId": "[scrubbed]",
+          "workModePreference": "ask",
         }
       `);
     });
@@ -331,8 +353,8 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "auto",
-          provider: "auto",
+          name: "compass-fast",
+          provider: "compass",
         },
         releaseChannel: "stable",
       });
@@ -354,8 +376,8 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "auto",
-          provider: "auto",
+          name: "compass-fast",
+          provider: "compass",
         },
         releaseChannel: "stable",
       });
@@ -379,8 +401,8 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "auto",
-          provider: "auto",
+          name: "compass-fast",
+          provider: "compass",
         },
         releaseChannel: "stable",
       });

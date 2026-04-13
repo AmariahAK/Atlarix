@@ -146,6 +146,19 @@ export function isJournalMigrationApplied(
       );
     case "0036_auto_routed_tier":
       return columnExists(sqlite, "messages", "auto_routed_tier");
+    case "0037_compaction_nested_and_synthetic":
+      return (
+        columnExists(sqlite, "chat_context_summaries", "compaction_generation") &&
+        columnExists(sqlite, "messages", "is_synthetic")
+      );
+    case "0038_counsel_sessions":
+      return tableExists(sqlite, "counsel_sessions");
+    case "0039_atlarix_hooks":
+      return tableExists(sqlite, "atlarix_hooks");
+    case "0040_custom_commands":
+      return tableExists(sqlite, "custom_commands");
+    case "0041_drop_diagram_versions":
+      return !tableExists(sqlite, "diagram_versions");
     default:
       return false;
   }

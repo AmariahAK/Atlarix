@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import log from 'electron-log';
 import { parseWithTreeSitter } from './treesitter-parser';
+import { clearParseTreeCacheForWorkspace } from '@/lib/pivot/parsers/parse-tree-cache';
 import {
     ensureDefaultAtlarixIgnore,
     loadIgnorerForProject,
@@ -90,6 +91,8 @@ export interface WorkspaceAnalysis {
  */
 export async function analyzeWorkspace(workspacePath: string): Promise<WorkspaceAnalysis> {
     logger.info(`Analyzing workspace: ${workspacePath}`);
+
+    clearParseTreeCacheForWorkspace(workspacePath);
 
     // 1. Detect project type
     const { language, framework, packageManager } = await detectProjectType(workspacePath);
@@ -279,7 +282,10 @@ async function analyzeFile(filePath: string, workspacePath: string): Promise<Ana
         let classes: string[] = [];
 
         // Try tree-sitter first for accurate AST parsing
-        const treeSitterResult = await parseWithTreeSitter(content, language);
+        const treeSitterResult = await parseWithTreeSitter(content, language, filePath, {
+            workspacePath,
+            relativePath: relativePath.replace(/\\/g, '/'),
+        });
 
         if (treeSitterResult) {
             imports = treeSitterResult.imports;

@@ -17,10 +17,35 @@ import { ChatError } from "./chat/ChatError";
 import { CommandOutputCard } from "./CommandOutputCard";
 import { IterationProgressBar } from "./IterationProgressBar";
 import { AutonomousReviewPanel } from "./chat/AutonomousReviewPanel";
-import { ModeChangeApproval, type ModeChangeRequest } from "./chat/ModeChangeApproval";
 import { CompassQuotaInlineBanner } from "./chat/CompassQuotaInlineBanner";
+import { CompassUsageStrip } from "./chat/CompassUsageStrip";
+import { useCompassSendGate } from "@/hooks/useCompassSendGate";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { Button } from "@/components/ui/button";
 import { ArrowDown } from "lucide-react";
+
+function ChatCompassMonthlyFooter() {
+  const {
+    usesCompass,
+    tier,
+    percentRemaining,
+    monthlyLimit,
+    tokensUsedThisMonth,
+    loading,
+  } = useCompassSendGate(null);
+  if (!usesCompass || monthlyLimit == null || monthlyLimit <= 0) return null;
+  return (
+    <div className="shrink-0 border-t border-border/40 bg-muted/5">
+      <CompassUsageStrip
+        subscriptionTierLabel={formatCompassSubscriptionTier(tier)}
+        tokensUsedThisMonth={tokensUsedThisMonth}
+        monthlyLimit={monthlyLimit}
+        percentRemaining={percentRemaining}
+        loading={loading}
+      />
+    </div>
+  );
+}
 
 interface ChatPanelProps {
   chatId?: number;
@@ -37,7 +62,6 @@ export function ChatPanel({
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const [isVersionPaneOpen, setIsVersionPaneOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modeChangeRequest, setModeChangeRequest] = useState<ModeChangeRequest | null>(null);
   const streamCountById = useAtomValue(chatStreamCountByIdAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
@@ -125,7 +149,6 @@ export function ChatPanel({
     // 2. Stream count > 1 (skip first chunk so user sees their message first)
     // 3. User hasn't scrolled away
     if (currentlyStreaming && streamCount > 1 && !isUserScrolling) {
-      console.log("[ChatPanel] Streaming detected, scrolling to bottom");
       requestAnimationFrame(() => {
         scrollToBottom("smooth");
       });
@@ -172,28 +195,6 @@ export function ChatPanel({
   useEffect(() => {
     fetchChatMessages();
   }, [fetchChatMessages]);
-
-  // Mode change (Ask -> Build) approval
-  useEffect(() => {
-    const unsub = IpcClient.getInstance().onModeChangeRequest((payload) => {
-      setModeChangeRequest({
-        chatId: payload.chatId,
-        requestedMode: payload.requestedMode as "ask" | "build",
-        reason: payload.reason ?? "",
-      });
-    });
-    return unsub;
-  }, []);
-
-  const handleModeChangeApprove = useCallback((requestChatId: number) => {
-    IpcClient.getInstance().respondModeChange(requestChatId, true);
-    setModeChangeRequest(null);
-  }, []);
-
-  const handleModeChangeDeny = useCallback((requestChatId: number) => {
-    IpcClient.getInstance().respondModeChange(requestChatId, false);
-    setModeChangeRequest(null);
-  }, []);
 
   const messages = chatId ? (messagesById.get(chatId) ?? []) : [];
   const isStreaming = chatId ? (isStreamingById.get(chatId) ?? false) : false;
@@ -245,13 +246,6 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <ModeChangeApproval
-        open={!!modeChangeRequest}
-        request={modeChangeRequest}
-        onClose={() => setModeChangeRequest(null)}
-        onApprove={handleModeChangeApprove}
-        onDeny={handleModeChangeDeny}
-      />
       <ChatHeader
         isVersionPaneOpen={isVersionPaneOpen}
         isPreviewOpen={isPreviewOpen}
@@ -312,6 +306,7 @@ export function ChatPanel({
               </div>
             )}
 
+            <ChatCompassMonthlyFooter />
             {/* flex-shrink-0 ensures input controls are never clipped */}
             <div className="flex-shrink-0">
               <ChatInput chatId={chatId} />

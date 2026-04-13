@@ -231,6 +231,8 @@ export class DevServerManager {
         let watcherProcess: ChildProcess | undefined;
         if (enableTypeCheck) {
             watcherProcess = this.startTypeWatcher(workspacePath, config.framework, (output) => {
+                const srv = this.runningServers.get(workspaceId);
+                if (srv) srv.outputBuffer += output;
                 // Forward watcher output to the main output stream
                 const mainWindow = BrowserWindow.getAllWindows()[0];
                 if (mainWindow && !mainWindow.isDestroyed()) {
@@ -375,6 +377,19 @@ export class DevServerManager {
     /**
      * Stop a dev server for a workspace
      */
+    /** Last lines of combined dev server + watcher output for self-correction (workspaceId === app id). */
+    getRecentOutputLines(workspaceId: number, maxLines = 200): string[] {
+        const buf = this.runningServers.get(workspaceId)?.outputBuffer ?? "";
+        if (!buf.trim()) return [];
+        const lines = buf.split(/\r?\n/);
+        return lines.slice(-maxLines);
+    }
+
+    clearOutputBuffer(workspaceId: number): void {
+        const server = this.runningServers.get(workspaceId);
+        if (server) server.outputBuffer = "";
+    }
+
     stopServer(workspaceId: number): void {
         const server = this.runningServers.get(workspaceId);
         if (server) {

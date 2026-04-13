@@ -1,6 +1,6 @@
 import { ipcMain, app } from "electron";
 import { db, getDatabasePath } from "../../db";
-import { apps, chats, messages, diagrams, diagramVersions, workspaceDiagrams, dailyLogs } from "../../db/schema";
+import { apps, chats, messages, diagrams, workspaceDiagrams, dailyLogs } from "../../db/schema";
 import { desc, eq, like } from "drizzle-orm";
 import type {
   App,
@@ -1158,17 +1158,12 @@ export function registerAppHandlers() {
 
         // Delete app from database (including related records)
         try {
-          // First, delete all diagram versions for diagrams associated with this app
           const appDiagrams = await db
             .select({ id: diagrams.id })
             .from(diagrams)
             .where(eq(diagrams.workspaceId, appId));
 
-          for (const diagram of appDiagrams) {
-            await db.delete(diagramVersions).where(eq(diagramVersions.diagramId, diagram.id));
-          }
-
-          // Then delete all diagrams associated with this app
+          // Delete all diagrams associated with this app
           await db.delete(diagrams).where(eq(diagrams.workspaceId, appId));
           logger.info(`Deleted ${appDiagrams.length} diagrams for app ${appId}`);
 

@@ -1,6 +1,6 @@
 /**
  * PIVOT parsers — unified parseProject(workspacePath) using workspace-analyzer + structure extractor.
- * Can be extended later with ANTLR4 or Tree-sitter for full AST.
+ * Workspace analysis uses tree-sitter when native grammars load, with regex fallback.
  */
 
 import { analyzeWorkspace } from "@/lib/analysis";

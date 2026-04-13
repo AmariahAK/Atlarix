@@ -1,5 +1,9 @@
 /**
  * Agent mesh: direct agent-to-agent communication (AgentMessage), Main observes and can intervene.
+ *
+ * **Bus contract:** `publishAgentMessage` runs synchronously: it notifies all subscribers in-process.
+ * Listeners must not perform heavy async work inline (schedule work instead). Never `await`
+ * `publishAgentMessage` — it is not async and must stay non-blocking for stream and tool loops.
  */
 
 export type AgentId =
@@ -41,6 +45,9 @@ export interface AgentMessage {
   content?: string;
 }
 
+/** Alias for AgentMessage (bus / mesh traffic). */
+export type BusMessage = AgentMessage;
+
 export type AgentMessageInput = Omit<AgentMessage, "id" | "timestamp"> & { id?: string };
 
 type Listener = (msg: AgentMessage) => void;
@@ -73,16 +80,23 @@ export function toAgentId(role: string): AgentId {
   return "builder";
 }
 
-/**
- * Publish a message on the agent bus (any agent or orchestrator).
- * Pass `id` to correlate replies (e.g. message_agent); otherwise an id is generated.
- */
-export function publishAgentMessage(msg: AgentMessageInput): AgentMessage {
-  const full: AgentMessage = {
+/** Build a bus message with `id` and `timestamp` (same scheme as {@link publishAgentMessage}); does not notify listeners. */
+export function createBusMessage(msg: AgentMessageInput): AgentMessage {
+  return {
     ...msg,
     id: msg.id ?? `agent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     timestamp: Date.now(),
   };
+}
+
+/**
+ * Publish a message on the agent bus (any agent or orchestrator).
+ * Pass `id` to correlate replies (e.g. message_agent); otherwise an id is generated.
+ *
+ * Synchronous: pushes to subscriber callbacks immediately. Subscribers own any async follow-up.
+ */
+export function publishAgentMessage(msg: AgentMessageInput): AgentMessage {
+  const full = createBusMessage(msg);
   if (full.type === "correction" && full.turnId && full.content) {
     const k = correctionQueueKey(full.turnId, full.to);
     const arr = correctionQueues.get(k) ?? [];

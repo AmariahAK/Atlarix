@@ -38,6 +38,8 @@ or to provide a custom fetch implementation for e.g. testing.
   fetch?: FetchFunction;
 
   originalProviderId: string;
+  /** Align gateway body extras with main chat: extended thinking only on the thinking context tier. */
+  includeExtendedThinking?: boolean;
   dyadOptions: {
     enableLazyEdits?: boolean;
     enableSmartFilesContext?: boolean;
@@ -122,6 +124,7 @@ export function createAtlarixEngine(
             ...getExtraProviderOptions(
               options.originalProviderId,
               options.settings,
+              options.includeExtendedThinking === true,
             ),
           };
           const dyadVersionedFiles = parsedBody.dyadVersionedFiles;

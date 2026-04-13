@@ -16,12 +16,17 @@ import {
 } from "@/components/ui/sheet";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
+import { formatAutoTierLabel, useLastAutoRoutedTier } from "@/hooks/useLastAutoRoutedTier";
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode } from "@/lib/work-mode";
-
+import { TokenCircle } from "./chat/TokenCircle";
+import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
+import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
+import { useCompassUsage } from "@/hooks/useCompassUsage";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -35,6 +40,7 @@ export function ChatInputControls({
   chatId?: number;
 }) {
   const appId = useAtomValue(selectedAppIdAtom);
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
   const [configSubView, setConfigSubView] = useState<
@@ -42,6 +48,8 @@ export function ChatInputControls({
   >(null);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const { result: tokenResult } = useCountTokens(chatId ?? null, "");
+  const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
+  const compassUsage = useCompassUsage();
 
   const agentMode = settings?.agentMode ?? "guided";
   const effectivePermission =
@@ -68,14 +76,24 @@ export function ChatInputControls({
   const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
   const budgetTokens = tokenResult?.effectiveBudget ?? tokenResult?.contextWindow ?? 0;
   const contextPercent = budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
-
-  if (agentMode === "autonomous" && chatId && tokenResult) {
-    contextLine += ` · ${formatTokens(usedTokens)}/${formatTokens(budgetTokens)} tokens`;
-    if (budgetTokens > 0) {
-      if (contextPercent >= 100) tokenWarning = "Token limit reached";
-      else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
-    }
+  if (agentMode === "autonomous" && chatId && tokenResult && budgetTokens > 0) {
+    if (contextPercent >= 100) tokenWarning = "Token limit reached";
+    else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
   }
+
+  const isAutoMode =
+    settings?.autoModelRouting === true || settings?.selectedModel?.provider === "auto";
+  const lastAutoTier = useLastAutoRoutedTier(chatId ?? selectedChatId ?? null);
+  const autoTierSuffix = formatAutoTierLabel(lastAutoTier);
+  const usesCompassQuotaRow = selectionUsesCompass(
+    settings?.selectedModel,
+    settings?.autoProviderId ?? undefined,
+  );
+  const compassQuotaReady =
+    usesCompassQuotaRow &&
+    !compassUsage.loading &&
+    compassUsage.percentRemaining != null &&
+    compassUsage.monthlyLimit != null;
 
   return (
     <div className="flex flex-col gap-1">
@@ -87,28 +105,40 @@ export function ChatInputControls({
         data-testid="active-context-bar"
       >
         <span>{contextLine}</span>
+        {isAutoMode && (
+          <span
+            className="text-[11px] text-muted-foreground shrink-0 max-w-[min(100%,14rem)] sm:max-w-none"
+            title="Turn off Auto in the config menu to pick a fixed model."
+          >
+            {autoTierSuffix ? `Auto · ${autoTierSuffix} tier` : "Auto"}
+          </span>
+        )}
         {tokenWarning && (
           <span className="text-amber-600 dark:text-amber-400" title={tokenWarning}>
             ({tokenWarning})
           </span>
         )}
-        {chatId != null && budgetTokens > 0 && (
+        {chatId != null && budgetTokens > 0 && tokenResult && !compassQuotaReady && (
           <div
-            className="flex items-center gap-1.5 min-w-0 flex-1 max-w-[120px]"
-            title={`Context: ${formatTokens(usedTokens)} / ${formatTokens(budgetTokens)} tokens (${contextPercent.toFixed(0)}%)`}
+            className="flex items-center gap-1.5 shrink-0"
+            title={`Context: ${usedTokens.toLocaleString()} / ${formatTokens(budgetTokens)} (${contextPercent.toFixed(0)}%)`}
           >
-            <div className="h-1.5 flex-1 min-w-[40px] rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary/70 transition-[width] duration-300"
-                style={{ width: `${contextPercent}%` }}
-              />
-            </div>
+            <TokenCircle
+              used={usedTokens}
+              total={budgetTokens}
+              size={20}
+              pulse={pulse}
+              flashSuccess={flashSuccess}
+            />
+            <span className="tabular-nums text-[10px] text-muted-foreground/90">
+              {usedTokens.toLocaleString()} / {formatTokens(budgetTokens)}
+            </span>
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        {rightPanelVisible && (
+      <div className="flex items-center gap-2 flex-wrap">
+        {rightPanelVisible && !isAutoMode && (
           <CompactModelSearch className="shrink-0" />
         )}
         <Popover
@@ -118,8 +148,9 @@ export function ChatInputControls({
           <PopoverAnchor asChild>
             <span className="inline-flex" data-tour="tour-model-picker">
               <ChatConfigDropdown
+                hideManualModelControls={isAutoMode}
                 onOpenModelPicker={
-                  rightPanelVisible
+                  rightPanelVisible || isAutoMode
                     ? undefined
                     : () => {
                         setConfigSubView(null);
@@ -138,7 +169,12 @@ export function ChatInputControls({
         </Popover>
 
         {!rightPanelVisible && (
-        <Sheet open={modelSheetOpen} onOpenChange={setModelSheetOpen}>
+        <Sheet
+          open={modelSheetOpen && !isAutoMode}
+          onOpenChange={(o) => {
+            if (!isAutoMode) setModelSheetOpen(o);
+          }}
+        >
           <SheetContent
             side="right"
             className="sm:max-w-md overflow-y-auto"
@@ -146,7 +182,10 @@ export function ChatInputControls({
             <SheetHeader>
               <SheetTitle>Change model</SheetTitle>
             </SheetHeader>
-            <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
+            <ModelPickerSheetContent
+              onClose={() => setModelSheetOpen(false)}
+              disabled={isAutoMode}
+            />
           </SheetContent>
         </Sheet>
         )}

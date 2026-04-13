@@ -6,8 +6,8 @@ import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
-import { useAtomValue, useSetAtom, useAtom } from "jotai";
-import { previewModeAtom, selectedAppIdAtom, currentAppAtom } from "@/atoms/appAtoms";
+import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
+import { previewModeAtom, selectedAppIdAtom, currentAppAtom, userSettingsAtom } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
@@ -196,6 +196,7 @@ function PersistentChatContainer() {
 const DEFAULT_ZOOM_LEVEL: ZoomLevel = "100";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const { streamMessage } = useStreamChat({ hasChatId: false });
   // Listen for AI-controlled panel updates from main process
   useAIPanelListener();
   const { refreshAppIframe } = useRunApp();
@@ -324,6 +325,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     const unsub = IpcClient.getInstance().onModelsDevStatus(({ message, timedOut }) => {
       if (!message?.trim()) return;
       toast.message(message, { duration: timedOut ? 10_000 : 5_000 });
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onAutoSelfCorrect(({ chatId }) => {
+      if (chatId == null) return;
+      void streamMessage({
+        prompt: "",
+        chatId,
+        continueAfterQuestions: true,
+        attachments: [],
+      });
+    });
+    return () => unsub();
+  }, [streamMessage]);
+
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onModeChanged(({ settings }) => {
+      getDefaultStore().set(userSettingsAtom, settings);
     });
     return () => unsub();
   }, []);

@@ -1,12 +1,13 @@
 /**
  * Single Config button opening a dropdown: MCP, Models & provider, Auto mode,
- * Delegation (Direct/Guided/Autonomous), Self-Review. Lucide icons only.
+ * Delegation (Direct/Guided/Autonomous), Blueprint in prompt. Lucide icons only.
  */
 
 import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
 import {
   blueprintInjectionChatOverrideAtom,
+  forceDeepThinkNextAtom,
   type BlueprintInjectionChatOverride,
 } from "@/atoms/chatAtoms";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -38,7 +39,6 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SlidersHorizontal,
   Server,
@@ -47,16 +47,39 @@ import {
   MessageCircle,
   Crosshair,
   Bot,
-  Eye,
   Layers,
+  Brain,
 } from "lucide-react";
-import type { AgentMode } from "@/lib/schemas";
+import type { AgentMode, UserSettings } from "@/lib/schemas";
+import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
+import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import { cn } from "@/lib/utils";
+import { formatAutoTierLabel, useLastAutoRoutedTier } from "@/hooks/useLastAutoRoutedTier";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** Deep think toggle: Auto needs full tier triple; manual needs Thinking-tier model selection. */
+function showDeepThinkNextToggle(settings: UserSettings | undefined | null): boolean {
+  if (!settings?.selectedModel) return false;
+  if (settings.autoModelRouting === true) {
+    const pid = settings.autoProviderId;
+    const ids = settings.autoModelIds;
+    return Boolean(
+      pid &&
+      Array.isArray(ids) &&
+      Boolean(ids[0]) &&
+      Boolean(ids[1]) &&
+      Boolean(ids[2]),
+    );
+  }
+  if (resolveContextBudgetTier(settings.selectedModel, settings) === "thinking") {
+    return true;
+  }
+  return PROVIDERS_THAT_SUPPORT_THINKING.includes(settings.selectedModel.provider);
+}
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   compass: "Compass",
@@ -71,7 +94,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   xai: "xAI",
 };
 
-function useModelDisplayName(): string {
+export function useModelDisplayName(): string {
   const { settings } = useSettings();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   const { models: ollamaModels = [] } = useLocalModels();
@@ -121,21 +144,26 @@ export function ChatConfigDropdown({
   onOpenModelPicker,
   onOpenMcpTools,
   onOpenAutoConfig,
+  hideManualModelControls = false,
 }: {
   onOpenModelPicker?: () => void;
   onOpenMcpTools?: () => void;
   onOpenAutoConfig?: () => void;
+  /** When Auto routing is on: hide provider/model pickers; use config “Configure Auto” for tiers. */
+  hideManualModelControls?: boolean;
 }) {
   const { settings, updateSettings } = useSettings();
   const modelDisplayName = useModelDisplayName();
+  const lastAutoTier = useLastAutoRoutedTier(null);
+  const autoTierLabel = formatAutoTierLabel(lastAutoTier);
 
   const agentMode = (settings?.agentMode ?? "guided") as AgentMode;
   const autoOn = settings?.autoModelRouting === true;
   const isAuto = settings?.selectedModel?.provider === "auto";
-  const selfReviewEnabled = settings?.aiConfiguration?.selfReview?.enabled ?? false;
   const [blueprintChatOverride, setBlueprintChatOverride] = useAtom(
     blueprintInjectionChatOverrideAtom,
   );
+  const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
   const blueprintTierRadioValue =
     blueprintChatOverride === null ? "settings" : blueprintChatOverride;
 
@@ -153,6 +181,7 @@ export function ChatConfigDropdown({
     (settings?.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds ?? [];
   const autoProviderId = settings?.autoProviderId ?? null;
   const autoModelIds = settings?.autoModelIds;
+  const deepThinkVisible = showDeepThinkNextToggle(settings ?? null);
 
   const providersForAuto = [
     compassBuildOk && { id: "compass", name: "Compass" },
@@ -221,11 +250,15 @@ export function ChatConfigDropdown({
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          Config: MCP, model, Auto, delegation, Blueprint prompt, self-review
+          Config: MCP, model, Auto, delegation, Blueprint prompt
         </TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="start" className="w-72" sideOffset={6}>
-        <ScrollArea className="max-h-[70vh]">
+      <DropdownMenuContent
+        align="start"
+        className="w-72 max-h-[70vh] overflow-y-auto overflow-x-hidden p-0"
+        sideOffset={6}
+      >
+        <div className="p-1">
           {/* MCP */}
           <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Server className="h-3.5 w-3.5" />
@@ -242,51 +275,66 @@ export function ChatConfigDropdown({
 
           <DropdownMenuSeparator />
 
-          {/* When Auto OFF: Model selection. When Auto ON: Provider selection (providers with ≥1 favorite, tiers seeded from favorites) */}
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Cpu className="h-3.5 w-3.5" />
-            {autoOn ? "Provider (Auto)" : "Model"}
-          </DropdownMenuLabel>
-          {autoOn ? (
+          {hideManualModelControls ? (
             <>
-              <div className="px-2 py-1.5">
-                <Select
-                  value={hasEnoughFavoritesForAuto ? (autoProviderId ?? "") : ""}
-                  onValueChange={(v) => {
-                    updateSettings(buildAutoSettingsForProvider(v || null));
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-full">
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {providersForAuto.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {providersForAuto.length === 0 && (
-                <p className="px-2 py-1 text-xs text-muted-foreground">
-                  Set at least 1 favorite model per provider in Settings to use Auto (we seed Fast/Medium/Thinking from your favorites).
-                </p>
-              )}
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Cpu className="h-3.5 w-3.5" />
+                Auto routing
+              </DropdownMenuLabel>
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                {autoTierLabel ? `Last reply: ${autoTierLabel} tier.` : "Model is chosen per message."}{" "}
+                Use <span className="font-medium text-foreground/90">Configure Auto</span> below to change provider or tier models.
+              </p>
             </>
           ) : (
             <>
-              <div className="px-2 py-1 text-sm text-foreground truncate" title={modelDisplayName}>
-                {modelDisplayName}
-              </div>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onOpenModelPicker?.();
-                }}
-              >
-                Change model
-              </DropdownMenuItem>
+              {/* When Auto OFF: Model selection. When Auto ON: Provider selection (providers with ≥1 favorite, tiers seeded from favorites) */}
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Cpu className="h-3.5 w-3.5" />
+                {autoOn ? "Provider (Auto)" : "Model"}
+              </DropdownMenuLabel>
+              {autoOn ? (
+                <>
+                  <div className="px-2 py-1.5">
+                    <Select
+                      value={hasEnoughFavoritesForAuto ? (autoProviderId ?? "") : ""}
+                      onValueChange={(v) => {
+                        updateSettings(buildAutoSettingsForProvider(v || null));
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-full">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {providersForAuto.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {providersForAuto.length === 0 && (
+                    <p className="px-2 py-1 text-xs text-muted-foreground">
+                      Set at least 1 favorite model per provider in Settings to use Auto (we seed Fast/Medium/Thinking from your favorites).
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="px-2 py-1 text-sm text-foreground truncate" title={modelDisplayName}>
+                    {modelDisplayName}
+                  </div>
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      onOpenModelPicker?.();
+                    }}
+                  >
+                    Change model
+                  </DropdownMenuItem>
+                </>
+              )}
             </>
           )}
 
@@ -334,6 +382,29 @@ export function ChatConfigDropdown({
               Configure Auto (provider + 3 models)
             </DropdownMenuItem>
           )}
+
+          {deepThinkVisible ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Brain className="h-3.5 w-3.5" />
+                Deep reasoning
+              </DropdownMenuLabel>
+              <div className="flex items-center justify-between px-2 py-2 gap-2">
+                <span className="text-sm">Deep think next message</span>
+                <Switch
+                  checked={forceDeepThinkNext}
+                  onCheckedChange={setForceDeepThinkNext}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+              <p className="px-2 pb-2 text-xs text-muted-foreground">
+                {autoOn
+                  ? "Next send uses your Thinking tier model instead of auto-routing for that turn."
+                  : "Next send uses the full thinking-tier context budget for your current Thinking-tier model."}
+              </p>
+            </>
+          ) : null}
 
           <DropdownMenuSeparator />
 
@@ -395,42 +466,7 @@ export function ChatConfigDropdown({
           <p className="px-2 pb-1 text-xs text-muted-foreground">
             Overrides AI → Blueprint injection for this app session. Default follows Settings.
           </p>
-
-          <DropdownMenuSeparator />
-
-          {/* Self-Review */}
-          <div className="flex items-center justify-between px-2 py-2">
-            <div className="flex items-center gap-2">
-              <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-sm">Self-Review</span>
-            </div>
-            <Switch
-              checked={selfReviewEnabled}
-              onCheckedChange={(checked) => {
-                const prev = settings?.aiConfiguration?.selfReview;
-                updateSettings({
-                  aiConfiguration: {
-                    ...settings?.aiConfiguration,
-                    selfReview: {
-                      ...prev,
-                      enabled: checked,
-                      strategy: (prev?.strategy ?? "both") as "runtime" | "agentLightning" | "both",
-                      maxIterations: prev?.maxIterations ?? 2,
-                      qualityThreshold: prev?.qualityThreshold ?? 0.85,
-                      reviewModel: (prev?.reviewModel ?? "fast") as "custom" | "same" | "fast",
-                      criteria: prev?.criteria ?? ["completeness", "correctness", "clarity", "safety", "best_practices"],
-                      showInActivityStream: prev?.showInActivityStream ?? true,
-                    },
-                  },
-                });
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-          <p className="px-2 pb-2 text-xs text-muted-foreground">
-            Quality check before replying. Configure in Settings.
-          </p>
-        </ScrollArea>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

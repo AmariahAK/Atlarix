@@ -16,18 +16,32 @@ import {
 import { chatInputValueAtom } from "@/atoms/chatAtoms";
 import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
-import { IpcClient } from "@/ipc/ipc_client";
+import { TokenCircle } from "./TokenCircle";
+import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
+import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
+import { useCompassUsage } from "@/hooks/useCompassUsage";
+import { CompassUsageStrip } from "./CompassUsageStrip";
 
 interface TokenBarProps {
   chatId?: number;
+  /**
+   * When true and Compass monthly quota is loaded, show the monthly strip here.
+   * Default false — monthly quota is shown once in ChatPanel (or home composer footer).
+   */
+  includeCompassMonthlyStrip?: boolean;
 }
 
-export function TokenBar({ chatId }: TokenBarProps) {
+export function TokenBar({
+  chatId,
+  includeCompassMonthlyStrip = false,
+}: TokenBarProps) {
   const [inputValue] = useAtom(chatInputValueAtom);
   const { settings } = useSettings();
   const { result, error } = useCountTokens(chatId ?? null, inputValue);
+  const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
+  const compassUsage = useCompassUsage();
 
-  if (!chatId || !result) {
+  if (chatId == null || !result) {
     return null;
   }
 
@@ -45,22 +59,27 @@ export function TokenBar({ chatId }: TokenBarProps) {
 
   const budget = effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
+  const usesCompass = selectionUsesCompass(
+    settings?.selectedModel,
+    settings?.autoProviderId ?? undefined,
+  );
+  const compassQuotaReady =
+    usesCompass &&
+    !compassUsage.loading &&
+    compassUsage.percentRemaining != null &&
+    compassUsage.monthlyLimit != null;
 
-  // Warning levels for display
-  const isWarning = percentUsed >= 70;
   const isCritical = percentUsed >= 90;
-  const showWarningText = percentUsed >= 80;
+  const showWarningBanner = percentUsed >= 80;
 
-  // Calculate widths for each token type
-  const messageHistoryPercent = (messageHistoryTokens / budget) * 100;
-  const codebasePercent = (codebaseTokens / budget) * 100;
-  const mentionedAppsPercent = (mentionedAppsTokens / budget) * 100;
-  const systemPromptPercent = (systemPromptTokens / budget) * 100;
-  const inputPercent = (inputTokens / budget) * 100;
+  const budgetLabel =
+    budget >= 1_000_000
+      ? `${(budget / 1_000_000).toFixed(1)}M`
+      : `${(budget / 1000).toFixed(0)}K`;
 
   return (
     <div className="px-4 pb-2 text-xs" data-testid="token-bar">
-      {showWarningText && (
+      {showWarningBanner && (
         <div
           className={`mb-1.5 px-2 py-1 rounded text-xs ${
             isCritical
@@ -77,118 +96,77 @@ export function TokenBar({ chatId }: TokenBarProps) {
               : "Approaching token limit"}
         </div>
       )}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="w-full">
-              <div className="flex justify-between mb-1 text-xs text-muted-foreground">
-                <span>Tokens: {totalTokens.toLocaleString()}</span>
-                <span>
-                  {Math.round(percentUsed)}% of{" "}
-                  {(budget / 1000).toFixed(0)}K
-                  {budgetSource === "override" && (
-                    <span className="text-muted-foreground/70 ml-0.5">
-                      (capped)
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div
-                className={`w-full h-1.5 rounded-full overflow-hidden flex ${
-                  isCritical
-                    ? "bg-red-500/20 ring-1 ring-red-500/40"
-                    : isWarning
-                      ? "bg-amber-500/20 ring-1 ring-amber-500/40"
-                      : "bg-muted"
-                }`}
-              >
-                {/* Message history tokens */}
-                <div
-                  className="h-full bg-blue-400"
-                  style={{ width: `${messageHistoryPercent}%` }}
+      {compassQuotaReady && includeCompassMonthlyStrip ? (
+        <CompassUsageStrip
+          subscriptionTierLabel={compassUsage.tier ?? "Compass"}
+          tokensUsedThisMonth={compassUsage.tokensUsedThisMonth}
+          monthlyLimit={compassUsage.monthlyLimit}
+          percentRemaining={compassUsage.percentRemaining}
+          loading={false}
+        />
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2 w-full min-w-0">
+                <TokenCircle
+                  used={totalTokens}
+                  total={budget}
+                  size={24}
+                  pulse={pulse}
+                  flashSuccess={flashSuccess}
                 />
-                {/* Codebase tokens */}
-                <div
-                  className="h-full bg-green-400"
-                  style={{ width: `${codebasePercent}%` }}
-                />
-                {/* Mentioned apps tokens */}
-                <div
-                  className="h-full bg-orange-400"
-                  style={{ width: `${mentionedAppsPercent}%` }}
-                />
-                {/* System prompt tokens */}
-                <div
-                  className="h-full bg-purple-400"
-                  style={{ width: `${systemPromptPercent}%` }}
-                />
-                {/* Input tokens */}
-                <div
-                  className="h-full bg-yellow-400"
-                  style={{ width: `${inputPercent}%` }}
-                />
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="w-64 p-2">
-            <div className="space-y-1">
-              <div className="font-medium">Token Usage Breakdown</div>
-              <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
-                <MessageSquare size={12} className="text-blue-500" />
-                <span>Message History</span>
-                <span>{messageHistoryTokens.toLocaleString()}</span>
-
-                <Code size={12} className="text-green-500" />
-                <span>Codebase</span>
-                <span>{codebaseTokens.toLocaleString()}</span>
-
-                <ExternalLink size={12} className="text-orange-500" />
-                <span>Mentioned Apps</span>
-                <span>{mentionedAppsTokens.toLocaleString()}</span>
-
-                <Bot size={12} className="text-purple-500" />
-                <span>System Prompt</span>
-                <span>{systemPromptTokens.toLocaleString()}</span>
-
-                <AlignLeft size={12} className="text-yellow-500" />
-                <span>Current Input</span>
-                <span>{inputTokens.toLocaleString()}</span>
-              </div>
-              <div className="pt-1 border-t border-border">
-                <div className="flex justify-between font-medium">
-                  <span>Total</span>
-                  <span>{totalTokens.toLocaleString()}</span>
+                <div className="flex flex-col min-w-0 leading-tight">
+                  <span className="text-muted-foreground tabular-nums truncate">
+                    {totalTokens.toLocaleString()} / {budgetLabel}
+                    {budgetSource === "override" && (
+                      <span className="text-muted-foreground/70 ml-0.5">(capped)</span>
+                    )}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/80">
+                    {Math.round(percentUsed)}% context
+                  </span>
                 </div>
               </div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="w-64 p-2">
+              <div className="space-y-1">
+                <div className="font-medium">Token usage</div>
+                <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                  <MessageSquare size={12} className="text-blue-500" />
+                  <span>Message History</span>
+                  <span>{messageHistoryTokens.toLocaleString()}</span>
+
+                  <Code size={12} className="text-green-500" />
+                  <span>Codebase</span>
+                  <span>{codebaseTokens.toLocaleString()}</span>
+
+                  <ExternalLink size={12} className="text-orange-500" />
+                  <span>Mentioned Apps</span>
+                  <span>{mentionedAppsTokens.toLocaleString()}</span>
+
+                  <Bot size={12} className="text-purple-500" />
+                  <span>System Prompt</span>
+                  <span>{systemPromptTokens.toLocaleString()}</span>
+
+                  <AlignLeft size={12} className="text-yellow-500" />
+                  <span>Current Input</span>
+                  <span>{inputTokens.toLocaleString()}</span>
+                </div>
+                <div className="pt-1 border-t border-border">
+                  <div className="flex justify-between font-medium">
+                    <span>Total</span>
+                    <span>{totalTokens.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       {error && (
         <div className="text-red-500 text-xs mt-1">Failed to count tokens</div>
       )}
-      {(!settings?.enableProSmartFilesContextMode ||
-        !settings?.enableAtlarixPro) && (
-          <div className="text-xs text-center text-muted-foreground mt-2">
-            Optimize your tokens with{" "}
-            <a
-              onClick={() => {
-                if (settings?.enableAtlarixPro) {
-                  IpcClient.getInstance().openExternalUrl(
-                    "https://www.atlarix.dev/docs/guides/ai-models/pro-modes#smart-context",
-                  );
-                } else {
-                  import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-                    triggerUpgrade();
-                  });
-                }
-              }}
-              className="text-blue-500 dark:text-blue-400 cursor-pointer hover:underline"
-            >
-              Atlarix Pro's Smart Context
-            </a>
-          </div>
-        )}
     </div>
   );
 }

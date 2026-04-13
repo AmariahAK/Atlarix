@@ -443,6 +443,8 @@ function CodeTab({
     const [selectedFilePathFromTree, setSelectedFilePathFromTree] = useState<string | null>(null);
     const [treeFileContent, setTreeFileContent] = useState<{ path: string; content: string } | null>(null);
     const [treeFileLoading, setTreeFileLoading] = useState(false);
+    /** After atom clears, still pass initialLine into FileEditor when opening from Errors / sidebar list. */
+    const treeOpenLineRef = useRef<{ path: string; line?: number } | null>(null);
 
     // Clear sidebar file when workspace is deselected
     useEffect(() => {
@@ -469,6 +471,16 @@ function CodeTab({
         if (!selectedFilePath) return;
         // Prefer readAppFile (handles path resolution) when we have appId
         if (appId) {
+            // Miniscreen: editor is driven by tree selection + readAppFile in tree effect, not sidebarFile.
+            if (files != null && files.length > 0) {
+                treeOpenLineRef.current = {
+                    path: selectedFilePath,
+                    line: selectedErrorForCode?.line,
+                };
+                setSelectedFilePathFromTree(selectedFilePath);
+                onSelectedErrorForCodeConsumed();
+                return;
+            }
             setSidebarFileLoading(true);
             IpcClient.getInstance()
                 .readAppFile(appId, selectedFilePath)
@@ -499,7 +511,7 @@ function CodeTab({
             })
             .catch(() => setSidebarFile(null))
             .finally(() => setSidebarFileLoading(false));
-    }, [selectedFilePath, workspacePath, appId, onSelectedErrorForCodeConsumed]);
+    }, [selectedFilePath, workspacePath, appId, files, selectedErrorForCode?.line, onSelectedErrorForCodeConsumed]);
 
     // Check if we have errors with file paths - show editor for those
     const filesWithErrors = errors.filter(e => e.file);
@@ -528,7 +540,12 @@ function CodeTab({
                     <div className="flex-1 overflow-auto min-h-0">
                         <WorkspaceFileTree
                             files={files}
-                            onFileClick={(path) => setSelectedFilePathFromTree(path)}
+                            onFileClick={(path) => {
+                                setSelectedFilePathFromTree(path);
+                                if (treeOpenLineRef.current && path !== treeOpenLineRef.current.path) {
+                                    treeOpenLineRef.current = null;
+                                }
+                            }}
                             maxHeight="100%"
                         />
                     </div>
@@ -543,7 +560,13 @@ function CodeTab({
                         <FileEditor
                             appId={appId}
                             filePath={treeFileContent.path}
-                            initialLine={selectedErrorForCode?.filePath === treeFileContent.path ? selectedErrorForCode?.line : undefined}
+                            initialLine={
+                                treeOpenLineRef.current?.path === treeFileContent.path
+                                    ? treeOpenLineRef.current.line
+                                    : selectedErrorForCode?.filePath === treeFileContent.path
+                                      ? selectedErrorForCode?.line
+                                      : undefined
+                            }
                         />
                     ) : (
                         <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">

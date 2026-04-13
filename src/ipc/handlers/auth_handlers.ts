@@ -55,7 +55,7 @@ export function registerAuthHandlers() {
 
                 // Manually delete dependent records to avoid FK constraints issues
                 // (Prompts specifically might not have cascade set up correctly in all DBs)
-                const { prompts, chats, diagrams, diagramVersions } = await import("@/db/schema");
+                const { prompts, chats, diagrams } = await import("@/db/schema");
                 const { eq, inArray } = await import("drizzle-orm");
 
                 if (allWorkspaces.length > 0) {

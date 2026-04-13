@@ -3,7 +3,8 @@ import { useSettings } from "@/hooks/useSettings";
 import { useCompassUsage } from "@/hooks/useCompassUsage";
 import type { LargeLanguageModel } from "@/lib/schemas";
 
-function selectionUsesCompass(
+/** True when manual Compass or Auto with Compass provider (shared with token UI, etc.). */
+export function selectionUsesCompass(
   selected: LargeLanguageModel | undefined,
   autoProviderId: string | undefined,
 ): boolean {

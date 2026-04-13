@@ -8,11 +8,18 @@
 import { ipcMain, BrowserWindow } from "electron";
 import * as path from "path";
 import { db } from "@/db";
-import { apps } from "@/db/schema";
+import { apps, diagrams } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Blueprint, CombinedBlueprint } from "@/shared/blueprint-types";
 import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
+import { registerBlueprintFileWatcher } from "@/lib/blueprint/blueprint-file-watcher";
+import {
+  buildRichDiagramMarkdown,
+  captureSnapshot,
+  ensureInitialDiagramSnapshot,
+  extractMermaidFromMarkdown,
+} from "@/lib/snapshot/snapshot-manager";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
 import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint } from "@/lib/cache/blueprint-cache";
@@ -357,12 +364,67 @@ export function invalidateBlueprintCache(workspaceId: number): void {
   blueprintCache.delete(workspaceId);
 }
 
+/** After diagram/code revert: drop cache, re-infer blueprint, push to all renderer windows (`blueprint:updated`). */
+export async function broadcastBlueprintReload(workspaceId: number): Promise<void> {
+  invalidateBlueprintCache(workspaceId);
+  try {
+    const blueprint = await getBlueprintForWorkspace(workspaceId);
+    sendToAllWindows("blueprint:updated", { workspaceId, blueprint });
+  } catch (e) {
+    logger.warn("broadcastBlueprintReload failed:", e);
+  }
+}
+
 export function registerBlueprintHandlers() {
   ipcMain.handle(
     "blueprint:get",
     async (_, { workspaceId }: { workspaceId: number }): Promise<{ success: boolean; blueprint?: Blueprint; error?: string }> => {
       try {
         const blueprint = await getBlueprintForWorkspace(workspaceId);
+        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (app) {
+          const workspacePath = getAtlarixAppPath(app.path);
+          registerBlueprintFileWatcher(workspacePath, workspaceId, async (projPath, rel, wid) => {
+            const { readSettings } = await import("@/main/settings");
+            if (readSettings().selectedChatMode === "ask") return;
+            const { runDiagramRegenerateBackground } = await import(
+              "@/ipc/handlers/diagram_regenerate_background"
+            );
+            const regen = await runDiagramRegenerateBackground(wid);
+            if (!regen.success || ("skipped" in regen && regen.skipped)) return;
+            try {
+              const [drow] = await db
+                .select({ content: diagrams.content })
+                .from(diagrams)
+                .where(eq(diagrams.workspaceId, wid))
+                .limit(1);
+              const raw = drow?.content?.trim();
+              if (!raw) return;
+              const mermaid = extractMermaidFromMarkdown(raw) ?? raw;
+              const md = buildRichDiagramMarkdown({
+                mermaidBody: mermaid,
+                promptLine: `Debounced file watch — ${rel}`,
+              });
+              await captureSnapshot({
+                workspacePath: projPath,
+                turnId: "fs-watch",
+                relativePaths: [],
+                diagramBefore: md,
+                promptSummary: `fs-watch:${rel}`,
+              });
+            } catch (e) {
+              logger.warn("fs-watch diagram snapshot skipped:", e);
+            }
+          });
+          const [drow] = await db
+            .select({ content: diagrams.content })
+            .from(diagrams)
+            .where(eq(diagrams.workspaceId, workspaceId))
+            .limit(1);
+          if (drow?.content?.trim()) {
+            void ensureInitialDiagramSnapshot(workspacePath, drow.content);
+          }
+        }
         return { success: true, blueprint };
       } catch (error) {
         logger.error("blueprint:get error:", error);

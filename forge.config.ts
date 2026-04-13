@@ -89,11 +89,18 @@ const config: ForgeConfig = {
     osxNotarize: undefined,
     asar: true,
     ignore,
-    extraResource: ["node_modules/dugite/git"],
+    extraResource: ["node_modules/dugite/git", path.join(__dirname, "src/skills")],
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
   rebuildConfig: {
-    extraModules: ["better-sqlite3", "keytar"],
+    extraModules: [
+      "better-sqlite3",
+      "keytar",
+      "tree-sitter",
+      "tree-sitter-typescript",
+      "tree-sitter-javascript",
+      "tree-sitter-python",
+    ],
     force: true,
   },
   makers: [
@@ -150,6 +157,11 @@ const config: ForgeConfig = {
         : typeof raw === "function"
           ? [
               "better-sqlite3",
+              "keytar",
+              "tree-sitter",
+              "tree-sitter-typescript",
+              "tree-sitter-javascript",
+              "tree-sitter-python",
               "mysql2",
               "ai",
               "@ai-sdk/provider",
@@ -201,7 +213,14 @@ const config: ForgeConfig = {
         platform: platform as NodeJS.Platform,
         arch,
         force: true,
-        extraModules: ["better-sqlite3", "keytar"],
+        extraModules: [
+          "better-sqlite3",
+          "keytar",
+          "tree-sitter",
+          "tree-sitter-typescript",
+          "tree-sitter-javascript",
+          "tree-sitter-python",
+        ],
       });
     },
   },

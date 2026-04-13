@@ -8,6 +8,7 @@
 import type { Message } from "@/ipc/ipc_types";
 import {
     AtlarixMarkdownParser,
+    CHAT_MESSAGE_MARKDOWN_PROSE,
     VanillaMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
 import { motion } from "framer-motion";
@@ -141,7 +142,7 @@ export function SimpleMessage({ message, isStreaming = false }: SimpleMessagePro
                             />
                         </div>
                     ) : (
-                        <div className="prose dark:prose-invert prose-sm max-w-none break-words" style={{ whiteSpace: 'pre-wrap' }}>
+                        <div className={CHAT_MESSAGE_MARKDOWN_PROSE} style={{ whiteSpace: 'pre-wrap' }}>
                             {isAssistant ? (
                                 <AtlarixMarkdownParser content={message.content} />
                             ) : (

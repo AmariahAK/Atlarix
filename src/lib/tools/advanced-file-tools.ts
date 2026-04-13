@@ -22,6 +22,7 @@ ToolRegistry.register({
     category: ToolCategory.FILE_ADVANCED,
     description: "Edit a specific function, class, or code section in a file",
     isReadOnly: false,
+    requiresWorkspace: true,
     parameters: {
         filepath: {
             type: "string",
@@ -50,83 +51,117 @@ ToolRegistry.register({
         section_identifier: string;
         new_content: string;
         description: string;
+        workspace?: string;
+        chatMode?: string;
     }) => {
-        try {
-            // Read the file
-            const content = await fs.readFile(params.filepath, "utf-8");
-            const lines = content.split("\n");
-
-            // Simple pattern matching for now (can be enhanced with AST later)
-            // Look for function/class declarations
-            const patterns = [
-                new RegExp(`function\\s+${params.section_identifier}\\s*\\(`),
-                new RegExp(`const\\s+${params.section_identifier}\\s*=`),
-                new RegExp(`class\\s+${params.section_identifier}\\s*{`),
-                new RegExp(`export\\s+function\\s+${params.section_identifier}\\s*\\(`),
-            ];
-
-            let startLine = -1;
-            let endLine = -1;
-
-            // Find the section
-            for (let i = 0; i < lines.length; i++) {
-                if (patterns.some(p => p.test(lines[i]))) {
-                    startLine = i;
-
-                    // Find the end (simple brace counting)
-                    let braceCount = 0;
-                    let inSection = false;
-
-                    for (let j = i; j < lines.length; j++) {
-                        const line = lines[j];
-
-                        for (const char of line) {
-                            if (char === "{") {
-                                braceCount++;
-                                inSection = true;
-                            } else if (char === "}") {
-                                braceCount--;
-                            }
-                        }
-
-                        if (inSection && braceCount === 0) {
-                            endLine = j;
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-
-            if (startLine === -1) {
-                return {
-                    success: false,
-                    error: `Section "${params.section_identifier}" not found in ${params.filepath}`,
-                };
-            }
-
-            // Replace the section
-            const before = lines.slice(0, startLine);
-            const after = lines.slice(endLine + 1);
-            const newLines = [...before, params.new_content, ...after];
-
-            // Write back (this will trigger permission system)
-            const newContent = newLines.join("\n");
-            await fs.writeFile(params.filepath, newContent, "utf-8");
-
+        if (params.chatMode === "ask") {
             return {
-                success: true,
-                filepath: params.filepath,
-                section: params.section_identifier,
-                lines_modified: endLine - startLine + 1,
-                description: params.description,
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
+                error: "Edit operations not allowed in Ask mode. Switch to Build mode.",
+                operation: "write_file",
+                denied: true,
             };
         }
+
+        const rawPath = params.filepath
+            .replace(/^\/workspace\//, "")
+            .replace(/^workspace\//, "")
+            .replace(/^\/+/, "");
+        const normalizedPath = rawPath.split(path.sep).join("/");
+
+        if (params.chatMode === "plan") {
+            const norm = normalizedPath.replace(/\\/g, "/");
+            const planOk = /(^|\/)\.atlarix\/ATLARIX_PLAN\.md$/.test(norm);
+            const memoryOk = /(^|\/)\.atlarix\/ATLARIX\.md$/i.test(norm);
+            if (!planOk && !memoryOk) {
+                return {
+                    error:
+                        "Plan mode may only edit .atlarix/ATLARIX_PLAN.md or .atlarix/ATLARIX.md. Switch to Build for application code.",
+                    operation: "write_file",
+                    denied: true,
+                };
+            }
+        }
+
+        if (!params.workspace) {
+            return {
+                success: false,
+                error: "Workspace required for edit_file_section",
+            };
+        }
+
+        const fullPath = path.join(params.workspace, normalizedPath);
+
+        let content: string;
+        try {
+            content = await fs.readFile(fullPath, "utf-8");
+        } catch {
+            return {
+                success: false,
+                error: `File not found: ${normalizedPath}`,
+            };
+        }
+
+        const lines = content.split("\n");
+        const escapedId = params.section_identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const patterns = [
+            new RegExp(`function\\s+${escapedId}\\s*\\(`),
+            new RegExp(`const\\s+${escapedId}\\s*=`),
+            new RegExp(`class\\s+${escapedId}\\s*{`),
+            new RegExp(`export\\s+function\\s+${escapedId}\\s*\\(`),
+        ];
+
+        let startLine = -1;
+        let endLine = -1;
+
+        for (let i = 0; i < lines.length; i++) {
+            if (patterns.some((p) => p.test(lines[i]))) {
+                startLine = i;
+                let braceCount = 0;
+                let inSection = false;
+                for (let j = i; j < lines.length; j++) {
+                    const line = lines[j];
+                    for (const char of line) {
+                        if (char === "{") {
+                            braceCount++;
+                            inSection = true;
+                        } else if (char === "}") {
+                            braceCount--;
+                        }
+                    }
+                    if (inSection && braceCount === 0) {
+                        endLine = j;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if (startLine === -1) {
+            return {
+                success: false,
+                error: `Section "${params.section_identifier}" not found in ${normalizedPath}`,
+            };
+        }
+
+        const before = lines.slice(0, startLine);
+        const after = lines.slice(endLine + 1);
+        const newLines = [...before, params.new_content, ...after];
+        const newContent = newLines.join("\n");
+
+        return {
+            __permission_required: true,
+            operation: "write_file",
+            preview: {
+                path: normalizedPath,
+                content: newContent,
+                oldContent: content,
+                description: params.description,
+                type: "update" as const,
+                lines: newContent.split("\n").length,
+            },
+            reasoning: `Section edit (${params.section_identifier}) in ${normalizedPath}: ${params.description}`,
+        };
     },
 });
 

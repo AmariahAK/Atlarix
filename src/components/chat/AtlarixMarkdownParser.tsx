@@ -13,7 +13,7 @@ import { AtlarixCodebaseContext } from "./AtlarixCodebaseContext";
 import { AtlarixThink } from "./AtlarixThink";
 import { CodeHighlight } from "./CodeHighlight";
 import { useAtomValue } from "jotai";
-import { isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { activityStreamItemsAtom, agentBusRingByChatIdAtom } from "@/atoms/sourceAtoms";
 import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
@@ -34,12 +34,22 @@ import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
 import { ThinkingCard } from "./ThinkingSection";
-import { ActivityDisplay } from "../ActivityDisplay";
+import { InlineThoughtsBlock, inlineThoughtsPanelVisible } from "../ActivityDisplay";
+import { useSettings } from "@/hooks/useSettings";
 import { PlanSection } from "./PlanSection";
-import { extractPlanFromContent, stripAssistantPlanForDisplay } from "@/lib/plan-cards/plan-card-renderer";
+import {
+  extractPlanFromContent,
+  stripAssistantPlanForDisplay,
+  type PlanCardData,
+} from "@/lib/plan-cards/plan-card-renderer";
+import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
 
 interface AtlarixMarkdownParserProps {
   content: string;
+  /** Plan → Build: submit message + ledger steps */
+  onPlanSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
+  /** When true, InlineThoughtsBlock is not rendered here (parent places it above activity / plan). */
+  suppressInlineThoughts?: boolean;
 }
 
 type CustomTagInfo = {
@@ -87,22 +97,54 @@ export const VanillaMarkdownParser = ({ content }: { content: string }) => {
   );
 };
 
+/** Tailwind Typography classes for chat bubbles (assistant + user markdown). */
+export const CHAT_MESSAGE_MARKDOWN_PROSE =
+  "prose prose-sm dark:prose-invert max-w-none break-words " +
+  "prose-headings:mb-1 prose-headings:mt-2 first:prose-headings:mt-0 " +
+  "prose-p:mt-0 prose-p:mb-1 prose-p:leading-snug " +
+  "prose-li:my-0.5 prose-ul:my-1 prose-ol:my-1 " +
+  "prose-pre:my-1 prose-pre:py-2 prose-pre:leading-snug " +
+  "prose-blockquote:my-1 prose-hr:my-2 prose-table:my-2";
+
 /**
  * Custom component to parse markdown content with Atlarix-specific tags
  */
 export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   content,
+  onPlanSwitchToBuild,
+  suppressInlineThoughts = false,
 }) => {
-  const chatId = useAtomValue(selectedChatIdAtom);
-  const isStreaming = useAtomValue(isStreamingByIdAtom).get(chatId!) ?? false;
+  const { settings } = useSettings();
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const activeChatId = useAtomValue(activeChatIdAtom);
+  const chatId = activeChatId ?? selectedChatId;
+  const streamingById = useAtomValue(isStreamingByIdAtom);
+  const isStreaming = chatId != null ? (streamingById.get(chatId) ?? false) : false;
   const activityStreamItems = useAtomValue(activityStreamItemsAtom);
+  const agentMode = settings?.agentMode ?? "guided";
+  const agentAnimMode = agentMode === "guided" || agentMode === "autonomous";
+  const activityForPanel = useMemo(() => {
+    if (chatId == null) return activityStreamItems;
+    return activityStreamItems.filter(
+      (i) => i.chatId == null || i.chatId === chatId,
+    );
+  }, [activityStreamItems, chatId]);
+  const showInlineThoughtsPanel = useMemo(
+    () => inlineThoughtsPanelVisible(activityStreamItems, chatId, agentMode),
+    [activityStreamItems, chatId, agentMode],
+  );
+  const showInlineThoughtsInParser = showInlineThoughtsPanel && !suppressInlineThoughts;
+  const processStreamOnTop =
+    isStreaming && (agentAnimMode || suppressInlineThoughts);
   const agentBusRingByChatId = useAtomValue(agentBusRingByChatIdAtom);
   const busExchanges =
     chatId != null ? (agentBusRingByChatId[chatId] ?? []) : [];
-  const displayContent = useMemo(
-    () => stripAssistantPlanForDisplay(content),
-    [content],
-  );
+  const displayContent = useMemo(() => {
+    let s = stripAssistantPlanForDisplay(content);
+    if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
+    return s;
+  }, [content, isStreaming]);
+  const planCardData = useMemo(() => extractPlanFromContent(content), [content]);
   // Extract content pieces (markdown and custom tags)
   const contentPieces = useMemo(() => {
     return parseCustomTags(displayContent);
@@ -142,8 +184,10 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   }, [contentPieces]);
 
   // Separate thinking content (thoughts + tools) from answer content
-  const { thoughts, toolCalls, answerPieces } = useMemo(() => {
+  const { thoughts, reasoningTagParts, modelReasoningParts, toolCalls, answerPieces } = useMemo(() => {
     const thoughts: string[] = [];
+    const reasoningTagParts: string[] = [];
+    const modelReasoningParts: string[] = [];
     const toolCalls: Array<{ id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string }> = [];
     const answer: Array<{ piece: ContentPiece; index: number }> = [];
     // Use Map to deduplicate tools - key is "toolName_sequenceNum" to maintain order for same tool
@@ -154,10 +198,15 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       if (piece.type === 'custom-tag') {
         const tag = piece.tagInfo.tag;
 
-        // Thoughts go to thinking card (provider reasoning uses redacted_thinking)
-        if (tag === 'think' || tag === 'redacted_thinking') {
+        if (tag === "think" || tag === "thinking") {
           const content = piece.tagInfo.content?.trim();
           if (content) thoughts.push(content);
+        } else if (tag === "reasoning") {
+          const content = piece.tagInfo.content?.trim();
+          if (content) reasoningTagParts.push(content);
+        } else if (tag === 'redacted_thinking') {
+          const content = piece.tagInfo.content?.trim();
+          if (content) modelReasoningParts.push(content);
         }
         // Tools go to thinking card
         else if (
@@ -256,12 +305,23 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       deduplicatedAnswer.push(item);
     }
 
-    return { thoughts, toolCalls: deduplicatedTools, answerPieces: deduplicatedAnswer };
+    return {
+      thoughts,
+      reasoningTagParts,
+      modelReasoningParts,
+      toolCalls: deduplicatedTools,
+      answerPieces: deduplicatedAnswer,
+    };
   }, [contentPieces]);
+
+  const modelReasoningText = useMemo(
+    () => modelReasoningParts.join("\n\n").trim(),
+    [modelReasoningParts],
+  );
 
   const multiAgentFromActivity = useMemo(() => {
     const agents = new Set<string>();
-    for (const i of activityStreamItems) {
+    for (const i of activityForPanel) {
       if (
         (i.type === "delegation_start" ||
           i.type === "delegation_complete" ||
@@ -275,19 +335,40 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
       }
     }
     return agents.size >= 2;
-  }, [activityStreamItems]);
+  }, [activityForPanel]);
 
   const compactTools = useMemo(() => {
     if (isStreaming && multiAgentFromActivity) return true;
-    return toolCalls.length >= 2 && thoughts.length >= 2;
-  }, [isStreaming, multiAgentFromActivity, toolCalls.length, thoughts.length]);
+    return (
+      toolCalls.length >= 2 &&
+      (thoughts.length >= 2 ||
+        modelReasoningParts.length >= 1 ||
+        reasoningTagParts.length >= 1)
+    );
+  }, [
+    isStreaming,
+    multiAgentFromActivity,
+    toolCalls.length,
+    thoughts.length,
+    modelReasoningParts.length,
+    reasoningTagParts.length,
+  ]);
 
   // Import ThinkingCard - moved to static import to prevent lazy-loading flicker
   // const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
 
   // Stability guard: Delay hiding to prevent flicker during streaming
+  const reasoningFromTags = useMemo(
+    () => reasoningTagParts.join("\n\n").trim(),
+    [reasoningTagParts],
+  );
+
   const hasThinkingContent =
-    thoughts.length > 0 || toolCalls.length > 0 || busExchanges.length > 0;
+    thoughts.length > 0 ||
+    reasoningTagParts.length > 0 ||
+    modelReasoningParts.length > 0 ||
+    toolCalls.length > 0 ||
+    busExchanges.length > 0;
 
   useEffect(() => {
     if (hasThinkingContent) {
@@ -314,27 +395,31 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     };
   }, [hasThinkingContent, isStreaming, showThinking]);
 
+  const thinkingCardEl =
+    showThinking ? (
+      <ThinkingCard
+        thoughts={thoughts}
+        reasoningFromTags={reasoningFromTags || undefined}
+        modelReasoning={modelReasoningText || undefined}
+        toolCalls={toolCalls}
+        compactTools={compactTools}
+        busExchanges={busExchanges}
+        size={isStreaming ? "compact" : "default"}
+      />
+    ) : null;
+
   return (
     <>
-      {/* CARD 1: Thinking (thoughts + tools) - Collapsed, independent */}
-      {/* Use showThinking for stability, but pass actual content to ThinkingCard */}
-      {showThinking && (
-        <ThinkingCard
-          thoughts={thoughts}
-          toolCalls={toolCalls}
-          compactTools={compactTools}
-          busExchanges={busExchanges}
-        />
-      )}
+      {processStreamOnTop ? (
+        <>
+          {showInlineThoughtsInParser ? (
+            <InlineThoughtsBlock className="mt-0 mb-2" />
+          ) : null}
+          {thinkingCardEl}
+        </>
+      ) : null}
 
-      {/* Agent delegation (Guided pipeline / Autonomous graph) - combined with thinking in chat */}
-      {isStreaming && (
-        <div className="mt-2 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
-          <ActivityDisplay />
-        </div>
-      )}
-
-      {/* CARD 2: Response - The actual answer, completely separate */}
+      {/* Response: below process strip when streaming in agent modes; otherwise first (Claude-style). */}
       {answerPieces.map(({ piece, index }) => (
         <React.Fragment key={index}>
           {piece.type === "markdown"
@@ -363,11 +448,20 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
             )}
         </React.Fragment>
       ))}
-      {/* v3.6: Plan card below response when content contains plan data */}
-      {!isStreaming && (() => {
-        const planData = extractPlanFromContent(content);
-        return planData ? <PlanSection data={planData} /> : null;
-      })()}
+
+      {!processStreamOnTop && showInlineThoughtsInParser ? <InlineThoughtsBlock /> : null}
+
+      {!processStreamOnTop && showThinking ? thinkingCardEl : null}
+
+      {/* v3.6: Plan card when content matches structured / phased plan (visible while streaming once parseable) */}
+      {planCardData ? (
+        <PlanSection
+          key={isStreaming ? "plan-streaming" : "plan-complete"}
+          data={planCardData}
+          initialExpanded={!isStreaming}
+          onSwitchToBuild={onPlanSwitchToBuild}
+        />
+      ) : null}
     </>
   );
 };
@@ -408,6 +502,8 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-web-crawl",
     "atlarix-read",
     "think",
+    "thinking",
+    "reasoning",
     "redacted_thinking",
     "atlarix-command",
     "atlarix-mcp-tool-call",
@@ -486,6 +582,8 @@ function parseCustomTags(content: string): ContentPiece[] {
     "atlarix-code-search",
     "atlarix-read",
     "think",
+    "thinking",
+    "reasoning",
     "redacted_thinking",
     "atlarix-command",
     "atlarix-mcp-tool-call",
@@ -642,6 +740,8 @@ function renderCustomTag(
         </AtlarixWebSearchResult>
       );
     case "think":
+    case "thinking":
+    case "reasoning":
     case "redacted_thinking":
       return (
         <AtlarixThink

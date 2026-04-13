@@ -260,6 +260,41 @@
       "when": 1766960000000,
       "tag": "0036_auto_routed_tier",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1766970000000,
+      "tag": "0037_compaction_nested_and_synthetic",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1766980000000,
+      "tag": "0038_counsel_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1766990000000,
+      "tag": "0039_atlarix_hooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1767000000000,
+      "tag": "0040_custom_commands",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1767010000000,
+      "tag": "0041_drop_diagram_versions",
+      "breakpoints": true
     }
   ]
 }

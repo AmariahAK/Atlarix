@@ -1,8 +1,43 @@
 # Atlarix TODO
 
-**Current Version:** v6.2.2  
-**Next Version:** v6.3+ (planning)  
-**Last Updated:** 2026-04-09
+**Current Version:** v7.0.0  
+**Last Updated:** 2026-04-11
+
+---
+
+## Shipped in v7.0.0
+
+Includes everything previously tracked as **Project Vanguard / v6.5.0**, now released as **Atlarix 7**:
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Living plan + `plan-sync` | **Done** | Ledger-driven `ATLARIX_PLAN.md`, archive under `.atlarix/plans/archive/` |
+| `parsePlanToSteps` checkboxes | **Done** | `[ ]` / `[~]` / `[!]` / `[x]`; skip `[x]` for seeding |
+| Auto memory `writeToFile` + turn tools | **Done** | Schema, settings, per-turn tool list for bullets |
+| Counsel IPC + `abortSignal` | **Done** | `counsel:start` / `cancel`, discrete events, preload + client |
+| Build verification ledger safety | **Done** | `depth: 1`, `recordOnParentLedger: false` verified |
+| Migration / journal audit | **Done** | Through 0040 + seed verification |
+| Plan viewer UI + `chat:plan-update` | **Done** | Task ledger card in chat; `plan_created` activity row |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.0.
+
+---
+
+## Next (v7.1.0)
+
+- [ ] Windows build (EV/OV code signing)
+- [ ] Blast radius analysis using Blueprint edges before agent acts
+- [ ] Skills marketplace — community skill files from atlarix.dev
+- [ ] Additional tree-sitter languages: Go, Rust, Java, C#
+- [ ] Mobile companion (iOS/Android) for reviewing and approving agent changes remotely
+
+---
+
+## Ongoing
+
+- Telemetry and Sentry hygiene for diagram / stream edge cases.
+- Documentation alignment with each tagged release (README + launchpad + in-app copy).
+- Provider catalog and African-provider integration roadmap (see public messaging on [atlarix.dev](https://atlarix.dev)).
 
 ---
 
@@ -88,12 +123,10 @@ See [CHANGELOG.md](CHANGELOG.md) v6.1.14.
 |------|--------|--------|
 | Linux OAuth timeout fallback | **Done** | 60s `setTimeout` in `supabase-client.ts`; `cancelPendingOAuthTimeout()` in `main.ts` deep-link handler |
 | Linux deep-link hint in sidebar | **Done** | `app-sidebar.tsx` — platform detection + dismissable `xdg-mime` notice on sign-in failure |
-| Theme toggle | **Done** | `settings.tsx` — `useTheme` + `<Select>` System/Light/Dark |
-| Hero glow contrast fix | **Done** | `atlarix-home.tsx` — glow `to-[#F59E0B]` → `to-[#059669]` |
-| Panel toggle button clip fix | **Done** | `layout.tsx` — `top-2 right-2` → `top-3 right-3` |
-| Auto-updater in-app UI | **Done** | `UpdateBanner.tsx`; `update:downloaded` IPC replaces native dialog; `update:defer` writes flag; cold-start deferred install in `onReady()` |
-| AppImage target | **Done** | `@reforged/maker-appimage` in `forge.config.ts` + `package.json` |
-| GitHub Actions Node 24 | **Done** | `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, softprops v2, `latest-mac.yml` + `latest-linux.yml` generation steps |
+| Theme toggle | **Done** | Settings → General; `ThemeContext` persistence |
+| Contrast / hero / panel | **Done** | `atlarix-home.tsx` glow; `layout.tsx` panel button position |
+| Auto-updater in-app UI | **Done** | `UpdateBanner`; `update:defer` / cold-start install path |
+| AppImage + CI Node 24 | **Done** | `forge.config.ts`, `release.yml`, feed assets |
 
 See [CHANGELOG.md](CHANGELOG.md) v6.1.13.
 

@@ -5,11 +5,16 @@ import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+export type ToolIndicatorProps = {
+  /** When set, only show status for this chat (avoids wrong session in multi-chat UIs). */
+  forChatId?: number;
+};
+
 /**
  * v3.5: Persistent "Working…" indicator shown while the AI is executing a tool.
  * Fix: Finding 4 — also shows "Thinking…" before first token; human-readable tool labels from main.
  */
-export function ToolIndicator() {
+export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
   const state = useAtomValue(toolIndicatorAtom);
   const setState = useSetAtom(toolIndicatorAtom);
   const [outputExpanded, setOutputExpanded] = useState(false);
@@ -73,13 +78,18 @@ export function ToolIndicator() {
     return unsub;
   }, [setState]);
 
-  const showPhaseOnly = Boolean(state.phaseLabel) && !state.active;
-  const showToolRow = state.active && Boolean(state.toolName);
-  if (!showPhaseOnly && !showToolRow) return null;
+  if (
+    forChatId !== undefined &&
+    state.activeChatId !== null &&
+    state.activeChatId !== forChatId
+  ) {
+    return null;
+  }
 
-  const displayLine = showToolRow
-    ? `Working… ${state.toolName}`
-    : (state.phaseLabel ?? "");
+  const showToolRow = state.active && Boolean(state.toolName);
+  if (!showToolRow) return null;
+
+  const displayLine = `Working… ${state.toolName}`;
 
   const showLiveOutput = showToolRow && state.liveOutputLines.length > 0;
 

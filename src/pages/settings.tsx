@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import posthog from "posthog-js";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -13,7 +13,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -30,6 +29,7 @@ import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSetAtom, useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight } from "lucide-react";
@@ -390,18 +390,247 @@ export function WorkflowSettings() {
         </div>
       </div>
 
-      <div className="space-y-1 mt-4 opacity-50">
-        <div className="flex items-center gap-2 pointer-events-none">
-          <AutoFixProblemsSwitch />
-          <span className="text-xs bg-muted px-2 py-0.5 rounded">Coming Soon</span>
-        </div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          This will automatically fix TypeScript errors.
-        </div>
-      </div>
     </div>
   );
 }
+type HookRow = {
+  id: number;
+  name: string;
+  trigger: string;
+  command: string;
+  argsJson?: string | null;
+  workspaceId?: number | null;
+  enabled?: boolean;
+};
+
+type CommandRow = {
+  id: number;
+  name: string;
+  promptTemplate: string;
+  modeOverride?: string | null;
+  workspaceId?: number | null;
+};
+
+/** Slash-command editor is hidden until we are ready to surface it in the product UI. */
+const SHOW_CUSTOM_COMMANDS_SETTINGS = false;
+
+function HooksAndCommandsSettings() {
+  const appId = useAtomValue(selectedAppIdAtom);
+  const [hooks, setHooks] = useState<HookRow[]>([]);
+  const [commands, setCommands] = useState<CommandRow[]>([]);
+  const [hookName, setHookName] = useState("");
+  const [hookTrigger, setHookTrigger] = useState("after_file_write");
+  const [hookCommand, setHookCommand] = useState("");
+  const [hookArgs, setHookArgs] = useState("");
+  const [cmdName, setCmdName] = useState("");
+  const [cmdTemplate, setCmdTemplate] = useState("{{input}}");
+  const [cmdMode, setCmdMode] = useState("");
+
+  const reload = useCallback(async () => {
+    const ipc = IpcClient.getInstance();
+    try {
+      const h = (await ipc.listHooks(appId ?? null)) as HookRow[];
+      const c = SHOW_CUSTOM_COMMANDS_SETTINGS
+        ? ((await ipc.listCustomCommands(appId ?? null)) as CommandRow[])
+        : [];
+      setHooks(Array.isArray(h) ? h : []);
+      setCommands(Array.isArray(c) ? c : []);
+    } catch {
+      setHooks([]);
+      setCommands([]);
+    }
+  }, [appId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return (
+    <div className="mt-6 space-y-8 border-t border-border pt-6">
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-foreground">Hooks</h3>
+        <p className="text-xs text-muted-foreground max-w-2xl">
+          Non-blocking scripts around file writes and run_command. Uses{" "}
+          <code className="text-[11px]">ATLARIX_*</code> environment variables. Scoped to this
+          workspace when one is selected; otherwise global hooks only.
+        </p>
+        <div className="flex flex-wrap gap-2 items-end max-w-2xl">
+          <Input
+            placeholder="Name"
+            value={hookName}
+            onChange={(e) => setHookName(e.target.value)}
+            className="w-32"
+          />
+          <Select value={hookTrigger} onValueChange={setHookTrigger}>
+            <SelectTrigger className="w-[11rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="before_file_write">before_file_write</SelectItem>
+              <SelectItem value="after_file_write">after_file_write</SelectItem>
+              <SelectItem value="before_run_command">before_run_command</SelectItem>
+              <SelectItem value="after_run_command">after_run_command</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Executable path"
+            value={hookCommand}
+            onChange={(e) => setHookCommand(e.target.value)}
+            className="flex-1 min-w-[8rem]"
+          />
+          <Input
+            placeholder='Args JSON e.g. ["--quiet"]'
+            value={hookArgs}
+            onChange={(e) => setHookArgs(e.target.value)}
+            className="w-40"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={async () => {
+              const r = await IpcClient.getInstance().createHook({
+                name: hookName,
+                trigger: hookTrigger,
+                command: hookCommand,
+                argsJson: hookArgs.trim() || null,
+                workspaceId: appId ?? null,
+              });
+              if ((r as { ok?: boolean }).ok !== false) {
+                setHookName("");
+                setHookCommand("");
+                setHookArgs("");
+                void reload();
+              }
+            }}
+          >
+            Add hook
+          </Button>
+        </div>
+        <ul className="text-xs space-y-1 max-w-2xl">
+          {hooks.map((h) => (
+            <li
+              key={h.id}
+              className="flex flex-wrap items-center gap-2 border border-border/60 rounded px-2 py-1"
+            >
+              <span className="font-medium">{h.name}</span>
+              <span className="text-muted-foreground">{h.trigger}</span>
+              <span className="font-mono truncate max-w-[12rem]">{h.command}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px]"
+                onClick={async () => {
+                  await IpcClient.getInstance().toggleHook(h.id, !h.enabled);
+                  void reload();
+                }}
+              >
+                {h.enabled === false ? "Enable" : "Disable"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px] text-destructive"
+                onClick={async () => {
+                  await IpcClient.getInstance().deleteHook(h.id);
+                  void reload();
+                }}
+              >
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {SHOW_CUSTOM_COMMANDS_SETTINGS ? (
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-foreground">Custom commands</h3>
+          <p className="text-xs text-muted-foreground max-w-2xl">
+            Type <code className="text-[11px]">/name</code> in chat to expand the template. Use{" "}
+            <code className="text-[11px]">{"{{input}}"}</code> for text after the command. Defaults{" "}
+            <code className="text-[11px]">/review</code>, <code className="text-[11px]">/explain</code>,{" "}
+            <code className="text-[11px]">/fix</code> are created on first load.
+          </p>
+          <div className="flex flex-wrap gap-2 items-end max-w-2xl">
+            <Input
+              placeholder="name"
+              value={cmdName}
+              onChange={(e) => setCmdName(e.target.value)}
+              className="w-28"
+            />
+            <Input
+              placeholder="Prompt template"
+              value={cmdTemplate}
+              onChange={(e) => setCmdTemplate(e.target.value)}
+              className="flex-1 min-w-[10rem]"
+            />
+            <Select value={cmdMode || "__none__"} onValueChange={(v) => setCmdMode(v === "__none__" ? "" : v)}>
+              <SelectTrigger className="w-[8rem]">
+                <SelectValue placeholder="Mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Default mode</SelectItem>
+                <SelectItem value="ask">ask</SelectItem>
+                <SelectItem value="agent">agent</SelectItem>
+                <SelectItem value="build">build</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                await IpcClient.getInstance().createCustomCommand({
+                  name: cmdName,
+                  promptTemplate: cmdTemplate,
+                  modeOverride: cmdMode || null,
+                  workspaceId: appId ?? null,
+                });
+                setCmdName("");
+                void reload();
+              }}
+            >
+              Add command
+            </Button>
+          </div>
+          <ul className="text-xs space-y-1 max-w-2xl">
+            {commands.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center gap-2 border border-border/60 rounded px-2 py-1"
+              >
+                <span className="font-medium">/{c.name}</span>
+                <span className="text-muted-foreground truncate max-w-[20rem]">
+                  {c.promptTemplate.slice(0, 80)}
+                  {c.promptTemplate.length > 80 ? "…" : ""}
+                </span>
+                {c.workspaceId == null ? (
+                  <span className="text-[10px] uppercase text-muted-foreground">global</span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[11px] text-destructive"
+                  onClick={async () => {
+                    await IpcClient.getInstance().deleteCustomCommand(c.id);
+                    void reload();
+                  }}
+                >
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AISettings() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -443,6 +672,11 @@ export function AISettings() {
       </div>
 
       <div className="mt-6 space-y-3 border-t border-border pt-6">
+        <h3 className="text-sm font-medium text-foreground">Behavior</h3>
+        <AutoFixProblemsSwitch />
+      </div>
+
+      <div className="mt-6 space-y-3 border-t border-border pt-6">
         <h3 className="text-sm font-medium text-foreground">
           Blueprint context (Diagram tab)
         </h3>
@@ -477,85 +711,78 @@ export function AISettings() {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-3 max-w-xl">
-          <div className="space-y-1">
-            <Label htmlFor="blueprint-debug-trace">
-              Debug tier — stack trace / error (optional)
-            </Label>
-            <Textarea
-              id="blueprint-debug-trace"
-              value={settings?.blueprintDebugTrace ?? ""}
-              onChange={(e) =>
-                updateSettings({ blueprintDebugTrace: e.target.value })
-              }
-              placeholder="Paste error output or stack trace"
-              className="min-h-24 font-mono text-xs"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="blueprint-debug-file">
-              Debug tier — primary file path (optional)
-            </Label>
-            <Input
-              id="blueprint-debug-file"
-              value={settings?.blueprintDebugFile ?? ""}
-              onChange={(e) =>
-                updateSettings({ blueprintDebugFile: e.target.value })
-              }
-              placeholder="e.g. src/components/App.tsx"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            These fields apply only when the effective Blueprint injection tier is
-            Debug (forced Debug above, or Auto when your message matches debug
-            heuristics). If empty, the model uses your chat message.
-          </p>
+      </div>
+
+      <div className="mt-6 space-y-4 border-t border-border pt-6">
+        <h3 className="text-sm font-medium text-foreground">Counsel</h3>
+        <p className="text-xs text-muted-foreground max-w-2xl">
+          Before the main reply, run parallel Fast, Balanced, and Thinking perspectives
+          and inject a synthesis into context (explicit phrases or auto when routing is
+          complex: Thinking or Balanced tier with longer questions, or very long prompts).
+        </p>
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="counsel-enabled" className="text-sm">
+            Enable Counsel
+          </Label>
+          <Switch
+            id="counsel-enabled"
+            checked={settings?.counsel?.enabled !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                counsel: { ...settings?.counsel, enabled: checked },
+              })
+            }
+          />
+        </div>
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="counsel-auto-thinking" className="text-sm">
+            Auto-trigger on complex
+          </Label>
+          <Switch
+            id="counsel-auto-thinking"
+            checked={settings?.counsel?.autoTriggerOnThinking !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                counsel: { ...settings?.counsel, autoTriggerOnThinking: checked },
+              })
+            }
+          />
         </div>
       </div>
 
-      {/* v3.6: Auto Routing options */}
-      <div className="mt-4 space-y-3">
-        <h3 className="text-sm font-medium text-foreground">Auto Routing</h3>
-        <div className="flex items-center gap-2">
-          <input
-            id="auto-routing-show-reasoning"
-            type="checkbox"
-            checked={settings?.autoRoutingShowReasoning !== false}
-            onChange={(e) =>
-              updateSettings({ autoRoutingShowReasoning: e.target.checked })
+      <div className="mt-6 space-y-4 border-t border-border pt-6">
+        <h3 className="text-sm font-medium text-foreground">Build and automation</h3>
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="build-verify-enabled" className="text-sm">
+            Build verification after autonomous task complete
+          </Label>
+          <Switch
+            id="build-verify-enabled"
+            checked={settings?.buildVerification?.enabled !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                buildVerification: { ...settings?.buildVerification, enabled: checked },
+              })
             }
-            className="rounded border-border"
           />
-          <label
-            htmlFor="auto-routing-show-reasoning"
-            className="text-sm text-muted-foreground"
-          >
-            Show routing reasoning in Activity Stream
-          </label>
         </div>
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="auto-routing-exchange-threshold"
-            className="text-sm text-muted-foreground whitespace-nowrap"
-          >
-            Exchange threshold for fallback:
-          </label>
-          <input
-            id="auto-routing-exchange-threshold"
-            type="number"
-            min={3}
-            max={20}
-            value={settings?.autoRoutingExchangeThreshold ?? 6}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              if (!Number.isNaN(n) && n >= 3 && n <= 20) {
-                updateSettings({ autoRoutingExchangeThreshold: n });
-              }
-            }}
-            className="w-16 rounded border border-border bg-background px-2 py-1 text-sm"
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="auto-memory-enabled" className="text-sm">
+            Auto memory (append to .atlarix/ATLARIX.md)
+          </Label>
+          <Switch
+            id="auto-memory-enabled"
+            checked={settings?.autoMemory?.enabled !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                autoMemory: { ...settings?.autoMemory, enabled: checked },
+              })
+            }
           />
         </div>
       </div>
+
+      <HooksAndCommandsSettings />
 
       <p className="text-xs text-muted-foreground mt-2">
         Token budget caps are configured per provider in each provider&apos;s

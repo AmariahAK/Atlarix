@@ -66,7 +66,7 @@ export const SMART_CONTEXT_PROMO_MESSAGE: MessageConfig = {
     { type: "text", content: "Save up to 5x on AI costs with " },
     {
       type: "link",
-      content: "Atlarix Pro's Smart Context",
+      content: "Atlarix Pro automatic file context",
       url: "https://atlarix.com/pricing",
     },
   ],

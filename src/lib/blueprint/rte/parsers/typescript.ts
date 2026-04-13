@@ -7,6 +7,8 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BlueprintNode, FrameworkInfo, LanguageParser } from "./types";
+import { parseSourceToTree } from "@/lib/pivot/parsers/parse-source-tree";
+import { extractBlueprintNodesFromTsLike } from "@/lib/pivot/parsers/typescript-ts-parser";
 
 const ROUTE_REG =
   /(?:app|router|server|fastify|hono)\s*\.(get|post|put|patch|delete|all)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
@@ -36,6 +38,13 @@ async function parseFile(
   const lineOf = (offset: number) => (content.slice(0, offset).match(/\n/g) || []).length + 1;
 
   let m: RegExpExecArray | null;
+
+  let usedTreeSitter = false;
+  const tsTree = parseSourceToTree(content, absolutePath);
+  if (tsTree) {
+    nodes.push(...extractBlueprintNodesFromTsLike(content, tsTree, relPath, nodes.length));
+    usedTreeSitter = true;
+  }
 
   ROUTE_REG.lastIndex = 0;
   while ((m = ROUTE_REG.exec(content)) !== null) {
@@ -96,29 +105,31 @@ async function parseFile(
     });
   }
 
-  CLASS_DECL.lastIndex = 0;
-  while ((m = CLASS_DECL.exec(content)) !== null) {
-    const name = m[1] || "Anonymous";
-    nodes.push({
-      id: safeId("cls", relPath, name, nodes.length),
-      type: "class",
-      name,
-      file: relPath,
-      line: lineOf(m.index),
-    });
-  }
+  if (!usedTreeSitter) {
+    CLASS_DECL.lastIndex = 0;
+    while ((m = CLASS_DECL.exec(content)) !== null) {
+      const name = m[1] || "Anonymous";
+      nodes.push({
+        id: safeId("cls", relPath, name, nodes.length),
+        type: "class",
+        name,
+        file: relPath,
+        line: lineOf(m.index),
+      });
+    }
 
-  FUNCTION_DECL.lastIndex = 0;
-  while ((m = FUNCTION_DECL.exec(content)) !== null) {
-    const name = m[1] || "anonymous";
-    if (nodes.some((n) => n.file === relPath && n.line === lineOf(m!.index))) continue;
-    nodes.push({
-      id: safeId("fn", relPath, name, nodes.length),
-      type: "function",
-      name,
-      file: relPath,
-      line: lineOf(m.index),
-    });
+    FUNCTION_DECL.lastIndex = 0;
+    while ((m = FUNCTION_DECL.exec(content)) !== null) {
+      const name = m[1] || "anonymous";
+      if (nodes.some((n) => n.file === relPath && n.line === lineOf(m!.index))) continue;
+      nodes.push({
+        id: safeId("fn", relPath, name, nodes.length),
+        type: "function",
+        name,
+        file: relPath,
+        line: lineOf(m.index),
+      });
+    }
   }
 }
 

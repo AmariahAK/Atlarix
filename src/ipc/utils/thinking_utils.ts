@@ -19,8 +19,13 @@ function getThinkingBudgetTokens(
 export function getExtraProviderOptions(
   providerId: string | undefined,
   settings: UserSettings,
+  /** When false, omit extended thinking / reasoning-effort (fast & balanced tiers). */
+  includeExtendedThinking = false,
 ): Record<string, any> {
   if (!providerId) {
+    return {};
+  }
+  if (!includeExtendedThinking) {
     return {};
   }
   if (providerId === "openai") {

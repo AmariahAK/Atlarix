@@ -6,12 +6,24 @@
  */
 
 import React, { useRef, useEffect } from "react";
-import { SendIcon, Paperclip, StopCircle } from "lucide-react";
+import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtom, useAtomValue } from "jotai";
 import { isStreamingByIdAtom, chatInputValueAtom } from "@/atoms/chatAtoms";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { TokenBar } from "@/components/chat/TokenBar";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -26,6 +38,7 @@ interface SimpleChatInputProps {
 export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the conversation..." }: SimpleChatInputProps) {
     // Use global atom so "Fix with AI" button can pre-fill this input
     const [inputValue, setInputValue] = useAtom(chatInputValueAtom);
+    const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
     const { settings } = useSettings();
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
@@ -163,8 +176,39 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                 </form>
 
                 {/* Model switcher and controls */}
-                <div className="px-2 pb-2">
+                <div className="px-2 pb-2 flex items-center justify-between gap-2">
                     <ChatInputControls />
+                    <Popover open={tokenUsagePopoverOpen} onOpenChange={setTokenUsagePopoverOpen}>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            className={`has-[>svg]:px-2 shrink-0 ${tokenUsagePopoverOpen ? "text-purple-500 bg-purple-100 dark:bg-purple-950/40" : ""}`}
+                                            size="sm"
+                                            data-testid="simple-chat-token-bar-toggle"
+                                            aria-expanded={tokenUsagePopoverOpen}
+                                        >
+                                            <ChartColumnIncreasing size={14} />
+                                        </Button>
+                                    </PopoverTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {tokenUsagePopoverOpen ? "Close token usage" : "Show token usage"}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <PopoverContent
+                            align="end"
+                            side="top"
+                            className="w-auto max-w-[min(100vw,22rem)] p-0"
+                            sideOffset={8}
+                        >
+                            <TokenBar chatId={chatId} includeCompassMonthlyStrip={false} />
+                        </PopoverContent>
+                    </Popover>
                 </div>
             </div>
         </div>

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { ipcMain, IpcMainInvokeEvent, type WebContents } from "electron";
 import {
   ModelMessage,
   TextPart,
@@ -8,19 +8,15 @@ import {
   generateText,
   ToolSet,
   TextStreamPart,
-  stepCountIs,
-  hasToolCall,
   jsonSchema as aiJsonSchema,
   zodSchema,
-  NoOutputGeneratedError,
-  NoContentGeneratedError,
 } from "ai";
 import type { JSONSchema7 } from "json-schema";
 
 import { db } from "../../db";
 import { apps, chats, messages, diagrams } from "../../db/schema";
 import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
-import type { SmartContextMode, WorkMode } from "../../lib/schemas";
+import type { SmartContextMode, UserSettings, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
   buildSystemPromptWithProjectInstructions,
@@ -47,11 +43,13 @@ import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelCl
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
+  reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
 } from "../../lib/auth/compass_usage";
 import {
   COMPASS_REACHABILITY_ERROR,
   compassExhaustedUserMessage,
+  getOpenRouterModelIdForCompassTier,
 } from "../shared/compass_constants";
 import log from "electron-log";
 import {
@@ -64,24 +62,30 @@ import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import { readFile, writeFile, unlink } from "fs/promises";
+import { readFile, writeFile, unlink, access } from "fs/promises";
 import {
   getMaxTokensWithFloor,
   getTemperature,
 } from "../utils/token_utils";
-import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
+import {
+  MAX_CHAT_TURNS_IN_CONTEXT,
+  STREAM_TOOL_LOOP_DURATION_CAP_MS,
+} from "@/constants/settings_constants";
 import { validateChatContext } from "../utils/context_paths_utils";
-import { GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mcpServers } from "../../db/schema";
 import { requireMcpToolConsent } from "../utils/mcp_consent";
 
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
+import {
+  clearToolsUsedForTurn,
+  getToolsUsedThisTurn,
+  recordToolUseForTurn,
+} from "./turn-tool-tracking";
 import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
 import { removeThinkingTags } from "../utils/thinking_tags";
 import { generateProblemReport } from "../processors/tsc";
-import { createProblemFixPrompt } from "@/shared/problem_prompt";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
 import {
   getAtlarixWriteTags,
@@ -90,7 +94,6 @@ import {
 } from "../utils/atlarix_tag_parser";
 import { fileExists } from "../utils/file_utils";
 import { FileUploadsState } from "../utils/file_uploads_state";
-import { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { prompts as promptsTable } from "../../db/schema";
@@ -107,6 +110,12 @@ import {
   SAFETY_FILTER_BLOCKED_MESSAGE,
 } from "@/shared/texts";
 import {
+  attachEmptyOutputSafeRejectHandlers,
+  EmptyModelOutputAfterRetryError,
+  isNoUsableModelOutputError,
+  MODEL_EMPTY_RESPONSE_USER_MESSAGE,
+} from "../utils/no_usable_model_output";
+import {
   prepareUserChatTurnInput,
   ChatPromptSafetyError,
 } from "../../lib/security/chat-prompt-gate";
@@ -116,11 +125,17 @@ import {
   needsOpenRouterContextSafety,
   resolveContextBudgetTier,
 } from "@/lib/routing/context_budget_routing";
+import {
+  buildReasoningProviderOptions,
+  detectReasoningCapability,
+  resolveReasoningCatalogModelId,
+} from "@/lib/routing/reasoning-detector";
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
 import { getRecentAssistantRoutingTiers } from "@/lib/routing/auto-router-context";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
-import { revertSnapshot } from "../../lib/snapshot/snapshot-manager";
+import { revertSnapshot, revertSnapshotFiles } from "../../lib/snapshot/snapshot-manager";
+import { atlasDir } from "../../lib/snapshot/workspace-hash";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -134,7 +149,42 @@ import {
 import { ToolRegistry } from "../../lib/tools";
 import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
+import {
+  buildContinuationPrompt,
+  shouldContinue,
+} from "../../lib/streaming/continuation-handler";
+import {
+  createAgenticRepetitionState,
+  type AgenticRepetitionOutcome,
+} from "../../lib/streaming/agentic-loop-repetition";
+import {
+  cancelLedger,
+  createLedger,
+  formatLedgerForPrompt,
+  getLedger,
+  getLedgerStateString,
+  hasActivePlanLedger,
+  hydrateLedgerFromDisk,
+  markLedgerStreamComplete,
+  notifyPlanUiForTurnIfPresent,
+  persistLedgerToDisk,
+  planLedgerTurnId,
+  getWorkspacePlanLedger,
+  recordToolOnLedger,
+  registerLedgerPlanUiNotifier,
+  setLedgerSteps,
+  unregisterLedgerPlanUiNotifier,
+} from "@/lib/tasks/task-ledger";
+import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
+import { clearSelfCorrectionAttemptsForChat } from "./self_correction_followup";
+import {
+  isTaskComplete as isLedgerTaskComplete,
+  getRemainingSteps,
+  buildPendingStepsContinuationPrompt,
+} from "@/lib/tasks/completion-detector";
 import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
+import { loadSkill } from "@/lib/skills/skill-loader";
+import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import {
   ArchitectPlanPayloadSchema,
   DebuggerRootCauseSchema,
@@ -166,17 +216,41 @@ import {
   runCompaction,
   getContextSummary,
   schedulePostTurnCompaction,
+  notifyCompactionLedgerSettled,
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
 import { readAtlarixMd, writeAtlarixMd } from "../../lib/project-memory";
 import { estimateTokens, getContextWindow } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
+import { settingsPatchForWorkMode } from "../../lib/work-mode";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
+import { captureSafe } from "../../main/lib/analytics";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+function sentryAddBreadcrumbSafe(
+  breadcrumb: Parameters<typeof Sentry.addBreadcrumb>[0],
+): void {
+  try {
+    Sentry.addBreadcrumb(breadcrumb);
+  } catch {
+    /* noop */
+  }
+}
+
+function sentryCaptureExceptionSafe(
+  error: unknown,
+  captureContext?: Parameters<typeof Sentry.captureException>[1],
+): void {
+  try {
+    Sentry.captureException(error, captureContext);
+  } catch {
+    /* noop */
+  }
+}
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
 const toolSessionLoaders = new Map<number, ToolSessionLoader>();
@@ -189,8 +263,12 @@ function getOrCreateToolSessionLoader(chatId: number): ToolSessionLoader {
   return loader;
 }
 
-// Pending mode change (Ask -> Build) approval; keyed by chatId
-const pendingModeChangeResolvers = new Map<number, { resolve: (approved: boolean) => void }>();
+// Legacy: Ask->Build approval wait (unused on request_mode_change tool path; respond-mode-change may still resolve)
+const pendingModeChangeResolvers = new Map<
+  number,
+  { finish: (approved: boolean) => void }
+>();
+const MODE_CHANGE_USER_WAIT_MS = 120_000;
 const pendingWorkspacePermissionResolvers = new Map<
   string,
   { resolve: (result: { dismissed: boolean; grantedServices: string[] }) => void }
@@ -198,16 +276,74 @@ const pendingWorkspacePermissionResolvers = new Map<
 
 export function waitForModeChangeResponse(chatId: number): Promise<boolean> {
   return new Promise((resolve) => {
-    pendingModeChangeResolvers.set(chatId, { resolve });
+    const superseded = pendingModeChangeResolvers.get(chatId);
+    if (superseded) {
+      superseded.finish(false);
+    }
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (approved: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      pendingModeChangeResolvers.delete(chatId);
+      resolve(approved);
+    };
+    timer = setTimeout(() => {
+      logger.warn(
+        `[mode-change] User approval wait timed out after ${MODE_CHANGE_USER_WAIT_MS}ms (chat ${chatId}); treating as declined.`,
+      );
+      finish(false);
+    }, MODE_CHANGE_USER_WAIT_MS);
+    pendingModeChangeResolvers.set(chatId, { finish });
   });
 }
 
 export function resolveModeChange(chatId: number, approve: boolean): void {
   const r = pendingModeChangeResolvers.get(chatId);
   if (r) {
-    pendingModeChangeResolvers.delete(chatId);
-    r.resolve(approve);
+    r.finish(approve);
   }
+}
+
+/** Unwrap ToolRegistry.execute payload when the registry wraps `{ success, result, cost }`. */
+function unwrapRegistryToolResult(execResult: unknown): unknown {
+  if (!execResult || typeof execResult !== "object") return execResult;
+  const o = execResult as Record<string, unknown>;
+  if (
+    o.__permission_required ||
+    o.__workspace_permissions_requested ||
+    o.__workforce_session_scope_needed
+  ) {
+    return execResult;
+  }
+  if (o.success === true && o.result != null && typeof o.result === "object") {
+    return o.result;
+  }
+  return execResult;
+}
+
+function shouldEmitModeChangedAfterModeTool(inner: unknown): boolean {
+  if (!inner || typeof inner !== "object") return false;
+  const p = inner as Record<string, unknown>;
+  if (p.success === false || typeof p.error === "string") return false;
+  if (p.message === "Already in that mode.") return false;
+  return true;
+}
+
+function emitModeChangedIfApplied(
+  sender: WebContents,
+  chatId: number,
+  newMode: string | undefined,
+  inner: unknown,
+): void {
+  if (!shouldEmitModeChangedAfterModeTool(inner)) return;
+  const settingsSnapshot = readSettings();
+  safeSend(sender, "mode:changed", {
+    chatId,
+    newMode: (newMode ?? settingsSnapshot.workModePreference) as string,
+    settings: settingsSnapshot,
+  });
 }
 
 function workspacePermissionKey(chatId: number, requestId: string): string {
@@ -236,14 +372,223 @@ export function resolveWorkspacePermissionResponse(
   }
 }
 
+/** Abort reason when the task ledger shows all steps done — not a user cancel. */
+const TASK_COMPLETE_STREAM_STOP = "task_complete";
+
+async function maybeAppendAutoMemoryAfterStream(params: {
+  settings: UserSettings;
+  appPath: string | undefined;
+  chatId: number;
+  isEphemeralWorkspace: boolean;
+  streamTurnIdForLedger: string;
+  isBuildModeTurn: boolean;
+  sender: WebContents;
+}): Promise<void> {
+  const {
+    settings,
+    appPath,
+    chatId,
+    isEphemeralWorkspace,
+    streamTurnIdForLedger,
+    isBuildModeTurn,
+    sender,
+  } = params;
+  try {
+    if (isEphemeralWorkspace || chatId < 0 || !appPath) return;
+    if (settings.autoMemory?.enabled === false) return;
+    if (settings.autoMemory?.writeToFile === false) return;
+    const agentOk = settings.agentMode === "autonomous" || isBuildModeTurn;
+    if (!agentOk) return;
+    const ledger = getLedger(streamTurnIdForLedger);
+    const files = [
+      ...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? []),
+    ].filter(Boolean);
+    if (files.length === 0) return;
+    const minConf = settings.autoMemory?.minConfidence ?? 0.7;
+    const confidence = 0.85;
+    const toolsUsed = getToolsUsedThisTurn(streamTurnIdForLedger);
+    const { appendAutoMemoryIfEligible } = await import("@/lib/memory/auto-memory");
+    const summary = `Wrote ${files.length} file(s): ${files.slice(0, 5).join(", ")}${files.length > 5 ? "…" : ""}`;
+    const ok = await appendAutoMemoryIfEligible({
+      workspacePath: appPath,
+      chatId,
+      toolsUsed,
+      summary,
+      confidence,
+      minConfidence: minConf,
+      // Earlier guard returns when `writeToFile === false`; here only enabled / default-on remains.
+      writeToFile: settings.autoMemory?.writeToFile ?? true,
+    });
+    if (ok) {
+      safeSend(sender, "chat:activity", {
+        id: `memory-saved-${Date.now()}`,
+        type: "memory_saved",
+        label: "Auto memory",
+        status: "done",
+        timestamp: Date.now(),
+        chatId,
+        detail: "Appended to .atlarix/ATLARIX.md",
+      });
+    }
+  } catch (e) {
+    logger.warn("[auto-memory] skipped:", e);
+  } finally {
+    clearToolsUsedForTurn(streamTurnIdForLedger);
+  }
+}
+
+/**
+ * Parallel reviewer + debugger after autonomous <task_complete> when files were written.
+ * Callers must **not** await this before `chat:response:end` — fire-and-forget so the next
+ * user message is not queued behind verification. Results surface via `chat:activity`
+ * (`build_verification_complete`).
+ */
+async function runAutonomousBuildVerificationAfterTaskComplete(params: {
+  sender: WebContents;
+  chatId: number;
+  streamStopWasTaskComplete: boolean;
+  agentMode: string | undefined;
+  appPath: string | undefined;
+  workspaceId: number | undefined;
+  streamTurnIdForLedger: string;
+  rootAssistantMessageId: number;
+  isEphemeralWorkspace: boolean;
+  settings: UserSettings;
+}): Promise<void> {
+  const {
+    sender,
+    chatId,
+    streamStopWasTaskComplete,
+    agentMode,
+    appPath,
+    workspaceId,
+    streamTurnIdForLedger,
+    rootAssistantMessageId,
+    isEphemeralWorkspace,
+    settings,
+  } = params;
+  if (
+    !streamStopWasTaskComplete ||
+    agentMode !== "autonomous" ||
+    !appPath ||
+    chatId < 0 ||
+    isEphemeralWorkspace
+  ) {
+    return;
+  }
+  if (settings.buildVerification?.enabled === false) return;
+
+  const ledger = getLedger(streamTurnIdForLedger);
+  const filesWritten = [...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? [])].filter(
+    Boolean,
+  );
+  if (filesWritten.length === 0) return;
+
+  try {
+    const { runAgentsInParallel, buildParallelContext } = await import(
+      "../../lib/agents/parallel-runner"
+    );
+    const { enqueueSyntheticFollowUpIfUnderCap } = await import("./self_correction_followup");
+    const results = await runAgentsInParallel(
+      [
+        {
+          agentId: "reviewer",
+          task: `Review these files for correctness and quality: ${filesWritten.join(", ")}`,
+          turnId: streamTurnIdForLedger,
+          depth: 1,
+          chatId,
+          workspacePath: appPath,
+          workspaceId,
+          recordOnParentLedger: false,
+        },
+        {
+          agentId: "debugger",
+          task: `Check these files for errors or issues: ${filesWritten.join(", ")}`,
+          turnId: streamTurnIdForLedger,
+          depth: 1,
+          chatId,
+          workspacePath: appPath,
+          workspaceId,
+          recordOnParentLedger: false,
+        },
+      ],
+      120_000,
+    );
+    const combined = buildParallelContext(results);
+    const blob = combined.toLowerCase();
+    const hasIssues =
+      /\b(issue|issues|fail|failed|failure|error|errors|bug|critical|blocker|problem|problems)\b/.test(
+        blob,
+      ) || results.some((r) => !r.success);
+
+    captureSafe("autonomous_build_verification_run", {
+      files_written_count: filesWritten.length,
+      has_issues: hasIssues,
+    });
+
+    const verifyDetail = hasIssues
+      ? "Review + debug complete — issues found. See follow-up message for details."
+      : "Review + debug complete — no issues found.";
+    safeSend(sender, "chat:activity", {
+      id: `build-verify-${Date.now()}`,
+      type: "build_verification_complete",
+      label: "Build verification (review + debug)",
+      status: "done",
+      timestamp: Date.now(),
+      chatId,
+      detail: verifyDetail,
+    });
+
+    if (hasIssues) {
+      await enqueueSyntheticFollowUpIfUnderCap({
+        webContents: sender,
+        chatId,
+        rootAssistantMessageId,
+        content: `Review and debug pass found issues:\n\n${combined.slice(0, 12_000)}\n\nAddress these before considering the task complete.`,
+        label: "build verification",
+      });
+    }
+  } catch (e) {
+    logger.warn("[build-verify] parallel review/debug failed:", e);
+    if (appPath && !isEphemeralWorkspace) {
+      sentryCaptureExceptionSafe(e, { tags: { feature: "build_verify" } });
+    }
+  }
+}
+
 /** Fix: Workforce-2 — prompt UI for session scope, then re-run tool. */
 async function runToolExecuteWithWorkforceSessionGate(
   toolName: string,
   executeArgs: Record<string, unknown>,
   sender: IpcMainInvokeEvent["sender"],
   chatId: number,
+  streamOpts?: {
+    turnId?: string;
+    abortController?: AbortController;
+    onTaskLedgerComplete?: () => void;
+    /** When false, ledger "task complete" does not abort the chat stream (Ask tier). Default true. */
+    abortStreamOnLedgerComplete?: boolean;
+  },
 ): Promise<unknown> {
+  const maybeStopStreamForCompleteLedger = () => {
+    if (!streamOpts?.turnId || !streamOpts.abortController) return;
+    const L = getLedger(streamOpts.turnId);
+    if (L && isLedgerTaskComplete(L)) {
+      streamOpts.onTaskLedgerComplete?.();
+      if (streamOpts.abortStreamOnLedgerComplete === false) return;
+      try {
+        streamOpts.abortController.abort(TASK_COMPLETE_STREAM_STOP);
+      } catch {
+        /* noop */
+      }
+    }
+  };
+
   let result: unknown = await ToolRegistry.execute(toolName, executeArgs);
+  if (streamOpts?.turnId) {
+    recordToolUseForTurn(streamOpts.turnId, toolName);
+  }
+  maybeStopStreamForCompleteLedger();
   if (
     result &&
     typeof result === "object" &&
@@ -259,6 +604,10 @@ async function runToolExecuteWithWorkforceSessionGate(
       };
     }
     result = await ToolRegistry.execute(toolName, executeArgs);
+    if (streamOpts?.turnId) {
+      recordToolUseForTurn(streamOpts.turnId, toolName);
+    }
+    maybeStopStreamForCompleteLedger();
   }
   return result;
 }
@@ -287,22 +636,6 @@ async function resolveAskUserToolResult(
   return JSON.stringify({ success: true, answer });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SMART AGENTIC LOOP CONFIGURATION
-// ═══════════════════════════════════════════════════════════════
-
-interface AgenticLoopConfig {
-  maxIterations: number;
-  maxDurationMs: number;
-  requireExplicitCompletion: boolean;
-}
-
-const DEFAULT_AGENTIC_CONFIG: AgenticLoopConfig = {
-  maxIterations: 20,
-  maxDurationMs: 10 * 60 * 1000, // 10 minutes
-  requireExplicitCompletion: true,
-};
-
 /**
  * Detect if AI signals task completion.
  * Checks for explicit <task_complete> tag OR natural language patterns in the end of response.
@@ -325,39 +658,11 @@ function isTaskComplete(response: string): boolean {
   return completionPatterns.some(pattern => pattern.test(endOfResponse));
 }
 
-/**
- * Wait for user to approve or decline continuation.
- * Properly cleans up listeners to prevent memory leaks.
- */
-function waitForUserContinuation(
-  chatId: number,
-  timeout: number,
-  defaultAction: boolean = true
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const cleanup = () => {
-      ipcMain.removeListener(`chat:${chatId}:continue-approved`, handleApprove);
-      ipcMain.removeListener(`chat:${chatId}:continue-declined`, handleDecline);
-    };
-
-    const timer = setTimeout(() => {
-      logger.info(`[Agentic Loop] Continuation timeout, defaulting to: ${defaultAction}`);
-      resolve(defaultAction);
-      cleanup();
-    }, timeout);
-
-    const handleApprove = () => { clearTimeout(timer); resolve(true); cleanup(); };
-    const handleDecline = () => { clearTimeout(timer); resolve(false); cleanup(); };
-
-    ipcMain.once(`chat:${chatId}:continue-approved`, handleApprove);
-    ipcMain.once(`chat:${chatId}:continue-declined`, handleDecline);
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════
-
 // Track active streams for cancellation
 const activeStreams = new Map<number, AbortController>();
+
+/** Clear skill file cache when switching workspace (see `loadSkill`). */
+let lastSkillCacheAppId: number | undefined;
 
 // Track partial responses for cancelled streams
 const partialResponses = new Map<number, string>();
@@ -436,6 +741,9 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
+/** Abort when the model has an unfinished tool call and no stream chunks arrive for this long. */
+const STREAM_TOOL_STALL_MS = 30_000;
+
 // Helper function to process stream chunks
 async function processStreamChunks({
   fullStream,
@@ -474,8 +782,30 @@ async function processStreamChunks({
     });
   };
 
+  let lastStreamProgress = Date.now();
+  let pendingToolCallDepth = 0;
+  let loggedFirstStreamPart = false;
+  let loggedReasoningDelta = false;
+  const stallInterval = setInterval(() => {
+    if (abortController.signal.aborted) return;
+    if (
+      pendingToolCallDepth > 0 &&
+      Date.now() - lastStreamProgress >= STREAM_TOOL_STALL_MS
+    ) {
+      logger.warn(
+        `[stream-stall] No stream progress for ${STREAM_TOOL_STALL_MS}ms with pending tool call(s); aborting chat ${chatId}`,
+      );
+      abortController.abort();
+    }
+  }, 1000);
+
   try {
-  for await (const part of fullStream) {
+    try {
+      for await (const part of fullStream) {
+    lastStreamProgress = Date.now();
+    if (!loggedFirstStreamPart) {
+      loggedFirstStreamPart = true;
+    }
     let chunk = "";
     if (
       inThinkingBlock &&
@@ -488,6 +818,9 @@ async function processStreamChunks({
       if (part.text) markFirstModelActivity();
       chunk += part.text;
     } else if (part.type === "reasoning-delta") {
+      if (!loggedReasoningDelta) {
+        loggedReasoningDelta = true;
+      }
       if (!inThinkingBlock) {
         chunk = "<think>";
         inThinkingBlock = true;
@@ -495,6 +828,7 @@ async function processStreamChunks({
 
       chunk += escapeAtlarixTags(part.text);
     } else if (part.type === "tool-call") {
+      pendingToolCallDepth += 1;
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(JSON.stringify(part.input));
@@ -507,6 +841,7 @@ async function processStreamChunks({
         chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
       }
     } else if (part.type === "tool-result") {
+      pendingToolCallDepth = Math.max(0, pendingToolCallDepth - 1);
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(part.output);
@@ -536,40 +871,41 @@ async function processStreamChunks({
       logger.log(`Stream for chat ${chatId} was aborted`);
       break;
     }
-  }
-  } catch (err) {
-    const isNoUsableOutput =
-      NoOutputGeneratedError.isInstance(err) ||
-      NoContentGeneratedError.isInstance(err);
-    if (isNoUsableOutput && !abortController.signal.aborted) {
-      logger.warn(
-        `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
-        err,
-      );
-      if (!fullResponse.trim()) {
-        await applyEmptyFallback();
-      }
-    } else {
-      throw err;
     }
-  }
+    } catch (err) {
+      const isNoUsableOutput = isNoUsableModelOutputError(err);
+      if (isNoUsableOutput && !abortController.signal.aborted) {
+        logger.warn(
+          `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
+          err,
+        );
+        if (!fullResponse.trim()) {
+          await applyEmptyFallback();
+        }
+      } else {
+        throw err;
+      }
+    }
 
-  if (inThinkingBlock) {
-    const flushChunk = "</think>";
-    fullResponse += flushChunk;
-    incrementalResponse += flushChunk;
-    inThinkingBlock = false;
-    fullResponse = cleanFullResponse(fullResponse);
-    fullResponse = await processResponseChunkUpdate({
-      fullResponse,
-    });
-  }
+    if (inThinkingBlock) {
+      const flushChunk = "</think>";
+      fullResponse += flushChunk;
+      incrementalResponse += flushChunk;
+      inThinkingBlock = false;
+      fullResponse = cleanFullResponse(fullResponse);
+      fullResponse = await processResponseChunkUpdate({
+        fullResponse,
+      });
+    }
 
-  if (!abortController.signal.aborted && !fullResponse.trim()) {
-    await applyEmptyFallback();
-  }
+    if (!abortController.signal.aborted && !fullResponse.trim()) {
+      await applyEmptyFallback();
+    }
 
-  return { fullResponse, incrementalResponse };
+    return { fullResponse, incrementalResponse };
+  } finally {
+    clearInterval(stallInterval);
+  }
 }
 
 async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier[]> {
@@ -590,21 +926,133 @@ async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier
     .filter((t): t is ModelTier => t === "fast" || t === "balanced" || t === "thinking");
 }
 
+/** Full snapshot revert + ledger cancel + message `isReverted` flags + blueprint (via `revertSnapshot` or partial files + sync). */
+async function performFullRevert(params: {
+  chatId: number;
+  turnId: string;
+  assistantMessageId: number;
+  workspacePath: string;
+  workspaceId: number;
+  options?: {
+    /** Only restore these workspace-relative paths from the turn snapshot (no full diagram rollback). */
+    filesFilter?: string[];
+    /** Skip isReverted / hasAnsweredQuestions updates (e.g. autonomous single-file revert). */
+    skipMessageFlags?: boolean;
+  };
+}): Promise<{
+  success: boolean;
+  error?: string;
+  restoredFiles?: number;
+}> {
+  const { chatId, turnId, assistantMessageId, workspacePath, workspaceId } =
+    params;
+  const skipMessageFlags = params.options?.skipMessageFlags ?? false;
+  const filesFilter = params.options?.filesFilter;
+
+  const snap =
+    filesFilter != null && filesFilter.length > 0
+      ? await revertSnapshotFiles({
+          workspacePath,
+          turnId,
+          relativePaths: filesFilter,
+          workspaceId,
+        })
+      : await revertSnapshot({
+          workspacePath,
+          turnId,
+          workspaceId,
+        });
+  if (!snap.success) {
+    logger.warn("performFullRevert: snapshot restore failed:", snap.error);
+  }
+  await cancelLedger(turnId);
+
+  if (skipMessageFlags) {
+    return {
+      success: snap.success,
+      error: snap.error,
+      restoredFiles: snap.restoredFiles,
+    };
+  }
+
+  const chatMessages = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.chatId, chatId))
+    .orderBy(asc(messages.createdAt));
+  const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
+  if (idx < 0) {
+    return {
+      success: false,
+      error: "Message not in chat",
+      restoredFiles: snap.restoredFiles,
+    };
+  }
+  const idsToMark = chatMessages.slice(idx).map((m) => m.id);
+  await db.update(messages).set({ isReverted: false }).where(eq(messages.chatId, chatId));
+  if (idsToMark.length > 0) {
+    await db
+      .update(messages)
+      .set({ isReverted: true })
+      .where(inArray(messages.id, idsToMark));
+  }
+  await db
+    .update(chats)
+    .set({ hasAnsweredQuestions: false })
+    .where(eq(chats.id, chatId));
+
+  return {
+    success: snap.success,
+    error: snap.error,
+    restoredFiles: snap.restoredFiles,
+  };
+}
+
+function queuePostTurnSelfCorrection(
+  sender: WebContents,
+  args: {
+    chatId: number;
+    rootAssistantMessageId: number;
+    appId: number | undefined;
+    appPath: string;
+    filesWrittenInThisExchange: string[];
+    isBuildModeTurn: boolean;
+    isEphemeralWorkspace: boolean;
+    aborted: boolean;
+  },
+): void {
+  setImmediate(() => {
+    void import("./self_correction_followup")
+      .then(({ schedulePostTurnSelfCorrection }) =>
+        schedulePostTurnSelfCorrection({
+          webContents: sender,
+          chatId: args.chatId,
+          rootAssistantMessageId: args.rootAssistantMessageId,
+          appId: args.appId,
+          appPathResolved: args.appPath,
+          filesWrittenInThisExchange: args.filesWrittenInThisExchange,
+          isBuildModeTurn: args.isBuildModeTurn,
+          isEphemeralWorkspace: args.isEphemeralWorkspace,
+          aborted: args.aborted,
+          isStreamActive: () => activeStreams.has(args.chatId),
+        }),
+      )
+      .catch((e) => logger.warn("[self-correction] queue failed", e));
+  });
+}
+
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
     async (
       _event,
-      payload: { chatId: number; approve: boolean }
+      payload: { chatId: number; approve: boolean; requestedMode?: string }
     ): Promise<{ ok: boolean }> => {
-      const { chatId, approve } = payload;
+      const { chatId, approve, requestedMode } = payload;
       resolveModeChange(chatId, approve);
       if (approve) {
-        writeSettings({
-          selectedChatMode: "build",
-          intentMode: "build",
-          workModePreference: "build",
-        });
+        const mode = (requestedMode ?? "build") as WorkMode;
+        writeSettings(settingsPatchForWorkMode(mode));
       }
       return { ok: true };
     }
@@ -790,6 +1238,44 @@ export function registerChatStreamHandlers() {
         }
 
         appData = chat.app;
+      }
+
+      if (!req.continueAfterQuestions) {
+        try {
+          const { parseCommandFromMessage, buildCommandPrompt } = await import(
+            "@/lib/commands/custom-commands"
+          );
+          const { customCommands: customCommandsTable } = await import("@/db/schema");
+          const { or, eq, isNull, desc } = await import("drizzle-orm");
+          const appId = chat.app?.id ?? null;
+          const scope =
+            appId != null
+              ? or(
+                  isNull(customCommandsTable.workspaceId),
+                  eq(customCommandsTable.workspaceId, appId),
+                )
+              : isNull(customCommandsTable.workspaceId);
+          const cmdRows = await db
+            .select()
+            .from(customCommandsTable)
+            .where(scope)
+            .orderBy(desc(customCommandsTable.id));
+          const parsed = parseCommandFromMessage(req.prompt, cmdRows);
+          if (parsed) {
+            const row = cmdRows.find(
+              (c) => c.name.toLowerCase() === parsed.name.toLowerCase(),
+            );
+            if (row) {
+              req.prompt = buildCommandPrompt(row.promptTemplate, parsed.rest);
+              const mo = row.modeOverride?.trim().toLowerCase();
+              if (mo === "ask" || mo === "agent" || mo === "build") {
+                req.streamChatModeOverride = mo;
+              }
+            }
+          }
+        } catch (e) {
+          logger.warn("[chat:stream] custom command expansion skipped:", e);
+        }
       }
 
       // v3.9: Set in Build block; used when updating assistant message after stream (must be in same scope as onFinish)
@@ -980,6 +1466,7 @@ ${componentSnippet}
 
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
       if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
+        clearSelfCorrectionAttemptsForChat(req.chatId);
         await db
           .insert(messages)
           .values({
@@ -989,7 +1476,11 @@ ${componentSnippet}
           })
           .returning();
       }
-      const settings = readSettings();
+      const settingsBase = readSettings();
+      const settings =
+        req.streamChatModeOverride != null
+          ? { ...settingsBase, selectedChatMode: req.streamChatModeOverride }
+          : settingsBase;
       // Only Atlarix Pro requests have request ids.
       if (settings.enableAtlarixPro) {
         // Generate requestId early so it can be saved with the message
@@ -1115,6 +1606,17 @@ ${componentSnippet}
         placeholderAssistantMessage = placeholderMessage;
       }
 
+      let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
+      let streamStopWasTaskComplete = false;
+      const delegatedAgentsThisTurn: string[] = [];
+      const buildToolStreamOpts = () => ({
+        turnId: streamTurnIdForLedger,
+        abortController,
+        onTaskLedgerComplete: () => {
+          streamStopWasTaskComplete = true;
+        },
+      });
+
       // Send the messages right away so that the loading state is shown for the message.
       safeSend(event.sender, "chat:response:chunk", {
         chatId: req.chatId,
@@ -1129,6 +1631,7 @@ ${componentSnippet}
 
       let fullResponse = "";
       let maxTokensUsed: number | undefined;
+      let maxReasoningTokensUsed: number | undefined;
 
       // Check if this is a test prompt
       const testResponse = getTestResponse(req.prompt);
@@ -1167,6 +1670,29 @@ ${componentSnippet}
               : getRecentAssistantRoutingTiers(routingMsgs, 3);
           const lastTier = recentAssistantTiers[0] ?? null;
           const messageIndex = (updatedChat.messages ?? []).filter((m: any) => m.role === "user").length;
+          const prov = settings.autoProviderId;
+          const ids = settings.autoModelIds;
+          const forceThinking =
+            req.forceThinkingTier === true &&
+            prov &&
+            Array.isArray(ids) &&
+            Boolean(ids[0]) &&
+            Boolean(ids[1]) &&
+            Boolean(ids[2]);
+          if (forceThinking) {
+            effectiveModel = { provider: prov, name: ids[2]! };
+            autoRoutedTierForTurn = "thinking";
+            if (settings.autoRoutingShowReasoning !== false) {
+              safeSend(event.sender, "chat:activity", {
+                id: `routing-${req.chatId}-${Date.now()}`,
+                type: "routing_decision",
+                label: `Auto → thinking tier (Deep think)`,
+                status: "done",
+                timestamp: Date.now(),
+                chatId: req.chatId,
+              });
+            }
+          } else {
           const { decision, model, classifierMeta } = await runAutoRouterAsync(
             req.prompt,
             settings,
@@ -1224,10 +1750,14 @@ ${componentSnippet}
               detail: `${modeRoute.recommended_mode}: ${modeRoute.reason}`,
             });
           }
+          }
         }
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
-        const contextBudgetTier = resolveContextBudgetTier(effectiveModel, settings);
+        let contextBudgetTier = resolveContextBudgetTier(effectiveModel, settings);
+        if (req.forceThinkingTier === true) {
+          contextBudgetTier = "thinking";
+        }
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
         let compassStreamTokens: number | undefined;
@@ -1264,6 +1794,12 @@ ${componentSnippet}
         const hasWorkspace = !!effectiveApp;
         let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
         const effectiveAppId = effectiveApp?.id;
+        if (effectiveAppId !== lastSkillCacheAppId) {
+          lastSkillCacheAppId = effectiveAppId;
+          void import("@/lib/skills/skill-loader")
+            .then((m) => m.clearSkillCache())
+            .catch(() => {});
+        }
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
@@ -1374,22 +1910,34 @@ ${componentSnippet}
               const hasDiagram = await DiagramManager.hasAnyDiagram(workspaceId);
 
               if (!hasDiagram && !DiagramManager.isGenerating(workspaceId)) {
-                logger.info(`[Cold Start] Starting background diagram generation for workspace ${workspaceId}`);
+                logger.info(
+                  `[Cold Start] Deferring background diagram generation 5s for workspace ${workspaceId} (workspace may close; generation is best-effort)`,
+                );
 
-                // Start background generation (non-blocking - don't await)
-                DiagramManager.generateInitialDiagram(workspaceId, appPath)
-                  .then((diagram) => {
-                    logger.info(`[Cold Start] Initial diagram ready for workspace ${workspaceId}`);
-                    // Notify renderer that diagram is ready
-                    safeSend(event.sender, "diagram:initial-ready", {
-                      workspaceId,
-                      diagramId: diagram.id,
-                      title: diagram.title,
-                    });
-                  })
-                  .catch((err) => {
-                    logger.error(`[Cold Start] Background diagram generation failed:`, err);
-                  });
+                const coldWorkspaceId = workspaceId;
+                const coldAppPath = appPath;
+                const coldSender = event.sender;
+                setTimeout(() => {
+                  void (async () => {
+                    try {
+                      const { DiagramManager: DM } = await import("../../lib/DiagramManager");
+                      if (DM.isGenerating(coldWorkspaceId)) return;
+                      if (await DM.hasAnyDiagram(coldWorkspaceId)) return;
+                      logger.info(
+                        `[Cold Start] Starting background diagram generation for workspace ${coldWorkspaceId}`,
+                      );
+                      const diagram = await DM.generateInitialDiagram(coldWorkspaceId, coldAppPath);
+                      logger.info(`[Cold Start] Initial diagram ready for workspace ${coldWorkspaceId}`);
+                      safeSend(coldSender, "diagram:initial-ready", {
+                        workspaceId: coldWorkspaceId,
+                        diagramId: diagram.id,
+                        title: diagram.title,
+                      });
+                    } catch (err) {
+                      logger.error(`[Cold Start] Background diagram generation failed:`, err);
+                    }
+                  })();
+                }, 5000);
               } else if (DiagramManager.isGenerating(workspaceId)) {
                 logger.info(`[Cold Start] Diagram generation already in progress for workspace ${workspaceId}`);
               }
@@ -1493,7 +2041,7 @@ ${componentSnippet}
                 providerId: getEffectiveModelForOptions(settings)?.provider,
                 sessionStats: { toolCallCount, delegationCount },
               });
-              if (compactionResult) {
+              if (compactionResult.status === "completed") {
                 contextSummaryForSystem = compactionResult.summaryText;
                 limitedMessageHistory = compactionResult.messagesAfterSummary.map((m) => ({
                   role: m.role as "user" | "assistant" | "system",
@@ -1553,7 +2101,7 @@ ${componentSnippet}
             settings.selectedChatMode === "agent"
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
-          let systemPrompt: string;
+          let baseSystemPrompt: string;
           let contextAssemblerBlob = "";
           let blueprintRequiredBlockMessage: string | null = null;
           if (hasWorkspace && appPath && effectiveAppId != null) {
@@ -1563,7 +2111,7 @@ ${componentSnippet}
                 eq(promptsTable.workspaceId, effectiveAppId),
               ),
             });
-            systemPrompt = await buildSystemPromptWithProjectInstructions({
+            baseSystemPrompt = await buildSystemPromptWithProjectInstructions({
               workspacePath: appPath,
               workspacePromptContent: workspacePromptRow?.content ?? null,
               contextSize,
@@ -1572,7 +2120,7 @@ ${componentSnippet}
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
             });
           } else {
-            systemPrompt = constructSystemPrompt({
+            baseSystemPrompt = constructSystemPrompt({
               chatMode,
               contextSize,
               userPrompt,
@@ -1587,6 +2135,392 @@ ${componentSnippet}
               ? (chatMode === "build" ? "build" : "ask")
               : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
           const contextSections: ContextSection[] = [];
+
+          const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
+          if (
+            settings.counsel?.enabled !== false &&
+            req.forceThinkingTier !== true &&
+            !req.prompt.startsWith("Summarize from chat-id=") &&
+            !req.prompt.startsWith("/security-review")
+          ) {
+            try {
+              const { detectCounselTrigger, stripCounselCommand } = await import(
+                "@/lib/counsel/counsel-trigger",
+              );
+              const trigger = detectCounselTrigger(req.prompt, resolvedTierForCounsel, {
+                autoTriggerOnThinking: settings.counsel?.autoTriggerOnThinking !== false,
+                selectedChatMode: settings.selectedChatMode ?? "ask",
+              });
+              if (trigger) {
+                const cleanQ = stripCounselCommand(userPrompt || req.prompt).slice(0, 12000);
+                captureSafe("counsel_triggered", {
+                  trigger_type: trigger,
+                  chat_mode: settings.selectedChatMode ?? "unknown",
+                  has_workspace: Boolean(hasWorkspace && appPath),
+                });
+                const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
+                const { storeCounselSynthesisForNextTurn } = await import(
+                  "@/lib/counsel/counsel-next-turn-cache",
+                );
+                const counselTimeoutMs = Math.min(
+                  120_000,
+                  Math.max(5_000, (settings.counsel?.timeoutSeconds ?? 30) * 1000),
+                );
+                /** Non-blocking: stream does not wait; synthesis available for the following turn (real chats only). */
+                void Promise.race([
+                  runCounselPipeline({
+                    chatId: req.chatId,
+                    turnId: streamTurnIdForLedger,
+                    trigger,
+                    mode: hasWorkspace && appPath ? "workspace" : "general",
+                    question: cleanQ,
+                    settings,
+                    sendActivity: (payload) => {
+                      safeSend(event.sender, "chat:activity", payload);
+                    },
+                    workspacePath: hasWorkspace && appPath ? appPath : undefined,
+                    workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
+                    toolActivity: { webContents: event.sender, chatId: req.chatId },
+                  }),
+                  new Promise<string>((_, reject) =>
+                    setTimeout(() => reject(new Error("counsel_timeout")), counselTimeoutMs),
+                  ),
+                ])
+                  .then((synthesis) => {
+                    if (req.chatId > 0 && synthesis.trim()) {
+                      storeCounselSynthesisForNextTurn(req.chatId, synthesis);
+                    }
+                  })
+                  .catch((counselErr) => {
+                    logger.warn("[counsel] Pipeline failed or timed out:", counselErr);
+                    sentryCaptureExceptionSafe(counselErr, {
+                      tags: { feature: "counsel" },
+                    });
+                  });
+              }
+            } catch (counselErr) {
+              logger.warn("[counsel] Trigger detection failed:", counselErr);
+            }
+          }
+
+          try {
+            const modeKey =
+              settings.selectedChatMode === "agent"
+                ? "build"
+                : (settings.selectedChatMode ?? "ask");
+            const modeSkillName = getSkillNameForMode(modeKey);
+            const modeSkillBody = await loadSkill(
+              modeSkillName,
+              hasWorkspace && appPath ? appPath : undefined,
+            );
+            if (modeSkillBody.trim()) {
+              contextSections.push({
+                name: "activeSkill",
+                priority: -1,
+                content: `[Active Skill: ${modeSkillName}]\n${modeSkillBody}`,
+              });
+            }
+          } catch (skillErr) {
+            logger.warn("[skills] Failed to load mode skill:", skillErr);
+          }
+          const shouldCreateTaskLedger =
+            settings.selectedChatMode === "build" ||
+            settings.selectedChatMode === "agent" ||
+            settings.agentMode === "autonomous" ||
+            effectiveWorkMode === "plan";
+          if (
+            shouldCreateTaskLedger &&
+            !req.prompt.startsWith("Summarize from chat-id=") &&
+            !req.prompt.startsWith("/security-review")
+          ) {
+            let shouldEmitPlanCreated = false;
+            const wsId = effectiveAppId ?? req.appId ?? undefined;
+            let usedWorkspacePlanLedger = false;
+
+            if (typeof wsId === "number" && wsId > 0 && hasWorkspace && appPath) {
+              if (hasActivePlanLedger(wsId)) {
+                const planTid = planLedgerTurnId(wsId);
+                if (planTid != null) {
+                  streamTurnIdForLedger = planTid;
+                  const planLedger = getWorkspacePlanLedger(wsId)!;
+                  planLedger.chatId = req.chatId;
+                  planLedger.finishReason = "in_progress";
+                  const hasInProg = planLedger.steps.some((s) => s.status === "in_progress");
+                  if (!hasInProg) {
+                    const firstPending = planLedger.steps.find((s) => s.status === "pending");
+                    if (firstPending) {
+                      firstPending.status = "in_progress";
+                      planLedger.currentStepId = firstPending.id;
+                    }
+                  }
+                  await persistLedgerToDisk(planLedger);
+                  const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
+                  await syncPlanFile(appPath, planLedger);
+                  usedWorkspacePlanLedger = true;
+                }
+              } else {
+                try {
+                  const { tryReadPlanDetailed, parsePlanToSteps, extractPlanTitle } = await import(
+                    "@/lib/tasks/atlarix-plan-steps"
+                  );
+                  const planResult = await tryReadPlanDetailed(appPath);
+                  const planDead =
+                    planResult?.status === "COMPLETE" || planResult?.status === "FAILED";
+                  const canResumeFromDisk =
+                    planResult &&
+                    !planDead &&
+                    planResult.hasIncompleteSteps &&
+                    planResult.steps.length > 0;
+
+                  if (canResumeFromDisk) {
+                    const planTid = planLedgerTurnId(wsId);
+                    if (planTid != null) {
+                      const hydrated = await hydrateLedgerFromDisk(planTid, appPath);
+                      if (hydrated) {
+                        streamTurnIdForLedger = planTid;
+                        hydrated.chatId = req.chatId;
+                        hydrated.finishReason = "in_progress";
+                        const hip = hydrated.steps.some((s) => s.status === "in_progress");
+                        if (!hip) {
+                          const fp = hydrated.steps.find((s) => s.status === "pending");
+                          if (fp) {
+                            fp.status = "in_progress";
+                            hydrated.currentStepId = fp.id;
+                          }
+                        }
+                        await persistLedgerToDisk(hydrated);
+                        const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
+                        await syncPlanFile(appPath, hydrated);
+                        usedWorkspacePlanLedger = true;
+                      } else {
+                        const taskHead = extractPlanTitle(
+                          planResult.content,
+                          (userPrompt || req.prompt).slice(0, 8000),
+                        );
+                        createLedger({
+                          turnId: planTid,
+                          chatId: req.chatId,
+                          originalTask: taskHead,
+                          chatType: "workspace",
+                          workspacePath: appPath,
+                          stepDescriptions: planResult.steps,
+                        });
+                        streamTurnIdForLedger = planTid;
+                        usedWorkspacePlanLedger = true;
+                        if (planResult.steps.length > 1) {
+                          shouldEmitPlanCreated = true;
+                        }
+                      }
+                    }
+                  }
+                } catch (planErr) {
+                  logger.warn("[ledger] Plan resume / hydrate failed:", planErr);
+                }
+              }
+            }
+
+            if (!usedWorkspacePlanLedger) {
+              const prefillLen = req.prefillTaskLedger?.steps?.length ?? 0;
+              if (prefillLen > 1) {
+                shouldEmitPlanCreated = true;
+              }
+              createLedger({
+                turnId: streamTurnIdForLedger,
+                chatId: req.chatId,
+                originalTask: (userPrompt || req.prompt).slice(0, 8000),
+                chatType: hasWorkspace && appPath ? "workspace" : "general",
+                workspacePath: hasWorkspace && appPath ? appPath : undefined,
+                stepDescriptions: req.prefillTaskLedger?.steps?.map((s) => s.description),
+              });
+              if (hasWorkspace && appPath) {
+                try {
+                  const { tryReadPlan, parsePlanToSteps } = await import(
+                    "@/lib/tasks/atlarix-plan-steps"
+                  );
+                  const planBody = await tryReadPlan(appPath);
+                  if (planBody) {
+                    const planSteps = parsePlanToSteps(planBody);
+                    if (planSteps.length > 0) {
+                      await setLedgerSteps(streamTurnIdForLedger, planSteps);
+                      if (planSteps.length > 1) {
+                        shouldEmitPlanCreated = true;
+                      }
+                    }
+                  }
+                } catch (planErr) {
+                  logger.warn("[ledger] Failed to seed steps from plan file:", planErr);
+                }
+              }
+            }
+
+            const ledgerForUi = getLedger(streamTurnIdForLedger);
+            if (ledgerForUi && ledgerForUi.steps.length > 0) {
+              const planCardAssistantMessageId = placeholderAssistantMessage.id;
+              registerLedgerPlanUiNotifier(req.chatId, (ledger) => {
+                emitPlanUpdate(event.sender, ledger, planCardAssistantMessageId);
+              });
+              emitPlanUpdate(event.sender, ledgerForUi, planCardAssistantMessageId);
+              if (shouldEmitPlanCreated && ledgerForUi.steps.length > 1) {
+                safeSend(event.sender, "chat:activity", {
+                  id: `plan-created-${Date.now()}`,
+                  type: "plan_created",
+                  label: `Plan created — ${ledgerForUi.steps.length} steps`,
+                  status: "done",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                  task: ledgerForUi.originalTask.slice(0, 800),
+                  stepCount: ledgerForUi.steps.length,
+                });
+              }
+            }
+          }
+
+          let parallelPrefetchContext = "";
+          if (
+            settings.agentMode === "autonomous" &&
+            hasWorkspace &&
+            appPath &&
+            shouldCreateTaskLedger &&
+            !req.prompt.startsWith("Summarize from chat-id=") &&
+            !req.prompt.startsWith("/security-review")
+          ) {
+            try {
+              const { tryReadPlan } = await import("@/lib/tasks/atlarix-plan-steps");
+              const planBody = await tryReadPlan(appPath);
+              const hasExistingPlan = !!(planBody && planBody.trim().length > 0);
+              const {
+                classifyOrchestration,
+                runAgentsInParallel,
+                buildParallelContext,
+              } = await import("@/lib/agents/parallel-runner");
+              const pattern = classifyOrchestration(userPrompt || req.prompt, hasExistingPlan);
+              if (pattern === "research_then_build") {
+                safeSend(event.sender, "chat:activity", {
+                  id: `parallel-${Date.now()}`,
+                  type: "parallel_prefetch_start",
+                  label: "Research + planning (parallel)",
+                  status: "running",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                  detail: "Running in background — stream is not waiting",
+                });
+                const taskText = (userPrompt || req.prompt).slice(0, 8000);
+                const common = {
+                  turnId: streamTurnIdForLedger,
+                  depth: 0 as const,
+                  chatId: req.chatId,
+                  workspacePath: appPath,
+                  workspaceId: effectiveAppId ?? undefined,
+                  recordOnParentLedger: false as const,
+                };
+                const prefetchSender = event.sender;
+                const prefetchChatId = req.chatId;
+                parallelPrefetchContext = [
+                  "[Orchestration: research_then_build_inflight]",
+                  "Research and architect specialists were started in parallel in the background.",
+                  "Their combined markdown will be injected on your **next** message in this chat when ready (consume-once cache).",
+                  "This turn: answer from the current user request and normal context; do not assume specialist prefetch output is available yet.",
+                ].join("\n");
+                void import("@/lib/agents/parallel-prefetch-next-turn-cache")
+                  .then(({ storeParallelPrefetchForNextTurn }) =>
+                    runAgentsInParallel(
+                      [
+                        {
+                          agentId: "research",
+                          task: `Research context for: ${taskText}`,
+                          ...common,
+                        },
+                        {
+                          agentId: "architect",
+                          task: `Plan implementation for: ${taskText}`,
+                          ...common,
+                        },
+                      ],
+                      120_000,
+                    ).then((results) => {
+                      const raCtx = buildParallelContext(results);
+                      if (prefetchChatId > 0) {
+                        storeParallelPrefetchForNextTurn(prefetchChatId, raCtx);
+                      }
+                      safeSend(prefetchSender, "chat:activity", {
+                        id: `parallel-done-${Date.now()}`,
+                        type: "parallel_prefetch_complete",
+                        label: "Research + planning complete",
+                        status: "done",
+                        timestamp: Date.now(),
+                        chatId: prefetchChatId,
+                        detail: `${results.length} specialist runs finished`,
+                        stepCount: results.length,
+                      });
+                    }),
+                  )
+                  .catch((parallelBgErr) => {
+                    logger.warn(
+                      "[parallel] Background research+architect prefetch failed:",
+                      parallelBgErr,
+                    );
+                  });
+              } else if (pattern === "build_then_verify") {
+                parallelPrefetchContext = [
+                  "[Orchestration: build_then_verify]",
+                  "A plan exists. Execute it step by step.",
+                  "Reviewer and Debugger will verify automatically when complete.",
+                ].join("\n");
+              }
+            } catch (parallelErr) {
+              logger.warn("[parallel] Autonomous prefetch failed:", parallelErr);
+            }
+          }
+          if (parallelPrefetchContext.trim()) {
+            const prefetchTail = parallelPrefetchContext.includes(
+              "[Orchestration: build_then_verify]",
+            )
+              ? "\n\nExecute the existing plan step by step. Reviewer and Debugger will run automatically after the task completes."
+              : parallelPrefetchContext.includes(
+                    "[Orchestration: research_then_build_inflight]",
+                  )
+                ? "\n\nParallel research + architect are running in the background; their combined output will be injected on your **next** message in this chat when ready. This turn: proceed from the current user request without assuming that output is already available."
+                : "\n\nThe above steps already ran. Continue from the current user request without redoing the same research, planning, or implementation unless something failed or the user changed scope.";
+            contextSections.push({
+              name: "parallelPrefetch",
+              priority: 0.25,
+              content: parallelPrefetchContext + prefetchTail,
+            });
+          }
+
+          const ledgerRow = getLedger(streamTurnIdForLedger);
+          if (ledgerRow) {
+            contextSections.push({
+              name: "taskProgress",
+              priority: 0,
+              content: formatLedgerForPrompt(ledgerRow),
+            });
+          }
+
+          // Filesystem truth: last completed step’s on-disk file excerpts (protected system prefix; not chat history).
+          if (
+            hasWorkspace &&
+            appPath &&
+            !req.prompt.startsWith("Summarize from chat-id=") &&
+            !req.prompt.startsWith("/security-review")
+          ) {
+            try {
+              const { buildFileSystemTruthBlock } = await import("@/lib/tasks/filesystem-truth");
+              const fsTruth = await buildFileSystemTruthBlock({
+                turnId: streamTurnIdForLedger,
+                workspacePath: appPath,
+              });
+              if (fsTruth.trim()) {
+                contextSections.push({
+                  name: "fileSystemTruth",
+                  priority: 0.5,
+                  content: fsTruth,
+                });
+              }
+            } catch (fsErr) {
+              logger.warn("Failed to build filesystem truth block:", fsErr);
+            }
+          }
 
           try {
             const im = settings.intentMode ?? chatMode;
@@ -1813,6 +2747,41 @@ ${componentSnippet}
             logger.warn("Failed to inject session memory:", error);
           }
 
+          if (req.chatId > 0) {
+            const { consumeCounselSynthesisForNextTurn } = await import(
+              "@/lib/counsel/counsel-next-turn-cache",
+            );
+            const priorCounsel = consumeCounselSynthesisForNextTurn(req.chatId);
+            if (priorCounsel?.trim()) {
+              contextSections.push({
+                name: "counsel",
+                priority: -0.75,
+                content: [
+                  "## Counsel (prior turn)",
+                  "The following multi-perspective synthesis was produced after your previous message finished. Use it as grounding; the **current** user message is the source of truth.",
+                  "",
+                  priorCounsel.trim(),
+                ].join("\n"),
+              });
+            }
+            const { consumeParallelPrefetchForNextTurn } = await import(
+              "@/lib/agents/parallel-prefetch-next-turn-cache",
+            );
+            const priorPrefetch = consumeParallelPrefetchForNextTurn(req.chatId);
+            if (priorPrefetch?.trim()) {
+              contextSections.push({
+                name: "parallelPrefetch",
+                priority: -0.7,
+                content: [
+                  "## Parallel prefetch (prior turn)",
+                  "Research + architect ran in parallel after your previous message; the combined output below is for grounding only — the **current** user message is the source of truth.",
+                  "",
+                  priorPrefetch.trim(),
+                ].join("\n"),
+              });
+            }
+          }
+
           const assembledContext = assembleContextSections({
             chatId: req.chatId,
             appId: effectiveAppId ?? null,
@@ -1820,9 +2789,21 @@ ${componentSnippet}
             userPrompt: userPrompt || req.prompt,
             sections: contextSections,
           });
+          let systemPrompt = baseSystemPrompt;
+          if (assembledContext.activeSkillAddition?.trim()) {
+            systemPrompt = `${assembledContext.activeSkillAddition.trim()}\n\n${systemPrompt}`;
+          }
+          if (assembledContext.taskProgressAddition?.trim()) {
+            systemPrompt += `\n\n${assembledContext.taskProgressAddition}`;
+          }
+          if (assembledContext.fileSystemTruthAddition?.trim()) {
+            systemPrompt += `\n\n${assembledContext.fileSystemTruthAddition}`;
+          }
           if (assembledContext.finalSystemPromptAddition.trim()) {
             contextAssemblerBlob = assembledContext.finalSystemPromptAddition;
             systemPrompt += `\n\n${contextAssemblerBlob}`;
+          } else {
+            contextAssemblerBlob = "";
           }
           logger.info(
             `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
@@ -2072,6 +3053,19 @@ This conversation includes one or more image attachments. When the user uploads 
               } satisfies ModelMessage,
             ];
           }
+
+          /** Shared cap for length + pending-step continuations per user turn */
+          let streamContinuationAttempts = 0;
+          const STREAM_CONTINUATION_MAX = 3;
+          /** One retry after 1s when the model returns no usable output (cold start / provider flake). */
+          const MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS = 2;
+          const STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS = 1000;
+
+          const isEmptyOutputStreamError = isNoUsableModelOutputError;
+
+          const getLedgerStateForContinuation = (): string | undefined =>
+            getLedgerStateString(streamTurnIdForLedger);
+
           const simpleStreamText = async ({
             chatMessages,
             modelClient,
@@ -2106,7 +3100,8 @@ This conversation includes one or more image attachments. When the user uploads 
             const smartContextMode: SmartContextMode = isDeepContextEnabled
               ? "deep"
               : "balanced";
-            // Build provider options with correct Google/Vertex thinking config gating
+            const optionsModel = getEffectiveModelForOptions(settings);
+            const thinkingTier = contextBudgetTier === "thinking";
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
@@ -2125,10 +3120,8 @@ This conversation includes one or more image attachments. When the user uploads 
               "dyad-gateway": getExtraProviderOptions(
                 modelClient.builtinProviderId,
                 settings,
+                thinkingTier,
               ),
-              openai: {
-                reasoningSummary: "auto",
-              } satisfies OpenAIResponsesProviderOptions,
             };
 
             // OpenRouter context compression fallback (balanced/thinking: Compass + BYOK).
@@ -2138,34 +3131,32 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            // Conditionally include Google thinking config only for supported models
-            const optionsModel = getEffectiveModelForOptions(settings);
-            const selectedModelName = optionsModel.name || "";
-            const providerId = modelClient.builtinProviderId;
-            const isVertex = providerId === "vertex";
-            const isGoogle = providerId === "google";
-            const isAnthropic = providerId === "anthropic";
-            const isPartnerModel = selectedModelName.includes("/");
-            const isGeminiModel = selectedModelName.startsWith("gemini");
-            const isFlashLite = selectedModelName.includes("flash-lite");
-
-            // Keep Google provider behavior unchanged: always include includeThoughts
-            if (isGoogle) {
-              providerOptions.google = {
-                thinkingConfig: {
-                  includeThoughts: true,
-                },
-              } satisfies GoogleGenerativeAIProviderOptions;
+            // Reasoning / native thoughts only for the thinking context tier (dynamic per model).
+            if (thinkingTier) {
+              const catalogModelId = resolveReasoningCatalogModelId(effectiveModel);
+              const cap = detectReasoningCapability(
+                catalogModelId,
+                modelClient.builtinProviderId,
+              );
+              const reasoningPatch = buildReasoningProviderOptions(cap, true);
+              if (reasoningPatch.openrouter) {
+                providerOptions.openrouter = {
+                  ...(providerOptions.openrouter ?? {}),
+                  ...reasoningPatch.openrouter,
+                };
+              }
+              if (reasoningPatch.google) {
+                providerOptions.google = reasoningPatch.google;
+              }
+              if (reasoningPatch.openai) {
+                providerOptions.openai = reasoningPatch.openai;
+              }
             }
 
-            // Vertex-specific fix: only enable thinking on supported Gemini models
-            if (isVertex && isGeminiModel && !isFlashLite && !isPartnerModel) {
-              providerOptions.google = {
-                thinkingConfig: {
-                  includeThoughts: true,
-                },
-              } satisfies GoogleGenerativeAIProviderOptions;
-            }
+            const isAnthropic = modelClient.builtinProviderId === "anthropic";
+
+            const maxOutputTokens = await getMaxTokensWithFloor(optionsModel);
+            const temperature = await getTemperature(optionsModel);
 
             const streamResult = streamText({
               headers: isAnthropic
@@ -2173,19 +3164,41 @@ This conversation includes one or more image attachments. When the user uploads 
                   "anthropic-beta": "context-1m-2025-08-07",
                 }
                 : undefined,
-              maxOutputTokens: await getMaxTokensWithFloor(optionsModel),
-              temperature: await getTemperature(optionsModel),
+              maxOutputTokens,
+              temperature,
               maxRetries: 2,
               model: modelClient.model,
-              stopWhen: [stepCountIs(20), hasToolCall("edit-code")],
+              stopWhen: [() => false],
               providerOptions,
               system: systemPromptOverride,
               tools,
               messages: chatMessages.filter((m) => m.content),
               onFinish: (response) => {
-                const totalTokens = totalTokensFromAiUsage(response.usage);
+                const rt = reasoningTokensFromAiUsage(response.usage);
+                if (typeof rt === "number") {
+                  maxReasoningTokensUsed = Math.max(maxReasoningTokensUsed ?? 0, rt);
+                }
+                let totalTokens: number | null = totalTokensFromAiUsage(response.usage);
+                if (totalTokens == null && response.usage && typeof response.usage === "object") {
+                  const u = response.usage as Record<string, unknown>;
+                  const p =
+                    typeof u.promptTokens === "number"
+                      ? u.promptTokens
+                      : typeof u.inputTokens === "number"
+                        ? u.inputTokens
+                        : null;
+                  const c =
+                    typeof u.completionTokens === "number"
+                      ? u.completionTokens
+                      : typeof u.outputTokens === "number"
+                        ? u.outputTokens
+                        : null;
+                  if (p != null || c != null) {
+                    totalTokens = Math.round((p ?? 0) + (c ?? 0));
+                  }
+                }
 
-                if (typeof totalTokens === "number") {
+                if (typeof totalTokens === "number" && totalTokens > 0) {
                   // We use the highest total tokens used (we are *not* accumulating)
                   // since we're trying to figure it out if we're near the context limit.
                   maxTokensUsed = Math.max(maxTokensUsed ?? 0, totalTokens);
@@ -2219,18 +3232,41 @@ This conversation includes one or more image attachments. When the user uploads 
                   );
 
                   // Post-turn compaction (OpenCode style): compact proactively so next user message is instant
-                  if (!isEphemeralWorkspace && req.chatId > 0) {
+                  if (!isEphemeralWorkspace && req.chatId > 0 && typeof maxTokensUsed === "number") {
+                    const builtinPid = modelClient.builtinProviderId;
+                    const modelName = optionsModel?.name?.trim();
+                    let compactionOpenRouterId: string | null = null;
+                    if (
+                      builtinPid === "openrouter" ||
+                      optionsModel?.provider === "openrouter"
+                    ) {
+                      compactionOpenRouterId = modelName || null;
+                    } else if (builtinPid === "compass" && modelName) {
+                      compactionOpenRouterId =
+                        getOpenRouterModelIdForCompassTier(modelName) ?? null;
+                    }
                     schedulePostTurnCompaction({
                       chatId: req.chatId,
                       totalTokensUsed: maxTokensUsed,
                       providerId: modelClient.builtinProviderId ?? optionsModel?.provider,
+                      turnId: String(placeholderAssistantMessage.id),
+                      openRouterModelId: compactionOpenRouterId,
                     });
                   }
                 } else {
-                  logger.log("Total tokens used: unknown");
+                  logger.log(
+                    `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): unavailable (no total or prompt/completion counts from provider)`,
+                  );
                 }
               },
               onError: (error: any) => {
+                if (isNoUsableModelOutputError(error)) {
+                  logger.warn(
+                    "[stream] onError: empty/no usable model output (handled by consumption/retry or auxiliary handlers)",
+                    error,
+                  );
+                  return;
+                }
                 const modelNotFoundUserMessage = "The selected model was not found for any provider. Please choose a different model in Settings.";
                 let errorMessage = (error as any)?.error?.message;
                 const responseBody = error?.error?.responseBody;
@@ -2251,7 +3287,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   error,
                 );
                 if (modelClient.builtinProviderId === "compass") {
-                  Sentry.captureException(
+                  sentryCaptureExceptionSafe(
                     new Error(`${requestIdPrefix}${message}`.slice(0, 500)),
                     {
                       tags: { feature: "compass", source: "main_stream" },
@@ -2268,24 +3304,85 @@ This conversation includes one or more image attachments. When the user uploads 
               },
               abortSignal: abortController.signal,
             });
-            // Prevent unhandled rejection when the stream finishes with no output (AI SDK rejects `usage`).
-            void streamResult.usage.catch((usageErr: unknown) => {
-              if (
-                NoOutputGeneratedError.isInstance(usageErr) ||
-                NoContentGeneratedError.isInstance(usageErr)
-              ) {
-                logger.warn(
-                  "[chat_stream] streamText().usage rejected (empty output); stream/chunks may still be handled elsewhere",
-                );
-                return;
-              }
-              logger.warn("[chat_stream] streamText().usage rejected:", usageErr);
-            });
+            // Best-effort: same-turn .catch on usage/finishReason/response. Node may still
+            // print 1–2 "Unhandled rejection" lines around AI SDK flush ordering; main.ts
+            // swallows empty-output rejections as a safety net.
+            attachEmptyOutputSafeRejectHandlers(
+              streamResult,
+              logger.warn.bind(logger),
+              "chat_stream",
+            );
             return {
               fullStream: streamResult.fullStream,
               usage: streamResult.usage,
+              finishReason: streamResult.finishReason,
+              response: streamResult.response,
             };
           };
+
+          type SimpleStreamTextBundle = Awaited<ReturnType<typeof simpleStreamText>>;
+
+          async function runStreamRoundWithEmptyOutputRetry(params: {
+            runSimpleStream: () => Promise<SimpleStreamTextBundle>;
+            fullResponse: string;
+            abortController: AbortController;
+            chatId: number;
+            processResponseChunkUpdate: (args: {
+              fullResponse: string;
+            }) => Promise<string>;
+            onFirstModelActivity?: () => void;
+          }): Promise<{
+            bundle: SimpleStreamTextBundle;
+            fullResponse: string;
+            finishReason: Awaited<SimpleStreamTextBundle["finishReason"]>;
+          }> {
+            let fullResponse = params.fullResponse;
+            for (let attempt = 1; attempt <= MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS; attempt++) {
+              const snapshot = fullResponse;
+              try {
+                const bundle = await params.runSimpleStream();
+                const chunkResult = await processStreamChunks({
+                  fullStream: bundle.fullStream,
+                  fullResponse,
+                  abortController: params.abortController,
+                  chatId: params.chatId,
+                  processResponseChunkUpdate: params.processResponseChunkUpdate,
+                  onFirstModelActivity: params.onFirstModelActivity,
+                });
+                fullResponse = chunkResult.fullResponse;
+                const finishReason = await bundle.finishReason;
+                return { bundle, fullResponse, finishReason };
+              } catch (err) {
+                if (
+                  isEmptyOutputStreamError(err) &&
+                  attempt < MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS &&
+                  !params.abortController.signal.aborted
+                ) {
+                  logger.warn(
+                    `[stream] Empty output on attempt ${attempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}, retrying after ${STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS}ms...`,
+                  );
+                  sentryAddBreadcrumbSafe({
+                    category: "stream_retry",
+                    message: `empty_output_retry attempt ${attempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}`,
+                    level: "warning",
+                  });
+                  fullResponse = snapshot;
+                  await new Promise((r) =>
+                    setTimeout(r, STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS),
+                  );
+                  continue;
+                }
+                if (
+                  isEmptyOutputStreamError(err) &&
+                  !params.abortController.signal.aborted
+                ) {
+                  throw new EmptyModelOutputAfterRetryError();
+                }
+                throw err;
+              }
+            }
+            throw new Error("runStreamRoundWithEmptyOutputRetry: unreachable");
+          }
 
           let lastDbSaveAt = 0;
 
@@ -2364,6 +3461,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       { ...args, _chatSessionId: req.chatId },
                       event.sender,
                       req.chatId,
+                      buildToolStreamOpts(),
                     );
                     return JSON.stringify(result);
                   } finally {
@@ -2385,34 +3483,76 @@ This conversation includes one or more image attachments. When the user uploads 
             const agentMcpTools = await getMcpTools(event, effectiveAppId ?? null, req.chatId);
             Object.assign(tools, agentMcpTools);
 
-            const { fullStream } = await simpleStreamText({
-              chatMessages: limitedHistoryChatMessages,
-              modelClient,
-              tools,
-              systemPromptOverride: constructSystemPrompt({
-                chatMode: "build",
-                contextSize: Math.min(await getContextWindow(), 128_000),
-                enableTurboEditsV2: false,
-              }),
-              files: files,
-              dyadDisableFiles: true,
-            });
-
-            const result = await processStreamChunks({
-              fullStream,
-              fullResponse,
-              abortController,
-              chatId: req.chatId,
-              processResponseChunkUpdate,
-              onFirstModelActivity: () => {
-                safeSend(event.sender, "chat:stream:phase", {
+            let agentStreamMessages: ModelMessage[] = limitedHistoryChatMessages;
+            const agentTabStreamLoopStartMs = Date.now();
+            while (true) {
+              if (Date.now() - agentTabStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+                logger.warn("[Agent tab stream] Hit duration limit (30 minutes)");
+                safeSend(event.sender, "chat:activity", {
+                  id: `duration-limit-${Date.now()}`,
+                  type: "duration_limit_reached",
+                  label: "Task paused after 30 minutes",
+                  detail: "Send a message to continue",
+                  status: "done",
+                  timestamp: Date.now(),
                   chatId: req.chatId,
-                  phase: "responding",
-                  label: "",
                 });
-              },
-            });
-            fullResponse = result.fullResponse;
+                break;
+              }
+              const { bundle, fullResponse: agentRoundFull, finishReason: fr } =
+                await runStreamRoundWithEmptyOutputRetry({
+                  runSimpleStream: async () =>
+                    simpleStreamText({
+                      chatMessages: agentStreamMessages,
+                      modelClient,
+                      tools,
+                      systemPromptOverride: constructSystemPrompt({
+                        chatMode: "build",
+                        contextSize: Math.min(await getContextWindow(), 128_000),
+                        enableTurboEditsV2: false,
+                      }),
+                      files: files,
+                      dyadDisableFiles: true,
+                    }),
+                  fullResponse,
+                  abortController,
+                  chatId: req.chatId,
+                  processResponseChunkUpdate,
+                  onFirstModelActivity: () => {
+                    safeSend(event.sender, "chat:stream:phase", {
+                      chatId: req.chatId,
+                      phase: "responding",
+                      label: "",
+                    });
+                  },
+                });
+              fullResponse = agentRoundFull;
+              if (
+                !shouldContinue(fr, {
+                  attemptCount: streamContinuationAttempts,
+                  maxAttempts: STREAM_CONTINUATION_MAX,
+                })
+              ) {
+                break;
+              }
+              streamContinuationAttempts++;
+              const resp = await bundle.response;
+              agentStreamMessages = [
+                ...agentStreamMessages,
+                ...(resp.messages as ModelMessage[]),
+                {
+                  role: "user",
+                  content: buildContinuationPrompt({
+                    chatId: req.chatId,
+                    turnId: String(placeholderAssistantMessage.id),
+                    attemptCount: streamContinuationAttempts,
+                    maxAttempts: STREAM_CONTINUATION_MAX,
+                    lastContent: fullResponse,
+                    ledgerState: getLedgerStateForContinuation(),
+                  }),
+                },
+              ];
+            }
             chatMessages.push({
               role: "assistant",
               content: fullResponse,
@@ -2437,8 +3577,15 @@ This conversation includes one or more image attachments. When the user uploads 
               appPath,
               effectiveAppId ?? undefined,
               !isEphemeralWorkspace ? placeholderAssistantMessage.id : undefined,
+              req.chatId,
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
+
+            const askToolStreamOpts = () => ({
+              turnId: streamTurnIdForLedger,
+              abortController,
+              abortStreamOnLedgerComplete: false,
+            });
 
             const askModeTools = ToolRegistry.getToolsForAskMode();
             const askLoader = getOrCreateToolSessionLoader(req.chatId);
@@ -2519,22 +3666,29 @@ This conversation includes one or more image attachments. When the user uploads 
                 "request_mode_change",
               ]),
             };
-            const askAllowedSet = modeAllowlist[effectiveWorkMode] ?? modeAllowlist.ask;
-            askToolsToInclude = askToolsToInclude.filter((t) => askAllowedSet.has(t.name));
+            // Register tools for any work mode the model can switch to mid-stream; gate at execute time.
+            const reachableModeTools = new Set([
+              ...modeAllowlist.ask,
+              ...modeAllowlist.plan,
+              ...modeAllowlist.debug,
+              ...modeAllowlist.review,
+              ...modeAllowlist.build,
+            ]);
+            askToolsToInclude = askToolsToInclude.filter((t) =>
+              reachableModeTools.has(t.name),
+            );
             const planWriteMeta = ToolRegistry.get("write_implementation_plan");
             if (
-              effectiveWorkMode === "plan" &&
               planWriteMeta &&
               !askToolsToInclude.some((t) => t.name === "write_implementation_plan")
             ) {
               askToolsToInclude = [...askToolsToInclude, planWriteMeta];
             }
-            if (effectiveWorkMode === "plan") {
-              for (const name of ["write_file", "get_plan_scope", "read_implementation_plan"] as const) {
-                const meta = ToolRegistry.get(name);
-                if (meta && !askToolsToInclude.some((t) => t.name === name)) {
-                  askToolsToInclude = [...askToolsToInclude, meta];
-                }
+            for (const name of ["write_file", "get_plan_scope", "read_implementation_plan"] as const) {
+              if (!modeAllowlist.plan.has(name)) continue;
+              const meta = ToolRegistry.get(name);
+              if (meta && !askToolsToInclude.some((t) => t.name === name)) {
+                askToolsToInclude = [...askToolsToInclude, meta];
               }
             }
             const askManifest = generateManifest(askToolsToInclude, effectiveWorkMode !== "plan");
@@ -2561,23 +3715,31 @@ This conversation includes one or more image attachments. When the user uploads 
                   }
                   try {
                     const meta = ToolRegistry.get(tool.name);
+                    const liveWorkMode: WorkMode =
+                      readSettings().workModePreference ?? effectiveWorkMode;
+                    const liveAllowedSet =
+                      modeAllowlist[liveWorkMode] ?? modeAllowlist.ask;
                     const askAllowed =
                       tool.name === "request_mode_change" ||
-                      (effectiveWorkMode === "plan" &&
-                        (tool.name === "write_file" || tool.name === "write_implementation_plan")) ||
-                      (meta?.isReadOnly === true || meta?.allowInAskMode === true);
+                      liveAllowedSet.has(tool.name) ||
+                      meta?.isReadOnly === true ||
+                      meta?.allowInAskMode === true;
                     if (!askAllowed) {
                       return JSON.stringify({
                         success: false,
-                        error: `${tool.name} is not available in Ask mode.`,
+                        error: `${tool.name} is not available in ${liveWorkMode} mode. Call request_mode_change first.`,
                       });
                     }
                     const execArgs: any = {
                       ...args,
                       workspace: appPath,
-                      workspaceId: effectiveAppId!,
-                      // Fix: Finding 3 — Plan work mode may write plan/memory files only (see write_file handler)
-                      chatMode: effectiveWorkMode === "plan" ? "plan" : "ask",
+                      workspaceId: effectiveAppId ?? undefined,
+                      chatMode:
+                        liveWorkMode === "plan"
+                          ? "plan"
+                          : liveWorkMode === "build"
+                            ? "build"
+                            : "ask",
                       _chatSessionId: req.chatId,
                     };
                     if (tool.name === "stream_terminal_output" || tool.name === "stream_pipeline_logs") {
@@ -2597,6 +3759,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       execArgs,
                       event.sender,
                       req.chatId,
+                      askToolStreamOpts(),
                     );
 
                     const askUserResolvedEarly = await resolveAskUserToolResult(
@@ -2677,6 +3840,12 @@ This conversation includes one or more image attachments. When the user uploads 
                           detail: planResult.path ?? planPreview.path ?? ".atlarix/ATLARIX_PLAN.md",
                           chatId: req.chatId,
                         });
+                        const ledgerForPlan = getLedger(streamTurnIdForLedger);
+                        captureSafe("plan_written_ask_mode", {
+                          step_count: ledgerForPlan?.steps.length ?? 0,
+                          chat_id: req.chatId,
+                          turn_id: streamTurnIdForLedger,
+                        });
                         return JSON.stringify({
                           success: true,
                           message: `Wrote ${planPreview.path ?? ".atlarix/ATLARIX_PLAN.md"}`,
@@ -2689,18 +3858,69 @@ This conversation includes one or more image attachments. When the user uploads 
                       const permRequest = askPermissionInterceptor.parsePermissionRequest(result);
                       if (permRequest) {
                         const operationId = askPermissionInterceptor.generateOperationId();
-                        askPermissionInterceptor.bufferOperation(operationId, permRequest);
-
-                        safeSend(event.sender, "permission-request", {
-                          chatId: req.chatId,
+                        const alwaysAutoAtlarix =
+                          askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                        askPermissionInterceptor.bufferOperation(
                           operationId,
-                          request: permRequest,
-                        });
+                          permRequest,
+                          alwaysAutoAtlarix,
+                        );
 
-                        logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
+                        if (!alwaysAutoAtlarix) {
+                          safeSend(event.sender, "permission-request", {
+                            chatId: req.chatId,
+                            operationId,
+                            request: permRequest,
+                          });
+
+                          logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
+                        } else {
+                          logger.log(
+                            `[Ask Mode] Auto-approved .atlarix internal write: ${operationId}`,
+                          );
+                        }
 
                         try {
-                          const approved = await askPermissionInterceptor.waitForApproval(operationId);
+                          let approved: boolean;
+                          if (alwaysAutoAtlarix) {
+                            const execMeta =
+                              await askPermissionInterceptor.executeOperation(operationId);
+                            approved = execMeta.approved;
+                            if (!approved) {
+                              const execResultRejected =
+                                askPermissionInterceptor.getExecutionResult(operationId);
+                              if (execResultRejected.exitCode !== undefined) {
+                                logger.log(
+                                  `[Ask Mode] Auto-approved op failed: ${operationId} (exit ${execResultRejected.exitCode})`,
+                                );
+                                return JSON.stringify({
+                                  success: false,
+                                  error:
+                                    execResultRejected.error ||
+                                    `Command failed with exit code ${execResultRejected.exitCode}`,
+                                  exitCode: execResultRejected.exitCode,
+                                  output: execResultRejected.output,
+                                  operation: permRequest.operation,
+                                  path:
+                                    (permRequest.preview as { path?: string; command?: string })
+                                      .path ||
+                                    (permRequest.preview as { command?: string }).command,
+                                });
+                              }
+                              return JSON.stringify({
+                                success: false,
+                                error:
+                                  execMeta.error ??
+                                  execResultRejected.error ??
+                                  "Execution failed",
+                                operation: permRequest.operation,
+                                path: (permRequest.preview as { path?: string }).path,
+                              });
+                            }
+                          } else {
+                            approved =
+                              await askPermissionInterceptor.waitForApproval(operationId);
+                          }
 
                           if (approved) {
                             const execResult = askPermissionInterceptor.getExecutionResult(operationId);
@@ -2790,7 +4010,7 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            // request_mode_change: Ask -> Build requires user approval
+            // request_mode_change: applied in main; renderer notified via mode:changed (no wait / no dialog)
             const requestModeChangeTool = ToolRegistry.get("request_mode_change");
             if (requestModeChangeTool) {
               askTools["request_mode_change"] = {
@@ -2799,7 +4019,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   requestModeChangeTool.parameters ?? {},
                 ) as never,
                 execute: async (args: any) => {
-                  const result = await ToolRegistry.execute("request_mode_change", {
+                  const execResult = await ToolRegistry.execute("request_mode_change", {
                     ...args,
                     hasWorkspace: true,
                     currentMode: "ask",
@@ -2807,25 +4027,35 @@ This conversation includes one or more image attachments. When the user uploads 
                     hasPendingPermissions: false,
                     chatId: req.chatId,
                   });
-                  if (result && typeof result === "object" && result.__mode_change_requested) {
-                    safeSend(event.sender, "mode_change_requested", {
+                  recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
+                  const inner = unwrapRegistryToolResult(execResult);
+                  if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
+                    const modeLabelMap: Record<string, string> = { ask: "Ask", plan: "Plan", build: "Build", debug: "Debug", review: "Review" };
+                    const ml = modeLabelMap[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
+                    safeSend(event.sender, "chat:activity", {
+                      id: `mode-change-${Date.now()}`,
+                      type: "mode_change",
+                      label: `Switched to ${ml} (Auto)`,
+                      status: "done",
+                      timestamp: Date.now(),
+                      detail: (inner as any).reason,
                       chatId: req.chatId,
-                      requestedMode: result.requestedMode,
-                      reason: result.reason ?? "",
-                    });
-                    const approved = await waitForModeChangeResponse(req.chatId);
-                    if (approved) {
-                      return JSON.stringify({
-                        success: true,
-                        message: "Mode switched to Build. You may now use write/run tools.",
-                      });
-                    }
-                    return JSON.stringify({
-                      success: false,
-                      message: "User declined. Remain in Ask mode and explain without making changes.",
                     });
                   }
-                  return JSON.stringify(result?.success === false ? result : { success: true, ...result });
+                  emitModeChangedIfApplied(event.sender, req.chatId, args?.mode, inner);
+                  if (inner && typeof inner === "object" && (inner as any).success === false) {
+                    return JSON.stringify(inner);
+                  }
+                  captureSafe("mode_switched_mid_stream", {
+                    from_mode: "ask",
+                    to_mode: String(args?.mode ?? ""),
+                    chat_id: req.chatId,
+                    workspace_id: effectiveAppId ?? null,
+                    turn_id: streamTurnIdForLedger,
+                  });
+                  return JSON.stringify(
+                    inner && typeof inner === "object" ? { success: true, ...(inner as object) } : { success: true },
+                  );
                 },
               };
             }
@@ -2856,48 +4086,105 @@ Available tools (Ask — read-only):
 - get_blueprint_slice: Focused blueprint nodes/edges for selected folders/files
 - git_status, git_diff
 - recall_memory, search_memory
-- parse_code_structure, get_change_impact, diagnose_issue, health_check
+- get_file_outline, get_change_impact, diagnose_issue, health_check
 - ask_user: Clarifications or choices — pass \`options\` as string array; do not fake widgets in prose only.
 - request_workspace_permissions: Batch Token Auth (narrate first, then wait)
-- request_mode_change: To move to **Plan** (plan file) or **Build** (code changes) when the user is ready.
+- request_mode_change: Instantly switch to **Plan**, **Build**, **Debug**, or **Review** when the user is ready (no confirmation).
 
 NOT in Ask mode: write_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests, save_learning.
 
 For workforce, explain services before request_workspace_permissions.`;
 
-            const { fullStream: askStream } = await simpleStreamText({
-              chatMessages,
-              modelClient,
-              tools: askTools,
-              systemPromptOverride:
-                constructSystemPrompt({
-                  chatMode: "ask",
-                  contextSize: Math.min(await getContextWindow(), 128_000),
-                  enableTurboEditsV2: false,
-                }) +
-                askModePrompt +
-                planModePrompt +
-                "\n\n" +
-                askManifest,
-              files: files,
-            });
-
-            // Process the stream
-            const askResult = await processStreamChunks({
-              fullStream: askStream,
-              fullResponse,
-              abortController,
-              chatId: req.chatId,
-              processResponseChunkUpdate,
-              onFirstModelActivity: () => {
-                safeSend(event.sender, "chat:stream:phase", {
-                  chatId: req.chatId,
-                  phase: "responding",
-                  label: "",
+            let askStreamMessages: ModelMessage[] = [...chatMessages];
+            const askTierStreamLoopStartMs = Date.now();
+            while (true) {
+              if (abortController.signal.aborted) {
+                logger.log(
+                  `[Ask tier] AbortController already aborted (reason: ${String(abortController.signal.reason)}), exiting loop`,
+                );
+                sentryAddBreadcrumbSafe({
+                  category: "ask_stream",
+                  message: `aborted: ${String(abortController.signal.reason)}`,
+                  level: "info",
                 });
-              },
-            });
-            fullResponse = askResult.fullResponse;
+                break;
+              }
+              if (Date.now() - askTierStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+                logger.warn(
+                  `[Ask tier stream] Hit duration limit (30 minutes) workMode=${effectiveWorkMode}`,
+                );
+                safeSend(event.sender, "chat:activity", {
+                  id: `duration-limit-${Date.now()}`,
+                  type: "duration_limit_reached",
+                  label: "Task paused after 30 minutes",
+                  detail: "Send a message to continue",
+                  status: "done",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                });
+                break;
+              }
+              const {
+                bundle: askBundle,
+                fullResponse: askRoundFull,
+                finishReason: askFr,
+              } = await runStreamRoundWithEmptyOutputRetry({
+                runSimpleStream: async () =>
+                  simpleStreamText({
+                    chatMessages: askStreamMessages,
+                    modelClient,
+                    tools: askTools,
+                    systemPromptOverride:
+                      constructSystemPrompt({
+                        chatMode: "ask",
+                        contextSize: Math.min(await getContextWindow(), 128_000),
+                        enableTurboEditsV2: false,
+                      }) +
+                      askModePrompt +
+                      planModePrompt +
+                      "\n\n" +
+                      askManifest,
+                    files: files,
+                  }),
+                fullResponse,
+                abortController,
+                chatId: req.chatId,
+                processResponseChunkUpdate,
+                onFirstModelActivity: () => {
+                  safeSend(event.sender, "chat:stream:phase", {
+                    chatId: req.chatId,
+                    phase: "responding",
+                    label: "",
+                  });
+                },
+              });
+              fullResponse = askRoundFull;
+              if (
+                !shouldContinue(askFr, {
+                  attemptCount: streamContinuationAttempts,
+                  maxAttempts: STREAM_CONTINUATION_MAX,
+                })
+              ) {
+                break;
+              }
+              streamContinuationAttempts++;
+              const askResp = await askBundle.response;
+              askStreamMessages = [
+                ...askStreamMessages,
+                ...(askResp.messages as ModelMessage[]),
+                {
+                  role: "user",
+                  content: buildContinuationPrompt({
+                    chatId: req.chatId,
+                    turnId: String(placeholderAssistantMessage.id),
+                    attemptCount: streamContinuationAttempts,
+                    maxAttempts: STREAM_CONTINUATION_MAX,
+                    lastContent: fullResponse,
+                    ledgerState: getLedgerStateForContinuation(),
+                  }),
+                },
+              ];
+            }
           } else if (!blueprintRequiredBlockMessage) {
             // BUILD MODE - Native tool calling (like Agent mode)
             // AI has access to all workspace tools via function calling
@@ -2936,7 +4223,8 @@ For workforce, explain services before request_workspace_permissions.`;
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
               effectiveAppId ?? undefined,
-              !isEphemeralWorkspace ? placeholderAssistantMessage.id : undefined,
+              streamTurnIdForLedger,
+              req.chatId,
             );
 
             // Register interceptor for IPC handlers (so UI can approve/reject)
@@ -2946,9 +4234,9 @@ For workforce, explain services before request_workspace_permissions.`;
 
             if (shouldAutoApprovePermissions(settings.agentMode, req.chatId)) {
               const { startOrchestratorForTurn } = await import("../../lib/agents/orchestrator");
-              const { publishAgentMessage: publishCorrection } = await import("../../lib/agents/agent-bus");
               const { subscribeAgentBus } = await import("../../lib/agents/agent-bus");
-              const stopOrch = startOrchestratorForTurn({
+              /** Sync only: bus subscription + correction map — no LLM / no await; must stay cheap. */
+              const orchTurn = startOrchestratorForTurn({
                 chatId: req.chatId,
                 turnId: autonomousTurnId,
                 emitBlockerActivity: (label, detail) => {
@@ -2960,17 +4248,6 @@ For workforce, explain services before request_workspace_permissions.`;
                     timestamp: Date.now(),
                     detail,
                     chatId: req.chatId,
-                  });
-                },
-                onCorrectionNeeded: (agentRole, correctionText) => {
-                  publishCorrection({
-                    from: "main",
-                    to: agentRole,
-                    type: "correction",
-                    content: correctionText,
-                    turnId: autonomousTurnId,
-                    chatId: req.chatId,
-                    payload: {},
                   });
                 },
               });
@@ -2992,7 +4269,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 });
               });
               stopAgentOrchestrator = () => {
-                stopOrch();
+                orchTurn.stop();
                 stopCap();
               };
             }
@@ -3011,6 +4288,52 @@ For workforce, explain services before request_workspace_permissions.`;
               });
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
             });
+
+            const pendingMidTaskCounselInject = { value: null as string | null };
+            let autonomousBuildToolStepCount = 0;
+            let midTaskCounselCooldownUntil = 0;
+            const MID_TASK_WRITE_GUARD_TOOLS = new Set([
+              "write_file",
+              "write_multiple_files",
+              "run_command",
+              "replace_code",
+              "insert_code",
+              "delete_lines",
+            ]);
+            const recentCompletedBuildToolNames: string[] = [];
+
+            const agenticRepetition = createAgenticRepetitionState();
+            const handleAgenticRepetitionOutcome = (o: AgenticRepetitionOutcome) => {
+              if (o.kind === "none") return;
+              if (o.kind === "loop_detected") {
+                safeSend(event.sender, "chat:activity", {
+                  id: `loop-detected-${Date.now()}`,
+                  type: "loop_detected",
+                  label: "Repeated action detected",
+                  detail: `${o.toolName} on the same target ${o.count}+ times in a short window — self-correcting`,
+                  status: "running",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                  toolName: o.toolName,
+                  loopTarget: o.target,
+                  loopCount: o.count,
+                });
+                return;
+              }
+              safeSend(event.sender, "chat:activity", {
+                id: `loop-abort-${Date.now()}`,
+                type: "loop_repetition_aborted",
+                label: "Task stopped — repeated action",
+                detail:
+                  "The model kept repeating the same write or command after guidance. Review the activity log and send a message to continue.",
+                status: "done",
+                timestamp: Date.now(),
+                chatId: req.chatId,
+                toolName: o.toolName,
+                loopTarget: o.target,
+                loopCount: o.count,
+              });
+            };
 
             const tools: ToolSet = {};
             for (const toolMeta of buildToolsToInclude) {
@@ -3036,7 +4359,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   safeSend(event.sender, "chat:activity", {
                     id: toolActivityId,
                     type: "tool_use",
-                    label: toolName,
+                    label: getToolActivityLabel(toolName),
                     status: "running",
                     timestamp: Date.now(),
                     chatId: req.chatId,
@@ -3068,6 +4391,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       executeArgs,
                       event.sender,
                       req.chatId,
+                      buildToolStreamOpts(),
                     );
 
                     const askUserResolvedBuild = await resolveAskUserToolResult(
@@ -3137,10 +4461,9 @@ For workforce, explain services before request_workspace_permissions.`;
                     const permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
                       const operationId = permissionInterceptor.generateOperationId();
-                      const skipPermissionWait = shouldAutoApprovePermissions(
-                        settings.agentMode,
-                        req.chatId,
-                      );
+                      const skipPermissionWait =
+                        shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                        permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                       permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
 
                       const pushWrittenPaths = () => {
@@ -3159,6 +4482,25 @@ For workforce, explain services before request_workspace_permissions.`;
                         error?: string;
                       }) => {
                         pushWrittenPaths();
+                        if (
+                          agenticRepetition.isEnabled() &&
+                          (permRequest.operation === "write_file" ||
+                            permRequest.operation === "run_command")
+                        ) {
+                          const pv = permRequest.preview as { path?: string; command?: string };
+                          const permArgs =
+                            permRequest.operation === "run_command"
+                              ? { command: pv.command ?? "" }
+                              : { path: pv.path ?? "" };
+                          handleAgenticRepetitionOutcome(
+                            agenticRepetition.record(permRequest.operation, permArgs),
+                          );
+                        }
+                        recordBuildToolLedger(permRequest.operation, {
+                          path: (permRequest.preview as { path?: string }).path,
+                          success: true,
+                          output: execResult.output?.slice(0, 200),
+                        });
                         const output = execResult.output || "";
                         const hasCompilationErrors =
                           /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
@@ -3293,18 +4635,104 @@ For workforce, explain services before request_workspace_permissions.`;
                   }
 
                     // Not a permission request - return result directly
-                    return typeof result === 'string' ? result : JSON.stringify(result);
+                    if (
+                      !isStreamTool &&
+                      settings.agentMode === "autonomous" &&
+                      settings.counsel?.enabled !== false
+                    ) {
+                      autonomousBuildToolStepCount++;
+                      const nowMs = Date.now();
+                      if (
+                        autonomousBuildToolStepCount > 3 &&
+                        nowMs > midTaskCounselCooldownUntil &&
+                        activityStatus === "done"
+                      ) {
+                        const resultStr =
+                          typeof result === "string"
+                            ? result
+                            : result == null
+                              ? ""
+                              : JSON.stringify(result);
+                        const lower = resultStr.toLowerCase();
+                        const ambiguous =
+                          resultStr.trim().length < 20 ||
+                          lower.includes("not found") ||
+                          lower.includes("unclear") ||
+                          lower.includes("ambiguous") ||
+                          /"success"\s*:\s*false/.test(resultStr);
+                        if (ambiguous) {
+                          const recentWriteGuardHit = [...recentCompletedBuildToolNames]
+                            .slice(-3)
+                            .some((n) => MID_TASK_WRITE_GUARD_TOOLS.has(n));
+                          if (!recentWriteGuardHit) {
+                            midTaskCounselCooldownUntil = nowMs + 90_000;
+                            captureSafe("counsel_triggered", {
+                              trigger_type: "agent_blocker",
+                              chat_mode: settings.selectedChatMode ?? "unknown",
+                              has_workspace: Boolean(hasWorkspace && appPath),
+                            });
+                            const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
+                            const counselQ = [
+                              "Mid-task decision needed: tool result looked ambiguous, empty, or weak.",
+                              `Tool: ${toolName}`,
+                              `Task prompt (excerpt): ${(userPrompt || req.prompt).slice(0, 4000)}`,
+                              `Last tool result (excerpt): ${resultStr.slice(0, 3500)}`,
+                            ].join("\n\n");
+                            void runCounselPipeline({
+                              chatId: req.chatId,
+                              turnId: `${streamTurnIdForLedger}-mid-${nowMs}`,
+                              trigger: "agent_blocker",
+                              mode: hasWorkspace && appPath ? "workspace" : "general",
+                              question: counselQ,
+                              settings,
+                              sendActivity: (payload) => {
+                                safeSend(event.sender, "chat:activity", payload);
+                              },
+                              workspacePath: hasWorkspace && appPath ? appPath : undefined,
+                              workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
+                              toolActivity: { webContents: event.sender, chatId: req.chatId },
+                            })
+                              .then((block) => {
+                                if (block.trim()) {
+                                  pendingMidTaskCounselInject.value = block;
+                                }
+                              })
+                              .catch((midCounselErr) => {
+                                logger.warn("[counsel] Mid-task pipeline failed:", midCounselErr);
+                                sentryCaptureExceptionSafe(midCounselErr, {
+                                  tags: { feature: "counsel" },
+                                });
+                              });
+                          }
+                        }
+                      }
+                    }
+                    if (agenticRepetition.isEnabled()) {
+                      handleAgenticRepetitionOutcome(agenticRepetition.record(toolName, args));
+                    }
+                    recordBuildToolLedger(toolName, result);
+                    return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (err) {
                     activityStatus = "error";
                     throw err;
                   } finally {
+                    if (
+                      !isStreamTool &&
+                      settings.agentMode === "autonomous" &&
+                      settings.counsel?.enabled !== false
+                    ) {
+                      recentCompletedBuildToolNames.push(toolName);
+                      while (recentCompletedBuildToolNames.length > 3) {
+                        recentCompletedBuildToolNames.shift();
+                      }
+                    }
                     if (!isStreamTool) {
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                     }
                     safeSend(event.sender, "chat:activity", {
                       id: toolActivityId,
                       type: "tool_use",
-                      label: toolName,
+                      label: getToolActivityLabel(toolName),
                       status: activityStatus,
                       timestamp: Date.now(),
                       chatId: req.chatId,
@@ -3339,6 +4767,12 @@ For workforce, explain services before request_workspace_permissions.`;
                       const agentId = String(args.agent_id ?? "agent");
                       const task = String(args.task ?? "");
                       const startTime = Date.now();
+                      const shortAgent =
+                        agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
+                      let delegationLabel = `Delegation to ${shortAgent.replace(/^./, (c) => c.toUpperCase())}`;
+                      if (delegationLabel.length > 60) {
+                        delegationLabel = `${delegationLabel.slice(0, 57)}…`;
+                      }
                       safeSend(event.sender, "chat:activity", {
                         type: "delegation_start",
                         id,
@@ -3348,7 +4782,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         task,
                         status: "active",
                         timestamp: startTime,
-                        label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                        label: delegationLabel,
                         chatId: req.chatId,
                       });
                       const delegationChatMode =
@@ -3368,6 +4802,10 @@ For workforce, explain services before request_workspace_permissions.`;
                         turnId: autonomousTurnId,
                         parentAgentRole: "main",
                       });
+                      recordToolUseForTurn(streamTurnIdForLedger, "delegate_to_agent");
+                      if (result?.success !== false) {
+                        delegatedAgentsThisTurn.push(agentId);
+                      }
                       const duration = Date.now() - startTime;
                       const isError = result?.success === false;
                       const validationInfo =
@@ -3379,7 +4817,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         result: typeof result === "object" && result ? (result as any).summary : undefined,
                         duration,
                         timestamp: Date.now(),
-                        label: `Delegation to ${agentId.replace(/^./, (c) => c.toUpperCase())}`,
+                        label: delegationLabel,
                         detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
                         chatId: req.chatId,
                       });
@@ -3405,7 +4843,7 @@ For workforce, explain services before request_workspace_permissions.`;
               }
             }
 
-            // request_mode_change: Build path (switch to Ask or emit activity for Auto)
+            // request_mode_change: Build path — same instant apply + mode:changed notification
             const requestModeChangeToolBuild = ToolRegistry.get("request_mode_change");
             if (requestModeChangeToolBuild) {
               tools["request_mode_change"] = {
@@ -3417,7 +4855,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   const hasPending =
                     permissionInterceptor.getAllOperationsCount() >
                     permissionInterceptor.getExecutedOperationsCount();
-                  const result = await ToolRegistry.execute("request_mode_change", {
+                  const execResult = await ToolRegistry.execute("request_mode_change", {
                     ...args,
                     hasWorkspace,
                     currentMode: "build",
@@ -3425,92 +4863,222 @@ For workforce, explain services before request_workspace_permissions.`;
                     hasPendingPermissions: hasPending,
                     chatId: req.chatId,
                   });
-                  if (
-                    result &&
-                    typeof result === "object" &&
-                    (result as any).__emit_mode_change_activity
-                  ) {
+                  recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
+                  const inner = unwrapRegistryToolResult(execResult);
+                  if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
+                    const modeLabelMap2: Record<string, string> = { ask: "Ask", plan: "Plan", build: "Build", debug: "Debug", review: "Review" };
+                    const modeLabel = modeLabelMap2[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
                     safeSend(event.sender, "chat:activity", {
                       id: `mode-change-${Date.now()}`,
                       type: "mode_change",
-                      label: `Switched to ${(result as any).requestedMode === "build" ? "Build" : "Ask"} (Auto)`,
+                      label: `Switched to ${modeLabel} (Auto)`,
                       status: "done",
                       timestamp: Date.now(),
-                      detail: (result as any).reason,
+                      detail: (inner as any).reason,
                       chatId: req.chatId,
                     });
                   }
-                  return typeof result === "string" ? result : JSON.stringify(result);
+                  emitModeChangedIfApplied(event.sender, req.chatId, args?.mode, inner);
+                  if (typeof execResult === "string") return execResult;
+                  if (inner && typeof inner === "object" && (inner as any).success === false) {
+                    return JSON.stringify(inner);
+                  }
+                  captureSafe("mode_switched_mid_stream", {
+                    from_mode: "build",
+                    to_mode: String(args?.mode ?? ""),
+                    chat_id: req.chatId,
+                    workspace_id: effectiveAppId ?? null,
+                    turn_id: streamTurnIdForLedger,
+                  });
+                  return JSON.stringify(
+                    inner && typeof inner === "object" ? { success: true, ...(inner as object) } : { success: true },
+                  );
                 },
               };
             }
 
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
 
+            const recordBuildToolLedger = (name: string, payload: unknown) => {
+              try {
+                if (
+                  payload &&
+                  typeof payload === "object" &&
+                  (payload as { __permission_required?: boolean }).__permission_required === true
+                ) {
+                  return;
+                }
+                const summary =
+                  typeof payload === "string"
+                    ? payload.slice(0, 400)
+                    : JSON.stringify(payload).slice(0, 400);
+                const fr: string[] = [];
+                const fw: string[] = [];
+                if (payload && typeof payload === "object") {
+                  const o = payload as Record<string, unknown>;
+                  if (typeof o.path === "string") {
+                    const p = o.path.split(/[/\\]/).join("/");
+                    if (
+                      /read_file|explore_folder|search_code|list_files|find_file|parse_url|read_url|get_/.test(
+                        name,
+                      )
+                    ) {
+                      fr.push(p);
+                    } else {
+                      fw.push(p);
+                    }
+                  }
+                }
+                recordToolOnLedger(streamTurnIdForLedger, {
+                  toolName: name,
+                  summary,
+                  filesRead: fr.length ? fr : undefined,
+                  filesWritten: fw.length ? fw : undefined,
+                });
+              } catch {
+                /* noop */
+              }
+            };
+
             // ═══════════════════════════════════════════════════════════════
             // SMART AGENTIC TOOL LOOP
-            // - Dynamic iteration limit (can be extended by user)
-            // - Time limit safety (10 min max)
+            // - No artificial iteration ceiling (runs until natural completion)
+            // - 30 min wall-clock cap (all work modes & agent modes; see STREAM_TOOL_LOOP_DURATION_CAP_MS)
             // - Completion detection (AI signals when done)
             // - Progress emission to frontend
             // ═══════════════════════════════════════════════════════════════
-            let maxIterations = DEFAULT_AGENTIC_CONFIG.maxIterations;
             const loopStartTime = Date.now();
-            let hasShownWarning = false;
             let agenticIteration = 0;
             let agenticMessages = [...chatMessages]; // Copy current messages
             let allToolResults: { tool: string; result: string }[] = [];
             let totalToolExecutions = 0; // Track total tools executed across all iterations
 
+            let streamAbortLedgerCompleteCaptured = false;
+            const captureStreamAbortLedgerCompleteIfNeeded = () => {
+              if (streamAbortLedgerCompleteCaptured) return;
+              streamAbortLedgerCompleteCaptured = true;
+              captureSafe("stream_abort_ledger_complete", {
+                chat_id: req.chatId,
+                iterations: agenticIteration,
+                tools_executed: totalToolExecutions,
+              });
+            };
+
             const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
 
             try {
-              while (agenticIteration < maxIterations) {
-                // Time limit safety check
-                if (Date.now() - loopStartTime > DEFAULT_AGENTIC_CONFIG.maxDurationMs) {
-                  logger.warn(`[Agentic Loop] Hit time limit (10 minutes)`);
-                  safeSend(event.sender, "chat:iteration:timeout", {
+              agenticRepetition.setEnabled(true);
+              for (;;) {
+                if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+                  logger.warn(
+                    `[Agentic Loop] Hit duration limit (30 minutes) chatMode=${settings.selectedChatMode ?? "?"} agentMode=${settings.agentMode ?? "?"}`,
+                  );
+                  safeSend(event.sender, "chat:activity", {
+                    id: `duration-limit-${Date.now()}`,
+                    type: "duration_limit_reached",
+                    label: "Task paused after 30 minutes",
+                    detail: "Send a message to continue",
+                    status: "done",
+                    timestamp: Date.now(),
                     chatId: req.chatId,
-                    message: "Task took too long. Stopping to prevent runaway costs.",
-                    duration: Date.now() - loopStartTime,
                   });
                   break;
                 }
 
-                // Emit progress to frontend
+                // Emit progress to frontend (maxIterations 0 = unbounded in UI)
                 safeSend(event.sender, "chat:iteration:progress", {
                   chatId: req.chatId,
                   iteration: agenticIteration + 1,
-                  maxIterations,
+                  maxIterations: 0,
                   totalToolsExecuted: totalToolExecutions,
                 });
 
-                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1}/${maxIterations}`);
+                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1} (unbounded)`);
 
-                const { fullStream } = await simpleStreamText({
-                  chatMessages: agenticMessages,
-                  modelClient,
-                  tools,
-                  systemPromptOverride: buildSystemPromptWithManifest,
-                  files: files,
-                });
+                let buildIterMessages: ModelMessage[] = agenticMessages;
+                let streamRoundDone = false;
+                while (!streamRoundDone) {
+                  const {
+                    bundle: buildBundle,
+                    fullResponse: buildRoundFull,
+                    finishReason: buildFr,
+                  } = await runStreamRoundWithEmptyOutputRetry({
+                    runSimpleStream: async () =>
+                      simpleStreamText({
+                        chatMessages: buildIterMessages,
+                        modelClient,
+                        tools,
+                        systemPromptOverride: buildSystemPromptWithManifest,
+                        files: files,
+                      }),
+                    fullResponse,
+                    abortController,
+                    chatId: req.chatId,
+                    processResponseChunkUpdate,
+                    onFirstModelActivity: () => {
+                      safeSend(event.sender, "chat:stream:phase", {
+                        chatId: req.chatId,
+                        phase: "responding",
+                        label: "",
+                      });
+                    },
+                  });
+                  fullResponse = buildRoundFull;
+                  const buildResp = await buildBundle.response;
+                  const respMsgs = buildResp.messages as ModelMessage[];
 
-                // Process the stream
-                const result = await processStreamChunks({
-                  fullStream,
-                  fullResponse,
-                  abortController,
-                  chatId: req.chatId,
-                  processResponseChunkUpdate,
-                  onFirstModelActivity: () => {
-                    safeSend(event.sender, "chat:stream:phase", {
-                      chatId: req.chatId,
-                      phase: "responding",
-                      label: "",
-                    });
-                  },
-                });
-                fullResponse = result.fullResponse;
+                  if (
+                    shouldContinue(buildFr, {
+                      attemptCount: streamContinuationAttempts,
+                      maxAttempts: STREAM_CONTINUATION_MAX,
+                    })
+                  ) {
+                    streamContinuationAttempts++;
+                    buildIterMessages = [
+                      ...buildIterMessages,
+                      ...respMsgs,
+                      {
+                        role: "user",
+                        content: buildContinuationPrompt({
+                          chatId: req.chatId,
+                          turnId: String(placeholderAssistantMessage.id),
+                          attemptCount: streamContinuationAttempts,
+                          maxAttempts: STREAM_CONTINUATION_MAX,
+                          lastContent: fullResponse,
+                          ledgerState: getLedgerStateForContinuation(),
+                        }),
+                      },
+                    ];
+                    continue;
+                  }
+
+                  const ledgerNow = getLedger(streamTurnIdForLedger);
+                  const pendingForContinue =
+                    ledgerNow &&
+                    buildFr === "stop" &&
+                    !isLedgerTaskComplete(ledgerNow) &&
+                    streamContinuationAttempts < STREAM_CONTINUATION_MAX
+                      ? getRemainingSteps(ledgerNow)
+                      : [];
+
+                  if (pendingForContinue.length > 0) {
+                    streamContinuationAttempts++;
+                    const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
+                    buildIterMessages = [
+                      ...buildIterMessages,
+                      ...respMsgs,
+                      {
+                        role: "user",
+                        content:
+                          buildPendingStepsContinuationPrompt(pendingForContinue) +
+                          (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : ""),
+                      },
+                    ];
+                    continue;
+                  }
+
+                  streamRoundDone = true;
+                }
 
                 // ═══════════════════════════════════════════════════════════
                 // OPTION A: Track tool execution (works with ALL providers)
@@ -3536,7 +5104,7 @@ For workforce, explain services before request_workspace_permissions.`;
                 }
 
                 // Check if task is explicitly complete
-                if (DEFAULT_AGENTIC_CONFIG.requireExplicitCompletion && isTaskComplete(fullResponse)) {
+                if (isTaskComplete(fullResponse)) {
                   logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
                   break;
                 }
@@ -3591,6 +5159,7 @@ For workforce, explain services before request_workspace_permissions.`;
                             argsWithWorkspace,
                             event.sender,
                             req.chatId,
+                            buildToolStreamOpts(),
                           );
                           return { toolCall: tc, toolResult: r };
                         } catch (e) {
@@ -3606,6 +5175,23 @@ For workforce, explain services before request_workspace_permissions.`;
                 if (allReadOnly) {
                   logger.log(`[Agentic Loop] Executed ${textToolCalls.length} read-only tools in parallel`);
                 }
+
+                const recordAgenticTextToolRepetitionIfTracked = (
+                  name: string,
+                  args: Record<string, unknown>,
+                  resultStr: string,
+                ) => {
+                  if (!agenticRepetition.isEnabled()) return;
+                  if (name !== "write_file" && name !== "run_command") return;
+                  if (resultStr.startsWith("Error:")) return;
+                  try {
+                    const j = JSON.parse(resultStr) as { success?: boolean };
+                    if (j.success === false) return;
+                  } catch {
+                    /* non-JSON: still allow repetition tracking */
+                  }
+                  handleAgenticRepetitionOutcome(agenticRepetition.record(name, args));
+                };
 
                 for (let i = 0; i < textToolCalls.length; i++) {
                   const toolCall = textToolCalls[i];
@@ -3636,6 +5222,7 @@ For workforce, explain services before request_workspace_permissions.`;
                           argsWithWorkspace,
                           event.sender,
                           req.chatId,
+                          buildToolStreamOpts(),
                         );
                       }
                     } catch (toolError) {
@@ -3666,10 +5253,9 @@ For workforce, explain services before request_workspace_permissions.`;
                       const permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
                       if (permRequest) {
                         const operationId = permissionInterceptor.generateOperationId();
-                        const skipPermissionWait = shouldAutoApprovePermissions(
-                          settings.agentMode,
-                          req.chatId,
-                        );
+                        const skipPermissionWait =
+                          shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                          permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                         permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
                         const pushAgenticWrittenPaths = () => {
                           const preview = permRequest.preview as { path?: string; paths?: string[] };
@@ -3696,15 +5282,21 @@ For workforce, explain services before request_workspace_permissions.`;
                             );
                             if (execMeta.approved) {
                               pushAgenticWrittenPaths();
+                              const okPermResult = JSON.stringify({
+                                success: true,
+                                message: `Operation completed`,
+                                path: execResult.path,
+                                output: execResult.output,
+                              });
                               iterationResults.push({
                                 tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  success: true,
-                                  message: `Operation completed`,
-                                  path: execResult.path,
-                                  output: execResult.output,
-                                }),
+                                result: okPermResult,
                               });
+                              recordAgenticTextToolRepetitionIfTracked(
+                                toolCall.toolName,
+                                toolCall.args as Record<string, unknown>,
+                                okPermResult,
+                              );
                             } else if (execResult.exitCode !== undefined) {
                               iterationResults.push({
                                 tool: toolCall.toolName,
@@ -3751,15 +5343,21 @@ For workforce, explain services before request_workspace_permissions.`;
                             if (approved) {
                               const execResult = permissionInterceptor.getExecutionResult(operationId);
                               pushAgenticWrittenPaths();
+                              const okPermResult2 = JSON.stringify({
+                                success: true,
+                                message: `Operation completed`,
+                                path: execResult.path,
+                                output: execResult.output,
+                              });
                               iterationResults.push({
                                 tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  success: true,
-                                  message: `Operation completed`,
-                                  path: execResult.path,
-                                  output: execResult.output,
-                                }),
+                                result: okPermResult2,
                               });
+                              recordAgenticTextToolRepetitionIfTracked(
+                                toolCall.toolName,
+                                toolCall.args as Record<string, unknown>,
+                                okPermResult2,
+                              );
                             } else {
                               const execResult = permissionInterceptor.getExecutionResult(operationId);
                               if (execResult.exitCode !== undefined) {
@@ -3798,6 +5396,11 @@ For workforce, explain services before request_workspace_permissions.`;
                     } else {
                       const resultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
                       iterationResults.push({ tool: toolCall.toolName, result: resultStr });
+                      recordAgenticTextToolRepetitionIfTracked(
+                        toolCall.toolName,
+                        toolCall.args as Record<string, unknown>,
+                        resultStr,
+                      );
                       logger.log(`[Agentic Loop] Tool executed: ${toolCall.toolName} ✓`);
                     }
                   } catch (toolError) {
@@ -3814,9 +5417,19 @@ For workforce, explain services before request_workspace_permissions.`;
                 totalToolExecutions += iterationResults.length; // Track total executions
 
                 // Format tool results to feed back to AI
-                const toolResultsMessage = iterationResults.map(r =>
-                  `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`
-                ).join('\n\n');
+                const counselBlock = pendingMidTaskCounselInject.value;
+                pendingMidTaskCounselInject.value = null;
+                const counselMid =
+                  counselBlock != null && counselBlock.trim()
+                    ? `\n\n## Counsel (mid-task perspectives)\n${counselBlock.trim()}\n`
+                    : "";
+                const toolResultsMessage =
+                  counselMid +
+                  iterationResults
+                    .map(
+                      (r) => `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`,
+                    )
+                    .join("\n\n");
 
                 // Add assistant's response to message history (strip text-tool XML for cleaner follow-up + UI)
                 agenticMessages.push({
@@ -3830,6 +5443,14 @@ For workforce, explain services before request_workspace_permissions.`;
                   content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
                 });
 
+                const loopCorrection = agenticRepetition.takePendingCorrection();
+                if (loopCorrection) {
+                  agenticMessages.push({
+                    role: "user" as const,
+                    content: loopCorrection,
+                  });
+                }
+
                 // Keep fullResponse for UI continuity - don't reset
                 // (Conversation history already has the response)
                 agenticIteration++;
@@ -3839,42 +5460,27 @@ For workforce, explain services before request_workspace_permissions.`;
                   logger.log("[Agentic Loop] Had permission requests, continuing loop...");
                 }
 
-                // 75% warning: Ask user if they want to continue
-                const warningThreshold = Math.floor(maxIterations * 0.75);
-                if (agenticIteration === warningThreshold && !hasShownWarning) {
-                  hasShownWarning = true;
+                if (loopCorrection) {
+                  continue;
+                }
 
-                  safeSend(event.sender, "chat:iteration:warning", {
-                    chatId: req.chatId,
-                    iteration: agenticIteration,
-                    maxIterations,
-                    totalToolsExecuted: totalToolExecutions,
-                    estimatedTokens: totalToolExecutions * 500,
-                    message: `Task running long (${agenticIteration}/${maxIterations}). Continue?`,
-                  });
-
-                  const approval = await waitForUserContinuation(req.chatId, 30000, true);
-                  if (approval) {
-                    maxIterations += 10;
-                    logger.info(`[Agentic Loop] Extended to ${maxIterations} iterations`);
-                  } else {
-                    logger.info(`[Agentic Loop] User declined continuation`);
-                    break;
-                  }
+                if (agenticRepetition.consumeLoopBreak()) {
+                  logger.warn("[Agentic Loop] Stopping after repeated write/command (repetition guard)");
+                  fullResponse =
+                    stripToolCallXML(fullResponse) +
+                    "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
+                  break;
                 }
               }
 
-              if (agenticIteration >= maxIterations) {
-                logger.warn(`[Agentic Loop] Hit max iterations (${maxIterations})`);
-                safeSend(event.sender, "chat:iteration:limit-reached", {
-                  chatId: req.chatId,
-                  message: "Hit iteration limit. Task may be incomplete.",
-                  iterations: agenticIteration,
-                  totalToolsExecuted: totalToolExecutions,
-                });
-              }
-
               fullResponse = stripToolCallXML(fullResponse);
+
+              if (isTaskComplete(fullResponse)) {
+                streamStopWasTaskComplete = true;
+              }
+              if (streamStopWasTaskComplete) {
+                captureStreamAbortLedgerCompleteIfNeeded();
+              }
 
               // Structured metrics logging
               logger.info(`[Agentic Loop] Completed:`, {
@@ -3883,16 +5489,16 @@ For workforce, explain services before request_workspace_permissions.`;
                 toolsExecuted: totalToolExecutions,
                 durationMs: Date.now() - loopStartTime,
                 completedNaturally: isTaskComplete(fullResponse),
-                hitIterationLimit: agenticIteration >= maxIterations,
-                userExtensions: Math.floor((maxIterations - DEFAULT_AGENTIC_CONFIG.maxIterations) / 10),
               });
               hadToolCallsOrPermissions =
                 totalToolExecutions > 0 || permissionInterceptor.getAllOperationsCount() > 0;
               // ═══════════════════════════════════════════════════════════════
 
             } catch (streamError) {
-              // Check if this was an abort error
-              if (abortController.signal.aborted) {
+              const ledgerCompleteStop =
+                streamStopWasTaskComplete ||
+                abortController.signal.reason === TASK_COMPLETE_STREAM_STOP;
+              if (abortController.signal.aborted && !ledgerCompleteStop) {
                 const chatId = req.chatId;
                 const partialResponse = partialResponses.get(req.chatId);
                 // If we have a partial response, save it to the database
@@ -3927,13 +5533,22 @@ For workforce, explain services before request_workspace_permissions.`;
                 }
                 return req.chatId;
               }
-              throw streamError;
+              if (abortController.signal.aborted && ledgerCompleteStop) {
+                logger.log(
+                  `[Agentic Loop] Stream stopped after task ledger complete (chat ${req.chatId})`,
+                );
+                captureStreamAbortLedgerCompleteIfNeeded();
+              } else if (!abortController.signal.aborted) {
+                throw streamError;
+              }
+            } finally {
+              agenticRepetition.setEnabled(false);
             }
           } // End of Build mode block
         }
 
-        // Only save the response and process it if we weren't aborted
-        if (!abortController.signal.aborted) {
+        // Only save the response and process it if we weren't user-aborted (ledger-complete stop still saves)
+        if (!abortController.signal.aborted || streamStopWasTaskComplete) {
           const currentSettings = readSettings();
           const intentModeForStructured = currentSettings.intentMode ?? "ask";
           const manualWorkMode =
@@ -3968,7 +5583,11 @@ For workforce, explain services before request_workspace_permissions.`;
                     }
                   : null;
 
-          if (modeSchemaConfig && fullResponse.trim()) {
+          const isBuildModeForSchema =
+            currentSettings.selectedChatMode === "agent" ||
+            currentSettings.selectedChatMode === "build";
+
+          if (modeSchemaConfig && fullResponse.trim() && isBuildModeForSchema) {
             const validation = await validateStructuredOutputWithSingleRetry({
               rawText: fullResponse,
               schema: modeSchemaConfig.schema,
@@ -4073,6 +5692,13 @@ For workforce, explain services before request_workspace_permissions.`;
                 detail: validation.warning,
                 chatId: req.chatId,
               });
+              if (validation.status === "fallback") {
+                sentryAddBreadcrumbSafe({
+                  category: "validation",
+                  message: `structured_output_fallback schema=${modeSchemaConfig.schemaName}`,
+                  level: "warning",
+                });
+              }
             }
           }
 
@@ -4178,9 +5804,15 @@ For workforce, explain services before request_workspace_permissions.`;
 
             dyadProcessedFileWrites = status.updatedFiles ?? false;
 
+            const newReviewSystemActive =
+              settings.agentMode === "autonomous" ||
+              streamStopWasTaskComplete ||
+              delegatedAgentsThisTurn.includes("reviewer");
+
             // v2.1: Self-review activity (runtime stub - show in Activity Stream when enabled)
             const selfReview = settings.aiConfiguration?.selfReview;
             if (
+              !newReviewSystemActive &&
               selfReview?.enabled &&
               (selfReview.strategy === "runtime" || selfReview.strategy === "both") &&
               selfReview.showInActivityStream
@@ -4250,7 +5882,7 @@ For workforce, explain services before request_workspace_permissions.`;
             if (
               settings.agentMode === "autonomous" &&
               isBuildModeTurn &&
-              !abortController.signal.aborted
+              (!abortController.signal.aborted || streamStopWasTaskComplete)
             ) {
               const tid = String(placeholderAssistantMessage.id);
               const ops = getAutonomousSessionLog(req.chatId, tid);
@@ -4267,6 +5899,28 @@ For workforce, explain services before request_workspace_permissions.`;
             }
 
             // Signal that the stream has completed
+            markLedgerStreamComplete(streamTurnIdForLedger);
+            notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
+            {
+              const finalLedger = getLedger(streamTurnIdForLedger);
+              if (
+                finalLedger &&
+                isLedgerTaskComplete(finalLedger) &&
+                !streamStopWasTaskComplete
+              ) {
+                streamStopWasTaskComplete = true;
+              }
+            }
+            await maybeAppendAutoMemoryAfterStream({
+              settings,
+              appPath,
+              chatId: req.chatId,
+              isEphemeralWorkspace,
+              streamTurnIdForLedger,
+              isBuildModeTurn,
+              sender: event.sender,
+            });
+            notifyCompactionLedgerSettled(req.chatId, streamTurnIdForLedger);
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: status.updatedFiles ?? false,
@@ -4276,11 +5930,45 @@ For workforce, explain services before request_workspace_permissions.`;
               usedCompass: usedCompassThisStream,
               compassTier: compassStreamTier,
               compassTokens: compassStreamTokens,
+              ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
+                ? { reasoningTokens: maxReasoningTokensUsed }
+                : {}),
             } satisfies ChatResponseEnd);
+            queuePostTurnSelfCorrection(event.sender, {
+              chatId: req.chatId,
+              rootAssistantMessageId: placeholderAssistantMessage.id,
+              appId: effectiveAppId,
+              appPath,
+              filesWrittenInThisExchange,
+              isBuildModeTurn,
+              isEphemeralWorkspace,
+              aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
+            });
+            activeStreams.delete(req.chatId);
+            void runAutonomousBuildVerificationAfterTaskComplete({
+              sender: event.sender,
+              chatId: req.chatId,
+              streamStopWasTaskComplete,
+              agentMode: settings.agentMode,
+              appPath,
+              workspaceId: effectiveAppId ?? undefined,
+              streamTurnIdForLedger,
+              rootAssistantMessageId: placeholderAssistantMessage.id,
+              isEphemeralWorkspace,
+              settings,
+            }).catch((buildVerifyErr) => {
+              logger.warn("[build-verify] Post-turn verification failed:", buildVerifyErr);
+            });
           } else {
+            const newReviewSystemActiveElse =
+              settings.agentMode === "autonomous" ||
+              streamStopWasTaskComplete ||
+              delegatedAgentsThisTurn.includes("reviewer");
+
             // v2.1: Self-review activity in non-status path (ask/simple)
             const selfReviewElse = settings.aiConfiguration?.selfReview;
             if (
+              !newReviewSystemActiveElse &&
               selfReviewElse?.enabled &&
               (selfReviewElse.strategy === "runtime" || selfReviewElse.strategy === "both") &&
               selfReviewElse.showInActivityStream
@@ -4333,7 +6021,7 @@ For workforce, explain services before request_workspace_permissions.`;
             if (
               settings.agentMode === "autonomous" &&
               isBuildModeTurn &&
-              !abortController.signal.aborted
+              (!abortController.signal.aborted || streamStopWasTaskComplete)
             ) {
               const tid = String(placeholderAssistantMessage.id);
               const ops = getAutonomousSessionLog(req.chatId, tid);
@@ -4348,6 +6036,28 @@ For workforce, explain services before request_workspace_permissions.`;
                 });
               }
             }
+            markLedgerStreamComplete(streamTurnIdForLedger);
+            notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
+            {
+              const finalLedgerElse = getLedger(streamTurnIdForLedger);
+              if (
+                finalLedgerElse &&
+                isLedgerTaskComplete(finalLedgerElse) &&
+                !streamStopWasTaskComplete
+              ) {
+                streamStopWasTaskComplete = true;
+              }
+            }
+            await maybeAppendAutoMemoryAfterStream({
+              settings,
+              appPath,
+              chatId: req.chatId,
+              isEphemeralWorkspace,
+              streamTurnIdForLedger,
+              isBuildModeTurn,
+              sender: event.sender,
+            });
+            notifyCompactionLedgerSettled(req.chatId, streamTurnIdForLedger);
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: false,
@@ -4355,7 +6065,35 @@ For workforce, explain services before request_workspace_permissions.`;
               usedCompass: usedCompassThisStream,
               compassTier: compassStreamTier,
               compassTokens: compassStreamTokens,
+              ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
+                ? { reasoningTokens: maxReasoningTokensUsed }
+                : {}),
             } satisfies ChatResponseEnd);
+            queuePostTurnSelfCorrection(event.sender, {
+              chatId: req.chatId,
+              rootAssistantMessageId: placeholderAssistantMessage.id,
+              appId: effectiveAppId,
+              appPath,
+              filesWrittenInThisExchange,
+              isBuildModeTurn,
+              isEphemeralWorkspace,
+              aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
+            });
+            activeStreams.delete(req.chatId);
+            void runAutonomousBuildVerificationAfterTaskComplete({
+              sender: event.sender,
+              chatId: req.chatId,
+              streamStopWasTaskComplete,
+              agentMode: settings.agentMode,
+              appPath,
+              workspaceId: effectiveAppId ?? undefined,
+              streamTurnIdForLedger,
+              rootAssistantMessageId: placeholderAssistantMessage.id,
+              isEphemeralWorkspace,
+              settings,
+            }).catch((buildVerifyErr) => {
+              logger.warn("[build-verify] Post-turn verification failed:", buildVerifyErr);
+            });
           }
         }
 
@@ -4384,6 +6122,37 @@ For workforce, explain services before request_workspace_permissions.`;
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
         logger.error("Error calling LLM:", error);
+        if (error instanceof EmptyModelOutputAfterRetryError) {
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: MODEL_EMPTY_RESPONSE_USER_MESSAGE,
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
+          activeStreams.delete(req.chatId);
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
+        if (
+          error instanceof TypeError &&
+          (error.message === "terminated" || error.message === "fetch failed")
+        ) {
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: "Connection interrupted. Please try again.",
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
+          activeStreams.delete(req.chatId);
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
         if (error instanceof ChatPromptSafetyError) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
@@ -4417,8 +6186,7 @@ For workforce, explain services before request_workspace_permissions.`;
         }
         const errMessage = isDiagramModelNotFoundError(error)
           ? "The selected model was not found for any provider. Please choose a different model in Settings."
-          : NoOutputGeneratedError.isInstance(error) ||
-              NoContentGeneratedError.isInstance(error)
+          : isNoUsableModelOutputError(error)
             ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
             : `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : String(error)}`;
         safeSend(event.sender, "chat:response:error", {
@@ -4429,6 +6197,7 @@ For workforce, explain services before request_workspace_permissions.`;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
         stopAgentOrchestrator?.();
+        unregisterLedgerPlanUiNotifier(req.chatId);
       }
     };
 
@@ -4551,6 +6320,33 @@ For workforce, explain services before request_workspace_permissions.`;
     }
   );
 
+  ipcMain.handle(
+    "snapshot:exists",
+    async (_event, payload: { appId: number; turnId: string }) => {
+      const { appId, turnId } = payload;
+      if (!turnId || appId == null || Number.isNaN(Number(appId))) {
+        return false;
+      }
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, appId),
+      });
+      if (!app) return false;
+      const workspacePath = getAtlarixAppPath(app.path);
+      const manifestPath = path.join(
+        atlasDir(workspacePath),
+        "snapshots",
+        String(turnId),
+        "manifest.json",
+      );
+      try {
+        await access(manifestPath);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
+
   // v3.9 / v4.0: Revert conversation to an assistant message — restore workspace snapshot (if any), truncate messages, clear has_answered_questions
   ipcMain.handle(
     "chat:revert-to-message",
@@ -4567,19 +6363,22 @@ For workforce, explain services before request_workspace_permissions.`;
       }
       const [chatRow] = await db.select().from(chats).where(eq(chats.id, chatId));
       const appId = chatRow?.appId ?? null;
+      const turnId = String(assistantMessageId);
       if (appId != null) {
         const [app] = await db.select().from(apps).where(eq(apps.id, appId));
         if (app) {
           const appPath = resolveAppPath(app.path);
-          const turnId = String(assistantMessageId);
-          const result = await revertSnapshot({
-            workspacePath: appPath,
+          const result = await performFullRevert({
+            chatId,
             turnId,
+            assistantMessageId,
+            workspacePath: appPath,
             workspaceId: appId,
           });
-          if (!result.success) {
-            logger.warn("Revert: .atlarix snapshot restore failed:", result.error);
+          if (!result.success && result.error) {
+            logger.warn("Revert: performFullRevert:", result.error);
           }
+          return { success: true };
         }
       }
       const chatMessages = await db
@@ -4606,7 +6405,6 @@ For workforce, explain services before request_workspace_permissions.`;
       payload: { chatId: number; turnId: string; operationId: string },
     ) => {
       const { findAutonomousOp, markAutonomousOpReverted } = await import("./autonomous-session-state");
-      const { revertSnapshotFiles } = await import("../../lib/snapshot/snapshot-manager");
       const op = findAutonomousOp(payload.chatId, payload.turnId, payload.operationId);
       if (!op?.path) {
         return { success: false, error: "No file path for this operation" };
@@ -4619,11 +6417,22 @@ For workforce, explain services before request_workspace_permissions.`;
         return { success: false, error: "Chat has no workspace" };
       }
       const workspacePath = resolveAppPath(chatRow.app.path);
+      const workspaceId = chatRow.app.id;
       const rel = op.path.split(path.sep).join("/");
-      const result = await revertSnapshotFiles({
-        workspacePath,
+      const assistantMessageId = Number(payload.turnId);
+      if (!Number.isFinite(assistantMessageId)) {
+        return { success: false, error: "Invalid turnId" };
+      }
+      const result = await performFullRevert({
+        chatId: payload.chatId,
         turnId: payload.turnId,
-        relativePaths: [rel],
+        assistantMessageId,
+        workspacePath,
+        workspaceId,
+        options: {
+          filesFilter: [rel],
+          skipMessageFlags: true,
+        },
       });
       if (result.success) {
         markAutonomousOpReverted(payload.chatId, payload.turnId, payload.operationId);
@@ -4638,6 +6447,45 @@ For workforce, explain services before request_workspace_permissions.`;
       const { clearAutonomousSession } = await import("./autonomous-session-state");
       clearAutonomousSession(payload.chatId, payload.turnId);
       return { success: true };
+    },
+  );
+
+  ipcMain.handle(
+    "revert:snapshot",
+    async (_event, payload: { chatId: number; turnId: string }) => {
+      const { chatId, turnId } = payload;
+      const assistantMessageId = Number(turnId);
+      if (!Number.isFinite(assistantMessageId)) {
+        return { success: false, error: "Invalid turnId" };
+      }
+      const msg = await db.query.messages.findFirst({
+        where: and(
+          eq(messages.id, assistantMessageId),
+          eq(messages.chatId, chatId),
+        ),
+      });
+      if (!msg || msg.role !== "assistant") {
+        return {
+          success: false,
+          error: "Assistant message not found for this chat and turnId",
+        };
+      }
+      const chatRow = await db.query.chats.findFirst({
+        where: eq(chats.id, chatId),
+        with: { app: true },
+      });
+      if (!chatRow?.app?.path) {
+        return { success: false, error: "No workspace attached" };
+      }
+      const workspacePath = resolveAppPath(chatRow.app.path);
+      const workspaceId = chatRow.app.id;
+      return performFullRevert({
+        chatId,
+        turnId,
+        assistantMessageId,
+        workspacePath,
+        workspaceId,
+      });
     },
   );
 }

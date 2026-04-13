@@ -12,6 +12,7 @@ import type {
   AutonomousSessionCompletePayload,
   Chat,
   ChatResponseEnd,
+  RevertSnapshotResult,
   ChatProblemsEvent,
   CreateAppParams,
   CreateAppResult,
@@ -76,6 +77,12 @@ import type {
   AnalyseComponentParams,
   DiscordInviteInfoResult,
   CompassUsageIpcResult,
+  CounselStartIpcPayload,
+  CounselStartIpcResult,
+  CounselCancelIpcResult,
+  CounselParticipantUpdateIpcPayload,
+  CounselCompleteIpcPayload,
+  PlanUpdatePayload,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -152,6 +159,7 @@ export class IpcClient {
   private questionsHandlers: Set<(payload: { messageId: number; questions: Question[] }) => void> = new Set();
   private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
+  private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -221,13 +229,7 @@ export class IpcClient {
       const callbacks = this.chatStreams.get(chatId);
       if (callbacks) {
         callbacks.onEnd(payload as unknown as ChatResponseEnd);
-        console.debug("chat:response:end");
         this.chatStreams.delete(chatId);
-      } else {
-        // This is expected when canceling streams or for ephemeral chats (-1)
-        console.debug(
-          `[IPC] Stream ended without callbacks for chat ${chatId} (expected after cancel)`,
-        );
       }
     });
 
@@ -274,7 +276,6 @@ export class IpcClient {
     });
 
     this.ipcRenderer.on("chat:response:error", (payload) => {
-      console.debug("chat:response:error");
       if (
         payload &&
         typeof payload === "object" &&
@@ -371,7 +372,7 @@ export class IpcClient {
       }
     });
 
-    // Mode change request (Ask -> Build; user approval required)
+    // Legacy: mode change approval prompt (unused for request_mode_change; handler may be unset)
     this.ipcRenderer.on("mode_change_requested", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload && this.modeChangeHandler) {
         this.modeChangeHandler(payload);
@@ -403,6 +404,19 @@ export class IpcClient {
     });
 
     // chat:activity (e.g. summarization progress)
+    this.ipcRenderer.on("chat:plan-update", (_e, payload: unknown) => {
+      if (!payload || typeof payload !== "object" || !("chatId" in payload)) return;
+      const p = payload as PlanUpdatePayload;
+      const set = this.planUpdateHandlers.get(p.chatId);
+      set?.forEach((h) => {
+        try {
+          h(p);
+        } catch {
+          /* noop */
+        }
+      });
+    });
+
     this.ipcRenderer.on("chat:activity", (payload: any) => {
       if (payload && typeof payload === "object") {
         this.chatActivityHandlers.forEach((h) => h(payload));
@@ -502,6 +516,22 @@ export class IpcClient {
     return this.ipcRenderer.invoke("autonomous:accept-all", params);
   }
 
+  /** Restore workspace files + diagram from `.atlarix/snapshots/<turnId>/`; cancels task ledger for that turn. */
+  public async revertSnapshot(
+    chatId: number,
+    turnId: string,
+  ): Promise<RevertSnapshotResult> {
+    return this.ipcRenderer.invoke("revert:snapshot", { chatId, turnId });
+  }
+
+  /** Whether `.atlarix/snapshots/<turnId>/manifest.json` exists for the workspace. */
+  public async snapshotExists(params: {
+    appId: number;
+    turnId: string;
+  }): Promise<boolean> {
+    return this.ipcRenderer.invoke("snapshot:exists", params);
+  }
+
   /** v3.9: GitHub Actions — list runs for workspace */
   public async githubActionsListRuns(workspacePath: string): Promise<{
     repo: { owner: string; repo: string } | null;
@@ -556,6 +586,48 @@ export class IpcClient {
     const subscription = (_: Electron.IpcRendererEvent, payload: { jobId: number; line?: string; error?: string }) => handler(payload);
     this.ipcRenderer.on("github-actions:log-chunk", subscription);
     return () => this.ipcRenderer.removeListener("github-actions:log-chunk", subscription);
+  }
+
+  /** Renderer-triggered multi-model Counsel (parallel to stream-embedded counsel). */
+  public async counselStart(payload: CounselStartIpcPayload): Promise<CounselStartIpcResult> {
+    return this.ipcRenderer.invoke("counsel:start", payload);
+  }
+
+  public async counselCancel(chatId: number): Promise<CounselCancelIpcResult> {
+    return this.ipcRenderer.invoke("counsel:cancel", chatId);
+  }
+
+  /** Main → renderer counsel activity (discrete channel; same payloads also on chat:activity). */
+  public onCounselParticipantUpdate(
+    handler: (payload: CounselParticipantUpdateIpcPayload) => void,
+  ): () => void {
+    const subscription = (_: Electron.IpcRendererEvent, payload: CounselParticipantUpdateIpcPayload) =>
+      handler(payload);
+    this.ipcRenderer.on("counsel:participant-update", subscription);
+    return () => this.ipcRenderer.removeListener("counsel:participant-update", subscription);
+  }
+
+  public onCounselComplete(handler: (payload: CounselCompleteIpcPayload) => void): () => void {
+    const subscription = (_: Electron.IpcRendererEvent, payload: CounselCompleteIpcPayload) =>
+      handler(payload);
+    this.ipcRenderer.on("counsel:complete", subscription);
+    return () => this.ipcRenderer.removeListener("counsel:complete", subscription);
+  }
+
+  /** Main → renderer: live task-ledger plan for PlanCard. */
+  public onPlanUpdate(chatId: number, handler: (payload: PlanUpdatePayload) => void): () => void {
+    let set = this.planUpdateHandlers.get(chatId);
+    if (!set) {
+      set = new Set();
+      this.planUpdateHandlers.set(chatId, set);
+    }
+    set.add(handler);
+    return () => {
+      const s = this.planUpdateHandlers.get(chatId);
+      if (!s) return;
+      s.delete(handler);
+      if (s.size === 0) this.planUpdateHandlers.delete(chatId);
+    };
   }
 
   /** v3.5: Register for chat activity (e.g. summarization). Returns unsubscribe. */
@@ -752,6 +824,12 @@ export class IpcClient {
       blueprintInjectionMode?: "ask" | "plan" | "build" | "debug";
       blueprintDebugTrace?: string;
       blueprintDebugFile?: string;
+      prefillTaskLedger?: {
+        steps: { description: string }[];
+        sourcePlanMessageId?: number;
+      };
+      /** Auto routing: one-shot thinking tier for this message. */
+      forceThinkingTier?: boolean;
     },
   ): void {
     const {
@@ -768,6 +846,8 @@ export class IpcClient {
       blueprintInjectionMode,
       blueprintDebugTrace,
       blueprintDebugFile,
+      prefillTaskLedger,
+      forceThinkingTier,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
@@ -812,6 +892,8 @@ export class IpcClient {
               blueprintInjectionMode: blueprintInjectionMode ?? undefined,
               blueprintDebugTrace: blueprintDebugTrace ?? undefined,
               blueprintDebugFile: blueprintDebugFile ?? undefined,
+              prefillTaskLedger: prefillTaskLedger ?? undefined,
+              forceThinkingTier: forceThinkingTier ?? undefined,
             })
             .catch((err) => {
               console.error("Error streaming message:", err);
@@ -840,6 +922,8 @@ export class IpcClient {
           blueprintInjectionMode: blueprintInjectionMode ?? undefined,
           blueprintDebugTrace: blueprintDebugTrace ?? undefined,
           blueprintDebugFile: blueprintDebugFile ?? undefined,
+          prefillTaskLedger: prefillTaskLedger ?? undefined,
+          forceThinkingTier: forceThinkingTier ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);
@@ -1304,6 +1388,69 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:set-tool-consent", params);
   }
 
+  // --- Hooks (advisory scripts) ---
+  public async listHooks(workspaceId?: number | null) {
+    return this.ipcRenderer.invoke("hooks:list", workspaceId ?? null);
+  }
+
+  public async createHook(params: {
+    name: string;
+    trigger: string;
+    command: string;
+    argsJson?: string | null;
+    workspaceId?: number | null;
+  }) {
+    return this.ipcRenderer.invoke("hooks:create", params);
+  }
+
+  public async updateHook(params: {
+    id: number;
+    name?: string;
+    trigger?: string;
+    command?: string;
+    argsJson?: string | null;
+    workspaceId?: number | null;
+    enabled?: boolean;
+  }) {
+    return this.ipcRenderer.invoke("hooks:update", params);
+  }
+
+  public async deleteHook(id: number) {
+    return this.ipcRenderer.invoke("hooks:delete", id);
+  }
+
+  public async toggleHook(id: number, enabled: boolean) {
+    return this.ipcRenderer.invoke("hooks:toggle", id, enabled);
+  }
+
+  // --- Custom slash commands ---
+  public async listCustomCommands(workspaceId?: number | null) {
+    return this.ipcRenderer.invoke("commands:list", workspaceId ?? null);
+  }
+
+  public async createCustomCommand(params: {
+    name: string;
+    promptTemplate: string;
+    modeOverride?: string | null;
+    workspaceId?: number | null;
+  }) {
+    return this.ipcRenderer.invoke("commands:create", params);
+  }
+
+  public async updateCustomCommand(params: {
+    id: number;
+    name?: string;
+    promptTemplate?: string;
+    modeOverride?: string | null;
+    workspaceId?: number | null;
+  }) {
+    return this.ipcRenderer.invoke("commands:update", params);
+  }
+
+  public async deleteCustomCommand(id: number) {
+    return this.ipcRenderer.invoke("commands:delete", id);
+  }
+
   public onMcpToolConsentRequest(
     handler: (payload: {
       requestId: string;
@@ -1447,8 +1594,28 @@ export class IpcClient {
   /**
    * Respond to a mode change request (approve or deny).
    */
-  public async respondModeChange(chatId: number, approve: boolean): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("respond-mode-change", { chatId, approve });
+  public async respondModeChange(chatId: number, approve: boolean, requestedMode?: string): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("respond-mode-change", { chatId, approve, requestedMode });
+  }
+
+  /** Main applied a work-mode change from the model (request_mode_change); sync renderer settings atom. */
+  public onModeChanged(
+    callback: (payload: { chatId: number; newMode: string; settings: UserSettings }) => void,
+  ): () => void {
+    const listener = (data: unknown) => {
+      if (
+        data &&
+        typeof data === "object" &&
+        "chatId" in data &&
+        "settings" in data
+      ) {
+        callback(data as { chatId: number; newMode: string; settings: UserSettings });
+      }
+    };
+    this.ipcRenderer.on("mode:changed", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mode:changed", listener);
+    };
   }
 
   /**
@@ -1767,6 +1934,19 @@ export class IpcClient {
     this.ipcRenderer.on("diagram:staleness-detected", listener);
     return () => {
       this.ipcRenderer.removeListener("diagram:staleness-detected", listener);
+    };
+  }
+
+  /** Main inserted a synthetic user message for post-turn auto-fix; continue stream with that prompt. */
+  public onAutoSelfCorrect(callback: (data: { chatId: number }) => void): () => void {
+    const listener = (data: unknown) => {
+      if (data && typeof data === "object" && "chatId" in data) {
+        callback(data as { chatId: number });
+      }
+    };
+    this.ipcRenderer.on("chat:auto-self-correct", listener);
+    return () => {
+      this.ipcRenderer.removeListener("chat:auto-self-correct", listener);
     };
   }
 
@@ -2295,19 +2475,24 @@ export class IpcClient {
     return this.ipcRenderer.invoke("diagram:delete", { id });
   }
 
-  public async getDiagramHistory(diagramId: number): Promise<{
+  public async getDiagramSnapshotTimeline(workspaceId: number): Promise<{
     success: boolean;
-    versions: any[];
+    entries: Array<{
+      turnId: string;
+      timestamp: string;
+      prompt?: string;
+      isInitial?: boolean;
+    }>;
     error?: string;
   }> {
-    return this.ipcRenderer.invoke("diagram:history", { diagramId });
+    return this.ipcRenderer.invoke("snapshots:diagram-timeline", { workspaceId });
   }
 
-  public async restoreDiagramVersion(params: {
-    diagramId: number;
-    versionId: number;
-  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:restore", params);
+  public async revertDiagramSnapshot(params: {
+    workspaceId: number;
+    turnId: string;
+  }): Promise<{ success: boolean; error?: string; restoredFiles?: number }> {
+    return this.ipcRenderer.invoke("snapshots:revert-diagram", params);
   }
 
   public async exportDiagram(params: {

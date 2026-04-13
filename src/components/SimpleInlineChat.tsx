@@ -17,6 +17,7 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
+import { ToolIndicator } from "@/components/chat/ToolIndicator";
 import { Plus } from "lucide-react";
 
 interface SimpleInlineChatProps {
@@ -83,6 +84,10 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
                     <Plus size={14} />
                     <span>New Chat</span>
                 </button>
+            </div>
+
+            <div className="flex-shrink-0 px-4 pb-2">
+                <ToolIndicator forChatId={chatId} />
             </div>
 
             {/* Messages area - ONLY this should scroll */}

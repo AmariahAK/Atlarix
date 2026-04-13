@@ -16,6 +16,9 @@ function sendToAllWindows(channel: string, payload: unknown) {
 
 export function wireAgentBusToIpc(): () => void {
   return subscribeAgentBus((msg: AgentMessage) => {
+    // Internal orchestration — do not surface in user-facing activity stream.
+    if (msg.from === "main" && msg.type === "task_assign") return;
+
     sendToAllWindows("chat:activity", {
       id: msg.id,
       type: "agent_message",
@@ -26,6 +29,7 @@ export function wireAgentBusToIpc(): () => void {
       toAgent: msg.to,
       threadId: msg.threadId,
       chatId: msg.chatId,
+      agentMessageType: msg.type,
     });
   });
 }

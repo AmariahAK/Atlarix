@@ -660,3 +660,163 @@ html[data-fullscreen="true"] #layout-main-content-container {
   fill: hsl(var(--primary) / 0.9);
   stroke: hsl(var(--primary) / 0.9);
 }
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2.5s linear infinite;
+}
+
+/* Live task ledger plan card (chat) */
+@keyframes plan-card-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.plan-card {
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.dark .plan-card {
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.plan-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.plan-card-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: #10b981;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.plan-card-expand-toggle:hover {
+  opacity: 0.9;
+}
+
+.plan-card-live {
+  color: #10b981;
+  font-size: 0.7rem;
+  animation: plan-card-pulse 2s infinite;
+}
+
+.plan-card-progress {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.plan-card-task {
+  font-size: 0.85rem;
+  color: hsl(var(--foreground) / 0.75);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+
+.plan-progress-track {
+  height: 3px;
+  background: hsl(var(--muted) / 0.35);
+  border-radius: 2px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.plan-progress-track--tight {
+  margin-bottom: 0;
+}
+
+.plan-progress-fill {
+  height: 100%;
+  background: #10b981;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.plan-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: hsl(var(--foreground) / 0.65);
+}
+
+.plan-step--done {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: rgba(16, 185, 129, 0.45);
+}
+
+.plan-step--in_progress {
+  color: hsl(var(--foreground) / 0.92);
+}
+
+.plan-step--failed {
+  color: #ef4444;
+}
+
+.plan-step-marker {
+  min-width: 18px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #10b981;
+  margin-top: 1px;
+}
+
+.plan-step--done .plan-step-marker {
+  color: rgba(16, 185, 129, 0.55);
+}
+
+.plan-step--failed .plan-step-marker {
+  color: #ef4444;
+}
+
+.plan-step-active {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #10b981;
+  white-space: nowrap;
+}
+
+.plan-card-complete {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: #10b981;
+  text-align: right;
+}

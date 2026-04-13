@@ -41,11 +41,7 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const [isRetryLoading, setIsRetryLoading] = useState(false);
     const selectedChatId = useAtomValue(selectedChatIdAtom);
     const { userBudget } = useUserBudgetInfo();
-    // Only fetch token count when not streaming
-    const { result: tokenCountResult } = useCountTokens(
-      !isStreaming ? selectedChatId : null,
-      "",
-    );
+    const { result: tokenCountResult } = useCountTokens(selectedChatId, "");
 
     const renderSetupBanner = () => {
       const selectedModel = settings?.selectedModel;
@@ -123,12 +119,19 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                 </div>
               </div>
             )}
-        {/* Show context limit banner when close to token limit */}
-        {!isStreaming && tokenCountResult && (
-          <ContextLimitBanner
-            totalTokens={tokenCountResult.actualMaxTokens}
-            contextWindow={tokenCountResult.contextWindow}
-          />
+        {/* Show context limit banner when close to token limit (stale estimate while streaming) */}
+        {tokenCountResult && (
+          <div className="max-w-3xl mx-auto w-full space-y-1">
+            {isStreaming && (
+              <p className="text-xs text-muted-foreground px-1">
+                Estimate may update after this reply finishes.
+              </p>
+            )}
+            <ContextLimitBanner
+              totalTokens={tokenCountResult.actualMaxTokens}
+              contextWindow={tokenCountResult.contextWindow}
+            />
+          </div>
         )}
         {!isStreaming && (
           <div className="flex max-w-3xl mx-auto gap-2">
@@ -154,9 +157,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                           previousAssistantMessage?.role === "assistant" &&
                           previousAssistantMessage?.commitHash
                         ) {
-                          console.debug(
-                            "Reverting to previous assistant version",
-                          );
                           await revertVersion({
                             versionId: previousAssistantMessage.commitHash,
                           });
@@ -238,9 +238,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                         previousAssistantMessage?.role === "assistant" &&
                         previousAssistantMessage?.commitHash
                       ) {
-                        console.debug(
-                          "Reverting to previous assistant version",
-                        );
                         await revertVersion({
                           versionId: previousAssistantMessage.commitHash,
                         });
@@ -249,10 +246,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                         const chat =
                           await IpcClient.getInstance().getChat(selectedChatId);
                         if (chat.initialCommitHash) {
-                          console.debug(
-                            "Reverting to initial commit hash",
-                            chat.initialCommitHash,
-                          );
                           await revertVersion({
                             versionId: chat.initialCommitHash,
                           });
@@ -274,7 +267,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                     }
                     // Need to do a redo, if we didn't delete the message from a revert.
                     const redo = shouldRedo;
-                    console.debug("Streaming message with redo", redo);
 
                     streamMessage({
                       prompt: lastUserMessage.content,

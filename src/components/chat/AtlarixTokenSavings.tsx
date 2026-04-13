@@ -21,7 +21,7 @@ export const AtlarixTokenSavings: React.FC<AtlarixTokenSavingsProps> = ({
           <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
             <Zap size={16} className="text-green-600 dark:text-green-400" />
             <span className="text-xs font-medium">
-              Saved {percentageSaved}% of codebase tokens with Smart Context
+              Saved {percentageSaved}% of codebase tokens with automatic context
             </span>
           </div>
         </div>

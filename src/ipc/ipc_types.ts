@@ -52,6 +52,15 @@ export interface ChatStreamParams {
   /** v5.0: Optional debug context when tier resolves to Debug (IPC override; else settings). */
   blueprintDebugTrace?: string;
   blueprintDebugFile?: string;
+  /** Optional task-ledger seed (e.g. Plan → Build). */
+  prefillTaskLedger?: {
+    steps: { description: string }[];
+    sourcePlanMessageId?: number;
+  };
+  /** Custom slash command: override chat mode for this stream only. */
+  streamChatModeOverride?: "ask" | "agent" | "build";
+  /** When true (Auto routing): use thinking tier for this message and skip counsel injection. */
+  forceThinkingTier?: boolean;
 }
 
 /** v3.9: Clarifying question from AI (<questions> block). */
@@ -82,6 +91,57 @@ export interface AutonomousSessionCompletePayload {
   agentActivity: Record<string, unknown>[];
 }
 
+/** Renderer → main: start a Counsel session outside the main chat stream (optional UI entry). */
+export interface CounselStartIpcPayload {
+  chatId: number;
+  question: string;
+  mode?: "general" | "workspace";
+  turnId?: string;
+}
+
+export type CounselStartIpcResult =
+  | { ok: true; turnId: string }
+  | { ok: false; reason: string };
+
+export type CounselCancelIpcResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+/** Main → renderer: discrete counsel activity (also mirrored on `chat:activity`). */
+export interface CounselParticipantUpdateIpcPayload {
+  chatId: number;
+  turnId: string;
+  activity: Record<string, unknown>;
+}
+
+export interface CounselCompleteIpcPayload {
+  ok: boolean;
+  chatId: number;
+  turnId: string;
+  cancelled?: boolean;
+  error?: string;
+}
+
+/** Main → renderer: live task-ledger plan for PlanCard (scoped by chatId). */
+export type PlanUpdateStepStatus = "pending" | "in_progress" | "done" | "failed";
+
+export interface PlanUpdateStep {
+  id: number;
+  description: string;
+  status: PlanUpdateStepStatus;
+  completedAt?: number;
+}
+
+export interface PlanUpdatePayload {
+  chatId: number;
+  turnId: string;
+  /** Assistant placeholder message id for this stream (ledger turnId may be `plan:<workspaceId>`). */
+  assistantMessageId: number;
+  task: string;
+  steps: PlanUpdateStep[];
+  status: "pending" | "in_progress" | "complete" | "failed";
+}
+
 export interface ChatResponseEnd {
   chatId: number;
   updatedFiles: boolean;
@@ -89,6 +149,8 @@ export interface ChatResponseEnd {
   extraFilesError?: string;
   totalTokens?: number;
   contextWindow?: number;
+  /** Reasoning / thinking tokens from the last completed stream step (when reported by the provider). */
+  reasoningTokens?: number;
   /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
   hadToolCallsOrPermissions?: boolean;
   /** True when the completed turn used the managed Compass provider (for usage refresh). */
@@ -116,6 +178,13 @@ export interface ChatProblemsEvent {
   chatId: number;
   appId: number;
   problems: ProblemReport;
+}
+
+/** Result of `revert:snapshot` — restore `.atlarix/snapshots/<turnId>/` into workspace. */
+export interface RevertSnapshotResult {
+  success: boolean;
+  error?: string;
+  restoredFiles?: number;
 }
 
 export interface CreateAppParams {
@@ -164,6 +233,8 @@ export interface Message {
   isReverted?: boolean | null;
   /** When this assistant turn used Auto routing, the resolved tier (ephemeral / UI). */
   autoRoutedTier?: "fast" | "balanced" | "thinking" | null;
+  /** Compaction: auto-inserted continuation user line. */
+  isSynthetic?: boolean | null;
 }
 
 export interface Chat {

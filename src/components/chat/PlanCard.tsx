@@ -37,7 +37,7 @@ const STATUS_ICONS: Record<PlanTaskStatus, React.ReactNode> = {
 
 interface PlanCardProps {
   data: PlanCardData;
-  onSwitchToBuild?: () => void;
+  onSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
   /** Inside PlanSection — skip duplicate outer "Plan" chrome */
   embedded?: boolean;
 }
@@ -51,7 +51,10 @@ export function PlanCard({ data, onSwitchToBuild, embedded = false }: PlanCardPr
       intentMode: "build",
       workModePreference: "build",
     });
-    onSwitchToBuild?.();
+    onSwitchToBuild?.(
+      "Continue in Build mode: execute the plan shown above step by step.",
+      data,
+    );
   };
 
   const switchBtn = !data.completed ? (

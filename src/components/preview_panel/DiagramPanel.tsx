@@ -62,11 +62,11 @@ interface DiagramPanelProps {
 
 type CompareMode = 'current' | 'before' | 'after' | 'side-by-side';
 
-interface DiagramVersion {
-    id: number;
-    content: string;
-    changeDescription: string | null;
-    createdAt: Date;
+interface DiagramSnapshotEntry {
+    turnId: string;
+    timestamp: string;
+    prompt?: string;
+    isInitial?: boolean;
 }
 
 interface DiagramRecord {
@@ -93,7 +93,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
     const [aiEditing, setAiEditing] = useAtom(blueprintAiEditingAtom);
     const app = useAtomValue(currentAppAtom);
     const [compareMode, setCompareMode] = useState<CompareMode>('current');
-    const [versions, setVersions] = useState<DiagramVersion[]>([]);
+    const [snapshotEntries, setSnapshotEntries] = useState<DiagramSnapshotEntry[]>([]);
     const [showHistory, setShowHistory] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadingDiagram, setLoadingDiagram] = useState(false);
@@ -197,17 +197,14 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         void refreshDiagramsForWorkspace();
     }, [app?.id, refreshDiagramsForWorkspace]);
 
-    const refreshHistoryForDiagram = useCallback(
-        async (diagramId: number) => {
-            try {
-                const result = await IpcClient.getInstance().getDiagramHistory(diagramId);
-                if (result.success) setVersions(result.versions);
-            } catch (e) {
-                console.error("[DiagramPanel] Failed to refresh history:", e);
-            }
-        },
-        [],
-    );
+    const refreshSnapshotTimeline = useCallback(async (workspaceId: number) => {
+        try {
+            const result = await IpcClient.getInstance().getDiagramSnapshotTimeline(workspaceId);
+            if (result.success) setSnapshotEntries(result.entries ?? []);
+        } catch (e) {
+            console.error("[DiagramPanel] Failed to refresh snapshot timeline:", e);
+        }
+    }, []);
 
     // Load blueprint when workspace changes and in Blueprint mode
     useEffect(() => {
@@ -234,13 +231,11 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         } as DiagramState);
     }, [app?.id, setDiagramState]);
 
-    // Fetch version history if we have a diagram ID
-    const diagramId = (diagram as any)?.id as number | undefined;
     useEffect(() => {
-        if (diagramId != null) {
-            void refreshHistoryForDiagram(diagramId);
+        if (app?.id != null) {
+            void refreshSnapshotTimeline(app.id);
         }
-    }, [diagramId, refreshHistoryForDiagram]);
+    }, [app?.id, refreshSnapshotTimeline]);
 
     // Handle refresh click
     const handleRefreshDiagram = useCallback(async () => {
@@ -461,14 +456,15 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     compareMode={compareMode}
                     setCompareMode={setCompareMode}
                     hasCompareData={hasCompareData}
-                    versions={versions}
+                    workspaceId={app?.id ?? null}
+                    snapshots={snapshotEntries}
                     showHistory={showHistory}
                     setShowHistory={setShowHistory}
                     onAfterRestore={async () => {
                         const id = (diagram as any).id as number | undefined;
                         await refreshDiagramsForWorkspace({ preferDiagramId: id });
-                        if (id != null) {
-                            await refreshHistoryForDiagram(id);
+                        if (app?.id != null) {
+                            await refreshSnapshotTimeline(app.id);
                         }
                     }}
                 />
@@ -572,7 +568,8 @@ function DiagramViewer({
     compareMode,
     setCompareMode,
     hasCompareData,
-    versions,
+    workspaceId,
+    snapshots,
     showHistory,
     setShowHistory,
     onAfterRestore,
@@ -581,7 +578,8 @@ function DiagramViewer({
     compareMode: CompareMode;
     setCompareMode: (mode: CompareMode) => void;
     hasCompareData: boolean;
-    versions: DiagramVersion[];
+    workspaceId: number | null;
+    snapshots: DiagramSnapshotEntry[];
     showHistory: boolean;
     setShowHistory: (show: boolean) => void;
     onAfterRestore?: () => Promise<void>;
@@ -623,25 +621,28 @@ function DiagramViewer({
     }, [renderedSvg]);
 
     // Restore a previous version
-    const handleRestore = useCallback(async (version: DiagramVersion) => {
-        if (!(diagram as any).id) return;
-        try {
-            const result = await IpcClient.getInstance().restoreDiagramVersion({
-                diagramId: (diagram as any).id,
-                versionId: version.id,
-            });
-            if (!result?.success) {
-                toast.error((result as any)?.error ?? "Failed to restore diagram version");
-                return;
+    const handleRestore = useCallback(
+        async (entry: DiagramSnapshotEntry) => {
+            if (workspaceId == null) return;
+            try {
+                const result = await IpcClient.getInstance().revertDiagramSnapshot({
+                    workspaceId,
+                    turnId: entry.turnId,
+                });
+                if (!result?.success) {
+                    toast.error((result as any)?.error ?? "Failed to restore snapshot");
+                    return;
+                }
+                setShowHistory(false);
+                await onAfterRestore?.();
+                toast.success("Restored from snapshot (files + diagram when captured)");
+            } catch (error) {
+                console.error("Failed to restore snapshot:", error);
+                toast.error("Failed to restore snapshot");
             }
-            setShowHistory(false);
-            await onAfterRestore?.();
-            toast.success("Restored diagram version");
-        } catch (error) {
-            console.error('Failed to restore version:', error);
-            toast.error("Failed to restore diagram version");
-        }
-    }, [diagram, onAfterRestore, setShowHistory]);
+        },
+        [workspaceId, onAfterRestore, setShowHistory],
+    );
 
     return (
         <div className="flex flex-col h-full">
@@ -696,7 +697,7 @@ function DiagramViewer({
                     <span className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-muted capitalize">
                         {diagram.type}
                     </span>
-                    {versions.length > 0 && (
+                    {snapshots.length > 0 && (
                         <button
                             onClick={() => setShowHistory(!showHistory)}
                             className={cn(
@@ -707,7 +708,7 @@ function DiagramViewer({
                             )}
                         >
                             <History className="w-3.5 h-3.5" />
-                            {versions.length} versions
+                            {snapshots.length} snapshots
                         </button>
                     )}
                 </div>
@@ -733,30 +734,32 @@ function DiagramViewer({
             </div>
 
             {/* Version History Dropdown */}
-            {showHistory && versions.length > 0 && (
+            {showHistory && snapshots.length > 0 && (
                 <div className="absolute bottom-14 left-3 right-3 bg-background border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
                     <div className="p-2 text-xs font-medium text-muted-foreground border-b border-border">
-                        Version History
+                        Snapshot history
                     </div>
-                    {versions.map((version) => (
+                    {snapshots.map((snap) => (
                         <div
-                            key={version.id}
+                            key={snap.turnId}
                             className="flex items-center justify-between px-3 py-2 hover:bg-muted/50 border-b border-border last:border-0"
                         >
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium truncate">
-                                    {version.changeDescription || 'Updated diagram'}
+                                    {snap.isInitial
+                                        ? "Initial diagram"
+                                        : snap.prompt?.trim() || `Turn ${snap.turnId}`}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                    {new Date(version.createdAt).toLocaleString()}
+                                    {new Date(snap.timestamp).toLocaleString()}
                                 </p>
                             </div>
                             <button
-                                onClick={() => handleRestore(version)}
+                                onClick={() => handleRestore(snap)}
                                 className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-primary hover:bg-primary/10"
                             >
                                 <RotateCcw className="w-3 h-3" />
-                                Restore
+                                Revert
                             </button>
                         </div>
                     ))}
