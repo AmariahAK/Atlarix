@@ -18,6 +18,189 @@ import {
 } from "./registry";
 import { smartSearch, isSearxngEnabled } from "../search";
 
+// ===== HELPER FUNCTIONS (used by web tools below) =====
+
+function extractReadableContent(html: string, contentType: string): string {
+    if (contentType.includes('text/plain')) {
+        return html;
+    }
+
+    let content = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    content = content.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    content = content.replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '');
+    content = content.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+    content = content.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+    content = content.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+
+    const mainMatch = content.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
+        content.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+        content.match(/<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+
+    if (mainMatch) {
+        content = mainMatch[1];
+    }
+
+    return stripHtml(content).trim();
+}
+
+function extractTitle(html: string): string {
+    const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    return match ? decodeHtmlEntities(match[1].trim()) : '';
+}
+
+function stripHtml(html: string): string {
+    return html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/&nbsp;/g, ' ')
+        .trim();
+}
+
+function decodeHtmlEntities(str: string): string {
+    return str
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/&#x27;/g, "'")
+        .replace(/&#x2F;/g, '/');
+}
+
+function extractDomain(url: string): string {
+    try {
+        const urlObj = new URL(url);
+        return urlObj.hostname.replace(/^www\./, '');
+    } catch {
+        return url;
+    }
+}
+
+interface SearchResult {
+    source: string;
+    title: string;
+    url: string;
+    snippet: string;
+    score: number;
+    metadata: Record<string, any>;
+}
+
+async function fetchUrlContent(
+    url: string,
+    maxLength: number
+): Promise<{ ok: true; title: string; content: string } | { ok: false; error: string }> {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Atlarix/1.0 (Web Reader)',
+                'Accept': 'text/html,application/xhtml+xml,text/plain',
+            },
+        });
+
+        if (!response.ok) {
+            return { ok: false, error: `Failed to fetch URL: ${response.status} ${response.statusText}` };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        const text = await response.text();
+        let content = extractReadableContent(text, contentType);
+        if (content.length > maxLength) {
+            content = content.substring(0, maxLength) + '\n\n... [Content truncated]';
+        }
+        const title = extractTitle(text);
+        return { ok: true, title: title || 'Web Page', content };
+    } catch (error) {
+        return { ok: false, error: `Failed to read URL: ${error}` };
+    }
+}
+
+/** First `site:host` in query → `https://host` root URL for direct fetch */
+function detectSiteRootUrl(query: string): string | null {
+    const m = query.match(/\bsite:([^\s]+)/i);
+    if (!m) return null;
+    let spec = m[1].replace(/[>)\],.;:]+$/g, '');
+    if (!spec) return null;
+    const hostPart = spec.split('/')[0].replace(/^\/+/, '');
+    if (!hostPart) return null;
+    return `https://${hostPart}`;
+}
+
+const RELEVANCE_STOP_WORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+]);
+
+function filterRelevantResults(
+    results: SearchResult[],
+    query: string,
+    maxResults: number
+): SearchResult[] {
+    const queryTokens = query.toLowerCase()
+        .split(/\s+/)
+        .filter(t => t.length > 2 && !RELEVANCE_STOP_WORDS.has(t));
+
+    if (queryTokens.length === 0) {
+        return results.slice(0, maxResults);
+    }
+
+    const scored = results.map(r => {
+        const text = `${r.title} ${r.snippet} ${r.url}`.toLowerCase();
+        const matches = queryTokens.filter(t => text.includes(t)).length;
+        const relevanceScore = matches / queryTokens.length;
+        return { r, relevanceScore };
+    });
+
+    return scored
+        .filter(x => x.relevanceScore > 0.15)
+        .sort((a, b) => b.relevanceScore - a.relevanceScore)
+        .map(x => x.r)
+        .slice(0, maxResults);
+}
+
+function dedupeSearchResultsByUrl(results: SearchResult[]): SearchResult[] {
+    const seen = new Set<string>();
+    const out: SearchResult[] = [];
+    for (const r of results) {
+        const key = (r.url || '').trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+    }
+    return out;
+}
+
+interface WebSearchCacheEntry {
+    results: SearchResult[];
+    timestamp: number;
+}
+
+const WEB_SEARCH_GLOBAL_CACHE = new Map<string, WebSearchCacheEntry>();
+const WEB_SEARCH_GLOBAL_IN_FLIGHT = new Map<string, Promise<{ formattedText: string; sources: SearchResult[] }>>();
+const WEB_SEARCH_CACHE_TTL = 60 * 60 * 1000;
+
+function getGlobalWebSearchCached(cacheKey: string): SearchResult[] | null {
+    const entry = WEB_SEARCH_GLOBAL_CACHE.get(cacheKey);
+    if (!entry) return null;
+    const now = Date.now();
+    if (now - entry.timestamp > WEB_SEARCH_CACHE_TTL) {
+        WEB_SEARCH_GLOBAL_CACHE.delete(cacheKey);
+        return null;
+    }
+    return entry.results;
+}
+
+function setGlobalWebSearchCached(cacheKey: string, results: SearchResult[]): void {
+    WEB_SEARCH_GLOBAL_CACHE.set(cacheKey, { results, timestamp: Date.now() });
+    if (WEB_SEARCH_GLOBAL_CACHE.size > 100) {
+        const firstKey = WEB_SEARCH_GLOBAL_CACHE.keys().next().value;
+        if (firstKey) WEB_SEARCH_GLOBAL_CACHE.delete(firstKey);
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // WEB SEARCH - Combined Perplexica + StackSense approach
 // ═══════════════════════════════════════════════════════════
@@ -66,10 +249,40 @@ ToolRegistry.register({
             console.log(`[web_search] Mode: ${searchMode}, Query: "${query}", Sources: ${sources}`);
             const aggregator = new WebSearchAggregator();
 
-            // Adjust limits based on mode
-            const maxResults = searchMode === 'comprehensive' ? Math.min(num_results, 10) :
-                searchMode === 'deep' ? Math.min(num_results, 5) :
-                    Math.min(num_results, 5);
+            const modeCap = searchMode === 'comprehensive' ? 10 : searchMode === 'deep' ? 8 : 5;
+            const maxResults = Math.min(
+                typeof num_results === 'number' && num_results > 0 ? num_results : 3,
+                modeCap
+            );
+
+            const siteRoot = detectSiteRootUrl(query);
+            if (siteRoot) {
+                const maxLen = searchMode === 'comprehensive' ? 5000 : searchMode === 'deep' ? 4000 : 3000;
+                const fetched = await fetchUrlContent(siteRoot, maxLen);
+                if (!fetched.ok) {
+                    return {
+                        text: `**No page fetched for site query**\n\n${fetched.error}\n\n_Tried: ${siteRoot}_`,
+                        sources: [],
+                    };
+                }
+                const snippet = fetched.content.length > 500 ? fetched.content.substring(0, 500) + '…' : fetched.content;
+                const text =
+                    `**Direct page (site: operator)**\n\n` +
+                    `📄 **${fetched.title}**\n📍 ${siteRoot}\n\n---\n\n${fetched.content}`;
+                return {
+                    text,
+                    sources: [
+                        {
+                            title: fetched.title,
+                            url: siteRoot,
+                            content: snippet,
+                            source: 'general',
+                            score: 100,
+                            favicon: `https://www.google.com/s2/favicons?domain=${extractDomain(siteRoot)}&sz=32`,
+                        },
+                    ],
+                };
+            }
 
             const searchResults = await aggregator.search(query, sources, maxResults);
             console.log(`[web_search] Found ${searchResults.sources.length} sources`);
@@ -321,35 +534,11 @@ ToolRegistry.register({
         ["url"]
     ),
     handler: async ({ url, max_length = 5000 }) => {
-        try {
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Atlarix/1.0 (Web Reader)',
-                    'Accept': 'text/html,application/xhtml+xml,text/plain',
-                },
-            });
-
-            if (!response.ok) {
-                return `Failed to fetch URL: ${response.status} ${response.statusText}`;
-            }
-
-            const contentType = response.headers.get('content-type') || '';
-            const text = await response.text();
-
-            // Extract readable content
-            let content = extractReadableContent(text, contentType);
-
-            // Truncate if too long
-            if (content.length > max_length) {
-                content = content.substring(0, max_length) + '\n\n... [Content truncated]';
-            }
-
-            const title = extractTitle(text);
-
-            return `📄 **${title || 'Web Page'}**\n📍 ${url}\n\n---\n\n${content}`;
-        } catch (error) {
-            throw new Error(`Failed to read URL: ${error}`);
+        const fetched = await fetchUrlContent(url, max_length);
+        if (!fetched.ok) {
+            return fetched.error;
         }
+        return `📄 **${fetched.title}**\n📍 ${url}\n\n---\n\n${fetched.content}`;
     },
 });
 
@@ -460,57 +649,8 @@ ToolRegistry.register({
 // HELPER CLASSES - Combined StackSense + Perplexica approach
 // ═══════════════════════════════════════════════════════════
 
-interface SearchResult {
-    source: string;
-    title: string;
-    url: string;
-    snippet: string;
-    score: number;
-    metadata: Record<string, any>;
-}
-
-interface CacheEntry {
-    results: SearchResult[];
-    timestamp: number;
-}
-
 class WebSearchAggregator {
     private timeout = 10000;
-    private cache: Map<string, CacheEntry> = new Map();
-    private readonly CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
-
-    /**
-     * Get cached results if available and not expired
-     */
-    private getCached(cacheKey: string): SearchResult[] | null {
-        const entry = this.cache.get(cacheKey);
-        if (!entry) return null;
-
-        const now = Date.now();
-        if (now - entry.timestamp > this.CACHE_TTL) {
-            // Expired, remove it
-            this.cache.delete(cacheKey);
-            return null;
-        }
-
-        return entry.results;
-    }
-
-    /**
-     * Store results in cache
-     */
-    private setCache(cacheKey: string, results: SearchResult[]): void {
-        this.cache.set(cacheKey, {
-            results,
-            timestamp: Date.now()
-        });
-
-        // Clean up old entries (simple cleanup: remove if cache gets too large)
-        if (this.cache.size > 100) {
-            const firstKey = this.cache.keys().next().value;
-            if (firstKey) this.cache.delete(firstKey);
-        }
-    }
 
     /**
      * Optimize search query by extracting keywords (StackSense approach)
@@ -537,34 +677,56 @@ class WebSearchAggregator {
         formattedText: string;
         sources: SearchResult[];
     }> {
-        // Create cache key
         const cacheKey = `${sourcesStr}:${query}:${numResults}`;
 
-        // Check cache first
-        const cached = this.getCached(cacheKey);
+        const cached = getGlobalWebSearchCached(cacheKey);
         if (cached) {
             console.log(`[WebSearch] Cache hit for: ${query}`);
             return {
                 formattedText: this.formatResults(query, cached),
-                sources: cached
+                sources: cached,
             };
         }
 
+        const inflight = WEB_SEARCH_GLOBAL_IN_FLIGHT.get(cacheKey);
+        if (inflight) {
+            console.log(`[WebSearch] In-flight coalesce for: ${query}`);
+            return inflight;
+        }
+
         console.log(`[WebSearch] Cache miss, fetching: ${query}`);
+
+        const promise = (async () => {
+            try {
+                const out = await this.runSearchMerged(query, sourcesStr, numResults);
+                setGlobalWebSearchCached(cacheKey, out.sources);
+                return out;
+            } finally {
+                WEB_SEARCH_GLOBAL_IN_FLIGHT.delete(cacheKey);
+            }
+        })();
+
+        WEB_SEARCH_GLOBAL_IN_FLIGHT.set(cacheKey, promise);
+        return promise;
+    }
+
+    private async runSearchMerged(
+        query: string,
+        sourcesStr: string,
+        numResults: number
+    ): Promise<{ formattedText: string; sources: SearchResult[] }> {
         const optimizedQuery = this.optimizeQuery(query);
 
-        // Determine which sources to search
         const requestedSources = sourcesStr.toLowerCase().split(',').map(s => s.trim());
         const allSources = ['stackoverflow', 'github', 'reddit', 'mdn', 'general'];
-        const sourcesToSearch = requestedSources.includes('all')
-            ? allSources
+        let sourcesToSearch = requestedSources.includes('all')
+            ? [...allSources]
             : requestedSources.filter(s => allSources.includes(s));
 
         if (sourcesToSearch.length === 0) {
-            sourcesToSearch.push('general');
+            sourcesToSearch = ['general'];
         }
 
-        // Create search tasks
         const tasks: Promise<SearchResult[]>[] = [];
 
         if (sourcesToSearch.includes('stackoverflow')) {
@@ -583,12 +745,10 @@ class WebSearchAggregator {
             tasks.push(this.searchGeneral(optimizedQuery, numResults));
         }
 
-        // Execute in parallel
         const resultsArrays = await Promise.allSettled(tasks);
 
-        // Combine and rank results
         const allResults: SearchResult[] = [];
-        const sourceNames = sourcesToSearch; // For logging
+        const sourceNames = sourcesToSearch;
         resultsArrays.forEach((result, idx) => {
             if (result.status === 'fulfilled' && result.value) {
                 allResults.push(...result.value);
@@ -598,21 +758,20 @@ class WebSearchAggregator {
             }
         });
 
-        // Rank by source priority with dynamic adjustment
-        // If user specifically requested 'general' (e.g., for news), boost its priority
+        const deduped = dedupeSearchResultsByUrl(allResults);
+        const relevant = filterRelevantResults(deduped, query, numResults);
+
         const isGeneralFocused = requestedSources.includes('general') &&
             !requestedSources.includes('all') &&
             requestedSources.length <= 2;
 
         const sourcePriority: Record<string, number> = isGeneralFocused ? {
-            // For news/general queries, prioritize general web
             'general': 5,
             'reddit': 4,
             'stackoverflow': 3,
             'github': 2,
             'mdn': 1
         } : {
-            // For code/tech queries, prioritize docs/stackoverflow
             'stackoverflow': 5,
             'mdn': 4,
             'github': 3,
@@ -620,22 +779,18 @@ class WebSearchAggregator {
             'general': 1
         };
 
-        allResults.sort((a, b) => {
+        relevant.sort((a, b) => {
             const aPriority = sourcePriority[a.source] || 0;
             const bPriority = sourcePriority[b.source] || 0;
             if (aPriority !== bPriority) return bPriority - aPriority;
             return b.score - a.score;
         });
 
-        const topResults = allResults.slice(0, numResults * 2);
+        const topResults = relevant.slice(0, numResults);
 
-        // Store in cache before returning
-        this.setCache(cacheKey, topResults);
-
-        // Return both formatted text and sources array
         return {
             formattedText: this.formatResults(query, topResults),
-            sources: topResults
+            sources: topResults,
         };
     }
 
@@ -1031,70 +1186,5 @@ class WebSearchAggregator {
             console.error('[WebSearch] DuckDuckGo Instant error:', e);
             return [];
         }
-    }
-}
-
-// ===== HELPER FUNCTIONS =====
-
-function extractReadableContent(html: string, contentType: string): string {
-    if (contentType.includes('text/plain')) {
-        return html;
-    }
-
-    // Remove script and style tags
-    let content = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    content = content.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    content = content.replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '');
-    content = content.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
-    content = content.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
-    content = content.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
-
-    // Try to extract main content
-    const mainMatch = content.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
-        content.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-        content.match(/<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-
-    if (mainMatch) {
-        content = mainMatch[1];
-    }
-
-    // Convert to text
-    return stripHtml(content).trim();
-}
-
-function extractTitle(html: string): string {
-    const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    return match ? decodeHtmlEntities(match[1].trim()) : '';
-}
-
-function stripHtml(html: string): string {
-    return html
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n\n')
-        .replace(/<\/div>/gi, '\n')
-        .replace(/<\/li>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/&nbsp;/g, ' ')
-        .trim();
-}
-
-function decodeHtmlEntities(str: string): string {
-    return str
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#039;/g, "'")
-        .replace(/&#x27;/g, "'")
-        .replace(/&#x2F;/g, '/');
-}
-
-function extractDomain(url: string): string {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname.replace(/^www\./, '');
-    } catch {
-        return url;
     }
 }

@@ -19,7 +19,8 @@ export {
     getRandomPublicInstance,
     checkSearxngHealth,
     clearSearxngCache,
-    PUBLIC_SEARXNG_INSTANCES
+    PUBLIC_SEARXNG_INSTANCES,
+    stripSiteOperators,
 } from './searxng';
 
 export interface UnifiedSearchResult {
@@ -39,9 +40,12 @@ export async function smartSearch(
     query: string,
     limit: number = 10
 ): Promise<UnifiedSearchResult[]> {
-    const { searchSearxng, searchPublicSearxng } = await import('./searxng');
+    const { searchSearxng, searchPublicSearxng, stripSiteOperators } = await import('./searxng');
     const { searchDDGInstant } = await import('./duckduckgo');
     const { getSearxngConfig } = await import('./config');
+
+    const stripped = stripSiteOperators(query).trim();
+    const effectiveQuery = stripped.length > 0 ? stripped : query.trim();
 
     // Get unified config (works in both renderer and main process)
     const config = getSearxngConfig();
@@ -50,7 +54,7 @@ export async function smartSearch(
     // Tier 1: Self-hosted SearxNG
     if (config.enabled && config.url) {
         console.log('[SmartSearch] Using self-hosted SearxNG:', config.url);
-        const results = await searchSearxng(query, undefined, limit, config.url);
+        const results = await searchSearxng(effectiveQuery, undefined, limit, config.url);
         if (results.length > 0) {
             return results;
         }
@@ -59,12 +63,12 @@ export async function smartSearch(
 
     // Tier 2: Public SearxNG instances
     console.log('[SmartSearch] Trying public SearxNG instances');
-    const publicResults = await searchPublicSearxng(query, undefined, limit);
+    const publicResults = await searchPublicSearxng(effectiveQuery, undefined, limit);
     if (publicResults.length > 0) {
         return publicResults;
     }
 
     // Tier 3: DuckDuckGo Instant API (always works)
     console.log('[SmartSearch] Falling back to DDG Instant API');
-    return searchDDGInstant(query, limit);
+    return searchDDGInstant(effectiveQuery, limit);
 }

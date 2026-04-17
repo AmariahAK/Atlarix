@@ -60,6 +60,69 @@ export const PUBLIC_SEARXNG_INSTANCES = [
 const cache = new Map<string, { data: SearchResult[]; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+/** Remove `site:…` tokens so engines receive a plain query (SearxNG mishandles site:). */
+export function stripSiteOperators(query: string): string {
+    return query.replace(/\bsite:[^\s]+/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const HOST_CONCURRENCY_LIMIT = 2;
+const HOST_MIN_GAP_MS = 500;
+
+type HostSlotState = {
+    active: number;
+    waiters: Array<() => void>;
+    lastEnd: number;
+};
+
+const hostSlotStates = new Map<string, HostSlotState>();
+
+function getHostState(hostname: string): HostSlotState {
+    let s = hostSlotStates.get(hostname);
+    if (!s) {
+        s = { active: 0, waiters: [], lastEnd: 0 };
+        hostSlotStates.set(hostname, s);
+    }
+    return s;
+}
+
+async function acquireHostSlot(hostname: string): Promise<void> {
+    const s = getHostState(hostname);
+    if (s.active < HOST_CONCURRENCY_LIMIT) {
+        s.active++;
+        return;
+    }
+    await new Promise<void>(resolve => {
+        s.waiters.push(() => {
+            s.active++;
+            resolve();
+        });
+    });
+}
+
+function releaseHostSlot(hostname: string): void {
+    const s = hostSlotStates.get(hostname);
+    if (!s) return;
+    s.active--;
+    const next = s.waiters.shift();
+    if (next) next();
+}
+
+async function waitMinHostGap(hostname: string): Promise<void> {
+    const s = getHostState(hostname);
+    if (s.lastEnd <= 0) return;
+    const gap = Math.max(0, HOST_MIN_GAP_MS - (Date.now() - s.lastEnd));
+    if (gap > 0) {
+        await new Promise<void>(r => setTimeout(r, gap));
+    }
+}
+
+function markHostRequestEnd(hostname: string): void {
+    const s = hostSlotStates.get(hostname);
+    if (s) s.lastEnd = Date.now();
+}
+
+const inflightSearx = new Map<string, Promise<SearchResult[]>>();
+
 // localStorage keys
 const SEARXNG_URL_KEY = 'searxng_api_url';
 const SEARXNG_ENABLED_KEY = 'searxng_enabled';
@@ -189,7 +252,6 @@ export async function searchSearxng(
     limit: number = 10,
     url?: string
 ): Promise<SearchResult[]> {
-    // Determine which instance to use
     const instanceUrl = url || getSearxngURL();
 
     if (!instanceUrl) {
@@ -197,70 +259,98 @@ export async function searchSearxng(
         return [];
     }
 
-    const cacheKey = `searxng:${instanceUrl}:${query}:${JSON.stringify(opts || {})}`;
+    const stripped = stripSiteOperators(query);
+    const qForRequest = stripped.length > 0 ? stripped : query.trim() || query;
+
+    const cacheKey = `searxng:${instanceUrl}:${qForRequest}:${JSON.stringify(opts || {})}:${limit}`;
     const cached = cache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        console.log('[SearxNG] Cache hit for:', query);
+        console.log('[SearxNG] Cache hit for:', qForRequest);
         return cached.data.slice(0, limit);
     }
 
-    try {
-        console.log(`[SearxNG] Searching via ${instanceUrl}:`, query);
-
-        const searchUrl = new URL(`${instanceUrl}/search`);
-        searchUrl.searchParams.append('q', query);
-        searchUrl.searchParams.append('format', 'json');
-
-        // Apply options
-        if (opts) {
-            if (opts.categories) searchUrl.searchParams.append('categories', opts.categories.join(','));
-            if (opts.engines) searchUrl.searchParams.append('engines', opts.engines.join(','));
-            if (opts.language) searchUrl.searchParams.append('language', opts.language);
-            if (opts.pageno) searchUrl.searchParams.append('pageno', String(opts.pageno));
-            if (opts.time_range) searchUrl.searchParams.append('time_range', opts.time_range);
-            if (opts.safesearch !== undefined) searchUrl.searchParams.append('safesearch', String(opts.safesearch));
-        }
-
-        const response = await fetch(searchUrl.toString(), {
-            signal: AbortSignal.timeout(15000),
-            headers: {
-                'User-Agent': 'Atlarix/1.0 (https://atlarix.dev)',
-                'Accept': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            console.error('[SearxNG] API error:', response.status);
-            return [];
-        }
-
-        const data: SearxngResponse = await response.json();
-
-        // Convert to standard SearchResult format
-        const results: SearchResult[] = data.results.slice(0, limit).map((r, idx) => ({
-            title: r.title || 'Untitled',
-            url: r.url,
-            snippet: r.content?.substring(0, 300) || '',
-            // SearxNG provides internal scores, or we use position-based
-            score: r.score ? r.score * 10 : (30 - idx),
-            source: r.engine || 'searxng',
-            metadata: {
-                engines: r.engines,
-                category: r.category,
-                publishedDate: r.publishedDate
-            }
-        }));
-
-        // Cache results
-        cache.set(cacheKey, { data: results, timestamp: Date.now() });
-        console.log(`[SearxNG] Found ${results.length} results for:`, query);
-
-        return results;
-    } catch (error) {
-        console.error('[SearxNG] Search error:', error);
-        return [];
+    const existing = inflightSearx.get(cacheKey);
+    if (existing) {
+        const r = await existing;
+        return r.slice(0, limit);
     }
+
+    let hostname: string;
+    try {
+        hostname = new URL(instanceUrl).hostname;
+    } catch {
+        hostname = '_invalid_';
+    }
+
+    const promise = (async (): Promise<SearchResult[]> => {
+        await acquireHostSlot(hostname);
+        try {
+            await waitMinHostGap(hostname);
+
+            console.log(`[SearxNG] Searching via ${instanceUrl}:`, qForRequest);
+
+            const searchUrl = new URL(`${instanceUrl}/search`);
+            searchUrl.searchParams.append('q', qForRequest);
+            searchUrl.searchParams.append('format', 'json');
+
+            if (opts) {
+                if (opts.categories) searchUrl.searchParams.append('categories', opts.categories.join(','));
+                if (opts.engines) searchUrl.searchParams.append('engines', opts.engines.join(','));
+                if (opts.language) searchUrl.searchParams.append('language', opts.language);
+                if (opts.pageno) searchUrl.searchParams.append('pageno', String(opts.pageno));
+                if (opts.time_range) searchUrl.searchParams.append('time_range', opts.time_range);
+                if (opts.safesearch !== undefined) searchUrl.searchParams.append('safesearch', String(opts.safesearch));
+            }
+
+            const response = await fetch(searchUrl.toString(), {
+                signal: AbortSignal.timeout(15000),
+                headers: {
+                    'User-Agent': 'Atlarix/1.0 (https://atlarix.dev)',
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.error('[SearxNG] API error:', response.status);
+                return [];
+            }
+
+            const data: SearxngResponse = await response.json();
+
+            const results: SearchResult[] = data.results.slice(0, limit).map((r, idx) => ({
+                title: r.title || 'Untitled',
+                url: r.url,
+                snippet: r.content?.substring(0, 300) || '',
+                score: r.score ? r.score * 10 : (30 - idx),
+                source: r.engine || 'searxng',
+                metadata: {
+                    engines: r.engines,
+                    category: r.category,
+                    publishedDate: r.publishedDate
+                }
+            }));
+
+            cache.set(cacheKey, { data: results, timestamp: Date.now() });
+            console.log(`[SearxNG] Found ${results.length} results for:`, qForRequest);
+
+            return results;
+        } catch (error) {
+            console.error('[SearxNG] Search error:', error);
+            return [];
+        } finally {
+            markHostRequestEnd(hostname);
+            releaseHostSlot(hostname);
+        }
+    })();
+
+    inflightSearx.set(cacheKey, promise);
+    promise.finally(() => {
+        inflightSearx.delete(cacheKey);
+    });
+
+    const results = await promise;
+    return results.slice(0, limit);
 }
 
 /**
