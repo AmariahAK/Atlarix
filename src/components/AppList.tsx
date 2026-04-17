@@ -35,6 +35,8 @@ interface WorkspaceWithChats {
   isExpanded: boolean;
   files?: string[];
   filesLoading?: boolean;
+  /** active = folder on disk; missing = path absent */
+  workspaceStatus?: "active" | "missing";
 }
 
 export function AppList({ show }: { show?: boolean }) {
@@ -73,6 +75,8 @@ export function AppList({ show }: { show?: boolean }) {
         apps.map(async (app) => {
           try {
             const chats = await IpcClient.getInstance().getChats(app.id);
+            const workspaceStatus =
+              app.status ?? (app.pathExists === false ? "missing" : "active");
             return {
               id: app.id,
               name: app.name,
@@ -81,6 +85,7 @@ export function AppList({ show }: { show?: boolean }) {
               isExpanded: app.id === selectedAppId,
               files: undefined,
               filesLoading: false,
+              workspaceStatus,
             };
           } catch {
             return {
@@ -91,6 +96,8 @@ export function AppList({ show }: { show?: boolean }) {
               isExpanded: false,
               files: undefined,
               filesLoading: false,
+              workspaceStatus:
+                app.status ?? (app.pathExists === false ? "missing" : "active"),
             };
           }
         })
@@ -105,6 +112,8 @@ export function AppList({ show }: { show?: boolean }) {
   useEffect(() => {
     const expanded = workspaces.find((w) => w.isExpanded && !w.files && !w.filesLoading);
     if (!expanded) return;
+    const appMeta = apps.find((a) => a.id === expanded.id);
+    if (appMeta?.status === "missing" || appMeta?.pathExists === false) return;
 
     const loadFiles = async () => {
       setWorkspaces((prev) =>
@@ -129,7 +138,7 @@ export function AppList({ show }: { show?: boolean }) {
       }
     };
     loadFiles();
-  }, [workspaces]);
+  }, [workspaces, apps]);
 
   const allApps = useMemo(
     () =>
@@ -154,12 +163,16 @@ export function AppList({ show }: { show?: boolean }) {
   };
 
   const handleChatClick = (workspaceId: number, chatId: number) => {
+    const st = apps.find((a) => a.id === workspaceId);
+    if (st?.status === "missing" || st?.pathExists === false) return;
     setSelectedAppId(workspaceId);
     setSelectedChatId(chatId);
     navigate({ to: `/chat/${chatId}` });
   };
 
   const handleNewChatInWorkspace = async (workspaceId: number) => {
+    const st = apps.find((a) => a.id === workspaceId);
+    if (st?.status === "missing" || st?.pathExists === false) return;
     try {
       const chatId = await IpcClient.getInstance().createChat(workspaceId);
       setSelectedAppId(workspaceId);
@@ -172,6 +185,8 @@ export function AppList({ show }: { show?: boolean }) {
   };
 
   const handleFileClick = (workspaceId: number, filePath: string) => {
+    const st = apps.find((a) => a.id === workspaceId);
+    if (st?.status === "missing" || st?.pathExists === false) return;
     const ws = workspaces.find((w) => w.id === workspaceId);
     setSelectedAppId(workspaceId);
     if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name, path: ws.path });
@@ -350,34 +365,71 @@ export function AppList({ show }: { show?: boolean }) {
               </div>
             ) : (
               <SidebarMenu className="space-y-0.5" data-testid="app-list">
-                {workspaces.map((ws) => (
-                  <div key={ws.id} className="border-b border-border/50">
+                {workspaces.map((ws) => {
+                  const isMissing = ws.workspaceStatus === "missing";
+                  const runDeleteWorkspace = async () => {
+                    setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
+                    if (selectedAppId === ws.id) {
+                      setSelectedAppId(null);
+                      setSelectedWorkspaceInfo(null);
+                      navigate({ to: "/" });
+                    }
+                    try {
+                      await IpcClient.getInstance().deleteApp(ws.id);
+                    } catch (err) {
+                      const errorMessage = err instanceof Error ? err.message : "";
+                      if (
+                        !errorMessage.includes("not found") &&
+                        !errorMessage.includes("already been deleted")
+                      ) {
+                        console.error("Failed to delete workspace:", err);
+                      }
+                    }
+                    refreshApps?.();
+                    if (apps.length <= 1) {
+                      try {
+                        const ipc = window.electron?.ipcRenderer;
+                        if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  };
+                  return (
+                  <div
+                    key={ws.id}
+                    className={`border-b border-border/50 ${isMissing ? "opacity-50" : ""}`}
+                  >
                     {/* Workspace Header */}
                     <div
-                      className={`group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors ${selectedAppId === ws.id ? 'bg-accent' : ''
+                      className={`group flex items-center gap-1 px-2 py-1.5 transition-colors ${isMissing ? "cursor-default" : "cursor-pointer hover:bg-accent/50"} ${selectedAppId === ws.id && !isMissing ? "bg-accent" : ""
                         }`}
                       onClick={() => {
-                        // Just select and expand the workspace - don't auto-navigate to chat
+                        if (isMissing) return;
                         setSelectedAppId(ws.id);
                         setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
-                        // Collapse other workspaces for cleaner UI
-                        setWorkspaces(prev => prev.map(w =>
-                          w.id === ws.id
-                            ? { ...w, isExpanded: true }
-                            : { ...w, isExpanded: false }
-                        ));
+                        setWorkspaces((prev) =>
+                          prev.map((w) =>
+                            w.id === ws.id
+                              ? { ...w, isExpanded: true }
+                              : { ...w, isExpanded: false },
+                          ),
+                        );
                       }}
                       onDoubleClick={() => {
-                        // Double-click to start a new chat in this workspace
+                        if (isMissing) return;
                         handleNewChatInWorkspace(ws.id);
                       }}
                     >
                       <button
+                        type="button"
+                        disabled={isMissing}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isMissing) return;
                           toggleWorkspace(ws.id);
                         }}
-                        className="p-0.5 hover:bg-accent rounded"
+                        className="p-0.5 hover:bg-accent rounded disabled:opacity-40 disabled:pointer-events-none"
                       >
                         {ws.isExpanded ? (
                           <ChevronDown className="h-3 w-3" />
@@ -392,15 +444,41 @@ export function AppList({ show }: { show?: boolean }) {
                         {ws.name}
                       </span>
 
-                      {ws.chats.length > 0 && (
+                      {isMissing ? (
+                        <Badge variant="outline" className="text-[10px] h-4 shrink-0 text-muted-foreground">
+                          Folder not found
+                        </Badge>
+                      ) : null}
+
+                      {ws.chats.length > 0 && !isMissing ? (
                         <Badge variant="secondary" className="text-[10px] h-4">
                           {ws.chats.length}
                         </Badge>
-                      )}
+                      ) : null}
 
-                      {/* New chat button - always visible when selected, hover otherwise */}
-                      <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? 'opacity-100' : ''}`}>
+                      {isMissing ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs shrink-0 pointer-events-auto"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (
+                              confirm(
+                                `Remove workspace "${ws.name}" from Atlarix? The folder is missing on disk.`,
+                              )
+                            ) {
+                              await runDeleteWorkspace();
+                            }
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      ) : (
+                      <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? "opacity-100" : ""}`}>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleNewChatInWorkspace(ws.id);
@@ -412,38 +490,11 @@ export function AppList({ show }: { show?: boolean }) {
                         </button>
 
                         <button
+                          type="button"
                           onClick={async (e) => {
                             e.stopPropagation();
                             if (confirm(`Delete workspace "${ws.name}"? This will remove it from Atlarix.`)) {
-                              // 🚀 Optimistic UI update - remove immediately
-                              setWorkspaces(prev => prev.filter(w => w.id !== ws.id));
-
-                              if (selectedAppId === ws.id) {
-                                setSelectedAppId(null);
-                                setSelectedWorkspaceInfo(null);
-                                navigate({ to: "/" });
-                              }
-
-                              // Then do the actual delete in background
-                              try {
-                                await IpcClient.getInstance().deleteApp(ws.id);
-                              } catch (err) {
-                                // Ignore "not found" errors - workspace may have been auto-deleted
-                                const errorMessage = err instanceof Error ? err.message : '';
-                                if (!errorMessage.includes('not found') && !errorMessage.includes('already been deleted')) {
-                                  console.error("Failed to delete workspace:", err);
-                                }
-                              }
-                              // Refresh to sync with backend
-                              refreshApps?.();
-                              if (apps.length <= 1) {
-                                try {
-                                  const ipc = window.electron?.ipcRenderer;
-                                  if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
-                                } catch {
-                                  // ignore
-                                }
-                              }
+                              await runDeleteWorkspace();
                             }
                           }}
                           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
@@ -452,10 +503,11 @@ export function AppList({ show }: { show?: boolean }) {
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
+                      )}
                     </div>
 
                     {/* File tree (IDE-style) - when expanded */}
-                    {ws.isExpanded && (
+                    {ws.isExpanded && !isMissing && (
                       <div className="pl-6 pr-2 pt-1">
                         {ws.filesLoading ? (
                           <div className="text-[10px] text-muted-foreground py-1">Loading files...</div>
@@ -476,7 +528,7 @@ export function AppList({ show }: { show?: boolean }) {
                     )}
 
                     {/* Chats List (Collapsible) */}
-                    {ws.isExpanded && ws.chats.length > 0 && (
+                    {ws.isExpanded && !isMissing && ws.chats.length > 0 && (
                       <div className="pl-6 pr-2 pb-1 space-y-0.5">
                         {ws.chats.map((chat) => (
                           <div
@@ -506,7 +558,8 @@ export function AppList({ show }: { show?: boolean }) {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </SidebarMenu>
             )}
 

@@ -745,12 +745,14 @@ export function registerAppHandlers() {
     }
 
     analyticsCapture("workspace_opened", { appId });
+    const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
       ...app,
       files,
       supabaseProjectName,
       vercelTeamSlug,
       pathExists,
+      status,
     };
   });
 
@@ -758,10 +760,14 @@ export function registerAppHandlers() {
     const allApps = await db.query.apps.findMany({
       orderBy: [desc(apps.createdAt)],
     });
-    const appsWithPathExists = allApps.map((a) => ({
-      ...a,
-      pathExists: fs.existsSync(getAtlarixAppPath(a.path)),
-    }));
+    const appsWithPathExists = allApps.map((a) => {
+      const pathExists = fs.existsSync(getAtlarixAppPath(a.path));
+      return {
+        ...a,
+        pathExists,
+        status: pathExists ? ("active" as const) : ("missing" as const),
+      };
+    });
     return {
       apps: appsWithPathExists,
       appBasePath: getAtlarixAppPath("$APP_BASE_PATH"),

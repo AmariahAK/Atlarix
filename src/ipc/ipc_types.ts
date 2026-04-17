@@ -271,6 +271,8 @@ export interface App {
   isFavorite: boolean;
   /** v2.1: true if the workspace folder exists on disk; false if deleted outside app */
   pathExists?: boolean;
+  /** Derived from pathExists: active = folder present, missing = folder absent */
+  status?: "active" | "missing";
 }
 
 export interface Version {

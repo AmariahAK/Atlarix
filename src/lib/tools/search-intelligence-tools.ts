@@ -9,8 +9,64 @@ import fs from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
+import {
+    resolveWorkspaceIdFromRoot,
+    searchBlueprintBm25,
+} from "@/lib/search/bm25_semantic_index";
 
 const execAsync = promisify(exec);
+
+type SemanticSearchLineResult = {
+    file: string;
+    line: number;
+    content: string;
+    score: number;
+    contextBefore: string[];
+    contextAfter: string[];
+};
+
+async function runSemanticSearchFileFallback(options: {
+    workspace: string;
+    maxResults: number;
+    keywords: string[];
+}): Promise<{
+    results: SemanticSearchLineResult[];
+    total_matches: number;
+    files_searched: number;
+}> {
+    const { workspace, maxResults, keywords } = options;
+    const results: SemanticSearchLineResult[] = [];
+    const files = await getAllCodeFiles(workspace);
+
+    for (const file of files) {
+        try {
+            const content = await fs.readFile(file, "utf-8");
+            const lines = content.split("\n");
+            lines.forEach((line, index) => {
+                const relevanceScore = calculateRelevance(line, keywords);
+                if (relevanceScore > 0) {
+                    results.push({
+                        file,
+                        line: index + 1,
+                        content: line.trim(),
+                        score: relevanceScore,
+                        contextBefore: lines.slice(Math.max(0, index - 3), index),
+                        contextAfter: lines.slice(index + 1, Math.min(lines.length, index + 4)),
+                    });
+                }
+            });
+        } catch {
+            /* skip unreadable files */
+        }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return {
+        results: results.slice(0, maxResults),
+        total_matches: results.length,
+        files_searched: files.length,
+    };
+}
 
 // ============================================
 // SEMANTIC SEARCH
@@ -49,94 +105,102 @@ ToolRegistry.register({
         max_results?: number;
     }) => {
         try {
-            // For now, use enhanced grep + keyword matching
-            // TODO: Integrate with OpenAI embeddings or local model
-
             const rawWorkspace = params.workspace || process.cwd();
             const workspace = path.isAbsolute(rawWorkspace) ? path.normalize(rawWorkspace) : path.resolve(process.cwd(), rawWorkspace);
             const maxResults = params.max_results || 10;
 
-            // Ensure workspace exists and is a directory
             try {
                 const stat = await fs.stat(workspace);
                 if (!stat.isDirectory()) {
                     return { success: false, error: `Workspace path is not a directory: ${workspace}` };
                 }
-            } catch (e) {
+            } catch {
                 return {
                     success: false,
                     error: `Workspace not found: ${workspace}. Check that the project path is correct.`,
                 };
             }
 
-            // Extract keywords; if none (e.g. very short or all stop words), use raw query as single keyword
             let keywords = extractKeywords(params.query);
             if (keywords.length === 0 && params.query.trim().length > 0) {
                 keywords = [params.query.trim().toLowerCase()];
             }
 
-            // Search for keywords in code
-            const results: any[] = [];
-            const files = await getAllCodeFiles(workspace);
+            const formatTopResults = (topResults: Array<{
+                file: string;
+                line: number;
+                content: string;
+                score: number;
+                contextBefore?: string[];
+                contextAfter?: string[];
+            }>) =>
+                topResults
+                    .map((r) => {
+                        const relPath = workspace ? path.relative(workspace, r.file) : path.basename(r.file);
+                        const ctxBefore = r.contextBefore || [];
+                        const ctxAfter = r.contextAfter || [];
+                        const lineNum = r.line;
+                        const block = [
+                            ...ctxBefore.map((l: string, i: number) => `  ${lineNum - ctxBefore.length + i}| ${l}`),
+                            `> ${lineNum}| ${r.content}`,
+                            ...ctxAfter.map((l: string, i: number) => `  ${lineNum + i + 1}| ${l}`),
+                        ].join("\n");
+                        return `${relPath}:${lineNum}\n${block}`;
+                    })
+                    .join("\n\n---\n\n");
 
-            for (const file of files) {
-                try {
-                    const content = await fs.readFile(file, "utf-8");
-                    const lines = content.split("\n");
-
-                    lines.forEach((line, index) => {
-                        const relevanceScore = calculateRelevance(line, keywords);
-                        if (relevanceScore > 0) {
-                            results.push({
-                                file,
-                                line: index + 1,
-                                content: line.trim(),
-                                score: relevanceScore,
-                                context: getContext(lines, index, 3),
-                                contextBefore: lines.slice(Math.max(0, index - 3), index),
-                                contextAfter: lines.slice(index + 1, Math.min(lines.length, index + 4)),
-                            });
-                        }
-                    });
-                } catch (error) {
-                    // Skip files that can't be read
+            const workspaceId = await resolveWorkspaceIdFromRoot(workspace);
+            if (workspaceId != null) {
+                const bm25 = await searchBlueprintBm25(
+                    workspaceId,
+                    workspace,
+                    params.query,
+                    maxResults,
+                );
+                if (bm25 && bm25.hits.length > 0) {
+                    const topResults = bm25.hits.map((h) => ({
+                        file: h.file,
+                        line: h.line,
+                        content: h.content,
+                        score: h.score,
+                        contextBefore: h.contextBefore,
+                        contextAfter: h.contextAfter,
+                    }));
+                    return {
+                        success: true,
+                        query: params.query,
+                        results: topResults,
+                        total_matches: bm25.totalMatches,
+                        formatted_with_context: formatTopResults(topResults) || "No matches found.",
+                        files_searched: bm25.filesIndexed,
+                        workspace_path: workspace,
+                    };
                 }
             }
 
-            // Sort by relevance score
-            results.sort((a, b) => b.score - a.score);
-            const topResults = results.slice(0, maxResults);
+            const fallback = await runSemanticSearchFileFallback({
+                workspace,
+                maxResults,
+                keywords,
+            });
 
-            if (files.length === 0) {
+            if (fallback.files_searched === 0) {
                 return {
                     success: false,
                     error: `No code files found in workspace (${workspace}). Check that the project contains .ts, .tsx, .js, .jsx, or .py files.`,
                 };
             }
 
-            // Format for AI with ±3 lines context
-            const formatted = topResults
-                .map((r) => {
-                    const relPath = workspace ? path.relative(workspace, r.file) : path.basename(r.file);
-                    const ctxBefore = r.contextBefore || [];
-                    const ctxAfter = r.contextAfter || [];
-                    const lineNum = r.line;
-                    const lines = [
-                        ...ctxBefore.map((l: string, i: number) => `  ${lineNum - ctxBefore.length + i}| ${l}`),
-                        `> ${lineNum}| ${r.content}`,
-                        ...ctxAfter.map((l: string, i: number) => `  ${lineNum + i + 1}| ${l}`),
-                    ].join("\n");
-                    return `${relPath}:${lineNum}\n${lines}`;
-                })
-                .join("\n\n---\n\n");
+            const topResults = fallback.results;
+            const formatted = formatTopResults(topResults);
 
             return {
                 success: true,
                 query: params.query,
                 results: topResults,
-                total_matches: results.length,
+                total_matches: fallback.total_matches,
                 formatted_with_context: formatted || "No matches found.",
-                files_searched: files.length,
+                files_searched: fallback.files_searched,
                 workspace_path: workspace,
             };
         } catch (error) {

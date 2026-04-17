@@ -169,6 +169,12 @@ export async function onReady() {
   }
   sendDbReadyToWindow();
 
+  app.on("browser-window-focus", () => {
+    void import("./ipc/utils/workspace_path_status_broadcast").then((m) =>
+      m.broadcastWorkspacePathStatusesIfChanged(),
+    );
+  });
+
   try {
     initTelemetry();
   } catch (e) {

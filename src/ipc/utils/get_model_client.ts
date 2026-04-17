@@ -522,7 +522,7 @@ async function getRegularModelClient(
       const provider = createAnthropic({ apiKey });
       return {
         modelClient: {
-          model: provider(model.name),
+          model: provider(model.name) as unknown as LanguageModelV2,
           builtinProviderId: providerId,
         },
         backupModelClients: [],

@@ -125,7 +125,9 @@ const validInvokeChannels = [
   "get-system-platform",
   "system:get-hardware-profile",
   "ollama:get-recommendations",
+  "ollama:llm-checker-available",
   "ollama:pull-model",
+  "ollama:remove-model",
   "upload-to-signed-url",
   "delete-chat",
   "update-chat",
@@ -363,6 +365,7 @@ const validReceiveChannels = [
   "oauth-callback-success",    // OAuth callback from main process
   "force-close-detected",
   "db-ready",                  // Main: DB initialized, renderer can show app
+  "apps:status-changed",       // Main: workspace folder presence changed (focus refresh)
   // Help bot
   "help:chat:response:chunk",
   "help:chat:response:end",

@@ -58,10 +58,16 @@ import {
 } from "@/lib/pivot/pivot-service";
 import { clusterIntoContainers } from "@/lib/pivot/clustering";
 import log from "electron-log";
+import { invalidateBm25Index } from "@/lib/search/bm25_semantic_index";
 
 const logger = log.scope("blueprint_handlers");
 
 const blueprintCache = new Map<number, Blueprint>();
+
+function setCachedBlueprint(workspaceId: number, b: Blueprint): void {
+  blueprintCache.set(workspaceId, b);
+  invalidateBm25Index(workspaceId);
+}
 
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
 
@@ -179,7 +185,7 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
     );
     if (needsFunctionBackfill) {
       const merged = await mergeInferredEdges(workspaceId, sanitized);
-      blueprintCache.set(workspaceId, merged);
+      setCachedBlueprint(workspaceId, merged);
       return merged;
     }
     return sanitized;
@@ -192,13 +198,13 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
     if (userBlueprint != null) {
       const base = sanitizeBlueprint(userBlueprint);
       const merged = await mergeInferredEdges(workspaceId, base);
-      blueprintCache.set(workspaceId, merged);
+      setCachedBlueprint(workspaceId, merged);
       return merged;
     }
   }
   const inferred = await inferBlueprint(workspaceId);
   const sanitized = sanitizeBlueprint(inferred);
-  blueprintCache.set(workspaceId, sanitized);
+  setCachedBlueprint(workspaceId, sanitized);
   return sanitized;
 }
 
@@ -342,16 +348,16 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
           removedInferredEdgeKeys: [...new Set([...(previous?.removedInferredEdgeKeys ?? []), ...newlyRemoved])],
         };
       }
-      blueprintCache.set(workspaceId, b);
+      setCachedBlueprint(workspaceId, b);
       await saveUserBlueprint(workspacePath, b);
       await saveBlueprintSnapshot(workspaceId, JSON.stringify(b), "user");
       scheduleBlueprintChangeSnapshot(workspaceId, workspacePath, JSON.stringify(b));
     } catch (e) {
       logger.warn("Failed to persist user blueprint:", e);
-      blueprintCache.set(workspaceId, b);
+      setCachedBlueprint(workspaceId, b);
     }
   } else {
-    blueprintCache.set(workspaceId, b);
+    setCachedBlueprint(workspaceId, b);
   }
   sendToAllWindows("blueprint:updated", { workspaceId, blueprint: b });
 }
@@ -362,6 +368,7 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
  */
 export function invalidateBlueprintCache(workspaceId: number): void {
   blueprintCache.delete(workspaceId);
+  invalidateBm25Index(workspaceId);
 }
 
 /** After diagram/code revert: drop cache, re-infer blueprint, push to all renderer windows (`blueprint:updated`). */
@@ -566,7 +573,7 @@ export function registerBlueprintHandlers() {
               edges: Array.from(edgeMap.values()),
               envRefs: current.envRefs ?? [],
             };
-            blueprintCache.set(workspaceId, merged);
+            setCachedBlueprint(workspaceId, merged);
             await saveUserBlueprint(workspacePath, merged);
             sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
             sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
@@ -584,7 +591,7 @@ export function registerBlueprintHandlers() {
           edges: [...fileTree.edges, ...fileTree.inferredEdges],
           envRefs: current.envRefs ?? [],
         };
-        blueprintCache.set(workspaceId, merged);
+        setCachedBlueprint(workspaceId, merged);
         sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
         sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
         persistPivotFromRefresh(workspaceId, workspacePath, merged).catch((e) =>
