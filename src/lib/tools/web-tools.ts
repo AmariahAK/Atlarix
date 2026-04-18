@@ -17,6 +17,7 @@ import {
     stringParam,
 } from "./registry";
 import { smartSearch, isSearxngEnabled } from "../search";
+import createBm25Engine from "wink-bm25-text-search";
 
 // ===== HELPER FUNCTIONS (used by web tools below) =====
 
@@ -118,13 +119,109 @@ async function fetchUrlContent(
     }
 }
 
-/** First `site:host` in query → `https://host` root URL for direct fetch */
+/** NFKC + fullwidth colon → ASCII for search / site: detection */
+function normalizeWebSearchUserQuery(raw: string): string {
+    return String(raw)
+        .normalize("NFKC")
+        .replace(/\uFF1A/g, ":")
+        .trim();
+}
+
+function stableSourcesKey(sourcesStr: string): string {
+    return sourcesStr
+        .toLowerCase()
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .sort()
+        .join(",");
+}
+
+function canonicalWebSearchCacheKey(
+    sourcesStr: string,
+    query: string,
+    numResults: number,
+): string {
+    const q = normalizeWebSearchUserQuery(query);
+    const src = stableSourcesKey(sourcesStr);
+    return `${src}:${q}:${numResults}`;
+}
+
+function tokenizeForSectionBm25(text: string): string[] {
+    return String(text)
+        .toLowerCase()
+        .split(/[^a-z0-9_]+/)
+        .filter((t) => t.length > 1);
+}
+
+/**
+ * Ephemeral BM25 over text sections; returns best-matching slice for the focus query.
+ * `search()` returns Array<[docId, score]> per wink-bm25-text-search.
+ */
+function extractRelevantSection(
+    fullText: string,
+    focusQuery: string,
+    maxChars: number,
+    maxSections: number,
+): string {
+    const body = fullText.trim();
+    if (!body) return "";
+    const paras = body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+    const sections: string[] = [];
+    if (paras.length === 0) {
+        sections.push(body.slice(0, maxChars));
+    } else {
+        for (const p of paras) {
+            if (sections.length >= maxSections) break;
+            if (p.length <= maxChars) {
+                sections.push(p);
+            } else {
+                for (let i = 0; i < p.length && sections.length < maxSections; i += maxChars) {
+                    sections.push(p.slice(i, i + maxChars));
+                }
+            }
+        }
+    }
+    if (sections.length === 0) return body.slice(0, maxChars);
+    const q = normalizeWebSearchUserQuery(focusQuery);
+    if (!q) return sections[0].slice(0, maxChars);
+
+    const engine = createBm25Engine();
+    engine.defineConfig({ fldWeights: { body: 1 } });
+    engine.definePrepTasks([tokenizeForSectionBm25], "body");
+    let id = 0;
+    for (const s of sections) {
+        engine.addDoc({ body: s }, id);
+        id += 1;
+    }
+    engine.consolidate();
+    let results: Array<[number, number]>;
+    try {
+        results = engine.search(q, 1);
+    } catch {
+        return sections[0].slice(0, maxChars);
+    }
+    if (!results.length) return sections[0].slice(0, maxChars);
+    const bestIdx = results[0][0];
+    const picked = sections[bestIdx] ?? sections[0];
+    return picked.length > maxChars ? picked.slice(0, maxChars) : picked;
+}
+
+/** First `site:…` in query → root URL for direct fetch (ASCII or fullwidth colon; token may be full URL) */
 function detectSiteRootUrl(query: string): string | null {
-    const m = query.match(/\bsite:([^\s]+)/i);
+    const m = query.match(/\bsite\s*[:：]\s*([^\s]+)/i);
     if (!m) return null;
-    let spec = m[1].replace(/[>)\],.;:]+$/g, '');
+    let spec = m[1].replace(/[>)\],.;:]+$/g, "");
     if (!spec) return null;
-    const hostPart = spec.split('/')[0].replace(/^\/+/, '');
+    if (/^https?:\/\//i.test(spec)) {
+        try {
+            const u = new URL(spec);
+            return u.toString();
+        } catch {
+            return null;
+        }
+    }
+    const hostPart = spec.split("/")[0].replace(/^\/+/, "");
     if (!hostPart) return null;
     return `https://${hostPart}`;
 }
@@ -155,7 +252,7 @@ function filterRelevantResults(
     });
 
     return scored
-        .filter(x => x.relevanceScore > 0.15)
+        .filter(x => x.relevanceScore > 0.25)
         .sort((a, b) => b.relevanceScore - a.relevanceScore)
         .map(x => x.r)
         .slice(0, maxResults);
@@ -225,9 +322,27 @@ ToolRegistry.register({
         },
         ["query"]
     ),
-    handler: async ({ query, mode = "quick", sources = "general", num_results = 3 }) => {
+    handler: async (args: {
+        query?: string;
+        input?: { query?: string };
+        mode?: string;
+        sources?: string;
+        num_results?: number;
+    }) => {
+        const nestedQ = args?.input && typeof args.input === "object" ? args.input.query : undefined;
+        const rawQuery =
+            typeof args.query === "string" && args.query.trim() !== ""
+                ? args.query
+                : typeof nestedQ === "string"
+                  ? nestedQ
+                  : "";
+        const query = normalizeWebSearchUserQuery(rawQuery);
+        const mode = args.mode ?? "quick";
+        const sources = args.sources ?? "general";
+        const num_results = args.num_results;
+
         // Validate query parameter
-        if (!query || typeof query !== 'string' || query.trim() === '') {
+        if (!query || query === "") {
             console.log('[web_search] ERROR: No query provided');
             return {
                 text: "⚠️ Please provide a search query. Example: web_search({ query: 'React hooks', mode: 'deep' })",
@@ -246,7 +361,7 @@ ToolRegistry.register({
         }
 
         try {
-            console.log(`[web_search] Mode: ${searchMode}, Query: "${query}", Sources: ${sources}`);
+            console.log(`[web_search] Mode: ${searchMode}, Query: "${query}", Sources: ${String(sources)}`);
             const aggregator = new WebSearchAggregator();
 
             const modeCap = searchMode === 'comprehensive' ? 10 : searchMode === 'deep' ? 8 : 5;
@@ -414,6 +529,400 @@ _SearxNG is a privacy-respecting meta-search engine that aggregates results from
     },
 });
 
+// ═══════════════════════════════════════════════════════════
+// DEEP RESEARCH — ResearchLedger + agentic loop (chat-only friendly)
+// ═══════════════════════════════════════════════════════════
+
+type SubQuestionStatus = "pending" | "answered" | "partial" | "no_data";
+
+interface SubQuestion {
+    id: string;
+    question: string;
+    status: SubQuestionStatus;
+    attempts: number;
+    searchedQueries: string[];
+}
+
+interface ResearchFinding {
+    subQuestionId: string;
+    content: string;
+    source: string;
+    title: string;
+    relevanceScore: number;
+}
+
+interface ResearchLedger {
+    originalQuery: string;
+    subQuestions: SubQuestion[];
+    findings: ResearchFinding[];
+    iterations: number;
+    consecutiveEmptyIterations: number;
+    coverageScore: number;
+}
+
+interface DeepResearchResult {
+    query: string;
+    aspectsUsed: string[];
+    findings: ResearchFinding[];
+    sources: string[];
+    coverageScore: number;
+    iterations: number;
+    completionReason: "sufficient_coverage" | "no_new_data" | "all_answered" | "max_iterations";
+}
+
+const DEEP_RESEARCH_LIMITS = {
+    maxIterations: 8,
+    maxAttemptsPerSubQ: 3,
+    maxSourcesPerSubQ: 3,
+    maxCharsPerSource: 2000,
+    maxSectionsPerDoc: 48,
+    maxSubQuestions: 6,
+    consecutiveEmptyStop: 3,
+    sufficientCoverageThreshold: 0.75,
+    fetchTimeoutMs: 10_000,
+} as const;
+
+/** When the model omits aspects, split on semicolons/newlines or use the whole query. */
+function decomposeQuery(query: string): string[] {
+    const parts = query.split(/;\s*|\n+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) return parts;
+    return [query];
+}
+
+function scoreRelevanceForDeepResearch(content: string, query: string): number {
+    const queryTokens = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 3);
+    const contentLower = content.toLowerCase();
+    const matches = queryTokens.filter((t) => contentLower.includes(t)).length;
+    return queryTokens.length > 0 ? matches / queryTokens.length : 0;
+}
+
+function refineQuery(subQ: SubQuestion, ledger: ResearchLedger): string {
+    const existingFindings = ledger.findings.filter((f) => f.subQuestionId === subQ.id);
+    if (existingFindings.length === 0) {
+        return `${subQ.question} detailed explanation examples`;
+    }
+    const visitedHosts = existingFindings
+        .map((f) => {
+            try {
+                return new URL(f.source).hostname;
+            } catch {
+                return "";
+            }
+        })
+        .filter(Boolean);
+    if (visitedHosts.length > 0) {
+        return `${subQ.question} tutorial guide`;
+    }
+    return `${subQ.question} comprehensive overview`;
+}
+
+function buildResult(
+    ledger: ResearchLedger,
+    reason: DeepResearchResult["completionReason"],
+): DeepResearchResult {
+    return {
+        query: ledger.originalQuery,
+        aspectsUsed: ledger.subQuestions.map((sq) => sq.question),
+        findings: ledger.findings,
+        sources: [...new Set(ledger.findings.map((f) => f.source))],
+        coverageScore: ledger.coverageScore,
+        iterations: ledger.iterations,
+        completionReason: reason,
+    };
+}
+
+function logDeepResearchComplete(_ledger: ResearchLedger, result: DeepResearchResult): void {
+    console.log(
+        `[deep_research] Completed: ${result.completionReason} | ` +
+            `Final coverage: ${Math.round(result.coverageScore * 100)}% | ` +
+            `${result.findings.length} findings from ${result.sources.length} sources`,
+    );
+}
+
+function formatResultForModel(result: DeepResearchResult): string {
+    const lines = [
+        `## Research Results: ${result.query}`,
+        `Coverage: ${Math.round(result.coverageScore * 100)}% | ` +
+            `Iterations: ${result.iterations} | ` +
+            `Stopped: ${result.completionReason}`,
+        "",
+    ];
+
+    for (const finding of result.findings) {
+        lines.push(`### Source: ${finding.title}`);
+        lines.push(`URL: ${finding.source}`);
+        lines.push(`Relevance: ${Math.round(finding.relevanceScore * 100)}%`);
+        lines.push(finding.content);
+        lines.push("");
+    }
+
+    if (result.findings.length === 0) {
+        lines.push("No relevant findings retrieved for this query.");
+    }
+
+    return lines.join("\n");
+}
+
+async function smartReadUrlForDeepResearch(url: string): Promise<{ text: string; pageTitle: string }> {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                "User-Agent": "Atlarix/1.0 (Deep Research)",
+                Accept: "text/html,application/xhtml+xml,text/plain",
+            },
+            signal: AbortSignal.timeout(DEEP_RESEARCH_LIMITS.fetchTimeoutMs),
+        });
+        if (!response.ok) return { text: "", pageTitle: "" };
+        const rawText = await response.text();
+        const ct = response.headers.get("content-type") || "";
+        const readable = extractReadableContent(rawText, ct);
+        const pageTitle = extractTitle(rawText) || "";
+        return { text: readable, pageTitle };
+    } catch {
+        return { text: "", pageTitle: "" };
+    }
+}
+
+/** Same aggregator path as web_search quick (`general`); no ToolRegistry hop. */
+async function deepResearchQuickSearch(query: string, numResults: number): Promise<SearchResult[]> {
+    const aggregator = new WebSearchAggregator();
+    const pack = await aggregator.search(query, "general", numResults);
+    return pack.sources;
+}
+
+async function runDeepResearchAgentic(query: string, aspects?: string[]): Promise<DeepResearchResult> {
+    const seed = aspects?.length ? aspects : decomposeQuery(query);
+    const capped = seed.slice(0, DEEP_RESEARCH_LIMITS.maxSubQuestions);
+    const subQuestionStrings = capped.length > 0 ? capped : [query];
+
+    const subQuestions: SubQuestion[] = subQuestionStrings.map((q, i) => ({
+        id: `sq_${i}`,
+        question: q,
+        status: "pending" as SubQuestionStatus,
+        attempts: 0,
+        searchedQueries: [],
+    }));
+
+    const ledger: ResearchLedger = {
+        originalQuery: query,
+        subQuestions,
+        findings: [],
+        iterations: 0,
+        consecutiveEmptyIterations: 0,
+        coverageScore: 0,
+    };
+
+    while (true) {
+        ledger.iterations++;
+        const findingsBeforeIteration = ledger.findings.length;
+
+        const workQueue = ledger.subQuestions.filter(
+            (sq) =>
+                sq.status === "pending" ||
+                (sq.status === "partial" && sq.attempts < DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ),
+        );
+
+        if (workQueue.length === 0) {
+            const answered = ledger.subQuestions.filter((sq) => sq.status === "answered").length;
+            ledger.coverageScore =
+                ledger.subQuestions.length > 0 ? answered / ledger.subQuestions.length : 0;
+            const result = buildResult(ledger, "all_answered");
+            logDeepResearchComplete(ledger, result);
+            return result;
+        }
+
+        console.log(
+            `[deep_research] Iteration ${ledger.iterations} | ` +
+                `Coverage: ${Math.round(ledger.coverageScore * 100)}% | ` +
+                `Findings: ${ledger.findings.length} | ` +
+                `Pending: ${ledger.subQuestions.filter((sq) => sq.status === "pending").length}`,
+        );
+
+        for (const subQ of workQueue) {
+            subQ.attempts++;
+
+            const searchQuery = subQ.attempts === 1 ? subQ.question : refineQuery(subQ, ledger);
+
+            if (subQ.searchedQueries.includes(searchQuery)) {
+                if (subQ.status === "pending") subQ.status = "no_data";
+                continue;
+            }
+            subQ.searchedQueries.push(searchQuery);
+
+            const searchResults = await deepResearchQuickSearch(
+                searchQuery,
+                DEEP_RESEARCH_LIMITS.maxSourcesPerSubQ,
+            );
+
+            if (!searchResults.length) {
+                if (subQ.attempts >= DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ) {
+                    subQ.status = "no_data";
+                }
+                continue;
+            }
+
+            for (const hit of searchResults.slice(0, 2)) {
+                const url = hit.url;
+                if (!url || !url.startsWith("http")) continue;
+
+                const alreadyFetched = ledger.findings.some((f) => f.source === url);
+                if (alreadyFetched) continue;
+
+                const { text: fullContent, pageTitle } = await smartReadUrlForDeepResearch(url);
+                if (!fullContent || fullContent.length < 100) continue;
+
+                const relevantSection = extractRelevantSection(
+                    fullContent,
+                    subQ.question,
+                    DEEP_RESEARCH_LIMITS.maxCharsPerSource,
+                    DEEP_RESEARCH_LIMITS.maxSectionsPerDoc,
+                );
+
+                if (relevantSection.length > 50) {
+                    const relevanceScore = scoreRelevanceForDeepResearch(relevantSection, subQ.question);
+
+                    ledger.findings.push({
+                        subQuestionId: subQ.id,
+                        content: relevantSection,
+                        source: url,
+                        title: pageTitle || hit.title || url,
+                        relevanceScore,
+                    });
+                }
+            }
+
+            const subQFindings = ledger.findings.filter((f) => f.subQuestionId === subQ.id);
+
+            if (subQFindings.length === 0) {
+                if (subQ.attempts >= DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ) {
+                    subQ.status = "no_data";
+                }
+            } else if (subQFindings.some((f) => f.relevanceScore > 0.35)) {
+                subQ.status = "answered";
+            } else {
+                subQ.status = "partial";
+            }
+        }
+
+        const answered = ledger.subQuestions.filter((sq) => sq.status === "answered").length;
+        ledger.coverageScore =
+            ledger.subQuestions.length > 0 ? answered / ledger.subQuestions.length : 0;
+
+        const newFindings = ledger.findings.length - findingsBeforeIteration;
+        if (newFindings === 0) {
+            ledger.consecutiveEmptyIterations++;
+        } else {
+            ledger.consecutiveEmptyIterations = 0;
+        }
+
+        if (ledger.coverageScore >= DEEP_RESEARCH_LIMITS.sufficientCoverageThreshold) {
+            const result = buildResult(ledger, "sufficient_coverage");
+            logDeepResearchComplete(ledger, result);
+            return result;
+        }
+
+        if (ledger.consecutiveEmptyIterations >= DEEP_RESEARCH_LIMITS.consecutiveEmptyStop) {
+            const result = buildResult(ledger, "no_new_data");
+            logDeepResearchComplete(ledger, result);
+            return result;
+        }
+
+        if (ledger.iterations >= DEEP_RESEARCH_LIMITS.maxIterations) {
+            const result = buildResult(ledger, "max_iterations");
+            logDeepResearchComplete(ledger, result);
+            return result;
+        }
+    }
+}
+
+ToolRegistry.register({
+    name: "deep_research",
+    description:
+        "Multi-step research: plans sub-questions, searches the web, fetches pages, and extracts the most relevant passages (BM25). Use for broad or comparative topics needing several sources. For a single quick fact or one query string, prefer web_search.",
+    category: ToolCategory.WEB,
+    cost: 6,
+    requiresWorkspace: false,
+    isCore: true,
+    isReadOnly: true,
+    parameters: createParameters(
+        {
+            query: stringParam("Main research question or topic"),
+            aspects: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                    "Optional sub-questions or facets to investigate (each gets its own search pass)",
+            },
+        },
+        ["query"],
+    ),
+    handler: async (args: {
+        query?: string;
+        input?: { query?: string; aspects?: string[] };
+        aspects?: string[];
+    }) => {
+        const nested = args?.input && typeof args.input === "object" ? args.input : undefined;
+        const rawMain =
+            typeof args.query === "string" && args.query.trim() !== ""
+                ? args.query
+                : typeof nested?.query === "string"
+                  ? nested.query
+                  : "";
+        const mainQuery = normalizeWebSearchUserQuery(rawMain);
+        if (!mainQuery) {
+            return {
+                text: "⚠️ Provide a non-empty query for deep_research.",
+                sources: [] as SearchResult[],
+            };
+        }
+        const aspectsRaw = Array.isArray(args.aspects)
+            ? args.aspects
+            : Array.isArray(nested?.aspects)
+              ? nested!.aspects!
+              : undefined;
+
+        let aspectStrings: string[] | undefined;
+        if (aspectsRaw && aspectsRaw.length > 0) {
+            const normalized = aspectsRaw
+                .map((s) => normalizeWebSearchUserQuery(String(s)))
+                .filter(Boolean)
+                .slice(0, DEEP_RESEARCH_LIMITS.maxSubQuestions);
+            if (normalized.length > 0) aspectStrings = normalized;
+        }
+
+        const result = await runDeepResearchAgentic(mainQuery, aspectStrings);
+
+        const text = formatResultForModel(result);
+        const sources = result.findings.map((f) => {
+            const snippet = f.content.length > 400 ? f.content.slice(0, 400) + "…" : f.content;
+            return {
+                title: f.title,
+                url: f.source,
+                content: snippet,
+                source: "general",
+                score: Math.round(f.relevanceScore * 100),
+                metadata: {},
+                favicon: f.source
+                    ? `https://www.google.com/s2/favicons?domain=${extractDomain(f.source)}&sz=32`
+                    : undefined,
+            };
+        });
+
+        return {
+            query: result.query,
+            aspects_used: result.aspectsUsed,
+            coverage_score: result.coverageScore,
+            iterations: result.iterations,
+            completion_reason: result.completionReason,
+            findings: result.findings,
+            text,
+            sources,
+        };
+    },
+});
 
 // ═══════════════════════════════════════════════════════════
 // DEEP SEARCH - Perplexica-style comprehensive search
@@ -677,7 +1186,7 @@ class WebSearchAggregator {
         formattedText: string;
         sources: SearchResult[];
     }> {
-        const cacheKey = `${sourcesStr}:${query}:${numResults}`;
+        const cacheKey = canonicalWebSearchCacheKey(sourcesStr, query, numResults);
 
         const cached = getGlobalWebSearchCached(cacheKey);
         if (cached) {
@@ -696,15 +1205,29 @@ class WebSearchAggregator {
 
         console.log(`[WebSearch] Cache miss, fetching: ${query}`);
 
-        const promise = (async () => {
-            try {
-                const out = await this.runSearchMerged(query, sourcesStr, numResults);
-                setGlobalWebSearchCached(cacheKey, out.sources);
-                return out;
-            } finally {
-                WEB_SEARCH_GLOBAL_IN_FLIGHT.delete(cacheKey);
-            }
-        })();
+        // Reserve in-flight synchronously before any await so parallel identical
+        // web_search calls coalesce (avoid TOCTOU between get and set).
+        const promise = new Promise<{ formattedText: string; sources: SearchResult[] }>(
+            (resolve, reject) => {
+                queueMicrotask(() => {
+                    void (async () => {
+                        try {
+                            const out = await this.runSearchMerged(
+                                query,
+                                sourcesStr,
+                                numResults,
+                            );
+                            setGlobalWebSearchCached(cacheKey, out.sources);
+                            resolve(out);
+                        } catch (err) {
+                            reject(err);
+                        } finally {
+                            WEB_SEARCH_GLOBAL_IN_FLIGHT.delete(cacheKey);
+                        }
+                    })();
+                });
+            },
+        );
 
         WEB_SEARCH_GLOBAL_IN_FLIGHT.set(cacheKey, promise);
         return promise;

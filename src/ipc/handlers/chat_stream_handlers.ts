@@ -131,6 +131,7 @@ import {
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
+import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { getRecentAssistantRoutingTiers } from "@/lib/routing/auto-router-context";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
@@ -6652,16 +6653,6 @@ export function hasUnclosedAtlarixWrite(text: string): boolean {
   const hasClosingTag = /<\/atlarix-write>/.test(textAfterLastOpen);
 
   return !hasClosingTag;
-}
-
-function escapeAtlarixTags(text: string): string {
-  // Escape dyad tags in reasoning content
-  // We are replacing the opening tag with a look-alike character
-  // to avoid issues where thinking content includes dyad tags
-  // and are mishandled by:
-  // 1. FE markdown parser
-  // 2. Main process response processor
-  return text.replace(/<dyad/g, "＜dyad").replace(/<\/dyad/g, "＜/dyad");
 }
 
 const CODEBASE_PROMPT_PREFIX = "This is my codebase.";

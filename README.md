@@ -6,9 +6,21 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.0.0**
+**Current release:** **v7.0.1**
 
 **Downloads:** Installers for **macOS** and **Linux** are on [atlarix.dev](https://atlarix.dev). **Windows** is still in progress pending code signing.
+
+---
+
+## v7.0.1 — Deep research ledger + web relevance (patch)
+
+*April 2026*
+
+### What changed
+
+- **`deep_research` tool ([`src/lib/tools/web-tools.ts`](src/lib/tools/web-tools.ts)):** Replaced the fixed per-sub-question loop with a **ResearchLedger**-driven agentic loop: sub-questions (`pending` / `partial` / `answered` / `no_data`), per-iteration coverage, consecutive-empty and max-iteration stops, internal quick-style search via **`WebSearchAggregator`** (same stack as `web_search`, no duplicate SearxNG wiring), fetch + unchanged **`extractRelevantSection`** BM25 extraction, structured **`formatResultForModel`** output (coverage %, completion reason, per-source relevance). Constants: `maxIterations` 8, `sufficientCoverageThreshold` 0.75, `maxAttemptsPerSubQ` 3, `maxSourcesPerSubQ` 3, `maxCharsPerSource` 2000, `fetchTimeoutMs` 10000, `consecutiveEmptyStop` 3. Added minimal **`decomposeQuery`** when the model omits `aspects`. Removed **`max_iterations`** from the tool schema (ceiling is fixed in code).
+- **Chat-only ([`src/ipc/handlers/chat_only_handlers.ts`](src/ipc/handlers/chat_only_handlers.ts)):** Removed the external gate that capped or skipped supplementary **`web_search`** calls when **`deep_research`** had run in the same turn; **`deep_research`** now owns completion internally.
+- **Relevance tuning:** `filterRelevantResults` cutoff **0.15 → 0.25** (fewer generic-title junk URLs in ranked results). Sub-question **answered** threshold on excerpt token-overlap score **0.6 → 0.35** so coverage can reach the stop threshold when BM25 returns useful but not keyword-dense text.
 
 ---
 

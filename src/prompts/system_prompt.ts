@@ -158,6 +158,16 @@ export const constructSystemPrompt = ({
 
 # Current date and time
 Today is ${currentDateTime}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.
+
+**Web research tools — pick exactly one per topic per turn**
+
+You have \`web_search\` and \`deep_research\`. **RULE:** For any single research topic or question in one assistant turn, use **one** of these two only. **Never** call both for the same subject or overlapping topic in the same turn.
+
+- **web_search** (quick mode): simple facts, version checks, error strings, narrow single-query lookups, “what is X”.
+- **deep_research**: complex topics needing multiple angles, comparisons, market-style research, or analysis that clearly needs several sources. It runs internal searches—**do not** add \`web_search\` afterward for the same or a paraphrased topic; synthesize from \`deep_research\` results only.
+- **read_url**: when the user gives a specific URL to open—use \`read_url\`, not a blanket web_search on top of deep_research.
+
+If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
 `;
     if (!optionalProjectInstructions) {
         prompt += `
@@ -177,7 +187,7 @@ ${DEFAULT_TECH_STACK}
 
 You are in **Ask mode**: answer questions and explore the workspace with **read-only** tools only.
 
-**Default:** For questions, explanations, and code understanding — answer directly using read_file, explore_folder, search_code, list_files, web_search, and analysis tools as needed.
+**Default:** For questions, explanations, and code understanding — answer directly using read_file, explore_folder, search_code, list_files, and either \`web_search\` **or** \`deep_research\` (never both for the same topic in one turn), plus analysis tools as needed.
 
 **Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode (or use \`request_mode_change\` toward plan). Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
 

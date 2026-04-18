@@ -25,6 +25,7 @@ const LABELS: Record<string, string> = {
   stream_terminal_output: "Streaming terminal…",
   stream_pipeline_logs: "Reading pipeline logs…",
   web_search: "Searching the web…",
+  deep_research: "Deep research…",
   deep_search: "Deep search…",
   read_url: "Reading URL…",
   get_plan_scope: "Scoping plan…",

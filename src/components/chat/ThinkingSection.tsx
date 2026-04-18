@@ -126,7 +126,7 @@ export function ThinkingCard({
             {/* Expanded content */}
             {isExpanded && (
                 <div className={cn(
-                    "border-t border-slate-700/50 space-y-3",
+                    "border-t border-slate-700/50 space-y-3 max-h-72 min-h-0 overflow-y-auto overflow-x-hidden",
                     compact ? "px-2 pb-2 pt-2" : "px-4 pb-3 pt-3",
                 )}>
                     {thoughts.length > 0 && (

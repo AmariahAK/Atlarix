@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { cn } from "@/lib/utils";
 import { MessageCircle, Sparkles, ListTodo, Hammer, Bug, ShieldCheck } from "lucide-react";
 import {
@@ -53,6 +54,7 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
 
 export function ChatIntentSelector() {
   const appId = useAtomValue(selectedAppIdAtom);
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
   const { settings, updateSettings } = useSettings();
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -73,23 +75,28 @@ export function ChatIntentSelector() {
     settings?.workModePreference ??
     (effectivePermission === "ask" ? "ask" : "build");
 
+  /** No workspace, or ephemeral/incognito chat (negative id): read-only chrome — Ask only. */
+  const isReadOnlyChatChrome =
+    !appId || (typeof selectedChatId === "number" && selectedChatId < 0);
+
   useEffect(() => {
-    if (!appId) {
-      const intent = settings?.intentMode ?? settings?.selectedChatMode;
-      if (
-        settings?.selectedChatMode !== "ask" ||
-        settings?.workModePreference !== "ask" ||
-        intent !== "ask"
-      ) {
-        updateSettings({
-          selectedChatMode: "ask",
-          intentMode: "ask",
-          workModePreference: "ask",
-        });
-      }
+    if (!isReadOnlyChatChrome) return;
+    const intent = settings?.intentMode ?? settings?.selectedChatMode;
+    if (
+      settings?.selectedChatMode !== "ask" ||
+      settings?.workModePreference !== "ask" ||
+      intent !== "ask"
+    ) {
+      updateSettings({
+        selectedChatMode: "ask",
+        intentMode: "ask",
+        workModePreference: "ask",
+      });
     }
   }, [
+    isReadOnlyChatChrome,
     appId,
+    selectedChatId,
     settings?.intentMode,
     settings?.selectedChatMode,
     settings?.workModePreference,
@@ -99,7 +106,7 @@ export function ChatIntentSelector() {
   const noWorkspace = !appId;
 
   const setWorkMode = (mode: WorkMode) => {
-    if (noWorkspace && mode !== "ask") {
+    if (isReadOnlyChatChrome && mode !== "ask") {
       return;
     }
     updateSettings({
@@ -108,7 +115,7 @@ export function ChatIntentSelector() {
   };
 
   const toggleAuto = () => {
-    if (noWorkspace) {
+    if (isReadOnlyChatChrome) {
       updateSettings({
         selectedChatMode: "ask",
         intentMode: "ask",
@@ -153,86 +160,110 @@ export function ChatIntentSelector() {
           )}
           data-testid="chat-intent-selector"
         >
-          <Select
-            value={workMode}
-            onValueChange={(v) => setWorkMode(v as WorkMode)}
-          >
+          {isReadOnlyChatChrome ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <MiniSelectTrigger
-                  data-testid="chat-work-mode-select"
-                  className={cn(
-                    "h-7 min-w-[5.5rem] px-2 py-0 text-xs font-medium shadow-none gap-1",
-                    isAuto
-                      ? "opacity-70"
-                      : "bg-background hover:bg-muted/50 focus:bg-muted/50",
-                  )}
-                  size="sm"
+                <div
+                  className="flex h-7 min-w-[5.5rem] items-center gap-1 rounded-md border border-transparent bg-background/80 px-2 text-xs font-medium text-muted-foreground"
+                  data-testid="chat-work-mode-readonly"
                 >
-                  <WorkIcon className="h-3.5 w-3.5 shrink-0" />
-                  <SelectValue>
-                    {labelForWorkMode(workMode)}
-                    {isAuto ? " (Auto)" : ""}
-                  </SelectValue>
-                </MiniSelectTrigger>
+                  <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>Ask · Read-only</span>
+                </div>
               </TooltipTrigger>
               <TooltipContent>
-                {isAuto
-                  ? "Auto is on — heuristics pick Ask vs Build; open menu to pick a fixed work mode."
-                  : "Work mode: tools + Blueprint tier. Open for Ask, Plan, Build, Debug, Review."}
+                {noWorkspace
+                  ? "Open or create a workspace for Plan, Build, and other write modes."
+                  : "This incognito chat is read-only. Open a normal workspace chat for Plan, Build, and Auto."}
               </TooltipContent>
             </Tooltip>
-            <SelectContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
-              {WORK_MODES.map(({ value, icon: Icon, desc }) => {
-                const disabled = noWorkspace && value !== "ask";
-                return (
-                  <SelectItem key={value} value={value} disabled={disabled}>
-                    <div className="flex flex-col items-start gap-0.5 py-0.5">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <Icon className="h-3.5 w-3.5" />
-                        {labelForWorkMode(value)}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-normal">{desc}</span>
-                    </div>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => !noWorkspace && toggleAuto()}
-                disabled={noWorkspace}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors h-7",
-                  isAuto && "bg-background shadow-sm text-foreground",
-                  !isAuto && !noWorkspace && "text-muted-foreground hover:text-foreground",
-                  noWorkspace && "opacity-50 cursor-not-allowed text-muted-foreground",
-                )}
-                data-testid="chat-intent-auto"
+          ) : (
+            <>
+              <Select
+                value={workMode}
+                onValueChange={(v) => setWorkMode(v as WorkMode)}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>Auto</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {noWorkspace
-                ? "Select a workspace to enable Auto."
-                : isAuto
-                  ? "Click to leave Auto and return to the selected work mode."
-                  : "AI chooses Ask vs Build from your message; Blueprint tier follows heuristics."}
-            </TooltipContent>
-          </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <MiniSelectTrigger
+                      data-testid="chat-work-mode-select"
+                      className={cn(
+                        "h-7 min-w-[5.5rem] px-2 py-0 text-xs font-medium shadow-none gap-1",
+                        isAuto
+                          ? "opacity-70"
+                          : "bg-background hover:bg-muted/50 focus:bg-muted/50",
+                      )}
+                      size="sm"
+                    >
+                      <WorkIcon className="h-3.5 w-3.5 shrink-0" />
+                      <SelectValue>
+                        {labelForWorkMode(workMode)}
+                        {isAuto ? " (Auto)" : ""}
+                      </SelectValue>
+                    </MiniSelectTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isAuto
+                      ? "Auto is on — heuristics pick Ask vs Build; open menu to pick a fixed work mode."
+                      : "Work mode: tools + Blueprint tier. Open for Ask, Plan, Build, Debug, Review."}
+                  </TooltipContent>
+                </Tooltip>
+                <SelectContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+                  {WORK_MODES.map(({ value, icon: Icon, desc }) => {
+                    const disabled = noWorkspace && value !== "ask";
+                    return (
+                      <SelectItem key={value} value={value} disabled={disabled}>
+                        <div className="flex flex-col items-start gap-0.5 py-0.5">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <Icon className="h-3.5 w-3.5" />
+                            {labelForWorkMode(value)}
+                          </span>
+                          <span className="text-xs text-muted-foreground font-normal">{desc}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => !noWorkspace && toggleAuto()}
+                    disabled={noWorkspace}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors h-7",
+                      isAuto && "bg-background shadow-sm text-foreground",
+                      !isAuto && !noWorkspace && "text-muted-foreground hover:text-foreground",
+                      noWorkspace && "opacity-50 cursor-not-allowed text-muted-foreground",
+                    )}
+                    data-testid="chat-intent-auto"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Auto</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {noWorkspace
+                    ? "Select a workspace to enable Auto."
+                    : isAuto
+                      ? "Click to leave Auto and return to the selected work mode."
+                      : "AI chooses Ask vs Build from your message; Blueprint tier follows heuristics."}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </PopoverAnchor>
       <PopoverContent align="start" className="w-80 text-sm">
-        <p className="font-medium mb-1">Work mode + Auto</p>
+        <p className="font-medium mb-1">
+          {isReadOnlyChatChrome ? "Read-only chat" : "Work mode + Auto"}
+        </p>
         <p className="text-muted-foreground text-xs mb-3">
-          Choose Ask, Plan, Build, Debug, or Review for fixed tools and Blueprint depth, or turn on
-          Auto so the model switches Ask ↔ Build and tiers from context.
+          {isReadOnlyChatChrome
+            ? "This chat uses Ask (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, Review, and Auto."
+            : "Choose Ask, Plan, Build, Debug, or Review for fixed tools and Blueprint depth, or turn on Auto so the model switches Ask ↔ Build and tiers from context."}
         </p>
         <Button size="sm" variant="secondary" onClick={dismissFirstTime}>
           Got it

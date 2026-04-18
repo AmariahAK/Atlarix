@@ -1,5 +1,12 @@
 # Atlarix Changelog
 
+## v7.0.1 — Deep research ledger + web relevance (2026-04-17)
+
+- **`deep_research` (`web-tools.ts`):** ResearchLedger + agentic loop: `SubQuestion` / `ResearchFinding` / `DeepResearchResult`, `DEEP_RESEARCH_LIMITS` (semantic stops: max iterations 8, coverage ≥ 0.75, 3 consecutive empty iterations, 3 attempts per sub-Q, 3 search hits per attempt, 2000 chars per excerpt, 10s fetch timeout), `decomposeQuery` for missing `aspects`, `deepResearchQuickSearch` → `WebSearchAggregator.search(..., "general", n)` (equivalent to `web_search` quick path; unchanged in-flight cache / SearxNG chain), `smartReadUrlForDeepResearch` + existing `extractRelevantSection` (4-arg BM25, unchanged implementation), `refineQuery` / `scoreRelevanceForDeepResearch`, `formatResultForModel`, iteration + completion `console.log` lines. Tool return: `text`, `sources` (favicon/snippet map), plus `aspects_used`, `coverage_score`, `iterations`, `completion_reason`, `findings`. Dropped `max_iterations` parameter.
+- **Chat-only (`chat_only_handlers.ts`):** Removed `deepResearchQueryNorm` / supplementary `web_search` counter / `MAX_SUPPLEMENTARY_WEB_SEARCH_WITH_DEEP` / broad-overlap skip helpers (`normalizeResearchTopicForGuard`, `extractWebOrDeepQueryFromParams`, `isBroadRestatementOfDeepTopic`); no external cap on `web_search` after `deep_research`.
+- **`filterRelevantResults`:** Snippet relevance floor **0.15 → 0.25** (aggregator-ranked results).
+- **Deep research “answered” gate:** Token-overlap score threshold for marking a sub-question answered **0.6 → 0.35** (aligns coverage with typical BM25 excerpts).
+
 ## v7.0.0 — Atlarix v7 (Project Vanguard) (2026-04-11)
 
 Major architectural release: agent execution, context, snapshots, parallel work, and plan UX are rebuilt on the existing Blueprint foundation.

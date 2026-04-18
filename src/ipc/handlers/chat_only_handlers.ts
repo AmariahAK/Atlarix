@@ -60,8 +60,41 @@ import {
 import { ToolRegistry } from "../../lib/tools";
 import { getSessionMemory } from "../../lib/session-memory";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
+import type { LargeLanguageModel } from "../../lib/schemas";
+import { getExtraProviderOptions } from "../utils/thinking_utils";
+import {
+    buildReasoningProviderOptions,
+    detectReasoningCapability,
+    resolveReasoningCatalogModelId,
+} from "@/lib/routing/reasoning-detector";
+import {
+    needsOpenRouterContextSafety,
+    resolveContextBudgetTier,
+} from "@/lib/routing/context_budget_routing";
+import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 
 const logger = log.scope("chat_only_handlers");
+
+/** Keep first occurrence per normalized URL (strip hash); entries without URL pass through. */
+function dedupeCollectedSourcesByUrl(sources: any[]): any[] {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const s of sources) {
+        const rawUrl = (s as { url?: string; link?: string }).url ?? (s as { link?: string }).link;
+        const url =
+            typeof rawUrl === "string"
+                ? rawUrl.trim().toLowerCase().split("#")[0]
+                : "";
+        if (!url) {
+            out.push(s);
+            continue;
+        }
+        if (seen.has(url)) continue;
+        seen.add(url);
+        out.push(s);
+    }
+    return out;
+}
 
 // Active streams for cancellation
 const activeStreams = new Map<number, AbortController>();
@@ -177,7 +210,7 @@ The user is running Atlarix app version **${appVersion}**. If they ask what vers
 ## Your capabilities (this mode: no workspace open yet)
 You can help with:
 - Answering questions on many topics
-- Web research (web_search), reading pages (read_url), current date/time, parsing URLs
+- Web research: you have **web_search** and **deep_research** — use **exactly one per research topic per turn** (never both for the same or overlapping topic). **web_search** = quick single-query facts; **deep_research** = multi-source synthesis (it searches internally—do not add **web_search** for the same subject afterward). **read_url** = user gave a specific URL.
 - Planning before building
 
 ## When the user wants to build something
@@ -195,7 +228,7 @@ You cannot read, write, or run commands on the user's project files from this mo
 - Keep responses focused
 
 ## Important
-- Be helpful and conversational; use web_search for current events and docs
+- Be helpful and conversational. **RULE:** For one user question, pick **either** **web_search** **or** **deep_research**, never both in the same turn for overlapping topics. After **deep_research**, answer from its output only.
 `;
 }
 
@@ -424,6 +457,53 @@ export async function handleChatOnlyStream(
             }
         }
 
+        let contextBudgetTier = resolveContextBudgetTier(
+            effectiveModel as LargeLanguageModel,
+            settings,
+        );
+        if (req.forceThinkingTier === true) {
+            contextBudgetTier = "thinking";
+        }
+        if (autoRoutedTierForTurn === "thinking") {
+            contextBudgetTier = "thinking";
+        }
+        const thinkingTier = contextBudgetTier === "thinking";
+
+        const chatOnlyProviderOptions: Record<string, unknown> = {
+            "dyad-gateway": getExtraProviderOptions(
+                modelClient.builtinProviderId,
+                settings,
+                thinkingTier,
+            ),
+        };
+        if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
+            chatOnlyProviderOptions.openrouter = {
+                plugins: [{ id: "context-compression" }],
+            };
+        }
+        if (thinkingTier) {
+            const catalogModelId = resolveReasoningCatalogModelId(
+                effectiveModel as LargeLanguageModel,
+            );
+            const cap = detectReasoningCapability(
+                catalogModelId,
+                modelClient.builtinProviderId,
+            );
+            const reasoningPatch = buildReasoningProviderOptions(cap, true);
+            if (reasoningPatch.openrouter) {
+                chatOnlyProviderOptions.openrouter = {
+                    ...(chatOnlyProviderOptions.openrouter as Record<string, unknown>),
+                    ...reasoningPatch.openrouter,
+                };
+            }
+            if (reasoningPatch.google) {
+                chatOnlyProviderOptions.google = reasoningPatch.google;
+            }
+            if (reasoningPatch.openai) {
+                chatOnlyProviderOptions.openai = reasoningPatch.openai;
+            }
+        }
+
         // No workspace = read-only only (no write/run/delegation) + global MCP tools when provided
         const availableTools = ToolRegistry.getToolsForNoWorkspace();
         logger.log(`Chat-only mode (read-only): ${availableTools.length} built-in tools available`);
@@ -446,6 +526,8 @@ export async function handleChatOnlyStream(
                         toolName: getToolActivityLabel(tool.name),
                     });
                     try {
+                    const paramsObj = params as Record<string, unknown>;
+
                     logger.log(`Executing tool: ${tool.name}`);
                     const result = await tool.handler({ ...params, chatId: req.chatId });
 
@@ -481,18 +563,35 @@ export async function handleChatOnlyStream(
             };
         }
 
-        // Merge global MCP tools (GitHub, etc.) with safe schema wrapping
+        // Merge global MCP tools (GitHub, etc.) with safe schema wrapping — never overwrite built-ins
         if (mcpTools && Object.keys(mcpTools).length > 0) {
+            let skippedBuiltinCollision = 0;
+            let mergedMcpCount = 0;
             for (const [name, tool] of Object.entries(mcpTools)) {
+                if (Object.prototype.hasOwnProperty.call(tools, name)) {
+                    skippedBuiltinCollision += 1;
+                    logger.log(
+                        `Chat-only mode: skipping MCP tool "${name}" (built-in already registered)`,
+                    );
+                    continue;
+                }
                 const t = tool as { description?: string; execute?: (...args: any[]) => any; inputSchema?: unknown };
                 tools[name] = {
                     description: t.description,
                     inputSchema: PERMISSIVE_SCHEMA,
                     execute: t.execute,
                 } as any;
+                mergedMcpCount += 1;
             }
-            logger.log(`Chat-only mode: +${Object.keys(mcpTools).length} MCP tools (total ${Object.keys(tools).length})`);
+            logger.log(
+                `Chat-only mode: +${mergedMcpCount} MCP tools (total ${Object.keys(tools).length}${skippedBuiltinCollision ? `, ${skippedBuiltinCollision} MCP name(s) skipped (built-in)` : ""})`,
+            );
         }
+
+        const toolKeys = Object.keys(tools);
+        logger.log(
+            `[chat-only] ToolSet keys: ${toolKeys.length}, unique names: ${new Set(toolKeys).size} (Record keys cannot duplicate)`,
+        );
 
         // Prepare message history
         const messageHistory = chat.messages.map((msg) => ({
@@ -518,6 +617,8 @@ export async function handleChatOnlyStream(
         const CHAT_ONLY_CONTINUATION_MAX = 3;
 
         const chatOnlyStreamLoopStartMs = Date.now();
+        const nativeToolNamesThisTurn = new Set<string>();
+        let lastStreamResult!: ReturnType<typeof streamText>;
         while (true) {
             if (Date.now() - chatOnlyStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
                 logger.warn("[chat-only] Hit duration limit (30 minutes)");
@@ -536,7 +637,6 @@ export async function handleChatOnlyStream(
             const CHAT_ONLY_EMPTY_OUTPUT_RETRY_DELAY_MS = 1000;
 
             let fr: string | undefined;
-            let lastStreamResult!: ReturnType<typeof streamText>;
             emptyOutputRetry: for (
                 let emptyOutAttempt = 1;
                 emptyOutAttempt <= CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS;
@@ -548,6 +648,9 @@ export async function handleChatOnlyStream(
                     messages: chatOnlyStreamMessages,
                     tools,
                     temperature: 0.7,
+                    providerOptions: chatOnlyProviderOptions as Parameters<
+                        typeof streamText
+                    >[0]["providerOptions"],
                     abortSignal: abortController.signal,
                     stopWhen: [() => false],
                     maxRetries: 2,
@@ -604,15 +707,47 @@ export async function handleChatOnlyStream(
                 );
 
                 try {
-                    let firstTextChunk = true;
-                    for await (const chunk of result.textStream) {
+                    let firstVisibleChunk = true;
+                    let inThinkingBlock = false;
+                    for await (const part of result.fullStream) {
                         if (abortController.signal.aborted) {
                             logger.log("Ephemeral chat-only stream aborted");
                             break;
                         }
 
-                        if (firstTextChunk) {
-                            firstTextChunk = false;
+                        let chunk = "";
+                        if (
+                            inThinkingBlock &&
+                            !["reasoning-delta", "reasoning-start"].includes(part.type)
+                        ) {
+                            chunk = "</think>";
+                            inThinkingBlock = false;
+                        }
+
+                        if (part.type === "text-delta") {
+                            let t = part.text ?? "";
+                            t = t.replace(
+                                /<\/?(?:function|toolcall|tool|parameter)[^>]*>/gi,
+                                "",
+                            );
+                            chunk += t;
+                        } else if (part.type === "reasoning-delta") {
+                            const rtext = part.text ?? "";
+                            if (rtext) {
+                                if (!inThinkingBlock) {
+                                    chunk = "<think>";
+                                    inThinkingBlock = true;
+                                }
+                                chunk += escapeAtlarixTags(rtext);
+                            }
+                        }
+
+                        if (!chunk) {
+                            continue;
+                        }
+
+                        if (firstVisibleChunk && chunk.trim().length > 0) {
+                            firstVisibleChunk = false;
                             safeSend(event.sender, "chat:stream:phase", {
                                 chatId: req.chatId,
                                 phase: "responding",
@@ -635,6 +770,38 @@ export async function handleChatOnlyStream(
                                 },
                             ],
                         });
+                    }
+                    if (inThinkingBlock) {
+                        fullResponse += "</think>";
+                        inThinkingBlock = false;
+                        safeSend(event.sender, "chat:response:chunk", {
+                            chatId: req.chatId,
+                            messages: [
+                                ...chat.messages,
+                                {
+                                    id: -1,
+                                    chatId: req.chatId,
+                                    role: "assistant",
+                                    content: fullResponse,
+                                    createdAt: new Date(),
+                                },
+                            ],
+                        });
+                    }
+
+                    try {
+                        const tc = await result.toolCalls;
+                        for (const c of tc) {
+                            const name = (c as { toolName?: string }).toolName;
+                            if (typeof name === "string" && name.length > 0) {
+                                nativeToolNamesThisTurn.add(name);
+                            }
+                        }
+                    } catch (tcErr) {
+                        logger.warn(
+                            "[chat-only] could not read toolCalls for native/text dedupe",
+                            tcErr,
+                        );
                     }
                 } catch (streamErr) {
                     if (
@@ -743,6 +910,12 @@ export async function handleChatOnlyStream(
 
             for (const toolCall of textToolCalls) {
                 try {
+                    if (nativeToolNamesThisTurn.has(toolCall.toolName)) {
+                        logger.log(
+                            `[Chat-Only] Skipping text-based tool "${toolCall.toolName}" (already executed via native tool calling)`,
+                        );
+                        continue;
+                    }
                     // Check if this tool exists in our tools object
                     const toolFn = tools[toolCall.toolName];
                     if (toolFn) {
@@ -790,9 +963,13 @@ export async function handleChatOnlyStream(
         // ═══════════════════════════════════════════════════════════════
 
         // Create assistant message (in-memory only) WITH SOURCES
-        logger.log(`📊 Collected ${collectedSources.length} sources from tool calls`);
-        if (collectedSources.length > 0) {
-            logger.log('📚 Sources:', collectedSources.map(s => s.title).join(', '));
+        const rawSourceCount = collectedSources.length;
+        const uniqueCollectedSources = dedupeCollectedSourcesByUrl(collectedSources);
+        logger.log(
+            `📊 Collected ${uniqueCollectedSources.length} unique sources from tool calls (raw ${rawSourceCount})`,
+        );
+        if (uniqueCollectedSources.length > 0) {
+            logger.log("📚 Sources:", uniqueCollectedSources.map((s) => s.title).join(", "));
         }
 
         const assistantMessage: Message = {
@@ -800,7 +977,7 @@ export async function handleChatOnlyStream(
             chatId: req.chatId,
             role: "assistant",
             content: fullResponse,
-            sources: collectedSources.length > 0 ? collectedSources : undefined,
+            sources: uniqueCollectedSources.length > 0 ? uniqueCollectedSources : undefined,
             createdAt: new Date(),
             ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
         };

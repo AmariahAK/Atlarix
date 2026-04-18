@@ -1,7 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.0  
-**Last Updated:** 2026-04-11
+**Current Version:** v7.0.1  
+**Last Updated:** 2026-04-17
+
+---
+
+## Shipped in v7.0.1
+
+| Area | Status | Notes |
+|------|--------|--------|
+| `deep_research` ResearchLedger loop | **Done** | `web-tools.ts`: agentic iterations, coverage / empty / max stops; internal aggregator search + fetch + BM25 extract; model-facing `formatResultForModel`; logging |
+| Chat-only deep + `web_search` gate removed | **Done** | `chat_only_handlers.ts`: no supplementary cap / overlap skip |
+| Web search snippet filter | **Done** | `filterRelevantResults` threshold 0.25 |
+| Deep research answered threshold | **Done** | Relevance score > 0.35 → `answered` |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.1.
 
 ---
 
