@@ -145,7 +145,9 @@ export class IpcClient {
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
   private diagramHandlers: Map<number, (payload: any) => void>;
   private terminalHandlers: Map<number, (payload: any) => void>;
-  private toolStartHandlers: Set<(payload: { chatId: number; toolName: string }) => void> = new Set();
+  private toolStartHandlers: Set<
+    (payload: { chatId: number; toolName: string; toolId?: string }) => void
+  > = new Set();
   private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
   private streamPhaseHandlers: Set<
     (payload: { chatId: number; phase: string; label: string }) => void
@@ -226,6 +228,9 @@ export class IpcClient {
 
     this.ipcRenderer.on("chat:response:end", (payload) => {
       const { chatId } = payload as unknown as ChatResponseEnd;
+      this.streamPhaseHandlers.forEach((h) =>
+        h({ chatId, phase: "done", label: "" }),
+      );
       const callbacks = this.chatStreams.get(chatId);
       if (callbacks) {
         callbacks.onEnd(payload as unknown as ChatResponseEnd);
@@ -235,8 +240,12 @@ export class IpcClient {
 
     this.ipcRenderer.on("chat:tool:start", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload && "toolName" in payload) {
-        const { chatId, toolName } = payload as { chatId: number; toolName: string };
-        this.toolStartHandlers.forEach((h) => h({ chatId, toolName }));
+        const { chatId, toolName, toolId } = payload as {
+          chatId: number;
+          toolName: string;
+          toolId?: string;
+        };
+        this.toolStartHandlers.forEach((h) => h({ chatId, toolName, toolId }));
       }
     });
     this.ipcRenderer.on("chat:tool:end", (payload: unknown) => {
@@ -283,6 +292,9 @@ export class IpcClient {
         "error" in payload
       ) {
         const { chatId, error } = payload as { chatId: number; error: string };
+        this.streamPhaseHandlers.forEach((h) =>
+          h({ chatId, phase: "done", label: "" }),
+        );
         const callbacks = this.chatStreams.get(chatId);
         if (callbacks) {
           callbacks.onError(error);
@@ -638,7 +650,7 @@ export class IpcClient {
 
   /** v3.5: Register for tool start/end events (persistent "Working…" indicator). Returns unsubscribe. */
   public onToolIndicator(
-    onStart: (payload: { chatId: number; toolName: string }) => void,
+    onStart: (payload: { chatId: number; toolName: string; toolId?: string }) => void,
     onEnd: (payload: { chatId: number }) => void,
   ): () => void {
     this.toolStartHandlers.add(onStart);

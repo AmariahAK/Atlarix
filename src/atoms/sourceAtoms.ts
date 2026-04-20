@@ -231,6 +231,8 @@ export interface ActivityStreamItem {
   stepCount?: number;
   /** Counsel complete: synthesis character count (not token usage). */
   synthesisLength?: number;
+  /** counsel_start: how counsel was triggered (user_command, auto_complex, deep_think_fallback, …). */
+  counselTrigger?: string;
   /** Agent bus mirror on chat:activity — original bus `type` for filtering internal rows. */
   agentMessageType?: string;
   /** loop_detected / loop_repetition_aborted: tool that repeated (write_file | run_command). */

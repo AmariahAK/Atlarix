@@ -21,6 +21,7 @@ import { useRouter } from "@tanstack/react-router";
 import {
   selectedChatIdAtom,
   toolIndicatorAtom,
+  emptyToolIndicatorState,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
   chatStreamCountByIdAtom,
@@ -170,17 +171,7 @@ export function ChatHeader({
             return n;
           });
         }
-        setToolIndicator({
-          active: false,
-          toolName: null,
-          count: 0,
-          activeChatId: null,
-          liveOutputLines: [],
-          liveErrorLines: [],
-          liveProgressLines: [],
-          liveViewMode: "error_first",
-          phaseLabel: null,
-        });
+        setToolIndicator(emptyToolIndicatorState());
         setSelectedChatId(chatId);
         navigate({
           to: "/chat",

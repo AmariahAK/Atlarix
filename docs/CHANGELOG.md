@@ -1,5 +1,14 @@
 # Atlarix Changelog
 
+## v7.0.2 — Chat strip labels, counsel/deep-think UX, turn artifacts (2026-04-20)
+
+- **Tool / working strip (`ToolIndicator.tsx`, `chatAtoms.ts`, `useStreamChat.ts`, `ipc_client.ts`):** Provider-agnostic labels from stable **`toolId`** (registry name or MCP key): read-only → *Reading your codebase…*, writes → *Modifying the codebase…*, web tools → *Searching the web…*, MCP → *Checking …*, default *Thinking…*. Strip stays visible from **submit through stream end** (not hidden when a tool finishes mid-turn). **`chat:tool:start`** payloads include **`toolId`**; **`chat:stream:phase`** with **`phase: "done"`** is emitted on **`chat:response:end`** / **`chat:response:error`** so lifecycle stays aligned with the renderer.
+- **Autonomous / counsel strip:** **Delegation + agent bus** activity can override the strip to *Splitting to autonomous agents…*; **`counsel_start` / `counsel_end`** (via **`chat:stream:phase`** and **`counsel-runner` `onCounselStreamLifecycle`**) show *Consulting the counsel…* during counsel pre-pass (explicit, auto, mid-task, deep-think substitute).
+- **Deep think fallback (`reasoning-detector.ts` `hasNativeDeepThinkingSupport`, `chat_stream_handlers.ts`, `chat_only_handlers.ts`):** When **one-shot deep thinking** (`forceThinkingTier`) is on and the **effective model has no native reasoning path** (reasoning provider options + gateway thinking flags), the app **runs Counsel as a silent substitute** for that turn and **skips** native reasoning for the API. New counsel trigger **`deep_think_fallback`** (`counsel-session.ts`). Context assembly adds section **`counselDeepThinkSubstitute`** (`ContextAssembler.ts`).
+- **Chat-only counsel:** Ephemeral / no-workspace path mirrors **auto counsel** trigger + lifecycle (same rules as workspace handler); **`thinkingTierEffective`** avoids requesting native reasoning when deep-think counsel substitute applies.
+- **Turn artifacts (`completedTurnArtifactsByAssistantMessageIdAtom`, `useStreamChat.ts`, `TurnArtifactsCards.tsx`, `ChatMessage.tsx`):** On stream **end** / **error**, snapshot **Counsel** (trigger, participant previews, synthesis snippet) and **Agentic-Bus** (last lines from **`agentBusRingByChatIdAtom`**) per assistant message; collapsible cards (**collapsed by default**). Activity items carry **`counselTrigger`** from counsel **`trigger`** (`sourceAtoms`, `chat-activity-normalize.ts`).
+- **IPC / preload:** Tool start listeners pass optional **`toolId`**; no new preload channel names required for this patch.
+
 ## v7.0.1 — Deep research ledger + web relevance (2026-04-17)
 
 - **`deep_research` (`web-tools.ts`):** ResearchLedger + agentic loop: `SubQuestion` / `ResearchFinding` / `DeepResearchResult`, `DEEP_RESEARCH_LIMITS` (semantic stops: max iterations 8, coverage ≥ 0.75, 3 consecutive empty iterations, 3 attempts per sub-Q, 3 search hits per attempt, 2000 chars per excerpt, 10s fetch timeout), `decomposeQuery` for missing `aspects`, `deepResearchQuickSearch` → `WebSearchAggregator.search(..., "general", n)` (equivalent to `web_search` quick path; unchanged in-flight cache / SearxNG chain), `smartReadUrlForDeepResearch` + existing `extractRelevantSection` (4-arg BM25, unchanged implementation), `refineQuery` / `scoreRelevanceForDeepResearch`, `formatResultForModel`, iteration + completion `console.log` lines. Tool return: `text`, `sources` (favicon/snippet map), plus `aspects_used`, `coverage_score`, `iterations`, `completion_reason`, `findings`. Dropped `max_iterations` parameter.
@@ -277,7 +286,7 @@ For detailed historical notes (v1.x–v4.x) and implementation phases, see [`doc
 
 ### Added
 
-- **Workforce tier** ($79/mo): Up to 20 seats; extra seats $10/mo. Teams, Token Vault, Workspace Context, and all Workforce extensions.
+- **Workforce tier** ($79/mo): Up to 5 seats; extra seats $10/mo. Teams, Token Vault, Workspace Context, and all Workforce extensions.
 - **Auth0 Token Vault**: Secure agent authentication; step-up for high-stakes actions; fallback to stored credentials when vault unavailable.
 - **Workspace Context** (Workforce only): Injected block after system prompt with open PRs, failing pipelines, assigned tickets, unread mentions, Sentry errors, today's meetings from connected extensions.
 - **Teams**: Create team, invite members, manage seats; shared .atlarix (team-memory.md, Blueprint) via Git; effective tier = max(own plan, team plan).

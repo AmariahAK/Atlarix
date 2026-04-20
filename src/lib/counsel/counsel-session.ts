@@ -2,7 +2,9 @@ export type CounselTrigger =
   | "user_command"
   | "auto_complex"
   | "agent_blocker"
-  | "low_confidence";
+  | "low_confidence"
+  /** One-shot deep think when the model has no native reasoning API — counsel runs as substitute. */
+  | "deep_think_fallback";
 
 export type CounselMode = "general" | "workspace";
 

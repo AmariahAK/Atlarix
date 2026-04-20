@@ -53,6 +53,11 @@ ToolRegistry.register({
             // Detect test framework
             const packageJsonPath = path.join(workspace, "package.json");
             let testCommand = "npm test";
+            const hasBunLock = await fs
+                .access(path.join(workspace, "bun.lockb"))
+                .then(() => true)
+                .catch(() => false);
+            if (hasBunLock) testCommand = "bun test";
 
             try {
                 const packageJson = JSON.parse(

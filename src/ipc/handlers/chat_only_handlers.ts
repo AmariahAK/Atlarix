@@ -66,12 +66,14 @@ import {
     buildReasoningProviderOptions,
     detectReasoningCapability,
     resolveReasoningCatalogModelId,
+    hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
 import {
     needsOpenRouterContextSafety,
     resolveContextBudgetTier,
 } from "@/lib/routing/context_budget_routing";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
+import { captureSafe } from "../../main/lib/analytics";
 
 const logger = log.scope("chat_only_handlers");
 
@@ -457,23 +459,69 @@ export async function handleChatOnlyStream(
             }
         }
 
+        const forceThinkingNativeSupported =
+            req.forceThinkingTier === true
+                ? hasNativeDeepThinkingSupport(
+                      effectiveModel as LargeLanguageModel,
+                      modelClient.builtinProviderId,
+                      settings,
+                  )
+                : false;
+
         let contextBudgetTier = resolveContextBudgetTier(
             effectiveModel as LargeLanguageModel,
             settings,
         );
-        if (req.forceThinkingTier === true) {
-            contextBudgetTier = "thinking";
-        }
         if (autoRoutedTierForTurn === "thinking") {
             contextBudgetTier = "thinking";
         }
+        if (req.forceThinkingTier === true && forceThinkingNativeSupported) {
+            contextBudgetTier = "thinking";
+        }
         const thinkingTier = contextBudgetTier === "thinking";
+        const thinkingTierEffective =
+            thinkingTier &&
+            !(req.forceThinkingTier === true && !forceThinkingNativeSupported);
+
+        let deepThinkCounselPromptBlock: string | null = null;
+        if (
+            req.forceThinkingTier === true &&
+            !forceThinkingNativeSupported &&
+            settings.counsel?.enabled !== false
+        ) {
+            try {
+                const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
+                const cleanQ = gatedPrompt.slice(0, 12000);
+                deepThinkCounselPromptBlock = await runCounselPipeline({
+                    chatId: req.chatId,
+                    turnId: `chat-only-${req.chatId}-${Date.now()}`,
+                    trigger: "deep_think_fallback",
+                    mode: "general",
+                    question: cleanQ,
+                    settings,
+                    sendActivity: (payload) => {
+                        safeSend(event.sender, "chat:activity", payload);
+                    },
+                    toolActivity: { webContents: event.sender, chatId: req.chatId },
+                    onCounselStreamLifecycle: (phase) => {
+                        safeSend(event.sender, "chat:stream:phase", {
+                            chatId: req.chatId,
+                            phase,
+                            label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                        });
+                    },
+                });
+            } catch (deepCounselErr) {
+                logger.warn("[chat-only][counsel] Deep-think substitute failed:", deepCounselErr);
+                deepThinkCounselPromptBlock = null;
+            }
+        }
 
         const chatOnlyProviderOptions: Record<string, unknown> = {
             "dyad-gateway": getExtraProviderOptions(
                 modelClient.builtinProviderId,
                 settings,
-                thinkingTier,
+                thinkingTierEffective,
             ),
         };
         if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
@@ -481,7 +529,7 @@ export async function handleChatOnlyStream(
                 plugins: [{ id: "context-compression" }],
             };
         }
-        if (thinkingTier) {
+        if (thinkingTierEffective) {
             const catalogModelId = resolveReasoningCatalogModelId(
                 effectiveModel as LargeLanguageModel,
             );
@@ -523,6 +571,7 @@ export async function handleChatOnlyStream(
                     // Fix: Finding 4
                     safeSend(event.sender, "chat:tool:start", {
                         chatId: req.chatId,
+                        toolId: tool.name,
                         toolName: getToolActivityLabel(tool.name),
                     });
                     try {
@@ -593,6 +642,74 @@ export async function handleChatOnlyStream(
             `[chat-only] ToolSet keys: ${toolKeys.length}, unique names: ${new Set(toolKeys).size} (Record keys cannot duplicate)`,
         );
 
+        const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
+        if (
+            settings.counsel?.enabled !== false &&
+            req.forceThinkingTier !== true &&
+            !gatedPrompt.startsWith("Summarize from chat-id=") &&
+            !gatedPrompt.startsWith("/security-review")
+        ) {
+            try {
+                const { detectCounselTrigger, stripCounselCommand } = await import(
+                    "@/lib/counsel/counsel-trigger",
+                );
+                const trigger = detectCounselTrigger(gatedPrompt, resolvedTierForCounsel, {
+                    autoTriggerOnThinking: settings.counsel?.autoTriggerOnThinking !== false,
+                    selectedChatMode: settings.selectedChatMode ?? "ask",
+                });
+                if (trigger) {
+                    const cleanQ = stripCounselCommand(gatedPrompt).slice(0, 12000);
+                    captureSafe("counsel_triggered", {
+                        trigger_type: trigger,
+                        chat_mode: settings.selectedChatMode ?? "unknown",
+                        has_workspace: false,
+                    });
+                    const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
+                    const { storeCounselSynthesisForNextTurn } = await import(
+                        "@/lib/counsel/counsel-next-turn-cache",
+                    );
+                    const counselTimeoutMs = Math.min(
+                        120_000,
+                        Math.max(5_000, (settings.counsel?.timeoutSeconds ?? 30) * 1000),
+                    );
+                    void Promise.race([
+                        runCounselPipeline({
+                            chatId: req.chatId,
+                            turnId: `chat-only-counsel-${req.chatId}-${Date.now()}`,
+                            trigger,
+                            mode: "general",
+                            question: cleanQ,
+                            settings,
+                            sendActivity: (payload) => {
+                                safeSend(event.sender, "chat:activity", payload);
+                            },
+                            toolActivity: { webContents: event.sender, chatId: req.chatId },
+                            onCounselStreamLifecycle: (phase) => {
+                                safeSend(event.sender, "chat:stream:phase", {
+                                    chatId: req.chatId,
+                                    phase,
+                                    label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                                });
+                            },
+                        }),
+                        new Promise<string>((_, reject) =>
+                            setTimeout(() => reject(new Error("counsel_timeout")), counselTimeoutMs),
+                        ),
+                    ])
+                        .then((synthesis) => {
+                            if (req.chatId > 0 && synthesis.trim()) {
+                                storeCounselSynthesisForNextTurn(req.chatId, synthesis);
+                            }
+                        })
+                        .catch((counselErr) => {
+                            logger.warn("[chat-only][counsel] Pipeline failed or timed out:", counselErr);
+                        });
+                }
+            } catch (counselErr) {
+                logger.warn("[chat-only][counsel] Trigger detection failed:", counselErr);
+            }
+        }
+
         // Prepare message history
         const messageHistory = chat.messages.map((msg) => ({
             role: msg.role as "user" | "assistant" | "system",
@@ -609,6 +726,9 @@ export async function handleChatOnlyStream(
         if (sessionContext) {
             systemPrompt += `\n\n${sessionContext}`;
             logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
+        }
+        if (deepThinkCounselPromptBlock?.trim()) {
+            systemPrompt += `\n\n${deepThinkCounselPromptBlock.trim()}`;
         }
 
         let fullResponse = "";

@@ -15,7 +15,21 @@ const logger = log.scope("project-environment");
 // TYPES
 // ════════════════════════════════════════════════════════════════════════════
 
-export type Framework = 'vite' | 'next' | 'cra' | 'nuxt' | 'astro' | 'remix' | 'angular' | 'vue' | 'svelte' | 'express' | 'fastify' | 'nest' | 'unknown';
+export type Framework =
+    | 'vite'
+    | 'next'
+    | 'cra'
+    | 'nuxt'
+    | 'astro'
+    | 'remix'
+    | 'angular'
+    | 'vue'
+    | 'svelte'
+    | 'express'
+    | 'fastify'
+    | 'nest'
+    | 'expo'
+    | 'unknown';
 
 export interface ProjectScripts {
     dev?: string;
@@ -94,11 +108,15 @@ function detectFramework(dependencies: Record<string, string>, devDependencies: 
 /**
  * Determine the best dev command for a project.
  */
-function determineDevCommand(scripts: Record<string, string>, framework: Framework): string | null {
+function determineDevCommand(
+    scripts: Record<string, string>,
+    framework: Framework,
+    runner: 'npm' | 'bun' = 'npm'
+): string | null {
     // Priority order: dev > start > serve
-    if (scripts.dev) return 'npm run dev';
-    if (scripts.start) return 'npm start';
-    if (scripts.serve) return 'npm run serve';
+    if (scripts.dev) return `${runner} run dev`;
+    if (scripts.start) return runner === 'bun' ? 'bun run start' : 'npm start';
+    if (scripts.serve) return `${runner} run serve`;
 
     // Framework-specific fallbacks
     switch (framework) {
@@ -110,6 +128,8 @@ function determineDevCommand(scripts: Record<string, string>, framework: Framewo
             return 'npx react-scripts start';
         case 'astro':
             return 'npx astro dev';
+        case 'expo':
+            return 'npx expo start';
         default:
             return null;
     }
@@ -118,8 +138,12 @@ function determineDevCommand(scripts: Record<string, string>, framework: Framewo
 /**
  * Determine the build command for a project.
  */
-function determineBuildCommand(scripts: Record<string, string>, framework: Framework): string | null {
-    if (scripts.build) return 'npm run build';
+function determineBuildCommand(
+    scripts: Record<string, string>,
+    framework: Framework,
+    runner: 'npm' | 'bun' = 'npm'
+): string | null {
+    if (scripts.build) return `${runner} run build`;
 
     // Framework-specific fallbacks
     switch (framework) {
@@ -155,7 +179,18 @@ export async function detectProjectEnvironment(workspacePath: string): Promise<P
         const devDependencies = pkg.devDependencies || {};
         const scripts = pkg.scripts || {};
 
-        const framework = detectFramework(dependencies, devDependencies);
+        const frameworkFromDeps = detectFramework(dependencies, devDependencies);
+        const framework: Framework =
+            dependencies?.expo || devDependencies?.expo || dependencies?.['react-native'] || devDependencies?.['react-native']
+                ? 'expo'
+                : frameworkFromDeps;
+
+        const hasBunLock = await fs
+            .access(path.join(workspacePath, 'bun.lockb'))
+            .then(() => true)
+            .catch(() => false);
+        const pm = typeof pkg.packageManager === 'string' ? String(pkg.packageManager).toLowerCase() : '';
+        const runner: 'npm' | 'bun' = hasBunLock || pm.startsWith('bun@') ? 'bun' : 'npm';
 
         const result: ProjectEnvironment = {
             framework,
@@ -167,8 +202,8 @@ export async function detectProjectEnvironment(workspacePath: string): Promise<P
                 lint: scripts.lint,
                 format: scripts.format || scripts.prettier,
             },
-            devCommand: determineDevCommand(scripts, framework),
-            buildCommand: determineBuildCommand(scripts, framework),
+            devCommand: determineDevCommand(scripts, framework, runner),
+            buildCommand: determineBuildCommand(scripts, framework, runner),
             dependencies: Object.keys(dependencies),
             devDependencies: Object.keys(devDependencies),
             name: pkg.name,

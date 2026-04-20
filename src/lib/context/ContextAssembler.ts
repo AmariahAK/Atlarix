@@ -14,6 +14,7 @@ export type ContextSectionName =
   | "contextSummary"
   | "sessionMemory"
   | "counsel"
+  | "counselDeepThinkSubstitute"
   | "parallelPrefetch";
 
 export type ContextSection = {

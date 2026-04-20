@@ -27,6 +27,9 @@ import {
   blueprintInjectionChatOverrideAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
+  completedTurnArtifactsByAssistantMessageIdAtom,
+  emptyToolIndicatorState,
+  type CompletedTurnArtifacts,
 } from "@/atoms/chatAtoms";
 import {
   sourceListAtom,
@@ -42,6 +45,8 @@ import {
   type FileProposal,
   type DiagramState,
   type TerminalOutput,
+  type ActivityStreamItem,
+  type AgentBusExchange,
 } from "@/atoms/sourceAtoms";
 import {
   permissionQueueAtom,
@@ -129,6 +134,54 @@ function extractActualDomain(snippet: string, fallbackUrl: string): string {
 
 export function getRandomNumberId() {
   return Math.floor(Math.random() * 1_000_000_000_000_000);
+}
+
+function buildTurnArtifactsSnapshot(
+  chatId: number,
+  messages: Message[],
+  activityItems: ActivityStreamItem[],
+  agentBusByChat: Record<number, AgentBusExchange[]>,
+): CompletedTurnArtifacts | null {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant) return null;
+
+  const scoped = activityItems.filter(
+    (i) => i.chatId == null || i.chatId === chatId,
+  );
+  const counselTypes = new Set<ActivityStreamItem["type"]>([
+    "counsel_start",
+    "counsel_participant_complete",
+    "counsel_synthesising",
+    "counsel_complete",
+  ]);
+  const counselRows = scoped.filter((i) => counselTypes.has(i.type));
+
+  let counsel: CompletedTurnArtifacts["counsel"] = null;
+  if (counselRows.length > 0) {
+    const start = counselRows.find((r) => r.type === "counsel_start");
+    const previews = counselRows
+      .filter((r) => r.type === "counsel_participant_complete")
+      .map((r) => ({
+        role: String(r.counselRole ?? r.label ?? ""),
+        preview: r.preview,
+      }));
+    const done = counselRows.find((r) => r.type === "counsel_complete");
+    const snippet =
+      (done?.detail && String(done.detail).trim()) ||
+      (typeof done?.synthesisLength === "number"
+        ? `Synthesis: ${done.synthesisLength} characters`
+        : "") ||
+      "";
+    counsel = {
+      trigger: start?.counselTrigger ?? "user_command",
+      participantPreviews: previews,
+      synthesisSnippet: snippet.slice(0, 600),
+    };
+  }
+
+  const agentBus = [...(agentBusByChat[chatId] ?? [])].slice(-20);
+  if (!counsel && agentBus.length === 0) return null;
+  return { counsel, agentBus };
 }
 
 export function useStreamChat({
@@ -239,14 +292,8 @@ export function useStreamChat({
 
       // Fix: Finding 4 — instant "Thinking…" before main round-trip
       setToolIndicator({
-        active: false,
-        toolName: null,
-        count: 0,
+        ...emptyToolIndicatorState(),
         activeChatId: chatId,
-        liveOutputLines: [],
-        liveErrorLines: [],
-        liveProgressLines: [],
-        liveViewMode: "error_first",
         phaseLabel: "Thinking…",
       });
       setStreamSlowWarningByChatId((prev) => {
@@ -777,18 +824,31 @@ export function useStreamChat({
               [response.chatId]: response.hadToolCallsOrPermissions === true,
             }));
 
+            const msgs =
+              getDefaultStore().get(chatMessagesByIdAtom).get(response.chatId) ?? [];
+            const activitySnap = getDefaultStore().get(activityStreamItemsAtom);
+            const ring = getDefaultStore().get(agentBusRingByChatIdAtom);
+            const artifacts = buildTurnArtifactsSnapshot(
+              response.chatId,
+              msgs,
+              activitySnap,
+              ring,
+            );
+            if (artifacts) {
+              const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+              if (lastAssistant) {
+                getDefaultStore().set(
+                  completedTurnArtifactsByAssistantMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [lastAssistant.id]: artifacts,
+                  }),
+                );
+              }
+            }
+
             // v3.5: Clear persistent tool indicator when stream ends
-            setToolIndicator({
-              active: false,
-              toolName: null,
-              count: 0,
-              activeChatId: null,
-              liveOutputLines: [],
-              liveErrorLines: [],
-              liveProgressLines: [],
-              liveViewMode: "error_first",
-              phaseLabel: null,
-            });
+            setToolIndicator(emptyToolIndicatorState());
             setStreamLastActivityAtByChatId((prev) => {
               const n = new Map(prev);
               n.delete(response.chatId);
@@ -858,17 +918,30 @@ export function useStreamChat({
               next.set(chatId, false);
               return next;
             });
-            setToolIndicator({
-              active: false,
-              toolName: null,
-              count: 0,
-              activeChatId: null,
-              liveOutputLines: [],
-              liveErrorLines: [],
-              liveProgressLines: [],
-              liveViewMode: "error_first",
-              phaseLabel: null,
-            });
+            const msgsErr =
+              getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];
+            const activityErr = getDefaultStore().get(activityStreamItemsAtom);
+            const ringErr = getDefaultStore().get(agentBusRingByChatIdAtom);
+            const artifactsErr = buildTurnArtifactsSnapshot(
+              chatId,
+              msgsErr,
+              activityErr,
+              ringErr,
+            );
+            if (artifactsErr) {
+              const lastAssistant = [...msgsErr].reverse().find((m) => m.role === "assistant");
+              if (lastAssistant) {
+                getDefaultStore().set(
+                  completedTurnArtifactsByAssistantMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [lastAssistant.id]: artifactsErr,
+                  }),
+                );
+              }
+            }
+
+            setToolIndicator(emptyToolIndicatorState());
             setStreamLastActivityAtByChatId((prev) => {
               const n = new Map(prev);
               n.delete(chatId);
@@ -897,17 +970,7 @@ export function useStreamChat({
         } catch {
           // ignore
         }
-        setToolIndicator({
-          active: false,
-          toolName: null,
-          count: 0,
-          activeChatId: null,
-          liveOutputLines: [],
-          liveErrorLines: [],
-          liveProgressLines: [],
-          liveViewMode: "error_first",
-          phaseLabel: null,
-        });
+        setToolIndicator(emptyToolIndicatorState());
         if (chatId) {
           setStreamLastActivityAtByChatId((prev) => {
             const n = new Map(prev);

@@ -10,7 +10,24 @@ import { generateBlueprint, PARSERS } from "@/lib/blueprint/rte/parsers";
 import type { BlueprintNode } from "./rte/parsers/types";
 import { clearParseTreeCacheForWorkspace } from "@/lib/pivot/parsers/parse-tree-cache";
 
-const CODE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".py"]);
+const CODE_EXT = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".py",
+  ".java",
+  ".kt",
+  ".kts",
+  ".go",
+  ".rs",
+  ".cs",
+  ".rb",
+  ".php",
+  ".swift",
+  ".ex",
+  ".exs",
+]);
 const DEBOUNCE_MS = 500;
 
 let watcher: fs.FSWatcher | null = null;
@@ -18,9 +35,20 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProjectPath: string | null = null;
 let lastWorkspaceId: number | null = null;
 
-function getLanguageFromExt(ext: string): "typescript" | "python" | null {
+function getLanguageFromExt(
+  ext: string
+): "typescript" | "python" | "java" | "kotlin" | "go" | "rust" | "csharp" | "ruby" | "php" | "swift" | "elixir" | null {
   if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) return "typescript";
   if (ext === ".py") return "python";
+  if (ext === ".java") return "java";
+  if (ext === ".kt" || ext === ".kts") return "kotlin";
+  if (ext === ".go") return "go";
+  if (ext === ".rs") return "rust";
+  if (ext === ".cs") return "csharp";
+  if (ext === ".rb") return "ruby";
+  if (ext === ".php") return "php";
+  if (ext === ".swift") return "swift";
+  if (ext === ".ex" || ext === ".exs") return "elixir";
   return null;
 }
 

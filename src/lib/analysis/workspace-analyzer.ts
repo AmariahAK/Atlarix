@@ -30,6 +30,7 @@ const LANGUAGE_MAP: Record<string, string> = {
     '.rs': 'rust',
     '.java': 'java',
     '.kt': 'kotlin',
+    '.kts': 'kotlin',
     '.cpp': 'cpp',
     '.c': 'c',
     '.cs': 'csharp',
@@ -72,9 +73,9 @@ export interface Cluster {
 
 export interface WorkspaceAnalysis {
     workspacePath: string;
-    language: 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'mixed';
+    language: 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'kotlin' | 'mixed';
     framework?: 'react' | 'next' | 'vue' | 'express' | 'fastapi' | 'django' | 'flask' | 'spring';
-    packageManager?: 'npm' | 'yarn' | 'pnpm' | 'poetry' | 'pip' | 'cargo' | 'go';
+    packageManager?: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'poetry' | 'pip' | 'cargo' | 'go' | 'maven' | 'gradle';
     files: AnalyzedFile[];
     dependencies: Dependency[];
     clusters: Cluster[];
@@ -165,6 +166,8 @@ async function detectProjectType(workspacePath: string): Promise<{
         let framework: string | undefined;
         if (deps.next) framework = 'next';
         else if (deps.react) framework = 'react';
+        else if (deps.expo) framework = 'react';
+        else if (deps['react-native']) framework = 'react';
         else if (deps.vue) framework = 'vue';
         else if (deps.express) framework = 'express';
 
@@ -173,10 +176,35 @@ async function detectProjectType(workspacePath: string): Promise<{
 
         // Detect package manager
         let packageManager = 'npm';
+        const pm = typeof pkg.packageManager === 'string' ? pkg.packageManager.toLowerCase() : '';
+        if (pm.startsWith('bun@')) packageManager = 'bun';
         if (await fileExists(path.join(workspacePath, 'pnpm-lock.yaml'))) packageManager = 'pnpm';
         else if (await fileExists(path.join(workspacePath, 'yarn.lock'))) packageManager = 'yarn';
+        else if (await fileExists(path.join(workspacePath, 'bun.lockb'))) packageManager = 'bun';
 
         return { language, framework, packageManager };
+    } catch { }
+
+    // Check Spring Boot / Java / Kotlin (pom.xml or Gradle)
+    try {
+        const pomPath = path.join(workspacePath, 'pom.xml');
+        const pom = await fs.readFile(pomPath, 'utf-8');
+        const isSpring = /spring-boot-starter|org\\.springframework/.test(pom);
+        return { language: 'java', framework: isSpring ? 'spring' : undefined, packageManager: 'maven' };
+    } catch { }
+
+    try {
+        const gradleKts = path.join(workspacePath, 'build.gradle.kts');
+        const content = await fs.readFile(gradleKts, 'utf-8');
+        const isSpring = /spring-boot|org\\.springframework/.test(content);
+        return { language: 'kotlin', framework: isSpring ? 'spring' : undefined, packageManager: 'gradle' };
+    } catch { }
+
+    try {
+        const gradle = path.join(workspacePath, 'build.gradle');
+        const content = await fs.readFile(gradle, 'utf-8');
+        const isSpring = /spring-boot|org\\.springframework/.test(content);
+        return { language: 'java', framework: isSpring ? 'spring' : undefined, packageManager: 'gradle' };
     } catch { }
 
     // Check pyproject.toml (Python + Poetry)

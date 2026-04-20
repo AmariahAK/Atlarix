@@ -95,7 +95,7 @@ export async function ensureWorkforceTeamIfMissing(
       name: `Team ${local}`,
       owner_user_id: userId,
       lemonsqueezy_subscription_id: userRow.lemon_subscription_id ?? null,
-      seat_limit: 20,
+      seat_limit: 5,
       extra_seats: 0,
       active: true,
     })
@@ -451,7 +451,7 @@ export async function inviteMember(
       .eq("team_id", teamId)
       .in("status", ["pending", "active"]);
 
-    const totalSeats = (team.seat_limit ?? 20) + (team.extra_seats ?? 0);
+    const totalSeats = (team.seat_limit ?? 5) + (team.extra_seats ?? 0);
     if ((members?.length ?? 0) >= totalSeats) {
       return { success: false, error: "No seats available. Add more seats for $10/month each." };
     }

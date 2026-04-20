@@ -435,7 +435,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   return (
     <>
       <SlowStreamWarningBar chatId={currentChatId} isStreaming={isStreaming} />
-      <ToolIndicator />
+      <ToolIndicator forChatId={currentChatId ?? undefined} />
       {error && showError && (
         <ChatErrorBox
           onDismiss={dismissError}

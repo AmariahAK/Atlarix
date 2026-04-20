@@ -1,34 +1,111 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { toolIndicatorAtom } from "@/atoms/chatAtoms";
+import { isStreamingByIdAtom, toolIndicatorAtom } from "@/atoms/chatAtoms";
+import { activityStreamItemsAtom } from "@/atoms/sourceAtoms";
+import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { ToolCategory, ToolRegistry } from "@/lib/tools/registry";
 
 export type ToolIndicatorProps = {
   /** When set, only show status for this chat (avoids wrong session in multi-chat UIs). */
   forChatId?: number;
 };
 
+export type ToolLabelGroup = "readonly" | "write" | "web" | "mcp" | "default";
+
+const WEB_TOOL_NAMES = new Set([
+  "web_search",
+  "deep_search",
+  "read_url",
+  "parse_url",
+  "fetch_url",
+]);
+
 /**
- * v3.5: Persistent "Working…" indicator shown while the AI is executing a tool.
- * Fix: Finding 4 — also shows "Thinking…" before first token; human-readable tool labels from main.
+ * Provider-agnostic grouping from stable tool id (registry name or MCP composite key).
+ */
+export function classifyTool(toolIdOrName: string): ToolLabelGroup {
+  const id = toolIdOrName.trim();
+  if (!id) return "default";
+  // MCP tools use `server__tool` keys from getMcpTools
+  if (/^[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(id)) {
+    return "mcp";
+  }
+  const meta = ToolRegistry.get(id);
+  if (meta) {
+    if (meta.category === ToolCategory.WEB || WEB_TOOL_NAMES.has(id)) {
+      return "web";
+    }
+    if (meta.isReadOnly === true) {
+      return "readonly";
+    }
+    return "write";
+  }
+  return "default";
+}
+
+export function groupToLabel(group: ToolLabelGroup, humanToolName: string): string {
+  switch (group) {
+    case "readonly":
+      return "Reading your codebase…";
+    case "write":
+      return "Modifying the codebase…";
+    case "web":
+      return "Searching the web…";
+    case "mcp": {
+      const tail = humanToolName.trim() || "MCP tool";
+      return `Checking ${tail}…`;
+    }
+    default:
+      return "Thinking…";
+  }
+}
+
+function autonomousBusActiveForChat(
+  items: ActivityStreamItem[],
+  chatId: number | null | undefined,
+): boolean {
+  if (chatId == null) return false;
+  const scoped = items.filter((i) => i.chatId == null || i.chatId === chatId);
+  if (scoped.some((i) => i.type === "delegation_start" && i.status === "active")) {
+    return true;
+  }
+  const agentMsgs = scoped.filter((i) => i.type === "agent_message");
+  return agentMsgs.length >= 2;
+}
+
+/**
+ * Persistent working strip: submit → stream done; labels from tool groups, counsel, or autonomous bus.
  */
 export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
   const state = useAtomValue(toolIndicatorAtom);
   const setState = useSetAtom(toolIndicatorAtom);
+  const streamingById = useAtomValue(isStreamingByIdAtom);
+  const activityItems = useAtomValue(activityStreamItemsAtom);
   const [outputExpanded, setOutputExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<
     "error_first" | "progress_first" | "raw_capped"
   >("error_first");
 
+  const targetChatId = forChatId ?? state.activeChatId;
+  const isTargetStreaming =
+    targetChatId != null && streamingById.get(targetChatId) === true;
+
+  const autonomousOverride = useMemo(
+    () => autonomousBusActiveForChat(activityItems, targetChatId ?? undefined),
+    [activityItems, targetChatId],
+  );
+
   useEffect(() => {
     const unsub = IpcClient.getInstance().onToolIndicator(
-      ({ chatId, toolName }) => {
+      ({ chatId, toolName, toolId }) => {
         setState((prev) => ({
           ...prev,
           active: true,
           toolName,
+          toolId: toolId ?? toolName,
           phaseLabel: null,
           count: prev.count + 1,
           activeChatId: chatId,
@@ -46,7 +123,8 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
             count,
             active: count > 0,
             toolName: count > 0 ? prev.toolName : null,
-            activeChatId: count > 0 ? prev.activeChatId : null,
+            toolId: count > 0 ? prev.toolId : null,
+            activeChatId: count > 0 ? prev.activeChatId : prev.activeChatId,
             liveOutputLines: count > 0 ? prev.liveOutputLines : [],
             liveErrorLines: count > 0 ? prev.liveErrorLines : [],
             liveProgressLines: count > 0 ? prev.liveProgressLines : [],
@@ -57,10 +135,35 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
     return unsub;
   }, [setState]);
 
-  // Fix: Finding 4
   useEffect(() => {
     const unsub = IpcClient.getInstance().onStreamPhase(({ chatId, phase, label }) => {
       setState((prev) => {
+        if (phase === "counsel_start") {
+          return {
+            ...prev,
+            counselPhaseActive: true,
+            activeChatId: chatId,
+          };
+        }
+        if (phase === "counsel_end") {
+          if (prev.activeChatId !== chatId) return prev;
+          return { ...prev, counselPhaseActive: false };
+        }
+        if (phase === "done") {
+          if (prev.activeChatId !== chatId) return prev;
+          return {
+            ...prev,
+            active: false,
+            toolName: null,
+            toolId: null,
+            count: 0,
+            counselPhaseActive: false,
+            phaseLabel: null,
+            liveOutputLines: [],
+            liveErrorLines: [],
+            liveProgressLines: [],
+          };
+        }
         if (phase === "thinking") {
           return {
             ...prev,
@@ -86,11 +189,24 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
     return null;
   }
 
-  const showToolRow = state.active && Boolean(state.toolName);
-  if (!showToolRow) return null;
+  const showStrip =
+    targetChatId != null &&
+    (state.activeChatId === targetChatId || isTargetStreaming) &&
+    (isTargetStreaming || state.count > 0 || state.counselPhaseActive);
 
-  const displayLine = `Working… ${state.toolName}`;
+  if (!showStrip) return null;
 
+  let displayLine = state.phaseLabel?.trim() || "Thinking…";
+  if (autonomousOverride) {
+    displayLine = "Splitting to autonomous agents…";
+  } else if (state.counselPhaseActive) {
+    displayLine = "Consulting the counsel…";
+  } else if (state.count > 0 && state.toolName) {
+    const key = state.toolId ?? state.toolName;
+    displayLine = groupToLabel(classifyTool(key), state.toolName);
+  }
+
+  const showToolRow = state.count > 0 && Boolean(state.toolName);
   const showLiveOutput = showToolRow && state.liveOutputLines.length > 0;
 
   const effectiveMode = viewMode ?? state.liveViewMode ?? "error_first";

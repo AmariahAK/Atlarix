@@ -214,7 +214,7 @@ serve(async (req: Request) => {
                                     owner_user_id: newUser.id,
                                     lemonsqueezy_subscription_id: subscriptionId,
                                     name: `Team ${customerEmail.split('@')[0]}`,
-                                    seat_limit: 20,
+                                    seat_limit: 5,
                                     extra_seats: 0,
                                     active: true,
                                 });
@@ -257,7 +257,7 @@ serve(async (req: Request) => {
                                 owner_user_id: existingUser.id,
                                 lemonsqueezy_subscription_id: subscriptionId,
                                 name: `Team ${customerEmail.split('@')[0]}`,
-                                seat_limit: 20,
+                                seat_limit: 5,
                                 extra_seats: 0,
                                 active: true,
                             });

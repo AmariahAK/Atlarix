@@ -83,6 +83,31 @@ const customLink = ({
   />
 );
 
+function renderTextWithPathMentions(children: React.ReactNode) {
+  const raw = typeof children === "string" ? children : String(children ?? "");
+  if (!raw.includes("@/")) return children;
+
+  // Render "@/absolute/path:line-range" as inline code without the leading "@".
+  const parts: React.ReactNode[] = [];
+  const re = /@\/[^\s]+?(?::\d+(?:-\d+)?)?/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (start > last) parts.push(raw.slice(last, start));
+    const token = m[0];
+    parts.push(
+      <code key={`${start}-${end}`} className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+        {token.slice(1)}
+      </code>,
+    );
+    last = end;
+  }
+  if (last < raw.length) parts.push(raw.slice(last));
+  return parts;
+}
+
 export const VanillaMarkdownParser = ({ content }: { content: string }) => {
   return (
     <ReactMarkdown
@@ -260,7 +285,8 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
             }
           } else {
             toolMap.set(targetKey, {
-              id: `tool-${index}`,
+              // Stable id so React keys don't churn during streaming re-parses.
+              id: targetKey,
               toolName,
               status,
               args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
@@ -429,6 +455,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
                 components={{
                   code: CodeHighlight,
                   a: customLink,
+                  text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
                 }}
               >
                 {piece.content}
@@ -512,7 +539,11 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-tool-result",
   ];
 
-  let processedContent = content;
+  // Normalize provider-emitted variants to a single tag name so mismatched
+  // open/close tags don't leak into the visible markdown stream.
+  let processedContent = content
+    .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<think${attrs}>`)
+    .replace(/<\/thinking>/gi, "</think>");
   // Map to track which tags are in progress and their positions
   const inProgressTags = new Map<string, Set<number>>();
 

@@ -1,7 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.1  
-**Last Updated:** 2026-04-17
+**Current Version:** v7.0.2  
+**Last Updated:** 2026-04-20
+
+---
+
+## Shipped in v7.0.2
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Tool strip labels + lifecycle | **Done** | `ToolIndicator` / `toolId` / stream `done` phase; submit→stream-end visibility |
+| Autonomous + counsel strip overrides | **Done** | Activity + `counsel_start`/`counsel_end` stream phases |
+| Deep think → Counsel fallback | **Done** | `hasNativeDeepThinkingSupport`, `deep_think_fallback`, chat-only parity |
+| Turn artifact cards | **Done** | `completedTurnArtifactsByAssistantMessageIdAtom`, `TurnArtifactsCards` |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.2.
 
 ---
 

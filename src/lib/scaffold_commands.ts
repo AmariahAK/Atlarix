@@ -109,9 +109,82 @@ export const SCAFFOLD_COMMANDS: Record<string, ScaffoldCommand> = {
         cli: "npx create-expo-app .",
         description: "Expo React Native app",
     },
+    "bun": {
+        cli: "bun init",
+        description: "Bun project (initializes package.json)",
+    },
+    "bun-vite-react": {
+        cli: "bun create vite@latest . --template react-ts",
+        description: "Bun + Vite + React + TypeScript",
+    },
+    "springboot": {
+        cli: "curl -fsSL \"https://start.spring.io/starter.zip?type=maven-project&language=java&bootVersion=3.3.0&baseDir=.&groupId=com.example&artifactId=app&name=app&packageName=com.example.app&dependencies=web\" -o starter.zip && unzip -o starter.zip && rm starter.zip",
+        description: "Spring Boot (Java) via Spring Initializr",
+        interactive: false,
+    },
+    "kotlin-gradle": {
+        cli: "gradle init --type kotlin-application --dsl kotlin",
+        description: "Kotlin application (Gradle Kotlin DSL)",
+        interactive: true,
+    },
+    "java-maven": {
+        cli: "mvn -B archetype:generate -DgroupId=com.example -DartifactId=app -DarchetypeArtifactId=maven-archetype-quickstart -DarchetypeVersion=1.4 -DinteractiveMode=false",
+        description: "Java application (Maven quickstart archetype)",
+        interactive: false,
+    },
     "react-native": {
         cli: "npx react-native init AppName",
         description: "React Native mobile app",
+    },
+
+    // ── Languages / Ecosystems (CLI bootstrap) ──────────────────────────────
+    "go": {
+        cli: "go mod init example.com/app",
+        description: "Go module (go.mod) bootstrap",
+        postInstall: ["go mod tidy"],
+    },
+    "rust": {
+        cli: "cargo init --bin .",
+        description: "Rust executable crate (Cargo)",
+    },
+    "csharp-console": {
+        cli: "dotnet new console --name App",
+        description: "C# console app (.NET)",
+    },
+    "csharp-webapi": {
+        cli: "dotnet new webapi --name App",
+        description: "C# Web API (ASP.NET)",
+    },
+    "ruby": {
+        cli: "bundle init",
+        description: "Ruby project (Gemfile) bootstrap",
+    },
+    "rails": {
+        cli: "rails new .",
+        description: "Ruby on Rails app",
+        interactive: true,
+    },
+    "php-composer": {
+        cli: "composer init",
+        description: "PHP project (Composer) bootstrap",
+        interactive: true,
+    },
+    "laravel": {
+        cli: "composer create-project laravel/laravel .",
+        description: "Laravel application",
+    },
+    "swift": {
+        cli: "swift package init --type executable",
+        description: "Swift package (executable) bootstrap",
+    },
+    "elixir": {
+        cli: "mix new .",
+        description: "Elixir application bootstrap",
+    },
+    "phoenix": {
+        cli: "mix phx.new .",
+        description: "Phoenix web application",
+        interactive: true,
     },
 
     // Static Site Generators

@@ -6,7 +6,8 @@ import type {
 } from "@/ipc/ipc_types";
 import { atom } from "jotai";
 import type { ChatSummary } from "@/lib/schemas";
-import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
+import type { ActivityStreamItem, AgentBusExchange } from "@/atoms/sourceAtoms";
+import type { CounselTrigger } from "@/lib/counsel/counsel-session";
 
 // Per-chat atoms implemented with maps keyed by chatId
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
@@ -72,6 +73,8 @@ export const restartedAfterMessageIdAtom = atom<number | null>(null);
 export interface ToolIndicatorState {
   active: boolean;
   toolName: string | null;
+  /** Registry tool id or MCP composite key — used for provider-agnostic strip labels. */
+  toolId: string | null;
   count: number;
   /** Chat id for the active tool run; used to associate terminal-output with this indicator. */
   activeChatId: number | null;
@@ -85,18 +88,43 @@ export interface ToolIndicatorState {
   liveViewMode: "error_first" | "progress_first" | "raw_capped";
   /** Fix: Finding 4 — pre-tool "Thinking…" from main before first token */
   phaseLabel: string | null;
+  /** counsel_start / counsel_end from main (ToolIndicator strip). */
+  counselPhaseActive: boolean;
 }
-export const toolIndicatorAtom = atom<ToolIndicatorState>({
-  active: false,
-  toolName: null,
-  count: 0,
-  activeChatId: null,
-  liveOutputLines: [],
-  liveErrorLines: [],
-  liveProgressLines: [],
-  liveViewMode: "error_first",
-  phaseLabel: null,
-});
+
+export function emptyToolIndicatorState(): ToolIndicatorState {
+  return {
+    active: false,
+    toolName: null,
+    toolId: null,
+    count: 0,
+    activeChatId: null,
+    liveOutputLines: [],
+    liveErrorLines: [],
+    liveProgressLines: [],
+    liveViewMode: "error_first",
+    phaseLabel: null,
+    counselPhaseActive: false,
+  };
+}
+
+export const toolIndicatorAtom = atom<ToolIndicatorState>(emptyToolIndicatorState());
+
+/** Frozen counsel + agent-bus cards for a completed assistant turn (collapsed by default in ChatMessage). */
+export type CompletedTurnCounselSnapshot = {
+  trigger: CounselTrigger | string;
+  participantPreviews: { role: string; preview?: string }[];
+  synthesisSnippet: string;
+};
+
+export type CompletedTurnArtifacts = {
+  counsel: CompletedTurnCounselSnapshot | null;
+  agentBus: AgentBusExchange[];
+};
+
+export const completedTurnArtifactsByAssistantMessageIdAtom = atom<
+  Record<number, CompletedTurnArtifacts>
+>({});
 
 /** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());

@@ -37,6 +37,7 @@ import {
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   selectedChatIdAtom,
+  completedTurnArtifactsByAssistantMessageIdAtom,
 } from "@/atoms/chatAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -61,6 +62,7 @@ import { TaskLedgerPlanCard } from "./TaskLedgerPlanCard";
 import { AgentActivityLog, buildActivityLogRows } from "./AgentActivityLog";
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { CounselChatPreview } from "./CounselChatPreview";
+import { TurnArtifactsCards } from "./TurnArtifactsCards";
 import {
   InlineThoughtsBlock,
   shouldRenderInlineThoughtsPanel,
@@ -85,6 +87,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const activityItems = useAtomValue(activityStreamItemsAtom);
   const livePlanByAssistantMessageId = useAtomValue(livePlanUpdateByAssistantMessageIdAtom);
   const planSnapshotsByMessageId = useAtomValue(planSnapshotByAssistantMessageIdAtom);
+  const completedTurnArtifactsById = useAtomValue(
+    completedTurnArtifactsByAssistantMessageIdAtom,
+  );
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const [frozenActivity, setFrozenActivity] = useState<ActivityStreamItem[] | null>(null);
@@ -581,6 +586,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   />
                   {showCounselPreview ? (
                     <CounselChatPreview items={counselPreviewItems} />
+                  ) : null}
+                  {completedTurnArtifactsById[message.id] ? (
+                    <TurnArtifactsCards artifacts={completedTurnArtifactsById[message.id]!} />
                   ) : null}
                   {showNoActionsThisTurn && (
                     <div className="mt-2 text-xs text-muted-foreground">No actions this turn.</div>

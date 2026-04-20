@@ -129,6 +129,7 @@ import {
   buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
+  hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
@@ -1755,10 +1756,23 @@ ${componentSnippet}
         }
         const { modelClient, isEngineEnabled, isSmartContextEnabled } =
           await getModelClient(effectiveModel, settings, mainOptions);
+        const forceThinkingNativeSupported =
+          req.forceThinkingTier === true
+            ? hasNativeDeepThinkingSupport(
+                effectiveModel,
+                modelClient.builtinProviderId,
+                settings,
+              )
+            : false;
+
         let contextBudgetTier = resolveContextBudgetTier(effectiveModel, settings);
-        if (req.forceThinkingTier === true) {
+        if (req.forceThinkingTier === true && forceThinkingNativeSupported) {
           contextBudgetTier = "thinking";
         }
+
+        let deepThinkCounselPromptBlock: string | null = null;
+        const suppressNativeThinkingForDeepCounsel =
+          req.forceThinkingTier === true && !forceThinkingNativeSupported;
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
         let compassStreamTokens: number | undefined;
@@ -1804,6 +1818,41 @@ ${componentSnippet}
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
+
+        if (
+          req.forceThinkingTier === true &&
+          !forceThinkingNativeSupported &&
+          settings.counsel?.enabled !== false
+        ) {
+          try {
+            const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
+            const cleanQ = (userPrompt || req.prompt).slice(0, 12000);
+            deepThinkCounselPromptBlock = await runCounselPipeline({
+              chatId: req.chatId,
+              turnId: streamTurnIdForLedger,
+              trigger: "deep_think_fallback",
+              mode: hasWorkspace && appPath ? "workspace" : "general",
+              question: cleanQ,
+              settings,
+              sendActivity: (payload) => {
+                safeSend(event.sender, "chat:activity", payload);
+              },
+              workspacePath: hasWorkspace && appPath ? appPath : undefined,
+              workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
+              toolActivity: { webContents: event.sender, chatId: req.chatId },
+              onCounselStreamLifecycle: (phase) => {
+                safeSend(event.sender, "chat:stream:phase", {
+                  chatId: req.chatId,
+                  phase,
+                  label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                });
+              },
+            });
+          } catch (deepCounselErr) {
+            logger.warn("[counsel] Deep-think substitute counsel failed:", deepCounselErr);
+            deepThinkCounselPromptBlock = null;
+          }
+        }
 
         let codebaseInfo = "";
         let files: any[] = [];
@@ -2182,6 +2231,13 @@ ${componentSnippet}
                     workspacePath: hasWorkspace && appPath ? appPath : undefined,
                     workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
                     toolActivity: { webContents: event.sender, chatId: req.chatId },
+                    onCounselStreamLifecycle: (phase) => {
+                      safeSend(event.sender, "chat:stream:phase", {
+                        chatId: req.chatId,
+                        phase,
+                        label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                      });
+                    },
                   }),
                   new Promise<string>((_, reject) =>
                     setTimeout(() => reject(new Error("counsel_timeout")), counselTimeoutMs),
@@ -2783,6 +2839,14 @@ ${componentSnippet}
             }
           }
 
+          if (deepThinkCounselPromptBlock?.trim()) {
+            contextSections.push({
+              name: "counselDeepThinkSubstitute",
+              priority: -0.8,
+              content: deepThinkCounselPromptBlock.trim(),
+            });
+          }
+
           const assembledContext = assembleContextSections({
             chatId: req.chatId,
             appId: effectiveAppId ?? null,
@@ -3102,7 +3166,8 @@ This conversation includes one or more image attachments. When the user uploads 
               ? "deep"
               : "balanced";
             const optionsModel = getEffectiveModelForOptions(settings);
-            const thinkingTier = contextBudgetTier === "thinking";
+            const thinkingTier =
+              contextBudgetTier === "thinking" && !suppressNativeThinkingForDeepCounsel;
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
@@ -3454,6 +3519,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   // Fix: Finding 4
                   safeSend(event.sender, "chat:tool:start", {
                     chatId: req.chatId,
+                    toolId: regName,
                     toolName: getToolActivityLabel(regName),
                   });
                   try {
@@ -3711,6 +3777,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   if (!askIsStream) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
+                      toolId: tool.name,
                       toolName: getToolActivityLabel(tool.name),
                     });
                   }
@@ -3748,6 +3815,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       execArgs._sendToolActivity = (label: string) => {
                         safeSend(event.sender, "chat:tool:start", {
                           chatId: req.chatId,
+                          toolId: tool.name,
                           toolName: label,
                         });
                         return () => {
@@ -4354,6 +4422,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   if (!isStreamTool) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
+                      toolId: toolName,
                       toolName: uiToolLabel,
                     });
                   }
@@ -4380,6 +4449,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       executeArgs._sendToolActivity = (label: string) => {
                         safeSend(event.sender, "chat:tool:start", {
                           chatId: req.chatId,
+                          toolId: toolName,
                           toolName: label,
                         });
                         return () => {
@@ -4692,6 +4762,13 @@ For workforce, explain services before request_workspace_permissions.`;
                               workspacePath: hasWorkspace && appPath ? appPath : undefined,
                               workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
                               toolActivity: { webContents: event.sender, chatId: req.chatId },
+                              onCounselStreamLifecycle: (phase) => {
+                                safeSend(event.sender, "chat:stream:phase", {
+                                  chatId: req.chatId,
+                                  phase,
+                                  label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                                });
+                              },
                             })
                               .then((block) => {
                                 if (block.trim()) {
@@ -4761,6 +4838,7 @@ For workforce, explain services before request_workspace_permissions.`;
                     // Fix: Finding 4
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
+                      toolId: "delegate_to_agent",
                       toolName: getToolActivityLabel("delegate_to_agent"),
                     });
                     try {
@@ -5140,6 +5218,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   for (const tc of textToolCalls) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
+                      toolId: tc.toolName,
                       toolName: getToolActivityLabel(tc.toolName),
                     });
                   }
@@ -5199,6 +5278,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   if (!toolCallsToProcess) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
+                      toolId: toolCall.toolName,
                       toolName: getToolActivityLabel(toolCall.toolName),
                     });
                   }
@@ -6788,6 +6868,7 @@ async function getMcpTools(
             if (cid != null) {
               safeSend(event.sender, "chat:tool:start", {
                 chatId: cid,
+                toolId: key,
                 toolName: getToolActivityLabel(key),
               });
             }

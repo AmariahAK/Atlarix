@@ -69,6 +69,12 @@ const SCAFFOLD_PATTERNS = [
     /npm\s+create\s+tauri-app/i,
     /npx\s+react-native\s+init/i,
     /npx\s+create-expo-app/i,
+    /bun\s+init/i,
+    /bun\s+create/i,
+    /bunx\s+create-expo-app/i,
+    /mvn\s+-B\s+archetype:generate/i,
+    /gradle\s+init/i,
+    /curl\s+.*start\.spring\.io/i,
 ];
 
 // ═══════════════════════════════════════════════════════════

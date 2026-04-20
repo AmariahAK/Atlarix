@@ -10,7 +10,8 @@ import {
   type OpenRouterModelRowExtended,
 } from "./tier-context-limits";
 import { getOpenRouterModelIdForCompassTier } from "@/ipc/shared/compass_constants";
-import type { LargeLanguageModel } from "@/lib/schemas";
+import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
+import { getExtraProviderOptions } from "@/ipc/utils/thinking_utils";
 
 /** OpenRouter / @openrouter/ai-sdk-provider reasoning block (effort OR max_tokens required). */
 export type OpenRouterReasoningOpts = {
@@ -95,6 +96,25 @@ export function detectReasoningCapability(
     useGoogleThoughts,
     useOpenAiReasoningSummary,
   };
+}
+
+/**
+ * Whether the effective model + gateway can request native extended thinking/reasoning
+ * (provider options + gateway thinking flags used on the thinking tier).
+ */
+export function hasNativeDeepThinkingSupport(
+  effectiveModel: LargeLanguageModel,
+  builtinProviderId: string | undefined,
+  settings: UserSettings,
+): boolean {
+  const catalogModelId = resolveReasoningCatalogModelId(effectiveModel);
+  const cap = detectReasoningCapability(catalogModelId, builtinProviderId);
+  const reasoningPatch = buildReasoningProviderOptions(cap, true);
+  if (Object.keys(reasoningPatch).length > 0) {
+    return true;
+  }
+  const gateway = getExtraProviderOptions(builtinProviderId, settings, true);
+  return Object.keys(gateway).length > 0;
 }
 
 /**

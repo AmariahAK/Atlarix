@@ -265,7 +265,7 @@ export function registerAuthHandlers() {
         }
     });
 
-    // v4.0: Open Workforce checkout ($79/mo, up to 20 seats)
+    // v4.0: Open Workforce checkout ($79/mo, up to 5 seats; add paid seats as needed)
     ipcMain.handle("auth:upgrade-workforce", async () => {
         logger.log("[AuthHandlers] Upgrade to Workforce requested");
         try {

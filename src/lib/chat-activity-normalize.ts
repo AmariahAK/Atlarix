@@ -114,6 +114,7 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     toolName: p.toolName != null ? String(p.toolName) : undefined,
     loopTarget: p.loopTarget != null ? String(p.loopTarget) : undefined,
     loopCount: typeof p.loopCount === "number" ? p.loopCount : undefined,
+    counselTrigger: p.trigger != null ? String(p.trigger) : undefined,
   };
 
   switch (type) {

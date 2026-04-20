@@ -112,6 +112,7 @@ function buildCounselParticipantTools(opts: {
         if (act) {
           safeSend(act.webContents, "chat:tool:start", {
             chatId: act.chatId,
+            toolId: name,
             toolName: getToolActivityLabel(name),
           });
         }
@@ -254,6 +255,8 @@ export interface RunCounselPipelineArgs {
   workspaceId?: number | null;
   /** When set, mirrors tool start/end to the chat UI (same as Ask mode). */
   toolActivity?: { webContents: WebContents; chatId: number };
+  /** Fires when counsel pipeline starts / ends (for ToolIndicator stream phases). */
+  onCounselStreamLifecycle?: (phase: "counsel_start" | "counsel_end") => void;
 }
 
 /**
@@ -272,6 +275,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     workspacePath,
     workspaceId,
     toolActivity,
+    onCounselStreamLifecycle,
   } = args;
   const pipelineStarted = Date.now();
 
@@ -345,6 +349,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     createdAt: now,
   };
 
+  onCounselStreamLifecycle?.("counsel_start");
   sendActivity({
     id: `counsel-start-${sessionId}`,
     type: "counsel_start",
@@ -354,6 +359,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     chatId,
     sessionId,
     participantCount: 3,
+    trigger,
   });
 
   const skillAddendum = await buildCounselSkillAddendum(settings, workspacePath ?? null);
@@ -559,5 +565,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
       /* noop */
     }
     return "";
+  } finally {
+    onCounselStreamLifecycle?.("counsel_end");
   }
 }

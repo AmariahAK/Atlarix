@@ -161,6 +161,19 @@ export const LANGUAGE_REGISTRY: Record<string, LanguageRequirement> = {
             run: 'bun run',
         },
     },
+    swift: {
+        name: 'swift',
+        displayName: 'Swift',
+        checkCommand: 'swift --version',
+        versionCommand: 'swift --version',
+        installUrl: 'https://www.swift.org/download/',
+        icon: '🕊️',
+        indicators: ['Package.swift', '.swiftpm', 'Sources', '*.swift'],
+        packageManager: {
+            install: 'swift package resolve',
+            run: 'swift run',
+        },
+    },
     elixir: {
         name: 'elixir',
         displayName: 'Elixir',

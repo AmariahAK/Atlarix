@@ -468,8 +468,24 @@ async function generateClassDiagram(
     workspace: string,
     includeMethods: boolean = true
 ): Promise<string> {
-    // Find TypeScript/JavaScript files
-    const files = await findCodeFiles(workspace, [".ts", ".tsx", ".js", ".jsx"]);
+    // Find common "class-ish" language files (best-effort; regex-first)
+    const files = await findCodeFiles(workspace, [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".java",
+        ".kt",
+        ".kts",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".rs",
+        ".go",
+        ".ex",
+        ".exs",
+    ]);
 
     let mermaid = "classDiagram\n";
 
@@ -621,7 +637,15 @@ function extractClasses(content: string): ClassInfo[] {
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const classMatch = line.match(/class\s+(\w+)(?:\s+extends\s+(\w+))?/);
+        const classMatch =
+            line.match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_]*))?/) ?? // JS/TS/Java-ish
+            line.match(/\binterface\s+([A-Za-z_][A-Za-z0-9_]*)/) ?? // interface
+            line.match(/\brecord\s+([A-Za-z_][A-Za-z0-9_]*)/) ?? // C# record
+            line.match(/\bstruct\s+([A-Za-z_][A-Za-z0-9_]*)/) ?? // Rust/Swift/C#
+            line.match(/\benum\s+([A-Za-z_][A-Za-z0-9_]*)/) ?? // Rust/Swift/Java
+            line.match(/^\s*(?:module|class)\s+([A-Za-z_][A-Za-z0-9_:]*)\b/) ?? // Ruby module/class
+            line.match(/^\s*defmodule\s+([A-Za-z_][A-Za-z0-9_.]*)\b/) ?? // Elixir
+            null;
 
         if (classMatch) {
             const className = classMatch[1];
@@ -630,7 +654,16 @@ function extractClasses(content: string): ClassInfo[] {
 
             // Find methods
             for (let j = i + 1; j < Math.min(i + 50, lines.length); j++) {
-                const methodMatch = lines[j].match(/(\w+)\s*\([^)]*\)\s*{/);
+                const methodMatch =
+                    lines[j].match(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{/) ?? // JS/TS/Java/C#
+                    lines[j].match(/^\s*def\s+(?:self\.)?([a-zA-Z_][a-zA-Z0-9_!?=]*)/) ?? // Ruby
+                    lines[j].match(/^\s*(?:public|protected|private)?\s*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/) ?? // PHP
+                    lines[j].match(/^\s*func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/) ?? // Swift
+                    lines[j].match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/) ?? // Rust
+                    lines[j].match(/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/) ?? // Go
+                    lines[j].match(/^\s*defp?\s+([a-zA-Z_][a-zA-Z0-9_!?]*)\s*(?:\(|do\b)/) ?? // Elixir
+                    null;
+
                 if (methodMatch && !lines[j].includes("function")) {
                     methods.push(methodMatch[1]);
                 }

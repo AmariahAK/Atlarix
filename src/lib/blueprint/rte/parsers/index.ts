@@ -14,6 +14,15 @@ import type {
 } from "./types";
 import { typeScriptParser } from "./typescript";
 import { pythonParser } from "./python";
+import { javaParser } from "./java";
+import { kotlinParser } from "./kotlin";
+import { goParser } from "./go";
+import { rustParser } from "./rust";
+import { csharpParser } from "./csharp";
+import { rubyParser } from "./ruby";
+import { phpParser } from "./php";
+import { swiftParser } from "./swift";
+import { elixirParser } from "./elixir";
 import { extractImportAndCallEdges } from "./edgeExtractor";
 import { getSimpleDescriptionFromDoc } from "@/lib/blueprint/descriptions/jsdocExtractor";
 import { getSimpleDescriptionFromPattern } from "@/lib/blueprint/descriptions/patternMatcher";
@@ -46,7 +55,9 @@ async function detectLanguage(projectPath: string): Promise<SupportedLanguage | 
   if (names.some((n) => n.endsWith(".csproj")) || names.includes("*.sln")) return "csharp";
   if (names.includes("composer.json")) return "php";
   if (names.includes("mix.exs")) return "elixir";
+  if (names.includes("Package.swift")) return "swift";
   if (names.includes("pom.xml") || names.includes("build.gradle")) return "java";
+  if (names.includes("build.gradle.kts") || names.includes("settings.gradle.kts")) return "kotlin";
   return null;
 }
 
@@ -61,7 +72,7 @@ const CODE_EXTENSIONS: Record<SupportedLanguage, string[]> = {
   ruby: [".rb"],
   php: [".php"],
   swift: [".swift"],
-  kotlin: [".kt"],
+  kotlin: [".kt", ".kts"],
   elixir: [".ex", ".exs"],
 };
 
@@ -112,7 +123,15 @@ export const PARSERS: Partial<Record<SupportedLanguage, LanguageParser>> = {
   typescript: typeScriptParser,
   javascript: typeScriptParser,
   python: pythonParser,
-  // go, rust, java, csharp, ruby, php, swift, kotlin, elixir: stubbed later
+  java: javaParser,
+  kotlin: kotlinParser,
+  go: goParser,
+  rust: rustParser,
+  csharp: csharpParser,
+  ruby: rubyParser,
+  php: phpParser,
+  swift: swiftParser,
+  elixir: elixirParser,
 };
 
 /**

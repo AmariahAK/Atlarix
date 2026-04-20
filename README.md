@@ -6,9 +6,22 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.0.1**
+**Current release:** **v7.0.2**
 
 **Downloads:** Installers for **macOS** and **Linux** are on [atlarix.dev](https://atlarix.dev). **Windows** is still in progress pending code signing.
+
+---
+
+## v7.0.2 — Chat strip, counsel & deep-think polish (patch)
+
+*April 2026*
+
+### What changed
+
+- **Working strip:** Labels are **provider-agnostic** (read / modify / web / MCP / default) and stay visible **from send until the stream fully ends**. Autonomous delegation and **Counsel** pre-pass get clear status text; tools send stable **`toolId`** for correct grouping.
+- **Deep think:** If you use **one-shot deep thinking** and the **current model cannot use native extended reasoning**, Atlarix **runs Counsel instead** for that turn—no error toast—then continues the main reply without asking the provider for unsupported reasoning APIs.
+- **Chat without a workspace:** Counsel **auto-trigger** and the same deep-think / Counsel behavior apply in **ephemeral chat-only** mode (web tools only when no project is open).
+- **After each reply:** Optional **Counsel** and **Agentic-Bus** cards (collapsed by default) keep a short **snapshot** of that turn’s counsel session and agent-bus lines.
 
 ---
 
@@ -127,7 +140,20 @@ The sidebar also shows these commands inline whenever a sign-in attempt fails on
 
 ## Deployment & CI/CD
 
-Releases are built and published via GitHub Actions on every version tag push (`v*`).
+Releases are built and published from **this repository** ([`AmariahAK/Atlarix`](https://github.com/AmariahAK/Atlarix)) via GitHub Actions—**no separate deploy repo step**. Pushing a **version tag** is the supported way to run the full pipeline and **publish** the release.
+
+### Cut a release (Atlarix repo only)
+
+1. Land your changes on the branch you release from (usually `main`) and bump **`package.json` `version`** (and changelog/README as needed) so it matches the tag you will push.
+2. Commit the version bump.
+3. Create and push a tag whose name matches the app version with a **`v` prefix**, e.g. **`v7.0.2`**:
+   ```bash
+   git tag v7.0.2
+   git push origin v7.0.2
+   ```
+4. In GitHub: **Actions** → **Release** should show a run for that tag. When **macOS** and **Linux** jobs succeed, the workflow **publishes** the draft release on **`AmariahAK/atlarix-releases`** (see workflow `publish-release`).
+
+**Manual run (`workflow_dispatch`):** You can trigger **Actions → Release → Run workflow** for a test build; set the **version** input when prompted. **Publishing** the release to users still follows the **tag push** path in [`.github/workflows/release.yml`](.github/workflows/release.yml) (`publish-release` is gated on `refs/tags/v*`).
 
 - **Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) — creates a draft release on `AmariahAK/atlarix-releases`, builds macOS (arm64 + x64) with notarization and Linux (`.deb`, `.rpm`, `.AppImage`), uploads assets and `latest-mac.yml` / `latest-linux.yml` feed files for `electron-updater`, then publishes the release.
 - **SQLite migrations:** Migration SQL is embedded in the main process bundle at build time (see [`src/db/migrations/bundled.generated.ts`](src/db/migrations/bundled.generated.ts)). Run `npm run db:bundle-sql` after any new Drizzle migration.
@@ -172,7 +198,7 @@ npm start
 |-----------|---------|------------------|---------------------------------------------------------------------------|
 | Free      | $0      | 1 workspace chat | Full tool access, BYOK                                                    |
 | Pro       | $19/mo  | Unlimited        | Priority support, GitHub Actions extension, Compass Balanced + Thinking   |
-| Workforce | $79/mo  | Unlimited        | Teams (up to 20 seats), Token Vault, Workforce extensions                 |
+| Workforce | $79/mo  | Unlimited        | Teams (up to 5 seats; add paid seats), Token Vault, Workforce extensions  |
 
 ---
 
