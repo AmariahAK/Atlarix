@@ -74,7 +74,7 @@ export function useAuth() {
                             <span class="text-xl">✅</span>
                             <div>
                                 <div class="font-medium">Signed in successfully!</div>
-                                <div class="text-sm opacity-90">You can close the browser tab now.</div>
+                                <div class="text-sm opacity-90">You're ready to continue.</div>
                             </div>
                         `;
                         document.body.appendChild(notification);

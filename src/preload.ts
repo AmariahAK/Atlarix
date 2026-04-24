@@ -354,6 +354,7 @@ const validReceiveChannels = [
   "chat:tool:start",
   "chat:tool:end",
   "chat:stream:phase",
+  "theme:system-updated",
   "models-dev:status",
   "window:fullscreen-changed",
   "app:output",

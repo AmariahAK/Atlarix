@@ -152,7 +152,7 @@ const FEATURES: ToolFeature[] = [
     ],
     /* Fix: Workforce-1 — session-scoped service context (picker), not a static per-workspace JSON \"space\" blob. */
     howItWorks:
-      "Each workspace has its own Team, plan (Free / Pro / Workforce), and Token Vault connections. Workforce users connect Slack, Jira, Linear, Sentry, Calendar, CI in Settings → Workspace. For each chat session, the first time a Workforce tool needs a scope, you pick the Slack workspace, default channel area, GitHub org/repo, or similar; that choice is remembered for that chat only (cleared on New Chat). Atlarix injects a Workforce context block into the prompt from those connections. Tools are gated by your effective tier.",
+      "Each workspace has its own Team, plan (Free / Pro / Workforce), and Token Vault connections. Workforce users connect Slack, Jira, Linear, Sentry, Calendar, CI in Settings → Workspace. For each chat session, the first time a Workforce tool needs a scope, you pick the Slack workspace, default channel area, GitHub org/repo, or similar; that choice is remembered for that chat only (cleared on new chat). Atlarix injects a Workforce context block into the prompt from those connections. Tools are gated by your effective tier.",
     link: { label: "Settings → Subscription & Workspace", to: "/settings" },
   },
   {

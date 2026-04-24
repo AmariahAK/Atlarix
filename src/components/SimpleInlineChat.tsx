@@ -82,7 +82,7 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-muted/50 border border-border/50 rounded-lg hover:bg-accent transition-colors"
                 >
                     <Plus size={14} />
-                    <span>New Chat</span>
+                    <span>New chat</span>
                 </button>
             </div>
 

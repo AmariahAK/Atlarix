@@ -292,7 +292,10 @@ function OperationCard({
                                         onChange={(e) => { e.stopPropagation(); setDangerAcknowledged(e.target.checked); }}
                                         className="mt-0.5 rounded border-amber-500/50"
                                     />
-                                    <label htmlFor={`danger-ack-${operation.id}`} className="text-sm text-amber-200 flex-1">
+                                    <label
+                                        htmlFor={`danger-ack-${operation.id}`}
+                                        className="text-sm text-amber-950 dark:text-amber-100 flex-1"
+                                    >
                                         <span className="font-medium">I understand:</span> {operation.dangerExplanation}
                                     </label>
                                 </div>

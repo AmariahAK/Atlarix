@@ -1,7 +1,19 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.2  
-**Last Updated:** 2026-04-20
+**Current Version:** v7.0.3  
+**Last Updated:** 2026-04-24
+
+---
+
+## Shipped in v7.0.3
+
+| Area | Status | Notes |
+|------|--------|--------|
+| OAuth: open in system browser + timeout fallback | **Done** | `shell.openExternal`, 60s “Sign-in not completing?” dialog; Linux copy-link fallback; cancel timeout on deep-link callback |
+| Dark mode button/toggle affordance | **Done** | Dark tokens + outline/ghost button surfaces + switch borders so controls read as clickable |
+| Sign-in free tier copy aligned to pricing | **Done** | One workspace; starter included usage; BYOK/local models; no credit card |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.3.
 
 ---
 

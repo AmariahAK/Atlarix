@@ -173,7 +173,7 @@ export function ChatList({ show }: { show?: boolean }) {
               className="flex items-center justify-start gap-2 mx-2 py-3"
             >
               <PlusCircle size={16} />
-              <span>New Chat</span>
+              <span>New chat</span>
             </Button>
             <Button
               onClick={() => setIsSearchDialogOpen(!isSearchDialogOpen)}
@@ -213,7 +213,7 @@ export function ChatList({ show }: { show?: boolean }) {
                       >
                         <div className="flex flex-col w-full">
                           <span className="truncate">
-                            {chat.title || "New Chat"}
+                            {chat.title || "New chat"}
                           </span>
                           <span className="text-xs text-gray-500">
                             {formatDistanceToNow(new Date(chat.createdAt), {
@@ -255,7 +255,7 @@ export function ChatList({ show }: { show?: boolean }) {
                               onClick={() =>
                                 handleDeleteChatClick(
                                   chat.id,
-                                  chat.title || "New Chat",
+                                  chat.title || "New chat",
                                 )
                               }
                               className="px-3 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 focus:bg-red-50 dark:focus:bg-red-950/50"

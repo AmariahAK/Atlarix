@@ -153,7 +153,7 @@ export const PublishPanel = () => {
                   </svg>
                   <div>
                     <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      GitHub Required for Vercel Deployment
+                      GitHub required for Vercel deployment
                     </h3>
                     <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
                       Deploying to Vercel requires connecting to GitHub first.

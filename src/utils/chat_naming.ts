@@ -23,7 +23,7 @@ export function generateSimpleChatName(userMessage: string): string {
     const keywords = extractKeywords(cleaned);
 
     if (keywords.length === 0) {
-        return "New Chat";
+        return "New chat";
     }
 
     // Capitalize first letter of each word
@@ -32,7 +32,7 @@ export function generateSimpleChatName(userMessage: string): string {
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ");
 
-    return name || "New Chat";
+    return name || "New chat";
 }
 
 /**

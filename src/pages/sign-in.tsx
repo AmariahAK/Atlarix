@@ -9,10 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export function SignInPage() {
     const { user, loading, signInWithGoogle, signInWithGitHub } = useAuth();
     const navigate = useNavigate();
+    const { isDarkMode } = useTheme();
+    const logoSrc = isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png';
 
     useEffect(() => {
         // Redirect to home if already signed in
@@ -40,10 +43,19 @@ export function SignInPage() {
 
             <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader className="text-center space-y-4">
-                    {/* Logo */}
+                    {/* Atlarix logo (theme-aware) */}
                     <div className="flex justify-center">
-                        <div className="w-20 h-20 rounded-full border-4 border-primary/20 flex items-center justify-center bg-primary/10">
-                            <span className="text-4xl">⚡</span>
+                        <div className="relative w-20 h-20 rounded-full border-4 border-primary/20 bg-primary/10 flex items-center justify-center overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-br from-[#10B981]/20 to-[#F59E0B]/10 blur-md" aria-hidden="true" />
+                            <img
+                                src={logoSrc}
+                                alt="Atlarix"
+                                className="relative w-12 h-12 object-contain contrast-125 dark:contrast-100"
+                                draggable={false}
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                }}
+                            />
                         </div>
                     </div>
 
@@ -52,7 +64,7 @@ export function SignInPage() {
                             Welcome to Atlarix
                         </CardTitle>
                         <CardDescription className="mt-2">
-                            Sign in to sync your workspace and unlock all features
+                            Sign in to sync your workspace and unlock every feature
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -107,23 +119,29 @@ export function SignInPage() {
                         </div>
                     </div>
 
-                    {/* Free tier info */}
+                    {/* Free tier — aligned with atlarix-launchpad /pricing (Free plan) */}
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
                         <div className="space-y-2 text-sm">
                             <div className="flex items-center gap-2">
-                                <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
-                                <span>5 prompts per day (free forever)</span>
+                                <span>One workspace</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
-                                <span>Full access to all 41 tools</span>
+                                <span>Starter included AI usage (monthly allowance)</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>All core tools; optional BYOK and local models (e.g. Ollama)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
                                 <span>No credit card required</span>
@@ -143,7 +161,7 @@ export function SignInPage() {
                                 Privacy Policy
                             </a>
                         </p>
-                        <p className="text-muted-foreground/60">© 2024-2025 NorahLabs</p>
+                        <p className="text-muted-foreground/60">Atlarix · by NorahLabs · © 2024-2026</p>
                     </div>
                 </CardContent>
             </Card>

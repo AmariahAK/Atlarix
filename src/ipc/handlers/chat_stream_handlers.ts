@@ -1206,7 +1206,7 @@ export function registerChatStreamHandlers() {
         chat = {
           id: req.chatId,
           appId: ephemeralAppId,
-          title: ephemeralChat?.title || "New Chat",
+          title: ephemeralChat?.title || "New chat",
           messages: ephemeralChat?.messages || [],
           app: appData,
           initialCommitHash: null,
@@ -1557,7 +1557,7 @@ ${componentSnippet}
         // This will replace the simple keyword-based name with an AI-generated one
         if (shouldTriggerAINaming(messageCount)) {
           try {
-            const currentTitle = chat.title || "New Chat";
+            const currentTitle = chat.title || "New chat";
             const conversationMessages = updatedChat.messages.map((m: any) => ({
               role: m.role,
               content: m.content,

@@ -15,7 +15,7 @@ export function generateInstantTitle(firstMessage: string): string {
     const cleaned = firstMessage.trim();
 
     if (cleaned.length === 0) {
-        return "New Chat";
+        return "New chat";
     }
 
     // Remove special characters and extra whitespace
@@ -91,7 +91,7 @@ Title:`;
  * Priority:
  * 1. AI-generated title (if available)
  * 2. Instant title from first message
- * 3. "New Chat" default
+ * 3. "New chat" default
  */
 export function getChatTitle(
     aiTitle: string | null,
@@ -110,7 +110,7 @@ export function getChatTitle(
         return generateInstantTitle(firstMessage);
     }
 
-    return "New Chat";
+    return "New chat";
 }
 
 /**

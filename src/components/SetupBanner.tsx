@@ -278,7 +278,11 @@ export function SetupBanner() {
                 onClick={handleAtlarixProSetupClick}
                 tabIndex={0}
                 leadingIcon={
-                  <img src={atlarixLogo} alt="Atlarix Logo" className="w-6 h-6 mr-0.5" />
+                  <img
+                    src={atlarixLogo}
+                    alt="Atlarix Logo"
+                    className="w-6 h-6 mr-0.5 opacity-95 contrast-125 dark:opacity-100 dark:contrast-100"
+                  />
                 }
                 title="Setup Atlarix Pro"
                 subtitle="Access all AI models with one plan"

@@ -6,9 +6,21 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.0.2**
+**Current release:** **v7.0.3**
 
 **Downloads:** Installers for **macOS** and **Linux** are on [atlarix.dev](https://atlarix.dev). **Windows** is still in progress pending code signing.
+
+---
+
+## v7.0.3 — Sign-in reliability + clearer dark mode (patch)
+
+*April 2026*
+
+### What changed
+
+- **Sign-in (system browser):** OAuth opens in your default browser, with a clear **60-second fallback** if the callback doesn’t return.
+- **Dark mode clarity:** Buttons and toggles are easier to spot—controls read as clickable, not plain text.
+- **Free tier copy:** The sign-in screen now matches the pricing page (one workspace + starter included usage + optional BYOK/local models).
 
 ---
 
@@ -73,24 +85,6 @@ Atlarix v7 is a complete rebuild of the agent and context systems on top of the 
 **Providers:** Compass (managed tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, local via Ollama / LM Studio, and more). Core product behaviors—ledger, continuation, verification, compaction—are **not** tied to a single provider; tier limits and billing remain provider-specific where applicable.
 
 For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
-
----
-
-### Troubleshooting — Linux OAuth
-
-If you sign in on Linux and the app stays on the loading screen after the browser opens:
-
-1. **Wait 60 seconds** — Atlarix will show a dialog with the OAuth URL and a **Copy Link** button. Paste that URL in your browser to complete login.
-2. **Register the deep link handler** (run once in Terminal, then sign in again):
-
-   ```bash
-   xdg-mime default atlarix.desktop x-scheme-handler/atlarix
-   update-desktop-database ~/.local/share/applications
-   ```
-
-The sidebar also shows these commands inline whenever a sign-in attempt fails on Linux.
-
----
 
 ## Features
 

@@ -1,5 +1,11 @@
 # Atlarix Changelog
 
+## v7.0.3 — Sign-in reliability + clearer dark mode (2026-04-24)
+
+- **OAuth (system browser):** Restored external-browser Supabase OAuth flow matching `ddb8c6f`: `shell.openExternal`, **60s inbound deep-link timeout** dialog with **Copy Link**, Linux copy-link fallback, and callback-path cancellation via `cancelPendingOAuthTimeout` in main.
+- **Sign-in screen:** Free tier bullets aligned to pricing (one workspace, starter included usage, optional BYOK/local models, no credit card).
+- **Dark mode affordance:** Increased dark token contrast (`--border`, `--input`) and adjusted UI primitives so outline/ghost buttons and switches read as controls (visible surface + borders in dark mode).
+
 ## v7.0.2 — Chat strip labels, counsel/deep-think UX, turn artifacts (2026-04-20)
 
 - **Tool / working strip (`ToolIndicator.tsx`, `chatAtoms.ts`, `useStreamChat.ts`, `ipc_client.ts`):** Provider-agnostic labels from stable **`toolId`** (registry name or MCP key): read-only → *Reading your codebase…*, writes → *Modifying the codebase…*, web tools → *Searching the web…*, MCP → *Checking …*, default *Thinking…*. Strip stays visible from **submit through stream end** (not hidden when a tool finishes mid-turn). **`chat:tool:start`** payloads include **`toolId`**; **`chat:stream:phase`** with **`phase: "done"`** is emitted on **`chat:response:end`** / **`chat:response:error`** so lifecycle stays aligned with the renderer.

@@ -392,7 +392,7 @@ export default function AtlarixHome() {
                             <img
                                 src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
                                 alt="Atlarix Logo"
-                                className="relative w-16 h-16 object-contain"
+                                className="relative w-16 h-16 object-contain dark:opacity-100 dark:contrast-100 opacity-100 contrast-125"
                                 onError={(e) => {
                                     console.error('Failed to load logo:', e.currentTarget.src);
                                     e.currentTarget.style.display = 'none';

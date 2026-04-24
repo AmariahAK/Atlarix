@@ -23,10 +23,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // Handle system theme changes
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
-    const applyTheme = () => {
+    const applyTheme = (systemThemeOverride?: "dark" | "light") => {
       const root = window.document.documentElement;
       const isDark =
-        theme === "dark" || (theme === "system" && mediaQuery.matches);
+        theme === "dark" ||
+        (theme === "system" &&
+          (systemThemeOverride
+            ? systemThemeOverride === "dark"
+            : mediaQuery.matches));
 
       root.classList.remove("light", "dark");
       root.classList.add(isDark ? "dark" : "light");
@@ -38,7 +42,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const listener = () => applyTheme();
     mediaQuery.addEventListener("change", listener);
 
-    return () => mediaQuery.removeEventListener("change", listener);
+    const unsubSystemTheme =
+      theme === "system"
+        ? window.electron?.ipcRenderer?.on?.(
+            "theme:system-updated",
+            (payload: unknown) => {
+              const systemTheme =
+                typeof (payload as any)?.systemTheme === "string"
+                  ? ((payload as any).systemTheme as string)
+                  : null;
+              if (systemTheme === "dark" || systemTheme === "light") {
+                applyTheme(systemTheme);
+              } else {
+                applyTheme();
+              }
+            },
+          )
+        : undefined;
+
+    return () => {
+      mediaQuery.removeEventListener("change", listener);
+      unsubSystemTheme?.();
+    };
   }, [theme]);
 
   return (

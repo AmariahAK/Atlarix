@@ -508,7 +508,7 @@ export function ToolsMcpSettings({
             onClick={onCreate}
             disabled={!name.trim() || mcpAtFreeLimit || atMaxServers}
           >
-            Add Server
+            Add server
           </Button>
           {atMaxServers && maxServers != null && (
             <p className="text-xs text-muted-foreground mt-2">

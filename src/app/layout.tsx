@@ -130,14 +130,14 @@ function PersistentChatContainer() {
       {/* Chat header + content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Sticky header with back button and panel toggle */}
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
           <button
             onClick={handleNewChat}
             className="text-xs text-muted-foreground/70 hover:text-foreground flex items-center gap-1 transition-colors"
           >
-            ← New Chat
+            ← New chat
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="font-medium">Atlarix</span>
             {currentApp && (
               <span

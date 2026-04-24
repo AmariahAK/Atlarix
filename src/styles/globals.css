@@ -95,12 +95,12 @@ html[data-fullscreen="true"] #layout-main-content-container {
      EMERALD LIGHT THEME - Green + Amber
      ═══════════════════════════════════════════════════════════ */
 
-  /* Background Palette - Mint/Cool Green */
+  /* Background Palette - Neutral off-white (avoid yellow/cream cast) */
   --background-lightest: #FFFFFF;
-  --background-lighter: #F0FDF4;
-  --background: #F0FDF4;
-  --background-darker: #DCFCE7;
-  --background-darkest: #BBF7D0;
+  --background-lighter: #FFFFFF;
+  --background: #FAFAFA;
+  --background-darker: #F2F2F2;
+  --background-darkest: #E8E8E8;
 
   /* Text Colors */
   --foreground: #052E16;
@@ -118,8 +118,8 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --secondary-foreground: #FFFFFF;
 
   /* Muted */
-  --muted: #DCFCE7;
-  --muted-foreground: #16A34A;
+  --muted: #F2F2F2;
+  --muted-foreground: #166534;
 
   /* Accent = Amber Gold */
   --accent: #F59E0B;
@@ -130,8 +130,8 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --destructive-foreground: #FFFFFF;
 
   /* Borders & Inputs */
-  --border: #BBF7D0;
-  --input: #DCFCE7;
+  --border: #E6E6E6;
+  --input: #F2F2F2;
   --ring: #059669;
 
   /* Charts */
@@ -144,13 +144,13 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --radius: 0.625rem;
 
   /* Sidebar */
-  --sidebar: #F0FDF4;
+  --sidebar: #FAFAFA;
   --sidebar-foreground: #052E16;
   --sidebar-primary: #059669;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #DCFCE7;
+  --sidebar-accent: #F2F2F2;
   --sidebar-accent-foreground: #052E16;
-  --sidebar-border: #BBF7D0;
+  --sidebar-border: #E6E6E6;
   --sidebar-ring: #059669;
 
   /* Diff Colors */
@@ -209,8 +209,9 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --destructive-foreground: #E2E8F0;
 
   /* Borders & Inputs */
-  --border: #1C3A28;
-  --input: #162419;
+  /* Slightly brighter than card so controls are distinct */
+  --border: #2A4A36;
+  --input: #1F3326;
   --ring: #10B981;
 
   /* Charts */

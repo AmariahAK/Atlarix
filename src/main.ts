@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import dotenv from "dotenv";
@@ -464,6 +464,7 @@ const createWindow = () => {
   mainWindow.webContents.once("did-finish-load", () => {
     sendDbReadyToWindow();
     broadcastFullscreen();
+    broadcastSystemTheme();
     if (pendingForceCloseData) {
       mainWindow?.webContents.send("force-close-detected", {
         performanceData: pendingForceCloseData,
@@ -555,6 +556,19 @@ const createWindow = () => {
   mainWindow.on("enter-full-screen", broadcastFullscreen);
   mainWindow.on("leave-full-screen", broadcastFullscreen);
 };
+
+function broadcastSystemTheme(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send("theme:system-updated", {
+    systemTheme: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+  });
+}
+
+nativeTheme.on("updated", () => {
+  broadcastSystemTheme();
+});
 
 // Packaged app: single instance only. In dev, skip the lock so a second `npm start`
 // or Forge helper process does not exit immediately without onReady (confusing "crash").

@@ -267,8 +267,8 @@ export function ChatHeader({
       )}
 
       {/* Why is this pt-0.5? Because the loading bar is h-1 (it always takes space) and we want the vertical spacing to be consistent.*/}
-        <div className="@container flex items-center justify-between pb-1.5 pt-0.5">
-        <div className="flex items-center space-x-2 min-w-0">
+        <div className="@container flex items-center justify-between pb-1.5 pt-0.5 gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 overflow-x-auto pr-1">
           {vaultServices.length > 0 && (
             <TooltipProvider>
               <Tooltip>
@@ -303,7 +303,7 @@ export function ChatHeader({
             className="flex items-center justify-start gap-2 mx-2 py-3 shrink-0"
           >
             <PlusCircle size={16} />
-            <span>New Chat</span>
+            <span>New chat</span>
           </Button>
           <Button
             onClick={onVersionClick}
@@ -321,7 +321,7 @@ export function ChatHeader({
         <button
           data-testid="toggle-preview-panel-button"
           onClick={onTogglePreview}
-          className="cursor-pointer p-2 hover:bg-(--background-lightest) rounded-md"
+          className="cursor-pointer p-2 hover:bg-(--background-lightest) rounded-md shrink-0"
         >
           {isPreviewOpen ? (
             <ChevronRight size={20} aria-hidden />

@@ -120,7 +120,7 @@ export function createEphemeralChat(): number {
     const id = ephemeralChatCounter--;
     ephemeralChats.set(id, {
         id,
-        title: "New Chat",
+        title: "New chat",
         messages: [],
         createdAt: new Date(),
     });
@@ -136,7 +136,7 @@ export function createEphemeralWorkspaceChat(appId: number): number {
     const id = ephemeralChatCounter--;
     ephemeralChats.set(id, {
         id,
-        title: "New Chat",
+        title: "New chat",
         messages: [],
         createdAt: new Date(),
         appId, // Associate with workspace for context
@@ -296,7 +296,7 @@ export async function handleChatOnlyStream(
             // Create new ephemeral chat if doesn't exist
             chat = {
                 id: req.chatId,
-                title: "New Chat",
+                title: "New chat",
                 messages: [],
                 createdAt: new Date(),
             };
