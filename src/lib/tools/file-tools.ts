@@ -30,6 +30,10 @@ import {
     normalizeRelPath,
     isRelPathIgnored,
 } from "@/lib/atlarix/atlarix-ignore";
+import {
+    ENV_SECRET_BLOCK_MESSAGE,
+    isEnvSecretPath,
+} from "@/lib/security/env-secret-paths";
 
 // ═══════════════════════════════════════════════════════════
 // FILE READING
@@ -203,6 +207,14 @@ ToolRegistry.register({
             const fullPath = workspace
                 ? resolvePathUnderWorkspace(workspace, filePath)
                 : path.resolve(stripToolPathPrefixes(filePath));
+
+            if (
+                isEnvSecretPath(String(filePath)) ||
+                isEnvSecretPath(displayPath) ||
+                isEnvSecretPath(fullPath)
+            ) {
+                throw new Error(ENV_SECRET_BLOCK_MESSAGE);
+            }
 
             console.log(`[read_file] workspace: ${workspace}, filePath: ${displayPath}, context: ${context}, max_lines: ${max_lines}`);
 

@@ -6,9 +6,20 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.0.3**
+**Current release:** **v7.0.4**
 
 **Downloads:** Installers for **macOS** and **Linux** are on [atlarix.dev](https://atlarix.dev). **Windows** is still in progress pending code signing.
+
+---
+
+## v7.0.4 — Chat config panel + env file safety (patch)
+
+*April 2026*
+
+### What changed
+
+- **Mid-chat Config panel:** The dropdown (MCP, model, Auto, deep think, delegation, Blueprint) opens **below** the config control so it does not sit over the prompt; it stays **fully on screen** in fullscreen, windowed, and any window size—content **scrolls inside** the menu when it does not fit; Radix collision + available-height clamp replaces a fixed `70vh` cap that could clip edges.
+- **Agent cannot read env secret files:** The `read_file` tool **blocks** paths whose basename matches `.env`, `.env.*`, `*.env`, etc., with a clear user-facing message. Codebase context assembly uses the **same rules** so those files are omitted from LLM context (not only `.env` / `.env.local`).
 
 ---
 

@@ -1,7 +1,19 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.3  
-**Last Updated:** 2026-04-24
+**Current Version:** v7.0.4  
+**Last Updated:** 2026-04-26
+
+---
+
+## Shipped in v7.0.4
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Chat Config dropdown viewport / clipping | **Done** | `ChatConfigDropdown`: `side="bottom"` + `avoidCollisions={false}` (always below trigger, away from prompt); Radix available-height clamp + inner scroll; remove `max-h-[70vh]` and manual side flip; `collisionPadding` 12 |
+| `read_file` + codebase: block / omit `.env*` secret paths | **Done** | `src/lib/security/env-secret-paths.ts`; `file-tools.ts` `read_file`; `codebase.ts` `shouldReadFileContents*` |
+| Follow-up: extend env denylist to other file readers | **Open** | `view_symbol`, `get_file_outline`, `find_files`, `search_code`, renderer `file:read-content` IPC — same `isEnvSecretPath` pattern |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.4.
 
 ---
 

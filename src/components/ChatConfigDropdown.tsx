@@ -15,7 +15,6 @@ import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useEffect, useState } from "react";
-import { useRef } from "react";
 import {
   COMPASS_TIER_BALANCED,
   COMPASS_TIER_FAST,
@@ -158,9 +157,6 @@ export function ChatConfigDropdown({
   const lastAutoTier = useLastAutoRoutedTier(null);
   const autoTierLabel = formatAutoTierLabel(lastAutoTier);
 
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const [contentSide, setContentSide] = useState<"top" | "bottom">("top");
-
   const agentMode = (settings?.agentMode ?? "guided") as AgentMode;
   const autoOn = settings?.autoModelRouting === true;
   const isAuto = settings?.selectedModel?.provider === "auto";
@@ -239,24 +235,11 @@ export function ChatConfigDropdown({
   }
 
   return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (!open) return;
-        const el = triggerRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const viewportH = window.innerHeight || 0;
-        const maxMenuH = Math.min(Math.floor(viewportH * 0.7), 520);
-        const padding = 12;
-        const hasEnoughSpaceAbove = rect.top >= maxMenuH + padding;
-        setContentSide(hasEnoughSpaceAbove ? "top" : "bottom");
-      }}
-    >
+    <DropdownMenu>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <Button
-              ref={triggerRef}
               variant="outline"
               size="sm"
               className="h-8 w-8 p-0"
@@ -272,10 +255,10 @@ export function ChatConfigDropdown({
       </Tooltip>
       <DropdownMenuContent
         align="start"
-        side={contentSide}
-        avoidCollisions
-        collisionPadding={8}
-        className="w-72 max-h-[70vh] overflow-y-auto overflow-x-hidden p-0"
+        side="bottom"
+        avoidCollisions={false}
+        collisionPadding={12}
+        className="w-72 overflow-y-auto overflow-x-hidden p-0"
         sideOffset={6}
       >
         <div className="p-1">

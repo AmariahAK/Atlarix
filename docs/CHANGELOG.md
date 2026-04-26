@@ -1,5 +1,11 @@
 # Atlarix Changelog
 
+## v7.0.4 — Chat config panel never clips + agent cannot read .env* files (2026-04-26)
+
+- **Chat config dropdown (`ChatConfigDropdown.tsx`):** Removed `max-h-[70vh]` override that defeated Radix `max-h-(--radix-dropdown-menu-content-available-height)` in `DropdownMenuContent`; dropped manual `onOpenChange` / `setContentSide` heuristics; pinned **`side="bottom"`** with **`avoidCollisions={false}`** so the menu always opens **below the trigger** (away from the chat prompt) and uses Radix's available-height clamp + inner scroll when space below is tight. `collisionPadding` 12.
+- **`read_file` (`file-tools.ts`):** Denylist for env-secret basenames via shared **`isEnvSecretPath`** / **`ENV_SECRET_BLOCK_MESSAGE`** (`src/lib/security/env-secret-paths.ts`): `.env`, `.env.*` (e.g. `.env.production`, `.env.development.local`), `*.env`.
+- **Codebase extraction (`codebase.ts`):** Env omission uses **`isEnvSecretPath`** on `filePath` and `normalizedRelativePath` in both `shouldReadFileContents` and `shouldReadFileContentsForSmartContext`; **`ALWAYS_OMITTED_FILES`** kept exported (deprecated) for back-compat—matching is no longer substring-only for secrets.
+
 ## v7.0.3 — Sign-in reliability + clearer dark mode (2026-04-24)
 
 - **OAuth (system browser):** Restored external-browser Supabase OAuth flow matching `ddb8c6f`: `shell.openExternal`, **60s inbound deep-link timeout** dialog with **Copy Link**, Linux copy-link fallback, and callback-path cancellation via `cancelPendingOAuthTimeout` in main.

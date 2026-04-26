@@ -7,6 +7,7 @@ import { glob } from "glob";
 import { AppChatContext } from "../lib/schemas";
 import { readSettings } from "@/main/settings";
 import { AsyncVirtualFileSystem } from "../../shared/VirtualFilesystem";
+import { isEnvSecretPath } from "@/lib/security/env-secret-paths";
 
 const logger = log.scope("utils/codebase");
 
@@ -71,10 +72,10 @@ const EXCLUDED_FILES = ["pnpm-lock.yaml", "package-lock.json"];
 // Files to always include, regardless of extension
 const ALWAYS_INCLUDE_FILES = [".gitignore"];
 
-// File patterns to always omit (contents will be replaced with a placeholder)
-// We don't want to send environment variables to the LLM because they
-// are sensitive and users should be configuring them via the UI.
-const ALWAYS_OMITTED_FILES = [".env", ".env.local"];
+// Legacy substring entries for docs/back-compat; env files are matched via
+// `isEnvSecretPath` (`.env`, `.env.*`, `*.env`, etc.) in shouldReadFileContents*.
+/** @deprecated Prefer `isEnvSecretPath` — kept for external imports / grep */
+export const ALWAYS_OMITTED_FILES = [".env", ".env.local"];
 
 // File patterns to omit (contents will be replaced with a placeholder)
 //
@@ -324,6 +325,13 @@ function shouldReadFileContents({
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
 
+  if (
+    isEnvSecretPath(filePath) ||
+    isEnvSecretPath(normalizedRelativePath)
+  ) {
+    return false;
+  }
+
   // OMITTED_FILES takes precedence - never read if omitted
   if (
     OMITTED_FILES.some((pattern) => normalizedRelativePath.includes(pattern))
@@ -347,11 +355,9 @@ function shouldReadFileContentsForSmartContext({
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
 
-  // ALWAYS__OMITTED_FILES takes precedence - never read if omitted
   if (
-    ALWAYS_OMITTED_FILES.some((pattern) =>
-      normalizedRelativePath.includes(pattern),
-    )
+    isEnvSecretPath(filePath) ||
+    isEnvSecretPath(normalizedRelativePath)
   ) {
     return false;
   }
