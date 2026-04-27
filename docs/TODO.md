@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.4  
-**Last Updated:** 2026-04-26
+**Current Version:** v7.0.5  
+**Last Updated:** 2026-04-27
 
 ---
 
@@ -14,6 +14,17 @@
 | Follow-up: extend env denylist to other file readers | **Open** | `view_symbol`, `get_file_outline`, `find_files`, `search_code`, renderer `file:read-content` IPC — same `isEnvSecretPath` pattern |
 
 See [CHANGELOG.md](CHANGELOG.md) v7.0.4.
+
+---
+
+## Shipped in v7.0.5
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Auto-update (macOS ZIP feed) | **Done** | Release now publishes a notarized/stapled `.zip` of the `.app`; `latest-mac.yml` points to ZIP first (required by `electron-updater`) |
+| Linux updates for all installs | **Done** | AppImage: silent auto-update stays on. `.deb`/`.rpm`: show native notification with one-click download link to the latest release |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.0.5.
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "7.0.4",
+  "version": "7.0.5",
   "description": "The Private Sovereign AI IDE",
   "main": ".vite/build/main.js",
   "repository": {
@@ -41,7 +41,7 @@
     "pre:e2e": "cross-env E2E_TEST_BUILD=true npm run package",
     "e2e": "playwright test",
     "e2e:shard": "playwright test --shard",
-    "postinstall": "node scripts/patch-tree-sitter-electron-cpp20.cjs && npm rebuild tree-sitter tree-sitter-typescript tree-sitter-javascript tree-sitter-python || true",
+    "postinstall": "node scripts/patch-tree-sitter-electron-cpp20.cjs && (npm rebuild tree-sitter tree-sitter-typescript tree-sitter-javascript tree-sitter-python || true) && patch-package",
     "smoke:tree-sitter": "node scripts/smoke-tree-sitter.cjs"
   },
   "keywords": [
@@ -94,6 +94,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
     "oxlint": "^1.8.0",
+    "patch-package": "^8.0.1",
     "prettier": "3.5.3",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3",

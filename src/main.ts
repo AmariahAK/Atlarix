@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, shell, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import dotenv from "dotenv";
@@ -256,6 +256,13 @@ function initAutoUpdater(): void {
   // Route electron-updater logs through electron-log so update history is traceable.
   autoUpdater.logger = log;
 
+  // Linux non-AppImage installs (deb/rpm) cannot be replaced by electron-updater
+  // without root. Fall back to a native notification + GitHub release page link.
+  if (process.platform === "linux" && app.isPackaged && !process.env.APPIMAGE) {
+    void checkLinuxPackageUpdate();
+    return;
+  }
+
   // Point at the separate releases repo (not the source repo).
   autoUpdater.setFeedURL({
     provider: "github",
@@ -315,6 +322,57 @@ function initAutoUpdater(): void {
     fs.writeFileSync(flagPath, JSON.stringify({ deferred: true, timestamp: Date.now() }));
     log.info("[AutoUpdater] Update deferred to next launch");
   });
+}
+
+async function checkLinuxPackageUpdate(): Promise<void> {
+  try {
+    const currentVersion = app.getVersion();
+    const res = await fetch("https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest", {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+
+    if (!res.ok) {
+      log.warn(`[AutoUpdater:linux-pkg] GitHub API ${res.status}`);
+      return;
+    }
+
+    const data = (await res.json()) as { tag_name?: string; html_url?: string };
+    const latest = (data.tag_name ?? "").replace(/^v/, "");
+
+    if (!latest || !isNewer(latest, currentVersion)) {
+      log.info(
+        `[AutoUpdater:linux-pkg] up to date (current=${currentVersion}, latest=${latest || "n/a"})`,
+      );
+      return;
+    }
+
+    log.info(`[AutoUpdater:linux-pkg] Update available: ${latest} (current ${currentVersion})`);
+    const releaseUrl =
+      data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
+
+    const n = new Notification({
+      title: `Atlarix ${latest} is available`,
+      body: "Click to download the matching .deb or .rpm.",
+      silent: false,
+    });
+    n.on("click", () => {
+      void shell.openExternal(releaseUrl);
+    });
+    n.show();
+  } catch (err) {
+    log.warn("[AutoUpdater:linux-pkg] check failed:", (err as Error)?.message ?? err);
+  }
+}
+
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
 }
 
 /**

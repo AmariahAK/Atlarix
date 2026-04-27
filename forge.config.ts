@@ -6,6 +6,7 @@ import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
 import { MakerRpm } from "@electron-forge/maker-rpm";
+import { MakerZIP } from "@electron-forge/maker-zip";
 import { MakerAppImage } from "@reforged/maker-appimage";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
@@ -108,6 +109,7 @@ const config: ForgeConfig = {
         signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
       } : {})),
     new MakerDMG(),
+    new MakerZIP({}, ["darwin"]),
     new MakerRpm({
       options: {
         mimeType: ["x-scheme-handler/atlarix"],

@@ -1,0 +1,12 @@
+diff --git a/node_modules/whatwg-url/lib/url-state-machine.js b/node_modules/whatwg-url/lib/url-state-machine.js
+index c25dbc2..bddd4e9 100644
+--- a/node_modules/whatwg-url/lib/url-state-machine.js
++++ b/node_modules/whatwg-url/lib/url-state-machine.js
+@@ -1,5 +1,6 @@
+ "use strict";
+-const punycode = require("punycode");
++// Use the userland punycode package (not Node's deprecated builtin module).
++const punycode = require("punycode/");
+ const tr46 = require("tr46");
+ 
+ const specialSchemes = {

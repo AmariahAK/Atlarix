@@ -113,6 +113,16 @@ jobs:
           node-version: "24"
           cache: "npm"
 
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -150,9 +160,15 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
-      - name: Notarize macOS app
+      - name: Notarize macOS app (DMG), staple .app, re-zip stapled bundle, staple DMG
         run: |
+          APP=$(find out -type d -name "Atlarix.app" -path "*/Atlarix-darwin-*" | head -1)
           DMG=$(find out/make -name "*.dmg" | head -1)
+          ZIP=$(find out/make -name "*.zip" -path "*/zip/darwin/*" | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No Atlarix.app found under out/"
+            exit 1
+          fi
           echo "Notarizing $DMG..."
           xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" \
@@ -160,6 +176,14 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --wait \
             --timeout 90m
+          echo "Stapling app bundle..."
+          xcrun stapler staple "$APP"
+          if [ -n "$ZIP" ]; then
+            echo "Re-zipping stapled app to $ZIP ..."
+            ditto -c -k --keepParent --sequesterRsrc "$APP" "$ZIP"
+          else
+            echo "::warning::No ZIP found under out/make; skipping re-zip."
+          fi
           echo "Stapling notarization ticket..."
           xcrun stapler staple "$DMG"
           echo "Done — $DMG is signed, notarized, and stapled."
@@ -197,24 +221,31 @@ jobs:
         run: |
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%\{*}"
+          VERSION=$(node -p "require('./package.json').version")
+          ZIP=$(find out/make -name "*.zip" -path "*/zip/darwin/*" | head -1)
           DMG=$(find out/make -name "*.dmg" | head -1)
-          if [ -z "$DMG" ]; then
-            echo "No DMG found, skipping latest-mac.yml"
+          if [ -z "$ZIP" ] || [ -z "$DMG" ]; then
+            echo "Missing ZIP or DMG, skipping latest-mac.yml"
             exit 0
           fi
-          VERSION=$(node -p "require('./package.json').version")
-          FILENAME=$(basename "$DMG")
-          SIZE=$(stat -f%z "$DMG")
-          SHA512=$(openssl dgst -sha512 -binary "$DMG" | openssl base64 | tr -d '\n')
+          ZIP_NAME=$(basename "$ZIP")
+          ZIP_SIZE=$(stat -f%z "$ZIP")
+          ZIP_SHA512=$(openssl dgst -sha512 -binary "$ZIP" | openssl base64 | tr -d '\n')
+          DMG_NAME=$(basename "$DMG")
+          DMG_SIZE=$(stat -f%z "$DMG")
+          DMG_SHA512=$(openssl dgst -sha512 -binary "$DMG" | openssl base64 | tr -d '\n')
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
           cat > latest-mac.yml << YAML
           version: $VERSION
           files:
-            - url: $FILENAME
-              sha512: $SHA512
-              size: $SIZE
-          path: $FILENAME
-          sha512: $SHA512
+            - url: $ZIP_NAME
+              sha512: $ZIP_SHA512
+              size: $ZIP_SIZE
+            - url: $DMG_NAME
+              sha512: $DMG_SHA512
+              size: $DMG_SIZE
+          path: $ZIP_NAME
+          sha512: $ZIP_SHA512
           releaseDate: '$RELEASE_DATE'
           YAML
           sed -i '' 's/^          //' latest-mac.yml
@@ -238,6 +269,16 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
+
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
 
       - name: Cache Electron binaries
         uses: actions/cache@v4

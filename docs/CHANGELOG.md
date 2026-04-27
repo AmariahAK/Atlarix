@@ -1,5 +1,14 @@
 # Atlarix Changelog
 
+## v7.0.5 — Auto-updater: macOS ZIP feed + Linux deb/rpm update notification (2026-04-27)
+
+- **Forge (macOS):** Added `@electron-forge/maker-zip` (`MakerZIP`) for darwin builds so releases include a `.zip` of the signed app bundle.
+- **CI release workflow (`release.yml`):**
+  - **Tag/version drift guard:** Fails build if `GITHUB_REF_NAME#v` does not match `package.json` version.
+  - **Notarization pipeline:** After `notarytool submit` on the DMG, staples the packaged `.app`, then re-zips the stapled `.app` using `ditto -c -k --keepParent --sequesterRsrc`, and staples the DMG.
+  - **`latest-mac.yml`:** Now references the stapled **ZIP** as the primary download (`files[0]`, `path`, `sha512`), with the DMG listed as a secondary entry.
+- **Linux packaged installs (`src/main.ts`):** For packaged **non-AppImage** Linux installs (`.deb` / `.rpm`), skips `electron-updater` and instead checks `atlarix-releases` latest GitHub release; when newer, shows a native desktop **Notification** that opens the release page. AppImage continues to use `electron-updater` and `latest-linux.yml` for silent updates.
+
 ## v7.0.4 — Chat config panel never clips + agent cannot read .env* files (2026-04-26)
 
 - **Chat config dropdown (`ChatConfigDropdown.tsx`):** Removed `max-h-[70vh]` override that defeated Radix `max-h-(--radix-dropdown-menu-content-available-height)` in `DropdownMenuContent`; dropped manual `onOpenChange` / `setContentSide` heuristics; pinned **`side="bottom"`** with **`avoidCollisions={false}`** so the menu always opens **below the trigger** (away from the chat prompt) and uses Radix's available-height clamp + inner scroll when space below is tight. `collisionPadding` 12.
