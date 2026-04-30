@@ -14,6 +14,9 @@ import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { rebuild } from "@electron/rebuild";
 
+/** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+
 // Based on https://github.com/electron/forge/blob/6b2d547a7216c30fde1e1fddd1118eee5d872945/packages/plugin/vite/src/VitePlugin.ts#L124
 const ignore = (file: string) => {
   if (!file) return false;
@@ -195,7 +198,7 @@ const config: ForgeConfig = {
       if (toInstall.length > 0) {
         const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn("npm", commands, {
+          const proc = spawn(npm, commands, {
             cwd: buildPath,
             stdio: "inherit",
             shell: false,
