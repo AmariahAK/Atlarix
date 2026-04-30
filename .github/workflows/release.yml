@@ -416,6 +416,7 @@ jobs:
             electron-${{ runner.os }}-x64-
 
       - name: Install dependencies
+        shell: bash
         run: |
           for attempt in 1 2 3 4 5; do
             if npm ci; then
@@ -430,9 +431,11 @@ jobs:
           exit 1
 
       - name: Patch tree-sitter binding.gyp for Electron C++20
+        shell: bash
         run: node scripts/patch-tree-sitter-electron-cpp20.cjs
 
       - name: Build for Windows
+        shell: bash
         run: npm run make
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -454,6 +457,43 @@ jobs:
               --data-binary "@$f" \
               "$UPLOAD_URL?name=$(basename "$f")"
           done
+
+      - name: Generate and upload latest.yml (electron-updater feed)
+        if: success()
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          EXE=$(find out/make -name "*.exe" | head -1)
+          if [ -z "$EXE" ]; then
+            echo "No EXE found, skipping latest.yml"
+            exit 0
+          fi
+          VERSION=$(node -p "require('./package.json').version")
+          FILENAME=$(basename "$EXE")
+          SIZE=$(wc -c < "$EXE" | tr -d ' ')
+          SHA512=$(openssl dgst -sha512 -binary "$EXE" | openssl base64 | tr -d '\n')
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          cat > latest.yml << YAML
+          version: $VERSION
+          files:
+            - url: $FILENAME
+              sha512: $SHA512
+              size: $SIZE
+          path: $FILENAME
+          sha512: $SHA512
+          releaseDate: '$RELEASE_DATE'
+          YAML
+          sed -i 's/^          //' latest.yml
+          echo "--- latest.yml ---"
+          cat latest.yml
+          curl -sS -X POST \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Content-Type: text/yaml" \
+            --data-binary @latest.yml \
+            "$UPLOAD_URL?name=latest.yml"
 
   publish-release:
     needs: [create-draft, build-macos, build-linux, build-windows]
