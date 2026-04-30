@@ -132,6 +132,7 @@ jobs:
             electron-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Install dependencies
+        shell: bash
         run: |
           for attempt in 1 2 3 4 5; do
             if npm ci; then
