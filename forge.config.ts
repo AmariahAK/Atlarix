@@ -201,7 +201,7 @@ const config: ForgeConfig = {
           const proc = spawn(npm, commands, {
             cwd: buildPath,
             stdio: "inherit",
-            shell: false,
+            shell: process.platform === "win32", // .cmd files need shell:true on Windows
           });
           proc.on("close", (code) => {
             if (code === 0) resolve();
