@@ -323,6 +323,147 @@ export async function fetchModelsFromXai(
   }
 }
 
+async function fetchOpenAICompatibleModels(params: {
+  providerId: string;
+  url: string;
+  apiKey: string;
+}): Promise<LanguageModel[]> {
+  const cached = fromCache(params.providerId);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(params.url, {
+      headers: { Authorization: `Bearer ${params.apiKey}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { data?: { id: string }[] };
+    const items = data.data ?? [];
+    const models: LanguageModel[] = items.map((m) => ({
+      apiName: m.id,
+      displayName: m.id,
+      description: "Chat model with tool support",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    }));
+    sortModels(models);
+    toCache(params.providerId, models);
+    logger.info(`[${params.providerId}] Fetched ${models.length} models`);
+    return models;
+  } catch (e) {
+    logger.warn(`[${params.providerId}] Fetch failed`, e);
+    return [];
+  }
+}
+
+export async function fetchModelsFromNvidiaNim(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  return fetchOpenAICompatibleModels({
+    providerId: "nvidia_nim",
+    url: "https://integrate.api.nvidia.com/v1/models",
+    apiKey,
+  });
+}
+
+export async function fetchModelsFromPerplexity(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  const cached = fromCache("perplexity");
+  if (cached) return cached;
+
+  // Perplexity's Sonar API documents these model IDs directly.
+  // The generic GET /v1/models endpoint lists Agent API models (including non-Sonar),
+  // so we present the Sonar family as the selectable list for this provider.
+  //
+  // Source: https://docs.perplexity.ai/docs/sonar/models
+  void apiKey; // Key presence is required by the caller; unused here.
+  const models: LanguageModel[] = [
+    {
+      apiName: "sonar",
+      displayName: "Sonar",
+      description: "Fast grounded answers with web search",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    },
+    {
+      apiName: "sonar-pro",
+      displayName: "Sonar Pro",
+      description: "Higher quality grounded answers with web search",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    },
+    {
+      apiName: "sonar-reasoning-pro",
+      displayName: "Sonar Reasoning Pro",
+      description: "Reasoning-focused grounded answers with web search",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    },
+    {
+      apiName: "sonar-deep-research",
+      displayName: "Sonar Deep Research",
+      description: "Deep research answers with web search",
+      type: "cloud" as const,
+      supportsToolChoice: true,
+    },
+  ];
+
+  toCache("perplexity", models);
+  return models;
+}
+
+export async function fetchModelsFromCerebras(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  return fetchOpenAICompatibleModels({
+    providerId: "cerebras",
+    url: "https://api.cerebras.ai/v1/models",
+    apiKey,
+  });
+}
+
+export async function fetchModelsFromCohere(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  const cached = fromCache("cohere");
+  if (cached) return cached;
+
+  try {
+    const res = await fetch("https://api.cohere.com/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as {
+      models?: Array<{
+        name: string;
+        endpoints?: string[];
+        context_length?: number;
+        features?: string[];
+      }>;
+    };
+    const items = data.models ?? [];
+    const models: LanguageModel[] = items
+      .filter((m) => Array.isArray(m.endpoints) && m.endpoints.includes("chat"))
+      .map((m) => ({
+        apiName: m.name,
+        displayName: m.name,
+        description: "Chat model with tool support",
+        contextWindow: m.context_length,
+        type: "cloud" as const,
+        supportsToolChoice: true,
+      }));
+    sortModels(models);
+    toCache("cohere", models);
+    logger.info(`[Cohere] Fetched ${models.length} models`);
+    return models;
+  } catch (e) {
+    logger.warn("[Cohere] Fetch failed", e);
+    return [];
+  }
+}
+
 /** Elastic Agent Builder: list agents from Kibana. Uses baseUrl from settings or ELASTIC_AGENT_BUILDER_KIBANA_URL. */
 export async function fetchModelsFromElastic(
   apiKey: string
@@ -389,6 +530,10 @@ const FETCHERS: Record<
   mistral: fetchModelsFromMistral,
   xai: fetchModelsFromXai,
   elastic: fetchModelsFromElastic,
+  nvidia_nim: fetchModelsFromNvidiaNim,
+  cohere: fetchModelsFromCohere,
+  perplexity: fetchModelsFromPerplexity,
+  cerebras: fetchModelsFromCerebras,
 };
 
 export async function fetchModelsFromProvider(

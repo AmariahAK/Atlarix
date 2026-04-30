@@ -1,5 +1,32 @@
 # Atlarix Changelog
 
+## v7.0.6 — New providers, Windows CI, remove Auto button (2026-04-30)
+
+- **New AI providers (Settings → AI):** Added four new providers to the built-in cloud catalog:
+  - **NVIDIA NIM** (`nvidia_nim`) — env `NVIDIA_NIM_API_KEY`, base URL `https://integrate.api.nvidia.com/v1` (OpenAI-compatible).
+  - **Cohere** (`cohere`) — env `COHERE_API_KEY`, base URL `https://api.cohere.com` (native Cohere v2 Chat API).
+  - **Perplexity** (`perplexity`) — env `PERPLEXITY_API_KEY`, base URL `https://api.perplexity.ai` (OpenAI Chat Completions compatible alias for Sonar).
+  - **Cerebras** (`cerebras`) — env `CEREBRAS_API_KEY`, base URL `https://api.cerebras.ai/v1` (OpenAI-compatible).
+  - Provider registry: [`src/ipc/shared/language_model_constants.ts`](../src/ipc/shared/language_model_constants.ts) and `cloudProviders` list in [`src/lib/schemas.ts`](../src/lib/schemas.ts).
+  - Runtime clients: [`src/ipc/utils/get_model_client.ts`](../src/ipc/utils/get_model_client.ts) (new switch cases); Cohere adapter in [`src/ipc/utils/cohere_chat_adapter.ts`](../src/ipc/utils/cohere_chat_adapter.ts).
+  - Token budget UI enabled for all four in [`src/components/settings/ProviderSettingsPage.tsx`](../src/components/settings/ProviderSettingsPage.tsx).
+
+- **Provider model browsing:** Added native model list fetching where supported:
+  - **NVIDIA NIM**: `GET /v1/models` at `https://integrate.api.nvidia.com/v1` (Bearer auth).
+  - **Cohere**: `GET https://api.cohere.com/v1/models` (Bearer auth), filtered to chat-compatible models.
+  - **Cerebras**: `GET https://api.cerebras.ai/v1/models` (Bearer auth).
+  - **Perplexity**: Sonar family exposed as an explicit list (`sonar`, `sonar-pro`, `sonar-reasoning-pro`, `sonar-deep-research`) per Sonar docs (the generic `GET /v1/models` endpoint lists Agent API models and is not a Sonar model catalog).
+  - Fetchers live in [`src/lib/provider_model_fetchers.ts`](../src/lib/provider_model_fetchers.ts).
+
+- **Mode selector UI:** Removed the **Auto** button next to the work mode dropdown (Plan/Build/Debug/Review/Ask) in [`src/components/ChatIntentSelector.tsx`](../src/components/ChatIntentSelector.tsx) and removed “Auto · …” context labeling in [`src/components/ChatInputControls.tsx`](../src/components/ChatInputControls.tsx).
+
+- **CI / Releases — Windows build enabled:** Updated [`/.github/workflows/release.yml`](../../Atlarix/.github/workflows/release.yml):
+  - Enabled `build-windows` job (unsigned build, same philosophy as Linux).
+  - Added tag/version drift guard to Windows job.
+  - Uploads Windows artifacts (`.exe`, `.nupkg`) to `AmariahAK/atlarix-releases` using the same `upload_url` + `curl` pattern as macOS/Linux.
+  - `publish-release` now waits for Windows in addition to macOS + Linux.
+  - Draft release body now lists Windows `.exe` installers.
+
 ## v7.0.5 — Auto-updater: macOS ZIP feed + Linux deb/rpm update notification (2026-04-27)
 
 - **Forge (macOS):** Added `@electron-forge/maker-zip` (`MakerZIP`) for darwin builds so releases include a `.zip` of the signed app bundle.

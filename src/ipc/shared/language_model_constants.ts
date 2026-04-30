@@ -48,6 +48,10 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   mistral: "MISTRAL_API_KEY",
   bedrock: "AWS_BEARER_TOKEN_BEDROCK",
   elastic: "ELASTIC_AGENT_BUILDER_API_KEY",
+  nvidia_nim: "NVIDIA_NIM_API_KEY",
+  cohere: "COHERE_API_KEY",
+  perplexity: "PERPLEXITY_API_KEY",
+  cerebras: "CEREBRAS_API_KEY",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -117,6 +121,30 @@ export const CLOUD_PROVIDERS: Record<
     displayName: "Elastic Agent Builder",
     hasFreeTier: false,
     websiteUrl: "https://www.elastic.co/docs/explore-analyze/ai-features/elastic-agent-builder",
+    gatewayPrefix: "",
+  },
+  nvidia_nim: {
+    displayName: "NVIDIA NIM",
+    hasFreeTier: false,
+    websiteUrl: "https://build.nvidia.com/",
+    gatewayPrefix: "",
+  },
+  cohere: {
+    displayName: "Cohere",
+    hasFreeTier: false,
+    websiteUrl: "https://dashboard.cohere.com/api-keys",
+    gatewayPrefix: "",
+  },
+  perplexity: {
+    displayName: "Perplexity",
+    hasFreeTier: false,
+    websiteUrl: "https://www.perplexity.ai/api-platform",
+    gatewayPrefix: "",
+  },
+  cerebras: {
+    displayName: "Cerebras",
+    hasFreeTier: false,
+    websiteUrl: "https://inference-docs.cerebras.ai/",
     gatewayPrefix: "",
   },
 };

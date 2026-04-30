@@ -78,7 +78,7 @@ jobs:
             ### Downloads
             - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
             - **macOS (Intel)**: `Atlarix-*-x64.dmg`
-            - **Windows**: In development; not included in this release.
+            - **Windows**: `Atlarix Setup *.exe`
             - **Linux**: `.deb`, `.rpm`, or `.AppImage`
 
             ### Installation Notes
@@ -383,7 +383,6 @@ jobs:
             "$UPLOAD_URL?name=latest-linux.yml"
 
   build-windows:
-    if: false  # Windows signing pending — re-enable when YubiKey and OV cert are ready.
     needs: create-draft
     runs-on: windows-latest
     steps:
@@ -395,6 +394,17 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
+
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -430,14 +440,22 @@ jobs:
         if: success()
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          TAG="${{ needs.create-draft.outputs.tag_name }}"
-          mapfile -d '' -t FILES < <(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0)
-          gh release upload "$TAG" "${FILES[@]}" --repo AmariahAK/atlarix-releases --clobber
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          export UPLOAD_URL RELEASES_TOKEN
+          find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0 | while IFS= read -r -d '' f; do
+            echo "Uploading $(basename "$f")..."
+            curl -sS -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")"
+          done
 
   publish-release:
-    needs: [create-draft, build-macos, build-linux]
+    needs: [create-draft, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:

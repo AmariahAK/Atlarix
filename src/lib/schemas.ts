@@ -74,6 +74,10 @@ const providers = [
   "together",
   "mistral",
   "elastic",
+  "nvidia_nim",
+  "cohere",
+  "perplexity",
+  "cerebras",
 ] as const;
 
 export const cloudProviders = providers.filter(

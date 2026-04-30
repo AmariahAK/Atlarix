@@ -9,6 +9,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createElasticAgentBuilderModel } from "./elastic_agent_builder_adapter";
+import { createCohereChatModel } from "./cohere_chat_adapter";
 import type {
   LargeLanguageModel,
   UserSettings,
@@ -758,6 +759,63 @@ async function getRegularModelClient(
       return {
         modelClient: {
           model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "nvidia_nim": {
+      const provider = createOpenAICompatible({
+        name: "nvidia_nim",
+        baseURL: "https://integrate.api.nvidia.com/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "perplexity": {
+      const provider = createOpenAICompatible({
+        name: "perplexity",
+        baseURL: "https://api.perplexity.ai",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "cerebras": {
+      const provider = createOpenAICompatible({
+        name: "cerebras",
+        baseURL: "https://api.cerebras.ai/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    case "cohere": {
+      if (!apiKey) {
+        throw new Error(
+          "Cohere API key is required. Provide it in Settings or set COHERE_API_KEY.",
+        );
+      }
+      const modelClient = createCohereChatModel({ apiKey, modelId: model.name });
+      return {
+        modelClient: {
+          model: modelClient,
           builtinProviderId: providerId,
         },
         backupModelClients: [],

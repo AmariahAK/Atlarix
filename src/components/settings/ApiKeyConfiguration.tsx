@@ -1,4 +1,4 @@
-import { Info, KeyRound, Trash2, Clipboard } from "lucide-react";
+import { KeyRound, Trash2, Clipboard } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Accordion,
@@ -14,13 +14,6 @@ import { Button } from "@/components/ui/button";
 import { UserSettings } from "@/lib/schemas";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { showError } from "@/lib/toast";
-
-// Helper function to mask ENV API keys (move or duplicate if needed elsewhere)
-const maskEnvApiKey = (key: string | undefined): string => {
-  if (!key) return "Not Set";
-  if (key.length < 8) return "****";
-  return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
-};
 
 interface ApiKeyConfigurationProps {
   provider: string;
@@ -77,28 +70,14 @@ export function ApiKeyConfiguration({
     );
   }
 
-  const envApiKey = envVarName ? envVars[envVarName] : undefined;
   const userApiKey = settings?.providerSettings?.[provider]?.apiKey?.value;
 
   const isValidUserKey =
     !!userApiKey &&
     !userApiKey.startsWith("Invalid Key") &&
     userApiKey !== "Not Set";
-  const hasEnvKey = !!envApiKey;
-
-  const activeKeySource = isValidUserKey
-    ? "settings"
-    : hasEnvKey
-      ? "env"
-      : "none";
-
   const defaultAccordionValue = [];
-  if (isValidUserKey || !hasEnvKey) {
-    defaultAccordionValue.push("settings-key");
-  }
-  if (!isAtlarix && hasEnvKey) {
-    defaultAccordionValue.push("env-key");
-  }
+  defaultAccordionValue.push("settings-key");
 
   return (
     <Accordion
@@ -132,11 +111,6 @@ export function ApiKeyConfiguration({
               </AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-sm">{userApiKey}</p>
-                {activeKeySource === "settings" && (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                    This key is currently active.
-                  </p>
-                )}
               </AlertDescription>
             </Alert>
           )}
@@ -197,58 +171,6 @@ export function ApiKeyConfiguration({
           </div>
         </AccordionContent>
       </AccordionItem>
-
-      {!isAtlarix && envVarName && (
-        <AccordionItem
-          value="env-key"
-          className="border rounded-lg px-4 bg-(--background-lightest)"
-        >
-          <AccordionTrigger className="text-lg font-medium hover:no-underline cursor-pointer">
-            API Key from Environment Variable
-          </AccordionTrigger>
-          <AccordionContent className="pt-4">
-            {hasEnvKey ? (
-              <Alert variant="default">
-                <KeyRound className="h-4 w-4" />
-                <AlertTitle>Environment Variable Key ({envVarName})</AlertTitle>
-                <AlertDescription>
-                  <p className="font-mono text-sm">
-                    {maskEnvApiKey(envApiKey)}
-                  </p>
-                  {activeKeySource === "env" && (
-                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                      This key is currently active (no settings key set).
-                    </p>
-                  )}
-                  {activeKeySource === "settings" && (
-                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                      This key is currently being overridden by the key set in
-                      Settings.
-                    </p>
-                  )}
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <Alert variant="default">
-                <Info className="h-4 w-4" />
-                <AlertTitle>Environment Variable Not Set</AlertTitle>
-                <AlertDescription>
-                  The{" "}
-                  <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">
-                    {envVarName}
-                  </code>{" "}
-                  environment variable is not set.
-                </AlertDescription>
-              </Alert>
-            )}
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-              This key is set outside the application. If present, it will be
-              used only if no key is configured in the Settings section above.
-              Requires app restart to detect changes.
-            </p>
-          </AccordionContent>
-        </AccordionItem>
-      )}
     </Accordion>
   );
 }

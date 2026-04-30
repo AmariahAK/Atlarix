@@ -1,6 +1,5 @@
 /**
- * Work mode dropdown (Ask / Plan / Build / Debug / Review) + separate Auto toggle.
- * Auto uses Blueprint + permission heuristics; manual modes map tools + tier (see work-mode.ts).
+ * Work mode dropdown (Ask / Plan / Build / Debug / Review).
  */
 
 import { useEffect, useState } from "react";
@@ -9,7 +8,7 @@ import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Sparkles, ListTodo, Hammer, Bug, ShieldCheck } from "lucide-react";
+import { MessageCircle, ListTodo, Hammer, Bug, ShieldCheck } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -65,11 +64,6 @@ export function ChatIntentSelector() {
     settings?.selectedChatMode === "agent"
       ? "build"
       : settings?.selectedChatMode ?? "ask";
-  const intentMode = (settings?.intentMode ?? effectivePermission) as
-    | "ask"
-    | "build"
-    | "auto";
-  const isAuto = intentMode === "auto";
 
   const workMode: WorkMode =
     settings?.workModePreference ??
@@ -81,15 +75,14 @@ export function ChatIntentSelector() {
 
   useEffect(() => {
     if (!isReadOnlyChatChrome) return;
-    const intent = settings?.intentMode ?? settings?.selectedChatMode;
     if (
       settings?.selectedChatMode !== "ask" ||
       settings?.workModePreference !== "ask" ||
-      intent !== "ask"
+      settings?.intentMode !== "ask"
     ) {
       updateSettings({
         selectedChatMode: "ask",
-        intentMode: "ask",
+        intentMode: "ask", // clear any legacy Auto state
         workModePreference: "ask",
       });
     }
@@ -97,7 +90,6 @@ export function ChatIntentSelector() {
     isReadOnlyChatChrome,
     appId,
     selectedChatId,
-    settings?.intentMode,
     settings?.selectedChatMode,
     settings?.workModePreference,
     updateSettings,
@@ -112,28 +104,6 @@ export function ChatIntentSelector() {
     updateSettings({
       ...settingsPatchForWorkMode(mode),
     });
-  };
-
-  const toggleAuto = () => {
-    if (isReadOnlyChatChrome) {
-      updateSettings({
-        selectedChatMode: "ask",
-        intentMode: "ask",
-        workModePreference: "ask",
-      });
-      return;
-    }
-    if (isAuto) {
-      const wm = settings?.workModePreference ?? "ask";
-      updateSettings({
-        ...settingsPatchForWorkMode(wm),
-      });
-    } else {
-      updateSettings({
-        intentMode: "auto",
-        selectedChatMode: "ask",
-      });
-    }
   };
   const workIcon =
     WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
@@ -189,23 +159,18 @@ export function ChatIntentSelector() {
                       data-testid="chat-work-mode-select"
                       className={cn(
                         "h-7 min-w-[5.5rem] px-2 py-0 text-xs font-medium shadow-none gap-1",
-                        isAuto
-                          ? "opacity-70"
-                          : "bg-background hover:bg-muted/50 focus:bg-muted/50",
+                        "bg-background hover:bg-muted/50 focus:bg-muted/50",
                       )}
                       size="sm"
                     >
                       <WorkIcon className="h-3.5 w-3.5 shrink-0" />
                       <SelectValue>
                         {labelForWorkMode(workMode)}
-                        {isAuto ? " (Auto)" : ""}
                       </SelectValue>
                     </MiniSelectTrigger>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isAuto
-                      ? "Auto is on — heuristics pick Ask vs Build; open menu to pick a fixed work mode."
-                      : "Work mode: tools + Blueprint tier. Open for Ask, Plan, Build, Debug, Review."}
+                    {"Work mode: tools + Blueprint tier. Open for Ask, Plan, Build, Debug, Review."}
                   </TooltipContent>
                 </Tooltip>
                 <SelectContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -225,45 +190,18 @@ export function ChatIntentSelector() {
                   })}
                 </SelectContent>
               </Select>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => !noWorkspace && toggleAuto()}
-                    disabled={noWorkspace}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors h-7",
-                      isAuto && "bg-background shadow-sm text-foreground",
-                      !isAuto && !noWorkspace && "text-muted-foreground hover:text-foreground",
-                      noWorkspace && "opacity-50 cursor-not-allowed text-muted-foreground",
-                    )}
-                    data-testid="chat-intent-auto"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span>Auto</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {noWorkspace
-                    ? "Select a workspace to enable Auto."
-                    : isAuto
-                      ? "Click to leave Auto and return to the selected work mode."
-                      : "AI chooses Ask vs Build from your message; Blueprint tier follows heuristics."}
-                </TooltipContent>
-              </Tooltip>
             </>
           )}
         </div>
       </PopoverAnchor>
       <PopoverContent align="start" className="w-80 text-sm">
         <p className="font-medium mb-1">
-          {isReadOnlyChatChrome ? "Read-only chat" : "Work mode + Auto"}
+          {isReadOnlyChatChrome ? "Read-only chat" : "Work mode"}
         </p>
         <p className="text-muted-foreground text-xs mb-3">
           {isReadOnlyChatChrome
-            ? "This chat uses Ask (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, Review, and Auto."
-            : "Choose Ask, Plan, Build, Debug, or Review for fixed tools and Blueprint depth, or turn on Auto so the model switches Ask ↔ Build and tiers from context."}
+            ? "This chat uses Ask (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, and Review."
+            : "Choose Ask, Plan, Build, Debug, or Review for fixed tools and Blueprint depth."}
         </p>
         <Button size="sm" variant="secondary" onClick={dismissFirstTime}>
           Got it

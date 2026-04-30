@@ -56,10 +56,6 @@ export function ChatInputControls({
     settings?.selectedChatMode === "agent"
       ? "build"
       : settings?.selectedChatMode ?? "build";
-  const intentMode = (settings?.intentMode ?? effectivePermission) as
-    | "ask"
-    | "build"
-    | "auto";
   const workMode: WorkMode =
     settings?.workModePreference ??
     (effectivePermission === "ask" ? "ask" : "build");
@@ -68,9 +64,7 @@ export function ChatInputControls({
   let contextLine =
     !appId
       ? `${workLabel} · No workspace`
-      : intentMode === "auto"
-        ? `Auto · ${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`
-        : `${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
+      : `${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
 
   let tokenWarning: string | null = null;
   const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
