@@ -454,12 +454,14 @@ jobs:
           UPLOAD_URL="${UPLOAD_URL%\{*}"
           export UPLOAD_URL RELEASES_TOKEN
           find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0 | while IFS= read -r -d '' f; do
-            echo "Uploading $(basename "$f")..."
+            BASENAME=$(basename "$f")
+            ENCODED=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$BASENAME")
+            echo "Uploading $BASENAME..."
             curl -sS -X POST \
               -H "Authorization: token $RELEASES_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$f" \
-              "$UPLOAD_URL?name=$(basename "$f")"
+              "$UPLOAD_URL?name=$ENCODED"
           done
 
       - name: Generate and upload latest.yml (electron-updater feed)

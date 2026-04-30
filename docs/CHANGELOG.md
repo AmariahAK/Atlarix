@@ -1,5 +1,9 @@
 # Atlarix Changelog
 
+## v7.0.7 — Windows release upload URL encoding (2026-04-30)
+
+- **CI (`release.yml`) — `build-windows` upload step:** When uploading `.exe` / `.nupkg` assets to `atlarix-releases`, URL-query the `name=` parameter with `urllib.parse.quote` (via `python3`) so filenames containing spaces (e.g. `Atlarix-7.0.7 Setup.exe`) upload correctly instead of breaking the GitHub release asset URL.
+
 ## v7.0.6 — New providers, Windows CI, remove Auto button (2026-04-30)
 
 - **New AI providers (Settings → AI):** Added four new providers to the built-in cloud catalog:

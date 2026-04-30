@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.6  
+**Current Version:** v7.0.7  
 **Last Updated:** 2026-04-30
 
 ---
