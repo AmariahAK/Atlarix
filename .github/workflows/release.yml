@@ -416,26 +416,30 @@ jobs:
             electron-${{ runner.os }}-x64-
 
       - name: Install dependencies
-        shell: bash
+        shell: pwsh
         run: |
-          for attempt in 1 2 3 4 5; do
-            if npm ci; then
-              echo "npm ci succeeded on attempt $attempt"
+          $attempts = 0
+          $maxAttempts = 5
+          while ($attempts -lt $maxAttempts) {
+            $attempts++
+            npm ci
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "npm ci succeeded on attempt $attempts"
               exit 0
-            fi
-            echo "::warning::npm ci failed (attempt $attempt of 5); removing node_modules and retrying..."
-            rm -rf node_modules
-            sleep $((attempt * 25))
-          done
-          echo "npm ci failed after 5 attempts"
+            }
+            Write-Warning "npm ci failed (attempt $attempts of $maxAttempts); retrying..."
+            Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds ($attempts * 25)
+          }
+          Write-Error "npm ci failed after $maxAttempts attempts"
           exit 1
 
       - name: Patch tree-sitter binding.gyp for Electron C++20
-        shell: bash
+        shell: pwsh
         run: node scripts/patch-tree-sitter-electron-cpp20.cjs
 
       - name: Build for Windows
-        shell: bash
+        shell: pwsh
         run: npm run make
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
