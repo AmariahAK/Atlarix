@@ -74,8 +74,76 @@ import {
 } from "@/lib/routing/context_budget_routing";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { captureSafe } from "../../main/lib/analytics";
+import { parseQuestions } from "../utils/cleanFullResponse";
 
 const logger = log.scope("chat_only_handlers");
+
+/** Latest streaming assistant tail for pure chat-only (synthetic id -1); used when flushing ask_user submit chunks. */
+export const chatOnlyStreamingAssistantDraftByChatId = new Map<number, string>();
+
+export function syncChatOnlyStreamingDraft(chatId: number, tail: string): void {
+    chatOnlyStreamingAssistantDraftByChatId.set(chatId, tail);
+}
+
+export function clearChatOnlyStreamingDraft(chatId: number): void {
+    chatOnlyStreamingAssistantDraftByChatId.delete(chatId);
+}
+
+/** Compose prompt when continuing after `<questions>` or clarifying user rows (last two user messages). */
+export function buildContinueAfterQuestionsPrompt(
+    msgs: { role: string; content?: string | null }[],
+): string {
+    const userMsgs = msgs.filter((m) => m.role === "user");
+    if (userMsgs.length === 0) return "";
+    if (userMsgs.length === 1) return String(userMsgs[0].content ?? "").trim();
+    const a = String(userMsgs[userMsgs.length - 2]?.content ?? "").trim();
+    const b = String(userMsgs[userMsgs.length - 1]?.content ?? "").trim();
+    if (!a) return b;
+    if (!b) return a;
+    return `${a}\n\n---\n\n${b}`;
+}
+
+/**
+ * Insert ask_user formatted answer as a user row after the assistant segment that hosted the question.
+ */
+export function insertAskUserAnswerUserMessage(chatId: number, formattedContent: string): boolean {
+    const chat = ephemeralChats.get(chatId);
+    if (!chat) return false;
+    const msgs = chat.messages;
+    const msg: Message = {
+        id: Date.now(),
+        chatId,
+        role: "user",
+        content: formattedContent,
+        createdAt: new Date(),
+    };
+    msgs.push(msg);
+    return true;
+}
+
+/**
+ * Insert clarifying `<questions>` formatted answer bubble before the assistant message that hosted the widget (by id).
+ */
+export function insertClarifyingAnswersUserMessageEphemeral(
+    chatId: number,
+    assistantMessageId: number,
+    formattedContent: string,
+): boolean {
+    const chat = ephemeralChats.get(chatId);
+    if (!chat) return false;
+    const msgs = chat.messages;
+    const idx = msgs.findIndex((m) => m.id === assistantMessageId);
+    if (idx < 0) return false;
+    const msg: Message = {
+        id: Date.now(),
+        chatId,
+        role: "user",
+        content: formattedContent,
+        createdAt: new Date(),
+    };
+    msgs.splice(idx + 1, 0, msg);
+    return true;
+}
 
 /** Keep first occurrence per normalized URL (strip hash); entries without URL pass through. */
 function dedupeCollectedSourcesByUrl(sources: any[]): any[] {
@@ -254,9 +322,42 @@ export async function handleChatOnlyStream(
     try {
         const settings = await readSettings();
 
+        // Get or create ephemeral chat (continue-after-questions requires an existing session)
+        let chat = ephemeralChats.get(req.chatId);
+        if (!chat) {
+            if (req.continueAfterQuestions) {
+                safeSend(event.sender, "chat:response:error", {
+                    chatId: req.chatId,
+                    error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}No chat session to continue.`,
+                });
+                safeSend(event.sender, "chat:response:end", {
+                    chatId: req.chatId,
+                    updatedFiles: false,
+                    hadToolCallsOrPermissions: false,
+                } satisfies ChatResponseEnd);
+                activeStreams.delete(req.chatId);
+                return "";
+            }
+            chat = {
+                id: req.chatId,
+                title: "New chat",
+                messages: [],
+                createdAt: new Date(),
+            };
+            ephemeralChats.set(req.chatId, chat);
+        }
+
         let gatedPrompt: string;
         try {
-            gatedPrompt = prepareUserChatTurnInput(req.prompt);
+            if (req.continueAfterQuestions) {
+                const composed = buildContinueAfterQuestionsPrompt(chat.messages);
+                if (!composed.trim()) {
+                    throw new Error("Continue after questions: no user message content found");
+                }
+                gatedPrompt = prepareUserChatTurnInput(composed);
+            } else {
+                gatedPrompt = prepareUserChatTurnInput(req.prompt);
+            }
         } catch (gateErr) {
             if (gateErr instanceof ChatPromptSafetyError) {
                 safeSend(event.sender, "chat:response:error", {
@@ -287,44 +388,43 @@ export async function handleChatOnlyStream(
                 activeStreams.delete(req.chatId);
                 return "";
             }
-            throw gateErr;
+            const msg =
+                gateErr instanceof Error ? gateErr.message : String(gateErr);
+            safeSend(event.sender, "chat:response:error", {
+                chatId: req.chatId,
+                error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${msg}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+                chatId: req.chatId,
+                updatedFiles: false,
+                hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            activeStreams.delete(req.chatId);
+            return "";
         }
 
-        // Get or create ephemeral chat
-        let chat = ephemeralChats.get(req.chatId);
-        if (!chat) {
-            // Create new ephemeral chat if doesn't exist
-            chat = {
-                id: req.chatId,
-                title: "New chat",
-                messages: [],
+        if (!req.continueAfterQuestions) {
+            const userMessage: Message = {
+                id: Date.now(),
+                chatId: req.chatId,
+                role: "user",
+                content: gatedPrompt,
                 createdAt: new Date(),
             };
-            ephemeralChats.set(req.chatId, chat);
+            chat.messages.push(userMessage);
+
+            if (chat.messages.length === 1) {
+                const words = gatedPrompt.split(" ").slice(0, 5).join(" ");
+                chat.title =
+                    words.length > 30 ? words.substring(0, 30) + "..." : words;
+                logger.info(`Set ephemeral chat ${req.chatId} title: "${chat.title}"`);
+            }
+
+            safeSend(event.sender, "chat:response:chunk", {
+                chatId: req.chatId,
+                messages: [...chat.messages],
+            });
         }
-
-        // Create user message (in-memory only) - store original for display
-        const userMessage: Message = {
-            id: Date.now(), // Use timestamp as ID
-            chatId: req.chatId,
-            role: "user",
-            content: gatedPrompt,
-            createdAt: new Date(),
-        };
-        chat.messages.push(userMessage);
-
-        // Set chat title from first message
-        if (chat.messages.length === 1) {
-            const words = gatedPrompt.split(' ').slice(0, 5).join(' ');
-            chat.title = words.length > 30 ? words.substring(0, 30) + '...' : words;
-            logger.info(`Set ephemeral chat ${req.chatId} title: "${chat.title}"`);
-        }
-
-        // Send initial messages to UI
-        safeSend(event.sender, "chat:response:chunk", {
-            chatId: req.chatId,
-            messages: [...chat.messages],
-        });
 
         // Log which model is being used (helps verify Auto vs single model)
         const mainOptions: GetModelClientOptions = {
@@ -588,6 +688,31 @@ export async function handleChatOnlyStream(
                     ) {
                         const q = result as { question: string; options?: string[] };
                         const { waitForUserQuestionAnswer } = await import("./user_question_wait");
+                        const segmentA = fullResponse;
+                        if (segmentA.trim().length > 0) {
+                            chat.messages.push({
+                                id: Date.now(),
+                                chatId: req.chatId,
+                                role: "assistant",
+                                content: segmentA,
+                                createdAt: new Date(),
+                            });
+                        }
+                        fullResponse = "";
+                        syncChatOnlyStreamingDraft(req.chatId, "");
+                        safeSend(event.sender, "chat:response:chunk", {
+                            chatId: req.chatId,
+                            messages: [
+                                ...chat.messages,
+                                {
+                                    id: -1,
+                                    chatId: req.chatId,
+                                    role: "assistant",
+                                    content: "",
+                                    createdAt: new Date(),
+                                },
+                            ],
+                        });
                         const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
                         safeSend(event.sender, "user-question-request", {
                             chatId: req.chatId,
@@ -876,6 +1001,7 @@ export async function handleChatOnlyStream(
                         }
 
                         fullResponse += chunk;
+                        syncChatOnlyStreamingDraft(req.chatId, fullResponse);
 
                         safeSend(event.sender, "chat:response:chunk", {
                             chatId: req.chatId,
@@ -894,6 +1020,7 @@ export async function handleChatOnlyStream(
                     if (inThinkingBlock) {
                         fullResponse += "</think>";
                         inThinkingBlock = false;
+                        syncChatOnlyStreamingDraft(req.chatId, fullResponse);
                         safeSend(event.sender, "chat:response:chunk", {
                             chatId: req.chatId,
                             messages: [
@@ -1080,6 +1207,15 @@ export async function handleChatOnlyStream(
 
         fullResponse = stripToolCallXML(fullResponse);
         fullResponse = sanitizeAssistantOutput(fullResponse);
+
+        const {
+            cleanContent: contentAfterQuestions,
+            questions,
+            title: questionsTitle,
+        } = parseQuestions(fullResponse);
+        let responseToStore =
+            questions != null ? contentAfterQuestions : fullResponse;
+        responseToStore = sanitizeAssistantOutput(responseToStore);
         // ═══════════════════════════════════════════════════════════════
 
         // Create assistant message (in-memory only) WITH SOURCES
@@ -1096,16 +1232,24 @@ export async function handleChatOnlyStream(
             id: Date.now() + 1,
             chatId: req.chatId,
             role: "assistant",
-            content: fullResponse,
+            content: responseToStore,
             sources: uniqueCollectedSources.length > 0 ? uniqueCollectedSources : undefined,
             createdAt: new Date(),
             ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
         };
         chat.messages.push(assistantMessage);
 
+        if (questions != null && questions.length > 0) {
+            safeSend(event.sender, "chat:questions", {
+                messageId: assistantMessage.id,
+                questions,
+                ...(questionsTitle ? { title: questionsTitle } : {}),
+            });
+        }
+
         // Record exchange in session memory for conversation continuity
         try {
-            const cleanResponse = fullResponse
+            const cleanResponse = responseToStore
                 .replace(/<[^>]*>/g, '')
                 .replace(/```[\s\S]*?```/g, '[code]')
                 .trim();
@@ -1162,6 +1306,8 @@ export async function handleChatOnlyStream(
         } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
         throw error;
+    } finally {
+        clearChatOnlyStreamingDraft(req.chatId);
     }
 }
 

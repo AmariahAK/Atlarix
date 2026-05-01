@@ -619,6 +619,7 @@ async function resolveAskUserToolResult(
   chatId: number,
   toolName: string,
   result: unknown,
+  hooks?: { finalizeAskUserBreakpoint?: () => void | Promise<void> },
 ): Promise<string | null> {
   if (toolName !== "ask_user") return null;
   if (!result || typeof result !== "object" || (result as { __ask_user?: boolean }).__ask_user !== true) {
@@ -626,6 +627,7 @@ async function resolveAskUserToolResult(
   }
   const q = result as { question: string; options?: string[] };
   const { waitForUserQuestionAnswer } = await import("./user_question_wait");
+  await hooks?.finalizeAskUserBreakpoint?.();
   const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   safeSend(event.sender, "user-question-request", {
     chatId,
@@ -668,6 +670,9 @@ let lastSkillCacheAppId: number | undefined;
 
 // Track partial responses for cancelled streams
 const partialResponses = new Map<number, string>();
+
+/** DB: assistant placeholder row receiving post–ask_user continuation (for ordering injected user Q+A). */
+const askUserContinuationAssistantIdByChatId = new Map<number, number>();
 
 
 /**
@@ -1077,12 +1082,104 @@ export function registerChatStreamHandlers() {
   ipcMain.handle(
     "chat:submit-user-question-answer",
     async (
-      _event,
-      payload: { chatId: number; questionId: string; answer: string },
+      event,
+      payload: { chatId: number; questionId: string; answer: string; questionText: string },
     ): Promise<{ success: boolean }> => {
+      const { formatInteractiveQaLine } = await import("../../lib/interactive-qa-format");
+      const {
+        isEphemeralChatId,
+        getEphemeralChat,
+        insertAskUserAnswerUserMessage,
+        chatOnlyStreamingAssistantDraftByChatId,
+      } = await import("./chat_only_handlers");
       const { resolveUserQuestionAnswer } = await import("./user_question_wait");
+
       const ok = resolveUserQuestionAnswer(payload.chatId, payload.questionId, payload.answer);
-      return { success: ok };
+      if (!ok) return { success: false };
+
+      const content = formatInteractiveQaLine(payload.questionText, payload.answer);
+
+      if (isEphemeralChatId(payload.chatId)) {
+        if (!insertAskUserAnswerUserMessage(payload.chatId, content)) {
+          return { success: false };
+        }
+        const chat = getEphemeralChat(payload.chatId);
+        const tail =
+          chatOnlyStreamingAssistantDraftByChatId.get(payload.chatId) ??
+          partialResponses.get(payload.chatId) ??
+          "";
+        safeSend(event.sender, "chat:response:chunk", {
+          chatId: payload.chatId,
+          messages: [
+            ...(chat?.messages ?? []),
+            ...(tail
+              ? [
+                  {
+                    id: -1,
+                    chatId: payload.chatId,
+                    role: "assistant" as const,
+                    content: tail,
+                    createdAt: new Date(),
+                  },
+                ]
+              : []),
+          ],
+        });
+        return { success: true };
+      }
+
+      const contAssistantId = askUserContinuationAssistantIdByChatId.get(payload.chatId);
+      let insertCreatedAt = new Date();
+      if (contAssistantId != null) {
+        const contRow = await db.query.messages.findFirst({
+          where: eq(messages.id, contAssistantId),
+        });
+        if (contRow?.createdAt) {
+          insertCreatedAt = new Date(contRow.createdAt.getTime() - 1);
+        }
+      } else {
+        const anchor = await db.query.messages.findFirst({
+          where: and(eq(messages.chatId, payload.chatId), eq(messages.role, "assistant")),
+          orderBy: [desc(messages.createdAt)],
+        });
+        if (anchor?.createdAt) {
+          insertCreatedAt = new Date(anchor.createdAt.getTime() + 1);
+        }
+      }
+
+      await db.insert(messages).values({
+        chatId: payload.chatId,
+        role: "user",
+        content,
+        createdAt: insertCreatedAt,
+      });
+
+      const rowsAfter = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.chatId, payload.chatId))
+        .orderBy(asc(messages.createdAt));
+
+      const tail = partialResponses.get(payload.chatId) ?? "";
+      const chunkMsgs = rowsAfter.map((row) => {
+        const base = {
+          id: row.id,
+          chatId: row.chatId,
+          role: row.role as "user" | "assistant" | "system",
+          content: row.content ?? "",
+          createdAt: row.createdAt ?? new Date(),
+        };
+        if (contAssistantId != null && row.id === contAssistantId && tail.length > 0) {
+          return { ...base, content: tail };
+        }
+        return base;
+      });
+
+      safeSend(event.sender, "chat:response:chunk", {
+        chatId: payload.chatId,
+        messages: chunkMsgs as import("../ipc_types").Message[],
+      });
+      return { success: true };
     },
   );
 
@@ -1095,6 +1192,7 @@ export function registerChatStreamHandlers() {
   ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
+    askUserContinuationAssistantIdByChatId.delete(req.chatId);
 
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
@@ -1321,21 +1419,34 @@ export function registerChatStreamHandlers() {
       // v3.9: Continue after clarifying questions — use last user message (already updated with Q/A block)
       let userPrompt: string = "";
       if (req.continueAfterQuestions) {
-        // Re-fetch chat so we have the user message that was updated by chat:submit-question-answers
-        const freshChat = await db.query.chats.findFirst({
-          where: eq(chats.id, req.chatId),
-          with: {
-            messages: { orderBy: (messages, { asc }) => [asc(messages.createdAt)] },
-            app: true,
-          },
-        });
-        if (!freshChat) throw new Error("Chat not found");
-        const userMessages = freshChat.messages.filter((m: any) => m.role === "user");
-        const lastUser = userMessages[userMessages.length - 1];
-        if (!lastUser?.content) {
-          throw new Error("Continue after questions: no user message content found");
+        const {
+          isEphemeralChatId,
+          getEphemeralChat,
+          buildContinueAfterQuestionsPrompt,
+        } = await import("./chat_only_handlers");
+        if (isEphemeralChatId(req.chatId)) {
+          const ephemeral = getEphemeralChat(req.chatId);
+          if (!ephemeral) throw new Error("Chat not found");
+          const composed = buildContinueAfterQuestionsPrompt(ephemeral.messages);
+          if (!composed.trim()) {
+            throw new Error("Continue after questions: no user message content found");
+          }
+          userPrompt = prepareUserChatTurnInput(composed);
+        } else {
+          const freshChat = await db.query.chats.findFirst({
+            where: eq(chats.id, req.chatId),
+            with: {
+              messages: { orderBy: (messages, { asc }) => [asc(messages.createdAt)] },
+              app: true,
+            },
+          });
+          if (!freshChat) throw new Error("Chat not found");
+          const composed = buildContinueAfterQuestionsPrompt(freshChat.messages as { role: string; content?: string | null }[]);
+          if (!composed.trim()) {
+            throw new Error("Continue after questions: no user message content found");
+          }
+          userPrompt = prepareUserChatTurnInput(composed);
         }
-        userPrompt = prepareUserChatTurnInput(lastUser.content);
       }
 
       // Process attachments if any (skip when continuing after questions)
@@ -1606,6 +1717,9 @@ ${componentSnippet}
 
         updatedChat.messages = [...existingMessages, newUserMessage, placeholderMessage];
         placeholderAssistantMessage = placeholderMessage;
+        if (ephemeralChat) {
+          ephemeralChat.messages = updatedChat.messages;
+        }
       }
 
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
@@ -1624,12 +1738,6 @@ ${componentSnippet}
         chatId: req.chatId,
         messages: updatedChat.messages,
       });
-
-      // After building and sending, persist the new user message for ephemeral so next request sees it
-      if (req.chatId < 0) {
-        const { addEphemeralMessage } = await import("./chat_only_handlers");
-        addEphemeralMessage(req.chatId, { role: "user", content: userPrompt });
-      }
 
       let fullResponse = "";
       let maxTokensUsed: number | undefined;
@@ -3207,7 +3315,7 @@ This conversation includes one or more image attachments. When the user uploads 
               const reasoningPatch = buildReasoningProviderOptions(cap, true);
               if (reasoningPatch.openrouter) {
                 providerOptions.openrouter = {
-                  ...(providerOptions.openrouter ?? {}),
+                  ...providerOptions.openrouter,
                   ...reasoningPatch.openrouter,
                 };
               }
@@ -3498,6 +3606,81 @@ This conversation includes one or more image attachments. When the user uploads 
               messages: currentMessages,
             });
             return fullResponse;
+          };
+
+          const finalizeAskUserBreakpoint = async () => {
+            const segmentA = fullResponse;
+            if (!segmentA.trim()) {
+              fullResponse = "";
+              partialResponses.set(req.chatId, "");
+              await processResponseChunkUpdate({ fullResponse: "" });
+              return;
+            }
+            if (isEphemeralWorkspace) {
+              const msgs = updatedChat.messages;
+              const last = msgs[msgs.length - 1];
+              if (last?.role === "assistant") {
+                last.content = segmentA;
+              }
+              const newPh = {
+                id: Date.now(),
+                chatId: req.chatId,
+                role: "assistant" as const,
+                content: "",
+                createdAt: new Date(),
+                sourceCommitHash: null,
+                commitHash: null,
+              };
+              msgs.push(newPh);
+              placeholderAssistantMessage = newPh;
+              askUserContinuationAssistantIdByChatId.set(req.chatId, newPh.id);
+              const { getEphemeralChat } = await import("./chat_only_handlers");
+              const ec = getEphemeralChat(req.chatId);
+              if (ec) {
+                ec.messages = msgs;
+              }
+            } else {
+              await db
+                .update(messages)
+                .set({ content: segmentA })
+                .where(eq(messages.id, placeholderAssistantMessage.id));
+              const exchangeIndex = updatedChat.messages.filter((m: any) => m.role === "assistant").length;
+              const appPathForHash = chat.app?.path ?? appData?.path;
+              const commitHash =
+                appPathForHash != null
+                  ? await getCurrentCommitHash({
+                      path: resolveAppPath(appPathForHash),
+                    })
+                  : null;
+              const [newPh] = await db
+                .insert(messages)
+                .values({
+                  chatId: req.chatId,
+                  role: "assistant",
+                  content: "",
+                  requestId: dyadRequestId,
+                  sourceCommitHash: commitHash,
+                  exchangeIndex,
+                })
+                .returning();
+              placeholderAssistantMessage = newPh;
+              askUserContinuationAssistantIdByChatId.set(req.chatId, newPh.id);
+              const fetchedChat = await db.query.chats.findFirst({
+                where: eq(chats.id, req.chatId),
+                with: {
+                  messages: {
+                    orderBy: (messages, { asc: ascOrd }) => [ascOrd(messages.createdAt)],
+                  },
+                  app: true,
+                },
+              });
+              if (fetchedChat) {
+                updatedChat = fetchedChat;
+              }
+            }
+            fullResponse = "";
+            partialResponses.set(req.chatId, "");
+            await processResponseChunkUpdate({ fullResponse: "" });
           };
 
           if (blueprintRequiredBlockMessage) {
@@ -3836,6 +4019,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       tool.name,
                       result,
+                      { finalizeAskUserBreakpoint },
                     );
                     if (askUserResolvedEarly !== null) {
                       return askUserResolvedEarly;
@@ -4470,6 +4654,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       req.chatId,
                       toolName,
                       result,
+                      { finalizeAskUserBreakpoint },
                     );
                     if (askUserResolvedBuild !== null) {
                       return askUserResolvedBuild;
@@ -5318,6 +5503,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       req.chatId,
                       toolCall.toolName,
                       toolResult,
+                      { finalizeAskUserBreakpoint },
                     );
                     if (askUserAgentic !== null) {
                       iterationResults.push({ tool: toolCall.toolName, result: askUserAgentic });
@@ -5787,13 +5973,18 @@ For workforce, explain services before request_workspace_permissions.`;
             fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
           }
           // v3.9: Parse and strip <questions> block; emit chat:questions if present (first block only)
-          const { cleanContent: contentAfterQuestions, questions } = parseQuestions(fullResponse);
+          const {
+            cleanContent: contentAfterQuestions,
+            questions,
+            title: questionsTitle,
+          } = parseQuestions(fullResponse);
           let responseToStore = questions != null ? contentAfterQuestions : fullResponse;
           responseToStore = sanitizeAssistantOutput(responseToStore);
           if (questions != null && questions.length > 0) {
             safeSend(event.sender, "chat:questions", {
               messageId: placeholderAssistantMessage.id,
               questions,
+              ...(questionsTitle ? { title: questionsTitle } : {}),
             });
           }
 
@@ -6331,43 +6522,82 @@ For workforce, explain services before request_workspace_permissions.`;
     return { success: false, message: 'No active stream for this chat' };
   });
 
-  // v3.9: Submit clarifying-question answers: append Q/A block to last user message, set has_answered_questions
+  // v3.9: Submit clarifying-question answers — formatted user bubble + chunk flush
   ipcMain.handle(
     "chat:submit-question-answers",
     async (
-      _event,
-      payload: { chatId: number; assistantMessageId: number; answers: Record<string, string> }
+      event,
+      payload: {
+        chatId: number;
+        assistantMessageId: number;
+        answers: Record<string, string>;
+        questionSnapshots: { id: string; question: string }[];
+      },
     ) => {
-      const { chatId, assistantMessageId, answers } = payload;
+      const { chatId, assistantMessageId, answers, questionSnapshots } = payload;
+      const { formatInteractiveQaBlock } = await import("../../lib/interactive-qa-format");
+      const {
+        isEphemeralChatId,
+        insertClarifyingAnswersUserMessageEphemeral,
+        getEphemeralChat,
+      } = await import("./chat_only_handlers");
+
+      const pairs = questionSnapshots.map((q) => ({
+        question: q.question,
+        answer: answers[q.id] ?? "",
+      }));
+      const content = formatInteractiveQaBlock(pairs);
+
+      if (isEphemeralChatId(chatId)) {
+        const ok = insertClarifyingAnswersUserMessageEphemeral(chatId, assistantMessageId, content);
+        if (!ok) throw new Error("Assistant message not found in ephemeral chat");
+        const chat = getEphemeralChat(chatId);
+        safeSend(event.sender, "chat:response:chunk", {
+          chatId,
+          messages: [...(chat?.messages ?? [])],
+        });
+        return { success: true };
+      }
+
       const assistantMsg = await db.query.messages.findFirst({
         where: and(eq(messages.id, assistantMessageId), eq(messages.chatId, chatId)),
       });
       if (!assistantMsg) {
         throw new Error("Assistant message not found");
       }
-      const chatMessages = await db
+
+      let insertCreatedAt = new Date();
+      if (assistantMsg.createdAt) {
+        insertCreatedAt = new Date(assistantMsg.createdAt.getTime() + 1);
+      }
+
+      await db.insert(messages).values({
+        chatId,
+        role: "user",
+        content,
+        createdAt: insertCreatedAt,
+      });
+      await db.update(chats).set({ hasAnsweredQuestions: true }).where(eq(chats.id, chatId));
+
+      const rowsAfter = await db
         .select()
         .from(messages)
         .where(eq(messages.chatId, chatId))
-        .orderBy(messages.createdAt);
-      const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
-      if (idx <= 0) {
-        throw new Error("No user message before this assistant message");
-      }
-      const userMsg = chatMessages[idx - 1];
-      if (userMsg.role !== "user") {
-        throw new Error("Message before assistant is not a user message");
-      }
-      const block =
-        "\n\nClarifying answers:\n" +
-        Object.entries(answers)
-          .map(([id, a]) => `- ${id}: ${a}`)
-          .join("\n");
-      const newContent = userMsg.content + block;
-      await db.update(messages).set({ content: newContent }).where(eq(messages.id, userMsg.id));
-      await db.update(chats).set({ hasAnsweredQuestions: true }).where(eq(chats.id, chatId));
+        .orderBy(asc(messages.createdAt));
+
+      safeSend(event.sender, "chat:response:chunk", {
+        chatId,
+        messages: rowsAfter.map((row) => ({
+          id: row.id,
+          chatId: row.chatId,
+          role: row.role as "user" | "assistant" | "system",
+          content: row.content ?? "",
+          createdAt: row.createdAt ?? new Date(),
+        })) as import("../ipc_types").Message[],
+      });
+
       return { success: true };
-    }
+    },
   );
 
   // v3.9: Edit user message — truncate messages after it, update content, clear has_answered_questions

@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import {
   pendingUserQuestionByChatIdAtom,
+  askUserStreamFreezeBaselineByChatIdAtom,
   type PendingUserQuestion,
 } from "@/atoms/chatAtoms";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ type Props = {
 
 export function UserQuestionBar({ chatId }: Props) {
   const [pendingByChat, setPendingByChat] = useAtom(pendingUserQuestionByChatIdAtom);
+  const setFreezeBaselineByChat = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
   const pending: PendingUserQuestion | undefined = pendingByChat[chatId];
   const [customAnswer, setCustomAnswer] = useState("");
 
@@ -35,10 +37,16 @@ export function UserQuestionBar({ chatId }: Props) {
         chatId,
         pending.questionId,
         trimmed,
+        pending.question,
       );
+      setFreezeBaselineByChat((prev) => {
+        const next = { ...prev };
+        delete next[chatId];
+        return next;
+      });
       clearPending();
     },
-    [chatId, pending, clearPending],
+    [chatId, pending, clearPending, setFreezeBaselineByChat],
   );
 
   if (!pending) {

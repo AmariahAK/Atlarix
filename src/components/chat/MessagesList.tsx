@@ -75,17 +75,20 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                   isLastMessage={index === messages.length - 1}
                 />
                 {message.role === "assistant" &&
-                  questionsByMessageId[message.id]?.length > 0 && (
+                  (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
                     <QuestionsWidget
                       messageId={message.id}
-                      questions={questionsByMessageId[message.id]}
+                      questions={questionsByMessageId[message.id]!.questions}
+                      title={questionsByMessageId[message.id]!.title}
                       onSubmit={async (answers) => {
                         if (!selectedChatId) return;
                         try {
+                          const qs = questionsByMessageId[message.id]!.questions;
                           await IpcClient.getInstance().submitQuestionAnswers(
                             selectedChatId,
                             message.id,
-                            answers
+                            answers,
+                            qs.map((q) => ({ id: q.id, question: q.question })),
                           );
                           setQuestionsByMessageId((prev) => {
                             const next = { ...prev };

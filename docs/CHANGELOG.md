@@ -1,5 +1,18 @@
 # Atlarix Changelog
 
+## v7.0.9 — ask_user ordering, quieter IPC logs, stream while question pending (2026-05-01)
+
+- **ask_user:** Fixed formatted Q/A user bubbles so they appear **after** the assistant intro that hosted the question (ephemeral insert order).
+- **ask_user:** While a question is pending, assistant continuation still **streams** in the synthetic tail (freeze baseline omitted so the clamp does not hide segment B).
+- **Logs:** Per-IPC success traces from `createLoggedHandler` only when `ATLARIX_VERBOSE_IPC=1`; reduced routine noise from performance sampling and cleanup jobs (behavior unchanged).
+
+## v7.0.8 — Sentry hygiene, bundled TSC worker, clarifying questions (2026-04-30)
+
+- **Sentry:** `beforeSend` in main and renderer drops expected auth noise (`ATLARIX_AUTH_REQUIRED`, sign-in messaging, `AuthRequiredError`). Removed renderer `Sentry.captureMessage` for chat streams blocked when not signed in (product analytics via PostHog unchanged).
+- **TSC worker:** The compiler stays **external** to the worker bundle (bundling it caused multi‑GB Node heap use during `electron-forge start`). At runtime the worker resolves **project `typescript` first**, then **Atlarix’s shipped `typescript` dependency**, so typechecking still works when the workspace does not install its own compiler.
+- **Clarifying questions:** Optional questionnaire block title via `<questions>` JSON object (`title` or `prompt` + `questions`); IPC and UI updated. Restyled questions widget (clearer block header, radio-style options). System prompt extended for “missing how / constraints” substantive asks (e.g. large refactors) to prefer `<questions>` before deep edits.
+- **Clarifying questions (incognito + ephemeral workspace):** Chat-only stream parses/strips `<questions>` and emits `chat:questions`; `chat:submit-question-answers` updates in-memory ephemeral messages; `continueAfterQuestions` continues from the appended user text without adding a blank user turn; main chat stream resolves continue-after from ephemeral memory when `chatId < 0`. Home inline chat renders `UserQuestionBar` for `ask_user` when a session is active.
+
 ## v7.0.7 — Windows release upload URL encoding (2026-04-30)
 
 - **CI (`release.yml`) — `build-windows` upload step:** When uploading `.exe` / `.nupkg` assets to `atlarix-releases`, URL-query the `name=` parameter with `urllib.parse.quote` (via `python3`) so filenames containing spaces (e.g. `Atlarix-7.0.7 Setup.exe`) upload correctly instead of breaking the GitHub release asset URL.

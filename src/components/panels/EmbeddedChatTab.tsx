@@ -56,6 +56,16 @@ export function EmbeddedChatTab() {
     [activeChatId, streamMessage]
   );
 
+  const handleContinueAfterQuestions = useCallback(() => {
+    if (!activeChatId) return;
+    streamMessage({
+      prompt: "",
+      chatId: activeChatId,
+      attachments: [],
+      continueAfterQuestions: true,
+    });
+  }, [activeChatId, streamMessage]);
+
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
     setSourceList([]);
@@ -94,7 +104,11 @@ export function EmbeddedChatTab() {
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        <SimpleInlineChat chatId={activeChatId} onSendMessage={handleContinueChat} />
+        <SimpleInlineChat
+          chatId={activeChatId}
+          onSendMessage={handleContinueChat}
+          onContinueAfterQuestions={handleContinueAfterQuestions}
+        />
       </div>
     </div>
   );

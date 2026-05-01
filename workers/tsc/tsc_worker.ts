@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as path from "node:path";
 import { parentPort } from "node:worker_threads";
 
@@ -11,16 +12,15 @@ import {
 } from "../../shared/tsc_types";
 import { SyncVirtualFileSystemImpl } from "../../shared/VirtualFilesystem";
 
-function loadLocalTypeScript(appPath: string): typeof import("typescript") {
+const nodeRequire = createRequire(import.meta.url);
+
+/** Prefer project-local compiler; fall back to Atlarix's dependency (not bundled — avoids dev OOM). */
+function loadTypeScript(appPath: string): typeof import("typescript") {
   try {
-    // Try to load TypeScript from the project's node_modules
-    const requirePath = require.resolve("typescript", { paths: [appPath] });
-    const ts = require(requirePath);
-    return ts;
-  } catch (error) {
-    throw new Error(
-      `Failed to load TypeScript from ${appPath} because of ${error}`,
-    );
+    const resolved = nodeRequire.resolve("typescript", { paths: [appPath] });
+    return nodeRequire(resolved) as typeof import("typescript");
+  } catch {
+    return nodeRequire("typescript") as typeof import("typescript");
   }
 }
 
@@ -271,9 +271,7 @@ async function processTypeScriptCheck(
 ): Promise<WorkerOutput> {
   try {
     const { appPath, virtualChanges, tsBuildInfoCacheDir } = input;
-
-    // Load the local TypeScript version from the app's node_modules
-    const ts = loadLocalTypeScript(appPath);
+    const ts = loadTypeScript(appPath);
 
     const vfs = new SyncVirtualFileSystemImpl(appPath, {
       fileExists: (fileName: string) => ts.sys.fileExists(fileName),

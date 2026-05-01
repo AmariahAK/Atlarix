@@ -9,6 +9,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Node worker bundle — avoid Vite stubbing `node:*` as browser externals.
+    ssr: true,
     sourcemap: true,
     // target: "node16",
     lib: {
@@ -18,7 +20,15 @@ export default defineConfig({
       formats: ["cjs"],
     },
     rollupOptions: {
-      external: ["node:fs", "node:path", "node:worker_threads", "typescript"],
+      // Keep `typescript` external: bundling the full compiler exhausts Node heap during forge dev (~2GB+).
+      // Runtime resolves workspace copy first, then Atlarix's shipped dependency (see tsc_worker.ts).
+      external: [
+        "node:fs",
+        "node:path",
+        "node:worker_threads",
+        "node:module",
+        "typescript",
+      ],
       //   output: {
       //     dir: "dist/workers/tsc",
       //   },

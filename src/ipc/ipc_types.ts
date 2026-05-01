@@ -71,6 +71,13 @@ export interface Question {
   allowCustom: boolean;
 }
 
+/** v7.0.8: Parsed <questions> block for UI (optional heading + items). */
+export interface ClarifyingQuestionsPayload {
+  questions: Question[];
+  /** Shown above the questionnaire when the model provides `title` or `prompt` in JSON. */
+  title?: string;
+}
+
 /** Autonomous session review: one executed permission op logged in main. */
 export interface AutonomousOpDto {
   operationId: string;

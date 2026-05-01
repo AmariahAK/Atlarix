@@ -3,6 +3,8 @@ import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
 import { IS_TEST_BUILD } from "../utils/test_utils";
 
+const verboseIpc = process.env.ATLARIX_VERBOSE_IPC === "1";
+
 export function createLoggedHandler(logger: log.LogFunctions) {
   return (
     channel: string,
@@ -11,12 +13,16 @@ export function createLoggedHandler(logger: log.LogFunctions) {
     ipcMain.handle(
       channel,
       async (event: IpcMainInvokeEvent, ...args: any[]) => {
-        logger.log(`IPC: ${channel} called with args: ${JSON.stringify(args)}`);
+        if (verboseIpc) {
+          logger.log(`IPC: ${channel} called with args: ${JSON.stringify(args)}`);
+        }
         try {
           const result = await fn(event, ...args);
-          logger.log(
-            `IPC: ${channel} returned: ${JSON.stringify(result)?.slice(0, 100)}...`,
-          );
+          if (verboseIpc) {
+            logger.log(
+              `IPC: ${channel} returned: ${JSON.stringify(result)?.slice(0, 100)}...`,
+            );
+          }
           return result;
         } catch (error) {
           logger.error(

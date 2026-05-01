@@ -104,6 +104,16 @@ function PersistentChatContainer() {
     }
   }, [activeChatId, streamMessage, mustSignIn]);
 
+  const handleContinueAfterQuestions = useCallback(() => {
+    if (!activeChatId) return;
+    streamMessage({
+      prompt: "",
+      chatId: activeChatId,
+      attachments: [],
+      continueAfterQuestions: true,
+    });
+  }, [activeChatId, streamMessage]);
+
   // Handle new chat - reset to home state
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
@@ -185,6 +195,7 @@ function PersistentChatContainer() {
         <SimpleInlineChat
           chatId={activeChatId}
           onSendMessage={handleContinueChat}
+          onContinueAfterQuestions={handleContinueAfterQuestions}
         />
       </div>
 

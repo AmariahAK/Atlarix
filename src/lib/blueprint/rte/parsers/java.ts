@@ -11,7 +11,7 @@ import type { BlueprintNode, LanguageParser, FrameworkInfo } from "./types";
 const CLASS_RE = /^\s*(?:public\s+|protected\s+|private\s+)?(?:abstract\s+|final\s+)?(class|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
 // Best-effort: method signatures (ignore constructors via name match later)
 const METHOD_RE =
-  /^\s*(?:public|protected|private)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:[\w<>\[\], ?]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
+  /^\s*(?:public|protected|private)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:[\w<>[\], ?]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
 
 function relFromAbs(projectRoot: string, abs: string): string {
   return path.relative(projectRoot, abs).replace(/\\/g, "/");

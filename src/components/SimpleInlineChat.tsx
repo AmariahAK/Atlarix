@@ -13,24 +13,38 @@ import {
     chatStreamCountByIdAtom,
     isStreamingByIdAtom,
     activeChatIdAtom,
+    pendingUserQuestionByChatIdAtom,
+    questionsByMessageIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { ToolIndicator } from "@/components/chat/ToolIndicator";
+import { UserQuestionBar } from "@/components/chat/UserQuestionBar";
+import { QuestionsWidget } from "@/components/chat/QuestionsWidget";
+import { showError } from "@/lib/toast";
 import { Plus } from "lucide-react";
 
 interface SimpleInlineChatProps {
     chatId: number;
     onSendMessage: (prompt: string) => void;
+    /** Start continuation stream after `<questions>` submit (same as MessagesList). */
+    onContinueAfterQuestions?: () => void;
 }
 
-export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProps) {
+export function SimpleInlineChat({
+    chatId,
+    onSendMessage,
+    onContinueAfterQuestions,
+}: SimpleInlineChatProps) {
     const messagesById = useAtomValue(chatMessagesByIdAtom);
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
+    const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
+    const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
+    const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -105,11 +119,40 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
                     </div>
                 ) : (
                     messages.map((message, index) => (
-                        <SimpleMessage
-                            key={message.id || index}
-                            message={message}
-                            isStreaming={isStreaming && index === messages.length - 1}
-                        />
+                        <div key={message.id || index} className="contents">
+                            <SimpleMessage
+                                message={message}
+                                isStreaming={isStreaming && index === messages.length - 1}
+                            />
+                            {message.role === "assistant" &&
+                                onContinueAfterQuestions &&
+                                (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
+                                    <QuestionsWidget
+                                        messageId={message.id}
+                                        questions={questionsByMessageId[message.id]!.questions}
+                                        title={questionsByMessageId[message.id]!.title}
+                                        onSubmit={async (answers) => {
+                                            try {
+                                                const qs = questionsByMessageId[message.id]!.questions;
+                                                await IpcClient.getInstance().submitQuestionAnswers(
+                                                    chatId,
+                                                    message.id,
+                                                    answers,
+                                                    qs.map((q) => ({ id: q.id, question: q.question })),
+                                                );
+                                                setQuestionsByMessageId((prev) => {
+                                                    const next = { ...prev };
+                                                    delete next[message.id];
+                                                    return next;
+                                                });
+                                                onContinueAfterQuestions();
+                                            } catch (err) {
+                                                showError(err);
+                                            }
+                                        }}
+                                    />
+                                )}
+                        </div>
                     ))
                 )}
 
@@ -128,6 +171,11 @@ export function SimpleInlineChat({ chatId, onSendMessage }: SimpleInlineChatProp
                     )}
 
                 <div ref={messagesEndRef} />
+            </div>
+
+            {/* ask_user: PersistentChatContainer uses this overlay; HomeChatInput is unmounted — bar must live here */}
+            <div className="flex-shrink-0 px-4 pb-2">
+                <UserQuestionBar chatId={chatId} />
             </div>
 
             {/* Rich input with model switcher */}

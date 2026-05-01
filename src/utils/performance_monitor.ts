@@ -142,15 +142,8 @@ function capturePerformanceMetrics() {
 
     // Skip saving if CPU is null (first call for either metric)
     if (cpuUsagePercent === null || systemCpuPercent === null) {
-      logger.debug(
-        `Performance: Memory=${memoryUsageMB}MB, CPU=initializing, System Memory=${systemMemory.usagePercent}%, System CPU=initializing`,
-      );
       return;
     }
-
-    logger.debug(
-      `Performance: Memory=${memoryUsageMB}MB, CPU=${cpuUsagePercent}%, System Memory=${systemMemory.usedMemoryMB}/${systemMemory.totalMemoryMB}MB (${systemMemory.usagePercent}%), System CPU=${systemCpuPercent}%`,
-    );
 
     writeSettings({
       lastKnownPerformance: {
@@ -177,8 +170,6 @@ export function startPerformanceMonitoring() {
     return;
   }
 
-  logger.info("Starting performance monitoring");
-
   // Capture initial metrics
   capturePerformanceMetrics();
 
@@ -191,7 +182,6 @@ export function startPerformanceMonitoring() {
  */
 export function stopPerformanceMonitoring() {
   if (monitorInterval) {
-    logger.info("Stopping performance monitoring");
     clearInterval(monitorInterval);
     monitorInterval = null;
 

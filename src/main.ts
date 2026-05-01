@@ -34,6 +34,7 @@ import { initTelemetry } from "./lib/telemetry/tracer";
 import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
+import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import fs from "fs";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
@@ -75,6 +76,7 @@ if (SENTRY_DSN) {
     dsn: SENTRY_DSN,
     release: app.getVersion(),
     tracesSampleRate: 1.0,
+    beforeSend: sentryBeforeSendDropExpected,
   });
 }
 

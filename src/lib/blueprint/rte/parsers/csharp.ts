@@ -9,7 +9,7 @@ import type { BlueprintNode, LanguageParser, FrameworkInfo } from "./types";
 const TYPE_RE =
   /^\s*(?:public|internal|protected|private)?\s*(?:sealed\s+|abstract\s+|partial\s+)?(class|record|interface|struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
 const METHOD_RE =
-  /^\s*(?:public|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:[\w<>\[\], ?]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
+  /^\s*(?:public|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:[\w<>[\], ?]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
 
 function relFromAbs(projectRoot: string, abs: string): string {
   return path.relative(projectRoot, abs).replace(/\\/g, "/");

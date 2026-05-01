@@ -24,6 +24,7 @@ import {
   questionsByMessageIdAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
+  askUserStreamFreezeBaselineByChatIdAtom,
   blueprintInjectionChatOverrideAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
@@ -235,6 +236,7 @@ export function useStreamChat({
   const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
+  const setAskUserStreamFreezeBaselineByChatId = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
 
   const streamMessage = useCallback(
     async ({
@@ -326,14 +328,21 @@ export function useStreamChat({
         const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
           chatId,
           (payload) => {
-            setPendingUserQuestionByChatId((prev) => ({
-              ...prev,
-              [chatId]: {
-                questionId: payload.questionId,
-                question: payload.question,
-                options: payload.options,
-              },
-            }));
+            queueMicrotask(() => {
+              setPendingUserQuestionByChatId((prev) => ({
+                ...prev,
+                [chatId]: {
+                  questionId: payload.questionId,
+                  question: payload.question,
+                  options: payload.options,
+                },
+              }));
+              setAskUserStreamFreezeBaselineByChatId((prev) => {
+                const next = { ...prev };
+                delete next[chatId];
+                return next;
+              });
+            });
           },
         );
 
@@ -655,6 +664,22 @@ export function useStreamChat({
           prefillTaskLedger,
           forceThinkingTier,
           onUpdate: (updatedMessages: Message[]) => {
+            const pendingSnap = getDefaultStore().get(pendingUserQuestionByChatIdAtom);
+            const baselineSnap = getDefaultStore().get(askUserStreamFreezeBaselineByChatIdAtom);
+            const baseline = baselineSnap[chatId];
+            let messagesForUi = updatedMessages;
+            if (pendingSnap[chatId] != null && baseline !== undefined) {
+              const msgs = [...updatedMessages];
+              const li = msgs.length - 1;
+              if (li >= 0 && msgs[li].role === "assistant") {
+                const cur = msgs[li].content ?? "";
+                if (cur.length > baseline.length) {
+                  msgs[li] = { ...msgs[li], content: baseline };
+                }
+              }
+              messagesForUi = msgs;
+            }
+
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
                 const next = new Map(prev);
@@ -674,7 +699,7 @@ export function useStreamChat({
             const allSources: SourceItem[] = [];
             const seenUrls = new Set<string>();
 
-            for (const msg of updatedMessages) {
+            for (const msg of messagesForUi) {
               if (msg.sources && Array.isArray(msg.sources)) {
                 for (const source of msg.sources) {
                   const src = source as any;
@@ -716,7 +741,7 @@ export function useStreamChat({
             }
 
             // Detect diagram results from tool calls
-            for (const msg of updatedMessages) {
+            for (const msg of messagesForUi) {
               if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
                 for (const toolCall of msg.toolCalls) {
                   const tc = toolCall as any;
@@ -740,7 +765,7 @@ export function useStreamChat({
 
             setMessagesById((prev) => {
               const next = new Map(prev);
-              next.set(chatId, updatedMessages);
+              next.set(chatId, messagesForUi);
               return next;
             });
           },
@@ -891,11 +916,6 @@ export function useStreamChat({
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
             if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
               posthog?.capture("auth:chat_stream_blocked", { chat_id: chatId });
-              Sentry.captureMessage("Chat stream blocked — not signed in", {
-                level: "info",
-                tags: { feature: "auth" },
-                extra: { chatId },
-              });
             } else if (/compass/i.test(errorMessage)) {
               posthog?.capture("compass:turn_failed", {
                 chat_id: chatId,
@@ -1016,6 +1036,7 @@ export function useStreamChat({
       setLastTurnHadToolCallsByChatId,
       setRestartedAfterMessageId,
       setPendingUserQuestionByChatId,
+      setAskUserStreamFreezeBaselineByChatId,
       blueprintChatTierOverride,
       posthog,
       hasChatId,
@@ -1024,8 +1045,11 @@ export function useStreamChat({
 
   // v3.9: Update questionsByMessageIdAtom when main process emits chat:questions
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onQuestions(({ messageId, questions }) => {
-      setQuestionsByMessageId((prev) => ({ ...prev, [messageId]: questions }));
+    const unsub = IpcClient.getInstance().onQuestions(({ messageId, questions, title }) => {
+      setQuestionsByMessageId((prev) => ({
+        ...prev,
+        [messageId]: title ? { questions, title } : { questions },
+      }));
     });
     return unsub;
   }, [setQuestionsByMessageId]);

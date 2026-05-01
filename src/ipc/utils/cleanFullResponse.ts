@@ -20,20 +20,51 @@ function normalizeQuestionItem(raw: unknown): Question | null {
   return { id, question, choices, allowCustom };
 }
 
-function parseQuestionsFromJsonText(raw: string): Question[] | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return null;
+function parseQuestionsPayloadFromUnknown(parsed: unknown): {
+  questions: Question[];
+  title?: string;
+} | null {
+  if (Array.isArray(parsed)) {
     const questions: Question[] = [];
     for (const item of parsed) {
       const q = normalizeQuestionItem(item);
       if (q) questions.push(q);
     }
-    return questions.length > 0 ? questions : null;
+    return questions.length > 0 ? { questions } : null;
+  }
+  if (parsed && typeof parsed === "object") {
+    const o = parsed as Record<string, unknown>;
+    const titleRaw = o.title ?? o.prompt;
+    const title =
+      typeof titleRaw === "string" && titleRaw.trim()
+        ? titleRaw.trim()
+        : undefined;
+    const arr = o.questions;
+    if (!Array.isArray(arr)) return null;
+    const questions: Question[] = [];
+    for (const item of arr) {
+      const q = normalizeQuestionItem(item);
+      if (q) questions.push(q);
+    }
+    if (questions.length === 0) return null;
+    return title ? { questions, title } : { questions };
+  }
+  return null;
+}
+
+function parseQuestionsPayloadFromJsonText(raw: string): {
+  questions: Question[] | null;
+  title?: string;
+} {
+  const trimmed = raw.trim();
+  if (!trimmed) return { questions: null };
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const payload = parseQuestionsPayloadFromUnknown(parsed);
+    if (!payload) return { questions: null };
+    return { questions: payload.questions, ...(payload.title ? { title: payload.title } : {}) };
   } catch {
-    return null;
+    return { questions: null };
   }
 }
 
@@ -75,34 +106,52 @@ function extractBalancedJsonArray(s: string, fromIndex: number): string | null {
  * Parse and remove the <questions>...</questions> block from the response.
  * Returns cleaned content and parsed questions, or null if malformed/missing.
  */
-export function parseQuestions(fullResponse: string): { cleanContent: string; questions: Question[] | null } {
+export function parseQuestions(fullResponse: string): {
+  cleanContent: string;
+  questions: Question[] | null;
+  title?: string | null;
+} {
   let match = fullResponse.match(QUESTIONS_REGEX);
   if (match) {
     const raw = match[1].trim();
-    const questions = parseQuestionsFromJsonText(raw);
+    const { questions, title } = parseQuestionsPayloadFromJsonText(raw);
     const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
-    return { cleanContent, questions };
+    return {
+      cleanContent,
+      questions,
+      ...(title ? { title } : {}),
+    };
   }
 
   match = fullResponse.match(QUESTIONS_LOOSE_OPEN);
   if (match) {
     const raw = match[1].trim();
-    let questions = parseQuestionsFromJsonText(raw);
-    if (!questions) {
+    let payload = parseQuestionsPayloadFromJsonText(raw);
+    if (!payload.questions) {
       const arr = extractBalancedJsonArray(match[1], 0);
-      if (arr) questions = parseQuestionsFromJsonText(arr);
+      if (arr) payload = parseQuestionsPayloadFromJsonText(arr);
     }
     const cleanContent = fullResponse.replace(QUESTIONS_LOOSE_OPEN, "").trim();
-    if (questions?.length) return { cleanContent, questions };
+    if (payload.questions?.length) {
+      return {
+        cleanContent,
+        questions: payload.questions,
+        ...(payload.title ? { title: payload.title } : {}),
+      };
+    }
     return { cleanContent, questions: null };
   }
 
   const fence = fullResponse.match(FENCED_JSON_ARRAY);
   if (fence?.[1]) {
-    const questions = parseQuestionsFromJsonText(fence[1]);
-    if (questions?.length) {
+    const payload = parseQuestionsPayloadFromJsonText(fence[1]);
+    if (payload.questions?.length) {
       const cleanContent = fullResponse.replace(FENCED_JSON_ARRAY, "").trim();
-      return { cleanContent, questions };
+      return {
+        cleanContent,
+        questions: payload.questions,
+        ...(payload.title ? { title: payload.title } : {}),
+      };
     }
   }
 
@@ -111,11 +160,15 @@ export function parseQuestions(fullResponse: string): { cleanContent: string; qu
     const after = fullResponse.slice(qOpen);
     const arr = extractBalancedJsonArray(after, 0);
     if (arr) {
-      const questions = parseQuestionsFromJsonText(arr);
-      if (questions?.length) {
+      const payload = parseQuestionsPayloadFromJsonText(arr);
+      if (payload.questions?.length) {
         const endArr = qOpen + after.indexOf(arr) + arr.length;
         const cleanContent = (fullResponse.slice(0, qOpen) + fullResponse.slice(endArr)).replace(/\n{3,}/g, "\n\n").trim();
-        return { cleanContent, questions };
+        return {
+          cleanContent,
+          questions: payload.questions,
+          ...(payload.title ? { title: payload.title } : {}),
+        };
       }
     }
   }

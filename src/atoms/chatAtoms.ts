@@ -47,7 +47,9 @@ export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 
 /** v3.9: Pending clarifying questions per assistant message (messageId -> questions). Cleared when user submits answers. */
-export const questionsByMessageIdAtom = atom<Record<number, import("@/ipc/ipc_types").Question[]>>({});
+export const questionsByMessageIdAtom = atom<
+  Record<number, import("@/ipc/ipc_types").ClarifyingQuestionsPayload>
+>({});
 
 /** Counsel session activity rows pinned to an assistant message (survives activity stream clear). */
 export const counselPreviewByMessageIdAtom = atom<Record<number, ActivityStreamItem[]>>({});
@@ -65,6 +67,9 @@ export type PendingUserQuestion = {
   options?: string[];
 };
 export const pendingUserQuestionByChatIdAtom = atom<Record<number, PendingUserQuestion | undefined>>({});
+
+/** While ask_user is pending, renderer freezes assistant content at this snapshot (by chatId) to suppress speculative streaming. */
+export const askUserStreamFreezeBaselineByChatIdAtom = atom<Record<number, string>>({});
 
 /** v3.9: After edit or revert, show "conversation restarted from here" divider after this message id. Cleared on stream end. */
 export const restartedAfterMessageIdAtom = atom<number | null>(null);

@@ -158,7 +158,9 @@ export class IpcClient {
   private windowFullscreenHandlers: Set<(payload: { fullscreen: boolean }) => void> = new Set();
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
   /** v3.9: Clarifying questions from AI — handlers receive { messageId, questions }. */
-  private questionsHandlers: Set<(payload: { messageId: number; questions: Question[] }) => void> = new Set();
+  private questionsHandlers: Set<
+    (payload: { messageId: number; questions: Question[]; title?: string }) => void
+  > = new Set();
   private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
@@ -376,8 +378,15 @@ export class IpcClient {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload;
         const handler = this.userQuestionHandlers.get(chatId);
-        if (handler) {
-          handler(payload);
+        const numericId =
+          typeof chatId === "number" ? chatId : Number(chatId);
+        const handlerNumeric =
+          Number.isFinite(numericId) && !Number.isNaN(numericId)
+            ? this.userQuestionHandlers.get(numericId)
+            : undefined;
+        const resolvedHandler = handler ?? handlerNumeric;
+        if (resolvedHandler) {
+          resolvedHandler(payload);
         } else {
           console.warn(`[IPC] No user-question handler for chat ${chatId}`);
         }
@@ -438,8 +447,12 @@ export class IpcClient {
     // v3.9: Clarifying questions from AI (<questions> block)
     this.ipcRenderer.on("chat:questions", (payload: unknown) => {
       if (payload && typeof payload === "object" && "messageId" in payload && "questions" in payload) {
-        const { messageId, questions } = payload as { messageId: number; questions: Question[] };
-        this.questionsHandlers.forEach((h) => h({ messageId, questions }));
+        const { messageId, questions, title } = payload as {
+          messageId: number;
+          questions: Question[];
+          title?: string;
+        };
+        this.questionsHandlers.forEach((h) => h({ messageId, questions, title }));
       }
     });
 
@@ -471,7 +484,13 @@ export class IpcClient {
   }
 
   /** v3.9: Register for clarifying questions. Returns unsubscribe. */
-  public onQuestions(handler: (payload: { messageId: number; questions: Question[] }) => void): () => void {
+  public onQuestions(
+    handler: (payload: {
+      messageId: number;
+      questions: Question[];
+      title?: string;
+    }) => void,
+  ): () => void {
     this.questionsHandlers.add(handler);
     return () => this.questionsHandlers.delete(handler);
   }
@@ -480,12 +499,14 @@ export class IpcClient {
   public async submitQuestionAnswers(
     chatId: number,
     assistantMessageId: number,
-    answers: Record<string, string>
+    answers: Record<string, string>,
+    questionSnapshots: { id: string; question: string }[],
   ): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("chat:submit-question-answers", {
       chatId,
       assistantMessageId,
       answers,
+      questionSnapshots,
     });
   }
 
@@ -1671,11 +1692,13 @@ export class IpcClient {
     chatId: number,
     questionId: string,
     answer: string,
+    questionText: string,
   ): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("chat:submit-user-question-answer", {
       chatId,
       questionId,
       answer,
+      questionText,
     });
   }
 

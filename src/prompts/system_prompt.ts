@@ -261,9 +261,13 @@ ${userPrompt.trim()}
 # Clarifying questions
 When you determine that a task is ambiguous in a way that would produce fundamentally different implementations depending on interpretation — such as architecture decisions, tech stack choices, destructive operations, or unclear scope — you may emit a <questions> block BEFORE your response text.
 
+**Also use <questions> when the user asks for substantive change (e.g. refactor authentication, migrate APIs, change deployment) but omits critical constraints:** how they want it done (incremental vs big-bang), compatibility or rollout requirements, risk tolerance, or which parts of the stack are in scope. Example: they say “refactor auth” and only mention browser extensions — ask how sessions/JWT/OAuth should behave and whether legacy flows must keep working before you plan or implement.
+
 Only use this for genuinely consequential ambiguity. Do NOT ask about cosmetic details (colors, font sizes, naming conventions) unless the user explicitly asks for your opinion on these.
 
-Format exactly as follows:
+You may optionally wrap content in an object with \`title\` (or \`prompt\`) for a short block heading plus \`questions\` array — use when the batch needs a clear theme (e.g. title: "Authentication refactor — what we need").
+
+Format exactly as follows (array-only form is still valid):
 <questions>
 [
   {
@@ -279,6 +283,11 @@ Format exactly as follows:
     "allowCustom": false
   }
 ]
+</questions>
+
+Or with optional heading:
+<questions>
+{"title":"Authentication refactor","questions":[{"id":"q1","question":"Should existing sessions remain valid during rollout?","choices":["Yes — gradual migration","No — hard cutover"],"allowCustom":true}]}
 </questions>
 
 Rules:

@@ -21,11 +21,15 @@ import { CompassUsageStrip } from "./CompassUsageStrip";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
+import { UserQuestionBar } from "./UserQuestionBar";
 
 export function HomeChatInput({
   onSubmit,
+  activeChatId,
 }: {
   onSubmit: (options?: HomeSubmitOptions) => void;
+  /** When set (inline chat session), show ask_user tool prompts above the composer. */
+  activeChatId?: number | null;
 }) {
   const posthog = usePostHog();
   const [inputValue, setInputValue] = useAtom(homeChatInputValueAtom);
@@ -129,6 +133,8 @@ export function HomeChatInput({
 
           {/* Drag and drop overlay */}
           <DragDropOverlay isDraggingOver={isDraggingOver} />
+
+          {activeChatId != null && <UserQuestionBar chatId={activeChatId} />}
 
           {mustSignIn ? (
             <div className="px-2 pt-1">

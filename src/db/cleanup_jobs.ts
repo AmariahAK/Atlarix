@@ -31,7 +31,9 @@ async function cleanupOldSessions(): Promise<number> {
             .run();
 
         const deleted = result.changes || 0;
-        logger.info(`Deleted ${deleted} old chat sessions`);
+        if (deleted > 0) {
+            logger.info(`Deleted ${deleted} old chat sessions`);
+        }
         return deleted;
     } catch (error) {
         logger.error(`Failed to cleanup old sessions: ${error}`);
@@ -138,7 +140,9 @@ async function summarizeAllModifications(): Promise<number> {
             }
         }
 
-        logger.info(`Summarized modifications for ${summarizedCount} workspaces`);
+        if (summarizedCount > 0) {
+            logger.info(`Summarized modifications for ${summarizedCount} workspaces`);
+        }
         return summarizedCount;
     } catch (error) {
         logger.error(`Failed to summarize all modifications: ${error}`);
@@ -150,8 +154,6 @@ async function summarizeAllModifications(): Promise<number> {
  * Run daily cleanup job
  */
 export async function runDailyCleanup(): Promise<void> {
-    logger.info("Starting daily cleanup job...");
-
     const startTime = Date.now();
 
     // Clean old sessions
@@ -172,7 +174,11 @@ export async function runDailyCleanup(): Promise<void> {
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    logger.info(`Cleanup job completed in ${duration}s: ${sessionsDeleted} sessions, ${modificationsSummarized} workspaces`);
+    if (sessionsDeleted > 0 || modificationsSummarized > 0) {
+        logger.info(
+            `Cleanup job completed in ${duration}s: ${sessionsDeleted} sessions, ${modificationsSummarized} workspaces`,
+        );
+    }
 }
 
 /**
@@ -183,8 +189,6 @@ export function scheduleCleanupJobs(): void {
     schedule("0 3 * * *", async () => {
         await runDailyCleanup();
     });
-
-    logger.info("Scheduled daily cleanup job for 3 AM");
 
     // Optional: Run on app start if last cleanup was more than 24 hours ago
     checkAndRunStartupCleanup();
@@ -203,7 +207,6 @@ async function checkAndRunStartupCleanup(): Promise<void> {
             .get();
 
         if (!lastCleanup) {
-            logger.info("No previous cleanup found, running startup cleanup");
             await runDailyCleanup();
             return;
         }
@@ -211,10 +214,7 @@ async function checkAndRunStartupCleanup(): Promise<void> {
         const hoursSinceLastCleanup = (Date.now() - lastCleanup.cleanupDate.getTime()) / (1000 * 60 * 60);
 
         if (hoursSinceLastCleanup > 24) {
-            logger.info(`Last cleanup was ${hoursSinceLastCleanup.toFixed(1)} hours ago, running now`);
             await runDailyCleanup();
-        } else {
-            logger.info(`Last cleanup was ${hoursSinceLastCleanup.toFixed(1)} hours ago, skipping`);
         }
     } catch (error) {
         logger.error(`Failed to check startup cleanup: ${error}`);

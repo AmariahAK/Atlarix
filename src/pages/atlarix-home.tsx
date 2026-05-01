@@ -468,7 +468,7 @@ export default function AtlarixHome() {
                     </div>
 
                     <div data-onboarding="home-chat-input">
-                      <HomeChatInput onSubmit={handleSubmit} />
+                      <HomeChatInput onSubmit={handleSubmit} activeChatId={activeChatId} />
                     </div>
 
                     {/* Quick Action Templates with Preview Images */}
