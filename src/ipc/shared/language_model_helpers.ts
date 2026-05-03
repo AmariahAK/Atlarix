@@ -17,20 +17,7 @@ import {
 } from "@/lib/provider_model_fetchers";
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
-import log from "electron-log";
 import { COMPASS_PROVIDER_ID, COMPASS_SYNTHETIC_MODELS } from "./compass_constants";
-
-const lmHelpersLog = log.scope("language_model_helpers");
-
-function isLocalServerUnreachable(error: unknown): boolean {
-  let e: unknown = error;
-  for (let i = 0; i < 4 && e != null; i++) {
-    const code = (e as { code?: string })?.code;
-    if (code === "ECONNREFUSED") return true;
-    e = (e as { cause?: unknown })?.cause;
-  }
-  return false;
-}
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -263,17 +250,7 @@ export async function getLanguageModelsByProviders(): Promise<
             }
           }
           modelsByProvider[provider.id] = merged;
-        } catch (error) {
-          if (isLocalServerUnreachable(error)) {
-            lmHelpersLog.debug(
-              `[${provider.id}] Local server not reachable; using DB/custom models only.`,
-            );
-          } else {
-            lmHelpersLog.warn(
-              `[${provider.id}] Failed to list live models for picker, using DB/custom only:`,
-              error,
-            );
-          }
+        } catch {
           try {
             modelsByProvider[provider.id] = await getLanguageModels({
               providerId: provider.id,

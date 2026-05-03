@@ -30,9 +30,13 @@ export async function generateProblemReport({
     // Create the worker
     const worker = new Worker(workerPath);
 
+    /** After `message` or `error`, we call `terminate()`; Node may exit with code 1 — do not treat as failure. */
+    let settled = false;
+
     // Handle worker messages
     worker.on("message", (output: WorkerOutput) => {
-      worker.terminate();
+      settled = true;
+      void worker.terminate();
 
       if (output.success && output.data) {
         logger.info(`TSC worker completed successfully for app ${appPath}`);
@@ -45,13 +49,16 @@ export async function generateProblemReport({
 
     // Handle worker errors
     worker.on("error", (error) => {
+      if (settled) return;
+      settled = true;
       logger.error(`TSC worker error for app ${appPath}:`, error);
-      worker.terminate();
+      void worker.terminate();
       reject(error);
     });
 
-    // Handle worker exit
+    // Handle worker exit (only if we never got a message — e.g. crash before postMessage)
     worker.on("exit", (code) => {
+      if (settled) return;
       if (code !== 0) {
         logger.error(`TSC worker exited with code ${code} for app ${appPath}`);
         reject(new Error(`Worker exited with code ${code}`));

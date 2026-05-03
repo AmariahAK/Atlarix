@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ContextFilesPicker } from "./ContextFilesPicker";
 import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
@@ -14,8 +14,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useAtomValue } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { useAtomValue, useSetAtom } from "jotai";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
@@ -27,6 +27,8 @@ import { TokenCircle } from "./chat/TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCompassUsage } from "@/hooks/useCompassUsage";
+import { useLoadApps } from "@/hooks/useLoadApps";
+import { IpcClient } from "@/ipc/ipc_client";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -40,6 +42,9 @@ export function ChatInputControls({
   chatId?: number;
 }) {
   const appId = useAtomValue(selectedAppIdAtom);
+  const setSelectedAppId = useSetAtom(selectedAppIdAtom);
+  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
+  const { apps, refreshApps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
@@ -89,9 +94,58 @@ export function ChatInputControls({
     compassUsage.percentRemaining != null &&
     compassUsage.monthlyLimit != null;
 
+  const handleOpenWorkspace = useCallback(async () => {
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      const result = (await ipcRenderer?.invoke?.("dialog:openDirectory")) as
+        | { canceled?: boolean; filePaths?: string[] }
+        | undefined;
+      if (!result || result.canceled || !result.filePaths?.[0]) return;
+      const path = result.filePaths[0];
+
+      const existingApp = apps.find((app) => app.path === path);
+      if (existingApp) {
+        setSelectedAppId(existingApp.id);
+        setSelectedWorkspaceInfo({
+          id: existingApp.id,
+          name: existingApp.name,
+          path: existingApp.path ?? path,
+        });
+        return;
+      }
+
+      if (ipcRenderer?.invoke) {
+        const limitCheck = (await ipcRenderer.invoke("auth:check-workspace-limit")) as {
+          allowed?: boolean;
+          reason?: string;
+        };
+        if (!limitCheck.allowed) {
+          const { triggerUpgrade } = await import("@/hooks/useUpgrade");
+          void triggerUpgrade();
+          alert(
+            `Workspace limit reached. ${limitCheck.reason ?? "Upgrade to Pro for unlimited workspaces."}`,
+          );
+          return;
+        }
+      }
+
+      const appName = path.split(/[/\\]/).pop() || "Workspace";
+      const importResult = await IpcClient.getInstance().importApp({ path, appName });
+      setSelectedAppId(importResult.appId);
+      setSelectedWorkspaceInfo({ id: importResult.appId, name: appName, path });
+      await refreshApps?.();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      console.error("Open workspace failed:", error);
+      alert(`Could not add workspace: ${msg}`);
+    }
+  }, [apps, refreshApps, setSelectedAppId, setSelectedWorkspaceInfo]);
+
   return (
     <div className="flex flex-col gap-1">
-      {!appId && <NoWorkspaceBanner className="mb-1" />}
+      {!appId && (
+        <NoWorkspaceBanner className="mb-1" onOpenWorkspace={handleOpenWorkspace} />
+      )}
 
       {/* Compact context line + non-clickable context usage bar */}
       <div

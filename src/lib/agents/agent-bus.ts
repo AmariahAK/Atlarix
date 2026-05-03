@@ -6,6 +6,11 @@
  * `publishAgentMessage` — it is not async and must stay non-blocking for stream and tool loops.
  */
 
+import {
+  recordDelegationTaskAssign,
+  DELEGATION_CORRECTION_BODY,
+} from "./agent-bus-monitor";
+
 export type AgentId =
   | "main"
   | "architect"
@@ -43,6 +48,10 @@ export interface AgentMessage {
   parentMessageId?: string;
   /** Human-readable body when payload is not enough for Activity Stream. */
   content?: string;
+  /** Model that handled this hop (e.g. delegation completion). */
+  modelId?: string;
+  /** Wall time for the associated work (e.g. delegated LLM call), milliseconds. */
+  responseMs?: number;
 }
 
 /** Alias for AgentMessage (bus / mesh traffic). */
@@ -97,6 +106,33 @@ export function createBusMessage(msg: AgentMessageInput): AgentMessage {
  */
 export function publishAgentMessage(msg: AgentMessageInput): AgentMessage {
   const full = createBusMessage(msg);
+
+  let delegationFollowUp: AgentMessageInput | undefined;
+  try {
+    if (full.type === "task_assign" && typeof full.chatId === "number") {
+      const { correction } = recordDelegationTaskAssign({
+        chatId: full.chatId,
+        from: full.from,
+        to: full.to,
+        turnId: full.turnId,
+        timestamp: full.timestamp,
+      });
+      if (correction) {
+        delegationFollowUp = {
+          from: "main",
+          to: correction.to,
+          type: "correction",
+          payload: {},
+          content: DELEGATION_CORRECTION_BODY,
+          turnId: correction.turnId,
+          chatId: correction.chatId,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("[AgentBus] Delegation monitor error:", e);
+  }
+
   if (full.type === "correction" && full.turnId && full.content) {
     const k = correctionQueueKey(full.turnId, full.to);
     const arr = correctionQueues.get(k) ?? [];
@@ -110,6 +146,17 @@ export function publishAgentMessage(msg: AgentMessageInput): AgentMessage {
       console.warn("[AgentBus] Listener error:", e);
     }
   });
+
+  if (delegationFollowUp) {
+    queueMicrotask(() => {
+      try {
+        publishAgentMessage(delegationFollowUp!);
+      } catch (e) {
+        console.warn("[AgentBus] Delegation follow-up publish failed:", e);
+      }
+    });
+  }
+
   return full;
 }
 

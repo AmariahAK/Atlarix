@@ -20,6 +20,10 @@ import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import type { CounselMode, CounselParticipantRole, CounselSession } from "./counsel-session";
 import type { CounselTrigger } from "./counsel-session";
 import { captureSafe } from "@/main/lib/analytics";
+import log from "electron-log";
+import { COUNSEL_TIMEOUT_MS } from "@/constants/settings_constants";
+
+const counselRunnerLogger = log.scope("counsel-runner");
 
 const COUNSEL_COMPLETE_SIGNAL = "[COUNSEL_COMPLETE]";
 
@@ -278,6 +282,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     onCounselStreamLifecycle,
   } = args;
   const pipelineStarted = Date.now();
+  let counselWallTimer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     if (abortSignal?.aborted) {
@@ -292,7 +297,6 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
   /** Ephemeral workspace / floating chats — run counsel but skip DB persistence only. */
   const isEphemeral = chatId < 0;
   const counselCfg = settings.counsel;
-  const timeoutMs = Math.min(120_000, Math.max(5_000, (counselCfg?.timeoutSeconds ?? 30) * 1000));
 
   const sessionId = randomUUID();
   const now = Date.now();
@@ -306,6 +310,24 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
   if (!balancedModel) balancedModel = fastModel;
   if (!thinkingModel) thinkingModel = balancedModel;
   if (!fastModel?.provider || !fastModel?.name) return "";
+
+  counselWallTimer = setTimeout(() => {
+    counselRunnerLogger.warn(
+      `[counsel] Hard timeout (${COUNSEL_TIMEOUT_MS}ms); aborting pipeline — partial results retained`,
+    );
+    sendActivity({
+      id: `counsel-timeout-${sessionId}`,
+      type: "counsel_timeout",
+      label: "Counsel timed out",
+      status: "done",
+      timestamp: Date.now(),
+      chatId,
+      sessionId,
+      detail: `Stopped after ${COUNSEL_TIMEOUT_MS / 60000} minutes; any finished perspectives are kept.`,
+      participantCount: 3,
+    });
+    pipelineAbort.abort();
+  }, COUNSEL_TIMEOUT_MS);
 
   let degradationNote = "";
   if (balancedModel && fastModel && sameModel(balancedModel, fastModel)) {
@@ -388,25 +410,20 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
         agentMode: settings.agentMode ?? "guided",
         delegationRole: "main",
       });
-      const result = await Promise.race([
-        generateText({
-          model: modelClient.model,
-          system: makeParticipantPrompt(role),
-          messages: [{ role: "user", content: userContent }],
-          maxTokens: 2000,
-          temperature,
-          abortSignal: pipelineSignal,
-          ...(hasParticipantTools
-            ? {
-                tools: participantTools,
-                stopWhen: [() => false],
-              }
-            : {}),
-        } as Parameters<typeof generateText>[0]),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("participant_timeout")), timeoutMs),
-        ),
-      ]);
+      const result = await generateText({
+        model: modelClient.model,
+        system: makeParticipantPrompt(role),
+        messages: [{ role: "user", content: userContent }],
+        maxTokens: 2000,
+        temperature,
+        abortSignal: pipelineSignal,
+        ...(hasParticipantTools
+          ? {
+              tools: participantTools,
+              stopWhen: [() => false],
+            }
+          : {}),
+      } as Parameters<typeof generateText>[0]);
       const text = (result as { text?: string }).text ?? "";
       return text.replace(COUNSEL_COMPLETE_SIGNAL, "").trim();
     } catch {
@@ -419,11 +436,14 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     balancedModel && fastModel && sameModel(balancedModel, fastModel) ? 0.85 : 0.35;
   const thinkingTemp = 0.45;
 
-  const [fastResp, balancedResp, thinkingResp] = await Promise.all([
+  const settled = await Promise.allSettled([
     runParticipant("fast", fastModel, fastTemp),
     runParticipant("balanced", balancedModel, balancedTemp),
     runParticipant("thinking", thinkingModel, thinkingTemp),
   ]);
+  const fastResp = settled[0]?.status === "fulfilled" ? settled[0].value : null;
+  const balancedResp = settled[1]?.status === "fulfilled" ? settled[1].value : null;
+  const thinkingResp = settled[2]?.status === "fulfilled" ? settled[2].value : null;
 
   const showPrev = counselCfg?.showParticipantPreviews !== false;
   const preview = (s: string | null) => {
@@ -566,6 +586,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     }
     return "";
   } finally {
+    if (counselWallTimer) clearTimeout(counselWallTimer);
     onCounselStreamLifecycle?.("counsel_end");
   }
 }

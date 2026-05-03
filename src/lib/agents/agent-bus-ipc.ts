@@ -30,6 +30,8 @@ export function wireAgentBusToIpc(): () => void {
       threadId: msg.threadId,
       chatId: msg.chatId,
       agentMessageType: msg.type,
+      modelId: msg.modelId,
+      responseMs: msg.responseMs,
     });
   });
 }

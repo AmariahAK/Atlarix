@@ -154,6 +154,7 @@ function buildTurnArtifactsSnapshot(
     "counsel_participant_complete",
     "counsel_synthesising",
     "counsel_complete",
+    "counsel_timeout",
   ]);
   const counselRows = scoped.filter((i) => counselTypes.has(i.type));
 
@@ -582,7 +583,17 @@ export function useStreamChat({
 
         const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
           if (!payload || typeof payload !== "object") return;
-          const p = payload as { chatId?: number; type?: string; id?: unknown; label?: unknown; timestamp?: number; fromAgent?: unknown; toAgent?: unknown };
+          const p = payload as {
+            chatId?: number;
+            type?: string;
+            id?: unknown;
+            label?: unknown;
+            timestamp?: number;
+            fromAgent?: unknown;
+            toAgent?: unknown;
+            modelId?: unknown;
+            responseMs?: unknown;
+          };
           if (typeof p.chatId !== "number" || p.chatId !== chatId) return;
 
           const item = normalizeChatActivityPayload(payload);
@@ -605,6 +616,8 @@ export function useStreamChat({
                 toAgent: p.toAgent != null ? String(p.toAgent) : undefined,
                 timestamp: typeof p.timestamp === "number" ? p.timestamp : Date.now(),
                 type: "agent_message",
+                modelId: p.modelId != null ? String(p.modelId) : undefined,
+                responseMs: typeof p.responseMs === "number" ? p.responseMs : undefined,
               });
               return { ...prev, [chatId]: ring.slice(-5) };
             });

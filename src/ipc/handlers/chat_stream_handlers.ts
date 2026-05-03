@@ -159,6 +159,7 @@ import {
   createAgenticRepetitionState,
   type AgenticRepetitionOutcome,
 } from "../../lib/streaming/agentic-loop-repetition";
+import { consumeDelegationAbort } from "../../lib/agents/agent-bus-monitor";
 import {
   cancelLedger,
   createLedger,
@@ -2320,44 +2321,35 @@ ${componentSnippet}
                 const { storeCounselSynthesisForNextTurn } = await import(
                   "@/lib/counsel/counsel-next-turn-cache",
                 );
-                const counselTimeoutMs = Math.min(
-                  120_000,
-                  Math.max(5_000, (settings.counsel?.timeoutSeconds ?? 30) * 1000),
-                );
-                /** Non-blocking: stream does not wait; synthesis available for the following turn (real chats only). */
-                void Promise.race([
-                  runCounselPipeline({
-                    chatId: req.chatId,
-                    turnId: streamTurnIdForLedger,
-                    trigger,
-                    mode: hasWorkspace && appPath ? "workspace" : "general",
-                    question: cleanQ,
-                    settings,
-                    sendActivity: (payload) => {
-                      safeSend(event.sender, "chat:activity", payload);
-                    },
-                    workspacePath: hasWorkspace && appPath ? appPath : undefined,
-                    workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
-                    toolActivity: { webContents: event.sender, chatId: req.chatId },
-                    onCounselStreamLifecycle: (phase) => {
-                      safeSend(event.sender, "chat:stream:phase", {
-                        chatId: req.chatId,
-                        phase,
-                        label: phase === "counsel_start" ? "Consulting the counsel..." : "",
-                      });
-                    },
-                  }),
-                  new Promise<string>((_, reject) =>
-                    setTimeout(() => reject(new Error("counsel_timeout")), counselTimeoutMs),
-                  ),
-                ])
+                /** Non-blocking: stream does not wait; synthesis available for the following turn (real chats only). Wall-clock cap inside counsel-runner (COUNSEL_TIMEOUT_MS). */
+                void runCounselPipeline({
+                  chatId: req.chatId,
+                  turnId: streamTurnIdForLedger,
+                  trigger,
+                  mode: hasWorkspace && appPath ? "workspace" : "general",
+                  question: cleanQ,
+                  settings,
+                  sendActivity: (payload) => {
+                    safeSend(event.sender, "chat:activity", payload);
+                  },
+                  workspacePath: hasWorkspace && appPath ? appPath : undefined,
+                  workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
+                  toolActivity: { webContents: event.sender, chatId: req.chatId },
+                  onCounselStreamLifecycle: (phase) => {
+                    safeSend(event.sender, "chat:stream:phase", {
+                      chatId: req.chatId,
+                      phase,
+                      label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                    });
+                  },
+                })
                   .then((synthesis) => {
                     if (req.chatId > 0 && synthesis.trim()) {
                       storeCounselSynthesisForNextTurn(req.chatId, synthesis);
                     }
                   })
                   .catch((counselErr) => {
-                    logger.warn("[counsel] Pipeline failed or timed out:", counselErr);
+                    logger.warn("[counsel] Pipeline failed:", counselErr);
                     sentryCaptureExceptionSafe(counselErr, {
                       tags: { feature: "counsel" },
                     });
@@ -5736,6 +5728,14 @@ For workforce, explain services before request_workspace_permissions.`;
                   fullResponse =
                     stripToolCallXML(fullResponse) +
                     "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
+                  break;
+                }
+
+                if (consumeDelegationAbort(req.chatId)) {
+                  logger.warn("[Agentic Loop] Stopping after delegation repetition guard");
+                  fullResponse =
+                    stripToolCallXML(fullResponse) +
+                    "\n\n[Delegation loop guard — task stopped. Review the activity log and send a message to continue.]";
                   break;
                 }
               }

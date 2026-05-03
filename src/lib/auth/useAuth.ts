@@ -31,6 +31,34 @@ export function useAuth() {
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
+    /** True after Sign in until `oauth-callback-success` or IPC error */
+    const [oauthPending, setOauthPending] = useState(false);
+    const [oauthProvider, setOauthProvider] = useState<'google' | 'github' | null>(null);
+    const [oauthStatusLabel, setOauthStatusLabel] = useState('');
+
+    useEffect(() => {
+        if (!oauthPending || !oauthProvider) {
+            setOauthStatusLabel('');
+            return;
+        }
+        const started = Date.now();
+        const tick = () => {
+            const elapsed = Date.now() - started;
+            if (elapsed < 2000) {
+                setOauthStatusLabel(
+                    oauthProvider === 'google' ? 'Connecting to Google...' : 'Connecting to GitHub...',
+                );
+            } else if (elapsed < 5000) {
+                setOauthStatusLabel('Verifying your account...');
+            } else {
+                setOauthStatusLabel('Setting up Atlarix...');
+            }
+        };
+        tick();
+        const id = window.setInterval(tick, 250);
+        return () => window.clearInterval(id);
+    }, [oauthPending, oauthProvider]);
+
     // Check for existing session on mount
     useEffect(() => {
         checkSession();
@@ -38,6 +66,8 @@ export function useAuth() {
         // Listen for OAuth callback success
         // Note: preload strips the event, so data is the first parameter
         const handleOAuthSuccess = async (data: { user: AuthUser }) => {
+            setOauthPending(false);
+            setOauthProvider(null);
             console.log('[useAuth] OAuth success callback received:', data);
             if (data?.user) {
                 console.log('[useAuth] Setting user:', data.user.email);
@@ -254,14 +284,23 @@ export function useAuth() {
                 return;
             }
 
-            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'google' })) as { error?: string } | undefined;
+            setOauthPending(true);
+            setOauthProvider('google');
+
+            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'google' })) as
+                | { error?: string; success?: boolean }
+                | undefined;
 
             if (result?.error) {
                 console.error('Google sign in failed', result.error);
+                setOauthPending(false);
+                setOauthProvider(null);
             }
             // OAuth flow will continue in browser, callback handled by main process
         } catch (error) {
             console.error('Google sign in error:', error);
+            setOauthPending(false);
+            setOauthProvider(null);
         }
     }, []);
 
@@ -273,14 +312,23 @@ export function useAuth() {
                 return;
             }
 
-            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'github' })) as { error?: string } | undefined;
+            setOauthPending(true);
+            setOauthProvider('github');
+
+            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'github' })) as
+                | { error?: string; success?: boolean }
+                | undefined;
 
             if (result?.error) {
                 console.error('GitHub sign in failed', result.error);
+                setOauthPending(false);
+                setOauthProvider(null);
             }
             // OAuth flow will continue in browser, callback handled by main process
         } catch (error) {
             console.error('GitHub sign in error:', error);
+            setOauthPending(false);
+            setOauthProvider(null);
         }
     }, []);
 
@@ -355,6 +403,9 @@ export function useAuth() {
         status,
         loading,
         isAuthenticated: !!user,
+        oauthPending,
+        oauthProvider,
+        oauthStatusLabel,
         signInWithGoogle,
         signInWithGitHub,
         signOut,

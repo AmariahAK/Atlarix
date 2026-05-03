@@ -5,7 +5,6 @@
  */
 
 import { ipcMain } from "electron";
-import log from "electron-log";
 import {
     captureSnapshot,
     captureInitialSnapshot,
@@ -24,8 +23,6 @@ import { db } from "../../db";
 import { workspaceDiagrams } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
-const logger = log.scope("diagram-timeline-handlers");
-
 export function registerDiagramTimelineHandlers() {
     // Capture a new snapshot
     ipcMain.handle(
@@ -39,7 +36,6 @@ export function registerDiagramTimelineHandlers() {
                 filesChanged?: string[];
             }
         ) => {
-            logger.log(`IPC: diagram:capture-snapshot for app ${req.appId}`);
             const result = await captureSnapshot({
                 appId: req.appId,
                 trigger: req.trigger || "user_request",
@@ -60,7 +56,6 @@ export function registerDiagramTimelineHandlers() {
                 timeRange: TimeRange;
             }
         ) => {
-            logger.log(`IPC: diagram:get-timeline for app ${req.appId} (${req.timeRange})`);
             return getTimeline(req.appId, req.timeRange);
         }
     );
@@ -75,14 +70,12 @@ export function registerDiagramTimelineHandlers() {
                 detailedRange: DetailedRange;
             }
         ) => {
-            logger.log(`IPC: diagram:get-detailed-timeline for app ${req.appId} (${req.detailedRange})`);
             return getDetailedTimeline(req.appId, req.detailedRange);
         }
     );
 
     // Get single snapshot
     ipcMain.handle("diagram:get-snapshot", async (_, snapshotId: number) => {
-        logger.log(`IPC: diagram:get-snapshot ${snapshotId}`);
         return getSnapshot(snapshotId);
     });
 
@@ -96,8 +89,6 @@ export function registerDiagramTimelineHandlers() {
                 annotation: string;
             }
         ) => {
-            logger.log(`IPC: diagram:annotate-snapshot ${req.snapshotId}`);
-
             // Update the snapshot with annotation and mark as protected
             await db
                 .update(workspaceDiagrams)
@@ -113,8 +104,6 @@ export function registerDiagramTimelineHandlers() {
 
     // Delete a snapshot (only if not protected)
     ipcMain.handle("diagram:delete-snapshot", async (_, snapshotId: number) => {
-        logger.log(`IPC: diagram:delete-snapshot ${snapshotId}`);
-
         // Check if protected
         const snapshot = await db.query.workspaceDiagrams.findFirst({
             where: eq(workspaceDiagrams.id, snapshotId),
@@ -134,13 +123,11 @@ export function registerDiagramTimelineHandlers() {
 
     // Compress old snapshots for an app
     ipcMain.handle("diagram:compress-old", async (_, appId: number) => {
-        logger.log(`IPC: diagram:compress-old for app ${appId}`);
         return compressOldSnapshots(appId);
     });
 
     // Compress all apps
     ipcMain.handle("diagram:compress-all", async () => {
-        logger.log("IPC: diagram:compress-all");
         return compressAllApps();
     });
 
@@ -148,7 +135,6 @@ export function registerDiagramTimelineHandlers() {
     ipcMain.handle(
         "diagram:queue-capture",
         async (_, req: { appId: number; filesChanged: string[] }) => {
-            logger.log(`IPC: diagram:queue-capture for app ${req.appId}`);
             queueCapture(req.appId, req.filesChanged);
             return { success: true };
         }
@@ -156,14 +142,12 @@ export function registerDiagramTimelineHandlers() {
 
     // Flush pending captures (call on app close)
     ipcMain.handle("diagram:flush-pending", async () => {
-        logger.log("IPC: diagram:flush-pending");
         await flushPendingCaptures();
         return { success: true };
     });
 
     // Capture initial snapshot for a new workspace
     ipcMain.handle("diagram:capture-initial", async (_, appId: number) => {
-        logger.log(`IPC: diagram:capture-initial for app ${appId}`);
         const snapshotId = await captureInitialSnapshot(appId);
         return { snapshotId };
     });

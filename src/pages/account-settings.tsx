@@ -484,7 +484,7 @@ export function AccountSettings() {
               atlarix.dev/support
             </a>
           </p>
-          <p className="mt-2">© 2024-2025 NorahLabs. All Rights Reserved.</p>
+          <p className="mt-2">© 2025-2026 NorahLabs. All Rights Reserved.</p>
         </div>
       </div>
     </div>

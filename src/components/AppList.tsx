@@ -267,7 +267,7 @@ export function AppList({ show }: { show?: boolean }) {
   return (
     <>
       <SidebarGroup
-        className="overflow-y-auto h-[calc(100vh-112px)]"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto h-[calc(100vh-112px)]"
         data-testid="app-list-container"
       >
         <SidebarGroupLabel className="flex items-center justify-between group/header">
@@ -331,8 +331,8 @@ export function AppList({ show }: { show?: boolean }) {
             )}
           </div>
         </SidebarGroupLabel>
-        <SidebarGroupContent>
-          <div className="flex flex-col">
+        <SidebarGroupContent className="min-h-0">
+          <div className="flex min-h-0 flex-col">
             {/* Search Apps */}
             <Button
               onClick={() => setIsSearchDialogOpen(!isSearchDialogOpen)}
@@ -520,7 +520,6 @@ export function AppList({ show }: { show?: boolean }) {
                             <WorkspaceFileTree
                               files={ws.files}
                               onFileClick={(path) => handleFileClick(ws.id, path)}
-                              maxHeight="140px"
                             />
                           </>
                         ) : null}

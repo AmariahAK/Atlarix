@@ -11,7 +11,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { useTheme } from "@/contexts/ThemeContext";
-import { sanitizeMermaid } from "@/lib/sanitizeMermaid";
+import { sanitizeMermaid, repairBracketMermaidLabels } from "@/lib/sanitizeMermaid";
+
+const MERMAID_USER_ERROR_TITLE = "Diagram couldn't render";
+const MERMAID_USER_ERROR_BODY =
+    "The AI generated a syntax issue. Click Retry to try again, or use 'View Raw Code' to inspect the output.";
 import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize2, Move, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
@@ -26,14 +30,14 @@ interface MermaidRendererProps {
 let mermaidIdCounter = 0;
 
 /**
- * ErrorOverlay - Shows Mermaid parsing errors with raw code view
+ * ErrorOverlay - Friendly message; optional raw error used only for line highlight in raw view
  */
 function ErrorOverlay({
-    error,
+    errorRaw,
     code,
     onRetry
 }: {
-    error: string;
+    errorRaw: string | null;
     code: string;
     onRetry: () => void;
 }) {
@@ -42,7 +46,7 @@ function ErrorOverlay({
     // Safely extract line number from error like "Lexical error on line 31"
     let errorLine: number | null = null;
     try {
-        const lineMatch = error?.match(/line (\d+)/i);
+        const lineMatch = errorRaw?.match(/line (\d+)/i);
         if (lineMatch && lineMatch[1]) {
             const parsed = parseInt(lineMatch[1], 10);
             if (!isNaN(parsed) && parsed > 0) {
@@ -63,10 +67,10 @@ function ErrorOverlay({
                     <AlertCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
                         <p className="text-sm font-medium text-destructive mb-1">
-                            Diagram Syntax Error
+                            {MERMAID_USER_ERROR_TITLE}
                         </p>
-                        <p className="text-xs text-destructive/80 font-mono break-words">
-                            {error || 'Unknown error'}
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                            {MERMAID_USER_ERROR_BODY}
                         </p>
                     </div>
                 </div>
@@ -197,12 +201,24 @@ export function MermaidRenderer({
             el.innerHTML = "";
 
             const sanitized = sanitizeMermaid(code);
+            let toRender = sanitized;
+            try {
+                await mermaid.parse(toRender);
+            } catch (parseErr) {
+                const repaired = repairBracketMermaidLabels(sanitized);
+                if (repaired !== sanitized) {
+                    try {
+                        await mermaid.parse(repaired);
+                        toRender = repaired;
+                    } catch {
+                        throw parseErr;
+                    }
+                } else {
+                    throw parseErr;
+                }
+            }
 
-            // Validate syntax first
-            await mermaid.parse(sanitized);
-
-            // Render the diagram
-            const { svg } = await mermaid.render(id, sanitized);
+            const { svg } = await mermaid.render(id, toRender);
 
             if (containerRef.current) {
                 containerRef.current.innerHTML = svg;
@@ -256,7 +272,7 @@ export function MermaidRenderer({
             }
             console.error("[MermaidRenderer] Error:", err, { errorMessage });
             setError(errorMessage);
-            onError?.(errorMessage);
+            onError?.(MERMAID_USER_ERROR_TITLE);
         } finally {
             setIsRendering(false);
         }
@@ -272,7 +288,7 @@ export function MermaidRenderer({
             {/* Error Message - Full overlay with raw code view */}
             {error && (
                 <ErrorOverlay
-                    error={error}
+                    errorRaw={error}
                     code={code}
                     onRetry={renderDiagram}
                 />

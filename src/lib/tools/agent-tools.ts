@@ -370,6 +370,9 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
       });
     }
 
+    const delegationWallStart = Date.now();
+    const delegationModelId = `${effectiveModel.provider}:${effectiveModel.name}`;
+
     const emitTaskResult = (summary: string) => {
       if (!args.turnId) return;
       publishAgentMessage({
@@ -381,6 +384,8 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
         turnId: args.turnId,
         depth,
         chatId: args.chatId,
+        modelId: delegationModelId,
+        responseMs: Date.now() - delegationWallStart,
       });
     };
 

@@ -28,6 +28,7 @@ import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-mana
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
+import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
 import { runDiagramRegenerateBackground } from "./diagram_regenerate_background";
 
 // ============================================
@@ -85,8 +86,6 @@ ipcMain.handle(
                 })
                 .returning();
 
-            console.log(`[diagram:generate] Created diagram "${input.title}" (ID: ${diagram.id})`);
-
             return {
                 success: true,
                 diagram: toClientDiagram(diagram),
@@ -120,14 +119,7 @@ ipcMain.handle(
                 }
                 throw e;
             }
-            if (readSettings().selectedChatMode === "ask") {
-                return {
-                    success: false,
-                    error:
-                        "Diagram AI generation is disabled in Ask mode. Switch to Build or Agent to generate or refresh diagrams.",
-                };
-            }
-            console.log(`[diagram:generate-ai] Starting generation for workspace ${workspaceId}`);
+            // Panel-driven generation: allowed in all work modes (ask, plan, build, debug, review, agent).
 
             // 1. Get Workspace Path
             const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
@@ -144,7 +136,6 @@ ipcMain.handle(
                 excludePaths: []
             };
 
-            console.log(`[diagram:generate-ai] Extracting codebase from ${appPath}`);
             const { formattedOutput } = await extractCodebase({
                 appPath,
                 chatContext
@@ -213,7 +204,9 @@ Requirements:
 - Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
 - Keep the diagram clean and readable (avoid too many nodes).
 - Group related components in subgraphs.
-- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+
+${DIAGRAM_MERMAID_CRITICAL_RULES}
+
 - Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
 - Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
@@ -226,7 +219,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
 
             let result: Awaited<ReturnType<typeof generateText>>;
             try {
-                console.log(`[diagram:generate-ai] sending prompt to model ${modelConfig.name}`);
                 result = await generateText({
                     model: modelClientResult.modelClient.model,
                     system: systemPrompt,
@@ -236,7 +228,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 if (isDiagramModelNotFoundError(genError)) {
                     const fallback = getDiagramFallbackModel(settings);
                     if (fallback) {
-                        console.warn(`[diagram:generate-ai] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
                         modelConfig = fallback;
                         modelClientResult = await getModelClient(fallback, settings);
                         result = await generateText({
@@ -264,8 +255,8 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     if (appMap && ((appMap.entryPoints?.length ?? 0) > 0 || (appMap.dataSources?.length ?? 0) > 0)) {
                         content = appMapToMermaid(appMap);
                     }
-                } catch (e) {
-                    console.warn("[diagram:generate-ai] AppMap fallback skipped:", e);
+                } catch {
+                    /* AppMap fallback optional */
                 }
             }
 
@@ -302,7 +293,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .returning();
 
                 diagram = updated;
-                console.log(`[diagram:generate-ai] Updated diagram ${existingDiagram.id}`);
             } else {
                 const [created] = await db
                     .insert(diagrams)
@@ -321,13 +311,12 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .returning();
 
                 diagram = created;
-                console.log(`[diagram:generate-ai] Created diagram ${diagram.id}`);
             }
 
             try {
                 await persistWorkspaceSnapshotHashes(diagram.id, appPath);
-            } catch (e) {
-                console.warn("[diagram:generate-ai] snapshot_hashes persist skipped:", e);
+            } catch {
+                /* snapshot persistence optional */
             }
 
             invalidateBlueprintCache(workspaceId);
@@ -381,8 +370,6 @@ ipcMain.handle(
                 return true;
             });
 
-            console.log(`[diagram:list] Found ${results.length} diagrams (deduped: ${deduped.length})`);
-
             return {
                 success: true,
                 diagrams: deduped.map(toClientDiagram),
@@ -434,8 +421,6 @@ ipcMain.handle(
                 };
             }
 
-            console.log(`[diagram:check-staleness] Checking diagram ${diagramId}`);
-
             const [diagram] = await db
                 .select()
                 .from(diagrams)
@@ -461,12 +446,10 @@ ipcMain.handle(
                         linesAdded: d.changes.linesAdded,
                         linesDeleted: d.changes.linesDeleted,
                     };
-                    console.log(`[diagram:check-staleness] Snapshot hash decision: ${d.action} (${d.reason})`);
                 }
-                console.log(`[diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
                 return { success: true, staleness, gitDecision };
-            } catch (err) {
-                console.warn("[diagram:check-staleness] Snapshot staleness failed, fingerprint fallback:", err);
+            } catch {
+                /* fall through to fingerprint staleness */
             }
 
             const staleness = await checkDiagramStaleness(
@@ -474,8 +457,6 @@ ipcMain.handle(
                 diagram.createdFromFileCount,
                 workspacePath
             );
-
-            console.log(`[diagram:check-staleness] Result: ${staleness.severity} (${staleness.reason})`);
 
             return { success: true, staleness, gitDecision: undefined };
         } catch (error) {
@@ -581,13 +562,11 @@ ipcMain.handle(
                 if (app) {
                     try {
                         await persistWorkspaceSnapshotHashes(id, getAtlarixAppPath(app.path));
-                    } catch (e) {
-                        console.warn("[diagram:update] snapshot_hashes persist skipped:", e);
+                    } catch {
+                        /* snapshot persistence optional */
                     }
                 }
             }
-
-            console.log(`[diagram:update] Updated diagram ${id}, saved version`);
 
             return { success: true, diagram: updated ? toClientDiagram(updated) : updated };
         } catch (error) {
@@ -607,7 +586,6 @@ ipcMain.handle(
 ipcMain.handle("diagram:delete", async (_, { id }: { id: number }) => {
     try {
         await db.delete(diagrams).where(eq(diagrams.id, id));
-        console.log(`[diagram:delete] Deleted diagram ${id}`);
         return { success: true };
     } catch (error) {
         console.error("[diagram:delete] Error:", error);

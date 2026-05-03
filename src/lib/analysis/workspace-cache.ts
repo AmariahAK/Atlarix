@@ -116,7 +116,6 @@ export async function getCachedAnalysis(
     // Check memory cache first
     const memoryCached = memoryCache.get(workspacePath);
     if (memoryCached && memoryCached.hash === currentHash) {
-        logger.info(`Cache HIT (memory): ${path.basename(workspacePath)}`);
         return memoryCached;
     }
 
@@ -129,7 +128,6 @@ export async function getCachedAnalysis(
         if (diskCached.hash === currentHash) {
             // Valid cache - load into memory
             memoryCache.set(workspacePath, diskCached);
-            logger.info(`Cache HIT (disk): ${path.basename(workspacePath)}`);
             return diskCached;
         }
     } catch {

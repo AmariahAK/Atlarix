@@ -270,17 +270,9 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         }
     }, [app?.id, diagram?.title, setDiagramState, setStaleness]);
 
-    if (loadingDiagram) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
-                <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
-                <p className="text-sm">Loading diagram...</p>
-            </div>
-        );
-    }
-
     // When Blueprint mode, we don't require a Live diagram
     const showNoDiagram = !diagram && viewMode === 'live';
+    // Empty Live: always show Generate — do not block behind listDiagrams (loadingDiagram).
     if (showNoDiagram) {
         return (
             <div className="flex flex-col h-full">
@@ -294,6 +286,12 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                     </div>
                 )}
                 <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
+                    {loadingDiagram && (
+                        <p className="text-xs text-muted-foreground/80 mb-3 flex items-center gap-2">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            Checking saved diagrams…
+                        </p>
+                    )}
                     <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                         <Code2 className="w-8 h-8 text-primary" />
                     </div>
@@ -312,6 +310,15 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                         </button>
                     )}
                 </div>
+            </div>
+        );
+    }
+
+    if (loadingDiagram) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
+                <p className="text-sm">Loading diagram...</p>
             </div>
         );
     }

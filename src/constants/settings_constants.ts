@@ -7,3 +7,6 @@ export const MAX_CHAT_TURNS_IN_CONTEXT = 10;
  * or agent mode (direct/guided/autonomous).
  */
 export const STREAM_TOOL_LOOP_DURATION_CAP_MS = 30 * 60 * 1000;
+
+/** Hard wall-clock cap for multi-model counsel (participants + synthesis). */
+export const COUNSEL_TIMEOUT_MS = 7 * 60 * 1000;

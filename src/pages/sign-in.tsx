@@ -10,9 +10,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { LoadingBar } from '@/components/ui/LoadingBar';
 
 export function SignInPage() {
-    const { user, loading, signInWithGoogle, signInWithGitHub } = useAuth();
+    const {
+        user,
+        loading,
+        signInWithGoogle,
+        signInWithGitHub,
+        oauthPending,
+        oauthStatusLabel,
+    } = useAuth();
     const navigate = useNavigate();
     const { isDarkMode } = useTheme();
     const logoSrc = isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png';
@@ -41,7 +49,8 @@ export function SignInPage() {
             <div className="axis-line fixed left-1/2 top-0 bottom-0 w-px opacity-30" />
             <div className="axis-line-horizontal fixed top-1/2 left-0 right-0 h-px opacity-30" />
 
-            <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm">
+            <Card className="relative w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm overflow-hidden">
+                <LoadingBar isVisible={oauthPending} />
                 <CardHeader className="text-center space-y-4">
                     {/* Atlarix logo (theme-aware) */}
                     <div className="flex justify-center">
@@ -70,9 +79,15 @@ export function SignInPage() {
                 </CardHeader>
 
                 <CardContent className="space-y-4">
+                    {oauthPending && oauthStatusLabel && (
+                        <p className="text-sm text-center text-muted-foreground" role="status" aria-live="polite">
+                            {oauthStatusLabel}
+                        </p>
+                    )}
                     {/* Google Sign In */}
                     <Button
                         onClick={signInWithGoogle}
+                        disabled={oauthPending}
                         variant="outline"
                         className="w-full h-12 gap-3 hover:bg-accent hover:border-primary transition-all"
                     >
@@ -100,6 +115,7 @@ export function SignInPage() {
                     {/* GitHub Sign In */}
                     <Button
                         onClick={signInWithGitHub}
+                        disabled={oauthPending}
                         variant="outline"
                         className="w-full h-12 gap-3 hover:bg-accent hover:border-primary transition-all"
                     >

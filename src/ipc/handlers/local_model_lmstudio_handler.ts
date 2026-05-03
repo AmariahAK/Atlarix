@@ -35,7 +35,6 @@ export async function fetchLMStudioModels(): Promise<LocalModelListResponse> {
       provider: "lmstudio",
     }));
 
-  logger.info(`Successfully fetched ${models.length} models from LM Studio`);
   return { models };
 }
 
@@ -48,7 +47,6 @@ export function registerLMStudioHandlers() {
       } catch (error: any) {
         // Check if it's a connection error (LM Studio not running)
         if (error.cause?.code === 'ECONNREFUSED' || error.code === 'ECONNREFUSED') {
-          logger.info('LM Studio is not running or not accessible');
           return {
             models: [],
             error: 'LM Studio not reachable. Go to "Developer" (sidebar) → "Start Server". Ensure a model is loaded.'

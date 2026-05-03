@@ -1,44 +1,43 @@
 /**
- * Shown when no workspace is selected. Only Ask mode is available; no building.
- * Uses Lucide AlertTriangle (no emoji).
+ * First-launch onboarding: invite user to pick a workspace folder (not a warning).
  */
 
-import { AlertTriangle } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export function NoWorkspaceBanner({
-  onSelectWorkspace,
+  onOpenWorkspace,
   className,
 }: {
-  onSelectWorkspace?: () => void;
+  onOpenWorkspace?: () => void;
   className?: string;
 }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md border-l-4 px-3 py-2 text-sm",
-        "border-l-[#F59E0B] bg-[#FEF3C7] text-[#92400E]",
-        "dark:border-l-amber-500 dark:bg-amber-500/10 dark:text-amber-100",
+        "flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm",
+        "dark:border-primary/25 dark:bg-primary/10",
+        "sm:flex-row sm:items-center sm:justify-between sm:gap-3",
         className
       )}
       data-testid="no-workspace-banner"
     >
-      <AlertTriangle className="h-4 w-4 shrink-0 text-[#F59E0B] dark:text-amber-500" />
-      <p className="text-current">
-        No workspace selected. Only Ask mode available.
-        {onSelectWorkspace && (
-          <>
-            {" "}
-            <button
-              type="button"
-              onClick={onSelectWorkspace}
-              className="text-[#92400E] hover:underline dark:text-amber-300"
-            >
-              Select workspace to enable Build
-            </button>
-          </>
-        )}
-      </p>
+      <div className="flex items-start gap-2 text-foreground min-w-0">
+        <FolderOpen className="h-4 w-4 shrink-0 text-primary mt-0.5" aria-hidden />
+        <span className="leading-snug">Pick a folder to unlock all modes</span>
+      </div>
+      {onOpenWorkspace ? (
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          className="shrink-0 w-full sm:w-auto"
+          onClick={onOpenWorkspace}
+        >
+          Open workspace
+        </Button>
+      ) : null}
     </div>
   );
 }

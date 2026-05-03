@@ -24,6 +24,7 @@ const VALID_TYPES = new Set<string>([
   "counsel_participant_complete",
   "counsel_synthesising",
   "counsel_complete",
+  "counsel_timeout",
   "build_verification_complete",
   "memory_saved",
   "plan_created",
@@ -115,6 +116,8 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     loopTarget: p.loopTarget != null ? String(p.loopTarget) : undefined,
     loopCount: typeof p.loopCount === "number" ? p.loopCount : undefined,
     counselTrigger: p.trigger != null ? String(p.trigger) : undefined,
+    modelId: p.modelId != null ? String(p.modelId) : undefined,
+    responseMs: typeof p.responseMs === "number" ? p.responseMs : undefined,
   };
 
   switch (type) {
@@ -166,6 +169,15 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
         detail: det || undefined,
         status: "done",
         synthesisLength: synLen,
+      };
+    }
+    case "counsel_timeout": {
+      const det = p.detail != null ? String(p.detail).trim() : "";
+      return {
+        ...base,
+        label: "Counsel timed out",
+        detail: det || "Maximum wait time reached; partial results may be incomplete.",
+        status: "done",
       };
     }
     case "parallel_prefetch_start":

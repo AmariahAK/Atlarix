@@ -1,8 +1,5 @@
 import { ipcMain } from "electron";
-import log from "electron-log";
 import { LocalModelListResponse, LocalModel } from "../ipc_types";
-
-const logger = log.scope("ollama_handler");
 
 export function parseOllamaHost(host?: string): string {
   if (!host) {
@@ -81,7 +78,6 @@ export async function fetchOllamaModels(): Promise<LocalModelListResponse> {
         provider: "ollama",
       };
     });
-    logger.info(`Successfully fetched ${models.length} models from Ollama`);
     return { models };
   } catch (error) {
     if (
@@ -103,7 +99,6 @@ export function registerOllamaHandlers() {
       try {
         return await fetchOllamaModels();
       } catch (error) {
-        logger.info("Ollama is not running or not accessible", error);
         return {
           models: [],
           error:

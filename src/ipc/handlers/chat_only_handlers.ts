@@ -793,41 +793,32 @@ export async function handleChatOnlyStream(
                     const { storeCounselSynthesisForNextTurn } = await import(
                         "@/lib/counsel/counsel-next-turn-cache",
                     );
-                    const counselTimeoutMs = Math.min(
-                        120_000,
-                        Math.max(5_000, (settings.counsel?.timeoutSeconds ?? 30) * 1000),
-                    );
-                    void Promise.race([
-                        runCounselPipeline({
-                            chatId: req.chatId,
-                            turnId: `chat-only-counsel-${req.chatId}-${Date.now()}`,
-                            trigger,
-                            mode: "general",
-                            question: cleanQ,
-                            settings,
-                            sendActivity: (payload) => {
-                                safeSend(event.sender, "chat:activity", payload);
-                            },
-                            toolActivity: { webContents: event.sender, chatId: req.chatId },
-                            onCounselStreamLifecycle: (phase) => {
-                                safeSend(event.sender, "chat:stream:phase", {
-                                    chatId: req.chatId,
-                                    phase,
-                                    label: phase === "counsel_start" ? "Consulting the counsel..." : "",
-                                });
-                            },
-                        }),
-                        new Promise<string>((_, reject) =>
-                            setTimeout(() => reject(new Error("counsel_timeout")), counselTimeoutMs),
-                        ),
-                    ])
+                    void runCounselPipeline({
+                        chatId: req.chatId,
+                        turnId: `chat-only-counsel-${req.chatId}-${Date.now()}`,
+                        trigger,
+                        mode: "general",
+                        question: cleanQ,
+                        settings,
+                        sendActivity: (payload) => {
+                            safeSend(event.sender, "chat:activity", payload);
+                        },
+                        toolActivity: { webContents: event.sender, chatId: req.chatId },
+                        onCounselStreamLifecycle: (phase) => {
+                            safeSend(event.sender, "chat:stream:phase", {
+                                chatId: req.chatId,
+                                phase,
+                                label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                            });
+                        },
+                    })
                         .then((synthesis) => {
                             if (req.chatId > 0 && synthesis.trim()) {
                                 storeCounselSynthesisForNextTurn(req.chatId, synthesis);
                             }
                         })
                         .catch((counselErr) => {
-                            logger.warn("[chat-only][counsel] Pipeline failed or timed out:", counselErr);
+                            logger.warn("[chat-only][counsel] Pipeline failed:", counselErr);
                         });
                 }
             } catch (counselErr) {

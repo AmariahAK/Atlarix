@@ -44,21 +44,25 @@ function sortNodes(nodes: TreeNode[]): TreeNode[] {
 interface WorkspaceFileTreeProps {
   files: string[];
   onFileClick: (path: string) => void;
+  /** When set, scroll inside this box; when omitted, parent layout owns scrolling (better thumb sizing in sidebars). */
   maxHeight?: string;
 }
 
 export function WorkspaceFileTree({
   files,
   onFileClick,
-  maxHeight = "160px",
+  maxHeight,
 }: WorkspaceFileTreeProps) {
   const tree = buildTree(files);
   if (tree.length === 0) return null;
 
   return (
     <div
-      className="overflow-y-auto border-b border-border/50"
-      style={{ maxHeight }}
+      className={cn(
+        "border-b border-border/50",
+        maxHeight != null ? "overflow-y-auto" : "",
+      )}
+      style={maxHeight != null ? { maxHeight } : undefined}
     >
       <TreeLevel nodes={tree} level={0} onFileClick={onFileClick} />
     </div>

@@ -31,6 +31,7 @@ const COUNSEL_ROW_TYPES = new Set<ActivityStreamItem["type"]>([
   "counsel_participant_complete",
   "counsel_synthesising",
   "counsel_complete",
+  "counsel_timeout",
 ]);
 
 type ThoughtBubble = {
@@ -185,6 +186,9 @@ function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string;
   if (item.type === "counsel_complete") {
     return { id: "counsel-synthesis", label: "Counsel", side: "right" };
   }
+  if (item.type === "counsel_timeout") {
+    return { id: "counsel-synthesis", label: "Counsel", side: "right" };
+  }
   if (item.type === "counsel_start") {
     return { id: "counsel-system", label: "Counsel", side: "left" };
   }
@@ -268,6 +272,10 @@ function bubbleTextFor(item: ActivityStreamItem): string {
         ? `Done — ${len.toLocaleString()} characters`
         : "Done";
     }
+    case "counsel_timeout": {
+      const tail = item.detail?.trim();
+      return tail || "Counsel timed out — partial results kept";
+    }
     case "duration_limit_reached": {
       const head = item.label?.trim() || "Task paused after 30 minutes";
       const tail = item.detail?.trim();
@@ -297,6 +305,7 @@ const COUNSEL_ACTIVITY_TYPES = new Set<ActivityStreamItem["type"]>([
   "counsel_participant_complete",
   "counsel_synthesising",
   "counsel_complete",
+  "counsel_timeout",
 ]);
 
 /** Group counsel_* rows that share `sessionId` into one expandable block. */

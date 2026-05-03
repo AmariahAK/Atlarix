@@ -6,9 +6,26 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.0.8**
+**Current release:** **v7.1.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+
+---
+
+## v7.1.0 — Agent bus oversight, counsel reliability, diagram & first-run polish (minor)
+
+*May 2026*
+
+### Highlights
+
+- **Agent bus — DelegationMonitor:** Detects **cyclic** and **runaway** `delegate_to_agent` patterns within a sliding window; emits corrective bus traffic at warning thresholds and exposes **`delegation_abort`** for the autonomous loop when critical thresholds are hit.
+- **Agent bus — timing metadata:** Bus / IPC / Thinking UI can carry optional **`modelId`** and **`responseMs`** per agent turn (delegation completions instrumented for visibility).
+- **Counsel pipeline:** **Completion-driven** resolution — participants run without the old fixed short per-model race; a single **7-minute** wall-clock cap (`COUNSEL_TIMEOUT_MS`) replaces the prior ~30s-style shutdown layer; on timeout, partial results are preserved and the activity event includes completed vs expected counts.
+- **Diagrams (Mermaid):** Shared **CRITICAL** node-label rules in generation prompts reduce invalid bracket labels; the renderer shows a **friendly error card** instead of raw parser tokens, with a one-shot repair retry when safe.
+- **Sign-in:** OAuth in progress shows **step labels** over time (connecting / verifying / finishing) plus the marquee loading bar where applicable.
+- **Workspace empty state:** The no-workspace strip is styled as **onboarding** with an **Open workspace** action instead of a harsh warning.
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) for full notes.
 
 ---
 

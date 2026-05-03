@@ -195,6 +195,7 @@ export interface ActivityStreamItem {
     | 'counsel_participant_complete'
     | 'counsel_synthesising'
     | 'counsel_complete'
+    | 'counsel_timeout'
     | 'build_verification_complete'
     | 'memory_saved'
     | 'plan_created'
@@ -241,6 +242,10 @@ export interface ActivityStreamItem {
   loopTarget?: string;
   /** Occurrences in sliding window when stuck was detected. */
   loopCount?: number;
+  /** Agent bus: model id for this hop (optional). */
+  modelId?: string;
+  /** Agent bus: response duration in ms (optional). */
+  responseMs?: number;
 }
 
 /** Last N agent-bus lines for the Thinking card (keyed by chat id). */
@@ -251,6 +256,8 @@ export interface AgentBusExchange {
   toAgent?: string;
   timestamp: number;
   type: string;
+  modelId?: string;
+  responseMs?: number;
 }
 
 export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);

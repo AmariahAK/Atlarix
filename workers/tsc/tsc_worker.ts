@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parentPort } from "node:worker_threads";
 
 import {
@@ -14,38 +15,69 @@ import { SyncVirtualFileSystemImpl } from "../../shared/VirtualFilesystem";
 
 const nodeRequire = createRequire(import.meta.url);
 
-/** Prefer project-local compiler; fall back to Atlarix's dependency (not bundled — avoids dev OOM). */
+/**
+ * Walk up from this worker bundle to app-root `node_modules/typescript` (packaged Electron / app.asar).
+ * Keeps `typescript` external in Vite without relying on devDependency installs in production.
+ */
+function resolveShippedTypeScriptModule(): string | null {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    let dir = here;
+    for (let i = 0; i < 16; i++) {
+      const candidate = path.join(dir, "node_modules", "typescript");
+      if (
+        fs.existsSync(path.join(candidate, "package.json")) &&
+        fs.existsSync(path.join(candidate, "lib", "typescript.js"))
+      ) {
+        return candidate;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** Prefer project-local compiler; fall back to Atlarix's shipped dependency (not bundled — avoids dev OOM). */
 function loadTypeScript(appPath: string): typeof import("typescript") {
   try {
     const resolved = nodeRequire.resolve("typescript", { paths: [appPath] });
     return nodeRequire(resolved) as typeof import("typescript");
   } catch {
-    return nodeRequire("typescript") as typeof import("typescript");
+    try {
+      return nodeRequire("typescript") as typeof import("typescript");
+    } catch {
+      const shipped = resolveShippedTypeScriptModule();
+      if (shipped) {
+        return nodeRequire(shipped) as typeof import("typescript");
+      }
+      throw new Error(
+        "Cannot load the TypeScript compiler ('typescript' package). Reinstall Atlarix or ensure typescript is available under node_modules.",
+      );
+    }
   }
 }
 
-function findTypeScriptConfig(appPath: string): string {
-  const possibleConfigs = [
-    // For vite applications, we want to check tsconfig.app.json, since it's the
-    // most important one (client-side app).
-    // The tsconfig.json in vite apps is a project reference and doesn't
-    // actually check anything unless you do "--build" which requires a complex
-    // programmatic approach
-    "tsconfig.app.json",
-    // For Next.js applications, it typically has a single tsconfig.json file
-    "tsconfig.json",
-  ];
+const TS_CONFIG_CANDIDATES = [
+  // For vite applications, we want to check tsconfig.app.json, since it's the
+  // most important one (client-side app).
+  "tsconfig.app.json",
+  // For Next.js applications, it typically has a single tsconfig.json file
+  "tsconfig.json",
+] as const;
 
-  for (const config of possibleConfigs) {
+/** Resolves a tsconfig path, or `null` if the workspace is not a TypeScript project. */
+function resolveTsConfigPath(appPath: string): string | null {
+  for (const config of TS_CONFIG_CANDIDATES) {
     const configPath = path.join(appPath, config);
     if (fs.existsSync(configPath)) {
       return configPath;
     }
   }
-
-  throw new Error(
-    `No TypeScript configuration file found in ${appPath}. Expected one of: ${possibleConfigs.join(", ")}`,
-  );
+  return null;
 }
 
 async function runTypeScriptCheck(
@@ -279,8 +311,16 @@ async function processTypeScriptCheck(
     });
     vfs.applyResponseChanges(virtualChanges);
 
-    // Find TypeScript config - throw error if not found
-    const tsconfigPath = findTypeScriptConfig(appPath);
+    const tsconfigPath = resolveTsConfigPath(appPath);
+    if (tsconfigPath == null) {
+      console.info(
+        `[tsc-worker] skip: no tsconfig in ${appPath} (expected one of: ${TS_CONFIG_CANDIDATES.join(", ")}); returning no problems`,
+      );
+      return {
+        success: true,
+        data: { problems: [] },
+      };
+    }
 
     // Create TypeScript program with virtual file system
     const result = await runTypeScriptCheck(ts, vfs, {

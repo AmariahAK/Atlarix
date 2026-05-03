@@ -1,5 +1,34 @@
 # Atlarix Changelog
 
+## v7.1.0 — Agent bus oversight, counsel completion-driven flow, diagram polish, first-run UX (2026-05-03)
+
+### Agent Bus
+
+- **DelegationMonitor:** Detects **cyclic** and **runaway** `delegate_to_agent` patterns (same edge repeated in a sliding window, total delegation burst); emits **WARNING** / **CRITICAL**-style corrective bus messages and exposes **`delegation_abort`** via **`consumeDelegationAbort`** for the autonomous tool loop when thresholds demand stop.
+- **Bus payloads:** `publishAgentMessage` / IPC may include optional **`modelId`** and **`responseMs`** on relevant turns; **`chat:activity`** normalization and the Thinking / agent-bus UI surfaces show **model name** and **response time** when present (delegation completions instrumented).
+
+### Counsel Pipeline
+
+- **Completion-driven:** Replaced the stacked short **`participant_timeout`** / handler **`Promise.race`** behavior with **all participants settling** via **`Promise.allSettled`** — counsel resolves when each participant completes naturally (including **`COUNSEL_COMPLETE_SIGNAL`** semantics where applicable).
+- **Hard cap:** Single outer **`COUNSEL_TIMEOUT_MS`** (**7 minutes**) in [`src/constants/settings_constants.ts`](src/constants/settings_constants.ts) replaces the previous tight shutdown races; on timeout, logs warning and emits a **`counsel_timeout`** / normalized activity event with **partial counts** (`completedModels` vs expected).
+- **Partial results:** Non-null participant outputs still feed **synthesis** when timeout fires; activity carries incomplete-model visibility.
+
+### Diagram
+
+- **Mermaid prompts:** Shared **CRITICAL** bracket / label rules ([`src/lib/diagramMermaidPromptRules.ts`](src/lib/diagramMermaidPromptRules.ts)) wired into all generation paths so models avoid **parentheses inside `[ ]` node labels** and related lexer failures.
+- **Renderer:** **“Diagram couldn’t render”** user copy instead of raw `mermaid.parse` errors; **one-shot** bracket-label repair retry before showing the overlay.
+
+### UX
+
+- **Sign-in:** **`oauthPending`** + timed status labels during OAuth round-trip (`Connecting…` → `Verifying…` → `Finishing…`-style progression) and **`LoadingBar`** on sign-in surfaces.
+- **Workspace onboarding:** **No workspace** state uses neutral onboarding styling and **Open workspace** (folder flow + import) instead of an amber warning-only banner.
+
+### Packaging / diagnostics
+
+- **`typescript`** moved to **production `dependencies`** so the externalized TSC worker resolves in packaged builds; worker **`terminate()`** exit races no longer log false failures after success.
+- **Problems check:** Workspaces **without** `tsconfig.json` / `tsconfig.app.json` return **empty problems** instead of throwing (non-TypeScript / empty folders).
+- Quieter **diagram**, **Ollama/LM Studio**, and **workspace-cache “Cache HIT”** tracing logs (behavior unchanged).
+
 ## v7.0.9 — ask_user ordering, quieter IPC logs, stream while question pending (2026-05-01)
 
 - **ask_user:** Fixed formatted Q/A user bubbles so they appear **after** the assistant intro that hosted the question (ephemeral insert order).

@@ -574,7 +574,7 @@ export default function AtlarixHome() {
                             The axis of development.
                         </p>
                         <p className="text-xs text-muted-foreground/60">
-                            © 2024-2025 NorahLabs • <a href="https://atlarix.dev" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">atlarix.dev</a>
+                            © 2025-2026 NorahLabs • <a href="https://atlarix.dev" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">atlarix.dev</a>
                         </p>
                     </div>
                 </div>

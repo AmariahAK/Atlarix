@@ -72,26 +72,20 @@ export default function DiagramPage() {
     }, [selectedWorkspace]);
 
     const loadDiagrams = async (workspaceId: number) => {
-        console.log(`[DiagramPage] Loading diagrams for workspace ${workspaceId}`);
         setLoadingDiagrams(true);
         try {
             const result = await IpcClient.getInstance().listDiagrams({ workspaceId });
-            console.log(`[DiagramPage] Result:`, result);
 
             if (result.success) {
                 setDiagrams(result.diagrams);
                 // Auto-select first diagram
                 if (result.diagrams.length > 0) {
                     setSelectedDiagram(result.diagrams[0]);
-                    console.log(`[DiagramPage] Selected diagram content:`, result.diagrams[0].content?.substring(0, 100) || 'EMPTY');
                 }
-                console.log(`[DiagramPage] Loaded ${result.diagrams.length} diagrams`);
             } else {
-                console.error(`[DiagramPage] Error:`, result.error);
                 setDiagrams([]);
             }
-        } catch (error) {
-            console.error("📊 [DiagramPage] Failed to load diagrams:", error);
+        } catch {
             setDiagrams([]);
         } finally {
             setLoadingDiagrams(false);
@@ -99,31 +93,24 @@ export default function DiagramPage() {
     };
 
     const handleGenerateDiagram = async () => {
-        if (!selectedWorkspace) return;
+        const ws = selectedWorkspace ?? apps?.[0];
+        if (!ws) return;
 
         setIsGenerating(true);
         try {
-            console.log(`[DiagramPage] Requesting AI generation for workspace ${selectedWorkspace.id}...`);
-
-            // Call the AI generation handler
             const result = await IpcClient.getInstance().generateAiDiagram({
-                workspaceId: selectedWorkspace.id,
-                title: `${selectedWorkspace.name} Architecture`,
+                workspaceId: ws.id,
+                title: `${ws.name} Architecture`,
             });
-
-            console.log("[DiagramPage] Generation result:", result);
 
             if (result.success && result.diagram) {
                 // Backend may update an existing diagram id; ensure state doesn't duplicate ids.
-                await loadDiagrams(selectedWorkspace.id);
+                await loadDiagrams(ws.id);
                 setSelectedDiagram(result.diagram);
-                console.log("[DiagramPage] Diagram refreshed in state");
             } else {
-                console.error("[DiagramPage] Generation failed:", result.error);
                 alert(`Failed to generate diagram: ${result.error}`);
             }
-        } catch (error) {
-            console.error("[DiagramPage] Failed to generate diagram:", error);
+        } catch {
         } finally {
             setIsGenerating(false);
         }
@@ -138,16 +125,14 @@ export default function DiagramPage() {
                     setSelectedDiagram(diagrams.find((d) => d.id !== id) || null);
                 }
             }
-        } catch (error) {
-            console.error("Failed to delete diagram:", error);
+        } catch {
+            /* ignore */
         }
     };
 
     const handleCopyCode = () => {
         if (selectedDiagram) {
-            void navigator.clipboard.writeText(selectedDiagram.content).catch((e) => {
-                console.error("[DiagramPage] Failed to copy:", e);
-            });
+            void navigator.clipboard.writeText(selectedDiagram.content).catch(() => {});
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
@@ -189,6 +174,8 @@ export default function DiagramPage() {
         );
     }
 
+    const workspaceForActions = selectedWorkspace ?? apps[0];
+
     const showChatPanel = appIdFromRoute != null;
     return (
         <div className="flex-1 flex bg-background h-screen">
@@ -204,19 +191,15 @@ export default function DiagramPage() {
                         title="Delete All Workspaces (Debug)"
                         onClick={async () => {
                             if (confirm("DELETE ALL WORKSPACES? This cannot be undone.")) {
-                                console.log("Deleting all workspaces...");
                                 try {
                                     for (const app of apps) {
-                                        console.log("Deleting app:", app.id);
                                         await IpcClient.getInstance().deleteApp(app.id);
                                     }
                                     setDiagrams([]);
                                     setSelectedWorkspace(null);
-                                    // Helper to force refresh apps list would be better, but this works
                                     window.location.reload();
-                                } catch (e) {
-                                    console.error("Failed to delete all:", e);
-                                    alert("Failed to delete some workspaces. Check console.");
+                                } catch {
+                                    alert("Failed to delete some workspaces.");
                                 }
                             }
                         }}
@@ -251,7 +234,7 @@ export default function DiagramPage() {
                             variant="ghost"
                             size="sm"
                             onClick={handleGenerateDiagram}
-                            disabled={isGenerating || !selectedWorkspace}
+                            disabled={isGenerating || !workspaceForActions}
                             className="h-7 px-2"
                         >
                             {isGenerating ? (
@@ -374,8 +357,6 @@ export default function DiagramPage() {
                                     key={selectedDiagram.id}
                                     code={selectedDiagram.content}
                                     className="w-full h-full"
-                                    onError={(err) => console.error('[DiagramPage] Mermaid error:', err)}
-                                    onRender={() => console.log('[DiagramPage] Diagram rendered successfully')}
                                 />
                             </div>
                         </div>

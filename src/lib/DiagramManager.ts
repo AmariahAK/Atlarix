@@ -23,6 +23,7 @@ import {
 import { extractCodebase } from "@/utils/codebase";
 import { readSettings } from "@/main/settings";
 import { generateFingerprint } from "./analysis/fingerprint";
+import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
 import type { AppChatContext } from "./schemas";
 import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
 import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
@@ -222,7 +223,9 @@ Requirements:
 - Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
 - Keep the diagram clean and readable (avoid too many nodes).
 - Group related components in subgraphs.
-- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+
+${DIAGRAM_MERMAID_CRITICAL_RULES}
+
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
 - Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
 - Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).

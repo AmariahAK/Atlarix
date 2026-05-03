@@ -1,7 +1,23 @@
 # Atlarix TODO
 
-**Current Version:** v7.0.8  
-**Last Updated:** 2026-04-30
+**Current Version:** v7.1.0  
+**Last Updated:** 2026-05-03
+
+---
+
+## Shipped in v7.1.0
+
+| Area | Status | Notes |
+|------|--------|--------|
+| DelegationMonitor + `delegation_abort` | **Done** | Sliding-window cyclic/runaway delegate detection; corrective bus signals; wired next to loop-break in autonomous stream |
+| Bus `modelId` / `responseMs` | **Done** | Optional fields on messages + IPC + Thinking / ring UI |
+| Counsel completion-driven + 7 min cap | **Done** | `COUNSEL_TIMEOUT_MS`, `allSettled`, duplicate timeout races removed; partial counts on timeout activity |
+| Mermaid prompt rules + friendly error UI | **Done** | Shared CRITICAL rules module; renderer retry + user-facing copy |
+| OAuth step labels + LoadingBar | **Done** | `useAuth` + sign-in / `SignInScreen` |
+| Workspace onboarding CTA | **Done** | `NoWorkspaceBanner` + `ChatInputControls` open-folder flow |
+| Diagram panel Generate UX / TSC / logs | **Done** | Empty-state ordering, all modes diagram AI, tsconfig skip, log noise reduction |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.1.0.
 
 ---
 
@@ -84,9 +100,11 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.0.
 
 ---
 
-## Next (v7.1.0)
+## Next / follow-ups
 
-- [ ] Windows build (EV/OV code signing)
+- [ ] **Windows:** Authenticode / EV code signing for installers (SmartScreen-friendly builds)
+- [ ] **AgentSonar:** Pure JS or WASM SDK when upstream ships it — until then HTTP sidecar remains optional/dev
+- [ ] **Counsel:** Richer **partial-timeout UI** (surface incomplete roster inline beyond activity payload)
 - [ ] Blast radius analysis using Blueprint edges before agent acts
 - [ ] Skills marketplace — community skill files from atlarix.dev
 - [ ] Additional tree-sitter languages: Go, Rust, Java, C#

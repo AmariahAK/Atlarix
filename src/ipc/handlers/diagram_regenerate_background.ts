@@ -15,6 +15,7 @@ import type { AppChatContext } from "../../lib/schemas";
 import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
+import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
 
@@ -41,11 +42,8 @@ export async function runDiagramRegenerateBackground(
       throw e;
     }
 
-    console.log(`[diagram:regenerate-background] Regenerating diagram for workspace ${workspaceId}`);
-
     const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId));
     if (!app) {
-      console.log(`[diagram:regenerate-background] Workspace not found: ${workspaceId}`);
       return { success: false, error: "Workspace not found" };
     }
 
@@ -58,7 +56,6 @@ export async function runDiagramRegenerateBackground(
       excludePaths: [],
     };
 
-    console.log(`[diagram:regenerate-background] Extracting codebase from ${appPath}`);
     const { formattedOutput } = await extractCodebase({
       appPath,
       chatContext,
@@ -81,7 +78,9 @@ Requirements:
 - Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
 - Keep the diagram clean and readable (avoid too many nodes).
 - Group related components in subgraphs.
-- Mermaid labels: If text contains parentheses, commas, colons, &, or < >, use double-quoted labels, e.g. ui["User Interface (Web/App)"] — not ui[User Interface (Web/App)] (unquoted parens break the parser).
+
+${DIAGRAM_MERMAID_CRITICAL_RULES}
+
 - Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
 - Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
 - Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
@@ -90,7 +89,6 @@ Requirements:
 
     const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 
-    console.log(`[diagram:regenerate-background] Sending prompt to model ${modelConfig.name}`);
     const result = await generateText({
       model: modelClient.model,
       system: systemPrompt,
@@ -116,11 +114,10 @@ Requirements:
         })
         .where(eq(diagrams.id, existingDiagram.id));
 
-      console.log(`[diagram:regenerate-background] Updated diagram ${existingDiagram.id}`);
       try {
         await persistWorkspaceSnapshotHashes(existingDiagram.id, appPath);
-      } catch (e) {
-        console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
+      } catch {
+        /* snapshot persistence optional */
       }
       invalidateBlueprintCache(workspaceId);
       return { success: true, action: "updated", diagramId: existingDiagram.id };
@@ -140,11 +137,10 @@ Requirements:
       })
       .returning();
 
-    console.log(`[diagram:regenerate-background] Created new diagram ${diagram.id}`);
     try {
       await persistWorkspaceSnapshotHashes(diagram.id, appPath);
-    } catch (e) {
-      console.warn("[diagram:regenerate-background] snapshot_hashes persist skipped:", e);
+    } catch {
+      /* snapshot persistence optional */
     }
     invalidateBlueprintCache(workspaceId);
     return { success: true, action: "created", diagramId: diagram.id };
