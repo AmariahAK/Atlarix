@@ -3,8 +3,7 @@ import type { LargeLanguageModel, UserSettings } from "../schemas";
 import type { ModelTier } from "./capability-registry";
 import { summarizeMessagesWithCompactionPrompt } from "../context-compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
-import { getTierContextLimits } from "./tier-context-limits";
-import { resolveTierLimitModelIds } from "./context_budget_routing";
+import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
 
 export interface BudgetHistoryMessage {
   role: string;
@@ -30,13 +29,15 @@ export interface EnforceTierContextBudgetResult {
   systemPrompt: string;
   limitedMessageHistory: BudgetHistoryMessage[];
   contextAssemblerBlob: string;
+  /** True if summarizeMessagesWithCompactionPrompt ran at least once. */
+  llmCompactionApplied?: boolean;
 }
 
 function totalPrefixTokens(prefixes: readonly ModelMessage[]): number {
   return prefixes.reduce((acc, m) => acc + estimateTokens(String(m.content ?? "")), 0);
 }
 
-function estimateDispatchTokens(params: {
+export function estimateDispatchTokens(params: {
   systemPrompt: string;
   history: BudgetHistoryMessage[];
   codebasePrefixMessages: readonly ModelMessage[];
@@ -151,36 +152,22 @@ function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): stri
 }
 
 /**
- * Pre-dispatch tier budgeting for balanced/thinking. Fast tier: no-op.
+ * Pre-dispatch budgeting: model context limit (any tier), with LLM summarize only as last resort.
  */
 export async function enforceTierContextBudget(
   params: EnforceTierContextBudgetParams,
 ): Promise<EnforceTierContextBudgetResult> {
-  const {
-    resolvedTier,
-    settings,
-    codebasePrefixMessages,
-    otherCodebasePrefixMessages,
-  } = params;
-
-  if (resolvedTier === "fast") {
-    return {
-      systemPrompt: params.systemPrompt,
-      limitedMessageHistory: params.limitedMessageHistory,
-      contextAssemblerBlob: params.contextAssemblerBlob,
-    };
-  }
+  const { settings, codebasePrefixMessages, otherCodebasePrefixMessages } = params;
 
   let systemPrompt = params.systemPrompt;
   let limitedMessageHistory = params.limitedMessageHistory;
   let contextAssemblerBlob = params.contextAssemblerBlob;
 
-  const ids = resolveTierLimitModelIds(settings, {
-    effectiveModel: params.effectiveModel,
-    resolvedTier: params.resolvedTier,
-  });
-  const limits = await getTierContextLimits(ids.fast, ids.balanced, ids.thinking);
-  const tierLimit = limits[resolvedTier];
+  const { tierLimit } = await resolveModelContextLimit(
+    params.effectiveModel,
+    settings,
+  );
+  let llmCompactionApplied = false;
 
   const countToolsInMessages = (msgs: BudgetHistoryMessage[]) =>
     msgs.filter(
@@ -189,18 +176,21 @@ export async function enforceTierContextBudget(
         (m.content ?? "").includes("tool_use"),
     ).length;
 
-  let overBudget = () =>
+  const currentEstimate = () =>
     estimateDispatchTokens({
       systemPrompt,
       history: limitedMessageHistory,
       codebasePrefixMessages,
       otherCodebasePrefixMessages,
-    }) > tierLimit;
+    });
+
+  let overBudget = () => currentEstimate() > tierLimit;
 
   if (!overBudget()) {
     return { systemPrompt, limitedMessageHistory, contextAssemblerBlob };
   }
 
+  const softCap = tierLimit * 0.85;
   const maxRounds = 24;
   for (let round = 0; round < maxRounds && overBudget(); round++) {
     const entries = nonSystemEntries(limitedMessageHistory);
@@ -214,34 +204,7 @@ export async function enforceTierContextBudget(
       (m) => m.role === "user" || m.role === "assistant",
     );
 
-    let compressed = false;
-    if (headConversation.length >= 2) {
-      const toolCallCount = countToolsInMessages(limitedMessageHistory);
-      const delegationCount = limitedMessageHistory.filter(
-        (m) =>
-          (m.content ?? "").includes("delegate_to_agent") ||
-          (m.content ?? "").includes("delegation"),
-      ).length;
-      const summary = await summarizeMessagesWithCompactionPrompt({
-        messages: headConversation.map((m) => ({
-          role: m.role,
-          content: m.content ?? "",
-        })),
-        sessionStats: { toolCallCount, delegationCount },
-      });
-      if (summary) {
-        const headSystemOnly = head.filter((m) => m.role === "system");
-        const summaryMsg: BudgetHistoryMessage = {
-          role: "user",
-          content:
-            "[Earlier conversation — compressed for context budget]\n" + summary,
-        };
-        limitedMessageHistory = [...headSystemOnly, summaryMsg, ...tail];
-        compressed = true;
-      }
-    }
-
-    if (!compressed && headConversation.length > 0) {
+    if (headConversation.length > 0) {
       limitedMessageHistory = [
         ...head.filter((m) => m.role === "system"),
         ...headConversation.slice(2),
@@ -265,10 +228,59 @@ export async function enforceTierContextBudget(
 
     if (!overBudget()) break;
 
-    if (!compressed && headConversation.length === 0) {
+    const entriesAfterTrim = nonSystemEntries(limitedMessageHistory);
+    const pStart2 = protectedEntryStartIndex(entriesAfterTrim);
+    const firstProtected2 =
+      pStart2 < entriesAfterTrim.length
+        ? entriesAfterTrim[pStart2].i
+        : limitedMessageHistory.length;
+    const head2 = limitedMessageHistory.slice(0, firstProtected2);
+    const tail2 = limitedMessageHistory.slice(firstProtected2);
+    const headConversation2 = head2.filter(
+      (m) => m.role === "user" || m.role === "assistant",
+    );
+
+    if (
+      headConversation2.length >= 2 &&
+      currentEstimate() >= softCap &&
+      overBudget()
+    ) {
+      const toolCallCount = countToolsInMessages(limitedMessageHistory);
+      const delegationCount = limitedMessageHistory.filter(
+        (m) =>
+          (m.content ?? "").includes("delegate_to_agent") ||
+          (m.content ?? "").includes("delegation"),
+      ).length;
+      const summary = await summarizeMessagesWithCompactionPrompt({
+        messages: headConversation2.map((m) => ({
+          role: m.role,
+          content: m.content ?? "",
+        })),
+        sessionStats: { toolCallCount, delegationCount },
+      });
+      if (summary) {
+        llmCompactionApplied = true;
+        const headSystemOnly = head2.filter((m) => m.role === "system");
+        const summaryMsg: BudgetHistoryMessage = {
+          role: "user",
+          content:
+            "[Earlier conversation — compressed for context budget]\n" + summary,
+        };
+        limitedMessageHistory = [...headSystemOnly, summaryMsg, ...tail2];
+      }
+    }
+
+    if (!overBudget()) break;
+
+    if (headConversation.length === 0) {
       break;
     }
   }
 
-  return { systemPrompt, limitedMessageHistory, contextAssemblerBlob };
+  return {
+    systemPrompt,
+    limitedMessageHistory,
+    contextAssemblerBlob,
+    llmCompactionApplied,
+  };
 }

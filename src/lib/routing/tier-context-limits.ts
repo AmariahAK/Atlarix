@@ -35,7 +35,7 @@ let openRouterModelsById: Map<string, OpenRouterModelRowExtended> | null = null;
 
 function fallbackLimitsOnFetchFailure(): TierContextLimits {
   return {
-    fast: Math.floor(1_000_000 * SAFETY_FACTOR),
+    fast: 32_000,
     balanced: FALLBACK_LIMIT,
     thinking: FALLBACK_LIMIT,
   };

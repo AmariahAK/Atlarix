@@ -193,6 +193,10 @@ function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string;
     return { id: "counsel-system", label: "Counsel", side: "left" };
   }
 
+  if (item.type === "reasoning_started" || item.type === "reasoning_complete") {
+    return { id: "model-reasoning", label: "Model", side: "right" };
+  }
+
   // Agent bus messages: fromAgent is the speaker (left)
   if (item.type === "agent_message" && item.fromAgent) {
     const from = String(item.fromAgent);
@@ -291,6 +295,10 @@ function bubbleTextFor(item: ActivityStreamItem): string {
       const tail = item.detail?.trim();
       return tail ? `${head}\n${tail}` : head;
     }
+    case "reasoning_started":
+      return item.label?.trim() || "Thinking deeply...";
+    case "reasoning_complete":
+      return item.label?.trim() || "Done thinking, writing response...";
     default:
       return item.detail?.trim() || item.label?.trim() || item.type;
   }

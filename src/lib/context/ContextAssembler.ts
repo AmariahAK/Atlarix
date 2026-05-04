@@ -34,6 +34,8 @@ export type ContextAssemblerInput = {
 export type ContextAssemblerOutput = {
   /** Active mode/agent skill markdown — protected from mode-cap trim (re-injected each assembly). */
   activeSkillAddition: string;
+  /** Blueprint (Rooms/Beacons) — protected from work-mode cap like active skill. */
+  blueprintAddition: string;
   /** Task ledger / progress — not counted against mode cap; keep out of tier blob trim. */
   taskProgressAddition: string;
   /** On-disk excerpts for last completed ledger step — protected like task progress (not in tier-trimmed blob). */
@@ -79,11 +81,13 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     .sort((a, b) => a.priority - b.priority);
 
   const activeSkillSections = normalizedSections.filter((s) => s.name === "activeSkill");
+  const blueprintSections = normalizedSections.filter((s) => s.name === "blueprint");
   const taskProgressSections = normalizedSections.filter((s) => s.name === "taskProgress");
   const fileSystemTruthSections = normalizedSections.filter((s) => s.name === "fileSystemTruth");
   const otherSections = normalizedSections.filter(
     (s) =>
       s.name !== "activeSkill" &&
+      s.name !== "blueprint" &&
       s.name !== "taskProgress" &&
       s.name !== "fileSystemTruth",
   );
@@ -91,6 +95,11 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
   let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
   if (activeSkillAddition && estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
     activeSkillAddition = truncateToTokens(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING);
+  }
+
+  let blueprintAddition = blueprintSections.map((s) => s.content.trim()).join("\n\n");
+  if (blueprintAddition && estimateTokens(blueprintAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
+    blueprintAddition = truncateToTokens(blueprintAddition, ACTIVE_SKILL_TOKEN_CEILING);
   }
 
   let taskProgressAddition = taskProgressSections.map((s) => s.content.trim()).join("\n\n");
@@ -126,6 +135,7 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     return {
       ...cached,
       activeSkillAddition: cached.activeSkillAddition ?? "",
+      blueprintAddition: cached.blueprintAddition ?? "",
       taskProgressAddition: cached.taskProgressAddition ?? "",
       fileSystemTruthAddition: cached.fileSystemTruthAddition ?? "",
       cache: { key: cacheKey, hit: true },
@@ -146,6 +156,17 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
       tokens: sectionTokens,
       included: true,
       truncated: estimateTokens(activeSkillAddition) < sectionTokens,
+    });
+  }
+
+  for (const section of blueprintSections) {
+    const sectionTokens = estimateTokens(section.content);
+    tokenUsageBySection[section.name] = sectionTokens;
+    assembledPromptSections.push({
+      ...section,
+      tokens: sectionTokens,
+      included: true,
+      truncated: estimateTokens(blueprintAddition) < sectionTokens,
     });
   }
 
@@ -223,6 +244,7 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
 
   const output: ContextAssemblerOutput = {
     activeSkillAddition,
+    blueprintAddition,
     taskProgressAddition,
     fileSystemTruthAddition,
     finalSystemPromptAddition: includedBlocks.join("\n\n"),

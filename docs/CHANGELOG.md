@@ -1,5 +1,11 @@
 # Atlarix Changelog
 
+## v7.1.1 — No-workspace CTA hides after first message in chat-only threads (2026-05-03)
+
+### UX
+
+- **Workspace onboarding:** The **Open workspace** / “Pick a folder” strip no longer stays visible for the whole session when you chat **without** a folder. It hides after your **first user message** in the current thread (and still hides immediately when you open a workspace, unchanged).
+
 ## v7.1.0 — Agent bus oversight, counsel completion-driven flow, diagram polish, first-run UX (2026-05-03)
 
 ### Agent Bus

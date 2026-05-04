@@ -6,9 +6,19 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.1.0**
+**Current release:** **v7.1.1**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+
+---
+
+## v7.1.1 — No-workspace banner respects chat-only sessions (patch)
+
+*May 2026*
+
+### What changed
+
+- **Composer:** If you start chatting **without** picking a workspace, the **Open workspace** onboarding strip hides after your **first message** in that thread so the composer stays clean for pure chat. Opening a folder still dismisses it immediately.
 
 ---
 

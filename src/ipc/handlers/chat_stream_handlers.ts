@@ -186,6 +186,10 @@ import {
   buildPendingStepsContinuationPrompt,
 } from "@/lib/tasks/completion-detector";
 import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
+import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
+import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
+import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
+import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import {
@@ -760,6 +764,9 @@ async function processStreamChunks({
   chatId,
   processResponseChunkUpdate,
   onFirstModelActivity,
+  onFirstTextDelta,
+  onFirstReasoningDelta,
+  onFirstTextAfterReasoning,
 }: {
   fullStream: AsyncIterableStream<TextStreamPart<ToolSet>>;
   fullResponse: string;
@@ -770,10 +777,16 @@ async function processStreamChunks({
   }) => Promise<string>;
   /** Fix: Finding 4 — clear "Thinking…" once the model emits text or tool activity */
   onFirstModelActivity?: () => void;
+  onFirstTextDelta?: () => void;
+  onFirstReasoningDelta?: () => void;
+  onFirstTextAfterReasoning?: () => void;
 }): Promise<{ fullResponse: string; incrementalResponse: string }> {
   let incrementalResponse = "";
   let inThinkingBlock = false;
   let firstModelActivitySent = false;
+  let firstTextDeltaSent = false;
+  let firstReasoningActivitySent = false;
+  let reasoningStreamActive = false;
   const markFirstModelActivity = () => {
     if (firstModelActivitySent || !onFirstModelActivity) return;
     firstModelActivitySent = true;
@@ -817,24 +830,40 @@ async function processStreamChunks({
     let chunk = "";
     if (
       inThinkingBlock &&
-      !["reasoning-delta", "reasoning-start"].includes(part.type)
+      !["reasoning-delta", "reasoning-start", "reasoning-end"].includes(part.type)
     ) {
       chunk = "</think>";
       inThinkingBlock = false;
     }
     if (part.type === "text-delta") {
-      if (part.text) markFirstModelActivity();
+      if (part.text) {
+        if (reasoningStreamActive && onFirstTextAfterReasoning) {
+          onFirstTextAfterReasoning();
+          reasoningStreamActive = false;
+        }
+        if (!firstTextDeltaSent && onFirstTextDelta) {
+          firstTextDeltaSent = true;
+          onFirstTextDelta();
+        }
+        markFirstModelActivity();
+      }
       chunk += part.text;
     } else if (part.type === "reasoning-delta") {
-      if (!loggedReasoningDelta) {
+      const rtext = typeof part.text === "string" ? part.text : "";
+      if (!loggedReasoningDelta && rtext) {
         loggedReasoningDelta = true;
+      }
+      if (rtext && !firstReasoningActivitySent && onFirstReasoningDelta) {
+        firstReasoningActivitySent = true;
+        onFirstReasoningDelta();
+        reasoningStreamActive = true;
       }
       if (!inThinkingBlock) {
         chunk = "<think>";
         inThinkingBlock = true;
       }
 
-      chunk += escapeAtlarixTags(part.text);
+      chunk += escapeAtlarixTags(rtext);
     } else if (part.type === "tool-call") {
       pendingToolCallDepth += 1;
       markFirstModelActivity();
@@ -2261,7 +2290,6 @@ ${componentSnippet}
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
           let baseSystemPrompt: string;
-          let contextAssemblerBlob = "";
           let blueprintRequiredBlockMessage: string | null = null;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
@@ -2293,7 +2321,7 @@ ${componentSnippet}
             intentModeForContext === "auto"
               ? (chatMode === "build" ? "build" : "ask")
               : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
-          const contextSections: ContextSection[] = [];
+          let contextSections: ContextSection[] = [];
 
           const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
           if (
@@ -2947,116 +2975,119 @@ ${componentSnippet}
             });
           }
 
-          const assembledContext = assembleContextSections({
-            chatId: req.chatId,
-            appId: effectiveAppId ?? null,
-            workMode: effectiveWorkMode,
-            userPrompt: userPrompt || req.prompt,
-            sections: contextSections,
-          });
-          let systemPrompt = baseSystemPrompt;
-          if (assembledContext.activeSkillAddition?.trim()) {
-            systemPrompt = `${assembledContext.activeSkillAddition.trim()}\n\n${systemPrompt}`;
-          }
-          if (assembledContext.taskProgressAddition?.trim()) {
-            systemPrompt += `\n\n${assembledContext.taskProgressAddition}`;
-          }
-          if (assembledContext.fileSystemTruthAddition?.trim()) {
-            systemPrompt += `\n\n${assembledContext.fileSystemTruthAddition}`;
-          }
-          if (assembledContext.finalSystemPromptAddition.trim()) {
-            contextAssemblerBlob = assembledContext.finalSystemPromptAddition;
-            systemPrompt += `\n\n${contextAssemblerBlob}`;
-          } else {
-            contextAssemblerBlob = "";
-          }
-          logger.info(
-            `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
-          );
-          if (assembledContext.trimReport.length > 0) {
-            logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
-          }
-          const hasInjectedArchitectureContext =
-            assembledContext.assembledPromptSections.some(
-              (s) =>
-                s.included &&
-                (s.name === "blueprint" || s.name === "workspaceAnalysis"),
-            );
-          // Add information about mentioned apps if any
-          if (otherAppsCodebaseInfo) {
-            const mentionedAppsList = mentionedAppsCodebases
-              .map(({ appName }) => appName)
-              .join(", ");
-
-            systemPrompt += `\n\n# Referenced Apps\nThe user has mentioned the following apps in their prompt: ${mentionedAppsList}. Their codebases have been included in the context for your reference. When referring to these apps, you can understand their structure and code to provide better assistance, however you should NOT edit the files in these referenced apps. The referenced apps are NOT part of the current app and are READ-ONLY.`;
-          }
-
-          const isSecurityReviewIntent =
-            req.prompt.startsWith("/security-review");
-          if (isSecurityReviewIntent) {
-            systemPrompt = SECURITY_REVIEW_SYSTEM_PROMPT;
-            try {
-              const rulesPath = path.join(appPath, "SECURITY_RULES.md");
-              let securityRules = "";
-
-              await fs.promises.access(rulesPath);
-              securityRules = await fs.promises.readFile(rulesPath, "utf8");
-
-              if (securityRules && securityRules.trim().length > 0) {
-                systemPrompt +=
-                  "\n\n# Project-specific security rules:\n" + securityRules;
-              }
-            } catch (error) {
-              // Best-effort: if reading rules fails, continue without them
-              logger.info("Failed to read security rules", error);
-            }
-          }
-
-          if (
-            effectiveApp?.supabaseProjectId &&
-            settings.supabase?.accessToken?.value
-          ) {
-            systemPrompt +=
-              "\n\n" +
-              SUPABASE_AVAILABLE_SYSTEM_PROMPT +
-              "\n\n" +
-              (await getSupabaseContext({
-                supabaseProjectId: effectiveApp.supabaseProjectId,
-              }));
-          } else if (
-            // Neon projects don't need Supabase.
-            !effectiveApp?.neonProjectId &&
-            // If in security review mode, we don't need to mention supabase is available.
-            !isSecurityReviewIntent
-          ) {
-            systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
-          }
           const isSummarizeIntent = req.prompt.startsWith(
             "Summarize from chat-id=",
           );
-          if (isSummarizeIntent) {
-            systemPrompt = SUMMARIZE_CHAT_SYSTEM_PROMPT;
-          }
 
-          // Update the system prompt for images if there are image attachments
-          const hasImageAttachments =
-            req.attachments &&
-            req.attachments.some((attachment) =>
-              attachment.type.startsWith("image/"),
+          const buildPromptBundle = async (
+            sections: ContextSection[],
+          ): Promise<{
+            systemPrompt: string;
+            contextAssemblerBlob: string;
+            assembledContext: ReturnType<typeof assembleContextSections>;
+            hasInjectedArchitectureContext: boolean;
+            codebasePrefix: readonly ModelMessage[];
+            otherCodebasePrefix: readonly ModelMessage[];
+          }> => {
+            const assembledContext = assembleContextSections({
+              chatId: req.chatId,
+              appId: effectiveAppId ?? null,
+              workMode: effectiveWorkMode,
+              userPrompt: userPrompt || req.prompt,
+              sections,
+            });
+            let systemPrompt = baseSystemPrompt;
+            if (assembledContext.activeSkillAddition?.trim()) {
+              systemPrompt = `${assembledContext.activeSkillAddition.trim()}\n\n${systemPrompt}`;
+            }
+            if (assembledContext.blueprintAddition?.trim()) {
+              systemPrompt += `\n\n${assembledContext.blueprintAddition}`;
+            }
+            if (assembledContext.taskProgressAddition?.trim()) {
+              systemPrompt += `\n\n${assembledContext.taskProgressAddition}`;
+            }
+            if (assembledContext.fileSystemTruthAddition?.trim()) {
+              systemPrompt += `\n\n${assembledContext.fileSystemTruthAddition}`;
+            }
+            let blob = "";
+            if (assembledContext.finalSystemPromptAddition.trim()) {
+              blob = assembledContext.finalSystemPromptAddition;
+              systemPrompt += `\n\n${blob}`;
+            }
+            logger.info(
+              `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
             );
+            if (assembledContext.trimReport.length > 0) {
+              logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
+            }
+            const hasInjectedArchitectureContext =
+              assembledContext.assembledPromptSections.some(
+                (s) =>
+                  s.included &&
+                  (s.name === "blueprint" || s.name === "workspaceAnalysis"),
+              );
+            if (otherAppsCodebaseInfo) {
+              const mentionedAppsList = mentionedAppsCodebases
+                .map(({ appName }) => appName)
+                .join(", ");
 
-          const hasUploadedAttachments =
-            req.attachments &&
-            req.attachments.some(
-              (attachment) => attachment.attachmentType === "upload-to-codebase",
-            );
-          // If there's mixed attachments (e.g. some upload to codebase attachments and some upload images as chat context attachemnts)
-          // we will just include the file upload system prompt, otherwise the AI gets confused and doesn't reliably
-          // print out the atlarix-write tags.
-          // Usually, AI models will want to use the image as reference to generate code (e.g. UI mockups) anyways, so
-          // it's not that critical to include the image analysis instructions.
-          if (hasUploadedAttachments) {
-            systemPrompt += `
+              systemPrompt += `\n\n# Referenced Apps\nThe user has mentioned the following apps in their prompt: ${mentionedAppsList}. Their codebases have been included in the context for your reference. When referring to these apps, you can understand their structure and code to provide better assistance, however you should NOT edit the files in these referenced apps. The referenced apps are NOT part of the current app and are READ-ONLY.`;
+            }
+
+            const isSecurityReviewIntent =
+              req.prompt.startsWith("/security-review");
+            if (isSecurityReviewIntent) {
+              systemPrompt = SECURITY_REVIEW_SYSTEM_PROMPT;
+              try {
+                const rulesPath = path.join(appPath, "SECURITY_RULES.md");
+                let securityRules = "";
+
+                await fs.promises.access(rulesPath);
+                securityRules = await fs.promises.readFile(rulesPath, "utf8");
+
+                if (securityRules && securityRules.trim().length > 0) {
+                  systemPrompt +=
+                    "\n\n# Project-specific security rules:\n" + securityRules;
+                }
+              } catch (error) {
+                logger.info("Failed to read security rules", error);
+              }
+            }
+
+            if (
+              effectiveApp?.supabaseProjectId &&
+              settings.supabase?.accessToken?.value
+            ) {
+              systemPrompt +=
+                "\n\n" +
+                SUPABASE_AVAILABLE_SYSTEM_PROMPT +
+                "\n\n" +
+                (await getSupabaseContext({
+                  supabaseProjectId: effectiveApp.supabaseProjectId,
+                }));
+            } else if (
+              !effectiveApp?.neonProjectId &&
+              !isSecurityReviewIntent
+            ) {
+              systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
+            }
+            if (isSummarizeIntent) {
+              systemPrompt = SUMMARIZE_CHAT_SYSTEM_PROMPT;
+            }
+
+            const hasImageAttachments =
+              req.attachments &&
+              req.attachments.some((attachment) =>
+                attachment.type.startsWith("image/"),
+              );
+
+            const hasUploadedAttachments =
+              req.attachments &&
+              req.attachments.some(
+                (attachment) => attachment.attachmentType === "upload-to-codebase",
+              );
+            if (hasUploadedAttachments) {
+              systemPrompt += `
   
 When files are attached to this conversation, upload them to the codebase using this exact format:
 
@@ -3070,8 +3101,8 @@ DYAD_ATTACHMENT_0
 </atlarix-write>
 
   `;
-          } else if (hasImageAttachments) {
-            systemPrompt += `
+            } else if (hasImageAttachments) {
+              systemPrompt += `
 
 # Image Analysis Instructions
 This conversation includes one or more image attachments. When the user uploads images:
@@ -3081,46 +3112,114 @@ This conversation includes one or more image attachments. When the user uploads 
 4. For diagrams or wireframes, try to understand the content and structure shown.
 5. For screenshots of code or errors, try to identify the issue or explain the code.
 `;
-          }
+            }
 
-          // --- DIAGRAM-FIRST CONTEXT SYSTEM ---
-          // Instead of dumping full codebase, we provide:
-          // 1. Diagram context (already in systemPrompt via getWorkspaceContext)
-          // 2. Instructions to use file exploration tools on demand
-          const codebasePrefix = isEngineEnabled
-            ? // No codebase prefix if engine is set, we will take of it there.
-            []
-            : ([
-              {
-                role: "user",
-                content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
-              },
-              {
-                role: "assistant",
-                content: hasInjectedArchitectureContext
-                  ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
-                  : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
-              },
-            ] as const);
+            const codebasePrefix = isEngineEnabled
+              ? []
+              : ([
+                  {
+                    role: "user",
+                    content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
+                  },
+                  {
+                    role: "assistant",
+                    content: hasInjectedArchitectureContext
+                      ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
+                      : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
+                  },
+                ] as const);
 
-          // If engine is enabled, we will send the other apps codebase info to the engine
-          // and process it with smart context.
-          const otherCodebasePrefix =
-            otherAppsCodebaseInfo && !isEngineEnabled
-              ? ([
-                {
-                  role: "user",
-                  content: createOtherAppsCodebasePrompt(otherAppsCodebaseInfo),
-                },
-                {
-                  role: "assistant",
-                  content: "OK.",
-                },
-              ] as const)
-              : [];
+            const otherCodebasePrefix =
+              otherAppsCodebaseInfo && !isEngineEnabled
+                ? ([
+                    {
+                      role: "user",
+                      content: createOtherAppsCodebasePrompt(otherAppsCodebaseInfo),
+                    },
+                    {
+                      role: "assistant",
+                      content: "OK.",
+                    },
+                  ] as const)
+                : [];
 
-          // Prune long tool outputs to prevent context bloat (OpenCode style)
+            return {
+              systemPrompt,
+              contextAssemblerBlob: blob,
+              assembledContext,
+              hasInjectedArchitectureContext,
+              codebasePrefix,
+              otherCodebasePrefix,
+            };
+          };
+
+          let promptBundle = await buildPromptBundle(contextSections);
+          let {
+            systemPrompt,
+            contextAssemblerBlob,
+            assembledContext,
+            hasInjectedArchitectureContext,
+            codebasePrefix,
+            otherCodebasePrefix,
+          } = promptBundle;
+
           limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
+
+          const modelContextResolved = await resolveModelContextLimit(
+            effectiveModel,
+            settings,
+          );
+          const mapTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
+            if (t === "thinking") return "thinking";
+            if (t === "balanced") return "balanced";
+            return "fast";
+          };
+          let dispatchEstimate = estimateDispatchTokens({
+            systemPrompt,
+            history: limitedMessageHistory,
+            codebasePrefixMessages: [...codebasePrefix],
+            otherCodebasePrefixMessages: [...otherCodebasePrefix],
+          });
+          let budgetTracker = new ContextBudgetTracker(
+            modelContextResolved.tierLimit,
+            dispatchEstimate,
+            mapTierLabel(contextBudgetTier),
+          );
+          let contextBudgetPruningApplied = false;
+          let workingSections = [...contextSections];
+          for (let br = 0; br < 3; br++) {
+            if (
+              budgetTracker.isHealthy() ||
+              dispatchEstimate < modelContextResolved.tierLimit * 0.85
+            ) {
+              break;
+            }
+            contextBudgetPruningApplied = true;
+            workingSections = pruneContextSectionsForBudget(
+              workingSections,
+              budgetTracker.getBudgetTier(),
+            );
+            promptBundle = await buildPromptBundle(workingSections);
+            ({
+              systemPrompt,
+              contextAssemblerBlob,
+              assembledContext,
+              hasInjectedArchitectureContext,
+              codebasePrefix,
+              otherCodebasePrefix,
+            } = promptBundle);
+            dispatchEstimate = estimateDispatchTokens({
+              systemPrompt,
+              history: limitedMessageHistory,
+              codebasePrefixMessages: [...codebasePrefix],
+              otherCodebasePrefixMessages: [...otherCodebasePrefix],
+            });
+            budgetTracker = new ContextBudgetTracker(
+              modelContextResolved.tierLimit,
+              dispatchEstimate,
+              mapTierLabel(contextBudgetTier),
+            );
+          }
 
           const tierBudgeted = await enforceTierContextBudget({
             resolvedTier: contextBudgetTier,
@@ -3135,6 +3234,39 @@ This conversation includes one or more image attachments. When the user uploads 
           });
           systemPrompt = tierBudgeted.systemPrompt;
           limitedMessageHistory = tierBudgeted.limitedMessageHistory;
+          contextAssemblerBlob = tierBudgeted.contextAssemblerBlob;
+          const llmCompactionApplied = tierBudgeted.llmCompactionApplied ?? false;
+
+          dispatchEstimate = estimateDispatchTokens({
+            systemPrompt,
+            history: limitedMessageHistory,
+            codebasePrefixMessages: [...codebasePrefix],
+            otherCodebasePrefixMessages: [...otherCodebasePrefix],
+          });
+          budgetTracker = new ContextBudgetTracker(
+            modelContextResolved.tierLimit,
+            dispatchEstimate,
+            mapTierLabel(contextBudgetTier),
+          );
+
+          const ttftStartRef = { ms: null as number | null };
+          const ttftShouldLog =
+            process.env.NODE_ENV === "development" ||
+            process.env.ATLARIX_TTFT_LOG === "1";
+          const logTtftOnce = (() => {
+            let done = false;
+            return () => {
+              if (done || !ttftShouldLog || ttftStartRef.ms == null) return;
+              done = true;
+              const openRouterCompressionApplied =
+                (modelClient.builtinProviderId === "openrouter" ||
+                  modelClient.builtinProviderId === "compass") &&
+                (budgetTracker.isCritical() || budgetTracker.isOverLimit());
+              logger.log(
+                `[TTFT] tier=${String(contextBudgetTier)} provider=${String(modelClient.builtinProviderId)} model=${String((effectiveModel as { name?: string })?.name ?? "")} contextLength=${modelContextResolved.rawContextLength ?? "unknown"} ttft=${Date.now() - ttftStartRef.ms}ms budgetTier=${budgetTracker.getBudgetTier()} estimatedTokens=${dispatchEstimate} pruningApplied=${contextBudgetPruningApplied} compressionApplied=${openRouterCompressionApplied} compactionApplied=${llmCompactionApplied}`,
+              );
+            };
+          })();
 
           type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
           let limitedHistoryChatMessages: ModelMessage[] = limitedMessageHistory.map((msg: HistoryMsg) => {
@@ -3290,8 +3422,11 @@ This conversation includes one or more image attachments. When the user uploads 
               ),
             };
 
-            // OpenRouter context compression fallback (balanced/thinking: Compass + BYOK).
-            if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
+            const useOpenRouterContextCompression =
+              (modelClient.builtinProviderId === "openrouter" ||
+                modelClient.builtinProviderId === "compass") &&
+              (budgetTracker.isCritical() || budgetTracker.isOverLimit());
+            if (useOpenRouterContextCompression) {
               providerOptions.openrouter = {
                 plugins: [{ id: "context-compression" }],
               };
@@ -3323,6 +3458,8 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const maxOutputTokens = await getMaxTokensWithFloor(optionsModel);
             const temperature = await getTemperature(optionsModel);
+
+            ttftStartRef.ms = Date.now();
 
             const streamResult = streamText({
               headers: isAnthropic
@@ -3497,6 +3634,9 @@ This conversation includes one or more image attachments. When the user uploads 
               fullResponse: string;
             }) => Promise<string>;
             onFirstModelActivity?: () => void;
+            onFirstTextDelta?: () => void;
+            onFirstReasoningDelta?: () => void;
+            onFirstTextAfterReasoning?: () => void;
           }): Promise<{
             bundle: SimpleStreamTextBundle;
             fullResponse: string;
@@ -3514,6 +3654,9 @@ This conversation includes one or more image attachments. When the user uploads 
                   chatId: params.chatId,
                   processResponseChunkUpdate: params.processResponseChunkUpdate,
                   onFirstModelActivity: params.onFirstModelActivity,
+                  onFirstTextDelta: params.onFirstTextDelta,
+                  onFirstReasoningDelta: params.onFirstReasoningDelta,
+                  onFirstTextAfterReasoning: params.onFirstTextAfterReasoning,
                 });
                 fullResponse = chunkResult.fullResponse;
                 const finishReason = await bundle.finishReason;
@@ -3765,6 +3908,27 @@ This conversation includes one or more image attachments. When the user uploads 
                       chatId: req.chatId,
                       phase: "responding",
                       label: "",
+                    });
+                  },
+                  onFirstTextDelta: logTtftOnce,
+                  onFirstReasoningDelta: () => {
+                    safeSend(event.sender, "chat:activity", {
+                      id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                      type: "reasoning_started",
+                      label: "Thinking deeply...",
+                      status: "running",
+                      timestamp: Date.now(),
+                      chatId: req.chatId,
+                    });
+                  },
+                  onFirstTextAfterReasoning: () => {
+                    safeSend(event.sender, "chat:activity", {
+                      id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                      type: "reasoning_complete",
+                      label: "Done thinking, writing response...",
+                      status: "done",
+                      timestamp: Date.now(),
+                      chatId: req.chatId,
                     });
                   },
                 });
@@ -4400,6 +4564,27 @@ For workforce, explain services before request_workspace_permissions.`;
                     chatId: req.chatId,
                     phase: "responding",
                     label: "",
+                  });
+                },
+                onFirstTextDelta: logTtftOnce,
+                onFirstReasoningDelta: () => {
+                  safeSend(event.sender, "chat:activity", {
+                    id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                    type: "reasoning_started",
+                    label: "Thinking deeply...",
+                    status: "running",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                  });
+                },
+                onFirstTextAfterReasoning: () => {
+                  safeSend(event.sender, "chat:activity", {
+                    id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                    type: "reasoning_complete",
+                    label: "Done thinking, writing response...",
+                    status: "done",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
                   });
                 },
               });
@@ -5276,6 +5461,27 @@ For workforce, explain services before request_workspace_permissions.`;
                         chatId: req.chatId,
                         phase: "responding",
                         label: "",
+                      });
+                    },
+                    onFirstTextDelta: logTtftOnce,
+                    onFirstReasoningDelta: () => {
+                      safeSend(event.sender, "chat:activity", {
+                        id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                        type: "reasoning_started",
+                        label: "Thinking deeply...",
+                        status: "running",
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                      });
+                    },
+                    onFirstTextAfterReasoning: () => {
+                      safeSend(event.sender, "chat:activity", {
+                        id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                        type: "reasoning_complete",
+                        label: "Done thinking, writing response...",
+                        status: "done",
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
                       });
                     },
                   });

@@ -57,6 +57,21 @@ export function ThinkingCard({
         };
     }, [thoughts, toolCalls, modelReasoning, reasoningTagPresent]);
 
+    const headerTitle = useMemo(() => {
+        const rp = stats.reasoningPresent;
+        const tc = stats.toolCount;
+        const run = stats.isRunning;
+        const th = stats.thoughtCount;
+        if (rp && tc > 0 && run) return "Reasoning & tools…";
+        if (rp && run) return "Reasoning…";
+        if (rp && !run) return "Thought";
+        if (tc > 0 && run) return tc === 1 ? "Using tool…" : "Using tools…";
+        if (tc > 0 && !run) return "Tools";
+        if (th > 0) return "Thinking";
+        if (busExchanges.length > 0) return "Activity";
+        return "Thinking";
+    }, [stats, busExchanges.length]);
+
     if (
         thoughts.length === 0 &&
         !reasoningTagPresent &&
@@ -98,7 +113,7 @@ export function ThinkingCard({
                         "font-medium text-slate-200 truncate",
                         compact ? "text-xs" : "text-sm",
                     )}>
-                        Thinking
+                        {headerTitle}
                         {stats.isRunning && (
                             <Loader2 className="w-3 h-3 inline ml-2 animate-spin text-amber-400" />
                         )}

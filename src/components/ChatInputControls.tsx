@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { chatMessagesByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
@@ -46,6 +46,12 @@ export function ChatInputControls({
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const { apps, refreshApps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const messagesByChatId = useAtomValue(chatMessagesByIdAtom);
+  const threadChatId = chatId ?? selectedChatId;
+  const threadMessages =
+    threadChatId != null ? messagesByChatId.get(threadChatId) : undefined;
+  const hasUserMessageInThread =
+    threadMessages?.some((m) => m.role === "user") ?? false;
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
   const [configSubView, setConfigSubView] = useState<
@@ -143,7 +149,7 @@ export function ChatInputControls({
 
   return (
     <div className="flex flex-col gap-1">
-      {!appId && (
+      {!appId && !hasUserMessageInThread && (
         <NoWorkspaceBanner className="mb-1" onOpenWorkspace={handleOpenWorkspace} />
       )}
 

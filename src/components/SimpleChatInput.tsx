@@ -177,7 +177,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
                 {/* Model switcher and controls */}
                 <div className="px-2 pb-2 flex items-center justify-between gap-2">
-                    <ChatInputControls />
+                    <ChatInputControls chatId={chatId} />
                     <Popover open={tokenUsagePopoverOpen} onOpenChange={setTokenUsagePopoverOpen}>
                         <TooltipProvider>
                             <Tooltip>

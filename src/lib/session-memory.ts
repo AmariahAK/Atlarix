@@ -109,21 +109,32 @@ export class SessionMemory {
      * Returns empty string if no context yet
      */
     getContextForPrompt(): string {
+        return this.getContextForPromptMaxExchanges(this.maxExchanges);
+    }
+
+    /**
+     * Same as getContextForPrompt but keeps only the last `max` exchanges (for context budget pruning).
+     */
+    getContextForPromptMaxExchanges(max: number): string {
         if (this.context.exchanges.length === 0 && !this.context.currentTask) {
             return '';
         }
 
+        const cap = Math.max(1, Math.floor(max));
+        const exchanges =
+            this.context.exchanges.length > cap
+                ? this.context.exchanges.slice(-cap)
+                : [...this.context.exchanges];
+
         const parts: string[] = ['## Session Context'];
 
-        // Current task
         if (this.context.currentTask) {
             parts.push(`\n**Current Task:** ${this.context.currentTask}`);
         }
 
-        // Recent exchanges
-        if (this.context.exchanges.length > 0) {
+        if (exchanges.length > 0) {
             parts.push('\n**Recent Conversation:**');
-            this.context.exchanges.forEach((ex, i) => {
+            exchanges.forEach((ex, i) => {
                 parts.push(`${i + 1}. User: ${ex.user}`);
                 parts.push(`   Assistant: ${ex.assistant}`);
                 if (ex.toolsUsed && ex.toolsUsed.length > 0) {
@@ -132,7 +143,6 @@ export class SessionMemory {
             });
         }
 
-        // Errors
         if (this.context.errors.length > 0) {
             parts.push('\n**Recent Errors:**');
             this.context.errors.forEach((err, i) => {

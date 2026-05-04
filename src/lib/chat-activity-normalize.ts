@@ -31,6 +31,8 @@ const VALID_TYPES = new Set<string>([
   "duration_limit_reached",
   "loop_detected",
   "loop_repetition_aborted",
+  "reasoning_started",
+  "reasoning_complete",
 ]);
 
 function normStatus(s: unknown): ActivityStreamItem["status"] {

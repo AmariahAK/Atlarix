@@ -68,10 +68,11 @@ import {
     resolveReasoningCatalogModelId,
     hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
-import {
-    needsOpenRouterContextSafety,
-    resolveContextBudgetTier,
-} from "@/lib/routing/context_budget_routing";
+import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
+import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
+import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
+import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
+import type { ModelTier } from "@/lib/routing/capability-registry";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { captureSafe } from "../../main/lib/analytics";
 import { parseQuestions } from "../utils/cleanFullResponse";
@@ -617,41 +618,6 @@ export async function handleChatOnlyStream(
             }
         }
 
-        const chatOnlyProviderOptions: Record<string, unknown> = {
-            "dyad-gateway": getExtraProviderOptions(
-                modelClient.builtinProviderId,
-                settings,
-                thinkingTierEffective,
-            ),
-        };
-        if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
-            chatOnlyProviderOptions.openrouter = {
-                plugins: [{ id: "context-compression" }],
-            };
-        }
-        if (thinkingTierEffective) {
-            const catalogModelId = resolveReasoningCatalogModelId(
-                effectiveModel as LargeLanguageModel,
-            );
-            const cap = detectReasoningCapability(
-                catalogModelId,
-                modelClient.builtinProviderId,
-            );
-            const reasoningPatch = buildReasoningProviderOptions(cap, true);
-            if (reasoningPatch.openrouter) {
-                chatOnlyProviderOptions.openrouter = {
-                    ...(chatOnlyProviderOptions.openrouter as Record<string, unknown>),
-                    ...reasoningPatch.openrouter,
-                };
-            }
-            if (reasoningPatch.google) {
-                chatOnlyProviderOptions.google = reasoningPatch.google;
-            }
-            if (reasoningPatch.openai) {
-                chatOnlyProviderOptions.openai = reasoningPatch.openai;
-            }
-        }
-
         // No workspace = read-only only (no write/run/delegation) + global MCP tools when provided
         const availableTools = ToolRegistry.getToolsForNoWorkspace();
         logger.log(`Chat-only mode (read-only): ${availableTools.length} built-in tools available`);
@@ -847,6 +813,65 @@ export async function handleChatOnlyStream(
             systemPrompt += `\n\n${deepThinkCounselPromptBlock.trim()}`;
         }
 
+        const chatOnlyProviderOptions: Record<string, unknown> = {
+            "dyad-gateway": getExtraProviderOptions(
+                modelClient.builtinProviderId,
+                settings,
+                thinkingTierEffective,
+            ),
+        };
+        const mapChatOnlyTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
+            if (t === "thinking") return "thinking";
+            if (t === "balanced") return "balanced";
+            return "fast";
+        };
+        const { tierLimit: chatOnlyTierLimit } = await resolveModelContextLimit(
+            effectiveModel as LargeLanguageModel,
+            settings,
+        );
+        const chatOnlyDispatchEst = estimateDispatchTokens({
+            systemPrompt,
+            history: messageHistory as { role: string; content?: string }[],
+            codebasePrefixMessages: [],
+            otherCodebasePrefixMessages: [],
+        });
+        const chatOnlyBudget = new ContextBudgetTracker(
+            chatOnlyTierLimit,
+            chatOnlyDispatchEst,
+            mapChatOnlyTierLabel(contextBudgetTier),
+        );
+        if (
+            (modelClient.builtinProviderId === "openrouter" ||
+                modelClient.builtinProviderId === "compass") &&
+            (chatOnlyBudget.isCritical() || chatOnlyBudget.isOverLimit())
+        ) {
+            chatOnlyProviderOptions.openrouter = {
+                plugins: [{ id: "context-compression" }],
+            };
+        }
+        if (thinkingTierEffective) {
+            const catalogModelId = resolveReasoningCatalogModelId(
+                effectiveModel as LargeLanguageModel,
+            );
+            const cap = detectReasoningCapability(
+                catalogModelId,
+                modelClient.builtinProviderId,
+            );
+            const reasoningPatch = buildReasoningProviderOptions(cap, true);
+            if (reasoningPatch.openrouter) {
+                chatOnlyProviderOptions.openrouter = {
+                    ...(chatOnlyProviderOptions.openrouter as Record<string, unknown>),
+                    ...reasoningPatch.openrouter,
+                };
+            }
+            if (reasoningPatch.google) {
+                chatOnlyProviderOptions.google = reasoningPatch.google;
+            }
+            if (reasoningPatch.openai) {
+                chatOnlyProviderOptions.openai = reasoningPatch.openai;
+            }
+        }
+
         let fullResponse = "";
         let chatOnlyStreamMessages: ModelMessage[] = messageHistory as ModelMessage[];
         let chatOnlyContinuationAttempts = 0;
@@ -954,7 +979,9 @@ export async function handleChatOnlyStream(
                         let chunk = "";
                         if (
                             inThinkingBlock &&
-                            !["reasoning-delta", "reasoning-start"].includes(part.type)
+                            !["reasoning-delta", "reasoning-start", "reasoning-end"].includes(
+                                part.type,
+                            )
                         ) {
                             chunk = "</think>";
                             inThinkingBlock = false;

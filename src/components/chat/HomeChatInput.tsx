@@ -192,7 +192,7 @@ export function HomeChatInput({
             )}
           </div>
           <div className="px-2 pb-2">
-            <ChatInputControls />
+            <ChatInputControls chatId={activeChatId ?? undefined} />
           </div>
 
           {usesCompass && compassLimit != null && compassLimit > 0 ? (

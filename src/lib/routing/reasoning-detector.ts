@@ -132,6 +132,8 @@ export function buildReasoningProviderOptions(
 
   if (cap.useOpenRouterReasoning) {
     patch.openrouter = {
+      /** OpenRouter: stream `reasoning_details` / reasoning deltas (needed for many models, including Compass). */
+      include_reasoning: true,
       reasoning: {
         enabled: true,
         effort: "medium",

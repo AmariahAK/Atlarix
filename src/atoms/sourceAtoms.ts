@@ -201,7 +201,9 @@ export interface ActivityStreamItem {
     | 'plan_created'
     | 'duration_limit_reached'
     | 'loop_detected'
-    | 'loop_repetition_aborted';
+    | 'loop_repetition_aborted'
+    | 'reasoning_started'
+    | 'reasoning_complete';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
   tokens?: number;

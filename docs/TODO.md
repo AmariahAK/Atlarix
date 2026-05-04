@@ -1,7 +1,17 @@
 # Atlarix TODO
 
-**Current Version:** v7.1.0  
+**Current Version:** v7.1.1  
 **Last Updated:** 2026-05-03
+
+---
+
+## Shipped in v7.1.1
+
+| Area | Status | Notes |
+|------|--------|--------|
+| No-workspace CTA after first user message | **Done** | `ChatInputControls`: hide `NoWorkspaceBanner` when thread has a user turn (`chatMessagesByIdAtom` + `chatId` / `selectedChatId`); `HomeChatInput` / `SimpleChatInput` pass `chatId` |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.1.1.
 
 ---
 
