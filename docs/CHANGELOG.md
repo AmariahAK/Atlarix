@@ -1,5 +1,16 @@
 # Atlarix Changelog
 
+## [8.0.3] (2026-05-07)
+
+### Release highlights
+
+- **OpenRouter BYOK:** First-class **OpenRouter (bring your own key)** next to **Compass** — provider in settings, dynamic model list from OpenRouter API, encrypted settings + env `OPENROUTER_API_KEY` + DB keys, **`get_model_client`** path with shared `OPENROUTER_APP_HEADERS`, Auto config and quick-switch in Config dropdown when a key is present, token budget parity.
+- **Electron packaging robustness:** Main bundle externalizes **`@anthropic-ai/tokenizer` / `tiktoken` / `pdfjs-dist`** where filesystem-relative assets are required; Forge **`packageAfterPrune`** maps Rollup subpath externals to npm package roots and merges worker externals; **`@lydell/node-pty`** included in Electron rebuild; packager **`ignore`** allows required `node_modules` subtrees.
+- **`npm run package` / `make` / `publish`:** `NODE_OPTIONS=--max-old-space-size=8192` via `cross-env` to reduce Vite OOM on large production builds.
+- **Quit diagnostics:** Main process logs **`[lifecycle] before-quit`** / **`will-quit`** with **RSS / heap** to help trace silent app exits via `electron-log`.
+
+---
+
 ## [8.0.1] (2026-05-07)
 
 ### Release highlights

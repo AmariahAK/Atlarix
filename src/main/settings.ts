@@ -166,16 +166,6 @@ export function readSettings(): UserSettings {
     if (validatedSettings.proSmartContextOption === "conservative") {
       validatedSettings.proSmartContextOption = undefined;
     }
-    // v5.1: OpenRouter removed from product UI; migrate to Compass
-    if (validatedSettings.selectedModel?.provider === "openrouter") {
-      validatedSettings.selectedModel = {
-        provider: "compass",
-        name: "compass-fast",
-      };
-    }
-    if (validatedSettings.autoProviderId === "openrouter") {
-      validatedSettings.autoProviderId = "compass";
-    }
     return validatedSettings;
   } catch (error) {
     logger.error("Error reading settings:", error);

@@ -52,6 +52,7 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   cohere: "COHERE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
   cerebras: "CEREBRAS_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -67,6 +68,12 @@ export const CLOUD_PROVIDERS: Record<
   compass: {
     displayName: "Compass",
     hasFreeTier: false,
+    gatewayPrefix: "",
+  },
+  openrouter: {
+    displayName: "OpenRouter (BYOK)",
+    hasFreeTier: true,
+    websiteUrl: "https://openrouter.ai/keys",
     gatewayPrefix: "",
   },
   openai: {

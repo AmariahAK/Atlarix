@@ -6,9 +6,19 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v8.0.1**
+**Current release:** **v8.0.3**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+
+---
+
+## v8.0.3
+
+- **OpenRouter BYOK:** bring-your-own-key OpenRouter alongside Compass (settings, model list API, Auto routing shortcut, token budget parity with other cloud APIs).
+- **Packaging:** hardened Electron/Vite packaging for native-heavy deps (`tiktoken` wasm, optional `pdfjs-dist`, Forge prune `npm install` roots, elevated Node heap for `npm run package` / `make` / `publish`).
+- **Diagnostics:** main-process `[lifecycle]` logging on quit with memory snapshot to trace silent exits (`electron-log`).
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -25,8 +35,6 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 - **OpenRouter app identification:** `X-Title` and `HTTP-Referer` headers added
 - **Tool spinner reconciliation:** no more stuck running indicators after stream ends
 - **Debug instrumentation removed:** `hypothesisId` and `debugLog` cleanup
-
-Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 

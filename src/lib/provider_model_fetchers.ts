@@ -8,6 +8,7 @@
 
 import log from "electron-log";
 import type { LanguageModel } from "@/ipc/ipc_types";
+import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
 import { getEnvVar } from "@/ipc/utils/read_env";
 
 const logger = log.scope("provider_fetchers");
@@ -517,6 +518,60 @@ export async function fetchModelsFromElastic(
   }
 }
 
+export async function fetchModelsFromOpenRouter(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  const cached = fromCache("openrouter");
+  if (cached) return cached;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...OPENROUTER_APP_HEADERS,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as {
+      data?: Array<{
+        id: string;
+        name?: string;
+        architecture?: {
+          modality?: string;
+        };
+        context_length?: number;
+      }>;
+    };
+    const items = data.data ?? [];
+    const models: LanguageModel[] = items
+      .filter((m) => {
+        const id = (m.id ?? "").toLowerCase();
+        if (!id || id.includes("embed")) return false;
+        const mod = (m.architecture?.modality ?? "").toLowerCase();
+        if (mod && mod !== "text" && mod !== "multimodal" && !mod.includes("text")) {
+          return false;
+        }
+        return true;
+      })
+      .map((m) => ({
+        apiName: m.id,
+        displayName: m.name ?? m.id,
+        description: "OpenRouter-hosted model",
+        contextWindow: m.context_length,
+        type: "cloud" as const,
+        supportsToolChoice: true,
+      }));
+    sortModels(models);
+    toCache("openrouter", models);
+    logger.info(`[OpenRouter] Fetched ${models.length} models`);
+    return models;
+  } catch (e) {
+    logger.warn("[OpenRouter] Fetch failed", e);
+    return [];
+  }
+}
+
 const FETCHERS: Record<
   string,
   (apiKey: string) => Promise<LanguageModel[]>
@@ -534,6 +589,7 @@ const FETCHERS: Record<
   cohere: fetchModelsFromCohere,
   perplexity: fetchModelsFromPerplexity,
   cerebras: fetchModelsFromCerebras,
+  openrouter: fetchModelsFromOpenRouter,
 };
 
 export async function fetchModelsFromProvider(

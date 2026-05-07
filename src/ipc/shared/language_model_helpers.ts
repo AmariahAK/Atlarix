@@ -83,9 +83,12 @@ export async function getLanguageModelProviders(): Promise<
   }
 
   hardcodedProviders.sort((a, b) => {
-    if (a.id === COMPASS_PROVIDER_ID) return -1;
-    if (b.id === COMPASS_PROVIDER_ID) return 1;
-    return 0;
+    const pin = (id: string) =>
+      id === COMPASS_PROVIDER_ID ? 0 : id === "openrouter" ? 1 : 2;
+    const da = pin(a.id);
+    const db = pin(b.id);
+    if (da !== db) return da - db;
+    return a.id.localeCompare(b.id);
   });
 
   return [...hardcodedProviders, ...customProvidersMap.values()];
@@ -154,11 +157,17 @@ export async function getLanguageModels({
   if (provider.type === "cloud") {
     let apiKey: string | undefined;
     try {
+      const { readSettings } = await import("@/main/settings");
+      const settings = readSettings();
+      const fromSettings = (
+        settings.providerSettings?.[providerId]?.apiKey?.value ?? ""
+      ).trim();
       apiKey =
+        (fromSettings || undefined) ??
         (await getProviderApiKey(providerId)) ??
         (provider.envVarName ? getEnvVar(provider.envVarName) : undefined);
     } catch {
-      // DB not available (e.g. renderer process)
+      // DB / settings not available (e.g. wrong process)
     }
 
     if (!apiKey) {

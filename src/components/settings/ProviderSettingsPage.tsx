@@ -28,7 +28,7 @@ import { OllamaRecommenderPanel } from "./OllamaRecommenderPanel";
 const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google",
   "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
-  "nvidia_nim", "cohere", "perplexity", "cerebras",
+  "nvidia_nim", "cohere", "perplexity", "cerebras", "openrouter",
 ];
 
 interface ProviderSettingsPageProps {

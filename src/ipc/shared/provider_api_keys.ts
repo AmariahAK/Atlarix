@@ -64,7 +64,5 @@ export async function getConfiguredProviders(): Promise<string[]> {
         .select({ providerId: providerApiKeys.providerId })
         .from(providerApiKeys);
 
-    return results
-        .map((r) => r.providerId)
-        .filter((id) => id !== "openrouter");
+    return results.map((r) => r.providerId);
 }

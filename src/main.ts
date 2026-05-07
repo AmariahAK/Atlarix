@@ -872,7 +872,21 @@ function handleDeepLinkReturn(url: string) {
 // v5.0: Flush project memory snapshots on quit (session_end), then abort streams
 let quittingAfterProjectMemoryFlush = false;
 app.on("before-quit", (e) => {
-  if (quittingAfterProjectMemoryFlush) return;
+  const mu = process.memoryUsage();
+  if (quittingAfterProjectMemoryFlush) {
+    logger.info("[lifecycle] before-quit reentry after flush/session work", {
+      rss: mu.rss,
+      heapUsed: mu.heapUsed,
+    });
+    return;
+  }
+  logger.info("[lifecycle] before-quit initiating flush+abortStreams", {
+    rss: mu.rss,
+    heapUsed: mu.heapUsed,
+    heapTotal: mu.heapTotal,
+    external: mu.external,
+    arrayBuffers: mu.arrayBuffers,
+  });
   e.preventDefault();
   quittingAfterProjectMemoryFlush = true;
   void (async () => {
@@ -903,7 +917,9 @@ app.on("window-all-closed", () => {
 
 // Only set isRunning to false when the app is properly quit by the user
 app.on("will-quit", () => {
-  logger.info("App is quitting, setting isRunning to false");
+  logger.info("App is quitting, setting isRunning to false", {
+    memory: process.memoryUsage(),
+  });
   analyticsShutdown();
 
   // Stop performance monitoring and capture final metrics

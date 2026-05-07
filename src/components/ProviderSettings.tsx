@@ -37,6 +37,7 @@ import { CreateCustomProviderDialog } from "./CreateCustomProviderDialog";
 import { cn } from "@/lib/utils";
 
 const COMPASS_ID = "compass";
+const OPENROUTER_ID = "openrouter";
 const PAGE_SIZE = 6;
 
 function shuffleArray<T>(items: T[]): T[] {
@@ -90,7 +91,9 @@ export function ProviderSettingsGrid() {
   );
 
   const reshuffleForDisplay = useCallback(() => {
-    const rest = filtered.filter((p) => p.id !== COMPASS_ID);
+    const rest = filtered.filter(
+      (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
+    );
     setShuffledNonCompass(shuffleArray(rest));
     setPage(1);
   }, [filtered]);
@@ -102,18 +105,33 @@ export function ProviderSettingsGrid() {
 
   const orderedForPaging = useMemo(() => {
     const compass = filtered.find((p) => p.id === COMPASS_ID);
+    const openrouter = filtered.find((p) => p.id === OPENROUTER_ID);
     const q = searchQuery.trim().toLowerCase();
     const compassVisible =
       compass &&
       (!q ||
         compass.name.toLowerCase().includes(q) ||
         compass.id.toLowerCase().includes(q));
-    if (compassVisible) {
-      return [compass, ...shuffledNonCompass.filter((p) => p.id !== COMPASS_ID)];
+    const openrouterVisible =
+      openrouter &&
+      (!q ||
+        openrouter.name.toLowerCase().includes(q) ||
+        openrouter.id.toLowerCase().includes(q));
+
+    const tail = shuffledNonCompass.filter(
+      (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
+    );
+
+    if (compassVisible && openrouterVisible) {
+      return [compass, openrouter, ...tail];
     }
-    return shuffledNonCompass.length > 0
-      ? shuffledNonCompass
-      : filtered;
+    if (compassVisible) {
+      return [compass, ...tail];
+    }
+    if (openrouterVisible) {
+      return [openrouter, ...tail];
+    }
+    return shuffledNonCompass.length > 0 ? shuffledNonCompass : filtered;
   }, [filtered, searchQuery, shuffledNonCompass]);
 
   const totalPages = Math.max(1, Math.ceil(orderedForPaging.length / PAGE_SIZE));

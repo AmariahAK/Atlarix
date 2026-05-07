@@ -1,7 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v8.0.1
+**Current Version:** v8.0.3
 **Last Updated:** 2026-05-07
+
+---
+
+## Shipped in v8.0.3
+
+| Area | Status | Notes |
+|------|--------|-------|
+| OpenRouter BYOK | **Done** | Provider + model fetch + `get_model_client`; Compass unchanged; settings migration (openrouter→compass) removed |
+| Packaging (tiktoken / pdfjs / prune install) | **Done** | `vite.main.config.mts` externals; `forge.config.ts` ignore + `packageAfterPrune` npm roots |
+| Package build heap | **Done** | `cross-env NODE_OPTIONS=--max-old-space-size=8192` on package/make/publish |
+| Quit lifecycle logs | **Done** | `main.ts` `[lifecycle]` memory on `before-quit` / `will-quit` |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.0.3]`.
 
 ---
 

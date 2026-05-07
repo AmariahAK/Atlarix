@@ -79,6 +79,9 @@ export function getFastModelForCurrentProvider(
   if (effective.provider === "compass") {
     return { provider: "compass", name: COMPASS_TIER_FAST };
   }
+  if (effective.provider === "openrouter" && effective.name?.trim()) {
+    return { provider: "openrouter", name: effective.name.trim() };
+  }
   const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
   if (effective.provider === "ollama" && ollamaFavs?.length) {
     return { provider: "ollama", name: ollamaFavs[0] };
@@ -109,6 +112,9 @@ export function getBalancedModelForCurrentProvider(
   if (effective.provider === "compass") {
     return { provider: "compass", name: COMPASS_TIER_BALANCED };
   }
+  if (effective.provider === "openrouter" && effective.name?.trim()) {
+    return { provider: "openrouter", name: effective.name.trim() };
+  }
   const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
   if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 2) {
     return { provider: "ollama", name: ollamaFavs[1] };
@@ -138,6 +144,9 @@ export function getThinkingModelForCurrentProvider(
   if (!effective?.provider) return null;
   if (effective.provider === "compass") {
     return { provider: "compass", name: COMPASS_TIER_THINKING };
+  }
+  if (effective.provider === "openrouter" && effective.name?.trim()) {
+    return { provider: "openrouter", name: effective.name.trim() };
   }
   const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
   if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 3) {
@@ -210,6 +219,7 @@ const dyadEngineUrl = process.env.DYAD_ENGINE_URL;
 /** Default model per provider when using "Auto" (Compass first when key present — usage + product default). */
 const AUTO_MODELS = [
   { provider: "compass", name: COMPASS_TIER_FAST },
+  { provider: "openrouter", name: "openai/gpt-4o-mini" },
   { provider: "google", name: "gemini-2.5-flash" },
   { provider: "anthropic", name: "claude-sonnet-4-20250514" },
   { provider: "openai", name: "gpt-4.1" },
@@ -620,6 +630,24 @@ async function getRegularModelClient(
         modelClient: {
           model: models.length === 1 ? models[0]! : createFallback({ models }),
           builtinProviderId: "compass",
+        },
+        backupModelClients: [],
+      };
+    }
+    case "openrouter": {
+      if (!apiKey) {
+        throw new Error(
+          "OpenRouter API key required. Add it under Settings → OpenRouter (BYOK) or set OPENROUTER_API_KEY.",
+        );
+      }
+      const or = createOpenRouter({
+        apiKey,
+        headers: { ...OPENROUTER_APP_HEADERS },
+      });
+      return {
+        modelClient: {
+          model: or(model.name),
+          builtinProviderId: providerId,
         },
         backupModelClients: [],
       };

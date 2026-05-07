@@ -5,6 +5,7 @@
 
 import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
+import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import {
   blueprintInjectionChatOverrideAtom,
   forceDeepThinkNextAtom,
@@ -83,6 +84,7 @@ function showDeepThinkNextToggle(settings: UserSettings | undefined | null): boo
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   compass: "Compass",
+  openrouter: "OpenRouter",
   ollama: "Ollama",
   lmstudio: "LM Studio",
   openai: "OpenAI",
@@ -175,6 +177,8 @@ export function ChatConfigDropdown({
       .catch(() => setCompassBuildOk(false));
   }, []);
 
+  const { isProviderSetup } = useLanguageModelProviders();
+
   const ollamaFavs =
     (settings?.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds ?? [];
   const lmStudioFavs =
@@ -185,13 +189,14 @@ export function ChatConfigDropdown({
 
   const providersForAuto = [
     compassBuildOk && { id: "compass", name: "Compass" },
+    isProviderSetup("openrouter") && { id: "openrouter", name: "OpenRouter" },
     ollamaFavs.length >= 1 && { id: "ollama", name: "Ollama" },
     lmStudioFavs.length >= 1 && { id: "lmstudio", name: "LM Studio" },
     // Include current auto provider if it has tier model(s) configured and isn't already listed
     autoProviderId &&
       Array.isArray(autoModelIds) &&
       autoModelIds.filter(Boolean).length >= 1 &&
-      !["compass", "ollama", "lmstudio"].includes(autoProviderId) && {
+      !["compass", "openrouter", "ollama", "lmstudio"].includes(autoProviderId) && {
         id: autoProviderId,
         name: autoProviderId.charAt(0).toUpperCase() + autoProviderId.slice(1),
       },
