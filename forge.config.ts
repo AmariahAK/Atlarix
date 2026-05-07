@@ -17,6 +17,17 @@ import { rebuild } from "@electron/rebuild";
 /** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
+/** Rollup `external` may use subpaths (`tiktoken/lite`, `pdfjs-dist/build/foo`); `npm install` needs the package root. */
+function rollupExternalIdToNpmPackageRoot(id: string): string {
+  if (!id || id.startsWith("node:")) return id;
+  if (id.startsWith("@")) {
+    const parts = id.split("/");
+    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : id;
+  }
+  const slash = id.indexOf("/");
+  return slash === -1 ? id : id.slice(0, slash);
+}
+
 // Based on https://github.com/electron/forge/blob/6b2d547a7216c30fde1e1fddd1118eee5d872945/packages/plugin/vite/src/VitePlugin.ts#L124
 const ignore = (file: string) => {
   if (!file) return false;
@@ -49,6 +60,16 @@ const ignore = (file: string) => {
     return false;
   }
   if (file.startsWith("/node_modules/keytar")) {
+    return false;
+  }
+  // tiktoken ships tiktoken_bg.wasm next to lite/*.cjs — must stay unpackaged from Rollup with real __dirname (see vite.main.config external).
+  if (file.startsWith("/node_modules/tiktoken")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/@anthropic-ai/tokenizer")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/pdfjs-dist")) {
     return false;
   }
   if (file.startsWith("/node_modules/bindings")) {
@@ -100,6 +121,7 @@ const config: ForgeConfig = {
     extraModules: [
       "better-sqlite3",
       "keytar",
+      "@lydell/node-pty",
       "tree-sitter",
       "tree-sitter-typescript",
       "tree-sitter-javascript",
@@ -161,33 +183,26 @@ const config: ForgeConfig = {
       arch: string,
     ) => {
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
+      const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
       const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
-      const raw =
-        viteMainConfig?.default?.build?.rollupOptions?.external;
-      const externalList: string[] = Array.isArray(raw)
-        ? raw
+      const mainExternalsFallback: string[] = Array.isArray(viteMainConfig.mainRollupExternals)
+        ? [...viteMainConfig.mainRollupExternals]
+        : [];
+      const raw = viteMainConfig?.default?.build?.rollupOptions?.external;
+      let externalList: string[] = Array.isArray(raw)
+        ? raw.map(String)
         : typeof raw === "function"
-          ? [
-              "better-sqlite3",
-              "keytar",
-              "tree-sitter",
-              "tree-sitter-typescript",
-              "tree-sitter-javascript",
-              "tree-sitter-python",
-              "mysql2",
-              "ai",
-              "@ai-sdk/provider",
-              "@ai-sdk/openai",
-              "@ai-sdk/anthropic",
-              "@ai-sdk/google",
-              "@ai-sdk/google-vertex",
-              "@ai-sdk/azure",
-              "@ai-sdk/xai",
-              "@ai-sdk/amazon-bedrock",
-              "@ai-sdk/openai-compatible",
-              "@ai-sdk/provider-utils",
-            ]
-          : [];
+          ? mainExternalsFallback
+          : mainExternalsFallback;
+      try {
+        const viteWorkerConfig = await import(pathToFileURL(workerConfigPath).href);
+        const workerRaw = viteWorkerConfig?.default?.build?.rollupOptions?.external;
+        if (Array.isArray(workerRaw)) {
+          externalList = [...externalList, ...workerRaw.map(String)];
+        }
+      } catch {
+        /* worker config optional */
+      }
       const builtins = new Set([
         "electron",
         "fs",
@@ -199,9 +214,12 @@ const config: ForgeConfig = {
         "os",
         "child_process",
       ]);
-      const toInstall = externalList.filter(
-        (id) => !id.startsWith("node:") && !builtins.has(id)
-      );
+      const npmRoots = new Set<string>();
+      for (const id of externalList) {
+        if (!id || id.startsWith("node:") || builtins.has(id)) continue;
+        npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
+      }
+      const toInstall = [...npmRoots];
       if (toInstall.length > 0) {
         const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
         await new Promise<void>((resolve, reject) => {
@@ -245,6 +263,7 @@ const config: ForgeConfig = {
         extraModules: [
           "better-sqlite3",
           "keytar",
+          "@lydell/node-pty",
           "tree-sitter",
           "tree-sitter-typescript",
           "tree-sitter-javascript",

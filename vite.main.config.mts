@@ -38,19 +38,47 @@ const MAIN_KEYS = [
   "TEMPLATE_TOKEN",
 ] as const;
 
+/** Keep in sync with `forge.config.ts` `packageAfterPrune` (named export for fallback + npm install roots). */
+export const mainRollupExternals: readonly string[] = [
+  // WASM / filesystem-relative assets — bundling breaks __dirname (e.g. Missing tiktoken_bg.wasm).
+  "@anthropic-ai/tokenizer",
+  "tiktoken/lite",
+  "tiktoken",
+  // pdfjs: worker + standard_fonts + wasm resolved via require/import from real package dir (attachment-tools).
+  "pdfjs-dist",
+  "better-sqlite3",
+  "keytar",
+  "tree-sitter",
+  "tree-sitter-typescript",
+  "tree-sitter-javascript",
+  "tree-sitter-python",
+  "mysql2",
+  "@lydell/node-pty",
+  "ai",
+  "@ai-sdk/provider",
+  "@ai-sdk/openai",
+  "@ai-sdk/anthropic",
+  "@ai-sdk/google",
+  "@ai-sdk/google-vertex",
+  "@ai-sdk/azure",
+  "@ai-sdk/xai",
+  "@ai-sdk/amazon-bedrock",
+  "@ai-sdk/openai-compatible",
+  "@ai-sdk/provider-utils",
+  "@ai-sdk/mcp",
+  "recast",
+  "ast-types",
+  "@babel/parser",
+  "@babel/traverse",
+  "@babel/generator",
+];
+
 // https://vitejs.dev/config
 export default defineConfig({
   // NO assetsInclude for .sql — conflicts with raw-sql inlining for bundled.generated.ts.
   ssr: {
     noExternal: [],
-    external: [
-      "keytar",
-      "better-sqlite3",
-      "tree-sitter",
-      "tree-sitter-typescript",
-      "tree-sitter-javascript",
-      "tree-sitter-python",
-    ],
+    external: [...mainRollupExternals],
   },
   resolve: {
     alias: {
@@ -61,39 +89,9 @@ export default defineConfig({
     MAIN_KEYS.map((k) => [`process.env.${k}`, JSON.stringify(process.env[k] ?? "")])
   ),
   build: {
+    // elkjs remains bundled (lazy import). OpenTelemetry is bundled for packaged resolution.
     rollupOptions: {
-      external: [
-        "better-sqlite3",
-        "keytar",
-        "tree-sitter",
-        "tree-sitter-typescript",
-        "tree-sitter-javascript",
-        "tree-sitter-python",
-        "mysql2",
-        // @lydell/node-pty has pre-built native binaries (.node files) that cannot be bundled
-        "@lydell/node-pty",
-        // elkjs is bundled (use main entry 'elkjs' in code so it bundles without defineProperty issues).
-        // OpenTelemetry packages are bundled so the packaged app finds them (no runtime require from node_modules).
-        // Externalize AI SDK packages to avoid "Object.defineProperty called on non-object" when bundled (flow/node exports interop).
-        "ai",
-        "@ai-sdk/provider",
-        "@ai-sdk/openai",
-        "@ai-sdk/anthropic",
-        "@ai-sdk/google",
-        "@ai-sdk/google-vertex",
-        "@ai-sdk/azure",
-        "@ai-sdk/xai",
-        "@ai-sdk/amazon-bedrock",
-        "@ai-sdk/openai-compatible",
-        "@ai-sdk/provider-utils",
-        "@ai-sdk/mcp",
-        // Externalize Babel/recast so @babel/generator's flow/classes submodules initialize in correct order (avoid defineProperty on undefined).
-        "recast",
-        "ast-types",
-        "@babel/parser",
-        "@babel/traverse",
-        "@babel/generator",
-      ],
+      external: [...mainRollupExternals],
     },
   },
   plugins: [
