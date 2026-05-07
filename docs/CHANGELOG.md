@@ -7,6 +7,7 @@
 - **Windows / symlink permissions:** Fallback file discovery skips paths that throw **EACCES** / **EPERM** instead of failing the scan; warns in logs and ships **`fileDiscoveryWarnings`** on **`get-app`** with a toast when folders are unreadable (e.g. Python **venv**/ **lib64** without Developer Mode).
 - **Renderer memory pressure:** Chromium **V8** old-space **`--max-old-space-size=4096`** via **`js-flags`** at startup; autonomous parallel specialist runs capped to **two** concurrent delegations; **`extractCodebase`** formats and **`sortFilesByModificationTime`** stats run **serialized** instead of **`Promise.all`** bursts.
 - **Main-process RSS logging:** **`performance_monitor`** emits tiered **`electron-log`** warnings at **1200 MB** / **1800 MB** RSS (with hysteresis) to correlate heavy sessions with silence-before-quit diagnostics.
+- **Dev installs:** Root **`postinstall`** runs **`electron/install.js`** so the **Electron** binary is present when **`dist/`** was left without **`Electron.app`** (fixes **`spawn .../Electron ENOENT`** on **`npm start`**).
 
 ---
 
