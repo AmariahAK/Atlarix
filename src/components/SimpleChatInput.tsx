@@ -52,7 +52,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     // Prevent double-submit when clicking rapidly or "Fix with AI" triggers re-renders
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
-
+    const attachDisabled = isStreaming || mustSignIn;
+    const sendDisabled = (isSubmitting || isStreaming || mustSignIn || (!inputValue.trim() && attachments.length === 0));
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         if (!isStreaming && !mustSignIn) {
@@ -77,9 +78,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             file,
             type: "chat-context",
         }));
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U1',location:'SimpleChatInput.tsx:handleDrop',message:'Drop attachments',data:{chatId,newCount:newAttachments.length,names:newAttachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
         setAttachments(prev => [...prev, ...newAttachments]);
     }, [isStreaming, mustSignIn]);
 
@@ -99,9 +97,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             file,
             type: "chat-context",
         }));
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U1',location:'SimpleChatInput.tsx:handleFileSelect',message:'File select attachments',data:{chatId,newCount:newAttachments.length,names:newAttachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
         setAttachments(prev => [...prev, ...newAttachments]);
         e.target.value = '';
     };
@@ -109,12 +104,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const removeAttachment = (index: number) => {
         setAttachments(prev => prev.filter((_, i) => i !== index));
     };
-
-    useEffect(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U3',location:'SimpleChatInput.tsx:attachmentsEffect',message:'Attachments state changed',data:{chatId,count:attachments.length,names:attachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
-    }, [attachments, chatId]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -146,9 +135,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         onSubmit(inputValue, attachments);
         setInputValue("");
         setAttachments([]);
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U2',location:'SimpleChatInput.tsx:handleSubmit',message:'Submitted message (cleared attachments)',data:{chatId,submitAttachmentCount:attachments.length,inputLen:inputValue.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
 
         // Reset submitting guard after a short delay to prevent double-clicks
         setTimeout(() => setIsSubmitting(false), 100);
@@ -243,7 +229,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                                             variant="ghost"
                                             size="icon"
                                             className="mx-1"
-                                            disabled={isStreaming || mustSignIn}
+                                            disabled={attachDisabled}
                                             title="Attach file"
                                         >
                                             <Paperclip className="h-4 w-4" />
@@ -259,21 +245,26 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                                 className="w-full justify-start text-sm gap-2"
                                 onClick={() => {
                                     fileInputRef.current?.click();
-                                    setAttachmentMenuOpen(false);
+                                    // IMPORTANT: do not close the popover here.
+                                    // In Electron, closing can unmount the <input>, preventing the onChange event from firing.
                                 }}
                             >
                                 <Upload className="w-4 h-4" />
                                 Upload from computer
                             </Button>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={handleFileSelect}
-                            />
                         </PopoverContent>
                     </Popover>
+                    {/* Keep file input mounted even when popover closes */}
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                            handleFileSelect(e);
+                            setAttachmentMenuOpen(false);
+                        }}
+                    />
 
                     {/* Send/Stop button */}
                     {isStreaming ? (
@@ -298,7 +289,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             variant="ghost"
                             size="icon"
                             className="mx-1"
-                            disabled={(!inputValue.trim() && attachments.length === 0) || mustSignIn}
+                            disabled={sendDisabled}
                         >
                             <SendIcon className="h-4 w-4" />
                         </Button>

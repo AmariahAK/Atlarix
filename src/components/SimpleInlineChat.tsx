@@ -57,9 +57,7 @@ export function SimpleInlineChat({
     const { streamMessage } = useStreamChat({ hasChatId: false });
 
     useEffect(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'H1',location:'SimpleInlineChat.tsx:mount',message:'SimpleInlineChat mounted',data:{chatId,pathname:typeof window!=='undefined'?window.location.pathname:null,hasChatId:false},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
+        void chatId;
     }, [chatId]);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -106,9 +104,6 @@ export function SimpleInlineChat({
 
     const handleEditUserMessage = useCallback(
         async (messageId: number, newContent: string) => {
-            // #region agent log
-            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'H2',location:'SimpleInlineChat.tsx:handleEditUserMessage',message:'Edit user message invoked',data:{chatId,messageId,newContentLen:newContent?.length??0},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion agent log
             await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
             const chat = await IpcClient.getInstance().getChat(chatId);
             setMessagesById((prev) => {

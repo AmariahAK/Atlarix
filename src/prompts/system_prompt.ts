@@ -154,6 +154,26 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 - **read_url**: when the user gives a specific URL to open—use \`read_url\`, not a blanket web_search on top of deep_research.
 
 If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
+
+<tool_contract>
+The following tools are available in EVERY mode including Ask, Plan, Build, Debug, Review,
+and chat-only (no workspace):
+  - read_attachment({ "attachmentId": "<id>" })
+  - list_attachments({})
+  - compress_context({ "reason": "<optional reason>" })
+    → Call this when you have finished a major subtask or notice context pressure building.
+    → Do NOT call this on every turn. Only when you genuinely need more room.
+  - web_search({ "query": "<query>" })
+
+The following tools require a workspace and are NOT available in chat-only mode:
+  - Any tool that reads or writes project files (read_file, write_file, search_code, etc.)
+  - Blueprint tools (get_blueprint, query_blueprint, etc.)
+  - Diagram tools
+
+Never say a tool is unavailable unless it is explicitly absent from the tool list provided
+to you at session start. If you are uncertain whether a tool is available, call it — do not
+assume it is missing.
+</tool_contract>
 `;
 
     // v7.2: Tech stack removed - AI learns project structure via Blueprint/tools, not forced stack
@@ -170,10 +190,14 @@ You are in **Ask mode**: answer questions and explore the workspace with **read-
 
 **Default:** For questions, explanations, and code understanding — answer directly using read_file, explore_folder, search_code, list_files, and either \`web_search\` **or** \`deep_research\` (never both for the same topic in one turn), plus analysis tools as needed.
 
+read_attachment({ "attachmentId": "<id>" }) and list_attachments({}) ARE available in Ask
+mode and in every other mode. Use them whenever the user has attached a file, regardless of
+whether a workspace is open.
+
 **Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode (or use \`request_mode_change\` toward plan). Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
 
 **Deterministic discovery flow:**
-1. **High-level map first:** Use provided architecture/diagram context (if present) to pick the most relevant area.
+1. **High-level map first:** Pick the most relevant area based on the user's request, then fetch any needed architecture context via tools (do not assume it is pre-provided).
 2. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on likely paths to confirm scope.
 3. **Deep-dive precisely:** Call \`get_blueprint_slice\` for those folders/files, then \`read_file\` only for required details.
 

@@ -558,7 +558,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   <AtlarixMarkdownParser
                     content={message.content}
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
-                    suppressInlineThoughts={liftInlineThoughtsAboveStreamChrome}
+                    suppressInlineThoughts={
+                      liftInlineThoughtsAboveStreamChrome || !isLastMessage
+                    }
                   />
                 </div>
               ) : null}
@@ -627,7 +629,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   <AtlarixMarkdownParser
                     content={message.content}
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
-                    suppressInlineThoughts={liftInlineThoughtsAboveCompletedChrome}
+                    suppressInlineThoughts={
+                      liftInlineThoughtsAboveCompletedChrome || !isLastMessage
+                    }
                   />
                   {showCounselPreview ? (
                     <CounselChatPreview items={counselPreviewItems} />

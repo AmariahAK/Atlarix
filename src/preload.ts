@@ -164,6 +164,12 @@ const validInvokeChannels = [
   "mcp:test-connection",
   "mcp:get-tool-consents",
   "mcp:set-tool-consent",
+  // Skills
+  "skills:fetch-registry",
+  "skills:install",
+  "skills:uninstall",
+  "skills:list",
+  "skills:get-active-for-session",
   // MCP consent response from renderer to main
   "mcp:tool-consent-response",
   // Help

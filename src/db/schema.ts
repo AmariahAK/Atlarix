@@ -830,6 +830,28 @@ export const reviewPatterns = sqliteTable(
   (table) => [index("review_patterns_workspace_idx").on(table.workspaceId)]
 );
 
+// --- Skills (Community registry installs) ---
+// Same skill id can exist in both global and workspace scope, so uniqueness is composite.
+export const installedSkills = sqliteTable(
+  "installed_skills",
+  {
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    author: text("author").notNull(),
+    description: text("description").notNull(),
+    tags: text("tags").notNull(), // JSON: string[]
+    compatibleModes: text("compatible_modes").notNull(), // JSON: string[]
+    installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
+    scope: text("scope").notNull(), // "global" | "workspace"
+    workspacePath: text("workspace_path"), // null when scope === "global"
+    cachedFiles: text("cached_files").notNull(), // JSON: { name, localPath }[]
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.scope, table.workspacePath] }),
+  }),
+);
+
 export const pivotNodesRelations = relations(pivotNodes, ({ one }) => ({
   workspace: one(apps, {
     fields: [pivotNodes.workspaceId],

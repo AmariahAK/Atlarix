@@ -33,6 +33,7 @@ import { registerPortalHandlers } from "./handlers/portal_handlers";
 import { registerPromptHandlers } from "./handlers/prompt_handlers";
 import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
+import { registerSkillsHandlers } from "./handlers/skills_handlers";
 import { registerSecurityHandlers } from "./handlers/security_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
@@ -101,6 +102,7 @@ export function registerIpcHandlers() {
   registerPromptHandlers();
   registerHelpBotHandlers();
   registerMcpHandlers();
+  registerSkillsHandlers();
   registerSecurityHandlers();
   registerVisualEditingHandlers();
   // Atlarix handlers

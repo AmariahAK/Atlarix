@@ -5,6 +5,7 @@ import { getContextAssemblyCache, setContextAssemblyCache } from "./context-asse
 
 export type ContextSectionName =
   | "activeSkill"
+  | "installedSkills"
   | "taskProgress"
   | "fileSystemTruth"
   | "workModeHint"

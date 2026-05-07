@@ -45,10 +45,6 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
         // We use dynamic import so this file remains loadable even if the dependency is missing.
         const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF1',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs-dist imported',data:{hasGlobalWorkerOptions:Boolean((pdfjs as any)?.GlobalWorkerOptions),hasGetDocument:Boolean((pdfjs as any)?.getDocument || (pdfjs as any)?.default?.getDocument)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
-
         // In Electron/Vite builds, pdfjs may try to import `pdf.worker.mjs` for its "fake worker" even when disableWorker=true.
         // Point it at the actual worker file inside node_modules so it can load reliably.
         try {
@@ -62,13 +58,8 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
                 // .vite/build/pdf.worker.mjs and fails. Always override it.
                 pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
             }
-            // #region agent log
-            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF2',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs workerSrc configured',data:{workerPath,workerSrc:(pdfjs?.GlobalWorkerOptions?.workerSrc??null)},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion agent log
         } catch (workerErr: any) {
-            // #region agent log
-            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF2',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs workerSrc config failed',data:{err:String(workerErr?.message??workerErr??'')},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion agent log
+            void workerErr;
         }
 
         // pdfjs needs access to standard fonts in some PDFs; otherwise it can throw:
@@ -372,6 +363,8 @@ ToolRegistry.register({
     description:
         "Read and extract structured content from a file attachment. " +
         "Returns text content for documents, metadata for images, and structured data for PDFs/Word/Excel. " +
+        "This tool is available in Ask, Plan, Build, Debug, Review, and chat-only modes. " +
+        "Call it whenever the user references an uploaded file or attachment. " +
         "Use this when you need to analyze or process files the user has attached to the conversation. " +
         "If content extraction fails, check rawBase64 for the original file data.",
     category: ToolCategory.FILE,
@@ -444,6 +437,8 @@ ToolRegistry.register({
     name: "list_attachments",
     description:
         "List all available file attachments in the current conversation. " +
+        "This tool is available in Ask, Plan, Build, Debug, Review, and chat-only modes. " +
+        "Call it whenever the user references an uploaded file or attachment. " +
         "Use this to find the ID of an attachment you want to read with read_attachment.",
     category: ToolCategory.FILE,
     cost: 0,

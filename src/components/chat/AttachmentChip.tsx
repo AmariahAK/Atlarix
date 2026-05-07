@@ -52,9 +52,6 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
 
   const handlePreview = () => {
     const attachment = AttachmentStore.get(id);
-    // #region agent log
-    fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'P1',location:'AttachmentChip.tsx:handlePreview',message:'Preview clicked',data:{id,filename,mimeType,size,hasAttachment:Boolean(attachment),attachmentSize:attachment?.size??null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion agent log
     if (!attachment) return;
 
     const binary = atob(attachment.data);
@@ -87,9 +84,6 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
       setShowPreview(true);
       previewKind = "blob";
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'P1',location:'AttachmentChip.tsx:handlePreview',message:'Preview state set',data:{id,showPreviewNext:true,previewKind,hasTextPreview:previewKind==='text'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion agent log
   };
 
   const formatSize = (bytes: number) => {
@@ -103,9 +97,6 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setTextPreview(null);
-    // #region agent log
-    fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'P2',location:'AttachmentChip.tsx:closePreview',message:'Preview closed',data:{id,hadPreviewUrl:Boolean(previewUrl)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion agent log
   };
 
   return (
@@ -168,18 +159,12 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => {
-            // #region agent log
-            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'P2',location:'AttachmentChip.tsx:overlay',message:'Overlay clicked (will close)',data:{id},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion agent log
             closePreview();
           }}
         >
           <div
             className="relative max-w-4xl max-h-[80vh] bg-background rounded-lg shadow-lg overflow-hidden"
             onClick={(e) => {
-              // #region agent log
-              fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'P2',location:'AttachmentChip.tsx:modal',message:'Modal container clicked',data:{id},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion agent log
               // NOTE: do not stopPropagation yet; we want evidence first
               void e;
             }}

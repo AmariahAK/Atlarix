@@ -1,7 +1,48 @@
 # Atlarix TODO
 
-**Current Version:** v7.1.2
-**Last Updated:** 2026-05-05
+**Current Version:** v8.0.1
+**Last Updated:** 2026-05-07
+
+---
+
+## Shipped in v8.0.1
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Tool contract / availability honesty | **Done** | Agent prompt layer aligned so registered tools are not reported as missing |
+| Model-triggered compaction | **Done** | `compress_context` tool; pre-dispatch stepped summarize path gated (PASS2 markers in `chat_stream_handlers.ts`, `chat_only_handlers.ts`) |
+| Streaming terminal / `chat:response:end` | **Done** | Idempotent end events across stream paths |
+| Macro tools | **Done** | `get_workspace_overview`, `read_attachment_summary` |
+| BYOK error classification + banners | **Done** | `classifyProviderError` + actionable UI |
+| Skills Marketplace | **Done** | Registry IPC, DB migration `installed_skills`, Settings UI, Pro/Workforce gating |
+| Pre-dispatch context cleanup (PASS5) | **Done** | Blueprint/skills/Supabase/diagram prefix/workforce analysis/project memory gated or disabled; session memory char cap |
+| Explore subagent | **Done** | `delegate_to_agent` explore path; read-only tool set |
+| OpenRouter app headers | **Done** | `X-Title`, `HTTP-Referer` on SDK + fetches (`get_model_client`, `openrouter_api`, `tier-context-limits`, `openrouter-provider`) |
+| Tool spinner reconciliation | **Done** | `AtlarixMarkdownParser` stream-end handling |
+| Debug instrumentation removal | **Done** | `debugLog` / `hypothesisId` removed from chat stream |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.0.1]`.
+
+---
+
+## Open / follow-ups (codebase markers)
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Env secret paths in more readers | **Open** | Extend `isEnvSecretPath` to `view_symbol`, `get_file_outline`, `find_files`, `search_code`, renderer `file:read-content` IPC (see v7.0.4 table below) |
+| `main.ts` | **Open** | `TODO: Phase 4.5` — Neon/Supabase OAuth integrations removed; follow-up cleanup |
+| `cleanup_jobs.ts` | **Open** | `TODO:` integrate real summarization model for cleanup jobs |
+| `github_handlers.ts` | **Open** | `TODO:` fetch config securely (env / secrets) |
+| `SliceExtractorAgent.ts` | **Open** | `TODO:` TensorFlow semantic scoring |
+| `UpgradePrompt.tsx` | **Open** | `TODO:` checkout with pre-filled email |
+| `home.tsx` | **Open** | `TODO:` template browser |
+| `ModelSelector.tsx` | **Open** | `TODO:` live lists from OpenRouter / Ollama / LM Studio APIs |
+| `TelemetryBanner.tsx` | **Open** | `TODO:` banner state + Accept / Reject / Later |
+| `MainLayout.tsx` | **Open** | `TODO:` AI backend wiring |
+| `CapacitorControls.tsx` | **Open** | `TODO:` help link |
+| `supabase_context.ts` | **Open** | `TODO:` edge functions + secrets in context |
+
+**Note:** `PASS2` / `PASS5` comments in [`chat_stream_handlers.ts`](../src/ipc/handlers/chat_stream_handlers.ts) document intentional gating from the v8.0.1 context pass — not pending tasks.
 
 ---
 

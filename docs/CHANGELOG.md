@@ -1,8 +1,24 @@
 # Atlarix Changelog
 
-## v8.0.1 — Auto-updater fix, import path correction (2026-05-06)
+## [8.0.1] (2026-05-07)
 
-### Workspace Path Resolution Fix
+### Release highlights
+
+- **Tool Contract Layer:** Agent does not claim a tool is unavailable when it is registered in the tool registry.
+- **Model-triggered compaction:** `compress_context` tool replaces unconditional pre-dispatch auto-summarize; model decides when to compress.
+- **Streaming terminal guarantee:** Every stream path emits `chat:response:end` exactly once (idempotent terminal handling).
+- **Macro tools:** `get_workspace_overview` and `read_attachment_summary` added for lighter default prompts.
+- **BYOK error banners:** `classifyProviderError` maps 401/429/404/network and related failures to actionable UI copy (incl. switch-model where relevant).
+- **Skills Marketplace:** Settings → Skills — browse/install from community registry (`AmariahAK/atlarix-skills`), 5 global + 5 per-workspace slots, Pro/Workforce gated in UI and IPC.
+- **Context cleanup:** Six heavy pre-dispatch injections removed or gated (`if (false)` / mode gates) — blueprint, installed skills block, Supabase pre-inject, diagram-first prefix, workforce workspace analysis, SQLite project memory; session memory capped; estimated ~50% lower baseline input tokens on large workspaces.
+- **Explore subagent:** Read-only exploration via `delegate_to_agent` / explore agent for codebase survey without bloating main thread context.
+- **OpenRouter identification:** All OpenRouter SDK and HTTP calls send `X-Title: Atlarix` and `HTTP-Referer: https://atlarix.dev` for usage logs.
+- **Tool spinner reconciliation:** `AtlarixMarkdownParser` treats in-progress tools as finalized when stream ends — no stuck “running” indicators.
+- **Debug cleanup:** Removed `hypothesisId` / `debugLog` pre-dispatch instrumentation from chat stream path.
+
+### Fixes and infrastructure (same release)
+
+#### Workspace Path Resolution Fix
 
 - **Fixed [`getAtlarixAppPath()`](src/paths/paths.ts)**: Relative paths are now resolved by checking real directory locations before falling back to `~/atlarix-apps/`. Checks `~/Documents/Atlarix/{name}` first, then `~/atlarix-apps/{name}` (legacy). This ensures workspaces imported from locations like `/Users/amariah/Documents/Github/Spacinsider` are resolved to their actual location rather than `~/atlarix-apps/spacinsider`.
 
@@ -55,6 +71,8 @@
 - **Added `build.publish` to [`package.json`](package.json)**: Tells electron-builder to generate `app-update.yml` at build time, embedded in the app bundle. Required for electron-updater to locate the release feed.
 - **`releaseType: "release"` added to `setFeedURL`** in [`src/main.ts`](src/main.ts): Ensures electron-updater v6 looks for the correct YAML feed format in `atlarix-releases`.
 - **Import path corrected** in [`src/lib/context/compaction.ts`](src/lib/context/compaction.ts): Fixed wrong relative path `../ipc/` → `../../ipc/`.
+
+---
 
 ## v7.1.4 — Stepped compaction, exact tokenizer, icon fix (2026-05-06)
 

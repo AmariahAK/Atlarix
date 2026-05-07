@@ -11,6 +11,7 @@ const settingsItems = [
   { id: "ai", label: "AI" },
   { id: "search", label: "Search" },
   { id: "mcp", label: "MCP Servers" },
+  { id: "skills", label: "Skills" },
   { id: "team", label: "Team" },
   { id: "integrations", label: "Integrations" },
   { id: "danger-zone", label: "Danger Zone" },

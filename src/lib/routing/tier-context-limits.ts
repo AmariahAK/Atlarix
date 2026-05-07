@@ -4,6 +4,8 @@
  * Also caches full model rows for reasoning-capability lookup (same refresh).
  */
 
+import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
+
 export interface TierContextLimits {
   fast: number;
   balanced: number;
@@ -75,7 +77,10 @@ export async function getTierContextLimits(
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/models", {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        ...OPENROUTER_APP_HEADERS,
+        "Content-Type": "application/json",
+      },
     });
     if (!res.ok) {
       return fallbackLimitsOnFetchFailure();

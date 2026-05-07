@@ -694,6 +694,62 @@ export interface McpToolConsent {
   consent: McpToolConsentType;
   updatedAt: number;
 }
+
+// --- Skills Types (community registry installs) ---
+export interface SkillManifestFile {
+  name: string;
+  url: string;
+}
+
+export interface SkillManifestEntry {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  tags: string[];
+  compatibleModes: string[];
+  files: SkillManifestFile[];
+}
+
+export interface SkillRegistryIndex {
+  version: string;
+  updatedAt?: string;
+  skills: SkillManifestEntry[];
+}
+
+export interface InstallSkillParams {
+  skill: SkillManifestEntry;
+  scope: "global" | "workspace";
+  workspacePath?: string;
+}
+
+export interface UninstallSkillParams {
+  skillId: string;
+  scope: "global" | "workspace";
+  workspacePath?: string;
+}
+
+export interface InstalledSkillRow {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  tags: string[];
+  compatibleModes: string[];
+  installedAt: Date | string;
+  scope: "global" | "workspace";
+  workspacePath: string | null;
+  cachedFiles: Array<{ name: string; localPath: string }>;
+}
+
+export interface ActiveSkillContent {
+  id: string;
+  name: string;
+  content: string;
+}
+
 export interface CloneRepoParams {
   url: string;
   installCommand?: string;

@@ -53,6 +53,7 @@ import {
   recordCompassUsageTokens,
   totalTokensFromAiUsage,
 } from "../../lib/auth/compass_usage";
+import { estimateTokens } from "../utils/token_utils";
 import {
     compassExhaustedUserMessage,
     COMPASS_REACHABILITY_ERROR,
@@ -442,6 +443,26 @@ export function addEphemeralMessage(
 function getChatOnlySystemPrompt(appVersion: string): string {
     return `You are the in-app assistant for **Atlarix**, the desktop AI coding copilot built by **NorahLabs** (norahlabs.com). Product site: atlarix.dev.
 
+<tool_contract>
+The following tools are available in EVERY mode including Ask, Plan, Build, Debug, Review,
+and chat-only (no workspace):
+  - read_attachment({ "attachmentId": "<id>" })
+  - list_attachments({})
+  - compress_context({ "reason": "<optional reason>" })
+    → Call this when you have finished a major subtask or notice context pressure building.
+    → Do NOT call this on every turn. Only when you genuinely need more room.
+  - web_search({ "query": "<query>" })
+
+The following tools require a workspace and are NOT available in chat-only mode:
+  - Any tool that reads or writes project files (read_file, write_file, search_code, etc.)
+  - Blueprint tools (get_blueprint, query_blueprint, etc.)
+  - Diagram tools
+
+Never say a tool is unavailable unless it is explicitly absent from the tool list provided
+to you at session start. If you are uncertain whether a tool is available, call it — do not
+assume it is missing.
+</tool_contract>
+
 ## App version (answer exactly when asked)
 The user is running Atlarix app version **${appVersion}**. If they ask what version you are, what version the app is, or similar, give that version string. Do not say you have no version number.
 
@@ -463,6 +484,8 @@ After a workspace exists in the full flow, file and codebase tools unlock; in th
 
 ## What you cannot do until a workspace exists
 You cannot read, write, or run commands on the user's project files from this mode alone — point them to creating/opening a workspace in Atlarix when they want hands-on code changes.
+This does NOT apply to attachments. read_attachment and list_attachments work in
+chat-only mode and must be used when the user provides a file attachment.
 
 ## File Attachments
 When the user attaches files (PDF, images, documents, etc.), the file information will appear in your message context with:
@@ -471,7 +494,7 @@ When the user attaches files (PDF, images, documents, etc.), the file informatio
 - MIME type
 - Content preview (for text files)
 
-**To access attachment content**, you MUST call the read_attachment tool with the attachment ID shown in the message. Example: read_attachment(attachmentId="abc123def456")
+**To access attachment content**, you MUST call the read_attachment tool with the attachment ID shown in the message. Example: read_attachment({ "attachmentId": "abc123def456" })
 
 Do NOT try to guess or make up attachment IDs. Use the exact ID provided in the message context.
 
@@ -843,6 +866,86 @@ export async function handleChatOnlyStream(
                     const result = await tool.handler({ ...params, chatId: req.chatId });
 
                     if (
+                        tool.name === "compress_context" &&
+                        result &&
+                        typeof result === "object" &&
+                        (result as any).__compress_context_requested === true
+                    ) {
+                        // PASS2: Compaction is model-triggered via compress_context.
+                        // Emit activity + run compaction here (tool handler has no stream scope).
+                        const reason = (result as any).reason ?? "model-initiated";
+                        safeSend(event.sender, "chat:activity", {
+                            id: `compress-context-${req.chatId}-${Date.now()}`,
+                            type: "compaction",
+                            label: "Context compressed",
+                            status: "running",
+                            timestamp: Date.now(),
+                            detail: String(reason),
+                            chatId: req.chatId,
+                        });
+
+                        try {
+                            const settingsNow = await readSettings();
+                            const providerId = settingsNow.selectedModel?.provider;
+                            const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                            const msgList = chat.messages.map((m: any) => ({
+                                id: m.id,
+                                role: m.role,
+                                content: m.content || "",
+                            }));
+                            const outcome = await executeCompressContext(
+                                { reason },
+                                {
+                                    chatId: req.chatId,
+                                    messages: msgList,
+                                    systemPromptTokens: 0,
+                                    inputTokens: 0,
+                                    providerId,
+                                    ephemeral: true,
+                                    setMessages: (next) => {
+                                        chat.messages = next.map((m: any) => ({
+                                            ...m,
+                                            chatId: req.chatId,
+                                            createdAt: new Date(),
+                                        })) as any;
+                                    },
+                                }
+                            );
+
+                            safeSend(event.sender, "chat:activity", {
+                                id: `compress-context-${req.chatId}-${Date.now()}`,
+                                type: "compaction",
+                                label: "Context compressed",
+                                status: "done",
+                                timestamp: Date.now(),
+                                detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens. ${outcome.status}`,
+                                chatId: req.chatId,
+                                modelInitiated: true,
+                            });
+                            return JSON.stringify({
+                                success: outcome.success,
+                                reason: outcome.reason,
+                                tokensBefore: outcome.tokensBefore,
+                                tokensAfter: outcome.tokensAfter,
+                                summary: outcome.summary,
+                                status: outcome.status,
+                            });
+                        } catch (e) {
+                            safeSend(event.sender, "chat:activity", {
+                                id: `compress-context-${req.chatId}-${Date.now()}`,
+                                type: "compaction",
+                                label: "Context compressed",
+                                status: "error",
+                                timestamp: Date.now(),
+                                detail: String(e),
+                                chatId: req.chatId,
+                                modelInitiated: true,
+                            });
+                            return JSON.stringify({ success: false, error: String(e) });
+                        }
+                    }
+
+                    if (
                         tool.name === "ask_user" &&
                         result &&
                         typeof result === "object" &&
@@ -1020,10 +1123,6 @@ export async function handleChatOnlyStream(
                 ];
             }
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'R1',location:'chat_only_handlers.ts:messageHistory',message:'Model messageHistory prepared',data:{chatId:req.chatId,continueAfterQuestions:Boolean(req.continueAfterQuestions),gatedPromptHasFiles:gatedPrompt.includes('FILES ATTACHED'),gatedPromptLen:gatedPrompt.length,historyLen:messageHistory.length,lastUserRole:(messageHistory[messageHistory.length-1]?.role??null)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion agent log
-
         // Get session memory for conversation continuity
         // For ephemeral workspace chats, use appId so memory persists across mode switches
         // For pure chat-only, use chatId

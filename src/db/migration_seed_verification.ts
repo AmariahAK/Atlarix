@@ -159,6 +159,8 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "custom_commands");
     case "0041_drop_diagram_versions":
       return !tableExists(sqlite, "diagram_versions");
+    case "0042_installed_skills":
+      return columnExists(sqlite, "installed_skills", "scope");
     default:
       return false;
   }

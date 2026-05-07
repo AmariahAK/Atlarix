@@ -6,6 +6,7 @@ import { createVertex as createGoogleVertex } from "@ai-sdk/google-vertex";
 import { createAzure } from "@ai-sdk/azure";
 import { LanguageModelV2 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createElasticAgentBuilderModel } from "./elastic_agent_builder_adapter";
@@ -597,7 +598,10 @@ async function getRegularModelClient(
       }
       const eff = SubscriptionManager.getEffectiveTier();
       const chain = compassFallbackChain(model.name, eff);
-      const or = createOpenRouter({ apiKey: masterKey });
+      const or = createOpenRouter({
+        apiKey: masterKey,
+        headers: { ...OPENROUTER_APP_HEADERS },
+      });
       const models: LanguageModelV2[] = [];
       for (const tierId of chain) {
         const openRouterModelId = getOpenRouterModelIdForCompassTier(tierId);

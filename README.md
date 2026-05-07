@@ -6,9 +6,27 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v7.1.1**
+**Current release:** **v8.0.1**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+
+---
+
+## v8.0.1
+
+- **Tool Contract Layer:** agent never claims a tool is unavailable when it is registered
+- **Model-triggered compaction:** `compress_context` tool replaces pre-dispatch auto-summarize
+- **Streaming terminal guarantee:** every stream path now emits `chat:response:end` exactly once
+- **Macro tools:** `get_workspace_overview` and `read_attachment_summary` added
+- **BYOK error banners:** `classifyProviderError` surfaces actionable fixes for 401/429/404/network
+- **Skills Marketplace:** Settings → Skills panel, browse 30 community skills from registry, 5 global + 5 per-workspace slots, Apache 2.0 registry at [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills)
+- **Context cleanup:** 6 pre-dispatch injections removed/gated, ~50% reduction in input tokens per turn (blueprint, installedSkills, Supabase, diagram-first prefix, workspaceAnalysis, SQLite projectMemory now tool-driven or mode-gated)
+- **Explore subagent:** dedicated read-only codebase exploration agent via `delegate_to_agent`
+- **OpenRouter app identification:** `X-Title` and `HTTP-Referer` headers added
+- **Tool spinner reconciliation:** no more stuck running indicators after stream ends
+- **Debug instrumentation removed:** `hypothesisId` and `debugLog` cleanup
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 

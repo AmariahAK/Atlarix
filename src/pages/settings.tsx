@@ -32,10 +32,11 @@ import { useSetAtom, useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
-import { Server, ChevronRight } from "lucide-react";
+import { Server, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
 import { persistOnboardingStep } from "@/lib/onboarding";
+import { UpgradeChoiceDialog } from "@/components/UpgradeChoiceDialog";
 
 const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 
@@ -158,6 +159,11 @@ export default function SettingsPage() {
             <McpServersCard />
           </div>
 
+          {/* Skills - clickable card like MCP */}
+          <div id="skills" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <SkillsCard />
+          </div>
+
           {/* Team — only unlocked on Workforce */}
           <div id="team" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <h2 className="text-lg font-medium text-foreground mb-4">Team</h2>
@@ -275,6 +281,46 @@ function McpServersCard() {
   );
 }
 
+function SkillsCard() {
+  const navigate = useNavigate();
+  const { status, loading } = useAuth();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const plan = status?.plan ?? "free";
+  const isPaid = plan === "pro" || plan === "workforce";
+  return (
+    <>
+      <UpgradeChoiceDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
+      <button
+        type="button"
+        onClick={() => {
+          if (loading) return;
+          if (!isPaid) {
+            setUpgradeOpen(true);
+            return;
+          }
+          navigate({ to: "/settings/skills" });
+        }}
+        className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-md bg-primary/10 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-medium text-foreground">Skills</h2>
+            <p className="text-sm text-muted-foreground">
+              {isPaid
+                ? "Browse the community registry and install up to 5 global skills and 5 per workspace."
+                : "Upgrade to Pro or Workforce to unlock Skills."}
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
+      </button>
+    </>
+  );
+}
+
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const { settings, updateSettings } = useSettings();
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
@@ -386,7 +432,7 @@ export function WorkflowSettings() {
           <span className="text-xs bg-muted px-2 py-0.5 rounded">Coming Soon</span>
         </div>
         <div className="text-sm text-gray-500 dark:text-gray-400">
-          This will automatically approve code changes and run them.
+          This will automatically approve code changes and run them, currently only autonomous mode does this.
         </div>
       </div>
 

@@ -40,6 +40,7 @@ import "./stream-tools"; // v3.9 stream_terminal_output, stream_pipeline_logs
 import "./workforce-tools"; // v4.0 Slack, Jira, Linear, Sentry, Calendar, CI
 import "./exploration-tools"; // v8.0: generate_workspace_map, scan_file_structure, find_entry_points
 import "./attachment-tools"; // v8.0: read_attachment, list_attachments
+import "./compress-context-tool"; // v8.1: compress_context (model-triggered compaction)
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

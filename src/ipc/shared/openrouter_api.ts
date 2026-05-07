@@ -28,6 +28,7 @@ interface OpenRouterModel {
 }
 
 import type { LanguageModel } from '../ipc_types';
+import { OPENROUTER_APP_HEADERS } from './openrouter_app_headers';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/models';
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
@@ -57,6 +58,7 @@ export async function fetchOpenRouterModels(
         // console.log('[OpenRouter] Fetching models from API...');
 
         const headers: Record<string, string> = {
+            ...OPENROUTER_APP_HEADERS,
             'Content-Type': 'application/json',
         };
 

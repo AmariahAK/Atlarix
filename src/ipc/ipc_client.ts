@@ -83,6 +83,12 @@ import type {
   CounselParticipantUpdateIpcPayload,
   CounselCompleteIpcPayload,
   PlanUpdatePayload,
+  SkillRegistryIndex,
+  SkillManifestEntry,
+  InstallSkillParams,
+  UninstallSkillParams,
+  InstalledSkillRow,
+  ActiveSkillContent,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -1439,6 +1445,30 @@ export class IpcClient {
     consent: "ask" | "always" | "denied";
   }) {
     return this.ipcRenderer.invoke("mcp:set-tool-consent", params);
+  }
+
+  // --- Skills Client Methods ---
+  public async skillsFetchRegistry(registryUrl?: string): Promise<SkillRegistryIndex> {
+    return this.ipcRenderer.invoke("skills:fetch-registry", registryUrl);
+  }
+
+  public async skillsInstall(params: InstallSkillParams): Promise<{ success: boolean; localDir?: string }> {
+    return this.ipcRenderer.invoke("skills:install", params);
+  }
+
+  public async skillsUninstall(params: UninstallSkillParams): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("skills:uninstall", params);
+  }
+
+  public async skillsList(params?: {
+    scope?: "global" | "workspace" | "all";
+    workspacePath?: string;
+  }): Promise<InstalledSkillRow[]> {
+    return this.ipcRenderer.invoke("skills:list", params);
+  }
+
+  public async skillsGetActiveForSession(params?: { workspacePath?: string }): Promise<ActiveSkillContent[]> {
+    return this.ipcRenderer.invoke("skills:get-active-for-session", params);
   }
 
   // --- Hooks (advisory scripts) ---

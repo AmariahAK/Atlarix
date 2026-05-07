@@ -155,8 +155,8 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     );
   }, [activityStreamItems, chatId]);
   const showInlineThoughtsPanel = useMemo(
-    () => inlineThoughtsPanelVisible(activityStreamItems, chatId, agentMode),
-    [activityStreamItems, chatId, agentMode],
+    () => inlineThoughtsPanelVisible(activityForPanel, chatId, agentMode),
+    [activityForPanel, chatId, agentMode],
   );
   const showInlineThoughtsInParser = showInlineThoughtsPanel && !suppressInlineThoughts;
   const processStreamOnTop =
@@ -249,7 +249,9 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
           if (attrs.status === 'error') {
             status = 'error';
           } else if (attrs.status === 'running' || isInProgress) {
-            status = 'running';
+            // PASS5: If the stream ended and the tag was auto-closed, treat it as finalized.
+            // This prevents tool spinners from being stuck in \"running\" after stream end/abort.
+            status = !isStreaming && isInProgress ? 'error' : 'running';
           } else if (attrs.status === 'success') {
             status = 'success';
           }

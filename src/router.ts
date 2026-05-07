@@ -5,6 +5,7 @@ import { chatRoute } from "./routes/chat";
 import { settingsRoute } from "./routes/settings";
 import { providerSettingsRoute } from "./routes/settings/providers/$provider";
 import { mcpSettingsRoute } from "./routes/settings/mcp";
+import { skillsSettingsRoute } from "./routes/settings/skills";
 import { appDetailsRoute } from "./routes/app-details";
 import { hubRoute } from "./routes/hub";
 import { libraryRoute } from "./routes/library";
@@ -25,7 +26,7 @@ const routeTree = rootRoute.addChildren([
   appDetailsRoute,
   signInRoute,
   accountSettingsRoute,
-  settingsRoute.addChildren([providerSettingsRoute, mcpSettingsRoute]),
+  settingsRoute.addChildren([providerSettingsRoute, mcpSettingsRoute, skillsSettingsRoute]),
 ]);
 
 // src/components/NotFoundRedirect.tsx

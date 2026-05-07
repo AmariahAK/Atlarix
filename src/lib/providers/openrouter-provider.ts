@@ -6,6 +6,7 @@
  */
 
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
 import type { LanguageModelV2 } from "@ai-sdk/provider";
 import { BaseProvider, type Tool, type ToolResult } from "./base-provider";
 
@@ -48,6 +49,7 @@ export class OpenRouterProvider extends BaseProvider {
         // Create OpenRouter provider
         this.provider = createOpenRouter({
             apiKey: this.apiKey,
+            headers: { ...OPENROUTER_APP_HEADERS },
         });
 
         if (this.debug) {
@@ -67,6 +69,7 @@ export class OpenRouterProvider extends BaseProvider {
         try {
             const response = await fetch("https://openrouter.ai/api/v1/models", {
                 headers: {
+                    ...OPENROUTER_APP_HEADERS,
                     Authorization: `Bearer ${this.apiKey}`,
                 },
                 signal: AbortSignal.timeout(5000),
@@ -81,6 +84,7 @@ export class OpenRouterProvider extends BaseProvider {
         try {
             const response = await fetch("https://openrouter.ai/api/v1/models", {
                 headers: {
+                    ...OPENROUTER_APP_HEADERS,
                     Authorization: `Bearer ${this.apiKey}`,
                 },
             });

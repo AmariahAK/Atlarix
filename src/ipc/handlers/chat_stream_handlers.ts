@@ -193,6 +193,7 @@ import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-li
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
+import { loadInstalledSkillsForSession } from "@/lib/skills/installed-skills";
 import {
   ArchitectPlanPayloadSchema,
   DebuggerRootCauseSchema,
@@ -1227,6 +1228,23 @@ export function registerChatStreamHandlers() {
 
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
+      let streamTerminated = false;
+      const ensureTerminal = (error?: unknown) => {
+        if (streamTerminated) return;
+        streamTerminated = true;
+        if (error) {
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${String((error as any)?.message ?? error)}`,
+          });
+        }
+        safeSend(event.sender, "chat:response:end", {
+          chatId: req.chatId,
+          updatedFiles: false,
+          hadToolCallsOrPermissions: false,
+        } satisfies ChatResponseEnd);
+        activeStreams.delete(req.chatId);
+      };
       try {
         try {
           await requireAuthSession();
@@ -1309,6 +1327,8 @@ export function registerChatStreamHandlers() {
             logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
             const mcpTools = await getMcpTools(event, null, req.chatId);
             await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
+            // chat_only_handlers emits chat:response:end; don't double-terminate.
+            streamTerminated = true;
             return;
           }
         }
@@ -1365,6 +1385,8 @@ export function registerChatStreamHandlers() {
           logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
           const mcpTools = await getMcpTools(event, null, req.chatId);
           await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
+          // chat_only_handlers emits chat:response:end; don't double-terminate.
+          streamTerminated = true;
           return;
         }
 
@@ -2087,11 +2109,9 @@ ${componentSnippet}
               }
               : validateChatContext(effectiveApp!.chatContext);
 
-          // --- DIAGRAM-FIRST CONTEXT SYSTEM ---
-          // Instead of extracting full codebase (168K+ tokens), we:
-          // 1. Inject diagram context via getWorkspaceContext() (below at line ~700)
-          // 2. Let AI use file tools (read_file, search_code, list_files) on demand
-          // This reduces context from ~168K to ~3-4K tokens (97% reduction)
+          // PASS1: Blueprint/Diagram context is now tool-driven only.
+          // The model calls get_blueprint / query_blueprint (and other tools) to fetch this on demand.
+          // Do not re-enable proactive injection.
 
           // Note: files array kept for backward compatibility with selected components
           // but no longer used for full codebase dump
@@ -2184,6 +2204,9 @@ ${componentSnippet}
             return { ...baseMessage, ...commitFields };
           });
 
+          logger.log(
+            `[stream:${req.chatId}] Prepared message history (len=${messageHistory.length}, ephemeral=${isEphemeralWorkspace})`,
+          );
 
           // Phase 6: Context bar + auto-summarize OR fallback to turn truncation
           const useAutoSummarize =
@@ -2194,7 +2217,11 @@ ${componentSnippet}
           let limitedMessageHistory = messageHistory;
           let contextSummaryForSystem: string | null = null;
 
-          if (useAutoSummarize) {
+          // PASS2: Compaction is now model-triggered via the compress_context tool.
+          // The model calls compress_context({ reason: "..." }) when it needs more room.
+          // Do not re-enable automatic pre-dispatch compaction — remove this if(false) wrapper
+          // and the tool registration in compress-context-tool.ts together if reverting.
+          if (false) {
             const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
             const messageHistoryTokens = msgList.reduce(
               (acc, m) => acc + estimateTokens(m.content || ""),
@@ -2204,7 +2231,7 @@ ${componentSnippet}
             const inputTokens = estimateTokens(userPrompt);
 
             // Check for existing summary
-            const existingSummary = await getContextSummary(req.chatId);
+            const existingSummary = (await getContextSummary(req.chatId)) as any;
             if (existingSummary) {
               contextSummaryForSystem = existingSummary.summaryText;
               const afterSummary = msgList.filter((m) => m.id > existingSummary.lastMessageId);
@@ -2247,17 +2274,17 @@ ${componentSnippet}
                 chatId: req.chatId,
               });
               // Run compaction when over threshold
-              const compactionResult = await runCompaction({
+              const compactionResult = (await runCompaction({
                 chatId: req.chatId,
                 chatMessages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
                 systemPromptTokens: systemPromptEstimate,
                 inputTokens,
                 providerId: getEffectiveModelForOptions(settings)?.provider,
                 sessionStats: { toolCallCount, delegationCount },
-              });
+              })) as any;
               if (compactionResult.status === "completed") {
                 contextSummaryForSystem = compactionResult.summaryText;
-                limitedMessageHistory = compactionResult.messagesAfterSummary.map((m) => ({
+                limitedMessageHistory = compactionResult.messagesAfterSummary.map((m: any) => ({
                   role: m.role as "user" | "assistant" | "system",
                   content: m.content || "",
                 }));
@@ -2283,6 +2310,10 @@ ${componentSnippet}
               }
             }
           }
+
+          logger.log(
+            `[stream:${req.chatId}] limitedMessageHistory len=${limitedMessageHistory.length} autoSummarize=${useAutoSummarize} hasSummary=${Boolean(contextSummaryForSystem)}`,
+          );
 
           // Fallback: turn-based truncation (when auto-summarize off or for ephemeral)
           if (!useAutoSummarize) {
@@ -2433,6 +2464,32 @@ ${componentSnippet}
             }
           } catch (skillErr) {
             logger.warn("[skills] Failed to load mode skill:", skillErr);
+          }
+
+          // PASS5: Installed skills are now managed via the Skills Settings UI (Pass 4).
+          // Skills are injected on-demand via tool call, not pre-dispatched.
+          // The installedSkills DB table and loader remain intact for the tool handler.
+          if (false) {
+            try {
+              const installed = await loadInstalledSkillsForSession({
+                workspacePath: hasWorkspace && appPath ? appPath : undefined,
+                maxTotalSkills: 10,
+                maxCharsPerSkill: 12_000,
+                maxTotalChars: 40_000,
+              });
+              if (installed.length > 0) {
+                const body = installed
+                  .map((s) => `[Installed Skill: ${s.name} (${s.id})]\n${s.content}`)
+                  .join("\n\n");
+                contextSections.push({
+                  name: "installedSkills",
+                  priority: -0.5,
+                  content: body,
+                });
+              }
+            } catch (installedErr) {
+              logger.warn("[skills] Failed to load installed skills:", installedErr);
+            }
           }
           const shouldCreateTaskLedger =
             settings.selectedChatMode === "build" ||
@@ -2586,121 +2643,129 @@ ${componentSnippet}
             }
           }
 
-          let parallelPrefetchContext = "";
-          if (
-            settings.agentMode === "autonomous" &&
-            hasWorkspace &&
-            appPath &&
-            shouldCreateTaskLedger &&
-            !req.prompt.startsWith("Summarize from chat-id=") &&
-            !req.prompt.startsWith("/security-review")
-          ) {
-            try {
-              const { tryReadPlan } = await import("@/lib/tasks/atlarix-plan-steps");
-              const planBody = await tryReadPlan(appPath);
-              const hasExistingPlan = !!(planBody && planBody.trim().length > 0);
-              const {
-                classifyOrchestration,
-                runAgentsInParallel,
-                buildParallelContext,
-              } = await import("@/lib/agents/parallel-runner");
-              const pattern = classifyOrchestration(userPrompt || req.prompt, hasExistingPlan);
-              if (pattern === "research_then_build") {
-                safeSend(event.sender, "chat:activity", {
-                  id: `parallel-${Date.now()}`,
-                  type: "parallel_prefetch_start",
-                  label: "Research + planning (parallel)",
-                  status: "running",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                  detail: "Running in background — stream is not waiting",
-                });
-                const taskText = (userPrompt || req.prompt).slice(0, 8000);
-                const common = {
-                  turnId: streamTurnIdForLedger,
-                  depth: 0 as const,
-                  chatId: req.chatId,
-                  workspacePath: appPath,
-                  workspaceId: effectiveAppId ?? undefined,
-                  recordOnParentLedger: false as const,
-                };
-                const prefetchSender = event.sender;
-                const prefetchChatId = req.chatId;
-                parallelPrefetchContext = [
-                  "[Orchestration: research_then_build_inflight]",
-                  "Research and architect specialists were started in parallel in the background.",
-                  "Their combined markdown will be injected on your **next** message in this chat when ready (consume-once cache).",
-                  "This turn: answer from the current user request and normal context; do not assume specialist prefetch output is available yet.",
-                ].join("\n");
-                void import("@/lib/agents/parallel-prefetch-next-turn-cache")
-                  .then(({ storeParallelPrefetchForNextTurn }) =>
-                    runAgentsInParallel(
-                      [
-                        {
-                          agentId: "research",
-                          task: `Research context for: ${taskText}`,
-                          ...common,
-                        },
-                        {
-                          agentId: "architect",
-                          task: `Plan implementation for: ${taskText}`,
-                          ...common,
-                        },
-                      ],
-                      120_000,
-                    ).then((results) => {
-                      const raCtx = buildParallelContext(results);
-                      if (prefetchChatId > 0) {
-                        storeParallelPrefetchForNextTurn(prefetchChatId, raCtx);
-                      }
-                      safeSend(prefetchSender, "chat:activity", {
-                        id: `parallel-done-${Date.now()}`,
-                        type: "parallel_prefetch_complete",
-                        label: "Research + planning complete",
-                        status: "done",
-                        timestamp: Date.now(),
-                        chatId: prefetchChatId,
-                        detail: `${results.length} specialist runs finished`,
-                        stepCount: results.length,
-                      });
-                    }),
-                  )
-                  .catch((parallelBgErr) => {
-                    logger.warn(
-                      "[parallel] Background research+architect prefetch failed:",
-                      parallelBgErr,
-                    );
+          // PASS5: Parallel prefetch only meaningful in autonomous orchestration mode.
+          // PASS5: Task ledger only relevant during active build/autonomous tasks.
+          const shouldInjectTaskProgress =
+            settings.selectedChatMode === "build" ||
+            settings.selectedChatMode === "agent" ||
+            settings.agentMode === "autonomous";
+
+          if (settings.agentMode === "autonomous") {
+            let parallelPrefetchContext = "";
+            if (
+              hasWorkspace &&
+              appPath &&
+              shouldCreateTaskLedger &&
+              !req.prompt.startsWith("Summarize from chat-id=") &&
+              !req.prompt.startsWith("/security-review")
+            ) {
+              try {
+                const { tryReadPlan } = await import("@/lib/tasks/atlarix-plan-steps");
+                const planBody = await tryReadPlan(appPath);
+                const hasExistingPlan = !!(planBody && planBody.trim().length > 0);
+                const {
+                  classifyOrchestration,
+                  runAgentsInParallel,
+                  buildParallelContext,
+                } = await import("@/lib/agents/parallel-runner");
+                const pattern = classifyOrchestration(userPrompt || req.prompt, hasExistingPlan);
+                if (pattern === "research_then_build") {
+                  safeSend(event.sender, "chat:activity", {
+                    id: `parallel-${Date.now()}`,
+                    type: "parallel_prefetch_start",
+                    label: "Research + planning (parallel)",
+                    status: "running",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                    detail: "Running in background — stream is not waiting",
                   });
-              } else if (pattern === "build_then_verify") {
-                parallelPrefetchContext = [
-                  "[Orchestration: build_then_verify]",
-                  "A plan exists. Execute it step by step.",
-                  "Reviewer and Debugger will verify automatically when complete.",
-                ].join("\n");
-              }
-            } catch (parallelErr) {
-              logger.warn("[parallel] Autonomous prefetch failed:", parallelErr);
-            }
-          }
-          if (parallelPrefetchContext.trim()) {
-            const prefetchTail = parallelPrefetchContext.includes(
-              "[Orchestration: build_then_verify]",
-            )
-              ? "\n\nExecute the existing plan step by step. Reviewer and Debugger will run automatically after the task completes."
-              : parallelPrefetchContext.includes(
+                  const taskText = (userPrompt || req.prompt).slice(0, 8000);
+                  const common = {
+                    turnId: streamTurnIdForLedger,
+                    depth: 0 as const,
+                    chatId: req.chatId,
+                    workspacePath: appPath,
+                    workspaceId: effectiveAppId ?? undefined,
+                    recordOnParentLedger: false as const,
+                  };
+                  const prefetchSender = event.sender;
+                  const prefetchChatId = req.chatId;
+                  parallelPrefetchContext = [
                     "[Orchestration: research_then_build_inflight]",
-                  )
-                ? "\n\nParallel research + architect are running in the background; their combined output will be injected on your **next** message in this chat when ready. This turn: proceed from the current user request without assuming that output is already available."
-                : "\n\nThe above steps already ran. Continue from the current user request without redoing the same research, planning, or implementation unless something failed or the user changed scope.";
-            contextSections.push({
-              name: "parallelPrefetch",
-              priority: 0.25,
-              content: parallelPrefetchContext + prefetchTail,
-            });
+                    "Research and architect specialists were started in parallel in the background.",
+                    "Their combined markdown will be injected on your **next** message in this chat when ready (consume-once cache).",
+                    "This turn: answer from the current user request and normal context; do not assume specialist prefetch output is available yet.",
+                  ].join("\n");
+                  void import("@/lib/agents/parallel-prefetch-next-turn-cache")
+                    .then(({ storeParallelPrefetchForNextTurn }) =>
+                      runAgentsInParallel(
+                        [
+                          {
+                            agentId: "research",
+                            task: `Research context for: ${taskText}`,
+                            ...common,
+                          },
+                          {
+                            agentId: "architect",
+                            task: `Plan implementation for: ${taskText}`,
+                            ...common,
+                          },
+                        ],
+                        120_000,
+                      ).then((results) => {
+                        const raCtx = buildParallelContext(results);
+                        if (prefetchChatId > 0) {
+                          storeParallelPrefetchForNextTurn(prefetchChatId, raCtx);
+                        }
+                        safeSend(prefetchSender, "chat:activity", {
+                          id: `parallel-done-${Date.now()}`,
+                          type: "parallel_prefetch_complete",
+                          label: "Research + planning complete",
+                          status: "done",
+                          timestamp: Date.now(),
+                          chatId: prefetchChatId,
+                          detail: `${results.length} specialist runs finished`,
+                          stepCount: results.length,
+                        });
+                      }),
+                    )
+                    .catch((parallelBgErr) => {
+                      logger.warn(
+                        "[parallel] Background research+architect prefetch failed:",
+                        parallelBgErr,
+                      );
+                    });
+                } else if (pattern === "build_then_verify") {
+                  parallelPrefetchContext = [
+                    "[Orchestration: build_then_verify]",
+                    "A plan exists. Execute it step by step.",
+                    "Reviewer and Debugger will verify automatically when complete.",
+                  ].join("\n");
+                }
+              } catch (parallelErr) {
+                logger.warn("[parallel] Autonomous prefetch failed:", parallelErr);
+              }
+            }
+            if (parallelPrefetchContext.trim()) {
+              const prefetchTail = parallelPrefetchContext.includes(
+                "[Orchestration: build_then_verify]",
+              )
+                ? "\n\nExecute the existing plan step by step. Reviewer and Debugger will run automatically after the task completes."
+                : parallelPrefetchContext.includes(
+                      "[Orchestration: research_then_build_inflight]",
+                    )
+                  ? "\n\nParallel research + architect are running in the background; their combined output will be injected on your **next** message in this chat when ready. This turn: proceed from the current user request without assuming that output is already available."
+                  : "\n\nThe above steps already ran. Continue from the current user request without redoing the same research, planning, or implementation unless something failed or the user changed scope.";
+              contextSections.push({
+                name: "parallelPrefetch",
+                priority: 0.25,
+                content: parallelPrefetchContext + prefetchTail,
+              });
+            }
           }
 
           const ledgerRow = getLedger(streamTurnIdForLedger);
-          if (ledgerRow) {
+          if (shouldInjectTaskProgress && ledgerRow) {
             contextSections.push({
               name: "taskProgress",
               priority: 0,
@@ -2708,8 +2773,13 @@ ${componentSnippet}
             });
           }
 
-          // Filesystem truth: last completed step’s on-disk file excerpts (protected system prefix; not chat history).
+          // PASS5: File system truth only useful in Build mode when files were actually
+          // modified. Stale file excerpts from prior turns add noise in other modes.
+          // (We don’t currently have a “files modified this turn” signal here, so we gate by build-like mode.)
+          const shouldInjectFileSystemTruth =
+            settings.selectedChatMode === "build" || settings.selectedChatMode === "agent";
           if (
+            shouldInjectFileSystemTruth &&
             hasWorkspace &&
             appPath &&
             !req.prompt.startsWith("Summarize from chat-id=") &&
@@ -2748,23 +2818,34 @@ ${componentSnippet}
             /* non-fatal */
           }
 
-          // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
-          try {
-            const workforceBlock = await buildWorkforceWorkspaceContextBlock(
-              req.chatId < 0 ? null : req.chatId,
-            );
-            if (workforceBlock) {
-              contextSections.push({
-                name: "workspaceAnalysis",
-                priority: 3,
-                content: workforceBlock,
-              });
-              logger.info("Injected Workforce workspace context block");
+          // PASS5: Workforce workspace context is heavy and tier-specific.
+          // Removed from default pre-dispatch. Can be re-enabled as a tool call
+          // for Workforce tier users in a future pass.
+          if (false) {
+            // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
+            try {
+              const workforceBlock = await buildWorkforceWorkspaceContextBlock(
+                req.chatId < 0 ? null : req.chatId,
+              );
+              const workforceText: string = String(workforceBlock ?? "");
+              if (workforceText.trim()) {
+                contextSections.push({
+                  name: "workspaceAnalysis",
+                  priority: 3,
+                  content: workforceText,
+                });
+                logger.info("Injected Workforce workspace context block");
+              }
+            } catch (workforceErr) {
+              logger.warn("Failed to build Workforce workspace context:", workforceErr);
             }
-          } catch (workforceErr) {
-            logger.warn("Failed to build Workforce workspace context:", workforceErr);
           }
 
+          // PASS5: Blueprint/Diagram is now tool-driven only.
+          // The model calls get_blueprint / query_blueprint on demand.
+          // Removing this also eliminates the 8s hang source.
+          // Do not re-enable without removing the timeout wrapper too.
+          if (false) {
           if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0 && appPath) {
             try {
               const { getBlueprintForWorkspace } = await import("./blueprint_handlers");
@@ -2774,7 +2855,14 @@ ${componentSnippet}
                 isBlueprintEffectivelyEmpty,
                 blueprintFirstBlockedMessage,
               } = await import("@/lib/blueprint/blueprintPromptTiers");
-              const bp = await getBlueprintForWorkspace(effectiveAppId);
+
+              const BLUEPRINT_LOAD_TIMEOUT_MS = 8000;
+              const bp = await Promise.race([
+                getBlueprintForWorkspace(effectiveAppId),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error("blueprint_load_timeout")), BLUEPRINT_LOAD_TIMEOUT_MS),
+                ),
+              ]);
               const bpPref = settings.blueprintInjectionModePreference ?? "auto";
               const explicitFromPreference =
                 bpPref === "auto"
@@ -2832,7 +2920,12 @@ ${componentSnippet}
               logger.warn("Failed to inject blueprint into system prompt:", bpErr);
             }
           }
+          }
 
+          // PASS5: SQLite project memory is now tool-driven.
+          // The model calls get_project_memory when it needs to recall project context.
+          // The underlying DB table and builder function remain intact.
+          if (false) {
           if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0) {
             try {
               const { buildProjectMemoryPromptBlock } = await import("@/lib/project-memory/service");
@@ -2848,6 +2941,7 @@ ${componentSnippet}
             } catch (pmErr) {
               logger.warn("Failed to inject SQLite project memory:", pmErr);
             }
+          }
           }
 
           // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
@@ -2882,11 +2976,16 @@ ${componentSnippet}
           try {
             const sessionMemory = getSessionMemory(chat.appId);
             const sessionContext = sessionMemory.getContextForPrompt();
-            if (sessionContext) {
+            const SESSION_MEMORY_CHAR_CAP = 2000; // PASS5: keep session memory lightweight
+            const cappedSessionContext =
+              sessionContext && sessionContext.length > SESSION_MEMORY_CHAR_CAP
+                ? sessionContext.slice(-SESSION_MEMORY_CHAR_CAP)
+                : sessionContext;
+            if (cappedSessionContext) {
               contextSections.push({
                 name: "sessionMemory",
                 priority: 6,
-                content: sessionContext,
+                content: cappedSessionContext,
               });
               logger.info(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
             }
@@ -2894,7 +2993,8 @@ ${componentSnippet}
             logger.warn("Failed to inject session memory:", error);
           }
 
-          if (req.chatId > 0) {
+          // PASS5: Parallel prefetch only meaningful in autonomous orchestration mode.
+          if (req.chatId > 0 && settings.agentMode === "autonomous") {
             const { consumeCounselSynthesisForNextTurn } = await import(
               "@/lib/counsel/counsel-next-turn-cache",
             );
@@ -2929,12 +3029,16 @@ ${componentSnippet}
             }
           }
 
-          if (deepThinkCounselPromptBlock?.trim()) {
-            contextSections.push({
-              name: "counselDeepThinkSubstitute",
-              priority: -0.8,
-              content: deepThinkCounselPromptBlock.trim(),
-            });
+          // PASS5: Deep-think substitute adds bulk on every turn where native thinking
+          // is unavailable. Removed — counsel prior-turn synthesis is sufficient.
+          if (false) {
+            if (deepThinkCounselPromptBlock?.trim()) {
+              contextSections.push({
+                name: "counselDeepThinkSubstitute",
+                priority: -0.8,
+                content: String(deepThinkCounselPromptBlock ?? "").trim(),
+              });
+            }
           }
 
           const isSummarizeIntent = req.prompt.startsWith(
@@ -2951,6 +3055,7 @@ ${componentSnippet}
             codebasePrefix: readonly ModelMessage[];
             otherCodebasePrefix: readonly ModelMessage[];
           }> => {
+            // #region agent log
             const assembledContext = assembleContextSections({
               chatId: req.chatId,
               appId: effectiveAppId ?? null,
@@ -3007,22 +3112,27 @@ ${componentSnippet}
               }
             }
 
-            if (
-              effectiveApp?.supabaseProjectId &&
-              settings.supabase?.accessToken?.value
-            ) {
-              systemPrompt +=
-                "\n\n" +
-                SUPABASE_AVAILABLE_SYSTEM_PROMPT +
-                "\n\n" +
-                (await getSupabaseContext({
-                  supabaseProjectId: effectiveApp.supabaseProjectId,
-                }));
-            } else if (
-              !effectiveApp?.neonProjectId &&
-              !isSecurityReviewIntent
-            ) {
-              systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
+            // PASS5: Supabase context is injected by the Supabase tool handler when
+            // the model actually calls a Supabase tool. Pre-injecting schema on every
+            // turn adds significant token weight even for non-Supabase conversations.
+            if (false) {
+              if (
+                effectiveApp?.supabaseProjectId &&
+                settings.supabase?.accessToken?.value
+              ) {
+                systemPrompt +=
+                  "\n\n" +
+                  SUPABASE_AVAILABLE_SYSTEM_PROMPT +
+                  "\n\n" +
+                  (await getSupabaseContext({
+                    supabaseProjectId: effectiveApp.supabaseProjectId,
+                  }));
+              } else if (
+                !effectiveApp?.neonProjectId &&
+                !isSecurityReviewIntent
+              ) {
+                systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
+              }
             }
             if (isSummarizeIntent) {
               systemPrompt = SUMMARIZE_CHAT_SYSTEM_PROMPT;
@@ -3067,20 +3177,27 @@ This conversation includes one or more image attachments. When the user uploads 
 `;
             }
 
-            const codebasePrefix = isEngineEnabled
-              ? []
-              : ([
-                  {
-                    role: "user",
-                    content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
-                  },
-                  {
-                    role: "assistant",
-                    content: hasInjectedArchitectureContext
-                      ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
-                      : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
-                  },
-                ] as const);
+            // PASS5: Diagram-first prefix messages inject a synthetic user+assistant turn
+            // on every dispatch, costing tokens regardless of conversation topic.
+            // Removed in favour of the model calling diagram tools when it needs them.
+            if (false) {
+              const _codebasePrefix = isEngineEnabled
+                ? []
+                : ([
+                    {
+                      role: "user",
+                      content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
+                    },
+                    {
+                      role: "assistant",
+                      content: hasInjectedArchitectureContext
+                        ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
+                        : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
+                    },
+                  ] as const);
+              void _codebasePrefix;
+            }
+            const codebasePrefix: readonly ModelMessage[] = []; // PASS5: always empty now
 
             const otherCodebasePrefix =
               otherAppsCodebaseInfo && !isEngineEnabled
@@ -3486,8 +3603,11 @@ This conversation includes one or more image attachments. When the user uploads 
                     `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${maxTokensUsed}`,
                   );
 
-                  // Post-turn compaction (OpenCode style): compact proactively so next user message is instant
-                  if (!isEphemeralWorkspace && req.chatId > 0 && typeof maxTokensUsed === "number") {
+                  // PASS2: Compaction is now model-triggered via the compress_context tool.
+                  // The model calls compress_context({ reason: "..." }) when it needs more room.
+                  // Do not re-enable automatic post-turn compaction — remove this if(false) wrapper
+                  // and the tool registration in compress-context-tool.ts together if reverting.
+                  if (false) {
                     const builtinPid = modelClient.builtinProviderId;
                     const modelName = optionsModel?.name?.trim();
                     let compactionOpenRouterId: string | null = null;
@@ -3502,7 +3622,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     }
                     schedulePostTurnCompaction({
                       chatId: req.chatId,
-                      totalTokensUsed: maxTokensUsed,
+                      totalTokensUsed: maxTokensUsed as number,
                       providerId: modelClient.builtinProviderId ?? optionsModel?.provider,
                       turnId: String(placeholderAssistantMessage.id),
                       openRouterModelId: compactionOpenRouterId,
@@ -3770,9 +3890,13 @@ This conversation includes one or more image attachments. When the user uploads 
             await processResponseChunkUpdate({ fullResponse: "" });
           };
 
-          if (blueprintRequiredBlockMessage) {
-            fullResponse = blueprintRequiredBlockMessage;
-          } else if (settings.selectedChatMode === "agent") {
+          // PASS5: Blueprint-first blocker is disabled (blueprint is tool-driven only).
+          if (false) {
+            if (blueprintRequiredBlockMessage) {
+              fullResponse = blueprintRequiredBlockMessage ?? "";
+            }
+          }
+          if (settings.selectedChatMode === "agent") {
             // Workspace-aware tool filtering (uses effective workspace from outer scope)
             const workspaceFilteredTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
 
@@ -3793,6 +3917,77 @@ This conversation includes one or more image attachments. When the user uploads 
                     toolName: getToolActivityLabel(regName),
                   });
                   try {
+                    if (regName === "compress_context") {
+                      // PASS2: Compaction is model-triggered via compress_context.
+                      // Emit activity + run compaction here (tool handler has no stream scope).
+                      const reason =
+                        args && typeof args.reason === "string" && args.reason.trim()
+                          ? args.reason.trim()
+                          : "model-initiated";
+                      safeSend(event.sender, "chat:activity", {
+                        id: `compress-context-${req.chatId}-${Date.now()}`,
+                        type: "compaction",
+                        label: "Context compressed",
+                        status: "running",
+                        timestamp: Date.now(),
+                        detail: reason,
+                        chatId: req.chatId,
+                        modelInitiated: true,
+                      });
+
+                      try {
+                        const providerId =
+                          getEffectiveModelForOptions(settings)?.provider ??
+                          (settings.selectedModel?.provider ?? undefined);
+                        const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                        const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
+                        const outcome = await executeCompressContext(
+                          { reason },
+                          {
+                            chatId: req.chatId,
+                            messages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
+                            systemPromptTokens: 6000,
+                            inputTokens: 0,
+                            providerId,
+                            sessionStats: { toolCallCount: 0, delegationCount: 0 },
+                            turnId: String(placeholderAssistantMessage?.id ?? ""),
+                          },
+                        );
+
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "done",
+                          timestamp: Date.now(),
+                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens. ${outcome.status}`,
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+
+                        return JSON.stringify({
+                          success: outcome.success,
+                          reason: outcome.reason,
+                          tokensBefore: outcome.tokensBefore,
+                          tokensAfter: outcome.tokensAfter,
+                          summary: outcome.summary,
+                          status: outcome.status,
+                        });
+                      } catch (e) {
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "error",
+                          timestamp: Date.now(),
+                          detail: String(e),
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+                        return JSON.stringify({ success: false, error: String(e), reason });
+                      }
+                    }
+
                     const result = await runToolExecuteWithWorkforceSessionGate(
                       regName,
                       { ...args, _chatSessionId: req.chatId },
@@ -4748,6 +4943,67 @@ For workforce, explain services before request_workspace_permissions.`;
                     chatId: req.chatId,
                   });
                   try {
+                    if (toolName === "compress_context") {
+                      // PASS2: Compaction is model-triggered via compress_context.
+                      // Emit activity + run compaction here (tool handler has no stream scope).
+                      const reason =
+                        args && typeof args.reason === "string" && args.reason.trim()
+                          ? args.reason.trim()
+                          : "model-initiated";
+
+                      try {
+                        const providerId =
+                          getEffectiveModelForOptions(settings)?.provider ??
+                          (settings.selectedModel?.provider ?? undefined);
+                        const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                        const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
+                        const outcome = await executeCompressContext(
+                          { reason },
+                          {
+                            chatId: req.chatId,
+                            messages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
+                            systemPromptTokens: 6000,
+                            inputTokens: 0,
+                            providerId,
+                            sessionStats: { toolCallCount: 0, delegationCount: 0 },
+                            turnId: String(placeholderAssistantMessage?.id ?? ""),
+                          },
+                        );
+
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "done",
+                          timestamp: Date.now(),
+                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens. ${outcome.status}. ${reason}`,
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+
+                        return JSON.stringify({
+                          success: outcome.success,
+                          reason: outcome.reason,
+                          tokensBefore: outcome.tokensBefore,
+                          tokensAfter: outcome.tokensAfter,
+                          summary: outcome.summary,
+                          status: outcome.status,
+                        });
+                      } catch (e) {
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "error",
+                          timestamp: Date.now(),
+                          detail: String(e),
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+                        return JSON.stringify({ success: false, error: String(e), reason });
+                      }
+                    }
+
                     const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
                     const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
                     const executeArgs: any = {
@@ -6580,6 +6836,7 @@ For workforce, explain services before request_workspace_permissions.`;
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
           activeStreams.delete(req.chatId);
+          streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6594,6 +6851,7 @@ For workforce, explain services before request_workspace_permissions.`;
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
           activeStreams.delete(req.chatId);
+          streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6611,6 +6869,7 @@ For workforce, explain services before request_workspace_permissions.`;
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
           activeStreams.delete(req.chatId);
+          streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6623,11 +6882,18 @@ For workforce, explain services before request_workspace_permissions.`;
           chatId: req.chatId,
           error: errMessage,
         });
+        safeSend(event.sender, "chat:response:end", {
+          chatId: req.chatId,
+          updatedFiles: false,
+          hadToolCallsOrPermissions: false,
+        } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
+        streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
+        ensureTerminal();
       }
     };
 
