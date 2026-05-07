@@ -80,7 +80,7 @@ function PersistentChatContainer() {
 
   // Handle continuing the chat conversation (verify workspace path before send)
   const handleContinueChat = useCallback(async (prompt: string, attachments?: FileAttachment[]) => {
-    if (!activeChatId || !prompt.trim()) return;
+    if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0)) return;
     if (mustSignIn) {
       showError("Please sign in to use chat.");
       return;

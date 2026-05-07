@@ -118,7 +118,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputValue.trim() || isStreaming || isSubmitting) return;
+        if ((!inputValue.trim() && attachments.length === 0) || isStreaming || isSubmitting) return;
 
         if (mustSignIn) {
             import("@/lib/toast").then(({ showError }) => {
@@ -298,7 +298,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             variant="ghost"
                             size="icon"
                             className="mx-1"
-                            disabled={!inputValue.trim() || mustSignIn}
+                            disabled={(!inputValue.trim() && attachments.length === 0) || mustSignIn}
                         >
                             <SendIcon className="h-4 w-4" />
                         </Button>

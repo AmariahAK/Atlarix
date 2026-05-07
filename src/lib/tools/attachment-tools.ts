@@ -80,8 +80,9 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
             const { pathToFileURL } = await import("url");
             const require = createRequire(import.meta.url);
             // Resolve the directory by resolving a file within it.
-            const helvPath = require.resolve("pdfjs-dist/standard_fonts/Helvetica.pfb");
-            const fontsDir = path.dirname(helvPath);
+            // (Some builds do not ship Helvetica.pfb; use a font that exists across pdfjs-dist builds.)
+            const fontPath = require.resolve("pdfjs-dist/standard_fonts/FoxitFixed.pfb");
+            const fontsDir = path.dirname(fontPath);
             standardFontDataUrl = pathToFileURL(`${fontsDir}${path.sep}`).toString();
         } catch (fontErr) {
             // If this fails, we'll still attempt extraction; worst case the warning persists.

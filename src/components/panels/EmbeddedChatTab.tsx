@@ -33,7 +33,7 @@ export function EmbeddedChatTab() {
 
   const handleContinueChat = useCallback(
     async (prompt: string, attachments?: FileAttachment[]) => {
-      if (!activeChatId || !prompt.trim()) return;
+      if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0)) return;
       try {
         const chat = await IpcClient.getInstance().getChat(activeChatId);
         if (chat.appId != null) {
