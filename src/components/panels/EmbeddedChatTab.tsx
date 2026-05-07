@@ -19,6 +19,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { Plus } from "lucide-react";
 import { showError } from "@/lib/toast";
+import type { FileAttachment } from "@/ipc/ipc_types";
 
 export function EmbeddedChatTab() {
   const activeChatId = useAtomValue(activeChatIdAtom);
@@ -31,7 +32,7 @@ export function EmbeddedChatTab() {
   const { streamMessage } = useStreamChat({ hasChatId: false });
 
   const handleContinueChat = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, attachments?: FileAttachment[]) => {
       if (!activeChatId || !prompt.trim()) return;
       try {
         const chat = await IpcClient.getInstance().getChat(activeChatId);
@@ -47,10 +48,10 @@ export function EmbeddedChatTab() {
         streamMessage({
           prompt,
           chatId: activeChatId,
-          attachments: [],
+          attachments: attachments ?? [],
         });
       } catch {
-        streamMessage({ prompt, chatId: activeChatId, attachments: [] });
+        streamMessage({ prompt, chatId: activeChatId, attachments: attachments ?? [] });
       }
     },
     [activeChatId, streamMessage]

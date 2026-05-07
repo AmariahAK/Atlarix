@@ -15,6 +15,7 @@ import {
     activeChatIdAtom,
     pendingUserQuestionByChatIdAtom,
     questionsByMessageIdAtom,
+    chatErrorByIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
@@ -26,10 +27,13 @@ import { showError } from "@/lib/toast";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import type { FileAttachment } from "@/ipc/ipc_types";
+import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
+import { Button } from "@/components/ui/button";
 
 interface SimpleInlineChatProps {
     chatId: number;
-    onSendMessage: (prompt: string) => void;
+    onSendMessage: (prompt: string, attachments?: FileAttachment[]) => void;
     /** Start continuation stream after `<questions>` submit (same as MessagesList). */
     onContinueAfterQuestions?: () => void;
 }
@@ -43,6 +47,8 @@ export function SimpleInlineChat({
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
+    const errorById = useAtomValue(chatErrorByIdAtom);
+    const setErrorById = useSetAtom(chatErrorByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
     const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
     const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
@@ -91,6 +97,7 @@ export function SimpleInlineChat({
     const messages = messagesById.get(chatId) ?? [];
     const visibleMessages = sliceLastExchanges(messages, 7);
     const isStreaming = isStreamingById.get(chatId) ?? false;
+    const error = errorById.get(chatId) ?? null;
 
     // Handle new chat - reset to home state
     const handleNewChat = useCallback(() => {
@@ -132,6 +139,42 @@ export function SimpleInlineChat({
             <div className="flex-shrink-0 px-4 pb-2">
                 <ToolIndicator forChatId={chatId} />
             </div>
+
+            {error && (
+                <div className="px-4">
+                    <ChatErrorBox
+                        error={error}
+                        isAtlarixProEnabled={false}
+                        onDismiss={() => {
+                            setErrorById((prev) => {
+                                const next = new Map(prev);
+                                next.delete(chatId);
+                                return next;
+                            });
+                        }}
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                                setErrorById((prev) => {
+                                    const next = new Map(prev);
+                                    next.delete(chatId);
+                                    return next;
+                                });
+                                streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+                            }}
+                        >
+                            Retry
+                        </Button>
+                        <div className="text-xs text-muted-foreground flex items-center">
+                            If this keeps happening, switch models using the selector below.
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Messages area - ONLY this should scroll */}
             <div
@@ -211,7 +254,14 @@ export function SimpleInlineChat({
             {/* Rich input with model switcher */}
             <SimpleChatInput
                 chatId={chatId}
-                onSubmit={(prompt) => onSendMessage(prompt)}
+                onSubmit={(prompt, attachments) => {
+                    setErrorById((prev) => {
+                        const next = new Map(prev);
+                        next.delete(chatId);
+                        return next;
+                    });
+                    onSendMessage(prompt, attachments);
+                }}
                 placeholder="Continue the conversation..."
             />
         </div>

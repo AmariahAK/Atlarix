@@ -47,6 +47,7 @@ import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { WorkforceSessionPromptDialog } from "@/components/WorkforceSessionPromptDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
+import type { FileAttachment } from "@/ipc/ipc_types";
 
 /**
  * PersistentChatContainer
@@ -78,7 +79,7 @@ function PersistentChatContainer() {
   const isHomePage = location.pathname === '/';
 
   // Handle continuing the chat conversation (verify workspace path before send)
-  const handleContinueChat = useCallback(async (prompt: string) => {
+  const handleContinueChat = useCallback(async (prompt: string, attachments?: FileAttachment[]) => {
     if (!activeChatId || !prompt.trim()) return;
     if (mustSignIn) {
       showError("Please sign in to use chat.");
@@ -97,11 +98,11 @@ function PersistentChatContainer() {
       streamMessage({
         prompt,
         chatId: activeChatId,
-        attachments: [],
+        attachments: attachments ?? [],
       });
     } catch (e) {
       console.error("Continue chat check failed:", e);
-      streamMessage({ prompt, chatId: activeChatId, attachments: [] });
+      streamMessage({ prompt, chatId: activeChatId, attachments: attachments ?? [] });
     }
   }, [activeChatId, streamMessage, mustSignIn]);
 

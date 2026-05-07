@@ -1305,6 +1305,14 @@ export async function handleChatOnlyStream(
                             }
                         }
                     } catch (tcErr) {
+                        if (
+                            isNoUsableModelOutputError(tcErr) &&
+                            !abortController.signal.aborted &&
+                            !fullResponse.trim()
+                        ) {
+                            // Treat as an empty-output turn so we retry / emit a user-visible error.
+                            throw tcErr;
+                        }
                         logger.warn(
                             "[chat-only] could not read toolCalls for native/text dedupe",
                             tcErr,

@@ -197,13 +197,13 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
               </pre>
             ) : isImage ? (
               <img
-                src={previewUrl}
+                src={previewUrl ?? undefined}
                 alt={filename}
                 className="max-w-full max-h-[80vh] object-contain"
               />
             ) : isPdf ? (
               <iframe
-                src={previewUrl}
+                src={previewUrl ?? undefined}
                 className="w-[600px] h-[800px]"
                 title={filename}
               />

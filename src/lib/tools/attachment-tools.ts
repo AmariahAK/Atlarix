@@ -39,25 +39,7 @@ function isDocumentFile(ext: string): boolean {
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number; success: boolean }> {
-    // Fast-path extraction via pdf-parse (quick, but brittle on some modern PDFs).
-    try {
-        const pdfParseModule = await import("pdf-parse");
-        const pdfParse = pdfParseModule.default;
-        const data = await pdfParse(buffer);
-        const text = data.text || "";
-        const pages = data.numpages || 0;
-        if (text && text.trim().length > 0) {
-            return {
-                text,
-                pages,
-                success: true,
-            };
-        }
-    } catch (err) {
-        logger.warn(`pdf-parse failed: ${err}`);
-    }
-
-    // Fallback extraction via pdfjs-dist (more robust for many PDFs).
+    // Extraction via pdfjs-dist (robust across many modern PDFs).
     try {
         // pdfjs-dist ships multiple builds; prefer legacy/build for Node usage.
         // We use dynamic import so this file remains loadable even if the dependency is missing.
@@ -89,6 +71,23 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
             // #endregion agent log
         }
 
+        // pdfjs needs access to standard fonts in some PDFs; otherwise it can throw:
+        // "UnknownErrorException: Ensure that the `standardFontDataUrl` API parameter is provided."
+        // Provide it as a file:// URL into node_modules.
+        let standardFontDataUrl: string | undefined;
+        try {
+            const { createRequire } = await import("module");
+            const { pathToFileURL } = await import("url");
+            const require = createRequire(import.meta.url);
+            // Resolve the directory by resolving a file within it.
+            const helvPath = require.resolve("pdfjs-dist/standard_fonts/Helvetica.pfb");
+            const fontsDir = path.dirname(helvPath);
+            standardFontDataUrl = pathToFileURL(`${fontsDir}${path.sep}`).toString();
+        } catch (fontErr) {
+            // If this fails, we'll still attempt extraction; worst case the warning persists.
+            logger.warn(`pdfjs standardFontDataUrl resolve failed: ${fontErr}`);
+        }
+
         const getDocument = pdfjs.getDocument ?? pdfjs.default?.getDocument;
         if (typeof getDocument !== "function") {
             throw new Error("pdfjs-dist getDocument not found");
@@ -100,6 +99,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
             disableWorker: true,
             // Avoid font-face/DOM related paths.
             useSystemFonts: true,
+            ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
         });
 
         const doc = await loadingTask.promise;
