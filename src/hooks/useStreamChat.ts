@@ -73,6 +73,7 @@ import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
+import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
@@ -624,6 +625,66 @@ export function useStreamChat({
           }
         });
 
+        const unsubscribeToolIndicator = IpcClient.getInstance().onToolIndicator(
+          (start) => {
+            if (start.chatId !== chatId) return;
+            setToolIndicator((prev) => ({
+              ...prev,
+              active: true,
+              toolName: start.toolName,
+              toolId: start.toolId ?? null,
+              count: prev.count + 1,
+              activeChatId: chatId,
+            }));
+            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
+              const next = [
+                ...prev,
+                {
+                  id: `tool-start-${start.chatId}-${start.toolName}-${Date.now()}`,
+                  type: "tool_use" as const,
+                  label: getToolActivityLabel(start.toolName),
+                  status: "running" as const,
+                  timestamp: Date.now(),
+                  chatId,
+                  detail: "Running...",
+                },
+              ];
+              return next.length > MAX_ACTIVITY_STREAM_ITEMS
+                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
+                : next;
+            });
+          },
+          (end) => {
+            if (end.chatId !== chatId) return;
+            setToolIndicator((prev) => {
+              const newCount = Math.max(0, prev.count - 1);
+              return {
+                ...prev,
+                active: newCount > 0,
+                count: newCount,
+                phaseLabel: newCount === 0 ? null : prev.phaseLabel,
+              };
+            });
+            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
+              const next = [
+                ...prev,
+                {
+                  id: `tool-end-${end.chatId}-${Date.now()}`,
+                  type: "tool_use" as const,
+                  label: `✓ Done`,
+                  status: "done" as const,
+                  timestamp: Date.now(),
+                  chatId,
+                  detail: undefined,
+                },
+              ];
+              return next.length > MAX_ACTIVITY_STREAM_ITEMS
+                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
+                : next;
+            });
+          },
+        );
+
         cleanupStreamListeners = () => {
           if (toolLiveFlushTimer) {
             clearTimeout(toolLiveFlushTimer);
@@ -639,6 +700,7 @@ export function useStreamChat({
           unsubscribeOperationStatus?.();
           unsubscribeChatActivity?.();
           unsubPlanUpdate?.();
+          unsubscribeToolIndicator?.();
         };
 
         const intentMode =

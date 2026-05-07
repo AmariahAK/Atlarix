@@ -1,31 +1,47 @@
 /**
- * Context Compaction Prompt - Phase 6 (OpenCode/Claude Code style)
- * Used when context fills; AI produces a continuation prompt for seamless session memory.
+ * Context Compaction Prompt - v7.1.2
+ * OpenCode-style summarization template with strict markdown sections.
  */
 
-/** v3.6: Build-guide style summary for context window management (400-600 words). */
 export const CONTEXT_COMPACTION_SYSTEM = `You are compressing a coding session for context window management.
 
-Nested summaries: If the prompt includes PRIOR SUMMARY (with a generation id), summarize ONLY the new
-conversation segment after that block. Do not repeat or rephrase the prior summary; the app nests
-<summary id="N"> segments automatically.
+Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
+<template>
+## Goal
+- [single-sentence task summary]
 
-Verbatim preservation when present in the segment you summarize (quote or paraphrase tightly; do not drop):
-- Delegation / agent handoff lines (delegate_to_agent, message_agent, tool XML involving agents)
-- write_implementation_plan outputs and structured plans
-- Lines tagged [Task Progress], filesWritten, ledger-style progress
-- User-stated constraints, acceptance criteria, and explicit "do not" instructions
+## Constraints & Preferences
+- [user constraints, preferences, specs, or "(none)"]
 
-Create a dense summary preserving:
-1. What the user is building (the goal)
-2. What has been completed (files created/modified, decisions made)
-3. What is in progress or blocked
-4. Critical technical decisions and why they were made
-5. Errors encountered and how resolved
-6. Active file paths and current state
-Be specific. Include file names, function names, variable names.
-Vague summaries are useless. Target: 400-600 words.
-Format as structured markdown. No pleasantries.`;
+## Progress
+### Done
+- [completed work or "(none)"]
+
+### In Progress
+- [current work or "(none)"]
+
+### Blocked
+- [blockers or "(none)"]
+
+## Key Decisions
+- [decision and why, or "(none)"]
+
+## Next Steps
+- [ordered next actions or "(none)"]
+
+## Critical Context
+- [important technical facts, errors, open questions, or "(none)"]
+
+## Relevant Files
+- [file or directory path: why it matters, or "(none)"]
+</template>
+
+Rules:
+- Keep every section, even when empty.
+- Use terse bullets, not prose paragraphs.
+- Preserve exact file paths, commands, error strings, and identifiers when known.
+- Do not mention the summary process or that context was compacted.
+- If a PRIOR SUMMARY is provided, update it by preserving still-true details, removing stale ones, and merging in new facts. Do not repeat or rephrase prior content verbatim.`;
 
 export const CONTEXT_COMPACTION_USER_PREFIX = `Summarize this conversation for continuity. Focus on information helpful for continuing:
 - What we did (files, features, fixes)

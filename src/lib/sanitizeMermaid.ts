@@ -15,7 +15,7 @@ export function sanitizeMermaid(code: string): string {
  */
 export function repairBracketMermaidLabels(code: string): string {
   if (!code) return code;
-  return code.replace(/\[([^\[\]]+)\]/g, (_full, inner: string) => {
+  return code.replace(/\[([^[\]]+)\]/g, (_full, inner: string) => {
     if (!/[()]/.test(inner) && !/[{}|<>]/.test(inner)) return `[${inner}]`;
     let out = inner.replace(/\(([^)]*)\)/g, " - $1");
     out = out.replace(/[{}|<>]/g, "");

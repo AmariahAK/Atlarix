@@ -5,6 +5,8 @@ const logger = log.scope("file_uploads_state");
 export interface FileUploadInfo {
   filePath: string;
   originalName: string;
+  /** v8.0.1: true for user-attached files — AI writes skip permission dialog */
+  preApproved?: boolean;
 }
 
 export class FileUploadsState {
@@ -45,6 +47,44 @@ export class FileUploadsState {
     logger.log(
       `Added file upload for chat ${chatId}: ${fileId} -> ${fileInfo.originalName}`,
     );
+  }
+
+  /**
+   * v8.0.1: Mark a file as pre-approved (user explicitly attached it —
+   * AI write operations should skip permission dialog).
+   */
+  public approvePreApproved(fileId: string): void {
+    for (const map of this.uploadsByChat.values()) {
+      const entry = map.get(fileId);
+      if (entry) {
+        entry.preApproved = true;
+        logger.log(`File ${fileId} marked as pre-approved`);
+        break;
+      }
+    }
+  }
+
+  /**
+   * v8.0.1: Check if a file is pre-approved.
+   */
+  public isPreApproved(fileId: string): boolean {
+    for (const map of this.uploadsByChat.values()) {
+      const entry = map.get(fileId);
+      if (entry) return entry.preApproved ?? false;
+    }
+    return false;
+  }
+
+  /**
+   * v8.0.1: Check if a file path matches a pre-approved upload.
+   */
+  public isPreApprovedPath(filePath: string): boolean {
+    for (const map of this.uploadsByChat.values()) {
+      for (const entry of map.values()) {
+        if (entry.preApproved && entry.filePath === filePath) return true;
+      }
+    }
+    return false;
   }
 
   /**

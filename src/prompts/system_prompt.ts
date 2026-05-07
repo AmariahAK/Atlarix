@@ -97,20 +97,6 @@ export const getAgentsMdForContextSize = (contextSize: number = 32000): string =
 };
 
 // ═══════════════════════════════════════════════════════════
-// DEFAULT TECH STACK (fallback when no layered instructions are present)
-// ═══════════════════════════════════════════════════════════
-
-const DEFAULT_TECH_STACK = `# Tech Stack
-- React + TypeScript
-- Vite for bundling
-- Tailwind CSS for styling
-- shadcn/ui components
-- React Router for navigation
-- Put pages in src/pages/, components in src/components/
-- Main page: src/pages/Index.tsx
-`;
-
-// ═══════════════════════════════════════════════════════════
 // BUILD SYSTEM SENTINELS (e2e snapshot normalization)
 // ═══════════════════════════════════════════════════════════
 
@@ -169,13 +155,8 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 
 If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
 `;
-    if (!optionalProjectInstructions) {
-        prompt += `
 
-# Tech Stack
-${DEFAULT_TECH_STACK}
-`;
-    }
+    // v7.2: Tech stack removed - AI learns project structure via Blueprint/tools, not forced stack
 
     // Add mode-specific instruction
     if (chatMode === "ask") {
@@ -252,50 +233,14 @@ ${userPrompt.trim()}
 `;
     }
 
-    // v3.9: Clarifying questions — only when not already answered in this chat
+// v3.9: Clarifying questions — only when not already answered in this chat
+    // v7.2: Compressed - essential rule only, model learns details from AGENTS.md
     if (!hasAnsweredQuestions) {
         prompt += `
 
 ---
-
 # Clarifying questions
-When you determine that a task is ambiguous in a way that would produce fundamentally different implementations depending on interpretation — such as architecture decisions, tech stack choices, destructive operations, or unclear scope — you may emit a <questions> block BEFORE your response text.
-
-**Also use <questions> when the user asks for substantive change (e.g. refactor authentication, migrate APIs, change deployment) but omits critical constraints:** how they want it done (incremental vs big-bang), compatibility or rollout requirements, risk tolerance, or which parts of the stack are in scope. Example: they say “refactor auth” and only mention browser extensions — ask how sessions/JWT/OAuth should behave and whether legacy flows must keep working before you plan or implement.
-
-Only use this for genuinely consequential ambiguity. Do NOT ask about cosmetic details (colors, font sizes, naming conventions) unless the user explicitly asks for your opinion on these.
-
-You may optionally wrap content in an object with \`title\` (or \`prompt\`) for a short block heading plus \`questions\` array — use when the batch needs a clear theme (e.g. title: "Authentication refactor — what we need").
-
-Format exactly as follows (array-only form is still valid):
-<questions>
-[
-  {
-    "id": "q1",
-    "question": "Which database should the auth system use?",
-    "choices": ["PostgreSQL (existing)", "Redis (sessions only)", "Keep current setup"],
-    "allowCustom": true
-  },
-  {
-    "id": "q2",
-    "question": "Should this replace the existing login flow or run alongside it?",
-    "choices": ["Replace it", "Run alongside (A/B)"],
-    "allowCustom": false
-  }
-]
-</questions>
-
-Or with optional heading:
-<questions>
-{"title":"Authentication refactor","questions":[{"id":"q1","question":"Should existing sessions remain valid during rollout?","choices":["Yes — gradual migration","No — hard cutover"],"allowCustom":true}]}
-</questions>
-
-Rules:
-- Emit at most ONE <questions> block per response
-- Maximum 4 questions per block
-- Maximum 4 choices per question
-- After the user answers, proceed directly — never ask questions again in the same thread
-- If you emit <questions>, do not write any other response text in that turn
+If a task is ambiguous in ways that produce fundamentally different outcomes — architecture decisions, destructive ops, unclear scope — emit ONE <questions> block before responding (max 4 questions, 4 choices each). Do NOT use for cosmetic details. After user answers, proceed directly without asking again.
 `;
     }
 

@@ -70,6 +70,8 @@ export default defineConfig({
         "tree-sitter-javascript",
         "tree-sitter-python",
         "mysql2",
+        // @lydell/node-pty has pre-built native binaries (.node files) that cannot be bundled
+        "@lydell/node-pty",
         // elkjs is bundled (use main entry 'elkjs' in code so it bundles without defineProperty issues).
         // OpenTelemetry packages are bundled so the packaged app finds them (no runtime require from node_modules).
         // Externalize AI SDK packages to avoid "Object.defineProperty called on non-object" when bundled (flow/node exports interop).

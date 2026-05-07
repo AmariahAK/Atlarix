@@ -38,6 +38,8 @@ import "./reference-project-tools"; // v3.6 add_reference_project
 import "./db-tools"; // v3.6 DB Extension: db_query, db_schema, db_list, db_mutate
 import "./stream-tools"; // v3.9 stream_terminal_output, stream_pipeline_logs
 import "./workforce-tools"; // v4.0 Slack, Jira, Linear, Sentry, Calendar, CI
+import "./exploration-tools"; // v8.0: generate_workspace_map, scan_file_structure, find_entry_points
+import "./attachment-tools"; // v8.0: read_attachment, list_attachments
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

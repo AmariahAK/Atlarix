@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebContents } from "electron";
-import { generateText, jsonSchema as aiJsonSchema, zodSchema, type ToolSet } from "ai";
+import { generateText, streamText, jsonSchema as aiJsonSchema, zodSchema, type ToolSet } from "ai";
 import type { JSONSchema7 } from "json-schema";
 import * as Sentry from "@sentry/electron/main";
 import { db } from "@/db";
@@ -406,11 +406,29 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     temperature: number,
   ): Promise<string | null> => {
     try {
+      const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+      sendActivity({
+        id: `counsel-${role}-thinking-${sessionId}`,
+        type: "counsel_thinking",
+        label: `${roleLabel} perspective`,
+        status: "running",
+        timestamp: Date.now(),
+        chatId,
+        sessionId,
+        counselRole: role as "fast" | "balanced" | "thinking",
+        detail: "Starting analysis...",
+      });
+
       const { modelClient } = await getModelClient(model, settings, {
         agentMode: settings.agentMode ?? "guided",
         delegationRole: "main",
       });
-      const result = await generateText({
+
+      let reasoningContent = "";
+      let lastEmitMs = Date.now();
+      const EMIT_INTERVAL_MS = 1500;
+
+      const streamResult = streamText({
         model: modelClient.model,
         system: makeParticipantPrompt(role),
         messages: [{ role: "user", content: userContent }],
@@ -423,9 +441,45 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
               stopWhen: [() => false],
             }
           : {}),
-      } as Parameters<typeof generateText>[0]);
-      const text = (result as { text?: string }).text ?? "";
-      return text.replace(COUNSEL_COMPLETE_SIGNAL, "").trim();
+      } as Parameters<typeof streamText>[0]);
+
+      for await (const part of streamResult.fullStream) {
+        if (part.type === "reasoning-delta" && (part as { text?: string }).text) {
+          reasoningContent += (part as { text: string }).text;
+          const now = Date.now();
+          if (now - lastEmitMs > EMIT_INTERVAL_MS) {
+            lastEmitMs = now;
+            const snippet = reasoningContent.slice(-120).replace(/\s+/g, " ").trim();
+            sendActivity({
+              id: `counsel-${role}-thinking-${sessionId}`,
+              type: "counsel_thinking",
+              label: `${roleLabel} perspective`,
+              status: "running",
+              timestamp: now,
+              chatId,
+              sessionId,
+              counselRole: role as "fast" | "balanced" | "thinking",
+              detail: snippet ? `Analyzing: ${snippet}` : "Reasoning in progress...",
+            });
+          }
+        }
+      }
+
+      const text = (streamResult as unknown as { text?: string }).text?.replace(COUNSEL_COMPLETE_SIGNAL, "").trim() ?? "";
+
+      sendActivity({
+        id: `counsel-${role}-thinking-${sessionId}`,
+        type: "counsel_thinking",
+        label: `${roleLabel} perspective`,
+        status: "done",
+        timestamp: Date.now(),
+        chatId,
+        sessionId,
+        counselRole: role as "fast" | "balanced" | "thinking",
+        detail: "Complete",
+      });
+
+      return text;
     } catch {
       return null;
     }

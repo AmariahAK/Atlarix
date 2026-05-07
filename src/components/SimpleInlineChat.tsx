@@ -24,6 +24,8 @@ import { UserQuestionBar } from "@/components/chat/UserQuestionBar";
 import { QuestionsWidget } from "@/components/chat/QuestionsWidget";
 import { showError } from "@/lib/toast";
 import { Plus } from "lucide-react";
+import { sliceLastExchanges } from "../lib/chat/lastExchanges";
+import { useStreamChat } from "@/hooks/useStreamChat";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -45,6 +47,14 @@ export function SimpleInlineChat({
     const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
     const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
     const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
+    // IMPORTANT: This component renders on non-"/chat" routes; avoid route-scoped search hooks.
+    const { streamMessage } = useStreamChat({ hasChatId: false });
+
+    useEffect(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'H1',location:'SimpleInlineChat.tsx:mount',message:'SimpleInlineChat mounted',data:{chatId,pathname:typeof window!=='undefined'?window.location.pathname:null,hasChatId:false},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+    }, [chatId]);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -79,12 +89,31 @@ export function SimpleInlineChat({
     }, [fetchMessages]);
 
     const messages = messagesById.get(chatId) ?? [];
+    const visibleMessages = sliceLastExchanges(messages, 7);
     const isStreaming = isStreamingById.get(chatId) ?? false;
 
     // Handle new chat - reset to home state
     const handleNewChat = useCallback(() => {
         setActiveChatId(null);
     }, [setActiveChatId]);
+
+    const handleEditUserMessage = useCallback(
+        async (messageId: number, newContent: string) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'H2',location:'SimpleInlineChat.tsx:handleEditUserMessage',message:'Edit user message invoked',data:{chatId,messageId,newContentLen:newContent?.length??0},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion agent log
+            await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
+            const chat = await IpcClient.getInstance().getChat(chatId);
+            setMessagesById((prev) => {
+                const next = new Map(prev);
+                next.set(chatId, chat.messages);
+                return next;
+            });
+            // Re-stream continuing from the edited message (chat-only mode uses continueAfterQuestions to avoid inserting a new user row).
+            streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+        },
+        [chatId, setMessagesById, streamMessage],
+    );
 
     return (
         <div className="flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden relative">
@@ -109,7 +138,7 @@ export function SimpleInlineChat({
                 ref={messagesContainerRef}
                 className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
             >
-                {messages.length === 0 && !isStreaming ? (
+                {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
                         <span>Starting chat…</span>
                         <span className="text-xs max-w-sm">
@@ -118,11 +147,12 @@ export function SimpleInlineChat({
                         </span>
                     </div>
                 ) : (
-                    messages.map((message, index) => (
+                    visibleMessages.map((message, index) => (
                         <div key={message.id || index} className="contents">
                             <SimpleMessage
                                 message={message}
-                                isStreaming={isStreaming && index === messages.length - 1}
+                                isStreaming={isStreaming && index === visibleMessages.length - 1}
+                                onEditUserMessage={handleEditUserMessage}
                             />
                             {message.role === "assistant" &&
                                 onContinueAfterQuestions &&
@@ -157,8 +187,8 @@ export function SimpleInlineChat({
                 )}
 
                 {/* Typing indicator when streaming with no assistant response yet */}
-                {isStreaming && messages.length > 0 &&
-                    messages[messages.length - 1].role === "user" && (
+                {isStreaming && visibleMessages.length > 0 &&
+                    visibleMessages[visibleMessages.length - 1].role === "user" && (
                         <div className="flex justify-start">
                             <div className="bg-muted rounded-lg p-4">
                                 <div className="flex space-x-2">

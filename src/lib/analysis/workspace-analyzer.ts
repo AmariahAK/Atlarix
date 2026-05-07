@@ -6,9 +6,9 @@
  * Inspired by StackSense's diagram_builder.py
  */
 import * as fs from 'fs/promises';
+import * as fsSync from 'node:fs';
 import * as path from 'path';
 import log from 'electron-log';
-import { parseWithTreeSitter } from './treesitter-parser';
 import { clearParseTreeCacheForWorkspace } from '@/lib/pivot/parsers/parse-tree-cache';
 import {
     ensureDefaultAtlarixIgnore,
@@ -16,6 +16,8 @@ import {
     normalizeRelPath,
     isRelPathIgnored,
 } from '@/lib/atlarix/atlarix-ignore';
+import { isUnderMemoryPressure, WORKSPACE_LARGE_FILE_THRESHOLD } from '@/constants/settings_constants';
+import { isExcludedDir } from '@/ipc/utils/file_utils';
 
 const logger = log.scope('workspace-analyzer');
 
@@ -40,11 +42,29 @@ const LANGUAGE_MAP: Record<string, string> = {
     '.dart': 'dart',
 };
 
-// Files/dirs to exclude from scanning
-const EXCLUDE_PATTERNS = [
+// Files/dirs to exclude from scanning (flat name match)
+const EXCLUDE_DIR_NAMES = new Set([
     'node_modules', '.git', '.next', 'dist', 'build', '__pycache__',
-    'venv', '.venv', 'target', 'vendor', '.idea', '.vscode', 'coverage',
-];
+    // Python virtual environments (all variants)
+    '.venv', '.venv-ci', '.venv-dev', '.venv-test', 'venv', 'env', '.env',
+    // Python package internals — never analyze
+    'site-packages', 'dist-packages',
+    // Timezone data — thousands of tiny files, zero value
+    'tzdata', 'zoneinfo',
+    // AWS CDK/SAM build artifacts
+    'cdk.out', '.aws-sam', '.aws-cdk',
+    // Other build artifacts
+    'target', 'vendor', '.idea', '.vscode', 'coverage',
+    // Monorepo / package manager
+    '.pnpm', '.pnpm-store', '.yarn', '.yarn-cache', '.turbo', '.parcel-cache',
+    // Build outputs
+    'out', '.nuxt', '.output', 'storybook-static', '.svelte-kit',
+    // Language-specific caches
+    '.gradle', 'DerivedData', 'Pods', '.dart_tool', '.flutter_tools',
+    '.mypy_cache', '.ruff_cache', '.pytest_cache',
+    // General
+    '.nyc_output',
+]);
 
 export interface AnalyzedFile {
     path: string;
@@ -93,6 +113,23 @@ export interface WorkspaceAnalysis {
 export async function analyzeWorkspace(workspacePath: string): Promise<WorkspaceAnalysis> {
     logger.info(`Analyzing workspace: ${workspacePath}`);
 
+    if (isUnderMemoryPressure()) {
+        logger.warn(`Memory pressure detected — skipping full workspace analysis`);
+        return {
+            workspacePath,
+            language: 'mixed',
+            files: [],
+            dependencies: [],
+            clusters: [],
+            entryPoints: [],
+            metadata: {
+                totalFiles: 0,
+                languages: [],
+                hubFiles: [],
+            },
+        };
+    }
+
     clearParseTreeCacheForWorkspace(workspacePath);
 
     // 1. Detect project type
@@ -109,7 +146,12 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
     });
     logger.info(`Found ${filePaths.length} source files (${scanned.length} before .atlarixignore)`);
 
-    // 3. Analyze each file
+    // v7.1.2: Large workspace detection - warn model to use on-demand search
+    if (filePaths.length > WORKSPACE_LARGE_FILE_THRESHOLD) {
+        logger.info(`Large workspace detected (${filePaths.length} files > ${WORKSPACE_LARGE_FILE_THRESHOLD} threshold) — limiting eager analysis`);
+    }
+
+    // 3. Analyze each file (limit to 200 for performance)
     const analyzedFiles = await Promise.all(
         filePaths.slice(0, 200).map(f => analyzeFile(f, workspacePath))
     );
@@ -263,27 +305,40 @@ async function detectProjectType(workspacePath: string): Promise<{
 
 /**
  * Scan for source files recursively
+ * @param dir Directory to scan
+ * @param relativeTo Base directory for result paths
+ * @param visited Set of already-visited inode keys (dev:ino) for cycle detection
  */
-async function scanFiles(dir: string, relativeTo?: string): Promise<string[]> {
+async function scanFiles(dir: string, relativeTo?: string, visited?: Set<string>): Promise<string[]> {
     const files: string[] = [];
     const base = relativeTo || dir;
+
+    let stat: fsSync.Stats;
+    try {
+        stat = await fs.lstat(dir);
+    } catch {
+        return [];
+    }
+
+    if (stat.isSymbolicLink()) return [];
+
+    const inodeKey = `${stat.dev}:${stat.ino}`;
+    if (visited?.has(inodeKey)) return [];
+    const visitedSet = visited ?? new Set<string>();
+    visitedSet.add(inodeKey);
 
     try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
         for (const entry of entries) {
-            // Skip excluded directories
-            if (EXCLUDE_PATTERNS.includes(entry.name)) continue;
-
-            const fullPath = path.join(dir, entry.name);
-
             if (entry.isDirectory()) {
-                const subFiles = await scanFiles(fullPath, base);
+                if (isExcludedDir(entry.name)) continue;
+                const subFiles = await scanFiles(path.join(dir, entry.name), base, visitedSet);
                 files.push(...subFiles);
             } else {
                 const ext = path.extname(entry.name);
-                if (LANGUAGE_MAP[ext]) {
-                    files.push(fullPath);
+                if (ext && LANGUAGE_MAP[ext]) {
+                    files.push(path.join(dir, entry.name));
                 }
             }
         }
@@ -304,32 +359,14 @@ async function analyzeFile(filePath: string, workspacePath: string): Promise<Ana
         const language = LANGUAGE_MAP[ext] || 'unknown';
         const relativePath = path.relative(workspacePath, filePath);
 
-        let imports: string[] = [];
-        let exports: string[] = [];
-        let functions: string[] = [];
-        let classes: string[] = [];
+        // NOTE: Tree-sitter parsing removed (v8.0).
+        // Tree-sitter is now on-demand only via the scan_file_structure tool.
+        // This function uses regex-based extraction for workspace analysis.
+        const imports = extractImports(content, language);
+        const exports = extractExports(content, language);
+        const functions = extractFunctions(content, language);
+        const classes = extractClasses(content, language);
 
-        // Try tree-sitter first for accurate AST parsing
-        const treeSitterResult = await parseWithTreeSitter(content, language, filePath, {
-            workspacePath,
-            relativePath: relativePath.replace(/\\/g, '/'),
-        });
-
-        if (treeSitterResult) {
-            imports = treeSitterResult.imports;
-            exports = treeSitterResult.exports;
-            functions = treeSitterResult.functions;
-            classes = treeSitterResult.classes;
-            logger.debug(`Tree-sitter parsed: ${relativePath}`);
-        } else {
-            // Fallback to regex parsing
-            imports = extractImports(content, language);
-            exports = extractExports(content, language);
-            functions = extractFunctions(content, language);
-            classes = extractClasses(content, language);
-        }
-
-        // Classify file type
         const type = classifyFileType(relativePath, content);
 
         return {

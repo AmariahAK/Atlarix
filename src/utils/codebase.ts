@@ -8,6 +8,7 @@ import { AppChatContext } from "../lib/schemas";
 import { readSettings } from "@/main/settings";
 import { AsyncVirtualFileSystem } from "../../shared/VirtualFilesystem";
 import { isEnvSecretPath } from "@/lib/security/env-secret-paths";
+import { isExcludedDir } from "@/ipc/utils/file_utils";
 
 const logger = log.scope("utils/codebase");
 
@@ -56,15 +57,7 @@ const ALLOWED_EXTENSIONS = [
 // be conservative and never include these directories.
 //
 // ex: https://github.com/norahlabs/atlarix/issues/727
-const EXCLUDED_DIRS = [
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".next",
-  ".venv",
-  "venv",
-];
+// Uses isExcludedDir for comprehensive coverage of .venv-*, tzdata, etc.
 
 // Files to always exclude
 const EXCLUDED_FILES = ["pnpm-lock.yaml", "package-lock.json"];
@@ -267,7 +260,7 @@ async function collectFiles(dir: string, baseDir: string): Promise<string[]> {
       const fullPath = path.join(dir, entry.name);
 
       // Skip excluded directories
-      if (entry.isDirectory() && EXCLUDED_DIRS.includes(entry.name)) {
+      if (entry.isDirectory() && isExcludedDir(entry.name)) {
         return;
       }
 
@@ -669,4 +662,45 @@ function createFullGlobPath({
   // By default the glob package treats "\" as an escape character.
   // We want the path to use forward slash for all platforms.
   return `${appPath.replace(/\\/g, "/")}/${globPath}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// In-flight deduplication — prevents parallel extractCodebase
+// calls (from chat + diagram + debug + etc.) from OOM-ing the
+// app on large workspaces.
+// ─────────────────────────────────────────────────────────────
+const extractCodebaseInFlight = new Map<
+  string,
+  Promise<{ formattedOutput: string; files: CodebaseFile[] }>
+>();
+
+/**
+ * Deduplicated extractCodebase.
+ * Only one extraction runs per workspace at a time; concurrent
+ * callers share the same promise.  Callers pass the same
+ * { appPath, chatContext, virtualFileSystem } they would pass
+ * to extractCodebase directly.
+ */
+export async function extractCodebaseCached({
+  appPath,
+  chatContext,
+  virtualFileSystem,
+}: {
+  appPath: string;
+  chatContext: AppChatContext;
+  virtualFileSystem?: AsyncVirtualFileSystem;
+}): Promise<{ formattedOutput: string; files: CodebaseFile[] }> {
+  const cacheKey = appPath;
+  const existing = extractCodebaseInFlight.get(cacheKey);
+  if (existing) {
+    logger.log(`[extractCodebaseCached] deduplicating in-flight extraction for ${appPath}`);
+    return existing;
+  }
+  const promise = extractCodebase({ appPath, chatContext, virtualFileSystem });
+  extractCodebaseInFlight.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    extractCodebaseInFlight.delete(cacheKey);
+  }
 }

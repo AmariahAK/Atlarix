@@ -149,6 +149,7 @@ import {
   shouldTriggerAINaming,
 } from "../../utils/chat_naming";
 import { ToolRegistry } from "../../lib/tools";
+import { AttachmentStore } from "../../lib/attachment-store";
 import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import {
@@ -1480,18 +1481,45 @@ export function registerChatStreamHandlers() {
       }
 
       // Process attachments if any (skip when continuing after questions)
-      let attachmentInfo = "";
+      // NOTE: Attachment *context* must not be appended to the user-visible message content.
+      // We keep UI message content clean, but inject attachment info into the model prompt later.
+      let attachmentInfoForModel = "";
       let attachmentPaths: string[] = [];
+      let attachmentInfosForMessage: { id: string; filename: string; mimeType: string; size: number }[] = [];
+
+      const mimeTypes: Record<string, string> = {
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+        ".csv": "text/csv",
+        ".json": "application/json",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+      };
 
       if (!req.continueAfterQuestions && req.attachments && req.attachments.length > 0) {
-        attachmentInfo = "\n\nAttachments:\n";
+        // Model-only attachment directive (do not leak into user-visible bubble).
+        attachmentInfoForModel =
+          "\n\nFILES ATTACHED (already uploaded; do NOT ask the user to attach again):\n";
 
         for (const [index, attachment] of req.attachments.entries()) {
           // Generate a unique filename
-          const hash = crypto
-            .createHash("md5")
-            .update(attachment.name + Date.now())
-            .digest("hex");
+          const hash =
+            attachment.id ||
+            crypto
+              .createHash("md5")
+              .update(attachment.name + Date.now())
+              .digest("hex");
           const fileExtension = path.extname(attachment.name);
           const filename = `${hash}${fileExtension}`;
           const filePath = path.join(TEMP_DIR, filename);
@@ -1501,6 +1529,26 @@ export function registerChatStreamHandlers() {
 
           await writeFile(filePath, Buffer.from(base64Data, "base64"));
           attachmentPaths.push(filePath);
+
+          // Store in AttachmentStore for read_attachment tool
+          const resolvedMimeType = mimeTypes[fileExtension] || "application/octet-stream";
+          const resolvedSize = Buffer.from(base64Data, "base64").length;
+          AttachmentStore.add({
+            id: hash,
+            filename: attachment.name,
+            mimeType: resolvedMimeType,
+            data: base64Data,
+            size: resolvedSize,
+            addedAt: Date.now(),
+          });
+
+          // Session-only: used by renderer to show chips/previews under the user message.
+          attachmentInfosForMessage.push({
+            id: hash,
+            filename: attachment.name,
+            mimeType: resolvedMimeType,
+            size: resolvedSize,
+          });
 
           if (attachment.attachmentType === "upload-to-codebase") {
             // For upload-to-codebase, create a unique file ID and store the mapping
@@ -1514,28 +1562,34 @@ export function registerChatStreamHandlers() {
               },
             );
 
-            // Add instruction for AI to use atlarix-write tag
-            attachmentInfo += `\n\nFile to upload to codebase: ${attachment.name} (file id: ${fileId})\n`;
+            // Add instruction for AI (model-only)
+            attachmentInfoForModel += `- name: "${attachment.name}" | attachmentId: ${hash} | mime: ${resolvedMimeType} | kind: upload-to-codebase | size: ${resolvedSize}\n`;
           } else {
-            // For chat-context, use the existing logic
-            attachmentInfo += `- ${attachment.name} (${attachment.type})\n`;
-            // If it's a text-based file, try to include the content
-            if (await isTextFile(filePath)) {
+            // For chat-context, include attachment ID and preview
+            const isText = await isTextFile(filePath);
+            attachmentInfoForModel += `- name: "${attachment.name}" | attachmentId: ${hash} | mime: ${resolvedMimeType} | kind: ${isText ? "text" : "binary"} | size: ${resolvedSize}\n`;
+
+            // If it's a text-based file, include content preview
+            if (isText) {
               try {
-                attachmentInfo += `<atlarix-text-attachment filename="${attachment.name}" type="${attachment.type}" path="${filePath}">
-                </atlarix-text-attachment>
-                \n\n`;
+                const content = await readFile(filePath, "utf-8");
+                attachmentInfoForModel += `  preview:\n  ---\n  ${content
+                  .slice(0, 1500)
+                  .replace(/\n/g, "\n  ")}\n  ---\n`;
               } catch (err) {
                 logger.error(`Error reading file content: ${err}`);
               }
             }
           }
         }
+        attachmentInfoForModel +=
+          '\nMANDATORY TOOL USE:\n- If the user asks to read/summarize any attached file, you MUST call the tool `read_attachment` with the exact `attachmentId` shown above.\n- Example: read_attachment({ "attachmentId": "<id>" })\n';
       }
 
-      // Add user message to database with attachment info (skip when continueAfterQuestions)
+      // Add user message to database (skip when continueAfterQuestions).
+      // IMPORTANT: Don't append attachment info; it would leak into the user-visible bubble.
       if (!req.continueAfterQuestions) {
-        userPrompt = req.prompt + (attachmentInfo ? attachmentInfo : "");
+        userPrompt = req.prompt;
       }
       // Inline referenced prompt contents for mentions like @prompt:<id> (skip when continueAfterQuestions)
       if (!req.continueAfterQuestions) {
@@ -1608,9 +1662,11 @@ ${componentSnippet}
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
+      // Capture inserted user message id so we can attach session-only metadata (attachments) for renderer.
+      let insertedUserMessageId: number | null = null;
       if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
         clearSelfCorrectionAttemptsForChat(req.chatId);
-        await db
+        const inserted = await db
           .insert(messages)
           .values({
             chatId: req.chatId,
@@ -1618,6 +1674,7 @@ ${componentSnippet}
             content: userPrompt,
           })
           .returning();
+        insertedUserMessageId = inserted?.[0]?.id ?? null;
       }
       const settingsBase = readSettings();
       const settings =
@@ -1670,6 +1727,21 @@ ${componentSnippet}
           throw new Error(`Chat not found: ${req.chatId}`);
         }
         updatedChat = fetchedChat;
+
+        // Session-only: attach the uploaded file metadata to the user message so the renderer
+        // can show attachment chips/previews without persisting anything to SQLite.
+        if (attachmentInfosForMessage.length > 0 && insertedUserMessageId != null) {
+          const idx = (updatedChat.messages as any[]).findIndex(
+            (m) => m?.id === insertedUserMessageId,
+          );
+          if (idx >= 0) {
+            const cur = (updatedChat.messages as any[])[idx];
+            (updatedChat.messages as any[])[idx] = {
+              ...cur,
+              attachments: attachmentInfosForMessage,
+            };
+          }
+        }
 
         // Update lastUsedAt timestamp for chat activity
         await db
@@ -1734,6 +1806,7 @@ ${componentSnippet}
           createdAt: new Date(),
           sourceCommitHash: null,
           commitHash: null,
+          attachments: attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
         };
         const placeholderMessage = {
           id: Date.now() + 1,
@@ -2086,53 +2159,6 @@ ${componentSnippet}
             "estimated tokens",
             codebaseInfo.length / 4,
           );
-
-          // ═══════════════════════════════════════════════════════════════
-          // COLD START: Background diagram generation for new workspaces
-          // Start non-blocking generation if no diagram exists yet
-          // ═══════════════════════════════════════════════════════════════
-          const workspaceId = effectiveAppId;
-          if (workspaceId) {
-            try {
-              const { DiagramManager } = await import("../../lib/DiagramManager");
-              const hasDiagram = await DiagramManager.hasAnyDiagram(workspaceId);
-
-              if (!hasDiagram && !DiagramManager.isGenerating(workspaceId)) {
-                logger.info(
-                  `[Cold Start] Deferring background diagram generation 5s for workspace ${workspaceId} (workspace may close; generation is best-effort)`,
-                );
-
-                const coldWorkspaceId = workspaceId;
-                const coldAppPath = appPath;
-                const coldSender = event.sender;
-                setTimeout(() => {
-                  void (async () => {
-                    try {
-                      const { DiagramManager: DM } = await import("../../lib/DiagramManager");
-                      if (DM.isGenerating(coldWorkspaceId)) return;
-                      if (await DM.hasAnyDiagram(coldWorkspaceId)) return;
-                      logger.info(
-                        `[Cold Start] Starting background diagram generation for workspace ${coldWorkspaceId}`,
-                      );
-                      const diagram = await DM.generateInitialDiagram(coldWorkspaceId, coldAppPath);
-                      logger.info(`[Cold Start] Initial diagram ready for workspace ${coldWorkspaceId}`);
-                      safeSend(coldSender, "diagram:initial-ready", {
-                        workspaceId: coldWorkspaceId,
-                        diagramId: diagram.id,
-                        title: diagram.title,
-                      });
-                    } catch (err) {
-                      logger.error(`[Cold Start] Background diagram generation failed:`, err);
-                    }
-                  })();
-                }, 5000);
-              } else if (DiagramManager.isGenerating(workspaceId)) {
-                logger.info(`[Cold Start] Diagram generation already in progress for workspace ${workspaceId}`);
-              }
-            } catch (coldStartError) {
-              logger.warn("[Cold Start] Failed to check/start diagram generation:", coldStartError);
-            }
-          }
 
           // Prepare message history for the AI
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
@@ -2722,85 +2748,21 @@ ${componentSnippet}
             /* non-fatal */
           }
 
-          // Inject workspace analysis context (diagram-first analysis)
-          // This prevents AI hallucination by providing accurate structure info
+          // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
           try {
-            const workspaceContext = await getWorkspaceContext(appPath);
-            if (workspaceContext) {
+            const workforceBlock = await buildWorkforceWorkspaceContextBlock(
+              req.chatId < 0 ? null : req.chatId,
+            );
+            if (workforceBlock) {
               contextSections.push({
                 name: "workspaceAnalysis",
                 priority: 3,
-                content: workspaceContext.systemPromptAddition,
+                content: workforceBlock,
               });
-              logger.info(`Injected workspace context (fromCache: ${workspaceContext.fromCache})`);
-
-              // Send diagram to renderer for RightPanel display
-              safeSend(event.sender, "chat:workspace-diagram", {
-                chatId: req.chatId,
-                diagram: workspaceContext.diagram,
-                summary: workspaceContext.summary,
-              });
-
-              // Save diagram to database for Diagrams page (only if not from cache to avoid duplicates)
-              if (!workspaceContext.fromCache && workspaceContext.diagram) {
-                try {
-                  // For ephemeral chats (negative IDs), don't save chatId (FK constraint would fail)
-                  const isEphemeralChat = req.chatId < 0;
-                  const workspaceId = effectiveAppId ?? req.appId ?? null;
-                  if (workspaceId != null) {
-                    const existing = await db.query.diagrams.findFirst({
-                      where: eq(diagrams.workspaceId, workspaceId),
-                    });
-
-                    if (existing) {
-                      await db
-                        .update(diagrams)
-                        .set({
-                          chatId: isEphemeralChat ? null : req.chatId,
-                          diagramType: "architecture",
-                          title: `Architecture - ${workspaceContext.summary}`,
-                          content: workspaceContext.diagram,
-                          metadata: { summary: workspaceContext.summary },
-                          updatedAt: new Date(),
-                        })
-                        .where(eq(diagrams.id, existing.id));
-                      logger.info(`Updated workspace diagram in database for appId: ${workspaceId}`);
-                    } else {
-                      await db.insert(diagrams).values({
-                        workspaceId,
-                        chatId: isEphemeralChat ? null : req.chatId,
-                        diagramType: "architecture",
-                        title: `Architecture - ${workspaceContext.summary}`,
-                        content: workspaceContext.diagram,
-                        metadata: { summary: workspaceContext.summary },
-                      });
-                      logger.info(`Saved workspace diagram to database for appId: ${workspaceId}`);
-                    }
-                  }
-                } catch (dbError) {
-                  logger.warn("Failed to save diagram to database:", dbError);
-                }
-              }
+              logger.info("Injected Workforce workspace context block");
             }
-
-            // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
-            try {
-              const workforceBlock = await buildWorkforceWorkspaceContextBlock(
-                req.chatId < 0 ? null : req.chatId,
-              );
-              if (workforceBlock) {
-                contextSections.push({
-                  name: "workspaceAnalysis",
-                  priority: 3,
-                  content: workforceBlock,
-                });
-                logger.info("Injected Workforce workspace context block");
-              }
-            } catch (workforceErr) {
-              logger.warn("Failed to build Workforce workspace context:", workforceErr);
-            }
-          } catch (error) {
-            logger.warn("Failed to inject workspace context:", error);
+          } catch (workforceErr) {
+            logger.warn("Failed to build Workforce workspace context:", workforceErr);
           }
 
           if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0 && appPath) {
@@ -3000,22 +2962,13 @@ ${componentSnippet}
             if (assembledContext.activeSkillAddition?.trim()) {
               systemPrompt = `${assembledContext.activeSkillAddition.trim()}\n\n${systemPrompt}`;
             }
-            if (assembledContext.blueprintAddition?.trim()) {
-              systemPrompt += `\n\n${assembledContext.blueprintAddition}`;
-            }
-            if (assembledContext.taskProgressAddition?.trim()) {
-              systemPrompt += `\n\n${assembledContext.taskProgressAddition}`;
-            }
-            if (assembledContext.fileSystemTruthAddition?.trim()) {
-              systemPrompt += `\n\n${assembledContext.fileSystemTruthAddition}`;
-            }
             let blob = "";
             if (assembledContext.finalSystemPromptAddition.trim()) {
               blob = assembledContext.finalSystemPromptAddition;
               systemPrompt += `\n\n${blob}`;
             }
             logger.info(
-              `[ContextAssembler] mode=${effectiveWorkMode} cap=${assembledContext.modeCap} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
+              `[ContextAssembler] mode=${effectiveWorkMode} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
             );
             if (assembledContext.trimReport.length > 0) {
               logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
@@ -3024,7 +2977,7 @@ ${componentSnippet}
               assembledContext.assembledPromptSections.some(
                 (s) =>
                   s.included &&
-                  (s.name === "blueprint" || s.name === "workspaceAnalysis"),
+                  (s.name === "workspaceAnalysis"),
               );
             if (otherAppsCodebaseInfo) {
               const mentionedAppsList = mentionedAppsCodebases
@@ -3318,17 +3271,16 @@ This conversation includes one or more image attachments. When the user uploads 
             ...limitedHistoryChatMessages,
           ];
 
-          // Check if the last message should include attachments
+          // Check if the last message should include attachments (model-only injection)
           if (chatMessages.length >= 2 && attachmentPaths.length > 0) {
             const lastUserIndex = chatMessages.length - 2;
             const lastUserMessage = chatMessages[lastUserIndex];
 
             if (lastUserMessage.role === "user") {
-              // Replace the last message with one that includes attachments
-              chatMessages[lastUserIndex] = await prepareMessageWithAttachments(
-                lastUserMessage,
-                attachmentPaths,
-              );
+              chatMessages[lastUserIndex] = await prepareMessageWithAttachments({
+                message: lastUserMessage,
+                attachmentInfoForModel,
+              });
             }
           }
 
@@ -6814,6 +6766,15 @@ For workforce, explain services before request_workspace_permissions.`;
       payload: { chatId: number; userMessageId: number; newContent: string }
     ) => {
       const { chatId, userMessageId, newContent } = payload;
+      // Ephemeral chats (chatId < 0) live only in-memory inside chat_only_handlers.
+      if (chatId < 0) {
+        const { editEphemeralUserMessage } = await import("./chat_only_handlers");
+        const ok = editEphemeralUserMessage(chatId, userMessageId, newContent);
+        if (!ok) {
+          throw new Error("Ephemeral user message not found");
+        }
+        return { success: true };
+      }
       const msg = await db.query.messages.findFirst({
         where: and(eq(messages.id, userMessageId), eq(messages.chatId, chatId)),
       });
@@ -7071,13 +7032,16 @@ async function replaceTextAttachmentWithContent(
   }
 }
 
-// Helper function to convert traditional message to one with proper image attachments
-async function prepareMessageWithAttachments(
-  message: ModelMessage,
-  attachmentPaths: string[],
-): Promise<ModelMessage> {
-  let textContent = message.content;
-  // Get the original text content
+// Helper function to convert traditional message with attachments
+// v8.0: Images and files are now accessed via read_attachment tool, not content blocks
+async function prepareMessageWithAttachments({
+  message,
+  attachmentInfoForModel,
+}: {
+  message: ModelMessage;
+  attachmentInfoForModel: string;
+}): Promise<ModelMessage> {
+  const textContent = message.content;
   if (typeof textContent !== "string") {
     logger.warn(
       "Message content is not a string - shouldn't happen but using message as-is",
@@ -7085,50 +7049,16 @@ async function prepareMessageWithAttachments(
     return message;
   }
 
-  // Process text file attachments - replace placeholder tags with full content
-  for (const filePath of attachmentPaths) {
-    const fileName = path.basename(filePath);
-    textContent = await replaceTextAttachmentWithContent(
-      textContent,
-      filePath,
-      fileName,
-    );
-  }
+  // IMPORTANT: Attachment context must be provided to the model, but must NOT be persisted
+  // into the user-visible message content in SQLite. We inject it here at dispatch time.
+  const injected =
+    attachmentInfoForModel && attachmentInfoForModel.trim().length > 0
+      ? `${textContent}${attachmentInfoForModel}`
+      : textContent;
 
-  // For user messages with attachments, create a content array
-  const contentParts: (TextPart | ImagePart)[] = [];
-
-  // Add the text part first with possibly modified content
-  contentParts.push({
-    type: "text",
-    text: textContent,
-  });
-
-  // Add image parts for any image attachments
-  for (const filePath of attachmentPaths) {
-    const ext = path.extname(filePath).toLowerCase();
-    if ([".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext)) {
-      try {
-        // Read the file as a buffer
-        const imageBuffer = await readFile(filePath);
-
-        // Add the image to the content parts
-        contentParts.push({
-          type: "image",
-          image: imageBuffer,
-        });
-
-        logger.log(`Added image attachment: ${filePath}`);
-      } catch (error) {
-        logger.error(`Error reading image file: ${error}`);
-      }
-    }
-  }
-
-  // Return the message with the content array
   return {
     role: "user",
-    content: contentParts,
+    content: injected,
   };
 }
 

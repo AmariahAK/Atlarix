@@ -17,9 +17,9 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { PromoMessage } from "./PromoMessage";
-import { ContextLimitBanner } from "./ContextLimitBanner";
 import { useCountTokens } from "@/hooks/useCountTokens";
 import { QuestionsWidget } from "./QuestionsWidget";
+import { sliceLastExchanges } from "../../lib/chat/lastExchanges";
 
 interface MessagesListProps {
   messages: Message[];
@@ -42,6 +42,7 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const selectedChatId = useAtomValue(selectedChatIdAtom);
     const { userBudget } = useUserBudgetInfo();
     const { result: tokenCountResult } = useCountTokens(selectedChatId, "");
+    const visibleMessages = sliceLastExchanges(messages, 7);
 
     const renderSetupBanner = () => {
       const selectedModel = settings?.selectedModel;
@@ -67,12 +68,12 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
         ref={ref}
         data-testid="messages-list"
       >
-        {messages.length > 0
-          ? messages.map((message, index) => (
+        {visibleMessages.length > 0
+          ? visibleMessages.map((message, index) => (
               <div key={message.id ?? index} className="contents">
                 <ChatMessage
                   message={message}
-                  isLastMessage={index === messages.length - 1}
+                  isLastMessage={index === visibleMessages.length - 1}
                 />
                 {message.role === "assistant" &&
                   (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
@@ -130,10 +131,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                 Estimate may update after this reply finishes.
               </p>
             )}
-            <ContextLimitBanner
-              totalTokens={tokenCountResult.actualMaxTokens}
-              contextWindow={tokenCountResult.contextWindow}
-            />
           </div>
         )}
         {!isStreaming && (

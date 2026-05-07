@@ -78,10 +78,10 @@ async function computeTokenCountResult(
   let codebaseTokens = 0;
 
   if (app) {
-    const DIAGRAM_CONTEXT_TOKENS = 3500;
+    const DIAGRAM_CONTEXT_TOKENS = 0;
     codebaseTokens = DIAGRAM_CONTEXT_TOKENS;
     logger.log(
-      `Using diagram-first context estimation: ~${DIAGRAM_CONTEXT_TOKENS} tokens`,
+      `Using diagram-first context estimation: ~${DIAGRAM_CONTEXT_TOKENS} tokens (workspace context is on-demand via tools, not auto-injected)`,
     );
   }
 

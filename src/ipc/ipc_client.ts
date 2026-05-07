@@ -890,6 +890,7 @@ export class IpcClient {
       Promise.all(
         attachments.map(async (attachment) => {
           return new Promise<{
+            id?: string;
             name: string;
             type: string;
             data: string;
@@ -897,10 +898,29 @@ export class IpcClient {
           }>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
+              const id = attachment.id ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : undefined);
+              const raw = reader.result as string;
+              const base64Data = raw.split(";base64,").pop() || "";
+              // Store in renderer AttachmentStore so previews/downloads work.
+              import("@/lib/attachment-store")
+                .then(({ AttachmentStore }) => {
+                  if (id) {
+                    AttachmentStore.add({
+                      id,
+                      filename: attachment.file.name,
+                      mimeType: attachment.file.type || "application/octet-stream",
+                      data: base64Data,
+                      size: attachment.file.size,
+                      addedAt: Date.now(),
+                    });
+                  }
+                })
+                .catch(() => {});
               resolve({
+                id,
                 name: attachment.file.name,
                 type: attachment.file.type,
-                data: reader.result as string,
+                data: raw,
                 attachmentType: attachment.type,
               });
             };

@@ -110,8 +110,14 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel((process.env.SM_CODE_SIGNING_CERT_SHA1_HASH ? {
         signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
-      } : {})),
-    new MakerDMG(),
+      } : {
+        setupIcon: "./assets/icon/logo.ico",
+      })),
+    new MakerDMG({
+      config: {
+        icon: "./assets/icon/logo.icns",
+      },
+    }),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({
       options: {
@@ -128,6 +134,7 @@ const config: ForgeConfig = {
         // AppImage supports auto-update natively via electron-updater
         // and avoids deep-link registration friction on minimal distros / VMs.
         mimeType: ["x-scheme-handler/atlarix"],
+        icon: "./assets/icon/logo.png",
       },
     }),
   ],

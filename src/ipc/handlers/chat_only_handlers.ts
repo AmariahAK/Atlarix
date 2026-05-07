@@ -69,13 +69,163 @@ import {
     hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
 import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
-import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
-import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
 import type { ModelTier } from "@/lib/routing/capability-registry";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { captureSafe } from "../../main/lib/analytics";
 import { parseQuestions } from "../utils/cleanFullResponse";
+import * as path from "path";
+import { readFile } from "fs/promises";
+import { AttachmentStore } from "../../lib/attachment-store";
+import type { TextPart, ImagePart, FilePart } from "ai";
+
+const TEXT_FILE_EXTENSIONS = [
+  ".md", ".txt", ".json", ".csv", ".js", ".ts", ".html", ".css", ".py", ".yaml", ".yml", ".xml", ".sh", ".bash", ".zsh", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".sql", ".graphql", ".env", ".gitignore", ".eslintrc", ".prettierrc",
+];
+
+async function isTextFile(filePath: string): Promise<boolean> {
+  const ext = path.extname(filePath).toLowerCase();
+  return TEXT_FILE_EXTENSIONS.includes(ext);
+}
+
+/**
+ * Process attachments and return formatted attachment info string.
+ * Also stores attachments in AttachmentStore for read_attachment tool.
+ */
+async function processAttachments(attachments: ChatStreamParams["attachments"]): Promise<{ attachmentInfo: string; attachmentIds: string[]; attachmentInfos: { id: string; filename: string; mimeType: string; size: number }[] }> {
+  const attachmentIds: string[] = [];
+  const attachmentInfos: { id: string; filename: string; mimeType: string; size: number }[] = [];
+  let attachmentInfo = "";
+
+  if (!attachments || attachments.length === 0) {
+    return { attachmentInfo, attachmentIds, attachmentInfos };
+  }
+
+  const { default: crypto } = await import("crypto");
+  const TEMP_DIR = path.join(require("os").tmpdir(), "atlarix-attachments");
+  const { writeFile, mkdir } = await import("fs/promises");
+  const { existsSync } = await import("fs");
+
+  if (!existsSync(TEMP_DIR)) {
+    await mkdir(TEMP_DIR, { recursive: true });
+  }
+
+  const mimeTypes: Record<string, string> = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+  };
+
+  logger.log(`Processing ${attachments.length} attachments for chat-only mode`);
+
+  for (const attachment of attachments) {
+    const hash =
+      attachment.id ||
+      crypto
+        .createHash("md5")
+        .update(attachment.name + Date.now())
+        .digest("hex");
+    const fileExtension = path.extname(attachment.name);
+    const filename = `${hash}${fileExtension}`;
+    const filePath = path.join(TEMP_DIR, filename);
+
+    const base64Data = attachment.data.split(";base64,").pop() || "";
+    const fileSize = Buffer.from(base64Data, "base64").length;
+    await writeFile(filePath, Buffer.from(base64Data, "base64"));
+
+    const mimeType = mimeTypes[fileExtension] || "application/octet-stream";
+
+    AttachmentStore.add({
+      id: hash,
+      filename: attachment.name,
+      mimeType,
+      data: base64Data,
+      size: fileSize,
+      addedAt: Date.now(),
+    });
+
+    attachmentIds.push(hash);
+    attachmentInfos.push({
+      id: hash,
+      filename: attachment.name,
+      mimeType,
+      size: fileSize,
+    });
+    logger.log(`Saved attachment: ${filePath} (id: ${hash}, original: ${attachment.name})`);
+  }
+
+  // Build attachment info for LLM (directive, to reduce "please attach" responses)
+  attachmentInfo =
+    "\n\nFILES ATTACHED (already uploaded; do NOT ask the user to attach again):\n";
+  for (let i = 0; i < attachments.length; i++) {
+    const attachment = attachments[i];
+    const attachmentId = attachmentIds[i];
+    const fileExtension = path.extname(attachment.name);
+    const isText = TEXT_FILE_EXTENSIONS.includes(fileExtension);
+    const mimeType = attachment.type || "application/octet-stream";
+    const size = attachmentInfos[i]?.size ?? 0;
+
+    attachmentInfo += `- name: "${attachment.name}" | attachmentId: ${attachmentId} | mime: ${mimeType} | kind: ${isText ? "text" : "binary"} | size: ${size}\n`;
+    if (isText) {
+      const filePath = path.join(TEMP_DIR, `${attachmentIds[i]}${fileExtension}`);
+      try {
+        const fullContent = await readFile(filePath, "utf-8");
+        attachmentInfo += `  preview:\n  ---\n  ${fullContent
+          .slice(0, 1500)
+          .replace(/\n/g, "\n  ")}\n  ---\n`;
+      } catch (err) {
+        logger.warn(`Error reading text file content: ${err}`);
+      }
+    }
+  }
+  attachmentInfo +=
+    '\nMANDATORY TOOL USE:\n- If the user asks to read/summarize any attached file, you MUST call the tool `read_attachment` with the exact `attachmentId` shown above.\n- Example: read_attachment({ "attachmentId": "<id>" })\n';
+
+  return { attachmentInfo, attachmentIds, attachmentInfos };
+}
+
+async function replaceTextAttachmentWithContent(
+  text: string,
+  filePath: string,
+  fileName: string,
+): Promise<string> {
+  try {
+    if (await isTextFile(filePath)) {
+      const fullContent = await readFile(filePath, "utf-8");
+      const escapedPath = filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const tagPattern = new RegExp(
+        `<atlarix-text-attachment filename="[^"]*" type="[^"]*" path="${escapedPath}">\\s*<\\/atlarix-text-attachment>`,
+        "g",
+      );
+      const replacedText = text.replace(
+        tagPattern,
+        `Full content of ${fileName}:\n\`\`\`\n${fullContent}\n\`\`\``,
+      );
+      logger.log(
+        `Replaced text attachment content for: ${fileName} - length before: ${text.length} - length after: ${replacedText.length}`,
+      );
+      return replacedText;
+    }
+    return text;
+  } catch (error) {
+    logger.error(`Error processing text file: ${error}`);
+    return text;
+  }
+}
 
 const logger = log.scope("chat_only_handlers");
 
@@ -143,6 +293,27 @@ export function insertClarifyingAnswersUserMessageEphemeral(
         createdAt: new Date(),
     };
     msgs.splice(idx + 1, 0, msg);
+    return true;
+}
+
+/**
+ * Edit a user message in an ephemeral chat and truncate messages after it.
+ * Used by `chat:edit-message` when chatId is negative (incognito/home chat).
+ */
+export function editEphemeralUserMessage(
+    chatId: number,
+    userMessageId: number,
+    newContent: string,
+): boolean {
+    const chat = ephemeralChats.get(chatId);
+    if (!chat) return false;
+    const idx = chat.messages.findIndex(
+        (m) => m.id === userMessageId && m.role === "user",
+    );
+    if (idx < 0) return false;
+    const prev = chat.messages[idx];
+    chat.messages[idx] = { ...prev, content: newContent };
+    chat.messages = chat.messages.slice(0, idx + 1);
     return true;
 }
 
@@ -293,6 +464,17 @@ After a workspace exists in the full flow, file and codebase tools unlock; in th
 ## What you cannot do until a workspace exists
 You cannot read, write, or run commands on the user's project files from this mode alone — point them to creating/opening a workspace in Atlarix when they want hands-on code changes.
 
+## File Attachments
+When the user attaches files (PDF, images, documents, etc.), the file information will appear in your message context with:
+- The original filename
+- A unique attachment ID
+- MIME type
+- Content preview (for text files)
+
+**To access attachment content**, you MUST call the read_attachment tool with the attachment ID shown in the message. Example: read_attachment(attachmentId="abc123def456")
+
+Do NOT try to guess or make up attachment IDs. Use the exact ID provided in the message context.
+
 ## Formatting rules
 - Thinking: wrap in <redacted_thinking>...</redacted_thinking> when needed (collapsible in UI)
 - Do not announce "let me search" — answer directly; tools run without narration
@@ -404,13 +586,27 @@ export async function handleChatOnlyStream(
             return "";
         }
 
+        // Process attachments BEFORE creating user message so attachment info appears in UI
+        let attachmentInfosForMessage: { id: string; filename: string; mimeType: string; size: number }[] = [];
+        if (!req.continueAfterQuestions && req.attachments && req.attachments.length > 0) {
+            try {
+                const { attachmentInfo, attachmentInfos } = await processAttachments(req.attachments);
+                gatedPrompt += attachmentInfo;
+                attachmentInfosForMessage = attachmentInfos;
+                logger.log(`Appended attachment info to prompt. Total length: ${gatedPrompt.length}`);
+            } catch (err) {
+                logger.warn(`Error processing attachments: ${err}`);
+            }
+        }
+
         if (!req.continueAfterQuestions) {
             const userMessage: Message = {
                 id: Date.now(),
                 chatId: req.chatId,
                 role: "user",
-                content: gatedPrompt,
+                content: req.prompt ?? "",
                 createdAt: new Date(),
+                attachments: attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
             };
             chat.messages.push(userMessage);
 
@@ -793,7 +989,7 @@ export async function handleChatOnlyStream(
         }
 
         // Prepare message history
-        const messageHistory = chat.messages.map((msg) => ({
+        let messageHistory = chat.messages.map((msg) => ({
             role: msg.role as "user" | "assistant" | "system",
             content: msg.content,
         }));
@@ -809,17 +1005,11 @@ export async function handleChatOnlyStream(
             systemPrompt += `\n\n${sessionContext}`;
             logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
         }
+
         if (deepThinkCounselPromptBlock?.trim()) {
             systemPrompt += `\n\n${deepThinkCounselPromptBlock.trim()}`;
         }
 
-        const chatOnlyProviderOptions: Record<string, unknown> = {
-            "dyad-gateway": getExtraProviderOptions(
-                modelClient.builtinProviderId,
-                settings,
-                thinkingTierEffective,
-            ),
-        };
         const mapChatOnlyTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
             if (t === "thinking") return "thinking";
             if (t === "balanced") return "balanced";
@@ -829,51 +1019,73 @@ export async function handleChatOnlyStream(
             effectiveModel as LargeLanguageModel,
             settings,
         );
-        const chatOnlyDispatchEst = estimateDispatchTokens({
-            systemPrompt,
-            history: messageHistory as { role: string; content?: string }[],
-            codebasePrefixMessages: [],
-            otherCodebasePrefixMessages: [],
-        });
-        const chatOnlyBudget = new ContextBudgetTracker(
+
+        const messagesForCompaction = (messageHistory as { id?: number; role: string; content?: string }[]).map((m, idx) => ({
+            id: m.id ?? Date.now() + idx,
+            role: m.role,
+            content: m.content || "",
+        }));
+
+        const { runSteppedCompaction: chatOnlyRunCompaction } = await import("@/lib/context/compaction");
+        const chatOnlyCompactionResult = await chatOnlyRunCompaction(
+            messagesForCompaction,
             chatOnlyTierLimit,
-            chatOnlyDispatchEst,
-            mapChatOnlyTierLabel(contextBudgetTier),
+            effectiveModel.provider,
         );
+
+        if (chatOnlyCompactionResult.compactionApplied) {
+            messageHistory = chatOnlyCompactionResult.modelContext.map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+            }));
+            logger.info(`[compaction:chat-only] ratio=${chatOnlyCompactionResult.usageRatio.toFixed(2)} strategy=${chatOnlyCompactionResult.strategy}`);
+        }
+
+        const chatOnlyProviderOptions: Record<string, unknown> = {
+            "dyad-gateway": getExtraProviderOptions(
+                modelClient.builtinProviderId,
+                settings,
+                thinkingTierEffective,
+            ),
+        };
         if (
             (modelClient.builtinProviderId === "openrouter" ||
                 modelClient.builtinProviderId === "compass") &&
-            (chatOnlyBudget.isCritical() || chatOnlyBudget.isOverLimit())
+            chatOnlyCompactionResult.compactionApplied
         ) {
             chatOnlyProviderOptions.openrouter = {
                 plugins: [{ id: "context-compression" }],
             };
         }
-        if (thinkingTierEffective) {
-            const catalogModelId = resolveReasoningCatalogModelId(
-                effectiveModel as LargeLanguageModel,
-            );
-            const cap = detectReasoningCapability(
-                catalogModelId,
-                modelClient.builtinProviderId,
-            );
-            const reasoningPatch = buildReasoningProviderOptions(cap, true);
-            if (reasoningPatch.openrouter) {
-                chatOnlyProviderOptions.openrouter = {
-                    ...(chatOnlyProviderOptions.openrouter as Record<string, unknown>),
-                    ...reasoningPatch.openrouter,
-                };
-            }
-            if (reasoningPatch.google) {
-                chatOnlyProviderOptions.google = reasoningPatch.google;
-            }
-            if (reasoningPatch.openai) {
-                chatOnlyProviderOptions.openai = reasoningPatch.openai;
-            }
+
+        const modelApiId = typeof effectiveModel === 'string' ? effectiveModel : effectiveModel?.name ?? '';
+        const reasoningCap = detectReasoningCapability(
+            modelApiId,
+            modelClient.builtinProviderId,
+        );
+        const reasoningPatch = buildReasoningProviderOptions(
+            reasoningCap,
+            thinkingTierEffective,
+        );
+        if (reasoningPatch.openrouter) {
+            chatOnlyProviderOptions.openrouter = {
+                ...(chatOnlyProviderOptions.openrouter as Record<string, unknown>),
+                ...reasoningPatch.openrouter,
+            };
+        }
+        if (reasoningPatch.google) {
+            chatOnlyProviderOptions.google = reasoningPatch.google;
+        }
+        if (reasoningPatch.openai) {
+            chatOnlyProviderOptions.openai = reasoningPatch.openai;
         }
 
         let fullResponse = "";
         let chatOnlyStreamMessages: ModelMessage[] = messageHistory as ModelMessage[];
+
+        // v8.0: Attachments are now stored in AttachmentStore and accessed via read_attachment tool
+        // Attachment info was appended to user message in the processing section above
+
         let chatOnlyContinuationAttempts = 0;
         const CHAT_ONLY_CONTINUATION_MAX = 3;
 
@@ -1118,6 +1330,69 @@ export async function handleChatOnlyStream(
 
                 break emptyOutputRetry;
             }
+
+            // ═══════════════════════════════════════════════════════════════
+            // TEXT-BASED TOOL CALL DETECTION (for models like MiniMax)
+            // Some models output tool calls as XML text instead of using
+            // native function calling. Detect and execute them here.
+            // ═══════════════════════════════════════════════════════════════
+            const { containsTextToolCall, parseTextToolCalls } = await import("../utils/text_tool_parser");
+
+            if (containsTextToolCall(fullResponse)) {
+                logger.log("[Chat-Only] Detected text-based tool calls, parsing and executing...");
+                const textToolCalls = parseTextToolCalls(fullResponse);
+
+                for (const toolCall of textToolCalls) {
+                    try {
+                        if (nativeToolNamesThisTurn.has(toolCall.toolName)) {
+                            logger.log(
+                                `[Chat-Only] Skipping text-based tool "${toolCall.toolName}" (already executed via native tool calling)`,
+                            );
+                            continue;
+                        }
+                        const toolFn = tools[toolCall.toolName];
+                        if (toolFn) {
+                            logger.log(`[Chat-Only] Executing text-based tool: ${toolCall.toolName}`, toolCall.args);
+                            const toolResult = await toolFn.execute?.({ ...toolCall.args, chatId: req.chatId }, {} as import("ai").ToolCallOptions);
+                            const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+                            fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="complete">\n${resultStr}\n</atlarix-tool-result>\n`;
+                            logger.log(`[Chat-Only] Text-tool executed: ${toolCall.toolName} ✓`);
+                            if (toolResult && typeof toolResult === 'object' && toolResult.sources) {
+                                collectedSources.push(...toolResult.sources);
+                            }
+                        } else {
+                            logger.warn(`[Chat-Only] Unknown text-tool: ${toolCall.toolName}`);
+                        }
+                    } catch (toolError) {
+                        logger.error(`[Chat-Only] Text-tool error: ${toolCall.toolName}`, toolError);
+                        fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="error">\nError: ${toolError instanceof Error ? toolError.message : String(toolError)}\n</atlarix-tool-result>\n`;
+                    }
+                }
+
+                safeSend(event.sender, "chat:response:chunk", {
+                    chatId: req.chatId,
+                    messages: [
+                        ...chat.messages,
+                        {
+                            id: -1,
+                            chatId: req.chatId,
+                            role: "assistant",
+                            content: fullResponse,
+                            createdAt: new Date(),
+                        },
+                    ],
+                });
+
+                chatOnlyContinuationAttempts++;
+                chatOnlyStreamMessages = [
+                    ...chatOnlyStreamMessages,
+                    { role: "assistant" as const, content: fullResponse },
+                    { role: "user" as const, content: "Please continue processing the request based on the tool results above." },
+                ];
+                fr = "unknown";
+                continue;
+            }
+
             if (
                 !shouldContinue(fr, {
                     attemptCount: chatOnlyContinuationAttempts,
@@ -1162,67 +1437,7 @@ export async function handleChatOnlyStream(
             });
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // TEXT-BASED TOOL CALL DETECTION (for models like MiniMax)
-        // Some models output tool calls as XML text instead of using
-        // native function calling. Detect and execute them here.
-        // ═══════════════════════════════════════════════════════════════
-        const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
-
-        if (containsTextToolCall(fullResponse)) {
-            logger.log("[Chat-Only] Detected text-based tool calls, parsing and executing...");
-            const textToolCalls = parseTextToolCalls(fullResponse);
-
-            for (const toolCall of textToolCalls) {
-                try {
-                    if (nativeToolNamesThisTurn.has(toolCall.toolName)) {
-                        logger.log(
-                            `[Chat-Only] Skipping text-based tool "${toolCall.toolName}" (already executed via native tool calling)`,
-                        );
-                        continue;
-                    }
-                    // Check if this tool exists in our tools object
-                    const toolFn = tools[toolCall.toolName];
-                    if (toolFn) {
-                        logger.log(`[Chat-Only] Executing text-based tool: ${toolCall.toolName}`, toolCall.args);
-
-                        // Execute the tool
-                        const toolResult = await toolFn.execute?.({ ...toolCall.args, chatId: req.chatId }, {} as import("ai").ToolCallOptions);
-
-                        // Append result to response
-                        const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
-                        fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="complete">\n${resultStr}\n</atlarix-tool-result>\n`;
-                        logger.log(`[Chat-Only] Text-tool executed: ${toolCall.toolName} ✓`);
-
-                        // Collect sources if present
-                        if (toolResult && typeof toolResult === 'object' && toolResult.sources) {
-                            collectedSources.push(...toolResult.sources);
-                        }
-                    } else {
-                        logger.warn(`[Chat-Only] Unknown text-tool: ${toolCall.toolName}`);
-                    }
-                } catch (toolError) {
-                    logger.error(`[Chat-Only] Text-tool error: ${toolCall.toolName}`, toolError);
-                    fullResponse += `\n\n<atlarix-tool-result tool="${toolCall.toolName}" status="error">\nError: ${toolError instanceof Error ? toolError.message : String(toolError)}\n</atlarix-tool-result>\n`;
-                }
-            }
-
-            // Update UI with tool results
-            safeSend(event.sender, "chat:response:chunk", {
-                chatId: req.chatId,
-                messages: [
-                    ...chat.messages,
-                    {
-                        id: -1,
-                        chatId: req.chatId,
-                        role: "assistant",
-                        content: fullResponse,
-                        createdAt: new Date(),
-                    },
-                ],
-            });
-        }
-
+        const { stripToolCallXML } = await import("../utils/text_tool_parser");
         fullResponse = stripToolCallXML(fullResponse);
         fullResponse = sanitizeAssistantOutput(fullResponse);
 

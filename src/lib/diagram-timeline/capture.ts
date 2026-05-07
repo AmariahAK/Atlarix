@@ -10,7 +10,6 @@ import log from "electron-log";
 import { db } from "../../db";
 import { workspaceDiagrams, apps } from "../../db/schema";
 import { eq, desc } from "drizzle-orm";
-import { analyzeWorkspace, generateArchitectureDiagram } from "../analysis";
 
 const logger = log.scope("diagram-timeline-capture");
 
@@ -96,78 +95,17 @@ export async function getLatestSnapshot(appId: number) {
 
 /**
  * Capture a new diagram snapshot
+ * NOTE: Architecture diagram generation is now on-demand (triggered by user/tools).
+ * This function returns early without analyzing the workspace.
  */
 export async function captureSnapshot(
     req: CaptureRequest
 ): Promise<CaptureResult> {
     logger.log(
-        `Capturing snapshot for app ${req.appId} (trigger: ${req.trigger})`
+        `Capturing snapshot for app ${req.appId} (trigger: ${req.trigger}) — skipped: diagrams are on-demand`
     );
 
-    try {
-        // Get app info
-        const app = await db.query.apps.findFirst({
-            where: eq(apps.id, req.appId),
-            columns: { path: true, name: true },
-        });
-
-        if (!app) {
-            logger.error(`App not found: ${req.appId}`);
-            return { snapshotId: null, skipped: true, reason: "App not found" };
-        }
-
-        // Generate architecture diagram (two-step: analyze then generate)
-        const analysis = await analyzeWorkspace(app.path);
-        if (!analysis || analysis.files.length === 0) {
-            logger.warn(`No analysis generated for app ${req.appId}`);
-            return { snapshotId: null, skipped: true, reason: "No workspace analysis" };
-        }
-
-        const diagram = generateArchitectureDiagram(analysis);
-        if (!diagram) {
-            logger.warn(`No diagram generated for app ${req.appId}`);
-            return { snapshotId: null, skipped: true, reason: "No diagram generated" };
-        }
-
-        // Hash the diagram content
-        const diagramHash = hashDiagram(diagram);
-
-        // Check for duplicates
-        const shouldCapture = await shouldCaptureSnapshot(req.appId, diagramHash);
-        if (!shouldCapture) {
-            logger.log(`Skipping duplicate snapshot for app ${req.appId}`);
-            return { snapshotId: null, skipped: true, reason: "Duplicate (no changes)" };
-        }
-
-        // Determine if this snapshot should be protected (user annotation = protected)
-        const isProtected = !!req.annotation;
-
-        // Insert the snapshot
-        const [snapshot] = await db
-            .insert(workspaceDiagrams)
-            .values({
-                appId: req.appId,
-                architecture: diagram,
-                dependencies: null, // TODO: Generate on package.json change
-                flows: null, // User-created, not auto-generated
-                trigger: req.trigger,
-                summary: null, // TODO: AI-generated summary
-                annotation: req.annotation || null,
-                filesChanged: req.filesChanged || null,
-                hash: diagramHash,
-                protected: isProtected ? 1 : 0,
-                compressed: false,
-                createdAt: new Date(),
-            } as any)
-            .returning();
-
-        logger.log(`Created snapshot ${snapshot.id} for app ${req.appId}`);
-
-        return { snapshotId: snapshot.id, skipped: false };
-    } catch (error) {
-        logger.error(`Error capturing snapshot: ${error}`);
-        return { snapshotId: null, skipped: true, reason: String(error) };
-    }
+    return { snapshotId: null, skipped: true, reason: "Diagram generation is on-demand" };
 }
 
 /**

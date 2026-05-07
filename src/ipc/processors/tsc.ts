@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { Worker } from "node:worker_threads";
 
 import { ProblemReport } from "../ipc_types";
@@ -14,6 +15,14 @@ import { getTypeScriptCachePath } from "@/paths/paths";
 
 const logger = log.scope("tsc");
 
+const TS_CONFIG_CANDIDATES = ["tsconfig.app.json", "tsconfig.json"];
+
+function hasTsConfig(appPath: string): boolean {
+  return TS_CONFIG_CANDIDATES.some((config) =>
+    fs.existsSync(path.join(appPath, config))
+  );
+}
+
 export async function generateProblemReport({
   fullResponse,
   appPath,
@@ -21,6 +30,11 @@ export async function generateProblemReport({
   fullResponse: string;
   appPath: string;
 }): Promise<ProblemReport> {
+  if (!hasTsConfig(appPath)) {
+    logger.info(`Skipping TSC worker for non-TypeScript workspace: ${appPath}`);
+    return { problems: [] };
+  }
+
   return new Promise((resolve, reject) => {
     // Determine the worker script path
     const workerPath = path.join(__dirname, "tsc_worker.js");

@@ -1,7 +1,23 @@
 # Atlarix TODO
 
-**Current Version:** v7.1.1  
-**Last Updated:** 2026-05-03
+**Current Version:** v7.1.2
+**Last Updated:** 2026-05-05
+
+---
+
+## Shipped in v7.1.2
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Counsel live thinking | **Done** | `counsel_thinking` activity type; `streamText` + `fullStream` iteration; reasoning deltas emitted every 1.5s as "Analyzing: [snippet]" |
+| Delegation visibility | **Done** | `onToolIndicator` listener in `useStreamChat`; `tool_use` activity items for tool start/end in ThoughtsPanel |
+| Tool completion for empty results | **Done** | "✓ Done" shown automatically for all tool completions via activity stream |
+| Tool output cache at execution time | **Done** | `ToolOutputCache` integrated into `ToolRegistry.execute()`; outputs >10KB cached to disk with 7-day retention |
+| File/image attachments (non-workspace) | **Done** | Attachment support extended to chat-only mode in `chat_only_handlers.ts`; vision capability check for image processing |
+| PTY support | **Done** | `src/lib/pty-utils.ts` with `@lydell/node-pty`; interactive shell in Build/Debug; graceful fallback to pipes on failure |
+| Blueprint file watcher | **Done** | Uses Node.js `fs.watch` with 500ms debounce; incremental cache updates |
+
+See [CHANGELOG.md](CHANGELOG.md) v7.1.2.
 
 ---
 
@@ -112,7 +128,9 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.0.
 
 ## Next / follow-ups
 
-- [ ] **Windows:** Authenticode / EV code signing for installers (SmartScreen-friendly builds)
+- [ ] **Python LSP support** (v7.2.0)
+- [ ] **PTY default on** (v7.2.0, after stability testing)
+- [ ] **Windows code signing** (when revenue covers it) — EV/OV Authenticode for SmartScreen-friendly builds
 - [ ] **AgentSonar:** Pure JS or WASM SDK when upstream ships it — until then HTTP sidecar remains optional/dev
 - [ ] **Counsel:** Richer **partial-timeout UI** (surface incomplete roster inline beyond activity payload)
 - [ ] Blast radius analysis using Blueprint edges before agent acts

@@ -49,7 +49,7 @@ export class SessionMemory {
         maxUserChars?: number;
         maxAssistantChars?: number;
     }) {
-        this.maxExchanges = options?.maxExchanges ?? 10;
+        this.maxExchanges = options?.maxExchanges ?? 7;
         this.maxUserChars = options?.maxUserChars ?? 800;
         this.maxAssistantChars = options?.maxAssistantChars ?? 1500;
 

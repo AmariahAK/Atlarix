@@ -14,17 +14,16 @@ import { db } from "@/db";
 import { diagrams, apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { generateText } from "ai";
+import * as path from "path";
 import {
     getModelClient,
     getDiagramModelConfig,
     getDiagramFallbackModel,
     isDiagramModelNotFoundError,
 } from "@/ipc/utils/get_model_client";
-import { extractCodebase } from "@/utils/codebase";
+import { getProjectFiles, getStructureScan } from "@/ipc/utils/project-files";
 import { readSettings } from "@/main/settings";
-import { generateFingerprint } from "./analysis/fingerprint";
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
-import type { AppChatContext } from "./schemas";
 import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
 import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
 import { persistWorkspaceSnapshotHashes } from "./snapshot/snapshot-manager";
@@ -191,18 +190,30 @@ export class DiagramManager {
 
         const settings = readSettings();
 
-        // Extract codebase context
-        const chatContext: AppChatContext = {
-            contextPaths: [],
-            smartContextAutoIncludes: [],
-            excludePaths: [],
-        };
+        logger.debug(`[_generateDiagram] Getting project files for ${appPath}`);
+        const { files } = await getProjectFiles(appPath);
+        logger.info(`[_generateDiagram] ${files.length} files via getProjectFiles`);
 
-        logger.debug(`[_generateDiagram] Extracting codebase from ${appPath}`);
-        const { formattedOutput } = await extractCodebase({
-            appPath,
-            chatContext,
-        });
+        logger.debug(`[_generateDiagram] Scanning structure for top entry point files`);
+        const structureScan = await getStructureScan(appPath, files.slice(0, 50));
+        logger.info(`[_generateDiagram] Structure scan complete: ${Object.keys(structureScan).length} files scanned`);
+
+        const structureContext = Object.entries(structureScan)
+            .map(([filePath, result]) => {
+                // filePath may be relative (from getProjectFiles) or absolute (from other sources)
+                const relPath = path.isAbsolute(filePath)
+                    ? path.relative(appPath, filePath)
+                    : filePath;
+                const parts: string[] = [];
+                if (result.exports.length) parts.push(`exports: ${result.exports.join(", ")}`);
+                if (result.classes.length) parts.push(`classes: ${result.classes.join(", ")}`);
+                if (result.functions.length) parts.push(`functions: ${result.functions.slice(0, 5).join(", ")}`);
+                return parts.length ? `${relPath}: ${parts.join(", ")}` : null;
+            })
+            .filter(Boolean)
+            .join("\n");
+
+        const fileList = files.slice(0, 200).map((f) => path.isAbsolute(f) ? path.relative(appPath, f) : f).join("\n");
 
         // Prepare AI client (uses Auto when ON; user's OpenRouter favorites for fallback/deprecated)
         let modelConfig = getDiagramModelConfig(settings);
@@ -239,7 +250,11 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
             systemPrompt += `\n\nContext for this update: ${options.context}`;
         }
 
-        const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
+        const structureSection = structureContext
+            ? `\n\n## File Structure (exports, classes, functions per file)\n${structureContext}`
+            : "";
+
+        const userPrompt = `Generate an architecture diagram for this project:\n\n## Project Files\n${fileList}${structureSection}`;
 
         let result: Awaited<ReturnType<typeof generateText>>;
         try {
@@ -280,9 +295,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
         // Parse output
         let content = normalizeDiagramAiOutput(result.text);
 
-        // Generate fingerprint for staleness tracking
-        const fingerprint = await generateFingerprint(appPath);
-
         const updateType: "regenerate" | "update" | undefined = "regenerate";
 
         // Check for existing diagram and update or create
@@ -298,9 +310,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
             delete meta.diagramGitCommit;
             const updatePayload: Record<string, unknown> = {
                 content,
-                fingerprintHash: fingerprint.hash,
-                fingerprintData: fingerprint,
-                createdFromFileCount: fingerprint.fileCount,
                 updatedAt: new Date(),
                 metadata: {
                     ...meta,
@@ -334,9 +343,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
                         focus: "auto-generated",
                         updateType,
                     },
-                    fingerprintHash: fingerprint.hash,
-                    fingerprintData: fingerprint,
-                    createdFromFileCount: fingerprint.fileCount,
                 })
                 .returning();
 

@@ -341,7 +341,7 @@ export class DevServerManager {
         }
 
         logger.log(`Starting TypeScript watcher for ${projectPath}`);
-        const watcher = spawn('npx', ['tsc', '--watch', '--noEmit'], {
+        const watcher = spawn('npx', ['tsc', '--watch', '--noEmit', '--skipLibCheck'], {
             cwd: projectPath,
             stdio: ['ignore', 'pipe', 'pipe'],
             shell: true,

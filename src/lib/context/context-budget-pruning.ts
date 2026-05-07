@@ -7,7 +7,7 @@ import { estimateTokens } from "@/ipc/utils/token_utils";
 import type { ContextSection, ContextSectionName } from "@/lib/context/ContextAssembler";
 import type { ContextBudgetHealth } from "@/lib/context/context-budget-tracker";
 
-const PROTECTED_NAMES = new Set<ContextSectionName>(["activeSkill", "blueprint"]);
+const PROTECTED_NAMES = new Set<ContextSectionName>(["activeSkill"]);
 
 function truncateToTokens(content: string, maxTokens: number): string {
   if (estimateTokens(content) <= maxTokens) return content;
@@ -149,20 +149,10 @@ export function pruneContextSectionsForBudget(
         if (health === "critical") {
           return { ...section, content: firstParagraph(section.content) };
         }
-        return { ...section };
-      }
-
-      if (section.name === "workspaceAnalysis" && section.content.trim()) {
-        if (health === "over") {
-          return { ...section, content: workspaceSummaryOnly(section.content, 50) };
-        }
-        if (health === "critical") {
-          return { ...section, content: trimWorkspaceAnalysisModerate(section.content) };
-        }
-        return { ...section };
-      }
-
       return { ...section };
+    }
+
+    return { ...section };
     })
     .filter((s) => s.content.trim().length > 0 || PROTECTED_NAMES.has(s.name));
 }

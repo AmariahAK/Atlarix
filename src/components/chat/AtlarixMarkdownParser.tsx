@@ -537,6 +537,7 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-mcp-tool-result",
     "atlarix-tool-call",
     "atlarix-tool-result",
+    "atlarix-text-attachment",
   ];
 
   // Normalize provider-emitted variants to a single tag name so mismatched
@@ -621,6 +622,7 @@ function parseCustomTags(content: string): ContentPiece[] {
     "atlarix-mcp-tool-result",
     "atlarix-tool-call",
     "atlarix-tool-result",
+    "atlarix-text-attachment",
   ];
 
   const tagPattern = new RegExp(
@@ -984,6 +986,15 @@ function renderCustomTag(
           {content}
         </AtlarixToolResult>
       );
+
+    case "atlarix-text-attachment": {
+      const filename = attributes.filename || "attachment";
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-xs font-mono border border-[var(--border-color)]">
+          📄 {filename}
+        </span>
+      );
+    }
 
     default:
       return null;

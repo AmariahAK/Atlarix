@@ -16,14 +16,12 @@ import {
     getDiagramFallbackModel,
     isDiagramModelNotFoundError,
 } from "../utils/get_model_client";
-import { extractCodebase } from "../../utils/codebase";
+import { extractCodebaseCached } from "../../utils/codebase";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import { AppChatContext } from "../../lib/schemas";
 import { apps } from "@/db/schema";
-import { generateFingerprint } from "../../lib/analysis/fingerprint";
-import { checkDiagramStaleness, type StalenessCheck } from "../../lib/analysis/staleness";
-import { checkSnapshotStaleness } from "../../lib/snapshot/staleness";
+import { checkSnapshotStaleness, type StalenessCheck } from "../../lib/snapshot/staleness";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
@@ -136,7 +134,7 @@ ipcMain.handle(
                 excludePaths: []
             };
 
-            const { formattedOutput } = await extractCodebase({
+            const { formattedOutput } = await extractCodebaseCached({
                 appPath,
                 chatContext
             });
@@ -260,10 +258,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 }
             }
 
-            // 6. Generate fingerprint for staleness tracking
-            const fingerprint = await generateFingerprint(appPath);
-
-            // 7. Update existing diagram or create one (one diagram per workspace – no duplicates)
+            // 6. Update existing diagram or create one (one diagram per workspace – no duplicates)
             const existingDiagram = await db.query.diagrams.findFirst({
                 where: eq(diagrams.workspaceId, workspaceId),
             });
@@ -280,9 +275,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                         content,
                         diagramType: "mermaid",
                         title: title || existingDiagram.title || `${app.name} Architecture (AI)`,
-                        fingerprintHash: fingerprint.hash,
-                        fingerprintData: fingerprint,
-                        createdFromFileCount: fingerprint.fileCount,
                         updatedAt: new Date(),
                         metadata: {
                             ...meta,
@@ -304,9 +296,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                         metadata: {
                             focus: "ai-generated",
                         },
-                        fingerprintHash: fingerprint.hash,
-                        fingerprintData: fingerprint,
-                        createdFromFileCount: fingerprint.fileCount,
                     })
                     .returning();
 
@@ -449,16 +438,18 @@ ipcMain.handle(
                 }
                 return { success: true, staleness, gitDecision };
             } catch {
-                /* fall through to fingerprint staleness */
+                return {
+                    success: true,
+                    staleness: {
+                        isStale: false,
+                        severity: "none" as const,
+                        reason: "Staleness check unavailable",
+                        changes: { filesAdded: 0, filesRemoved: 0, fileCountChange: 0, percentChange: 0 },
+                        recommendation: "keep" as const,
+                    },
+                    gitDecision: undefined,
+                };
             }
-
-            const staleness = await checkDiagramStaleness(
-                diagram.fingerprintData,
-                diagram.createdFromFileCount,
-                workspacePath
-            );
-
-            return { success: true, staleness, gitDecision: undefined };
         } catch (error) {
             console.error("[diagram:check-staleness] Error:", error);
             return {

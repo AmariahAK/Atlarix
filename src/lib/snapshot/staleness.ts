@@ -5,10 +5,22 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { StalenessCheck } from "../analysis/staleness";
 import { atlasDir, computeWorkspaceFileHashes } from "./workspace-hash";
 import type { ChangeAnalysis, FileChange } from "../diagram/diagram_update_strategy";
 import { DiagramUpdateStrategy, type DiagramDecision } from "../diagram/diagram_update_strategy";
+
+export interface StalenessCheck {
+    isStale: boolean;
+    severity: "none" | "minor" | "moderate" | "major";
+    reason: string;
+    changes: {
+        filesAdded: number;
+        filesRemoved: number;
+        fileCountChange: number;
+        percentChange: number;
+    };
+    recommendation: "keep" | "suggest-refresh" | "force-refresh";
+}
 
 const SNAPSHOT_HASHES_FILE = "snapshot_hashes.json";
 const SNAPSHOTS_SUBDIR = "snapshots";

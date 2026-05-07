@@ -40,6 +40,7 @@ import {
     isAlwaysAutoApproveAtlarixRelativePath,
     isAtlarixPlanRelativePath,
 } from "../../../lib/tasks/plan-sync";
+import { FileUploadsState } from "../../utils/file_uploads_state";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
 import { runDiagramRegenerateBackground } from "../diagram_regenerate_background";
@@ -165,6 +166,15 @@ export class PermissionInterceptor extends EventEmitter {
             }
         };
 
+        // v8.0.1: User-attached file uploads auto-approve (user consented by attaching)
+        const checkPreApprovedPath = (filePath: string): boolean => {
+            try {
+                return FileUploadsState.getInstance().isPreApprovedPath(filePath);
+            } catch {
+                return false;
+            }
+        };
+
         switch (request.operation) {
             case "write_file":
             case "replace_code":
@@ -172,10 +182,12 @@ export class PermissionInterceptor extends EventEmitter {
             case "delete_lines":
             case "delete_file": {
                 const preview = request.preview as FileOperationPreview;
+                if (preview?.path && checkPreApprovedPath(preview.path)) return true;
                 return Boolean(preview?.path && checkPath(preview.path));
             }
             case "rename_file": {
                 const preview = request.preview as FileOperationPreview;
+                if (preview?.toPath && checkPreApprovedPath(preview.toPath)) return true;
                 return Boolean(
                     preview?.fromPath &&
                         preview?.toPath &&
@@ -186,6 +198,8 @@ export class PermissionInterceptor extends EventEmitter {
             case "write_multiple_files": {
                 const previews = request.preview as FileOperationPreview[];
                 if (!Array.isArray(previews) || previews.length === 0) return false;
+                // If all paths are pre-approved, auto-approve
+                if (previews.every((p) => p?.path && checkPreApprovedPath(p.path))) return true;
                 return previews.every((p) => p?.path && checkPath(p.path));
             }
             case "batch_plan": {

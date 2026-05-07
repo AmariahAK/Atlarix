@@ -5,7 +5,7 @@ import {
 
 /** User-visible copy when the model returns nothing after one silent retry. */
 export const MODEL_EMPTY_RESPONSE_USER_MESSAGE =
-  "Model returned no response. Try again.";
+  "Something went wrong — please try again.";
 
 /**
  * Thrown when the model returned no usable output after the silent retry path

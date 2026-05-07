@@ -4,7 +4,6 @@ import {
   CHAT_MESSAGE_MARKDOWN_PROSE,
   VanillaMarkdownParser,
 } from "./AtlarixMarkdownParser";
-import { motion } from "framer-motion";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import {
   CheckCircle,
@@ -17,6 +16,9 @@ import {
   Edit2,
   Undo2,
   Compass,
+  FileText,
+  Download,
+  X,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useVersions } from "@/hooks/useVersions";
@@ -67,6 +69,7 @@ import {
   InlineThoughtsBlock,
   shouldRenderInlineThoughtsPanel,
 } from "../ActivityDisplay";
+import { AttachmentChip } from "./AttachmentChip";
 
 interface ChatMessageProps {
   message: Message;
@@ -448,6 +451,48 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               : ""
           }`}
         >
+          {message.role === "user" && !isEditing && !message.isSynthetic ? (
+            <div className="absolute top-2 right-2 flex items-center gap-1">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopyFormatted}
+                      className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                      title="Copy"
+                      aria-label="Copy message"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="h-3 w-3 text-green-500" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {copied ? "Copied!" : "Copy"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <button
+                type="button"
+                onClick={() => { setEditContent(message.content); setIsEditing(true); }}
+                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                title="Edit"
+                aria-label="Edit message"
+              >
+                <Edit2 className="h-3 w-3" />
+                <span>Edit</span>
+              </button>
+            </div>
+          ) : null}
           {message.role === "user" && message.isSynthetic && !isEditing ? (
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
               {message.content.trimStart().startsWith("Auto-correction (")
@@ -595,7 +640,22 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   )}
                 </>
               ) : (
-                <VanillaMarkdownParser content={message.content} />
+                <>
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {message.attachments.map((attachment) => (
+                        <AttachmentChip
+                          key={attachment.id}
+                          id={attachment.id}
+                          filename={attachment.filename}
+                          mimeType={attachment.mimeType}
+                          size={attachment.size}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <VanillaMarkdownParser content={message.content} />
+                </>
               )}
             </div>
           )}
@@ -604,17 +664,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             <div className="mt-3 flex justify-start">
               <AtlarixAnimation size="sm" phase="done" />
             </div>
-          )}
-          {message.role === "user" && !isEditing && !message.isSynthetic && (
-            <button
-              type="button"
-              onClick={() => { setEditContent(message.content); setIsEditing(true); }}
-              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-muted transition-opacity"
-              title="Edit message"
-              aria-label="Edit message"
-            >
-              <Edit2 className="h-4 w-4 text-muted-foreground" />
-            </button>
           )}
           {(message.role === "assistant" && message.content && !isStreaming) ||
           message.approvalState ? (

@@ -112,8 +112,7 @@ export const AzureProviderSettingSchema = z.object({
 });
 
 export const VertexProviderSettingSchema = z.object({
-  // We make this undefined so that it makes existing callsites easier.
-  apiKey: z.undefined(),
+  apiKey: SecretSchema.optional(),
   projectId: z.string().optional(),
   location: z.string().optional(),
   serviceAccountKey: SecretSchema.optional(),

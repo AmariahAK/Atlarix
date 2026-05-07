@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { extractCodebaseCached } from "../../utils/codebase";
 import { apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -44,7 +45,7 @@ export function registerContextPathsHandlers() {
       const { contextPaths, smartContextAutoIncludes, excludePaths } =
         validateChatContext(app.chatContext);
       for (const contextPath of contextPaths) {
-        const { formattedOutput, files } = await extractCodebase({
+        const { formattedOutput, files } = await extractCodebaseCached({
           appPath,
           chatContext: {
             contextPaths: [contextPath],
@@ -61,7 +62,7 @@ export function registerContextPathsHandlers() {
       }
 
       for (const contextPath of smartContextAutoIncludes) {
-        const { formattedOutput, files } = await extractCodebase({
+        const { formattedOutput, files } = await extractCodebaseCached({
           appPath,
           chatContext: {
             contextPaths: [contextPath],
@@ -78,7 +79,7 @@ export function registerContextPathsHandlers() {
       }
 
       for (const excludePath of excludePaths || []) {
-        const { formattedOutput, files } = await extractCodebase({
+        const { formattedOutput, files } = await extractCodebaseCached({
           appPath,
           chatContext: {
             contextPaths: [excludePath],

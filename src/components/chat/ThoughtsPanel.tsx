@@ -264,6 +264,11 @@ function bubbleTextFor(item: ActivityStreamItem): string {
       const body = item.preview?.trim();
       return body ? `${role}: ${body}` : `${role} complete`;
     }
+    case "counsel_thinking": {
+      const role = item.counselRole ? titleCase(item.counselRole) : "Counsel";
+      const detail = item.detail?.trim();
+      return detail ? `${role}: ${detail}` : `${role} thinking...`;
+    }
     case "counsel_start": {
       const n = item.participantCount ?? 3;
       return `${n} perspectives`;
@@ -310,6 +315,7 @@ function stableSort(items: ActivityStreamItem[]) {
 
 const COUNSEL_ACTIVITY_TYPES = new Set<ActivityStreamItem["type"]>([
   "counsel_start",
+  "counsel_thinking",
   "counsel_participant_complete",
   "counsel_synthesising",
   "counsel_complete",

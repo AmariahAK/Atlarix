@@ -12,19 +12,27 @@ import {
     VanillaMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
 import { motion } from "framer-motion";
-import { Copy, Check, Bot } from "lucide-react";
+import { Copy, Check, Bot, Edit2 } from "lucide-react";
 import { useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { MessageSources } from "./MessageSources";
+import { AttachmentChip } from "./chat/AttachmentChip";
 
 interface SimpleMessageProps {
     message: Message;
     isStreaming?: boolean;
+    onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
 }
 
-export function SimpleMessage({ message, isStreaming = false }: SimpleMessageProps) {
+export function SimpleMessage({
+    message,
+    isStreaming = false,
+    onEditUserMessage,
+}: SimpleMessageProps) {
     const [copied, setCopied] = useState(false);
     const { settings } = useSettings();
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState(message.content);
 
     const handleCopy = async () => {
         try {
@@ -143,7 +151,57 @@ export function SimpleMessage({ message, isStreaming = false }: SimpleMessagePro
                         </div>
                     ) : (
                         <div className={CHAT_MESSAGE_MARKDOWN_PROSE} style={{ whiteSpace: 'pre-wrap' }}>
-                            {isAssistant ? (
+                            {isUser &&
+                                message.attachments &&
+                                message.attachments.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mb-2">
+                                        {message.attachments.map((att) => (
+                                            <AttachmentChip
+                                                key={att.id}
+                                                id={att.id}
+                                                filename={att.filename}
+                                                mimeType={att.mimeType}
+                                                size={att.size}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                            {isUser && isEditing ? (
+                                <div className="space-y-2">
+                                    <textarea
+                                        value={editContent}
+                                        onChange={(e) => setEditContent(e.target.value)}
+                                        className="w-full min-h-[120px] rounded-md border border-border/50 bg-background/70 p-2 text-sm text-foreground"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await onEditUserMessage?.(message.id, editContent);
+                                                    setIsEditing(false);
+                                                } catch (err) {
+                                                    console.error("Failed to edit message:", err);
+                                                }
+                                            }}
+                                            className="px-2 py-1 rounded-md bg-background/70 border border-border/50 text-xs text-foreground hover:bg-background transition-colors"
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setEditContent(message.content);
+                                                setIsEditing(false);
+                                            }}
+                                            className="px-2 py-1 rounded-md bg-background/40 border border-border/40 text-xs text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : isAssistant ? (
                                 <AtlarixMarkdownParser content={message.content} />
                             ) : (
                                 <VanillaMarkdownParser content={message.content} />
@@ -162,25 +220,42 @@ export function SimpleMessage({ message, isStreaming = false }: SimpleMessagePro
                     <MessageSources sources={message.sources} />
                 )}
 
-                {/* Copy button for assistant messages */}
-                {isAssistant && message.content && !isStreaming && (
-                    <div className="flex justify-start mt-1">
-                        <button
-                            onClick={handleCopy}
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-                        >
-                            {copied ? (
-                                <>
-                                    <Check className="h-3 w-3 text-green-500" />
-                                    Copied
-                                </>
-                            ) : (
-                                <>
-                                    <Copy className="h-3 w-3" />
-                                    Copy
-                                </>
+                {/* Actions under messages */}
+                {message.content && !isStreaming && (
+                    <div className={`flex mt-1 ${isUser ? "justify-end" : "justify-start"}`}>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={handleCopy}
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                            >
+                                {copied ? (
+                                    <>
+                                        <Check className="h-3 w-3 text-green-500" />
+                                        Copied
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy className="h-3 w-3" />
+                                        Copy
+                                    </>
+                                )}
+                            </button>
+                            {isUser && !isEditing && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setEditContent(message.content);
+                                        setIsEditing(true);
+                                    }}
+                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                                    title="Edit"
+                                    aria-label="Edit message"
+                                >
+                                    <Edit2 className="h-3 w-3" />
+                                    Edit
+                                </button>
                             )}
-                        </button>
+                        </div>
                     </div>
                 )}
             </div>

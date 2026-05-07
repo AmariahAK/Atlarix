@@ -1,4 +1,4 @@
-import { FileText, X, MessageSquare, Upload } from "lucide-react";
+import { FileText, X, MessageSquare } from "lucide-react";
 import type { FileAttachment } from "@/ipc/ipc_types";
 
 interface AttachmentsListProps {
@@ -21,11 +21,7 @@ export function AttachmentsList({
           title={`${attachment.file.name} (${(attachment.file.size / 1024).toFixed(1)}KB)`}
         >
           <div className="flex items-center gap-1">
-            {attachment.type === "upload-to-codebase" ? (
-              <Upload size={12} className="text-blue-600" />
-            ) : (
-              <MessageSquare size={12} className="text-green-600" />
-            )}
+            <MessageSquare size={12} className="text-green-600" />
             {attachment.file.type.startsWith("image/") ? (
               <div className="relative group">
                 <img

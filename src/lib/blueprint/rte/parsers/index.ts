@@ -34,6 +34,8 @@ import {
   filterRteNodesByIgnore,
   filterRteEdgesByNodes,
 } from "@/lib/atlarix/atlarix-ignore";
+import { getProjectFiles } from "@/ipc/utils/project-files";
+import { isExcludedDir } from "@/ipc/utils/file_utils";
 
 export type { BlueprintNode, RTEBlueprintEdge, RTEParseResult, FrameworkInfo, SupportedLanguage } from "./types";
 
@@ -76,46 +78,15 @@ const CODE_EXTENSIONS: Record<SupportedLanguage, string[]> = {
   elixir: [".ex", ".exs"],
 };
 
-const EXCLUDE_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  "__pycache__",
-  "venv",
-  ".venv",
-  "target",
-  "vendor",
-  ".next",
-  "coverage",
-]);
-
 /** Collect source file paths under projectPath for the given language */
 async function getSourceFiles(projectPath: string, language: SupportedLanguage): Promise<string[]> {
   const ext = CODE_EXTENSIONS[language] ?? [];
-  const out: string[] = [];
-
-  async function walk(dir: string, base: string): Promise<void> {
-    let entries: { name: string; isDirectory: () => boolean }[] = [];
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      const rel = base ? `${base}/${e.name}` : e.name;
-      if (e.isDirectory()) {
-        if (!EXCLUDE_DIRS.has(e.name)) {
-          await walk(path.join(dir, e.name), rel);
-        }
-      } else if (ext.some((x) => e.name.toLowerCase().endsWith(x))) {
-        out.push(rel);
-      }
-    }
-  }
-
-  await walk(projectPath, "");
-  return out;
+  const { files } = await getProjectFiles(projectPath);
+  const relFiles = files.map((f) => path.relative(projectPath, f));
+  return relFiles.filter((f) => {
+    const extLower = f.toLowerCase();
+    return ext.some((e) => extLower.endsWith(e));
+  });
 }
 
 /** Registry of language parsers. Only typescript and python are implemented; others return empty. */

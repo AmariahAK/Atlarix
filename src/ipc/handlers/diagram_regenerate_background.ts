@@ -8,11 +8,10 @@ import { diagrams, apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { generateText } from "ai";
 import { getModelClient, getEffectiveModel } from "../utils/get_model_client";
-import { extractCodebase } from "../../utils/codebase";
+import { extractCodebaseCached } from "../../utils/codebase";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { AppChatContext } from "../../lib/schemas";
-import { generateFingerprint } from "../../lib/analysis/fingerprint";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 import { invalidateBlueprintCache } from "./blueprint_handlers";
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
@@ -56,7 +55,7 @@ export async function runDiagramRegenerateBackground(
       excludePaths: [],
     };
 
-    const { formattedOutput } = await extractCodebase({
+    const { formattedOutput } = await extractCodebaseCached({
       appPath,
       chatContext,
     });
@@ -96,7 +95,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
     });
 
     let content = normalizeDiagramAiOutput(result.text);
-    const fingerprint = await generateFingerprint(appPath);
 
     const existingDiagram = await db.query.diagrams.findFirst({
       where: eq(diagrams.workspaceId, workspaceId),
@@ -107,9 +105,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
         .update(diagrams)
         .set({
           content,
-          fingerprintHash: fingerprint.hash,
-          fingerprintData: fingerprint,
-          createdFromFileCount: fingerprint.fileCount,
           updatedAt: new Date(),
         })
         .where(eq(diagrams.id, existingDiagram.id));
@@ -131,9 +126,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
         title: `${app.name} Architecture`,
         content,
         metadata: { focus: "auto-generated" },
-        fingerprintHash: fingerprint.hash,
-        fingerprintData: fingerprint,
-        createdFromFileCount: fingerprint.fileCount,
       })
       .returning();
 

@@ -1,5 +1,220 @@
 # Atlarix Changelog
 
+## v8.0.1 — Auto-updater fix, import path correction (2026-05-06)
+
+### Workspace Path Resolution Fix
+
+- **Fixed [`getAtlarixAppPath()`](src/paths/paths.ts)**: Relative paths are now resolved by checking real directory locations before falling back to `~/atlarix-apps/`. Checks `~/Documents/Atlarix/{name}` first, then `~/atlarix-apps/{name}` (legacy). This ensures workspaces imported from locations like `/Users/amariah/Documents/Github/Spacinsider` are resolved to their actual location rather than `~/atlarix-apps/spacinsider`.
+
+### File Path Normalization Fix
+
+- **[`src/ipc/utils/project-files.ts`](src/ipc/utils/project-files.ts)**: All strategies now return workspace-relative paths (`src/lib/foo.ts`) regardless of which tool generated them. `fd` and `ripgrep --files` were returning absolute paths, causing workspace-relative assumptions to break downstream. Normalization is applied at return time in each strategy.
+- **[`src/lib/DiagramManager.ts`](src/lib/DiagramManager.ts)**: Added defensive `path.isAbsolute()` checks before `path.relative()` to handle both relative and absolute inputs from `getProjectFiles`.
+- **[`src/lib/tools/exploration-tools.ts`](src/lib/tools/exploration-tools.ts)**: `scanDirectory()` now returns workspace-relative paths instead of absolute paths, fixing `generate_workspace_map` tool output.
+- **[`getStructureScan()`](src/ipc/utils/project-files.ts)**: Now keys results by relative path and accepts both relative and absolute input paths.
+
+### Crash Fix
+
+- **Fixed `ReferenceError: budgetTracker is not defined`** in [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts): The stepped compaction refactor removed the `budgetTracker` variable declaration that `simpleStreamText`'s TTFT logging closure depends on. `budgetTracker` is now instantiated before the closure along with `dispatchEstimate`, `contextBudgetPruningApplied`, and `llmCompactionApplied`.
+
+### Token Estimate Fix
+
+- **Fixed `estimatedTokens=209715` on every request** in [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts): `compactionResult.estimatedTokens` was `undefined` (field doesn't exist on `RunSteppedCompactionResult`), causing fallback to `tierLimit` (context window size). Now uses `estimateDispatchTokens()` with the actual post-compacted `limitedMessageHistory` to compute the real token count.
+
+### Workspace Analysis Deduplication
+
+- **Added in-flight deduplication** to [`src/ipc/handlers/chat_stream/workspace-context.ts`](src/ipc/handlers/chat_stream/workspace-context.ts): Added `workspaceAnalysisInFlight` Map to prevent parallel `analyzeWorkspace` calls from OOM-ing the app on large workspaces. Follows the same pattern as `extractCodebaseCached`.
+
+### Tool Output Cache Fix
+
+- **Fixed `cachedAt.getTime is not a function`** in [`src/lib/tools/cache/output-cache.ts`](src/lib/tools/cache/output-cache.ts): `cleanupExpired()` called `.getTime()` on a `Date` that was stored via JSON (becomes string after `JSON.parse`). Fixed by wrapping with `new Date(cached.cachedAt).getTime()`.
+
+### Fingerprint Cache Fix
+
+- **Fixed workspace-fingerprint cache never hitting** across [`src/lib/analysis/fingerprint.ts`](src/lib/analysis/fingerprint.ts) and call sites: The 60s TTL `getWorkspaceFingerprint()` function was defined but never called — all 4 call sites used `generateFingerprint()` directly, bypassing the cache. Updated `DiagramManager.ts`, `diagram_handlers.ts`, `diagram_regenerate_background.ts`, and `staleness.ts` to use `getWorkspaceFingerprint()` instead.
+
+### Attachment UI Fix
+
+- **Fixed raw `<atlarix-text-attachment>` XML visible in chat** in [`src/components/chat/AtlarixMarkdownParser.tsx`](src/components/chat/AtlarixMarkdownParser.tsx): Added `atlarix-text-attachment` to `customTagNames` array and added a render case that shows a styled chip `[📄 filename]`.
+- **Changed `dyad-attachments` → `atlarix-attachments`** in [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts): The temp directory name was leaking internal naming. Now uses `atlarix-attachments` consistently.
+- **Used `escapeXml()` when generating attachment tags** in [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts): Attachment filename, type, and path attributes are now properly escaped to prevent XML injection.
+
+### New Chat Workspace Inheritance Fix
+
+- **Fixed new chat inheriting previous workspace** in [`src/app/layout.tsx`](src/app/layout.tsx): `handleNewChat` now calls `setSelectedAppId(null)` to prevent the previous workspace's context from being auto-loaded when the user starts a fresh chat from the home page.
+
+### File Attachment Permission Fix
+
+- **Fixed permission prompts on user-attached files** in [`src/ipc/handlers/chat_stream_handlers.ts`](src/ipc/handlers/chat_stream_handlers.ts) and [`src/ipc/handlers/permissions/interceptor.ts`](src/ipc/handlers/permissions/interceptor.ts): When a user attaches a file with `upload-to-codebase`, the file is now marked `preApproved: true` in `FileUploadsState`. `shouldAlwaysAutoApprove()` in the permission interceptor checks pre-approved paths and auto-approves AI writes to those files without showing a permission dialog. The AI still writes the file (not auto-written bypassing AI) — the dialog is just skipped since the user already consented by attaching.
+- **Added `isPreApprovedPath()` method** to [`src/ipc/utils/file_uploads_state.ts`](src/ipc/utils/file_uploads_state.ts): New method to check if a file path matches a pre-approved upload.
+
+### Copy-Paste Large Text Fix
+
+- **Copy-paste over 500 lines now attaches as file** in [`src/hooks/useAttachments.ts`](src/hooks/useAttachments.ts): When pasting plain text with more than 500 lines, the content is saved as a file and attached as `chat-context` instead of filling the message input. Language detection uses simple heuristics: TypeScript for `import`/`const`/`function`/`class`/`interface`/`type`/`export`, Python for `def`/`class` (no semicolons), HTML for `<`, JSON for `{`/`[` (valid JSON). Default is `.txt`. Filename format: `pasted-{ext}-{timestamp}.{ext}`.
+
+- **Added `build.publish` to [`package.json`](package.json)**: Tells electron-builder to generate `app-update.yml` at build time, embedded in the app bundle. Required for electron-updater to locate the release feed.
+- **`releaseType: "release"` added to `setFeedURL`** in [`src/main.ts`](src/main.ts): Ensures electron-updater v6 looks for the correct YAML feed format in `atlarix-releases`.
+- **Import path corrected** in [`src/lib/context/compaction.ts`](src/lib/context/compaction.ts): Fixed wrong relative path `../ipc/` → `../../ipc/`.
+
+## v7.1.4 — Stepped compaction, exact tokenizer, icon fix (2026-05-06)
+
+### Token Counting (Exact)
+
+- **Installed `@anthropic-ai/tokenizer`**: Uses tiktoken internally for accurate token counting across all providers
+- **New [`src/lib/context/token-counter.ts`](src/lib/context/token-counter.ts)**: Exports `exactTokenCount()` and `exactTokenCountText()` that use the tokenizer with fallback to character-based estimation
+- **Replaced all `estimateTokens()` calls** across the codebase with exact token counting
+
+### Context Compaction (Stepped, OpenCode pattern)
+
+- **New [`src/lib/context/compaction.ts`](src/lib/context/compaction.ts)**: Automatic stepped compaction that runs before every dispatch
+  - **Step 1 — Measure**: Calculate `usageRatio = exactTokenCount(modelContext) / tierLimit`
+  - **Step 2 — Prune tool outputs** (at 60% ratio): Zero-LLM-cost mechanical replacement with placeholders
+  - **Step 3 — Strip media** (at 75% ratio): Remove image/PDF from older turns, keep last 2 turns intact
+  - **Step 4 — LLM summarization** (at 75% ratio): Background summarization with Fast tier model; task continues seamlessly
+  - **Step 5 — Detect model-applied**: Track compaction markers to avoid re-summarizing
+
+- **Summary template** includes `## Resume From` section for immediate task resumption after compaction
+- **Protected content**: `write_file`, `run_command` tool calls, current active task, last 2 turns, modified file paths
+- **`MODE_CONTEXT_CAPS` removed**: Replaced by stepped compaction system
+
+### `compress_context` Tool (All Modes)
+
+- **New tool registered** in [`src/lib/tools/exploration-tools.ts`](src/lib/tools/exploration-tools.ts)
+- Available in **all modes**: Ask, Plan, Build, Debug, Review (no mode restriction)
+- Scopes: `completed_tasks`, `old_tool_outputs`, `everything_old`
+- Returns separator: `"── Context compacted · N tokens freed ──"`
+
+### Hard Stop Removal
+
+- **Removed `ContextBudgetTracker` from dispatch path**: No longer used in `chat_stream_handlers.ts` or `chat_only_handlers.ts`
+- **Removed `ContextLimitBanner` component**: No UI warning elements for context limits
+- **Tasks never stop**: Compaction runs transparently; user sees only the subtle separator
+
+### Installer Icon Fix
+
+- **DMG icon**: `MakerDMG` now configured with `icon: "./assets/icon/logo.icns"`
+- **Windows setup icon**: `MakerSquirrel` now configured with `setupIcon: "./assets/icon/logo.ico"`
+- **Linux AppImage icon**: `MakerAppImage` now configured with `icon: "./assets/icon/logo.png"`
+
+## v8.0.0 — Model-driven exploration, LSP diagnostics, OpenCode parity (2026-05-06)
+
+### Architecture (OpenCode parity)
+
+- **Model-driven workspace exploration**: Replaced auto-generation with on-demand tools
+  - `generate_workspace_map`: Mermaid diagram for specific paths via Tree-sitter
+  - `scan_file_structure`: Extract classes/functions/imports without reading full content
+  - `find_entry_points`: Discover main entry points for a directory
+  - Available in all workspace sizes, all modes (Ask/Build/Debug)
+
+- **LSP diagnostics injection** (`src/lib/lsp/`): Live error/warning context for Build/Debug modes
+  - `lsp-server-registry.ts`: Multi-language LSP server configs (TypeScript, Python, Rust, Go, Java, C++, and 15+ more)
+  - `lsp-client.ts`: JSON-RPC over stdio, push/pull diagnostics, instance caching, deduplication
+  - `lsp-trigger.ts`: Lazy trigger on file open/save/change (150ms debounce)
+  - `lsp-diagnostics.ts`: Context formatting for AI injection
+  - Binary availability check — fails silently if server not installed
+  - `apply_lsp_fix` tool: Auto-fix loop (diagnostic → code action → apply → verify)
+
+- **Directory exclusions** (`src/ipc/utils/file_utils.ts`):
+  - Added `isExcludedDir()` helper with wildcard matching for `.venv*`, `venv*`
+  - Extended exclusions: `.venv-ci`, `.venv-dev`, `.venv-test`, `site-packages`, `dist-packages`, `tzdata`, `zoneinfo`, `.aws-cdk`
+  - Applied consistently across all analyzers: file_utils, workspace-analyzer, workspace-cache, project-selector, codebase
+
+### Follow-up Batch (Auto-generation removal)
+
+- **Cold start diagram generation removed**: Diagram now generated on-demand via `generate_workspace_map` tool
+- **workspaceAnalysis auto-injection removed**: Model uses exploration tools to understand codebase structure on demand
+- **Unified exploration hint**: Single low-priority (10) hint injected when workspace is open
+- **`BLUEPRINT_EAGER_BUILD_THRESHOLD = 100`**: Blueprint now on-demand by default; eager build only for workspaces under 100 files
+
+### Provider/Language Support
+
+- **All Tree-sitter languages now have LSP server configs**: TypeScript, Python, Rust, Go, Java, Kotlin, C/C++, C#, Ruby, PHP, Swift, Lua, Bash, HTML/CSS, JSON, YAML, TOML, GraphQL, Dockerfile, Vue, Svelte
+
+### File Discovery & Performance (Lazy Architecture)
+
+- **Project file discovery** (`src/ipc/utils/project-files.ts`): 4-strategy cascade with 5-minute memory cache
+  - `git ls-files` primary (uses project's .gitignore as source of truth)
+  - `fd` first fallback (cross-platform, respects .gitignore)
+  - `ripgrep --files` second fallback
+  - Legacy recursive scan (`getFilesRecursively`) final fallback only
+  - Results cached in memory per workspace; subsequent calls within 5 minutes return cached result
+
+- **Workspace fingerprint cached** (60s TTL): `getWorkspaceFingerprint()` now uses the file list cache instead of raw recursive scan; only fingerprints tracked files, not build artifacts
+
+- **Tree-sitter on-demand only**: Removed automatic Tree-sitter parsing from `analyzeFile()` in `workspace-analyzer.ts`. Tree-sitter is now invoked only via the `scan_file_structure` tool, on the specific files the model requests
+
+- **search_code tool**: 20-second timeout with graceful error return instead of stream stall
+
+- **tool-output-cache**: Better error logging with actual error details (`message`, `code`) instead of empty `{}`
+
+- **Mental model**: Atlarix sits completely idle until the model or user explicitly requests something. No background scans, no auto-parsing, no fingerprinting on workspace open. First tool call triggers lazy load; subsequent calls are fast from cache.
+
+## v7.1.2 — Token efficiency, architecture improvements, terminal enhancements (2026-05-05)
+
+### Token Management (OpenCode parity)
+
+- **`TokenUsage` interface** in [`src/ipc/utils/token_utils.ts`](src/ipc/utils/token_utils.ts): Added cache token awareness (`cacheReadTokens`, `cacheWriteTokens`) for accurate overflow detection
+- **`normalizeTokenUsage()`**: Properly handles cache token extraction from AI SDK responses across providers
+- **`calculateBillableTokens()`**: Separates billable tokens from cache tokens for accurate cost accounting
+- **`wouldOverflow()`**: Cache-aware token overflow detection matching OpenCode's `isOverflow()`
+- **`getUsableTokenBudget()`**: Mirrors OpenCode's `usable()` function with `COMPACTION_BUFFER = 20_000`
+- **`getModelMaxOutputTokens()`**: OpenCode-style max output tokens calculation with experimental floor of 32k
+
+### Context Compaction (OpenCode parity)
+
+- **`selectMessagesForCompaction()`**: New turn-based message selection (mirrors OpenCode's `select()`)
+- **`turns()`, `splitTurn()`, `preserveRecentBudget()`**: OpenCode-style turn tracking and budget preservation
+- **`PRUNE_MINIMUM = 20_000`, `PRUNE_PROTECT = 40_000`**: OpenCode-aligned pruning constants
+- **`DEFAULT_TAIL_TURNS = 2`**, `MIN/MAX_PRESERVE_RECENT_TOKENS`: Turn-based tail preservation
+- Enhanced **`pruneToolOutputsBeforeCompaction()`** with stop-after-2-user-turns, protected tool list (`skill`), and truncation to 2k chars
+
+### Architecture (New)
+
+- **Logging service** ([`src/lib/logging.ts`](src/lib/logging.ts)): Service-tagged loggers with automatic timing via `Symbol.dispose`
+- **Error types** ([`src/lib/errors.ts`](src/lib/errors.ts)): Typed error hierarchy (`AtlarixError`, `ToolExecutionError`, `TokenBudgetError`, etc.)
+- **Context refs** ([`src/lib/context.ts`](src/lib/context.ts)): `AsyncLocalStorage`-based workspace/chat/operation context propagation
+- **Plugin service** ([`src/lib/plugins/service.ts`](src/lib/plugins/service.ts)): Atlarix-specific hook-based extensibility with lifecycle events
+- **Doom loop detection** ([`src/lib/messages/doom-loop.ts`](src/lib/messages/doom-loop.ts)): Hash-based doom loop detection with time windows
+- **Tool output cache** ([`src/lib/tools/cache/output-cache.ts`](src/lib/tools/cache/output-cache.ts)): Disk caching for large tool outputs (7-day retention, 50-line preview)
+
+### Terminal Enhancement
+
+- **Copy button** in terminal header: One-click copy of terminal output to clipboard
+- **Clear button**: Prepared for IPC-driven terminal output clearing (requires backend implementation)
+
+### SimpleChatInput Enhancement
+
+- **Drag-drop file attachment**: Drop files directly onto the chat input
+- **Attachment menu**: Popover with "Upload from computer" option
+- **Attachment preview chips**: Shows file name with remove button
+
+### Counsel Live Thinking
+
+- **`counsel_thinking` activity type** added to [`src/atoms/sourceAtoms.ts`](src/atoms/sourceAtoms.ts): New activity type for live reasoning updates during Counsel participant execution
+- **`counsel-runner.ts`**: Switched from `generateText` to `streamText` with `fullStream` iteration; emits `counsel_thinking` activity every 1.5s with "Analyzing: [snippet]" detail from reasoning-delta parts
+- **`ThoughtsPanel.tsx`**: Updated to display `counsel_thinking` type and add to `COUNSEL_ACTIVITY_TYPES` set; shows reasoning deltas in real-time
+
+### Delegation Visibility
+
+- **`useStreamChat.ts`**: Registered `onToolIndicator` listener to emit `tool_use` activity items for both `chat:tool:start` (with tool name) and `chat:tool:end` (with "✓ Done" for all completions)
+- Tool use indicators now surface in ThoughtsPanel immediately when a tool starts, not just on completion
+
+### Tool Completion for Empty Results
+
+- Tool end activity now shows "✓ Done" automatically for all completed tools, including those that returned no output
+- No AI confirmation needed — handled passively in activity stream
+
+### File/Image Attachments (Non-Workspace Chats)
+
+- **Attachment support extended** to chat-only mode (no workspace open) in [`src/ipc/handlers/chat_only_handlers.ts`](src/ipc/handlers/chat_only_handlers.ts): Files and images are saved to temp directory and processed through capability check
+- Vision-capable models receive images as base64 content parts; non-vision models skip images gracefully
+
+### PTY Support
+
+- **`src/lib/pty-utils.ts`** (new): PTY wrapper using `@lydell/node-pty` with platform-specific shell selection, configurable cols/rows/cwd/env
+- **`runShellCommand.ts`**: Integrated PTY for interactive shell commands with graceful fallback to standard pipes on failure
+- `killPtyProcess()`: Graceful termination with SIGTERM → SIGKILL escalation (3s timeout)
+
 ## v7.1.1 — No-workspace CTA hides after first message in chat-only threads (2026-05-03)
 
 ### UX

@@ -5,8 +5,8 @@
  * Supports model switcher and file attachments like the home input.
  */
 
-import React, { useRef, useEffect } from "react";
-import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing } from "lucide-react";
+import React, { useRef, useEffect, useCallback } from "react";
+import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, X, ChevronDown, Upload } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtom, useAtomValue } from "jotai";
 import { isStreamingByIdAtom, chatInputValueAtom } from "@/atoms/chatAtoms";
@@ -28,6 +28,7 @@ import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "@/components/chat/SignInToChatNotice";
+import { cn } from "@/lib/utils";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -39,15 +40,48 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     // Use global atom so "Fix with AI" button can pre-fill this input
     const [inputValue, setInputValue] = useAtom(chatInputValueAtom);
     const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
     const { settings } = useSettings();
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const { isAuthenticated, loading: authLoading } = useAuth();
     const mustSignIn = !authLoading && !isAuthenticated;
     // Prevent double-submit when clicking rapidly or "Fix with AI" triggers re-renders
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isDragOver, setIsDragOver] = useState(false);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        if (!isStreaming && !mustSignIn) {
+            setIsDragOver(true);
+        }
+    }, [isStreaming, mustSignIn]);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (isStreaming || mustSignIn) return;
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+
+        const newAttachments: FileAttachment[] = files.map(file => ({
+            file,
+            type: "chat-context",
+        }));
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U1',location:'SimpleChatInput.tsx:handleDrop',message:'Drop attachments',data:{chatId,newCount:newAttachments.length,names:newAttachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+        setAttachments(prev => [...prev, ...newAttachments]);
+    }, [isStreaming, mustSignIn]);
 
     // Auto-resize textarea when value changes (e.g., pre-filled by "Fix with AI")
     useEffect(() => {
@@ -56,6 +90,31 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 160)}px`;
         }
     }, [inputValue]);
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files ?? []);
+        if (files.length === 0) return;
+
+        const newAttachments: FileAttachment[] = files.map(file => ({
+            file,
+            type: "chat-context",
+        }));
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U1',location:'SimpleChatInput.tsx:handleFileSelect',message:'File select attachments',data:{chatId,newCount:newAttachments.length,names:newAttachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+        setAttachments(prev => [...prev, ...newAttachments]);
+        e.target.value = '';
+    };
+
+    const removeAttachment = (index: number) => {
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
+    useEffect(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U3',location:'SimpleChatInput.tsx:attachmentsEffect',message:'Attachments state changed',data:{chatId,count:attachments.length,names:attachments.slice(0,3).map(a=>a.file.name)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+    }, [attachments, chatId]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -87,6 +146,9 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         onSubmit(inputValue, attachments);
         setInputValue("");
         setAttachments([]);
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'U2',location:'SimpleChatInput.tsx:handleSubmit',message:'Submitted message (cleared attachments)',data:{chatId,submitAttachmentCount:attachments.length,inputLen:inputValue.length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
 
         // Reset submitting guard after a short delay to prevent double-clicks
         setTimeout(() => setIsSubmitting(false), 100);
@@ -105,12 +167,49 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const effectivePlaceholder = mustSignIn ? "Sign in to continue…" : placeholder;
 
     return (
-        <div className="p-4 border-t border-border">
+        <div
+            className={cn(
+                "p-4 border-t border-border transition-colors",
+                isDragOver && "bg-purple-500/10"
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* Attachment preview chips */}
+            {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                    {attachments.map((att, idx) => (
+                        <div
+                            key={idx}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-muted rounded-full text-xs text-foreground"
+                        >
+                            <Upload className="w-3 h-3 text-purple-500" />
+                            <span className="max-w-[100px] truncate">{att.file.name}</span>
+                            <button
+                                onClick={() => removeAttachment(idx)}
+                                className="ml-1 hover:text-destructive"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {mustSignIn ? (
                 <div className="mb-2">
                     <SignInToChatNotice />
                 </div>
             ) : null}
+
+            {/* Drag-drop overlay */}
+            {isDragOver && (
+                <div className="mb-3 p-4 border-2 border-dashed border-purple-500/50 rounded-lg text-center text-sm text-purple-400">
+                    Drop files to attach
+                </div>
+            )}
+
             <div className="flex flex-col space-y-2 border border-border rounded-lg bg-background/50 shadow-sm">
                 <form onSubmit={handleSubmit} className="flex items-center">
                     <textarea
@@ -133,17 +232,48 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         }}
                     />
 
-                    {/* File attachment button */}
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="mx-1"
-                        disabled={isStreaming || mustSignIn}
-                        title="Attach file"
-                    >
-                        <Paperclip className="h-4 w-4" />
-                    </Button>
+                    {/* File attachment button with menu */}
+                    <Popover open={attachmentMenuOpen} onOpenChange={setAttachmentMenuOpen}>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="mx-1"
+                                            disabled={isStreaming || mustSignIn}
+                                            title="Attach file"
+                                        >
+                                            <Paperclip className="h-4 w-4" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>Attach file</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <PopoverContent align="start" side="top" className="w-56 p-2">
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start text-sm gap-2"
+                                onClick={() => {
+                                    fileInputRef.current?.click();
+                                    setAttachmentMenuOpen(false);
+                                }}
+                            >
+                                <Upload className="w-4 h-4" />
+                                Upload from computer
+                            </Button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={handleFileSelect}
+                            />
+                        </PopoverContent>
+                    </Popover>
 
                     {/* Send/Stop button */}
                     {isStreaming ? (

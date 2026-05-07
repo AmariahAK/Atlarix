@@ -7,7 +7,7 @@ import log from "electron-log";
 import path from "path";
 import fs from "fs";
 import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
-import { extractCodebase } from "../../utils/codebase";
+import { extractCodebaseCached } from "../../utils/codebase";
 import { db } from "../../db";
 import { chats, apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -180,7 +180,7 @@ export function registerDebugHandlers() {
         // Extract codebase
         const appPath = getAtlarixAppPath(app.path);
         const codebase = (
-          await extractCodebase({
+          await extractCodebaseCached({
             appPath,
             chatContext: validateChatContext(app.chatContext),
           })

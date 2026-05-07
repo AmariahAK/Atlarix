@@ -72,6 +72,7 @@ function PersistentChatContainer() {
   const { isDarkMode } = useTheme();
   const { isAuthenticated, loading: authLoading } = useAuth();
   const mustSignIn = !authLoading && !isAuthenticated;
+  const setSelectedAppId = useSetAtom(selectedAppIdAtom);
 
   // Determine if we're on the home page
   const isHomePage = location.pathname === '/';
@@ -122,7 +123,8 @@ function PersistentChatContainer() {
     setSuppressAutoOpen(true);
     setRightPanelVisible(false);
     setDiagramState(null); // Clear stale diagram
-  }, [setActiveChatId, setSourceList, setSelectedSource, setSuppressAutoOpen, setRightPanelVisible, setDiagramState]);
+    setSelectedAppId(null); // v8.0.1: Don't inherit workspace for new chat
+  }, [setActiveChatId, setSourceList, setSelectedSource, setSuppressAutoOpen, setRightPanelVisible, setDiagramState, setSelectedAppId]);
 
   // Don't render anything if no active chat
   if (!activeChatId) {

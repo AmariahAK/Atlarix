@@ -52,6 +52,8 @@ export function registerChatHandlers() {
     // Create ephemeral workspace chat - NOT saved to database
     // This makes workspace chats "incognito" while maintaining workspace context
     clearInMemoryTaskLedgers();
+    const { clearSessionLedger } = await import("@/lib/tasks/session-ledger");
+    clearSessionLedger(appId);
     const { createEphemeralWorkspaceChat } = await import("./chat_only_handlers");
     const chatId = createEphemeralWorkspaceChat(appId);
 

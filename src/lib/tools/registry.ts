@@ -5,6 +5,19 @@
  */
 
 import type { Tool } from "../providers/base-provider";
+import { getToolOutputCache } from "./cache/output-cache";
+
+let _toolOutputCache: ReturnType<typeof getToolOutputCache> | null = null;
+
+function getToolOutputCacheInstance(): ReturnType<typeof getToolOutputCache> {
+  if (!_toolOutputCache) {
+    _toolOutputCache = getToolOutputCache();
+    _toolOutputCache.initialize().catch(() => {
+      // Cache init failed - will operate in passthrough mode
+    });
+  }
+  return _toolOutputCache;
+}
 
 // ═══════════════════════════════════════════════════════════
 // TOOL CATEGORIES & COSTS
@@ -43,7 +56,7 @@ export interface ToolMetadata {
     category: ToolCategory;
     cost: number; // Credits
     parameters: any;
-    handler: (args: any) => Promise<any>;
+    handler: (args: any, context?: any) => Promise<any>;
     requiresWorkspace?: boolean; // True if tool needs a workspace to function
     isCore?: boolean; // True if tool should be shown by default (with workspace)
     isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
@@ -217,11 +230,26 @@ export class ToolRegistry {
                 return result;
             }
 
+            // v7.1.2: Cache large tool outputs to prevent stream stalls
+            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+            const cache = getToolOutputCacheInstance();
+            const cachedResult = await cache.cacheIfLarge(
+                name,
+                `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                resultStr,
+                10000 // Cache outputs > 10KB
+            );
+
+            // If output was cached, include a reference for the UI
+            const wasCached = cachedResult !== resultStr;
+
             // Normal results get wrapped for consistency
             return {
                 success: true,
-                result,
+                result: wasCached ? cachedResult : result,
                 cost: tool.cost,
+                _cachedOutput: wasCached,
+                _originalSize: wasCached ? resultStr.length : undefined,
             };
         } catch (error) {
             return {
@@ -284,4 +312,72 @@ export function booleanParam(description: string): any {
         type: "boolean",
         description,
     };
+}
+
+export function numberParam(
+    nameOrDescription: string,
+    requiredOrDefault?: boolean | number,
+    defaultOrMin?: number,
+    minOrMax?: number,
+    max?: number,
+): any {
+    let name: string;
+    let required: boolean;
+    let defaultValue: number | undefined;
+    let min: number | undefined;
+    let maxVal: number | undefined;
+
+    if (typeof requiredOrDefault === "boolean") {
+        name = nameOrDescription;
+        required = requiredOrDefault;
+        defaultValue = defaultOrMin;
+        min = minOrMax;
+        maxVal = max;
+    } else {
+        name = nameOrDescription;
+        required = false;
+        defaultValue = requiredOrDefault;
+        min = defaultOrMin;
+        maxVal = minOrMax;
+    }
+
+    const param: any = { type: "number", description: name };
+    if (defaultValue !== undefined) param.default = defaultValue;
+    if (min !== undefined) param.minimum = min;
+    if (maxVal !== undefined) param.maximum = maxVal;
+    return param;
+}
+
+export function enumParam(
+    nameOrDescription: string,
+    requiredOrDefault?: boolean | string,
+    defaultOrOptions?: string | string[],
+    options?: string[],
+): any {
+    let name: string;
+    let required: boolean;
+    let defaultValue: string | undefined;
+    let opts: string[] | undefined;
+
+    if (typeof requiredOrDefault === "boolean") {
+        name = nameOrDescription;
+        required = requiredOrDefault;
+        defaultValue = defaultOrOptions as string | undefined;
+        opts = options;
+    } else if (typeof requiredOrDefault === "string") {
+        name = nameOrDescription;
+        required = false;
+        defaultValue = requiredOrDefault;
+        opts = defaultOrOptions as string[] | undefined;
+    } else {
+        name = nameOrDescription;
+        required = false;
+        defaultValue = undefined;
+        opts = requiredOrDefault as string[] | undefined;
+    }
+
+    const param: any = { type: "string", description: name };
+    if (defaultValue !== undefined) param.default = defaultValue;
+    if (opts) param.enum = opts;
+    return param;
 }

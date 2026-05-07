@@ -7,6 +7,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { Runtime } from "@/lib/workflow/app_map_types";
+import { isExcludedDir } from "@/ipc/utils/file_utils";
 
 const INDICATORS: { file: string; lang: Runtime }[] = [
   { file: "package.json", lang: "node" },
@@ -144,7 +145,7 @@ export async function getRecentActivity(projectPath: string): Promise<ActivitySc
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
-        if (!EXCLUDE_FOR_ACTIVITY.has(e.name)) await walk(full);
+        if (!isExcludedDir(e.name)) await walk(full);
       } else {
         fileCount++;
         try {

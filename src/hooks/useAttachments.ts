@@ -30,7 +30,7 @@ export function useAttachments() {
 
   const handleFileSelect = (
     fileList: FileList,
-    type: "chat-context" | "upload-to-codebase",
+    type: "chat-context" | "upload-to-codebase" = "chat-context",
   ) => {
     const files = Array.from(fileList);
     const fileAttachments: FileAttachment[] = files.map((file) => ({
@@ -118,6 +118,45 @@ export function useAttachments() {
         addAttachments(imageFiles, "chat-context");
         // Show a brief toast or indication that image was pasted
         console.log(`Pasted ${imageFiles.length} image(s) from clipboard`);
+      }
+      return;
+    }
+
+    // v8.0.1: Check for long plain text paste (> 500 lines) → attach as file
+    const plainText = clipboardData.getData("text/plain");
+    if (plainText) {
+      const lineCount = (plainText.match(/\n/g) || []).length + 1;
+      if (lineCount > 500) {
+        e.preventDefault();
+
+        // Detect language from content
+        const trimmed = plainText.trim();
+        let ext = "txt";
+        if (trimmed.startsWith("import ") || trimmed.startsWith("const ") ||
+            trimmed.startsWith("function ") || trimmed.startsWith("class ") ||
+            trimmed.startsWith("interface ") || trimmed.startsWith("type ") ||
+            trimmed.startsWith("export ")) {
+          ext = "ts";
+        } else if (trimmed.startsWith("def ") || (trimmed.startsWith("class ") && !trimmed.includes(";"))) {
+          ext = "py";
+        } else if (trimmed.startsWith("<")) {
+          ext = "html";
+        } else if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && trimmed.endsWith("}")) {
+          // Basic JSON check
+          try {
+            JSON.parse(trimmed);
+            ext = "json";
+          } catch {
+            // Not valid JSON, leave as .txt
+          }
+        }
+
+        const timestamp = Date.now();
+        const filename = `pasted-${ext}-${timestamp}.${ext}`;
+        const blob = new Blob([plainText], { type: "text/plain" });
+        const file = new File([blob], filename, { type: "text/plain" });
+        addAttachments([file], "chat-context");
+        console.log(`Pasted ${lineCount} lines → attached as ${filename}`);
       }
     }
   };

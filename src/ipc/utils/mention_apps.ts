@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { getAtlarixAppPath } from "../../paths/paths";
-import { CodebaseFile, extractCodebase } from "../../utils/codebase";
+import { CodebaseFile, extractCodebaseCached } from "../../utils/codebase";
 import { validateChatContext } from "../utils/context_paths_utils";
 import log from "electron-log";
 
@@ -36,7 +36,7 @@ export async function extractMentionedAppsCodebases(
       const appPath = getAtlarixAppPath(app.path);
       const chatContext = validateChatContext(app.chatContext);
 
-      const { formattedOutput, files } = await extractCodebase({
+      const { formattedOutput, files } = await extractCodebaseCached({
         appPath,
         chatContext,
       });

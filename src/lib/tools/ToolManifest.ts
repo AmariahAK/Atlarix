@@ -12,6 +12,9 @@ const CORE_TOOL_NAMES = new Set([
   "run_command",
   "search_code",
   "get_file_tree",
+  "generate_workspace_map",
+  "scan_file_structure",
+  "find_entry_points",
 ]);
 
 function isCoreTool(tool: ToolMetadata): boolean {

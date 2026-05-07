@@ -20,6 +20,7 @@ import { promises as fsPromises } from "node:fs";
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
 import { getFilesRecursively } from "../utils/file_utils";
+import { getProjectFiles } from "../utils/project-files";
 import {
   runningApps,
   processCounter,
@@ -724,8 +725,11 @@ export function registerAppHandlers() {
 
     if (pathExists) {
       try {
-        files = getFilesRecursively(appPath, appPath);
-        files = files.map((p) => normalizePath(p));
+        const result = await getProjectFiles(appPath);
+        // getProjectFiles now returns workspace-relative paths (src/lib/foo.ts)
+        // normalizePath only converts backslashes to forward slashes — already handled
+        files = result.files;
+        logger.info(`[workspace] file discovery via ${result.strategy}`);
       } catch (error) {
         logger.error(`Error reading files for app ${appId}:`, error);
       }

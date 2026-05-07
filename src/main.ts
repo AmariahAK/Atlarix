@@ -266,11 +266,19 @@ function initAutoUpdater(): void {
   }
 
   // Point at the separate releases repo (not the source repo).
-  autoUpdater.setFeedURL({
-    provider: "github",
-    owner: "AmariahAK",
-    repo: "atlarix-releases",
-  });
+  // Wrap in try/catch to gracefully handle missing app-update.yml in packaged builds.
+  try {
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "AmariahAK",
+      repo: "atlarix-releases",
+      releaseType: "release",
+    });
+  } catch (err: unknown) {
+    log.warn("[AutoUpdater] setFeedURL failed:", err instanceof Error ? err.message : String(err));
+    // Skip update check gracefully - never throw to user
+    return;
+  }
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;

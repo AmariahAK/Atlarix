@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import log from 'electron-log';
 import { app } from 'electron';
 import { WorkspaceAnalysis } from './workspace-analyzer';
+import { isExcludedDir } from '@/ipc/utils/file_utils';
 
 const logger = log.scope('workspace-cache');
 
@@ -29,11 +30,8 @@ const HASH_EXTENSIONS = [
     '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.json',
 ];
 
-// Dirs to exclude from hash
-const EXCLUDE_DIRS = [
-    'node_modules', '.git', '.next', 'dist', 'build', '__pycache__',
-    'venv', '.venv', 'target', '.cache',
-];
+// Dirs to exclude from hash — uses isExcludedDir from file_utils for consistency
+// isExcludedDir handles all variants including .venv-*, site-packages, tzdata, etc.
 
 /**
  * Get cache file path for persistence
@@ -83,7 +81,7 @@ async function getRelevantFiles(dir: string): Promise<string[]> {
             const entries = await fs.readdir(currentDir, { withFileTypes: true });
 
             for (const entry of entries) {
-                if (EXCLUDE_DIRS.includes(entry.name)) continue;
+                if (isExcludedDir(entry.name)) continue;
 
                 const fullPath = path.join(currentDir, entry.name);
 

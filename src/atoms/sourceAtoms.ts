@@ -202,6 +202,7 @@ export interface ActivityStreamItem {
     | 'duration_limit_reached'
     | 'loop_detected'
     | 'loop_repetition_aborted'
+    | 'counsel_thinking'
     | 'reasoning_started'
     | 'reasoning_complete';
   label: string;

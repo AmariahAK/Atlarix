@@ -722,110 +722,131 @@ ToolRegistry.register({
         ["query"]
     ),
     handler: async ({ query: queryArg, pattern, file_pattern = "**/*", case_sensitive = false, context_lines = 2, workspace }) => {
-        try {
-            const query = queryArg || pattern;
+        const SEARCH_TOOL_TIMEOUT_MS = 20_000;
 
-            if (!query) {
-                throw new Error("Missing required parameter: query or pattern");
-            }
+        const searchTask = async () => {
+            try {
+                const query = queryArg || pattern;
 
-            // Cap context lines
-            context_lines = Math.min(Math.max(0, context_lines), 5);
+                if (!query) {
+                    throw new Error("Missing required parameter: query or pattern");
+                }
 
-            const searchCwd = workspace || process.cwd();
-            const files = await glob(file_pattern, {
-                cwd: searchCwd,
-                ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
-            });
+                // Cap context lines
+                context_lines = Math.min(Math.max(0, context_lines), 5);
 
-            interface Match {
-                file: string;
-                line: number;
-                content: string;
-                context: string[];
-            }
+                const searchCwd = workspace || process.cwd();
+                const files = await glob(file_pattern, {
+                    cwd: searchCwd,
+                    ignore: ["node_modules/**", ".git/**", "dist/**", "build/**", "venv/**", "__pycache__/**"],
+                });
 
-            const matches: Match[] = [];
-            const searchRegex = new RegExp(
-                query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-                case_sensitive ? "g" : "gi"
-            );
+                interface Match {
+                    file: string;
+                    line: number;
+                    content: string;
+                    context: string[];
+                }
 
-            for (const file of files) {
-                try {
-                    const fullFilePath = path.join(searchCwd, file);
-                    const content = await fs.promises.readFile(fullFilePath, "utf-8");
-                    const lines = content.split("\n");
+                const matches: Match[] = [];
+                const searchRegex = new RegExp(
+                    query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+                    case_sensitive ? "g" : "gi"
+                );
 
-                    for (let idx = 0; idx < lines.length; idx++) {
-                        if (searchRegex.test(lines[idx])) {
-                            // Build context
-                            const contextStart = Math.max(0, idx - context_lines);
-                            const contextEnd = Math.min(lines.length, idx + context_lines + 1);
-                            const contextLines: string[] = [];
+                for (const file of files) {
+                    try {
+                        const fullFilePath = path.join(searchCwd, file);
+                        const content = await fs.promises.readFile(fullFilePath, "utf-8");
+                        const lines = content.split("\n");
 
-                            for (let j = contextStart; j < contextEnd; j++) {
-                                const prefix = j === idx ? "→ " : "  ";
-                                contextLines.push(`${prefix}${j + 1}: ${lines[j]}`);
+                        for (let idx = 0; idx < lines.length; idx++) {
+                            if (searchRegex.test(lines[idx])) {
+                                // Build context
+                                const contextStart = Math.max(0, idx - context_lines);
+                                const contextEnd = Math.min(lines.length, idx + context_lines + 1);
+                                const contextLines: string[] = [];
+
+                                for (let j = contextStart; j < contextEnd; j++) {
+                                    const prefix = j === idx ? "→ " : "  ";
+                                    contextLines.push(`${prefix}${j + 1}: ${lines[j]}`);
+                                }
+
+                                matches.push({
+                                    file,
+                                    line: idx + 1,
+                                    content: lines[idx].trim(),
+                                    context: contextLines,
+                                });
+
+                                if (matches.length >= 30) break; // Limit matches per file
                             }
+                        }
+                    } catch {
+                        // Skip files that can't be read
+                    }
 
-                            matches.push({
-                                file,
-                                line: idx + 1,
-                                content: lines[idx].trim(),
-                                context: contextLines,
-                            });
+                    if (matches.length >= 50) break; // Total limit
+                }
 
-                            if (matches.length >= 30) break; // Limit matches per file
+                if (matches.length === 0) {
+                    return `No matches found for: "${query}"\n\nTry:\n- Different spelling\n- Broader pattern\n- Different file_pattern (e.g., '*.ts')`;
+                }
+
+                // Format output with context
+                let output = `Found ${matches.length} match(es) for "${query}":\n\n`;
+
+                if (context_lines > 0) {
+                    // With context: show grouped by file
+                    const byFile = new Map<string, Match[]>();
+                    matches.forEach(m => {
+                        if (!byFile.has(m.file)) byFile.set(m.file, []);
+                        byFile.get(m.file)!.push(m);
+                    });
+
+                    for (const [file, fileMatches] of byFile) {
+                        output += `📄 **${file}**\n`;
+                        fileMatches.slice(0, 5).forEach(m => {
+                            output += m.context.join("\n") + "\n\n";
+                        });
+                        if (fileMatches.length > 5) {
+                            output += `  ... and ${fileMatches.length - 5} more in this file\n\n`;
                         }
                     }
-                } catch {
-                    // Skip files that can't be read
-                }
-
-                if (matches.length >= 50) break; // Total limit
-            }
-
-            if (matches.length === 0) {
-                return `No matches found for: "${query}"\n\nTry:\n- Different spelling\n- Broader pattern\n- Different file_pattern (e.g., '*.ts')`;
-            }
-
-            // Format output with context
-            let output = `Found ${matches.length} match(es) for "${query}":\n\n`;
-
-            if (context_lines > 0) {
-                // With context: show grouped by file
-                const byFile = new Map<string, Match[]>();
-                matches.forEach(m => {
-                    if (!byFile.has(m.file)) byFile.set(m.file, []);
-                    byFile.get(m.file)!.push(m);
-                });
-
-                for (const [file, fileMatches] of byFile) {
-                    output += `📄 **${file}**\n`;
-                    fileMatches.slice(0, 5).forEach(m => {
-                        output += m.context.join("\n") + "\n\n";
+                } else {
+                    // Compact: just file:line: content
+                    matches.forEach(m => {
+                        output += `${m.file}:${m.line}: ${m.content}\n`;
                     });
-                    if (fileMatches.length > 5) {
-                        output += `  ... and ${fileMatches.length - 5} more in this file\n\n`;
-                    }
                 }
-            } else {
-                // Compact: just file:line: content
-                matches.forEach(m => {
-                    output += `${m.file}:${m.line}: ${m.content}\n`;
-                });
+
+                if (matches.length >= 50) {
+                    output += `\n(Limited to 50 matches. Use file_pattern to narrow search.)`;
+                }
+
+                output += `\n\n💡 **Tip:** Use \`view_symbol('${query}')\` to see the full function/class, or \`read_file\` with \`start_line/end_line\` for specific ranges.`;
+
+                return output;
+            } catch (error) {
+                throw new Error(`Search failed: ${error}`);
             }
+        };
 
-            if (matches.length >= 50) {
-                output += `\n(Limited to 50 matches. Use file_pattern to narrow search.)`;
-            }
-
-            output += `\n\n💡 **Tip:** Use \`view_symbol('${query}')\` to see the full function/class, or \`read_file\` with \`start_line/end_line\` for specific ranges.`;
-
-            return output;
+        try {
+            return await Promise.race([
+                searchTask(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(
+                        () => reject(new Error("SEARCH_TIMEOUT")),
+                        SEARCH_TOOL_TIMEOUT_MS
+                    )
+                )
+            ]);
         } catch (error) {
-            throw new Error(`Search failed: ${error}`);
+            if (error instanceof Error && error.message === "SEARCH_TIMEOUT") {
+                return `Search timed out after ${SEARCH_TOOL_TIMEOUT_MS / 1000}s. Try a more specific query or search a specific directory.`;
+            }
+            throw error;
         }
     },
 });

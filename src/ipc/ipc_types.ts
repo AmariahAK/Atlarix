@@ -37,6 +37,7 @@ export interface ChatStreamParams {
   prompt: string;
   redo?: boolean;
   attachments?: Array<{
+    id?: string;
     name: string;
     type: string;
     data: string; // Base64 encoded file data
@@ -211,6 +212,14 @@ export interface CreateAppResult {
   chatId: number;
 }
 
+export interface AttachmentInfo {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  contentPreview?: string;
+}
+
 export interface Message {
   id: number;
   role: "user" | "assistant";
@@ -242,6 +251,8 @@ export interface Message {
   autoRoutedTier?: "fast" | "balanced" | "thinking" | null;
   /** Compaction: auto-inserted continuation user line. */
   isSynthetic?: boolean | null;
+  /** File attachments for this message (shown as chips in UI). */
+  attachments?: AttachmentInfo[] | null;
 }
 
 export interface Chat {
@@ -572,6 +583,8 @@ export interface UpdatePromptParamsDto extends CreatePromptParamsDto {
 export interface FileAttachment {
   file: File;
   type: "upload-to-codebase" | "chat-context";
+  /** Stable id so renderer + main share an attachment ID. */
+  id?: string;
 }
 
 // --- Neon Types ---
