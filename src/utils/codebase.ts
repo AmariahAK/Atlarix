@@ -1,4 +1,5 @@
 import fsAsync from "node:fs/promises";
+import type { Dirent, Stats } from "node:fs";
 import path from "node:path";
 import { gitIsIgnored } from "../ipc/utils/git_utils";
 import log from "electron-log";
@@ -9,6 +10,10 @@ import { readSettings } from "@/main/settings";
 import { AsyncVirtualFileSystem } from "../../shared/VirtualFilesystem";
 import { isEnvSecretPath } from "@/lib/security/env-secret-paths";
 import { isExcludedDir } from "@/ipc/utils/file_utils";
+import {
+  isFsAccessDenied,
+  warnFsPathSkipped,
+} from "@/ipc/utils/fs-access-errors";
 
 const logger = log.scope("utils/codebase");
 
@@ -232,7 +237,11 @@ export async function readFileWithCache(
 
     return content;
   } catch (error) {
-    logger.error(`Error reading file: ${filePath}`, error);
+    if (isFsAccessDenied(error)) {
+      warnFsPathSkipped(filePath, error);
+    } else {
+      logger.error(`Error reading file: ${filePath}`, error);
+    }
     return undefined;
   }
 }
@@ -251,53 +260,62 @@ async function collectFiles(dir: string, baseDir: string): Promise<string[]> {
     return files;
   }
 
+  let entries: Dirent[];
   try {
-    // Read directory contents
-    const entries = await fsAsync.readdir(dir, { withFileTypes: true });
+    entries = await fsAsync.readdir(dir, { withFileTypes: true });
+  } catch (readErr) {
+    if (isFsAccessDenied(readErr)) {
+      warnFsPathSkipped(dir, readErr);
+    } else {
+      logger.error(`Error reading directory ${dir}:`, readErr);
+    }
+    return files;
+  }
 
-    // Process entries concurrently
-    const promises = entries.map(async (entry) => {
-      const fullPath = path.join(dir, entry.name);
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
 
-      // Skip excluded directories
-      if (entry.isDirectory() && isExcludedDir(entry.name)) {
-        return;
-      }
+    if (entry.isDirectory() && isExcludedDir(entry.name)) {
+      continue;
+    }
 
-      // Skip if the entry is git ignored
+    try {
       if (await isGitIgnored(fullPath, baseDir)) {
-        return;
+        continue;
       }
 
       if (entry.isDirectory()) {
-        // Recursively process subdirectories
         const subDirFiles = await collectFiles(fullPath, baseDir);
         files.push(...subDirFiles);
       } else if (entry.isFile()) {
-        // Skip excluded files
         if (EXCLUDED_FILES.includes(entry.name)) {
-          return;
+          continue;
         }
 
-        // Skip files that are too large
+        let stats: Stats;
         try {
-          const stats = await fsAsync.stat(fullPath);
-          if (stats.size > MAX_FILE_SIZE) {
-            return;
+          stats = await fsAsync.stat(fullPath);
+        } catch (statErr) {
+          if (isFsAccessDenied(statErr)) {
+            warnFsPathSkipped(fullPath, statErr);
+          } else {
+            logger.error(`Error checking file size: ${fullPath}`, statErr);
           }
-        } catch (error) {
-          logger.error(`Error checking file size: ${fullPath}`, error);
-          return;
+          continue;
+        }
+        if (stats.size > MAX_FILE_SIZE) {
+          continue;
         }
 
-        // Include all files in the list
         files.push(fullPath);
       }
-    });
-
-    await Promise.all(promises);
-  } catch (error) {
-    logger.error(`Error reading directory ${dir}:`, error);
+    } catch (loopErr) {
+      if (isFsAccessDenied(loopErr)) {
+        warnFsPathSkipped(fullPath, loopErr);
+        continue;
+      }
+      logger.error(`Error processing path: ${fullPath}`, loopErr);
+    }
   }
 
   return files;
@@ -562,11 +580,11 @@ export async function extractCodebase({
 
   // Format files and collect individual file contents
   const filesArray: CodebaseFile[] = [];
-  const formatPromises = sortedFiles.map(async (file) => {
-    // Get raw content for the files array
+  // Serialize formatting to cap peak RSS on large workspaces (parallel was a renderer OOM vector)
+  const formattedParts: string[] = [];
+  for (const file of sortedFiles) {
     const normalizedRelativePath = path
       .relative(appPath, file)
-      // Why? Normalize Windows-style paths which causes lots of weird issues (e.g. Git commit)
       .split(path.sep)
       .join("/");
     const formattedContent = await formatFile({
@@ -579,7 +597,6 @@ export async function extractCodebase({
       autoIncludedFiles.has(path.normalize(file)) &&
       !excludedFiles.has(path.normalize(file));
 
-    // Determine file content based on whether we should read it
     let fileContent: string;
     if (
       !shouldReadFileContentsForSmartContext({
@@ -599,11 +616,10 @@ export async function extractCodebase({
       force: isForced,
     });
 
-    return formattedContent;
-  });
+    formattedParts.push(formattedContent);
+  }
 
-  const formattedFiles = await Promise.all(formatPromises);
-  const formattedOutput = formattedFiles.join("");
+  const formattedOutput = formattedParts.join("");
 
   const endTime = Date.now();
   logger.log("extractCodebase: time taken", endTime - startTime);
@@ -624,21 +640,20 @@ export async function extractCodebase({
  * Sort files by their modification timestamp (oldest first)
  */
 async function sortFilesByModificationTime(files: string[]): Promise<string[]> {
-  // Get stats for all files
-  const fileStats = await Promise.all(
-    files.map(async (file) => {
-      try {
-        const stats = await fsAsync.stat(file);
-        return { file, mtime: stats.mtimeMs };
-      } catch (error) {
-        // If there's an error getting stats, use current time as fallback
-        // This can happen with virtual files, so it's not a big deal.
+  const fileStats: { file: string; mtime: number }[] = [];
+  for (const file of files) {
+    try {
+      const stats = await fsAsync.stat(file);
+      fileStats.push({ file, mtime: stats.mtimeMs });
+    } catch (error) {
+      if (isFsAccessDenied(error)) {
+        warnFsPathSkipped(file, error);
+      } else {
         logger.warn(`Error getting file stats for ${file}:`, error);
-        return { file, mtime: Date.now() };
       }
-    }),
-  );
-
+      fileStats.push({ file, mtime: Date.now() });
+    }
+  }
   if (IS_TEST_BUILD) {
     // Why? For some reason, file ordering is not stable on Windows.
     // This is a workaround to ensure stable ordering, although

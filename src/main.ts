@@ -83,6 +83,8 @@ if (SENTRY_DSN) {
 // Mitigate GPU SharedImageManager::ProduceSkia errors (Chromium/Electron on some systems)
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.commandLine.appendSwitch("disable-software-rasterizer");
+// Raise V8 old-space ceiling before Chromium hits partition_alloc hard OOM on heavy renderer work
+app.commandLine.appendSwitch("js-flags", "--max-old-space-size=4096");
 
 // Register IPC handlers before app is ready
 registerIpcHandlers();

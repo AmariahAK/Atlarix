@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery, QueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
+import { toast } from "sonner";
 import { currentAppAtom } from "@/atoms/appAtoms";
 import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom, diagramStalenessAtom, pinnedPanelAtom } from "@/atoms/sourceAtoms";
 
@@ -41,6 +42,12 @@ export function useLoadApp(appId: number | null) {
 
       if (!appData) return;
       setApp(appData);
+
+      if (appData.fileDiscoveryWarnings?.length) {
+        for (const msg of appData.fileDiscoveryWarnings) {
+          toast.warning(msg, { duration: 9000 });
+        }
+      }
 
       if (appData.pathExists === false) {
         loadedAppIdRef.current = appId;

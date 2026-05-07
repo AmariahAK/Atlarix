@@ -4,7 +4,11 @@ import os from "node:os";
 
 const logger = log.scope("performance-monitor");
 
-// Constants
+// Main-process RSS tiers (electron-log); helps correlate renderer-style OOM spikes with heap pressure logs
+const RSS_WARN_MB = 1200;
+const RSS_HIGH_MB = 1800;
+
+let lastRSSWarnBucket: 0 | 1 | 2 = 0;
 const MONITOR_INTERVAL_MS = 30000; // 30 seconds
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -139,6 +143,20 @@ function capturePerformanceMetrics() {
     const cpuUsagePercent = getCpuUsagePercent();
     const systemMemory = getSystemMemoryUsage();
     const systemCpuPercent = getSystemCpuUsagePercent();
+
+    if (memoryUsageMB >= RSS_HIGH_MB && lastRSSWarnBucket < 2) {
+      lastRSSWarnBucket = 2;
+      logger.warn(
+        `[performance-monitor] High main-process RSS (~${memoryUsageMB} MB) — threshold ${RSS_HIGH_MB} MB; consider reducing parallel agent work.`,
+      );
+    } else if (memoryUsageMB >= RSS_WARN_MB && lastRSSWarnBucket < 1) {
+      lastRSSWarnBucket = 1;
+      logger.warn(
+        `[performance-monitor] Elevated main-process RSS (~${memoryUsageMB} MB) — threshold ${RSS_WARN_MB} MB.`,
+      );
+    } else if (memoryUsageMB < RSS_WARN_MB * 0.9) {
+      lastRSSWarnBucket = 0;
+    }
 
     // Skip saving if CPU is null (first call for either metric)
     if (cpuUsagePercent === null || systemCpuPercent === null) {

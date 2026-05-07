@@ -18,6 +18,10 @@ import {
 } from '@/lib/atlarix/atlarix-ignore';
 import { isUnderMemoryPressure, WORKSPACE_LARGE_FILE_THRESHOLD } from '@/constants/settings_constants';
 import { isExcludedDir } from '@/ipc/utils/file_utils';
+import {
+    isFsAccessDenied,
+    warnFsPathSkipped,
+} from '@/ipc/utils/fs-access-errors';
 
 const logger = log.scope('workspace-analyzer');
 
@@ -316,7 +320,10 @@ async function scanFiles(dir: string, relativeTo?: string, visited?: Set<string>
     let stat: fsSync.Stats;
     try {
         stat = await fs.lstat(dir);
-    } catch {
+    } catch (err) {
+        if (isFsAccessDenied(err)) {
+            warnFsPathSkipped(dir, err);
+        }
         return [];
     }
 
@@ -343,7 +350,11 @@ async function scanFiles(dir: string, relativeTo?: string, visited?: Set<string>
             }
         }
     } catch (error) {
-        logger.warn(`Error scanning ${dir}:`, error);
+        if (isFsAccessDenied(error)) {
+            warnFsPathSkipped(dir, error);
+        } else {
+            logger.warn(`Error scanning ${dir}:`, error);
+        }
     }
 
     return files;

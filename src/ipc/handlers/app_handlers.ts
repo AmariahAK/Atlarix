@@ -19,7 +19,6 @@ import { promises as fsPromises } from "node:fs";
 
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
-import { getFilesRecursively } from "../utils/file_utils";
 import { getProjectFiles } from "../utils/project-files";
 import {
   runningApps,
@@ -723,12 +722,17 @@ export function registerAppHandlers() {
     const pathExists = fs.existsSync(appPath);
     let files: string[] = [];
 
+    let fileDiscoveryWarnings: string[] | undefined;
+
     if (pathExists) {
       try {
         const result = await getProjectFiles(appPath);
         // getProjectFiles now returns workspace-relative paths (src/lib/foo.ts)
         // normalizePath only converts backslashes to forward slashes — already handled
         files = result.files;
+        if (result.accessWarnings?.length) {
+          fileDiscoveryWarnings = [...new Set(result.accessWarnings as string[])];
+        }
         logger.info(`[workspace] file discovery via ${result.strategy}`);
       } catch (error) {
         logger.error(`Error reading files for app ${appId}:`, error);
@@ -757,6 +761,9 @@ export function registerAppHandlers() {
       vercelTeamSlug,
       pathExists,
       status,
+      ...(fileDiscoveryWarnings?.length
+        ? { fileDiscoveryWarnings }
+        : {}),
     };
   });
 

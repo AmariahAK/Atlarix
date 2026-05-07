@@ -29,6 +29,8 @@ export interface ProjectFilesResult {
     files: string[];
     strategy: "git" | "fd" | "ripgrep" | "fallback";
     count: number;
+    /** Paths the app could not read (permissions); mainly from fallback walk */
+    accessWarnings?: string[];
 }
 
 interface FileListCacheEntry {
@@ -282,14 +284,18 @@ export async function getProjectFiles(
         "[project-files] all fast strategies failed — using legacy recursive scan. " +
             "Results may include build artifacts."
     );
+    const accessWarnings: string[] = [];
     // getFilesRecursively returns paths relative to workspacePath
-    const legacyFiles = getFilesRecursively(workspacePath, workspacePath).map(
-        (f) => f.replace(/\\/g, "/")
-    );
+    const legacyFiles = getFilesRecursively(
+      workspacePath,
+      workspacePath,
+      accessWarnings,
+    ).map((f) => f.replace(/\\/g, "/"));
     const result: ProjectFilesResult = {
         files: legacyFiles,
         strategy: "fallback",
         count: legacyFiles.length,
+        ...(accessWarnings.length > 0 ? { accessWarnings } : {}),
     };
     fileListCache.set(cacheKey, {
         result,

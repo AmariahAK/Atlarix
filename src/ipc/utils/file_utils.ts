@@ -6,6 +6,11 @@ import ignore from "ignore";
 import log from "electron-log";
 import { generateCuteAppName } from "../../lib/utils";
 import { normalizePath } from "../../../shared/normalizePath";
+import {
+  fsAccessDeniedUserMessage,
+  isFsAccessDenied,
+  warnFsPathSkipped,
+} from "./fs-access-errors";
 
 const logger = log.scope("file_utils");
 
@@ -69,9 +74,14 @@ function isIgnoredByAtlarixIgnore(
  * - .atlarixignore respected during traversal
  * @param dir The directory to scan
  * @param baseDir The base directory for calculating relative paths
+ * @param accessWarnings When set, EACCES/EPERM skips append user-visible messages here
  * @returns Array of file paths relative to the base directory
  */
-export function getFilesRecursively(dir: string, baseDir: string): string[] {
+export function getFilesRecursively(
+  dir: string,
+  baseDir: string,
+  accessWarnings?: string[],
+): string[] {
     const ig = loadIgnorerSync(dir);
 
     const results: string[] = [];
@@ -90,7 +100,11 @@ export function getFilesRecursively(dir: string, baseDir: string): string[] {
         let dirents: fs.Dirent[];
         try {
             dirents = fs.readdirSync(current, { withFileTypes: true });
-        } catch {
+        } catch (readErr) {
+            if (isFsAccessDenied(readErr)) {
+                warnFsPathSkipped(current, readErr);
+                accessWarnings?.push(fsAccessDeniedUserMessage(current));
+            }
             continue;
         }
 

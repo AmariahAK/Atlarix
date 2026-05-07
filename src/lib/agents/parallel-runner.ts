@@ -5,6 +5,9 @@
 import { publishAgentMessage, type AgentId } from "./agent-bus";
 import { runDelegation } from "../tools/agent-tools";
 
+/** Cap concurrent delegated runs to limit peak RSS / V8 pressure during autonomous workflows. */
+const MAX_PARALLEL_AGENT_RUNS = 2;
+
 export interface ParallelAgentTask {
   agentId: string;
   task: string;
@@ -33,56 +36,67 @@ export async function runAgentsInParallel(
   tasks: ParallelAgentTask[],
   timeoutMs: number = 120_000,
 ): Promise<ParallelAgentResult[]> {
-  for (const task of tasks) {
-    publishAgentMessage({
-      from: "main",
-      to: task.agentId as AgentId,
-      type: "task_assign",
-      content: task.task,
-      turnId: task.turnId,
-      depth: task.depth,
-      chatId: task.chatId,
-      payload: {},
-    });
-  }
-
-  const promises = tasks.map(async (task) => {
-    try {
-      const result = await Promise.race([
-        runDelegation({
-          agent_id: task.agentId,
-          task: task.task,
-          depth: task.depth,
-          chatId: task.chatId,
-          workspace: task.workspacePath,
-          workspaceId: task.workspaceId,
-          turnId:
-            task.recordOnParentLedger === false ? undefined : task.turnId,
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Agent ${task.agentId} timed out after ${timeoutMs}ms`)),
-            timeoutMs,
-          ),
-        ),
-      ]);
-      return {
-        agentId: task.agentId,
-        success: !!result.success,
-        summary: result.summary ?? "",
-        structuredPayload: result.structuredPayload,
-      } satisfies ParallelAgentResult;
-    } catch (err) {
-      return {
-        agentId: task.agentId,
-        success: false,
-        summary: "",
-        error: err instanceof Error ? err.message : String(err),
-      } satisfies ParallelAgentResult;
+  const results: ParallelAgentResult[] = [];
+  for (let i = 0; i < tasks.length; i += MAX_PARALLEL_AGENT_RUNS) {
+    const slice = tasks.slice(i, i + MAX_PARALLEL_AGENT_RUNS);
+    for (const task of slice) {
+      publishAgentMessage({
+        from: "main",
+        to: task.agentId as AgentId,
+        type: "task_assign",
+        content: task.task,
+        turnId: task.turnId,
+        depth: task.depth,
+        chatId: task.chatId,
+        payload: {},
+      });
     }
-  });
 
-  return Promise.all(promises);
+    const sliceResults = await Promise.all(
+      slice.map(async (task) => {
+        try {
+          const result = await Promise.race([
+            runDelegation({
+              agent_id: task.agentId,
+              task: task.task,
+              depth: task.depth,
+              chatId: task.chatId,
+              workspace: task.workspacePath,
+              workspaceId: task.workspaceId,
+              turnId:
+                task.recordOnParentLedger === false ? undefined : task.turnId,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `Agent ${task.agentId} timed out after ${timeoutMs}ms`,
+                    ),
+                  ),
+                timeoutMs,
+              ),
+            ),
+          ]);
+          return {
+            agentId: task.agentId,
+            success: !!result.success,
+            summary: result.summary ?? "",
+            structuredPayload: result.structuredPayload,
+          } satisfies ParallelAgentResult;
+        } catch (err) {
+          return {
+            agentId: task.agentId,
+            success: false,
+            summary: "",
+            error: err instanceof Error ? err.message : String(err),
+          } satisfies ParallelAgentResult;
+        }
+      }),
+    );
+    results.push(...sliceResults);
+  }
+  return results;
 }
 
 export function buildParallelContext(results: ParallelAgentResult[]): string {

@@ -28,6 +28,7 @@ import {
   getGitUncommittedFiles,
 } from "../utils/git_utils";
 import { readSettings } from "@/main/settings";
+import { isFsAccessDenied } from "../utils/fs-access-errors";
 import { writeMigrationFile } from "../utils/file_utils";
 import {
   getAtlarixWriteTags,
@@ -233,7 +234,19 @@ export async function processFullResponseActions(
 
       // Delete the file if it exists
       if (fs.existsSync(fullFilePath)) {
-        if (fs.lstatSync(fullFilePath).isDirectory()) {
+        let isDirectory = false;
+        try {
+          isDirectory = fs.lstatSync(fullFilePath).isDirectory();
+        } catch (statErr) {
+          if (isFsAccessDenied(statErr)) {
+            logger.warn(
+              `[FS] Permission denied — skipping delete for ${fullFilePath}`,
+            );
+            continue;
+          }
+          throw statErr;
+        }
+        if (isDirectory) {
           fs.rmdirSync(fullFilePath, { recursive: true });
         } else {
           fs.unlinkSync(fullFilePath);
