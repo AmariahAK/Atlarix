@@ -994,6 +994,36 @@ export async function handleChatOnlyStream(
             content: msg.content,
         }));
 
+        // Ensure model sees the gated prompt (includes attachment directive).
+        // We keep the persisted/visible user bubble clean (req.prompt), but the model context must include gatedPrompt.
+        if (req.continueAfterQuestions) {
+            messageHistory = [
+                ...messageHistory,
+                { role: "user" as const, content: gatedPrompt },
+            ];
+        } else {
+            const lastUserIdx = (() => {
+                for (let i = messageHistory.length - 1; i >= 0; i--) {
+                    if (messageHistory[i]?.role === "user") return i;
+                }
+                return -1;
+            })();
+            if (lastUserIdx >= 0) {
+                messageHistory[lastUserIdx] = {
+                    ...messageHistory[lastUserIdx],
+                    content: gatedPrompt,
+                };
+            } else {
+                messageHistory = [
+                    ...messageHistory,
+                    { role: "user" as const, content: gatedPrompt },
+                ];
+            }
+        }
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'R1',location:'chat_only_handlers.ts:messageHistory',message:'Model messageHistory prepared',data:{chatId:req.chatId,continueAfterQuestions:Boolean(req.continueAfterQuestions),gatedPromptHasFiles:gatedPrompt.includes('FILES ATTACHED'),gatedPromptLen:gatedPrompt.length,historyLen:messageHistory.length,lastUserRole:(messageHistory[messageHistory.length-1]?.role??null)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+
         // Get session memory for conversation continuity
         // For ephemeral workspace chats, use appId so memory persists across mode switches
         // For pure chat-only, use chatId
