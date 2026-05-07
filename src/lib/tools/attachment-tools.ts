@@ -63,6 +63,32 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
         // We use dynamic import so this file remains loadable even if the dependency is missing.
         const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
+        // #region agent log
+        fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF1',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs-dist imported',data:{hasGlobalWorkerOptions:Boolean((pdfjs as any)?.GlobalWorkerOptions),hasGetDocument:Boolean((pdfjs as any)?.getDocument || (pdfjs as any)?.default?.getDocument)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+
+        // In Electron/Vite builds, pdfjs may try to import `pdf.worker.mjs` for its "fake worker" even when disableWorker=true.
+        // Point it at the actual worker file inside node_modules so it can load reliably.
+        try {
+            const { createRequire } = await import("module");
+            const { pathToFileURL } = await import("url");
+            const require = createRequire(import.meta.url);
+            const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+            const workerSrc = pathToFileURL(workerPath).toString();
+            if (pdfjs?.GlobalWorkerOptions) {
+                // Vite/Electron may prefill this as "./pdf.worker.mjs", which points at
+                // .vite/build/pdf.worker.mjs and fails. Always override it.
+                pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+            }
+            // #region agent log
+            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF2',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs workerSrc configured',data:{workerPath,workerSrc:(pdfjs?.GlobalWorkerOptions?.workerSrc??null)},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion agent log
+        } catch (workerErr: any) {
+            // #region agent log
+            fetch('http://127.0.0.1:7913/ingest/68e9ef74-ad12-4ebe-96ed-f3aaf700f18c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4330ef'},body:JSON.stringify({sessionId:'4330ef',runId:'pre-fix',hypothesisId:'PDF2',location:'attachment-tools.ts:extractTextFromPdf',message:'pdfjs workerSrc config failed',data:{err:String(workerErr?.message??workerErr??'')},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion agent log
+        }
+
         const getDocument = pdfjs.getDocument ?? pdfjs.default?.getDocument;
         if (typeof getDocument !== "function") {
             throw new Error("pdfjs-dist getDocument not found");
@@ -70,7 +96,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
 
         const loadingTask = getDocument({
             data: new Uint8Array(buffer),
-            // Prevent worker setup in Node/Electron main.
+            // Use fake-worker import in Electron main, with workerSrc forced above.
             disableWorker: true,
             // Avoid font-face/DOM related paths.
             useSystemFonts: true,
