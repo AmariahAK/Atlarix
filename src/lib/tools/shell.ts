@@ -21,6 +21,7 @@ import {
     booleanParam,
     numberParam,
 } from "./registry";
+import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { isDangerousCommand, getDangerExplanation } from "../dangerous-commands";
 import {
     openStream,
@@ -162,6 +163,7 @@ ToolRegistry.register({
             if (hasBunLock) testCommand = "bun test";
 
             try {
+                assertReadablePath("package.json", w);
                 const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf-8"));
                 if (packageJson.devDependencies?.jest || packageJson.dependencies?.jest) {
                     testCommand = "npx jest";
@@ -408,6 +410,7 @@ ToolRegistry.register({
             let defaultPort = 3000;
 
             try {
+                assertReadablePath("package.json", workspace);
                 const packageJson = JSON.parse(
                     await fs.readFile(packageJsonPath, "utf-8")
                 );
@@ -612,9 +615,13 @@ function calculateImpactLevel(dependencyCount: number): string {
     return "high";
 }
 
-async function analyzeContextForFile(filepath: string) {
+async function analyzeContextForFile(filepath: string, workspaceRoot: string) {
     try {
-        const content = await fs.readFile(filepath, "utf-8");
+        assertReadablePath(filepath, workspaceRoot);
+        const resolved = path.isAbsolute(filepath)
+            ? path.resolve(filepath)
+            : path.resolve(workspaceRoot, filepath);
+        const content = await fs.readFile(resolved, "utf-8");
         const lines = content.split("\n");
 
         const context = {
@@ -688,9 +695,13 @@ async function analyzeContextForFile(filepath: string) {
     }
 }
 
-async function runDiagnose(params: { filepath: string }) {
+async function runDiagnose(params: { filepath: string; workspace: string }) {
+    assertReadablePath(params.filepath, params.workspace);
+    const resolved = path.isAbsolute(params.filepath)
+        ? path.resolve(params.filepath)
+        : path.resolve(params.workspace, params.filepath);
     const issues: Array<{ type: string; message: string; line?: number }> = [];
-    const content = await fs.readFile(params.filepath, "utf-8");
+    const content = await fs.readFile(resolved, "utf-8");
     const lines = content.split("\n");
 
     lines.forEach((line, index) => {
@@ -761,6 +772,7 @@ async function runHealthCheck(workspace: string) {
 }
 
 async function runChangeImpact(params: { filepath: string; workspace: string }) {
+    assertReadablePath(params.filepath, params.workspace);
     const fileName = path.basename(params.filepath, path.extname(params.filepath));
     const { stdout } = await execAsync(
         `rg "import.*${fileName}" "${params.workspace}" -l --type js --type ts`,
@@ -773,7 +785,7 @@ async function runChangeImpact(params: { filepath: string; workspace: string }) 
         .filter(Boolean)
         .filter((file) => file !== params.filepath);
 
-    const analysis = await analyzeContextForFile(params.filepath);
+    const analysis = await analyzeContextForFile(params.filepath, params.workspace);
 
     return {
         success: true,
@@ -823,10 +835,12 @@ ToolRegistry.register({
             }
             if (type === "change_impact") {
                 if (!params.filepath) return { success: false, error: "change_impact requires filepath" };
-                return await runChangeImpact({ filepath: params.filepath, workspace: params.workspace || process.cwd() });
+                const ws = params.workspace || process.cwd();
+                return await runChangeImpact({ filepath: params.filepath, workspace: ws });
             }
             if (!params.filepath) return { success: false, error: "diagnose requires filepath" };
-            return await runDiagnose({ filepath: params.filepath });
+            const ws = params.workspace || process.cwd();
+            return await runDiagnose({ filepath: params.filepath, workspace: ws });
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
         }

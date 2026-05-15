@@ -5,6 +5,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BlueprintNode, LanguageParser, FrameworkInfo } from "./types";
+import { extractWithWasm, mergeWasmWithRegex } from "./wasm-extract";
 
 const TYPE_RE = /^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(struct|interface)\b/gm;
 const FUNC_RE = /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
@@ -43,12 +44,13 @@ export const goParser: LanguageParser = {
         continue;
       }
       const fileRel = base ? relFromAbs(base, abs) : abs.replace(/\\/g, "/");
+      const regexNodes: BlueprintNode[] = [];
 
       TYPE_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = TYPE_RE.exec(content)) !== null) {
         const name = m[1];
-        nodes.push({
+        regexNodes.push({
           id: `${fileRel}::${name}`,
           type: "class",
           name,
@@ -59,9 +61,9 @@ export const goParser: LanguageParser = {
 
       FUNC_RE.lastIndex = 0;
       while ((m = FUNC_RE.exec(content)) !== null) {
-        if (nodes.filter((n) => n.file === fileRel && n.type === "function").length >= 40) break;
+        if (regexNodes.filter((n) => n.type === "function").length >= 40) break;
         const name = m[1];
-        nodes.push({
+        regexNodes.push({
           id: `${fileRel}::${name}@${lineOfIndex(content, m.index)}`,
           type: "function",
           name,
@@ -69,6 +71,9 @@ export const goParser: LanguageParser = {
           line: lineOfIndex(content, m.index),
         });
       }
+
+      const wasmNodes = await extractWithWasm(content, "go", fileRel, nodes.length);
+      nodes.push(...mergeWasmWithRegex(wasmNodes, regexNodes));
     }
     return nodes;
   },

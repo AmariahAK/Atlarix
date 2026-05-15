@@ -8,7 +8,7 @@ import { glob } from "glob";
 import { AppChatContext } from "../lib/schemas";
 import { readSettings } from "@/main/settings";
 import { AsyncVirtualFileSystem } from "../../shared/VirtualFilesystem";
-import { isEnvSecretPath } from "@/lib/security/env-secret-paths";
+import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { isExcludedDir } from "@/ipc/utils/file_utils";
 import {
   isFsAccessDenied,
@@ -337,8 +337,8 @@ function shouldReadFileContents({
   const fileName = path.basename(filePath);
 
   if (
-    isEnvSecretPath(filePath) ||
-    isEnvSecretPath(normalizedRelativePath)
+    isBlockedSecretBasename(path.basename(filePath)) ||
+    isBlockedSecretBasename(path.basename(normalizedRelativePath))
   ) {
     return false;
   }
@@ -367,8 +367,8 @@ function shouldReadFileContentsForSmartContext({
   const fileName = path.basename(filePath);
 
   if (
-    isEnvSecretPath(filePath) ||
-    isEnvSecretPath(normalizedRelativePath)
+    isBlockedSecretBasename(path.basename(filePath)) ||
+    isBlockedSecretBasename(path.basename(normalizedRelativePath))
   ) {
     return false;
   }

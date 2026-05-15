@@ -35,10 +35,11 @@ Blueprint is a **lazy read-only architecture graph** built on demand when you ca
 
 ## Architecture exploration flow
 
-1. `get_blueprint` and/or `get_diagram` when you need a structural map
-2. `explore_folder` / `list_files` / `find_file` to navigate
-3. `search` — prefer explicit `mode`: `text` (ripgrep), `semantic-lite` (file scan, no blueprint), `semantic-graph` (BM25 beacons), `structural` (blueprint graph). `auto` picks text vs semantic-lite vs structural only (never `semantic-graph`). Then `get_file_outline` to pin-point
-4. `read_file` with `start_line`/`end_line` for exact ranges
+1. `get_repo_overview` for cold-session layout (README excerpt, entry points, shallow tree) — no Blueprint parse
+2. `get_blueprint` and/or `get_diagram` when you need a structural map
+3. `explore_folder` / `list_files` / `find_file` to navigate
+4. `search` — prefer explicit `mode`: `text` (ripgrep), `semantic-lite` (file scan, no blueprint), `semantic-graph` (BM25 beacons), `structural` (blueprint graph). `auto` picks text vs semantic-lite vs structural only (never `semantic-graph`). Then `get_file_outline` to pin-point
+5. `read_file` with `start_line`/`end_line` for exact ranges
 
 ## Context layers
 

@@ -6,7 +6,7 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v8.1.0**
+**Current release:** **v8.2.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -162,7 +162,7 @@ Atlarix v7 is a complete rebuild of the agent and context systems on top of the 
 - **Counsel**: Complex questions run Fast, Balanced, and Thinking models in parallel. Works with every provider including local Ollama.
 - **Visual git**: Every code change creates a snapshot with the architecture diagram at that moment. See how your system evolved. Stored in `.atlarix/` and travels with your repo.
 - **Plan viewer**: When Atlarix creates a plan, it is shown as a live card with step-by-step progress — not buried in text.
-- **Tree-sitter RTE**: Blueprint now uses AST-level parsing for TypeScript, JavaScript, and Python with regex fallback. More accurate node/edge extraction.
+- **Tiered RTE parsers (v8.2):** oxc-parser (worker pool) for TS/JS/JSX/TSX; tree-sitter WASM for Python, Go, and Rust; regex heuristics for routes and framework-specific patterns. See parser tier table below.
 - **Self-correction**: TypeScript errors, dev server failures, and test failures trigger automatic fix attempts after each build.
 - **Hooks and custom commands**: Shell hooks around file writes and terminal commands. Custom `/commands` for repeatable workflows.
 - **Per-model compaction**: Context compression uses each model's actual context window size dynamically.
@@ -189,7 +189,15 @@ For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ### Blueprint (RTE + RAG)
 
-**Parse once, query forever.** Atlarix parses your codebase via Round-Trip Engineering (TypeScript, Python), generates a Blueprint graph, and uses it as a RAG knowledge base so the AI answers from the graph and loads only the relevant code — typically 5K tokens instead of 100K.
+**Blueprint on demand.** Atlarix builds a Blueprint graph via Round-Trip Engineering when you call `get_blueprint` or structural search — not by injecting the whole repo every turn. The model loads focused slices from the graph instead of scanning hundreds of thousands of raw tokens.
+
+| Language / extension | Primary parser | Fallback / merge |
+| --- | --- | --- |
+| `.ts`, `.tsx`, `.js`, `.jsx` | **oxc-parser** (native, worker pool, 256 KB cap) | Regex for routes / framework handlers |
+| `.py` | **tree-sitter WASM** | Regex for Flask/FastAPI/Django routes |
+| `.go` | **tree-sitter WASM** | Regex for types and functions |
+| `.rs` | **tree-sitter WASM** | Regex for structs and functions |
+| Other supported langs | Regex heuristics | — |
 
 - **Live View** — Diagram extracted from your codebase (Mermaid). Read-only architecture visualization.
 - **Blueprint Mode** — Add containers, beacons, and edges; compare desired vs actual; generate `.atlarix/ATLARIX_PLAN.md`.

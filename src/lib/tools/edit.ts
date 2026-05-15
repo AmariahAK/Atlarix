@@ -14,6 +14,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
+import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
 
 const logger = log.scope("edit-tools");
@@ -143,8 +144,16 @@ function isAtlarixPlanFile(relPath: string): boolean {
   return /(^|\/)\.atlarix\/ATLARIX_PLAN\.md$/.test(norm) || /(^|\/)\.atlarix\/ATLARIX\.md$/i.test(norm);
 }
 
-async function readFileSafe(fullPath: string, normalizedPath: string, operation: string) {
+async function readFileSafe(
+  fullPath: string,
+  normalizedPath: string,
+  operation: string,
+  workspaceRoot?: string,
+) {
   try {
+    if (workspaceRoot) {
+      assertReadablePath(normalizedPath, workspaceRoot);
+    }
     const content = await fs.promises.readFile(fullPath, "utf-8");
     return { ok: true as const, content };
   } catch {
@@ -178,12 +187,12 @@ function permissionPayload(args: {
   };
 }
 
-async function runReplace(args: EditFileArgs, normalizedPath: string, fullPath: string) {
+async function runReplace(args: EditFileArgs, normalizedPath: string, fullPath: string, workspace?: string) {
   const { old_content, new_content, description } = args;
   if (!old_content || new_content === undefined) {
     return { error: "operation=replace requires old_content and new_content", operation: "edit_file" };
   }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file");
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
   if (!r.ok) return r.error;
 
   const match = fuzzyFindString(r.content, old_content);
@@ -236,12 +245,17 @@ async function runReplace(args: EditFileArgs, normalizedPath: string, fullPath: 
   });
 }
 
-async function runInsert(args: EditFileArgs, normalizedPath: string, fullPath: string) {
+async function runInsert(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+) {
   const { line, new_content, description } = args;
   if (line === undefined || !new_content) {
     return { error: "operation=insert requires line and new_content", operation: "edit_file" };
   }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file");
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
   if (!r.ok) return r.error;
 
   const lines = r.content.split("\n");
@@ -270,12 +284,17 @@ async function runInsert(args: EditFileArgs, normalizedPath: string, fullPath: s
   });
 }
 
-async function runDelete(args: EditFileArgs, normalizedPath: string, fullPath: string) {
+async function runDelete(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+) {
   const { start_line, end_line, description } = args;
   if (start_line === undefined || end_line === undefined) {
     return { error: "operation=delete requires start_line and end_line", operation: "edit_file" };
   }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file");
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
   if (!r.ok) return r.error;
 
   const lines = r.content.split("\n");
@@ -305,12 +324,17 @@ async function runDelete(args: EditFileArgs, normalizedPath: string, fullPath: s
   });
 }
 
-async function runSection(args: EditFileArgs, normalizedPath: string, fullPath: string) {
+async function runSection(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+) {
   const { section_identifier, new_content, description } = args;
   if (!section_identifier || new_content === undefined) {
     return { error: "operation=section requires section_identifier and new_content", operation: "edit_file" };
   }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file");
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
   if (!r.ok) return r.error;
 
   const lines = r.content.split("\n");
@@ -441,16 +465,19 @@ Prefer "replace" for code changes — it requires matching the existing content 
     }
 
     const fullPath = workspace ? path.join(workspace, normalizedPath) : path.resolve(normalizedPath);
+    if (workspace) {
+      assertReadablePath(normalizedPath, workspace);
+    }
 
     switch (operation) {
       case "replace":
-        return runReplace(rawArgs, normalizedPath, fullPath);
+        return runReplace(rawArgs, normalizedPath, fullPath, workspace);
       case "insert":
-        return runInsert(rawArgs, normalizedPath, fullPath);
+        return runInsert(rawArgs, normalizedPath, fullPath, workspace);
       case "delete":
-        return runDelete(rawArgs, normalizedPath, fullPath);
+        return runDelete(rawArgs, normalizedPath, fullPath, workspace);
       case "section":
-        return runSection(rawArgs, normalizedPath, fullPath);
+        return runSection(rawArgs, normalizedPath, fullPath, workspace);
       default:
         return { error: `Unknown operation: ${operation}. Use replace | insert | delete | section.`, operation: "edit_file" };
     }

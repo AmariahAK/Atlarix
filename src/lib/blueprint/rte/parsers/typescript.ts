@@ -1,19 +1,17 @@
 /**
  * TypeScript/JavaScript RTE parser
- * Extracts APIs, functions, classes from .ts/.tsx/.js/.jsx using regex patterns.
+ * TS/JS/JSX/TSX: oxc-parser AST extraction + regex route/framework patterns.
  * Framework detection: Express, Next.js, NestJS, Hono, Elysia.
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BlueprintNode, FrameworkInfo, LanguageParser } from "./types";
-import { parseSourceToTree } from "@/lib/pivot/parsers/parse-source-tree";
-import { extractBlueprintNodesFromTsLike } from "@/lib/pivot/parsers/typescript-ts-parser";
+import { extractNodesFromOxc, mergeBlueprintNodes } from "./oxc-extract";
 
 const ROUTE_REG =
   /(?:app|router|server|fastify|hono)\s*\.(get|post|put|patch|delete|all)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
 const ROUTE_REG_ALT = /(?:get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]\s*[,)]/gi;
-const NESTJS_CONTROLLER = /@(Controller|Get|Post|Put|Patch|Delete)\s*\(\s*\)/g;
 const NESTJS_ROUTE = /@(Get|Post|Put|Patch|Delete)\s*\(\s*['"`]([^'"`]*)['"`]\s*\)/g;
 const NEXT_API_ROUTE = /(?:export\s+default\s+)?(?:async\s+)?function\s+(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s*\(/gi;
 const FUNCTION_DECL = /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/g;
@@ -23,35 +21,24 @@ function safeId(prefix: string, file: string, name: string, index: number): stri
   return `${prefix}_${file.replace(/[^a-zA-Z0-9]/g, "_")}_${name}_${index}`;
 }
 
-async function parseFile(
-  absolutePath: string,
-  projectPath: string,
-  nodes: BlueprintNode[]
-): Promise<void> {
-  let content: string;
-  try {
-    content = await fs.readFile(absolutePath, "utf-8");
-  } catch {
-    return;
-  }
-  const relPath = path.relative(projectPath, absolutePath).replace(/\\/g, "/");
+function extractRegexNodes(
+  content: string,
+  relPath: string,
+  idOffset: number,
+  includeStructureFallback: boolean,
+): BlueprintNode[] {
+  const nodes: BlueprintNode[] = [];
+  let idx = idOffset;
   const lineOf = (offset: number) => (content.slice(0, offset).match(/\n/g) || []).length + 1;
 
   let m: RegExpExecArray | null;
-
-  let usedTreeSitter = false;
-  const tsTree = parseSourceToTree(content, absolutePath);
-  if (tsTree) {
-    nodes.push(...extractBlueprintNodesFromTsLike(content, tsTree, relPath, nodes.length));
-    usedTreeSitter = true;
-  }
 
   ROUTE_REG.lastIndex = 0;
   while ((m = ROUTE_REG.exec(content)) !== null) {
     const method = (m[1] || "get").toUpperCase();
     const routePath = m[2] || "/";
     nodes.push({
-      id: safeId("api", relPath, `${method}-${routePath}`, nodes.length),
+      id: safeId("api", relPath, `${method}-${routePath}`, idx++),
       type: "api",
       name: `${method} ${routePath}`,
       file: relPath,
@@ -66,7 +53,7 @@ async function parseFile(
   while ((m = ROUTE_REG_ALT.exec(content)) !== null) {
     const routePath = m[1] || "/";
     nodes.push({
-      id: safeId("api", relPath, `GET-${routePath}`, nodes.length),
+      id: safeId("api", relPath, `GET-${routePath}`, idx++),
       type: "api",
       name: `GET ${routePath}`,
       file: relPath,
@@ -82,7 +69,7 @@ async function parseFile(
     const method = (m[1] || "Get").toUpperCase();
     const routePath = (m[2] || "").trim() || "/";
     nodes.push({
-      id: safeId("api", relPath, `Nest-${method}-${routePath}`, nodes.length),
+      id: safeId("api", relPath, `Nest-${method}-${routePath}`, idx++),
       type: "api",
       name: `${method} ${routePath}`,
       file: relPath,
@@ -96,7 +83,7 @@ async function parseFile(
   NEXT_API_ROUTE.lastIndex = 0;
   while ((m = NEXT_API_ROUTE.exec(content)) !== null) {
     nodes.push({
-      id: safeId("api", relPath, "route", nodes.length),
+      id: safeId("api", relPath, "route", idx++),
       type: "api",
       name: "Next.js route",
       file: relPath,
@@ -105,12 +92,12 @@ async function parseFile(
     });
   }
 
-  if (!usedTreeSitter) {
+  if (includeStructureFallback) {
     CLASS_DECL.lastIndex = 0;
     while ((m = CLASS_DECL.exec(content)) !== null) {
       const name = m[1] || "Anonymous";
       nodes.push({
-        id: safeId("cls", relPath, name, nodes.length),
+        id: safeId("cls", relPath, name, idx++),
         type: "class",
         name,
         file: relPath,
@@ -121,9 +108,8 @@ async function parseFile(
     FUNCTION_DECL.lastIndex = 0;
     while ((m = FUNCTION_DECL.exec(content)) !== null) {
       const name = m[1] || "anonymous";
-      if (nodes.some((n) => n.file === relPath && n.line === lineOf(m!.index))) continue;
       nodes.push({
-        id: safeId("fn", relPath, name, nodes.length),
+        id: safeId("fn", relPath, name, idx++),
         type: "function",
         name,
         file: relPath,
@@ -131,6 +117,30 @@ async function parseFile(
       });
     }
   }
+
+  return nodes;
+}
+
+async function parseFile(
+  absolutePath: string,
+  projectPath: string,
+  nodes: BlueprintNode[],
+): Promise<void> {
+  let content: string;
+  try {
+    content = await fs.readFile(absolutePath, "utf-8");
+  } catch {
+    return;
+  }
+  const relPath = path.relative(projectPath, absolutePath).replace(/\\/g, "/");
+  const idOffset = nodes.length;
+
+  const oxcResult = await extractNodesFromOxc(content, absolutePath, relPath, idOffset);
+  const oxcNodes = oxcResult ?? [];
+  const usedOxc = oxcResult !== null;
+  const regexNodes = extractRegexNodes(content, relPath, idOffset + oxcNodes.length, !usedOxc);
+  const merged = mergeBlueprintNodes(oxcNodes, regexNodes);
+  nodes.push(...merged);
 }
 
 async function detectFrameworkFromFiles(files: string[]): Promise<FrameworkInfo> {

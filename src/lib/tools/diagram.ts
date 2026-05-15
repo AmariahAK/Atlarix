@@ -8,6 +8,7 @@
  * or want to visualize their project structure.
  */
 
+import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
 import fs from "fs/promises";
 import path from "path";
@@ -358,6 +359,8 @@ async function generateClassDiagram(
     for (const file of files.slice(0, 10)) {
         // Limit to first 10 files
         try {
+            const rel = path.relative(workspace, file);
+            assertReadablePath(rel, workspace);
             const content = await fs.readFile(file, "utf-8");
             const classes = extractClasses(content);
 

@@ -270,6 +270,8 @@ ToolRegistry.register({
       };
     }
 
+    // Tiered Blueprint system-prompt injection (blueprintPromptTiers) was removed in v8.1.1.
+    // Architecture context is tool-driven only — call get_blueprint when you need a graph slice.
     try {
       const blueprint = await ensureBlueprintParsed(workspaceId);
 

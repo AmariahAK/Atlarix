@@ -33,8 +33,9 @@ import {
     isRelPathIgnored,
 } from "@/lib/atlarix/atlarix-ignore";
 import {
+    assertReadablePath,
     ENV_SECRET_BLOCK_MESSAGE,
-    isEnvSecretPath,
+    isBlockedSecretBasename,
 } from "@/lib/security/env-secret-paths";
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
@@ -225,11 +226,9 @@ ToolRegistry.register({
                 ? resolvePathUnderWorkspace(workspace, filePath)
                 : path.resolve(stripToolPathPrefixes(filePath));
 
-            if (
-                isEnvSecretPath(String(filePath)) ||
-                isEnvSecretPath(displayPath) ||
-                isEnvSecretPath(fullPath)
-            ) {
+            if (workspace) {
+                assertReadablePath(String(filePath), workspace);
+            } else if (isBlockedSecretBasename(path.basename(fullPath))) {
                 throw new Error(ENV_SECRET_BLOCK_MESSAGE);
             }
 
@@ -492,6 +491,7 @@ ToolRegistry.register({
         if (workspace) {
             try {
                 const fullPath = resolvePathUnderWorkspace(workspace, normalizedPath);
+                assertReadablePath(normalizedPath, workspace);
                 await fs.promises.access(fullPath);
                 fileType = "update";
                 oldContent = await fs.promises.readFile(fullPath, "utf-8");
@@ -642,8 +642,9 @@ ToolRegistry.register({
                             size: stat.size,
                         };
 
-                        if (stat.size < 500000) {
+                        if (stat.size < 500000 && workspace) {
                             try {
+                                assertReadablePath(file, workspace);
                                 const content = await fs.promises.readFile(filePath, 'utf-8');
                                 info.lines = content.split('\n').length;
                             } catch {
@@ -818,7 +819,8 @@ ToolRegistry.register({
                 .replace(/^workspace\//, '')
                 .replace(/^\/+/, '');
 
-            const fullPath = path.join(workspace, normalizedPath);
+            assertReadablePath(normalizedPath, workspace);
+            const fullPath = resolvePathUnderWorkspace(workspace, normalizedPath);
             const content = await fs.promises.readFile(fullPath, "utf-8");
             const lines = content.split('\n');
             const patterns = getPatternsForFile(fullPath);
@@ -1050,7 +1052,8 @@ function detectFramework(workspacePath: string, files: string[]): FrameworkInfo 
 ToolRegistry.register({
     name: "get_project_structure",
     category: ToolCategory.FILE,
-    description: "Get project overview with framework detection. Use FIRST when exploring a workspace.",
+    description:
+        "Project overview with framework detection and file-type stats. For cold-session layout and README excerpt without parsing, prefer get_repo_overview first.",
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
@@ -1073,7 +1076,6 @@ ToolRegistry.register({
             if (!workspace) {
                 throw new Error("No workspace path provided");
             }
-
             const maxDepth = Math.min(max_depth, 5);
 
             const files = await glob("**/*", {

@@ -152,6 +152,9 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERT_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
 
+      - name: Test and parser benchmarks
+        run: npm test && npx tsx scripts/bench-parsers.ts
+
       - name: Build for macOS (${{ matrix.arch }})
         run: npm run make -- --arch=${{ matrix.arch }}
         env:
@@ -318,6 +321,9 @@ jobs:
           echo "npm ci failed after 5 attempts"
           exit 1
 
+      - name: Test and parser benchmarks
+        run: npm test && npx tsx scripts/bench-parsers.ts
+
       - name: Build for Linux
         run: npm run make
         env:
@@ -428,6 +434,10 @@ jobs:
           Write-Error "npm ci failed after $maxAttempts attempts"
           exit 1
 
+
+      - name: Test and parser benchmarks
+        shell: pwsh
+        run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-parsers.ts
 
       - name: Build for Windows
         shell: pwsh

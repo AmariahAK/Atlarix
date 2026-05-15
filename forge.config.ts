@@ -1,7 +1,9 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { getOxcBindingPackageName } from "./src/lib/blueprint/rte/parsers/oxc-binding-package";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
@@ -16,6 +18,27 @@ import { rebuild } from "@electron/rebuild";
 
 /** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+
+function runNpmInstall(cwd: string, args: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const proc = spawn(npm, args, {
+      cwd,
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`npm install exited with code ${code}`));
+    });
+    proc.on("error", reject);
+  });
+}
+
+function readOxcParserVersion(): string {
+  const oxcPkgPath = path.join(process.cwd(), "node_modules", "oxc-parser", "package.json");
+  const oxcPkg = JSON.parse(readFileSync(oxcPkgPath, "utf-8")) as { version: string };
+  return oxcPkg.version;
+}
 
 /** Rollup `external` may use subpaths (`tiktoken/lite`, `pdfjs-dist/build/foo`); `npm install` needs the package root. */
 function rollupExternalIdToNpmPackageRoot(id: string): string {
@@ -74,6 +97,18 @@ const ignore = (file: string) => {
     return false;
   }
   if (file.startsWith("/node_modules/keytar")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/oxc-parser")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/@oxc-parser")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/web-tree-sitter")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/tree-sitter-wasms")) {
     return false;
   }
   // tiktoken ships tiktoken_bg.wasm next to lite/*.cjs — must stay unpackaged from Rollup with real __dirname (see vite.main.config external).
@@ -140,7 +175,14 @@ const config: ForgeConfig = {
     osxNotarize: undefined,
     asar: true,
     ignore,
-    extraResource: ["node_modules/dugite/git", path.join(__dirname, "src/skills")],
+    extraResource: [
+      "node_modules/dugite/git",
+      path.join(__dirname, "src/skills"),
+      // Packager expects string paths only (not { from, to }); basename must match wasm-extract.ts resourcesPath lookup.
+      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm"),
+      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm"),
+      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm"),
+    ],
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
   rebuildConfig: {
@@ -264,19 +306,34 @@ const config: ForgeConfig = {
           "--no-fund",
           ...toInstall,
         ];
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn(npm, commands, {
-            cwd: buildPath,
-            stdio: "inherit",
-            shell: process.platform === "win32", // .cmd files need shell:true on Windows
-          });
-          proc.on("close", (code) => {
-            if (code === 0) resolve();
-            else reject(new Error(`npm install exited with code ${code}`));
-          });
-          proc.on("error", reject);
-        });
+        await runNpmInstall(buildPath, commands);
       }
+
+      // oxc-parser native bindings are optionalDependencies — stripped by --omit=optional above.
+      const bindingPkg = getOxcBindingPackageName(
+        platform as NodeJS.Platform,
+        arch,
+        platform === "linux" ? undefined : false,
+      );
+      if (bindingPkg) {
+        const oxcVersion = readOxcParserVersion();
+        console.log(
+          `[forge] Installing oxc-parser@${oxcVersion} + ${bindingPkg} for ${platform}/${arch}`,
+        );
+        await runNpmInstall(buildPath, [
+          "install",
+          "--omit=dev",
+          "--no-save",
+          "--no-package-lock",
+          "--no-audit",
+          "--no-fund",
+          `oxc-parser@${oxcVersion}`,
+          `${bindingPkg}@${oxcVersion}`,
+        ]);
+      } else {
+        console.warn(`[forge] No oxc binding package for ${platform}/${arch}`);
+      }
+
       // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
       // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
       await rebuild({
@@ -333,6 +390,11 @@ const config: ForgeConfig = {
         {
           entry: "workers/tsc/tsc_worker.ts",
           config: "vite.worker.config.mts",
+          target: "main",
+        },
+        {
+          entry: "workers/blueprint/parser_worker.ts",
+          config: "vite.parser-worker.config.mts",
           target: "main",
         },
       ],

@@ -30,6 +30,7 @@ import { runSteppedCompaction } from "../context/compaction";
 import { runCompaction, type CompactionRunOutcome, getUsableBudget } from "../context-compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
+import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 
 const execAsync = promisify(exec);
 const logger = log.scope("workspace-tools");
@@ -452,15 +453,20 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
         const { pathToFileURL } = await import("node:url");
         const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-        if (pdfjs?.GlobalWorkerOptions) {
-            pdfjs.GlobalWorkerOptions.workerSrc = "";
-        }
-
         let standardFontDataUrl: string | undefined;
         try {
             const { createRequire } = await import("node:module");
             const req = createRequire(import.meta.url);
-            const fontPath = req.resolve("pdfjs-dist/standard_fonts/FoxitFixed.pfb");
+            if (pdfjs?.GlobalWorkerOptions) {
+                try {
+                    const workerPath = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+                    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+                } catch {
+                    const workerPath = req.resolve("pdfjs-dist/build/pdf.worker.mjs");
+                    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+                }
+            }
+            const fontPath = req.resolve("pdfjs-dist/standard_fonts/FoxitFixed.pbf");
             const fontsDir = path.dirname(fontPath);
             if (existsSync(path.join(fontsDir, "FoxitFixed.pfb"))) {
                 standardFontDataUrl = pathToFileURL(`${fontsDir}${path.sep}`).toString();
@@ -782,6 +788,10 @@ ToolRegistry.register({
                     size: a.size,
                 })),
             };
+        }
+
+        if (isBlockedSecretBasename(attachment.filename)) {
+            return { success: false, error: ENV_SECRET_BLOCK_MESSAGE };
         }
 
         try {

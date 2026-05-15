@@ -118,8 +118,11 @@ async function runSemanticSearchFileFallback(options: {
   const results: SemanticSearchLineResult[] = [];
   const files = await getAllCodeFiles(workspace);
 
+  const { assertReadablePath } = await import("@/lib/security/env-secret-paths");
   for (const file of files) {
     try {
+      const rel = path.relative(workspace, file);
+      assertReadablePath(rel, workspace);
       const content = await fs.readFile(file, "utf-8");
       const lines = content.split("\n");
       lines.forEach((line, index) => {

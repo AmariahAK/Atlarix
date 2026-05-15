@@ -21,6 +21,10 @@ const RENDERER_KEYS = [
 
 // https://vite.dev/config/
 export default defineConfig({
+  /** RTE pulls oxc-parse transitively; without this, resolve uses oxc's "browser" → wasm (fails in UI bundle). */
+  optimizeDeps: {
+    exclude: ["oxc-parser"],
+  },
   plugins: [react(), tailwindcss()],
   /** Modern Chromium (Electron): less downlevel work for esbuild during large renderer bundles. */
   esbuild: {
@@ -47,6 +51,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "oxc-parser": path.resolve(__dirname, "./src/shims/oxc-parser-renderer-stub.ts"),
       /**
        * `guard.ts` (pulled in via `ToolRegistry`) dynamically imports `@sentry/electron/main`.
        * In the renderer graph that would bundle `@sentry/node` and fail (Node `util`, `url`, …).

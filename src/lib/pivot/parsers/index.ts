@@ -1,6 +1,6 @@
 /**
  * PIVOT parsers — unified parseProject(workspacePath) using workspace-analyzer + structure extractor.
- * Workspace analysis uses tree-sitter when native grammars load, with regex fallback.
+ * Workspace analysis uses structural heuristics; TS/JS structure scans use oxc-parser when available.
  */
 
 import { analyzeWorkspace } from "@/lib/analysis";

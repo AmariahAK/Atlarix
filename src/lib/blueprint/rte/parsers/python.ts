@@ -7,8 +7,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BlueprintNode, FrameworkInfo, LanguageParser } from "./types";
-import { parseSourceToTree } from "@/lib/pivot/parsers/parse-source-tree";
-import { extractBlueprintNodesFromPython } from "@/lib/pivot/parsers/python-ts-parser";
+import { extractWithWasm, mergeWasmWithRegex } from "./wasm-extract";
 
 const FASTAPI_ROUTE = /@(?:app|router)\s*\.(get|post|put|patch|delete)\s*\(\s*["']([^"']+)["']/gi;
 const FLASK_ROUTE = /@(?:app|bp|[\w]+)\s*\.route\s*\(\s*["']([^"']+)["']/gi;
@@ -45,22 +44,17 @@ async function parseFile(
   }
   const relPath = path.relative(projectPath, absolutePath).replace(/\\/g, "/");
   const lineOf = (offset: number) => (content.slice(0, offset).match(/\n/g) || []).length + 1;
+  const regexNodes: BlueprintNode[] = [];
+  let idx = nodes.length;
 
   let m: RegExpExecArray | null;
-
-  let usedTreeSitter = false;
-  const pyTree = parseSourceToTree(content, absolutePath);
-  if (pyTree) {
-    nodes.push(...extractBlueprintNodesFromPython(content, pyTree, relPath, nodes.length));
-    usedTreeSitter = true;
-  }
 
   FASTAPI_ROUTE.lastIndex = 0;
   while ((m = FASTAPI_ROUTE.exec(content)) !== null) {
     const method = (m[1] || "get").toUpperCase();
     const routePath = m[2] || "/";
-    nodes.push({
-      id: safeId("api", relPath, `${method}-${routePath}`, nodes.length),
+    regexNodes.push({
+      id: safeId("api", relPath, `${method}-${routePath}`, idx++),
       type: "api",
       name: `${method} ${routePath}`,
       file: relPath,
@@ -74,8 +68,8 @@ async function parseFile(
   FLASK_ROUTE.lastIndex = 0;
   while ((m = FLASK_ROUTE.exec(content)) !== null) {
     const routePath = m[1] || "/";
-    nodes.push({
-      id: safeId("api", relPath, routePath, nodes.length),
+    regexNodes.push({
+      id: safeId("api", relPath, routePath, idx++),
       type: "api",
       name: routePath,
       file: relPath,
@@ -88,8 +82,8 @@ async function parseFile(
   DJANGO_PATH.lastIndex = 0;
   while ((m = DJANGO_PATH.exec(content)) !== null) {
     const routePath = m[1] || "/";
-    nodes.push({
-      id: safeId("api", relPath, routePath, nodes.length),
+    regexNodes.push({
+      id: safeId("api", relPath, routePath, idx++),
       type: "api",
       name: routePath,
       file: relPath,
@@ -99,31 +93,32 @@ async function parseFile(
     });
   }
 
-  if (!usedTreeSitter) {
-    CLASS_DECL.lastIndex = 0;
-    while ((m = CLASS_DECL.exec(content)) !== null) {
-      const name = m[1] || "Anonymous";
-      nodes.push({
-        id: safeId("cls", relPath, name, nodes.length),
-        type: "class",
-        name,
-        file: relPath,
-        line: lineOf(m.index),
-      });
-    }
-
-    FUNCTION_DECL.lastIndex = 0;
-    while ((m = FUNCTION_DECL.exec(content)) !== null) {
-      const name = m[1] || "anonymous";
-      nodes.push({
-        id: safeId("fn", relPath, name, nodes.length),
-        type: "function",
-        name,
-        file: relPath,
-        line: lineOf(m.index),
-      });
-    }
+  CLASS_DECL.lastIndex = 0;
+  while ((m = CLASS_DECL.exec(content)) !== null) {
+    const name = m[1] || "Anonymous";
+    regexNodes.push({
+      id: safeId("cls", relPath, name, idx++),
+      type: "class",
+      name,
+      file: relPath,
+      line: lineOf(m.index),
+    });
   }
+
+  FUNCTION_DECL.lastIndex = 0;
+  while ((m = FUNCTION_DECL.exec(content)) !== null) {
+    const name = m[1] || "anonymous";
+    regexNodes.push({
+      id: safeId("fn", relPath, name, idx++),
+      type: "function",
+      name,
+      file: relPath,
+      line: lineOf(m.index),
+    });
+  }
+
+  const wasmNodes = await extractWithWasm(content, "python", relPath, nodes.length);
+  nodes.push(...mergeWasmWithRegex(wasmNodes, regexNodes));
 }
 
 async function detectFrameworkFromFiles(files: string[]): Promise<FrameworkInfo> {

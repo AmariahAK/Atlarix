@@ -12,6 +12,7 @@ export * from "./registry";
 
 // Tool modules (importing registers them)
 import "./file";
+import "./repo-overview";
 import "./edit";
 import "./search";
 import "./shell";

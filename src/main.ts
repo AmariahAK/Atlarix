@@ -890,6 +890,14 @@ app.on("before-quit", (e) => {
     } catch (abortErr) {
       logger.warn("abortAllStreams on quit:", abortErr);
     }
+    try {
+      const { shutdownParserPool } = await import(
+        "./lib/blueprint/rte/parsers/parser-pool"
+      );
+      await shutdownParserPool();
+    } catch (poolErr) {
+      logger.warn("shutdownParserPool on quit:", poolErr);
+    }
     app.quit();
   })();
 });

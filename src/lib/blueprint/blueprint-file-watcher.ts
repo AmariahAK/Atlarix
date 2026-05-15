@@ -8,8 +8,6 @@ import * as path from "path";
 import { loadBlueprintCache, saveBlueprintCache } from "@/lib/cache/blueprint-cache";
 import { generateBlueprint, PARSERS } from "@/lib/blueprint/rte/parsers";
 import type { BlueprintNode } from "./rte/parsers/types";
-import { clearParseTreeCacheForWorkspace } from "@/lib/pivot/parsers/parse-tree-cache";
-
 const CODE_EXT = new Set([
   ".ts",
   ".tsx",
@@ -108,12 +106,6 @@ export function registerBlueprintFileWatcher(
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
-  }
-  if (lastProjectPath && lastProjectPath !== projectPath) {
-    clearParseTreeCacheForWorkspace(lastProjectPath);
-  }
-  if (projectPath === null && lastProjectPath) {
-    clearParseTreeCacheForWorkspace(lastProjectPath);
   }
   lastProjectPath = projectPath;
   lastWorkspaceId = workspaceId;

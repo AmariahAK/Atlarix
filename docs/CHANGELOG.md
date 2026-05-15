@@ -1,5 +1,27 @@
 # Atlarix Changelog
 
+## [8.2.0] (2026-05-15) — Parser worker pool, WASM tree-sitter, packaging fix
+
+### Release highlights
+
+- **oxc packaging fix:** `packageAfterPrune` no longer strips `@oxc-parser/binding-*` optional deps; platform binding is re-installed after `--omit=optional` prune so packaged apps load native oxc.
+- **Parser worker pool:** TS/JS/JSX/TSX `parseSync` runs in 2–4 dedicated workers (`parser_worker.js`) with timeout and crash recovery; sync fallback when the worker bundle is absent (vitest/dev).
+- **WASM tree-sitter:** Python, Go, and Rust Blueprint RTE uses `web-tree-sitter` + `tree-sitter-wasms` grammars (packaged via `extraResources`); WASM wins for class/function nodes, regex wins for routes.
+- **CI gates:** Release workflow runs `npm test` and `npx tsx scripts/bench-parsers.ts` before `npm run make` on macOS, Linux, and Windows.
+
+---
+
+## [8.1.1] (2026-05-15) — oxc-parser, repo overview, secret path hardening
+
+### Release highlights
+
+- **oxc-parser for TS/JS/JSX/TSX:** Blueprint RTE uses `oxc-parser` (Rust-based, ~2× faster than SWC in oxc's published benchmarks) for AST-level extraction on `.ts`, `.tsx`, `.js`, `.jsx`. Python and other supported languages remain on structural heuristic parsers (unchanged). Per-file 256 KB cap, cooperative `setImmediate` yield every 10 files during parse, merge rules for oxc + regex route nodes.
+- **`get_repo_overview` tool:** Lightweight cold-session orientation (shallow tree, README excerpt, entry points, language stats) without Blueprint parse.
+- **Secret path denylist:** Extended to `.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `secrets.json`, `credentials.json`, `service-account.json`; `assertReadablePath` blocks workspace escape (`../../.env`) across file-reading tools and IPC.
+- **Removed tree-sitter stubs:** Dead pivot/tree-sitter modules deleted; tiered Blueprint prompt injection code removed (tool-driven only).
+
+---
+
 ## [8.1.0] (2026-05-11) — Pass 6: Blueprint restoration, unified search, streaming, tool merge
 
 ### Pass 6 highlights (this branch)

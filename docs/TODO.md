@@ -1,11 +1,22 @@
 # Atlarix TODO
 
-**Current Version:** v8.1.0
+**Current Version:** v8.2.0
 **Last Updated:** 2026-05-11
 
 ---
 
-## Shipped in v8.1.0 — Pass 6 (current tree)
+## Shipped in v8.2.0
+
+- **oxc packaging:** Platform `@oxc-parser/binding-*` restored after Forge prune (`forge.config.ts`).
+- **Parser worker pool:** `parser_worker.js`, `parser-pool.ts`, shutdown on quit.
+- **WASM RTE:** `wasm-extract.ts` for Python/Go/Rust; wired in language parsers; grammars in `extraResources`.
+- **CI:** `npm test` + `bench-parsers.ts` before release builds.
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.2.0]`.
+
+---
+
+## Shipped in v8.1.0 — Pass 6
 
 | Area | Status | Notes |
 |------|--------|-------|
@@ -416,7 +427,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 | Area | Status | Notes |
 |------|--------|--------|
-| **S1** Tiered Blueprint injection + Build RAG cap | **Done** | `blueprintPromptTiers.ts`: Ask/Plan/Build/Debug budgets; `estimateTokens` uses chars÷4; Build adds ranked snippets with explicit omit footer + `truncateToTokens` safety net |
+| **S1** Tiered Blueprint injection + Build RAG cap | **Removed v8.1.1** | `blueprintPromptTiers.ts` deleted — Blueprint is tool-driven only (`get_blueprint`) |
 | **S1** Blueprint-first empty state | **Done** | Plan/Build tiers inject blocker when Blueprint has no nodes |
 | **S2** Schema + migration + bootstrap | **Done** | `project_snapshots`, `project_memory`; `0031_project_memory.sql`; `ensureProjectMemoryTablesIfNeeded` in `db/index.ts` |
 | **S2** Snapshots + pruning | **Done** | Max 100 rows/workspace; triggers: debounced blueprint change, plan file write, build-complete (Agent/Build + files), `session_end` on quit for touched workspaces |

@@ -20,7 +20,7 @@ import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import { getFilesRecursively } from "./file_utils";
-import { parseFileStructure } from "@/lib/workspace/tree-sitter-utils";
+import { parseFileStructure } from "@/lib/workspace/oxc-structure";
 
 const execAsync = promisify(exec);
 const logger = log.scope("project-files");

@@ -2,15 +2,13 @@
  * Workspace Analyzer
  * ==================
  * Analyzes workspace structure, detects language/framework, extracts imports/exports
- * Uses Tree-sitter for accurate AST parsing, with regex fallback
+ * Uses structural heuristics for workspace analysis; TS/JS file scans use oxc-parser when available
  * Inspired by StackSense's diagram_builder.py
  */
 import * as fs from 'fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'path';
 import log from 'electron-log';
-// Pass 7: pivot tree-sitter parsers were removed with the Blueprint subsystem.
-function clearParseTreeCacheForWorkspace(_workspacePath: string): void { /* no-op */ }
 import {
     ensureDefaultAtlarixIgnore,
     loadIgnorerForProject,
@@ -134,8 +132,6 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
             },
         };
     }
-
-    clearParseTreeCacheForWorkspace(workspacePath);
 
     // 1. Detect project type
     const { language, framework, packageManager } = await detectProjectType(workspacePath);
@@ -362,7 +358,7 @@ async function scanFiles(dir: string, relativeTo?: string, visited?: Set<string>
 }
 
 /**
- * Analyze a single file using Tree-sitter (fallback to regex)
+ * Analyze a single file using heuristics (regex / workspace rules)
  */
 async function analyzeFile(filePath: string, workspacePath: string): Promise<AnalyzedFile | null> {
     try {
@@ -371,8 +367,8 @@ async function analyzeFile(filePath: string, workspacePath: string): Promise<Ana
         const language = LANGUAGE_MAP[ext] || 'unknown';
         const relativePath = path.relative(workspacePath, filePath);
 
-        // NOTE: Tree-sitter parsing removed (v8.0).
-        // Tree-sitter is now on-demand only via the scan_file_structure tool.
+        // NOTE: TS/JS structure uses oxc-parser in Blueprint RTE (on demand via get_blueprint).
+        // Workspace analyzer uses regex/heuristics only.
         // This function uses regex-based extraction for workspace analysis.
         const imports = extractImports(content, language);
         const exports = extractExports(content, language);

@@ -135,6 +135,8 @@ ToolRegistry.register({
     const fs = await import("fs/promises");
     const planPath = getPlanPath(targetPath);
     const fullPath = pathMod.join(workspace, planPath);
+    const { assertReadablePath } = await import("@/lib/security/env-secret-paths");
+    assertReadablePath(planPath, workspace);
     try {
       const content = await fs.readFile(fullPath, "utf8");
       return { success: true, content, path: planPath };
@@ -188,6 +190,8 @@ ToolRegistry.register({
     const fullPath = pathMod.join(workspace, planPath);
     let fileType: "create" | "update" = "create";
     let oldContent: string | undefined;
+    const { assertReadablePath } = await import("@/lib/security/env-secret-paths");
+    assertReadablePath(planPath, workspace);
     try {
       await fs.access(fullPath);
       fileType = "update";
