@@ -64,7 +64,7 @@
 
 /* 
  * Disable drag region when select is open.
- * See: https://github.com/dyad-sh/dyad/issues/1717
+ * See: https://github.com/AmariahAK/Atlarix/issues/1717
  *
  * Radix select component sets this data attribute when the select is open
  * to disable scrolling on the body and we use this as a signal to disable
@@ -467,44 +467,7 @@ html[data-fullscreen="true"] #layout-main-content-container {
   padding-left: 1rem;
 }
 
-/* v2.5: Blueprint canvas agent animations (Architect → containers, Builder → beacons, Reviewer → edges) */
-@keyframes atlarix-container-forming {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-  50% { opacity: 0.95; box-shadow: 0 0 12px 2px rgba(16, 185, 129, 0.35); }
-}
-.atlarix-container-forming {
-  animation: atlarix-container-forming 1.2s ease-in-out infinite;
-}
-
-@keyframes atlarix-beacon-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
-  50% { box-shadow: 0 0 14px 3px rgba(245, 158, 11, 0.4); }
-}
-.atlarix-beacon-highlight {
-  animation: atlarix-beacon-glow 1s ease-in-out infinite;
-}
-
-@keyframes atlarix-edge-pulse-green {
-  0%, 100% { stroke: hsl(var(--muted-foreground)); opacity: 0.8; }
-  50% { stroke: #10B981; opacity: 1; }
-}
-.atlarix-edge-reviewer-pulse path {
-  animation: atlarix-edge-pulse-green 1s ease-in-out infinite;
-}
-
-@keyframes blueprint-edge-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-
-/* Blueprint legend dot only — moving edge dots use SVG animateMotion only (no extra keyframes) */
-@keyframes atlarix-particle-glow-legend {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 0.9; }
-}
-.atlarix-blueprint-legend-particle {
-  animation: atlarix-particle-glow-legend 1.5s ease-in-out infinite;
-}
+/* Pass 7: Blueprint canvas animations removed with the Blueprint subsystem. */
 
 /* ═══════════════════════════════════════════════════════════
    PANEL ANIMATIONS
@@ -612,55 +575,9 @@ html[data-fullscreen="true"] #layout-main-content-container {
   align-items: center;
 }
 
-/* Atlaflow (React Flow) Controls – zoom/fit icons visible on light and dark canvas */
-.react-flow__controls.atlaflow-controls-theme {
-  --xy-controls-button-background-color: var(--card);
-  --xy-controls-button-background-color-hover: var(--muted);
-  --xy-controls-button-color: #374151;
-  --xy-controls-button-color-hover: #111827;
-  --xy-controls-button-border-color: var(--border);
-  --xy-controls-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-.react-flow__controls.atlaflow-controls-theme .react-flow__controls-button,
-.react-flow__controls.atlaflow-controls-theme button {
-  color: #374151 !important;
-}
-.react-flow__controls.atlaflow-controls-theme .react-flow__controls-button svg,
-.react-flow__controls.atlaflow-controls-theme button svg {
-  fill: #374151 !important;
-  stroke: #374151 !important;
-}
-.dark .react-flow__controls.atlaflow-controls-theme {
-  --xy-controls-button-color: #e5e7eb;
-  --xy-controls-button-color-hover: #f9fafb;
-  --xy-controls-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-.dark .react-flow__controls.atlaflow-controls-theme .react-flow__controls-button,
-.dark .react-flow__controls.atlaflow-controls-theme button {
-  color: #e5e7eb !important;
-}
-.dark .react-flow__controls.atlaflow-controls-theme .react-flow__controls-button svg,
-.dark .react-flow__controls.atlaflow-controls-theme button svg {
-  fill: #e5e7eb !important;
-  stroke: #e5e7eb !important;
-}
+/* Pass 7: React Flow / Atlaflow controls styles removed with the Blueprint subsystem. */
 
-/* Blueprint / flow diagram edges: ensure path is visible; stroke color comes from component (direction: red/blue/purple) */
-.react-flow__edge-path {
-  fill: none;
-  stroke-width: 2;
-  stroke-opacity: 1;
-}
-/* Do NOT set stroke here so BlueprintEdge inline stroke (direction colors) wins */
-.atlarix-blueprint-edge-path {
-  fill: none !important;
-  stroke-width: 2 !important;
-  stroke-opacity: 1 !important;
-}
-.react-flow__arrowhead polyline {
-  fill: hsl(var(--primary) / 0.9);
-  stroke: hsl(var(--primary) / 0.9);
-}
+/* Pass 7: react-flow / Blueprint edge styles removed (Blueprint subsystem deleted). */
 
 @keyframes spin-slow {
   to {

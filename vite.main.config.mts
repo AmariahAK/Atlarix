@@ -40,18 +40,15 @@ const MAIN_KEYS = [
 
 /** Keep in sync with `forge.config.ts` `packageAfterPrune` (named export for fallback + npm install roots). */
 export const mainRollupExternals: readonly string[] = [
+  // Renderer-only deps must NOT be listed here (e.g. lucide-react, date-fns, posthog-js,
+  // react-shiki, shiki / @shikijs/*, core-js) — bundle via renderer Vite, not main externals.
   // WASM / filesystem-relative assets — bundling breaks __dirname (e.g. Missing tiktoken_bg.wasm).
   "@anthropic-ai/tokenizer",
   "tiktoken/lite",
   "tiktoken",
-  // pdfjs: worker + standard_fonts + wasm resolved via require/import from real package dir (attachment-tools).
-  "pdfjs-dist",
+  // pdfjs-dist: bundled into main (no separate node_modules tree in prod).
   "better-sqlite3",
   "keytar",
-  "tree-sitter",
-  "tree-sitter-typescript",
-  "tree-sitter-javascript",
-  "tree-sitter-python",
   "mysql2",
   "@lydell/node-pty",
   "ai",
@@ -77,7 +74,7 @@ export const mainRollupExternals: readonly string[] = [
 export default defineConfig({
   // NO assetsInclude for .sql — conflicts with raw-sql inlining for bundled.generated.ts.
   ssr: {
-    noExternal: [],
+    noExternal: ["pdfjs-dist"],
     external: [...mainRollupExternals],
   },
   resolve: {
@@ -108,6 +105,8 @@ export default defineConfig({
     },
     {
       name: "restart",
+      /** Dev-only: do not touch stdin during `vite build` / packaging — can break pipes and crash renderer esbuild (`write EPIPE`). */
+      apply: "serve",
       closeBundle() {
         process.stdin.emit("data", "rs");
       },

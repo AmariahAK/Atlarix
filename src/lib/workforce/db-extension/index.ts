@@ -4,5 +4,4 @@
 
 export * from "./connection-manager";
 export * from "./schema-introspector";
-export * from "./db-tools";
 export * from "./context-injector";

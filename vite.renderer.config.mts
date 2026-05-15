@@ -22,9 +22,39 @@ const RENDERER_KEYS = [
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  /** Modern Chromium (Electron): less downlevel work for esbuild during large renderer bundles. */
+  esbuild: {
+    target: "es2022",
+    logLimit: 0,
+  },
+  /** Keep UI deps bundled into renderer chunks — do not externalize (would leave loose node_modules in ASAR). */
+  build: {
+    target: "es2022",
+    sourcemap: false,
+    reportCompressedSize: false,
+    rollupOptions: {
+      external: [],
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/mermaid")) return "vendor-mermaid";
+          if (id.includes("node_modules/shiki") || id.includes("node_modules/@shikijs")) {
+            return "vendor-shiki";
+          }
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      /**
+       * `guard.ts` (pulled in via `ToolRegistry`) dynamically imports `@sentry/electron/main`.
+       * In the renderer graph that would bundle `@sentry/node` and fail (Node `util`, `url`, …).
+       */
+      "@sentry/electron/main": path.resolve(
+        __dirname,
+        "./src/shims/sentry-electron-main-stub.ts",
+      ),
     },
   },
   server: {

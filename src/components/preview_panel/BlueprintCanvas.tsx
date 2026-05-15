@@ -1,252 +1,38 @@
 /**
- * Visual Blueprint canvas (React Flow): rooms as nodes, edges as connections.
- * Similar to n8n/Mermaid but card-based; no persistence (blueprint = current state).
+ * Blueprint canvas — Pass 7: Mind Elixir replacement for React Flow.
+ *
+ * The same `BlueprintCanvas` / `BlueprintCanvasProps` surface is preserved so
+ * call sites (`BlueprintEditor.tsx`) keep working. Internally we now mount a
+ * Mind Elixir instance: the root node is the workspace, directories become
+ * branch nodes, rooms become leaf nodes, and inter-room edges (imports /
+ * calls) become "relation lines" overlayed by Mind Elixir's arrow layer.
+ *
+ * Why this exists: React Flow + ELK was a memory bomb on large monorepos and
+ * silently capped the graph at 500 nodes (`MAX_BLUEPRINT_NODES`). Mind Elixir
+ * is ~33 KB, framework-agnostic, and tree-native, which lines up with how the
+ * AI consumes the Blueprint (Markdown tree, same source via
+ * `blueprintToMarkdown`).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ReactFlow,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  MarkerType,
-  type Connection,
-  type Node,
-  type Edge,
-  type NodeTypes,
-  Controls,
-  Background,
-  BackgroundVariant,
-  ReactFlowProvider,
-  Panel,
-} from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MindElixir, { type MindElixirInstance } from "mind-elixir";
 // @ts-expect-error - CSS import has no type declarations
-import "@xyflow/react/dist/style.css";
-import type { Blueprint, BlueprintRoom, BlueprintEdge as BlueprintEdgeType } from "@/shared/blueprint-types";
-import { generateBlueprintId } from "@/shared/blueprint-types";
-import { BlueprintRoomNode, type RoomNodeData } from "./BlueprintRoomNode";
-import { BlueprintEdge } from "@/components/blueprint/BlueprintEdge";
+import "mind-elixir/style.css";
+import { GitCommit, LayoutGrid, Plus } from "lucide-react";
+import { toast } from "sonner";
+
+import type { Blueprint } from "@/shared/blueprint-types";
+import {
+  blueprintToMindNodes,
+  mindNodesToBlueprint,
+  type MindNodeObj,
+} from "@/lib/blueprint/blueprint-markdown";
 import { IpcClient } from "@/ipc/ipc_client";
-import { Plus, LayoutGrid } from "lucide-react";
-import type { EdgeTypes } from "@xyflow/react";
-import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/useAuth";
 import type { AgentPhase } from "@/atoms/sourceAtoms";
+import { cn } from "@/lib/utils";
 
-const NODE_TYPE = "room";
-const GRID_COLS = 4;
-const NODE_WIDTH = 160;
-const NODE_HEIGHT = 80;
-const GAP = 24;
-
-function normalizeFsPath(p: string): string {
-  return String(p || "")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "");
-}
-
-function dirnameFsPath(p: string): string | null {
-  const s = normalizeFsPath(p);
-  const idx = s.lastIndexOf("/");
-  if (idx <= 0) return null;
-  return s.slice(0, idx);
-}
-
-function computeFileTreeLayoutTB(rooms: BlueprintRoom[]): Map<string, { x: number; y: number }> {
-  const visible = rooms.filter((r) => !r.hidden);
-  const byId = new Map(visible.map((r) => [r.id, r]));
-
-  const idsWithParent = new Map<string, string | null>();
-  const pathById = new Map<string, string>();
-  const idsWithPath: string[] = [];
-  for (const r of visible) {
-    if (r.parentId && byId.has(r.parentId)) {
-      idsWithParent.set(r.id, r.parentId);
-      continue;
-    }
-    const p = r.path ? normalizeFsPath(r.path) : "";
-    if (p) {
-      pathById.set(r.id, p);
-      idsWithPath.push(r.id);
-    }
-    idsWithParent.set(r.id, null);
-  }
-
-  // Infer parent by path when parentId is not set.
-  const byPath = new Map<string, string>();
-  for (const id of idsWithPath) {
-    const p = pathById.get(id);
-    if (p) byPath.set(p, id);
-  }
-  for (const id of idsWithPath) {
-    if (idsWithParent.get(id)) continue;
-    const p = pathById.get(id);
-    if (!p) continue;
-    const direct = dirnameFsPath(p);
-    if (direct && byPath.has(direct)) {
-      idsWithParent.set(id, byPath.get(direct)!);
-      continue;
-    }
-    // Fallback: longest prefix match among other room paths.
-    let best: { parentId: string; len: number } | null = null;
-    for (const other of idsWithPath) {
-      if (other === id) continue;
-      const op = pathById.get(other);
-      if (!op) continue;
-      if (p.startsWith(op + "/") || p === op) {
-        const len = op.length;
-        if (!best || len > best.len) best = { parentId: other, len };
-      }
-    }
-    if (best && best.parentId !== id) {
-      idsWithParent.set(id, best.parentId);
-    }
-  }
-
-  const children = new Map<string, string[]>();
-  for (const r of visible) children.set(r.id, []);
-  for (const [id, parentId] of idsWithParent.entries()) {
-    if (parentId && children.has(parentId)) {
-      children.get(parentId)!.push(id);
-    }
-  }
-  for (const [pid, list] of children.entries()) {
-    list.sort((a, b) => {
-      const ra = byId.get(a);
-      const rb = byId.get(b);
-      return String(ra?.label ?? a).localeCompare(String(rb?.label ?? b));
-    });
-    children.set(pid, list);
-  }
-
-  const roots = visible
-    .filter((r) => !idsWithParent.get(r.id))
-    .map((r) => r.id)
-    .sort((a, b) => String(byId.get(a)?.label ?? a).localeCompare(String(byId.get(b)?.label ?? b)));
-
-  const pos = new Map<string, { x: number; y: number }>();
-  const xStep = NODE_WIDTH + 80;
-  const yStep = NODE_HEIGHT + 64;
-  let nextLeafX = 0;
-
-  const visit = (id: string, depth: number): number => {
-    const kids = children.get(id) ?? [];
-    let x: number;
-    if (kids.length === 0) {
-      x = nextLeafX;
-      nextLeafX += xStep;
-    } else {
-      const xs = kids.map((k) => visit(k, depth + 1));
-      x = xs.reduce((a, b) => a + b, 0) / xs.length;
-    }
-    pos.set(id, { x, y: depth * yStep });
-    return x;
-  };
-
-  for (const r of roots) visit(r, 0);
-
-  // Ensure all rooms are placed (cycles / missing roots fallback).
-  for (const r of visible) {
-    if (!pos.has(r.id)) {
-      pos.set(r.id, { x: nextLeafX, y: 0 });
-      nextLeafX += xStep;
-    }
-  }
-
-  const minX = Math.min(...Array.from(pos.values()).map((p) => p.x), 0);
-  if (minX !== 0) {
-    for (const [id, p] of pos.entries()) pos.set(id, { x: p.x - minX, y: p.y });
-  }
-  return pos;
-}
-
-function blueprintToNodesAndEdges(
-  blueprint: Blueprint,
-  agentPhase?: AgentPhase | null,
-  agentPhaseActive?: boolean,
-  isRteRunning?: boolean
-): { nodes: Node<RoomNodeData>[]; edges: Edge[]; hiddenRooms: BlueprintRoom[] } {
-  const allRooms = blueprint.rooms ?? [];
-  const visibleRooms = allRooms.filter((r) => !r.hidden);
-  const hiddenRooms = allRooms.filter((r) => r.hidden);
-  const layout = computeFileTreeLayoutTB(visibleRooms);
-  const nodes: Node<RoomNodeData>[] = visibleRooms.map((room, i) => {
-    return {
-      id: room.id,
-      type: NODE_TYPE,
-      position: layout.get(room.id) ?? { x: 0, y: 0 },
-      data: { room, agentPhase: agentPhase ?? undefined, agentPhaseActive: agentPhaseActive ?? false },
-    };
-  });
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const blueprintEdges = blueprint.edges ?? [];
-  const validEdges = blueprintEdges.filter((e) => {
-    const valid = nodeIds.has(e.from) && nodeIds.has(e.to);
-    if (!valid) {
-      console.warn("[BlueprintCanvas] Dropping edge with unmatched node ids:", e);
-    }
-    return valid;
-  });
-  const edgeClassName =
-    agentPhase === "reviewer" && agentPhaseActive
-      ? "atlarix-edge-reviewer-pulse"
-      : undefined;
-  const DIRECTION_COLORS: Record<"to" | "from" | "both", string> = {
-    to: "hsl(0, 70%, 52%)",
-    from: "hsl(220, 70%, 55%)",
-    both: "hsl(270, 60%, 55%)",
-  };
-  const edges: Edge[] = validEdges.map((e, i) => {
-    const direction = e.direction ?? "to";
-    const strokeColor = e.inferred ? "hsl(var(--muted-foreground))" : DIRECTION_COLORS[direction];
-    return {
-      id: e.id ?? `edge-${e.from}-${e.to}-${i}`,
-      source: e.from,
-      target: e.to,
-      label: e.label ?? e.type ?? undefined,
-      type: "smoothstep",
-      className: edgeClassName,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: strokeColor,
-        width: 18,
-        height: 18,
-      },
-      data: {
-        edgeType: e.type,
-        inferred: e.inferred ?? false,
-        isRteRunning: isRteRunning ?? false,
-        direction,
-      },
-      style: {
-        stroke: strokeColor,
-        strokeWidth: 2,
-        strokeDasharray: e.inferred ? "6 4" : undefined,
-        opacity: 1,
-      },
-      zIndex: 1000,
-    };
-  });
-  return { nodes, edges, hiddenRooms };
-}
-
-function flowToBlueprint(nodes: Node<RoomNodeData>[], edges: Edge[]): Blueprint {
-  const rooms: BlueprintRoom[] = nodes.map((n) => n.data.room);
-  const blueprintEdges: BlueprintEdgeType[] = edges.map((e) => ({
-    from: e.source,
-    to: e.target,
-    label: typeof e.label === "string" ? e.label : undefined,
-    type: (e.data as { edgeType?: "import" | "call" | "api" })?.edgeType,
-    direction: (e.data as { direction?: "to" | "from" | "both" })?.direction,
-  }));
-  return { rooms, edges: blueprintEdges, envRefs: [] };
-}
-
-const nodeTypes: NodeTypes = { [NODE_TYPE]: BlueprintRoomNode as NodeTypes[string] };
-const edgeTypes: EdgeTypes = { smoothstep: BlueprintEdge };
-
-interface BlueprintCanvasInnerProps {
+export interface BlueprintCanvasProps {
   blueprint: Blueprint;
   onBlueprintChange: (b: Blueprint) => void;
   workspaceId: number | null;
@@ -254,184 +40,276 @@ interface BlueprintCanvasInnerProps {
   onRoomSelect?: (roomId: string) => void;
   agentPhase?: AgentPhase | null;
   agentPhaseActive?: boolean;
+  /** When true, RTE is parsing; we show "Analyzing code..." in the legend. */
   isRteRunning?: boolean;
   className?: string;
 }
 
-function BlueprintCanvasInner({
+/** Strip the `room:`/`fn:`/`dir:` prefix produced by `safeMindId`. */
+function stripPrefix(id: string): string {
+  const idx = id.indexOf(":");
+  return idx >= 0 ? id.slice(idx + 1) : id;
+}
+
+/** Mind Elixir mutates node data in place (adds `parent`, etc.). Deep-clone
+ *  before handing it to the library so we never mutate React state. */
+function cloneTree(node: MindNodeObj): MindNodeObj {
+  return {
+    ...node,
+    children: node.children?.map(cloneTree),
+  };
+}
+
+export function BlueprintCanvas({
   blueprint,
   onBlueprintChange,
   workspaceId,
   onAddRoom,
   onRoomSelect,
-  agentPhase,
-  agentPhaseActive,
   isRteRunning,
   className,
-}: BlueprintCanvasInnerProps) {
+}: BlueprintCanvasProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mindRef = useRef<MindElixirInstance | null>(null);
+  const lastDataKeyRef = useRef<string>("");
+  const pushBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [isCommittingSnapshot, setIsCommittingSnapshot] = useState(false);
   const [hiddenChipOpen, setHiddenChipOpen] = useState(false);
-  const [relayoutCounter, setRelayoutCounter] = useState(0);
-  const { nodes: initialNodes, edges: initialEdges, hiddenRooms } = blueprintToNodesAndEdges(
-    blueprint,
-    agentPhase,
-    agentPhaseActive,
-    isRteRunning
-  );
-  const hiddenCount = hiddenRooms.length;
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const workspaceIdRef = useRef(workspaceId);
-  const layoutKeyRef = useRef<string>("");
-  const blueprintLayoutKey = `${blueprint.rooms?.length ?? 0}-${(blueprint.rooms ?? []).filter((r) => !r.hidden).map((r) => r.id).join(",")}-${(blueprint.edges ?? []).length}`;
 
-  // Reset canvas when workspace or blueprint structure changes (not when only isRteRunning changes).
-  // Merge current flow edges so user-drawn edges are not lost when reset runs before parent re-renders.
-  useEffect(() => {
-    if (workspaceIdRef.current !== workspaceId) workspaceIdRef.current = workspaceId;
-    const key = `${workspaceId}-${blueprintLayoutKey}`;
-    const prevKey = layoutKeyRef.current;
-    if (prevKey !== key) {
-      const { nodes: nextNodes, edges: nextEdgesFromBlueprint } = blueprintToNodesAndEdges(
-        blueprint,
-        agentPhase,
-        agentPhaseActive,
-        isRteRunning
+  const { status } = useAuth();
+  const tier = status?.plan ?? "free";
+  const isWorkforce = tier === "workforce";
+
+  const hiddenRooms = useMemo(
+    () => (blueprint.rooms ?? []).filter((r) => r.hidden),
+    [blueprint.rooms],
+  );
+
+  // Stable signature so we only push the snapshot back to Mind Elixir when
+  // the upstream Blueprint actually changes (RTE parse, snapshot load, etc.).
+  const blueprintKey = useMemo(() => {
+    const rooms = (blueprint.rooms ?? [])
+      .filter((r) => !r.hidden)
+      .map((r) => `${r.id}:${r.label}:${r.path ?? ""}`)
+      .join("|");
+    const edges = (blueprint.edges ?? [])
+      .map((e) => `${e.from}->${e.to}:${e.type ?? ""}`)
+      .join(",");
+    return `${rooms}#${edges}`;
+  }, [blueprint]);
+
+  const commitBlueprintFromMind = useCallback(() => {
+    const mind = mindRef.current;
+    if (!mind) return;
+    const data = mind.getData();
+    const tree = data.nodeData as MindNodeObj;
+    const relations = (data.arrows ?? []).map((a) => ({
+      from: a.from,
+      to: a.to,
+      label: a.label,
+    }));
+    const nextBlueprint = mindNodesToBlueprint({ root: tree, relations }, blueprint);
+    onBlueprintChange(nextBlueprint);
+  }, [blueprint, onBlueprintChange]);
+
+  const handleCommitSnapshot = useCallback(async () => {
+    if (workspaceId == null) return;
+    setIsCommittingSnapshot(true);
+    try {
+      const result = await IpcClient.getInstance().commitBlueprintSnapshot(workspaceId);
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to commit Blueprint snapshot");
+        return;
+      }
+      toast.success(
+        `Blueprint committed — ${result.nodeCount ?? 0} nodes, ${result.edgeCount ?? 0} edges saved to ${
+          result.path ?? ".atlarix/blueprint.json"
+        }`,
       );
-      setNodes(nextNodes);
-      setEdges((currentEdges) => {
-        const fromBlueprintKeys = new Set(
-          nextEdgesFromBlueprint.map((e) => `${e.source}-${e.target}`)
+      if (result.firstCommit) {
+        toast.info(
+          "Add .atlarix/blueprint.json to git so your team gets the Blueprint on clone. Or add it to .gitignore to keep it local.",
+          { duration: 8000 },
         );
-        const merged = [...nextEdgesFromBlueprint];
-        for (const e of currentEdges) {
-          const edgeKey = `${e.source}-${e.target}`;
-          if (!fromBlueprintKeys.has(edgeKey)) {
-            fromBlueprintKeys.add(edgeKey);
-            merged.push(e);
-          }
-        }
-        return merged;
-      });
-      layoutKeyRef.current = key;
+      }
+    } catch (e) {
+      toast.error(
+        `Failed to commit Blueprint snapshot: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setIsCommittingSnapshot(false);
     }
-  }, [workspaceId, blueprintLayoutKey, blueprint, agentPhase, agentPhaseActive, isRteRunning, setNodes, setEdges]);
+  }, [workspaceId]);
 
-  // When RTE running state changes, only update edge data (preserve positions)
+  // ── Mount / mount-once: create the Mind Elixir instance. ────────────────
   useEffect(() => {
-    setEdges((prev) =>
-      prev.map((e) => ({
-        ...e,
-        data: { ...e.data, isRteRunning: isRteRunning ?? false },
-      }))
-    );
-  }, [isRteRunning, setEdges]);
+    if (!containerRef.current) return;
 
-  // Re-layout (file-tree): recompute deterministic positions
-  useEffect(() => {
-    if (initialNodes.length === 0) return;
-    if (relayoutCounter <= 0) return;
-    const visibleRooms = (blueprint.rooms ?? []).filter((r) => !r.hidden);
-    const layout = computeFileTreeLayoutTB(visibleRooms);
-    setNodes((prev) =>
-      prev.map((n) => ({
-        ...n,
-        position: layout.get(n.id) ?? n.position,
-      })),
-    );
-  }, [relayoutCounter, blueprint.rooms, initialNodes.length, setNodes]);
-
-  // When blueprint.rooms or agent phase change, update node data (keep positions)
-  useEffect(() => {
-    const rooms = blueprint.rooms ?? [];
-    setNodes((prev) =>
-      prev.map((node) => {
-        const room = rooms.find((r) => r.id === node.id);
-        const nextData: RoomNodeData = {
-          room: room ?? node.data.room,
-          agentPhase: agentPhase ?? undefined,
-          agentPhaseActive: agentPhaseActive ?? false,
-        };
-        return node.data.room !== nextData.room || node.data.agentPhase !== nextData.agentPhase || node.data.agentPhaseActive !== nextData.agentPhaseActive
-          ? { ...node, data: nextData }
-          : node;
-      })
-    );
-  }, [blueprint.rooms, agentPhase, agentPhaseActive, setNodes]);
-
-  // When reviewer phase is active, add pulse class to edges
-  useEffect(() => {
-    const edgeClassName =
-      agentPhase === "reviewer" && agentPhaseActive ? "atlarix-edge-reviewer-pulse" : undefined;
-    setEdges((prev) =>
-      prev.map((e) => (e.className !== edgeClassName ? { ...e, className: edgeClassName } : e))
-    );
-  }, [agentPhase, agentPhaseActive, setEdges]);
-
-  const onConnect = useCallback(
-    (conn: Connection) => {
-      setEdges((prev) => addEdge(conn, prev));
-    },
-    [setEdges]
-  );
-
-  // Sync flow state to parent when nodes or edges change (preserve hidden rooms)
-  const prevSync = useRef<string>("");
-  useEffect(() => {
-    const key = `${nodes.length}-${edges.length}-${nodes.map((n) => n.id).join(",")}`;
-    if (prevSync.current === key) return;
-    prevSync.current = key;
-    const fromFlow = flowToBlueprint(nodes, edges);
-    const hiddenFromBlueprint = (blueprint.rooms ?? []).filter((r) => r.hidden);
-    onBlueprintChange({
-      ...fromFlow,
-      rooms: [...fromFlow.rooms, ...hiddenFromBlueprint],
+    const mind = new MindElixir({
+      el: containerRef.current,
+      // SIDE = balanced tree; LEFT/RIGHT also available. Mind Elixir does
+      // not expose a native top-down constant in this release, but SIDE
+      // gives the most space-efficient layout and scrolls cleanly.
+      direction: MindElixir.SIDE,
+      editable: true,
+      contextMenu: true,
+      keypress: true,
+      allowUndo: true,
+      newTopicName: "New container",
     });
-  }, [nodes, edges, blueprint.rooms, onBlueprintChange]);
 
-  const handleAddRoom = useCallback(() => {
-    const id = generateBlueprintId();
-    const room: BlueprintRoom = { id, label: "New container", functions: [] };
-    const col = nodes.length % GRID_COLS;
-    const row = Math.floor(nodes.length / GRID_COLS);
-    setNodes((prev) => [
-      ...prev,
-      {
-        id,
-        type: NODE_TYPE,
-        position: { x: col * (NODE_WIDTH + GAP), y: row * (NODE_HEIGHT + GAP) },
-        data: { room },
-      },
-    ]);
-  }, [nodes.length, setNodes]);
+    mind.bus.addListener("operation", () => {
+      // Debounce: a single user edit can fire multiple operations
+      // (reshapeNode, finishEdit). Coalesce them before pushing back.
+      if (pushBackTimerRef.current) clearTimeout(pushBackTimerRef.current);
+      pushBackTimerRef.current = setTimeout(() => {
+        pushBackTimerRef.current = null;
+        commitBlueprintFromMind();
+      }, 120);
+    });
+
+    mind.bus.addListener("selectNewNode", (nodeObj) => {
+      const meta = (nodeObj as MindNodeObj).atlarix;
+      if (meta?.kind === "room" && meta.roomId) {
+        onRoomSelect?.(meta.roomId);
+      } else {
+        // Falling back to the stripped id keeps legacy callers working
+        // when the node was added inside Mind Elixir and has no `atlarix`
+        // metadata yet.
+        onRoomSelect?.(stripPrefix(nodeObj.id));
+      }
+    });
+
+    mindRef.current = mind;
+
+    return () => {
+      if (pushBackTimerRef.current) clearTimeout(pushBackTimerRef.current);
+      mind.destroy?.();
+      mindRef.current = null;
+    };
+    // Mount once — re-runs would tear down history / pan state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Push the Blueprint into Mind Elixir whenever it changes upstream. ───
+  useEffect(() => {
+    const mind = mindRef.current;
+    if (!mind) return;
+    if (lastDataKeyRef.current === blueprintKey) return;
+    lastDataKeyRef.current = blueprintKey;
+
+    const { root, relations } = blueprintToMindNodes(blueprint, {
+      workspaceName: "Workspace",
+    });
+
+    const tree = cloneTree(root);
+
+    // First render uses `init`; subsequent renders use `refresh` so pan /
+    // selection state is preserved.
+    const data = {
+      nodeData: tree as Parameters<typeof mind.init>[0]["nodeData"],
+      direction: MindElixir.SIDE,
+      arrows: relations.map((r, i) => ({
+        id: `rel-${i}-${r.from}-${r.to}`,
+        from: r.from,
+        to: r.to,
+        label: r.label,
+        style: {
+          stroke: r.label === "inferred" ? "#94a3b8" : "#f59e0b",
+          strokeWidth: 2,
+          strokeDasharray: r.label === "inferred" ? "6 4" : undefined,
+        },
+      })),
+    };
+
+    try {
+      if (!mind.nodeData) {
+        mind.init(data);
+      } else {
+        mind.refresh(data);
+        mind.clearHistory?.();
+      }
+    } catch (err) {
+      // Mind Elixir throws synchronously on malformed data; we keep the
+      // canvas alive and surface a toast rather than crashing the panel.
+      // eslint-disable-next-line no-console
+      console.warn("[BlueprintCanvas] Mind Elixir refresh failed", err);
+    }
+  }, [blueprint, blueprintKey]);
+
+  // ── Toolbar actions. ────────────────────────────────────────────────────
+  const handleRelayout = useCallback(() => {
+    const mind = mindRef.current;
+    if (!mind) return;
+    mind.refresh();
+    mind.toCenter?.();
+  }, []);
+
+  const handleAddContainer = useCallback(() => {
+    const mind = mindRef.current;
+    if (!mind) return;
+    // Prefer Mind Elixir's native "add child under selected" behaviour.
+    // If no node is selected we fall through to the upstream callback so
+    // the parent (BlueprintEditor) can decide what kind of container to
+    // create.
+    if (mind.currentNode) {
+      void mind.addChild(mind.currentNode);
+    } else {
+      onAddRoom();
+    }
+  }, [onAddRoom]);
 
   return (
-    <div className={cn("relative h-full w-full rounded-lg overflow-hidden bg-muted/20", className)}>
-      {/* Fix: Blueprint panel hitboxes — avoid ReactFlow Panel overlays (transform hit-testing issues on some platforms) */}
+    <div
+      className={cn(
+        "relative h-full w-full rounded-lg overflow-hidden bg-muted/20",
+        className,
+      )}
+    >
+      {/* Overlay toolbar — preserved from the React Flow canvas. */}
       <div className="pointer-events-none absolute inset-0 z-50">
         <div className="pointer-events-auto absolute right-3 top-3 flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              layoutKeyRef.current = "";
-              setRelayoutCounter((c) => c + 1);
-            }}
+            onClick={handleRelayout}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"
-            title="Re-run file-tree layout"
+            title="Re-run layout"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
             Re-layout
           </button>
           <button
             type="button"
-            onClick={handleAddRoom}
+            onClick={handleAddContainer}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
             Add container
           </button>
+          {isWorkforce ? (
+            <button
+              type="button"
+              onClick={handleCommitSnapshot}
+              disabled={isCommittingSnapshot || workspaceId == null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Snapshot Blueprint to .atlarix/blueprint.json"
+            >
+              <GitCommit className="w-3.5 h-3.5" />
+              {isCommittingSnapshot ? "Committing…" : "Commit Blueprint"}
+            </button>
+          ) : (
+            <span
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-muted/50 text-muted-foreground border border-border shadow-sm cursor-help"
+              title="Blueprint commits write a versioned `.atlarix/blueprint.json` snapshot for your team. Available on Workforce."
+            >
+              <GitCommit className="w-3.5 h-3.5" />
+              Blueprint commits — Workforce
+            </span>
+          )}
         </div>
 
-        {hiddenCount > 0 && (
+        {hiddenRooms.length > 0 && (
           <div className="pointer-events-auto absolute left-3 bottom-3">
             <div className="relative">
               <button
@@ -439,7 +317,7 @@ function BlueprintCanvasInner({
                 onClick={() => setHiddenChipOpen((v) => !v)}
                 className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground shadow-sm"
               >
-                {hiddenCount} hidden item{hiddenCount !== 1 ? "s" : ""} (deps & config)
+                {hiddenRooms.length} hidden item{hiddenRooms.length !== 1 ? "s" : ""} (deps & config)
               </button>
               {hiddenChipOpen && (
                 <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-border bg-card p-2 text-xs shadow-md">
@@ -456,67 +334,22 @@ function BlueprintCanvasInner({
 
         <div className="pointer-events-auto absolute right-3 bottom-3 z-50 flex flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm">
           <div className="flex items-center gap-2">
-            <div className="h-0.5 w-6 bg-primary" />
-            <span className="text-foreground">Confirmed connection</span>
+            <div className="h-0.5 w-6 bg-amber-500" />
+            <span className="text-foreground">Cross-cutting link</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-6 border-t-2 border-dashed border-muted-foreground" />
             <span className="text-muted-foreground">Inferred (refresh to confirm)</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary atlarix-blueprint-legend-particle" />
-            <span className="text-muted-foreground">Live flow</span>
-          </div>
           {isRteRunning && (
-            <div className="mt-1 text-xs text-muted-foreground animate-pulse">Analyzing code...</div>
+            <div className="mt-1 text-xs text-muted-foreground animate-pulse">
+              Analyzing code...
+            </div>
           )}
         </div>
       </div>
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={(_e, node) => onRoomSelect?.(node.id)}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        defaultEdgeOptions={{ type: "smoothstep" }}
-        deleteKeyCode={["Backspace", "Delete"]}
-        proOptions={{ hideAttribution: true }}
-        onlyRenderVisibleElements
-        nodesDraggable
-        nodesConnectable
-        elementsSelectable
-      >
-        <Background variant={BackgroundVariant.Dots} gap={12} size={1} className="bg-background" />
-        <Controls className="atlaflow-controls-theme !shadow-md !border !border-border !rounded-md !bg-card" showInteractive={false} />
-      </ReactFlow>
+      <div ref={containerRef} className="w-full h-full" />
     </div>
-  );
-}
-
-export interface BlueprintCanvasProps {
-  blueprint: Blueprint;
-  onBlueprintChange: (b: Blueprint) => void;
-  workspaceId: number | null;
-  onAddRoom: () => void;
-  onRoomSelect?: (roomId: string) => void;
-  /** v2.5: Agent phase for canvas animations (architect/builder/reviewer) */
-  agentPhase?: AgentPhase | null;
-  agentPhaseActive?: boolean;
-  /** When true, RTE is running (show "Analyzing code..." and pulse inferred edges) */
-  isRteRunning?: boolean;
-  className?: string;
-}
-
-export function BlueprintCanvas(props: BlueprintCanvasProps) {
-  return (
-    <ReactFlowProvider>
-      <BlueprintCanvasInner {...props} />
-    </ReactFlowProvider>
   );
 }

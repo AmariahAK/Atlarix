@@ -111,16 +111,14 @@ export class ChatHandler {
                     assistantMsg.toolCalls.push(toolCall);
                     onToolCall?.(toolCall);
 
-                    try {
-                        const result = await ToolRegistry.execute(chunk.toolName ?? '', chunk.args);
-                        toolCall.status = (result as { success?: boolean }).success ? 'complete' : 'error';
-                        toolCall.result = result as Record<string, any>;
-                        onToolCall?.(toolCall);
-                    } catch (error) {
-                        toolCall.status = 'error';
-                        toolCall.result = { error: String(error) };
-                        onToolCall?.(toolCall);
-                    }
+                    // FIX 3: `ToolRegistry.execute` now traps all handler
+                    // exceptions and returns a structured TOOL_ERROR, so the
+                    // surrounding try/catch is unreachable. Keep the call
+                    // direct and let the `success` flag drive UI status.
+                    const result = await ToolRegistry.execute(chunk.toolName ?? '', chunk.args);
+                    toolCall.status = (result as { success?: boolean }).success ? 'complete' : 'error';
+                    toolCall.result = result as Record<string, any>;
+                    onToolCall?.(toolCall);
                 }
             }
 

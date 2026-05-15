@@ -8,6 +8,7 @@
  */
 
 import { Log } from "../../logging";
+import { isMainProcessNode } from "../../runtime/is-main-node";
 
 const logger = Log.scope("tool-output-cache");
 
@@ -23,14 +24,6 @@ interface CachedOutput {
   toolName: string;
 }
 
-/**
- * Check if we're in a Node.js environment (main process).
- * In renderer process, we must not call Node.js modules.
- */
-function isNodeEnvironment(): boolean {
-  return typeof window === "undefined" && typeof process !== "undefined" && Boolean(process.versions?.node);
-}
-
 export class ToolOutputCache {
   private cacheDir: string | null = null;
   private index = new Map<string, CachedOutput>();
@@ -41,8 +34,8 @@ export class ToolOutputCache {
   constructor(cacheDir?: string) {
     if (cacheDir) {
       this.cacheDir = cacheDir;
-    } else if (isNodeEnvironment()) {
-      // Lazy load Node.js modules only in Node environment
+    } else if (isMainProcessNode()) {
+      // Lazy load Node.js modules only in main process
       this.initNodeModules();
     }
   }

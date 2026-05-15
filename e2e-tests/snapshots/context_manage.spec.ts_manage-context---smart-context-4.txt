@@ -14,7 +14,7 @@
       },
       {
         "role": "assistant",
-        "content": "[[dyad-dump-path=*]]"
+        "content": "[[atlarix-dump-path=*]]"
       },
       {
         "role": "user",
@@ -22,7 +22,7 @@
       },
       {
         "role": "assistant",
-        "content": "[[dyad-dump-path=*]]"
+        "content": "[[atlarix-dump-path=*]]"
       },
       {
         "role": "user",
@@ -120,6 +120,6 @@
     }
   },
   "headers": {
-    "authorization": "Bearer testdyadkey"
+    "authorization": "Bearer testatlarixkey"
   }
 }

@@ -3,6 +3,12 @@
  * =====================
  * Optional per-provider token caps to control API costs.
  * When set, warnings appear earlier and usage is capped for display.
+ *
+ * Note on placeholders: a single provider hosts many models with different
+ * context windows (e.g. OpenRouter spans 8K → 1M+, Compass-fast advertises
+ * 1M while older Compass tiers cap lower). We therefore avoid hardcoded
+ * per-provider numbers and let `getEffectiveBudget` / `getContextWindow`
+ * resolve the real ceiling per active model.
  */
 
 import { useSettings } from "@/hooks/useSettings";
@@ -19,18 +25,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   togetherai: "Together AI",
   mistral: "Mistral",
   xai: "xAI",
-};
-
-const DEFAULT_BUDGETS: Record<string, number> = {
-  openai: 128000,
-  anthropic: 200000,
-  google: 1000000,
-  compass: 128000,
-  openrouter: 128000,
-  groq: 128000,
-  togetherai: 128000,
-  mistral: 128000,
-  xai: 128000,
 };
 
 export function TokenBudgetSettings() {
@@ -84,7 +78,7 @@ export function TokenBudgetSettings() {
               min={1000}
               max={2000000}
               step={1000}
-              placeholder={`${(DEFAULT_BUDGETS[id] ?? 128000) / 1000}K`}
+              placeholder="Auto · model context"
               value={displayValue(id)}
               onChange={(e) =>
                 setLocalValues((prev) => ({ ...prev, [id]: e.target.value }))

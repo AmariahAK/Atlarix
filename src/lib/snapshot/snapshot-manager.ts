@@ -362,12 +362,8 @@ export async function revertSnapshot(params: {
         // non-fatal
     }
 
-    try {
-        const { broadcastBlueprintReload } = await import("@/ipc/handlers/blueprint_handlers");
-        await broadcastBlueprintReload(workspaceId);
-    } catch {
-        // non-fatal
-    }
+    // Pass 7: Blueprint broadcast removed with the Blueprint subsystem.
+    void workspaceId;
 
     return { success: true, restoredFiles: restored };
 }
@@ -421,13 +417,6 @@ export async function revertSnapshotFiles(params: {
     } catch {
         // non-fatal
     }
-    if (workspaceId != null) {
-        try {
-            const { broadcastBlueprintReload } = await import("@/ipc/handlers/blueprint_handlers");
-            await broadcastBlueprintReload(workspaceId);
-        } catch {
-            // non-fatal
-        }
-    }
+    // Pass 7: Blueprint broadcast removed with the Blueprint subsystem.
     return { success: true, restoredFiles: restored };
 }

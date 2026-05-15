@@ -235,7 +235,7 @@ message: <dyad-write path="file1.txt">
   More
   EOM
 
-[[dyad-dump-path=*]]
+[[atlarix-dump-path=*]]
 
 ===
 role: user

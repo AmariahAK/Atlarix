@@ -36,10 +36,16 @@ let cacheKey = "";
 let openRouterModelsById: Map<string, OpenRouterModelRowExtended> | null = null;
 
 function fallbackLimitsOnFetchFailure(): TierContextLimits {
+  // Last-resort fallbacks when the OpenRouter models fetch fails. These are
+  // intentionally generous (200K each) — they should never be the operating
+  // limit in practice; real limits come from the live OpenRouter response.
+  // Modern models routinely exceed 128K (Qwen3.5-Flash advertises 1M); a
+  // conservative 32K cap here caused false "context full" warnings and
+  // premature compaction.
   return {
-    fast: 32_000,
-    balanced: FALLBACK_LIMIT,
-    thinking: FALLBACK_LIMIT,
+    fast: 200_000,
+    balanced: 200_000,
+    thinking: 200_000,
   };
 }
 

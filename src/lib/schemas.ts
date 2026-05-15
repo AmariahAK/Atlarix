@@ -346,7 +346,7 @@ export const SmartContextModeSchema = z.enum([
 ]);
 export type SmartContextMode = z.infer<typeof SmartContextModeSchema>;
 
-/** v5.0: Blueprint system-prompt injection tier preference (Diagram tab). */
+// PASS6: Blueprint injection-mode preference — restored.
 export const BlueprintInjectionModePreferenceSchema = z.enum([
   "auto",
   "ask",
@@ -412,7 +412,7 @@ export const UserSettingsSchema = z.object({
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
 
-  /** When true, selecting a container opens Edit Internals (beacon view) directly instead of Summary Card. */
+  // PASS6: Blueprint UI preference — restored.
   blueprintAlwaysShowBeacons: z.boolean().optional(),
 
   /** Multi-model counsel (fast / balanced / thinking) before main reply. */
@@ -442,12 +442,11 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
 
-  /** v5.0: How much Blueprint detail is injected into the system prompt. Auto = chat mode + message heuristics. */
+  // PASS6: Blueprint injection-mode + debug fields — restored as settings only
+  // (the streamMessage prompt-injection plumbing stays tool-driven this pass).
   blueprintInjectionModePreference:
     BlueprintInjectionModePreferenceSchema.optional(),
-  /** Optional stack trace or error text for Debug tier (used when injection resolves to debug). */
   blueprintDebugTrace: z.string().optional(),
-  /** Optional file path (project-relative or absolute) for Debug tier focus. */
   blueprintDebugFile: z.string().optional(),
 
   /** When true (default), commits made via Atlarix include Co-authored-by: Atlarix AI Agent <agent@atlarix.dev> */
@@ -485,7 +484,7 @@ export const UserSettingsSchema = z.object({
   // DEPRECATED.
   ////////////////////////////////
   enableProSaverMode: z.boolean().optional(),
-  dyadProBudget: AtlarixProBudgetSchema.optional(),
+  atlarixProBudget: AtlarixProBudgetSchema.optional(),
   runtimeMode: RuntimeModeSchema.optional(),
 });
 

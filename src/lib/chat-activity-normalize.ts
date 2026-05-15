@@ -31,6 +31,9 @@ const VALID_TYPES = new Set<string>([
   "duration_limit_reached",
   "loop_detected",
   "loop_repetition_aborted",
+  "stream_stall_aborted",
+  "tier_selection",
+  "tier_escalation",
   "reasoning_started",
   "reasoning_complete",
 ]);
@@ -241,6 +244,48 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
           p.detail != null && String(p.detail).trim()
             ? String(p.detail).trim()
             : "Review the activity log and send a message to continue.",
+        status: "done",
+      };
+    case "stream_stall_aborted":
+      return {
+        ...base,
+        label:
+          p.label != null && String(p.label).trim()
+            ? String(p.label).trim()
+            : "Stream paused — provider stopped responding",
+        // Detail text is always provided by the main process (which knows
+        // the actual stall window) — this fallback is only used if the
+        // payload arrives stripped (e.g. via tests). Keep it generic.
+        detail:
+          p.detail != null && String(p.detail).trim()
+            ? String(p.detail).trim()
+            : "The model stopped sending output while a tool call was pending. Send another message to retry, or switch model tier.",
+        status: "done",
+      };
+    case "tier_selection":
+      return {
+        ...base,
+        label:
+          p.label != null && String(p.label).trim()
+            ? String(p.label).trim()
+            : "Tier selected",
+        detail:
+          p.detail != null && String(p.detail).trim()
+            ? String(p.detail).trim()
+            : "Auto-routing locked in a tier for this turn.",
+        status: "done",
+      };
+    case "tier_escalation":
+      return {
+        ...base,
+        label:
+          p.label != null && String(p.label).trim()
+            ? String(p.label).trim()
+            : "Tier escalated",
+        detail:
+          p.detail != null && String(p.detail).trim()
+            ? String(p.detail).trim()
+            : "Heuristic upgraded the tier mid-turn for a heavier task.",
         status: "done",
       };
     case "tool_use": {

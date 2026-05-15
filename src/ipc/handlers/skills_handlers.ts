@@ -6,9 +6,11 @@ import * as path from "node:path";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "../../db";
-import { installedSkills } from "../../db/schema";
+import { apps, installedSkills } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
+import { loadPrioritySkillsForWorkspace } from "../../lib/skills/priority-skill-loader";
+import { getAtlarixAppPath } from "../../paths/paths";
 
 const logger = log.scope("skills_handlers");
 const handle = createLoggedHandler(logger);
@@ -266,6 +268,50 @@ export function registerSkillsHandlers() {
     await db.delete(installedSkills).where(where);
     return { success: true };
   });
+
+  // Workforce Feature 1: list repo-scoped priority skills from `.atlarix/skills/`.
+  // No `requirePaidSkills()` gate — the folder is readable on all tiers;
+  // the `priority: true` frontmatter flag is itself the gate (Workforce-only).
+  handle(
+    "skills:list-repo-skills",
+    async (
+      _event: IpcMainInvokeEvent,
+      params?: { workspaceId?: number },
+    ): Promise<{
+      skills: Array<{
+        name: string;
+        description: string;
+        tags: string[];
+        modes: string[];
+        priority: boolean;
+        version: string;
+        filename: string;
+      }>;
+      isWorkforce: boolean;
+    }> => {
+      const isWorkforce = SubscriptionManager.getEffectiveTier() === "workforce";
+      const workspaceId = params?.workspaceId;
+      if (typeof workspaceId !== "number" || workspaceId <= 0) {
+        return { skills: [], isWorkforce };
+      }
+
+      const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+      if (!appRow) return { skills: [], isWorkforce };
+
+      const workspacePath = getAtlarixAppPath(appRow.path);
+      const loaded = await loadPrioritySkillsForWorkspace(workspacePath, isWorkforce);
+      const skills = loaded.map((s) => ({
+        name: s.name,
+        description: s.description,
+        tags: s.tags,
+        modes: s.modes,
+        priority: s.priority,
+        version: s.version,
+        filename: s.filename,
+      }));
+      return { skills, isWorkforce };
+    },
+  );
 
   handle(
     "skills:get-active-for-session",

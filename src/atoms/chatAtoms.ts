@@ -13,6 +13,20 @@ import type { CounselTrigger } from "@/lib/counsel/counsel-session";
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
 export const chatErrorByIdAtom = atom<Map<number, string | null>>(new Map());
 
+/**
+ * FIX 4: per-chat stream-disconnect state. Set when the backend emits
+ * `chat:stream:disconnected` after silent retries fail; cleared on the next
+ * `chat:response:chunk` (manual reconnect succeeded) or when the user starts
+ * typing a new message.
+ */
+export interface StreamReconnectState {
+  partialResponse: string;
+  reason: "network" | "timeout" | "provider_error";
+}
+export const streamReconnectByChatIdAtom = atom<
+  Map<number, StreamReconnectState>
+>(new Map());
+
 // Atom to hold the currently selected chat ID
 export const selectedChatIdAtom = atom<number | null>(null);
 
@@ -144,7 +158,7 @@ export const summarizationProgressAtom = atom<{ active: boolean; chatId: number 
   chatId: null,
 });
 
-/** v5.0 S4: Per-session chat override for Blueprint system-prompt tier; null = follow Settings only. */
+// PASS6: Blueprint per-chat injection override — restored.
 export type BlueprintInjectionChatOverride = "ask" | "plan" | "build" | "debug";
 export const blueprintInjectionChatOverrideAtom = atom<BlueprintInjectionChatOverride | null>(
   null,

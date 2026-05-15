@@ -120,6 +120,24 @@ export async function saveUserBlueprint(projectPath: string, blueprint: Blueprin
 }
 
 /**
+ * Returns the mtime (epoch ms) of the persisted `user_blueprint.json` for a
+ * project, or null if it doesn't exist. Used by Workforce snapshot auto-load
+ * to decide whether a committed `.atlarix/blueprint.json` is newer than the
+ * current user cache.
+ */
+export async function getUserBlueprintMtime(projectPath: string): Promise<number | null> {
+  const projectHash = await getWorkspaceHash(projectPath);
+  const dir = getProjectCacheDir(projectHash);
+  const filePath = path.join(dir, USER_BLUEPRINT_FILE);
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Load user's saved blueprint if present. Returns null if not found or invalid.
  */
 export async function loadUserBlueprint(projectPath: string): Promise<Blueprint | null> {

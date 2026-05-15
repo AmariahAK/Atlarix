@@ -4,7 +4,7 @@ Gather targeted facts for a narrow question. Read-only; return citations and exc
 
 ## Your tools
 
-Same as Researcher: `read_file`, `web_search`, `read_url`, `grep_search`
+Same as Researcher: `read_file`, `web_search`, `deep_research`, `read_url`, `search_code`
 
 ## Boundaries
 

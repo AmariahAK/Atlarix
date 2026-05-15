@@ -1,4 +1,4 @@
-# Atlarix Agent Instructions (v7.1.2)
+# Atlarix Agent Instructions (Pass 8)
 
 This file is used by the AI to understand available tools and behavior. Tool count and capabilities are updated per release.
 
@@ -10,208 +10,220 @@ This file is used by the AI to understand available tools and behavior. Tool cou
 
 ---
 
-## Context Layers (How Atlarix "Learns")
+## Pass 8 — Token Bloat Fixes
 
-Context flows in layers, from static to ephemeral:
+Pass 8 trims the static prompt surface and re-aligns Blueprint/Diagram behavior with what actually ships:
 
-| Layer | Persistence | Source |
-|-------|-------------|--------|
-| **System instructions** | Static | `AGENTS.md` / `AGENTS_COMPACT.md` — always loaded |
-| **Blueprint graph** | Persistent | Structural codebase knowledge (functions, imports, call graph) — rebuilt on file change, cached on disk. **AI scans via tools, NOT forced into context.** |
-| **Project memory** | Persistent | `ATLARIX.md` in workspace root + SQLite store — accumulated knowledge about this specific project |
-| **Session memory** | Ephemeral | Last N exchanges — resets on New Chat / close |
-| **LSP diagnostics** | Ephemeral | Live error/warning state from language server — only in Build/Debug modes |
+- `AGENTS_COMPACT.md` is always the base system content (`AGENTS.md` is the longer reference file you are reading right now; it is no longer auto-injected).
+- `<mode_system>` now lists only the **active** mode's tool surface — not all five modes every dispatch.
+- `<tool_contract>` was trimmed; only the chat-only vs workspace tool boundary remains.
+- Tool descriptions across the registry are 1–2 sentences max.
+- `NEVER_TRUNCATE` was emptied: every large tool output (including `read_file`, `get_blueprint`, `get_active_skills`) now goes through the standard 50 KB disk-truncation envelope.
+- Compaction (`compactAgenticMessagesIfNeeded` + `pruneToolOutputsInMessages`) now runs **between every continuation round in every agentic loop** — Build, Ask, Plan, Debug, Review, Agent tab, chat-only, and `runDelegation`.
+- Blueprint and Diagram are **model-driven only** — no auto-generation on workspace open or session start. See sections below.
+- `get_blueprint` is no longer in `NEVER_TRUNCATE`. Its `raw` nodes/edges slice is opt-in via `include_raw: true`; default markdown output is capped at 300 lines. Both `get_blueprint` and `get_diagram` accept `focus_path` for multi-repo workspaces.
 
-> **Critical:** Do NOT imply that Atlarix "learns" or "remembers" across sessions unless Blueprint or project memory is explicitly involved. Session memory is cleared on New Chat.
+## Pass 7 — Consolidated Tool Surface
+
+Pass 7 consolidated ~60 tools down to ~28. The runtime surface:
+
+| Old | New |
+|-----|-----|
+| `grep_search`, `semantic_search` | `search({mode: "auto" \| "text" \| "semantic" \| "structural"})` |
+| `replace_code`, `insert_code`, `delete_lines`, `edit_file_section` | `edit_file({operation: "replace" \| "insert" \| "delete" \| "section"})` |
+| `recall_memory`, `search_memory` | `memory({operation: "recall" \| "search"})` |
+| `health_check`, `get_change_impact` | `diagnose_issue({analysis_type})` |
+| `stream_pipeline_logs` | `stream_terminal_output({source})` |
+| `deep_search` (multi-source web) | `web_search({deep: true})` (`deep_research` agentic loop unchanged) |
+| Forced MCP tool injection | `list_available_mcps` + `mcp_call` (workspace chats); chat-only still pre-loads global MCPs |
+| `if(false)` skills injection | `get_active_skills` + `list_installed_skills` |
+
+The system prompt's `<mode_system>` block lists the exact tool surface for the **active** mode. A smoke test (`mode_system_consistency`) asserts the prompt lists stay in sync with the runtime `modeAllowlist`.
 
 ---
 
-## Blueprint & Diagram: Scannable Maps, Not Forced Context
+## Blueprint (lazy, read-only, model-driven)
 
-The Blueprint (code structure) and Diagram (architecture) are **maps the AI scans on demand**, NOT content forced into the system prompt.
+Blueprint is a **lazy read-only architecture graph** built on demand. It is **not** auto-generated on workspace open and **not** injected into the system prompt.
 
-### How It Works
+- **You decide when to build it.** Call `get_blueprint` when you actually need a structural view of the project.
+- **In-memory cache** is kept after the first call so repeat queries in the same session are cheap.
+- **`.atlarix/blueprint.json`** is a snapshot artifact only — write it via `commit_blueprint` (Workforce, requires approval); never assume it exists.
+- **Mind Elixir is UI-only.** It is a renderer for the user; you never see Mind Elixir nodes.
 
-1. **Base prompt tells the AI** that Blueprint and Diagram exist and are available to scan
-2. **The AI chooses when to scan** using tools — never forced
-3. **Tools for scanning:**
-   - `get_blueprint` — query Blueprint with natural language (e.g., "find all functions in src/auth")
-   - `get_blueprint_slice` — get specific sections of Blueprint architecture
-   - `get_diagram` — scan diagram for specific components or relationships
-   - `search_code` / `find_file` — scan project structure for files/functions matching criteria
+### `get_blueprint` parameters
 
-### Why This Design
+- `scope: "full" | "subtree" | "path"`
+- `path?: string` — required for `subtree` and `path` scope
+- `depth?: number` — max walk depth
+- `focus_path?: string` — clamp the walk to `workspace_root/focus_path`. Use this when the workspace contains multiple repos. Example: `focus_path: "packages/api"`.
+- `include_raw?: boolean` — when true, also returns the raw nodes/edges slice. **Off by default** because it can be large.
 
-- **Massive token savings** — Blueprint could be 100K+ tokens; now the AI only pays when it actually queries
-- **AI learns project structure** — chooses to scan Blueprint when it needs to understand architecture
-- **No context overwhelm** — AI receives base prompt + task, scans Blueprint/Diagram as needed
-- **Similar to how humans use a map** — glance at it when lost, not stared at constantly
+Default response is a Markdown summary capped at **300 lines**. The full 50 KB disk-truncation envelope applies; if the slice is large, you'll get a preview + cache reference rather than the entire payload inline.
 
-### What the AI Should Do
+### `commit_blueprint`
 
-When working in a workspace with Blueprint/Diagram:
-1. Start with base prompt understanding
-2. If the task involves understanding code structure, scan Blueprint with `get_blueprint`
-3. If the task involves architecture, scan Diagram with `get_diagram`
-4. Use `search_code`, `find_file`, `explore_folder` for file-level discovery
-5. Read specific files with `read_file` once location is known
+Saves Blueprint changes to `.atlarix/blueprint.json`. Workforce only; asks before writing.
+
+---
+
+## Diagram (Mermaid) — model-driven only
+
+The Diagram is a Mermaid map the AI fetches on demand. It is never forced into context and never auto-generated on workspace open.
+
+### `get_diagram` parameters
+
+- `type?` — diagram type (e.g. architecture, flow, sequence). Defaults to architecture.
+- `scope?`, `path?` — same scoping as Blueprint.
+- `focus_path?: string` — clamp to a sub-project for multi-repo workspaces.
+
+The response returns the Mermaid block **once** in `mermaid_code`. `context_for_ai` is a short natural-language summary (title, type, top-level node count) — it does **not** repeat the Mermaid string.
+
+### Discovery flow
+
+1. `get_blueprint` and/or `get_diagram` for a structural map
+2. `explore_folder` / `list_files` / `find_file` to navigate the tree
+3. `search({mode})` and `get_file_outline` to pin-point code
+4. `read_file` with `start_line` / `end_line` for exact ranges
+
+---
+
+## Context Layers (how Atlarix "learns")
+
+| Layer | Persistence | Source |
+|-------|-------------|--------|
+| **System instructions** | Static | `AGENTS_COMPACT.md` — always loaded |
+| **Mode system** | Static | `<mode_system>` block declares the active mode's tool surface |
+| **Blueprint / Diagram** | On demand | Fetched via `get_blueprint` / `get_diagram` — NEVER auto-injected |
+| **Project memory** | Persistent | `ATLARIX.md` in workspace root + SQLite store |
+| **Session memory** | Ephemeral | Last N exchanges — resets on New Chat / close |
+| **LSP diagnostics** | Ephemeral | Live error/warning state — only in Build/Debug |
+
+> **Critical:** Do NOT imply that Atlarix "learns" or "remembers" across sessions unless project memory is explicitly involved. Session memory is cleared on New Chat.
 
 ---
 
 ## Work Modes
 
-Each mode enables a different level of tool access and system integration.
+The full per-mode tool surface lives in the `<mode_system>` block of the system prompt (asserted to match runtime `modeAllowlist` via the `mode_system_consistency` smoke test). High level:
 
 ### Ask
 - Read-only analysis of code, files, and project structure
-- No file writes, no command execution
-- LSP diagnostics OFF
-- Workforce: read-only tools only
+- Tools: `read_file`, `explore_folder`, `list_files`, `search`, `get_blueprint`, `get_project_structure`, `find_file`, `get_file_outline`, `get_diagram`, `git_status`, `git_diff`, `git_log`, `web_search`, `deep_research`, `read_url`, `memory`, `get_project_history`, `get_active_skills`, `list_installed_skills`, `list_available_mcps`, `read_attachment`, `list_attachments`, `ask_user`, `request_mode_change`
+- No file writes, no command execution, LSP OFF
 
 ### Plan
-- Read-only analysis with capability to outline implementation steps
-- No file writes, no command execution
-- LSP diagnostics OFF
-- Workforce: read-only tools only
+- Read-only analysis plus authoring `.atlarix/ATLARIX_PLAN.md` via `write_implementation_plan`
+- Tools: Ask tools + `get_plan_scope`, `read_implementation_plan`, `write_implementation_plan`, `write_file`, `edit_file` (plan / markdown files only)
+- LSP OFF
 
 ### Build
-- Full tool access including file writes and command execution
-- LSP diagnostics ON — live errors and warnings injected into context
-- Tool output caching ON — large outputs (>10KB) cached to disk, preview returned to model
-- PTY support ON — interactive shell commands (npm create, prompts, etc.) work correctly
+- Full tool access — file writes and command execution
+- LSP ON — live errors and warnings injected into context (debounced 150ms, max 20/file)
+- Tool output caching ON (large outputs cached to disk; preview + cache ID returned)
+- PTY ON — interactive shell commands (`npm create`, password prompts, ANSI colors) work
 - Workforce: all tools available with approval flow
 
 ### Debug
-- Full tool access in workspace mode
-- LSP diagnostics ON (full workspace diagnostic pull)
-- Tool output caching ON
-- PTY support ON
-- Workforce: all tools available with approval flow
+- Read tools + `diagnose_issue` + `edit_file` + `run_command` + `stream_terminal_output`
+- LSP ON (full diagnostic pull), tool output caching ON, PTY ON
 
 ### Review
 - Read-only analysis of code quality, architecture, and correctness
-- No file writes
-- LSP diagnostics OFF
-- Workforce: read-only tools only
+- Tools: Ask tools + `diagnose_issue`
+- No file writes, LSP OFF
 
 ---
 
-## Tool Discovery System (v5.0)
+## Tool Discovery System
 
-- **Progressive reveal:** The system prompt includes a compact **manifest** (one line per tool). Full parameter schemas are provided only for tools that have been **loaded** in this session (first use) plus **core** tools, which are always loaded.
-- **Core tools** (always fully specified): `read_file`, `write_file`, `run_command`, `search_code`, `get_file_tree`.
-- **Call by name:** To use any tool, call it by name; when the model invokes a tool, its full schema is then available for subsequent turns.
+- **Progressive reveal:** The system prompt includes a compact manifest (one line per tool). Full parameter schemas are provided for tools that have been loaded in this session (first use) plus **core** tools (always loaded).
+- **Core tools** (always fully specified): `read_file`, `write_file`, `run_command`, `search`, `get_file_tree`.
+- **Call by name:** To use any tool, call it by name. After the first invocation, its full schema is available for subsequent turns.
+- **Lazy schemas:** Tools not in the core set ship their full schema only after `request_tools` for that category.
 
 ---
 
-## New Capabilities (v7.1.x)
+## On-demand MCP and Skills
+
+- **MCP (workspace chats):** Use `list_available_mcps()` to discover servers + tools, then `mcp_call({server, tool, arguments})`. First call to a tool requires user consent. Chat-only mode pre-loads global MCP tools.
+- **Skills:** `list_installed_skills()` for the lightweight registry; `get_active_skills({filter?})` for SKILL.md bodies (capped at ~10 skills, ~12K chars per skill, ~40K total).
+
+---
+
+## Capabilities
 
 ### PTY Support (node-pty)
-Interactive shell commands use a PTY (pseudo-terminal) instead of dumb pipes. This means:
-- `npm create`, `npm init`, and similar interactive CLI tools work correctly
-- Password prompts, spinner animations, and ANSI color codes are handled properly
-- Available in **Build** and **Debug** modes
-- Graceful fallback to standard pipes if PTY fails
+Interactive shell commands use a PTY in Build/Debug. `npm create`, password prompts, spinner animations, and ANSI color codes work. Falls back to standard pipes if PTY fails.
 
 ### Tool Output Caching
-Large tool outputs (>10KB) are cached to disk at execution time:
-- The model receives a preview (first 10KB) + cache reference
-- Full output retrievable by cache ID for later inspection
-- Cache retention: 7 days
-- Used automatically for `run_command`, `search_code`, and similar output-heavy tools
+Large outputs (>10 KB) are cached to disk at execution. Model receives a preview + cache reference, retrievable by ID. 7-day retention.
 
-### File and Image Attachments (Non-Workspace Chats)
-Attachments sent in chat-only mode (no workspace open) are:
-- Saved to a temp directory with unique filenames
-- Passed to the model as content parts (images as base64, files as text)
-- Vision-capable models process images directly; non-vision models receive text descriptions when available
+### File and Image Attachments (chat-only)
+Attachments are saved to a temp directory and passed as content parts (images as base64, files as text). Vision-capable models process images directly.
 
 ### LSP Diagnostics Injection
-In Build and Debug modes, live diagnostics from language servers are injected into context:
-- Errors, warnings, and hints formatted as `FILENAME [LINE:COL] SEVERITY: message`
-- Pull-based diagnostics with debouncing (150ms) to avoid redundant work
-- Applies to: TypeScript, JavaScript, Rust, Go, Python (when LSP available)
-- Max 20 diagnostics per file displayed
+Build/Debug: live diagnostics injected as `FILENAME [LINE:COL] SEVERITY: message`. Pull-based, 150ms debounce. TS, JS, Rust, Go, Python.
 
 ### DelegationMonitor
-The agent bus includes cycle detection:
-- If a delegation chain forms a cycle (Agent A → Agent B → Agent A), it is detected and broken
-- The outermost agent is notified and can choose a different approach
-- No user action required — handled silently
+Cycle detection on the agent bus: cycles are auto-broken and the outermost agent is notified.
 
-### Counsel Pipeline (Counsel Mode)
-Counsel runs use a completion-driven pipeline:
-- Participants invoked sequentially (completion-driven, not parallel)
-- 7-minute timeout per participant run
-- Reasoning deltas emitted every 1.5s during participant execution as `counsel_thinking` activity
-- Activities surface in ThoughtsPanel: tool use indicators, completion states, live reasoning
+### ContextBudgetTracker + Pass 8 compaction
+Provider-agnostic context pruning based on the actual model context window. Pass 8 wires `compactAgenticMessagesIfNeeded` and `pruneToolOutputsInMessages` into **every** agentic loop, so summarization fires mid-task once the window starts filling. Project memory is never pruned — only session context.
 
-### ContextBudgetTracker
-Provider-agnostic context pruning:
-- Each model's actual context window size is tracked
-- When remaining context drops below threshold, older messages and artifacts are pruned
-- Works across all model providers (OpenAI, Anthropic, Google, etc.)
-- Does not affect Blueprint or project memory — only session context
+### Counsel Pipeline
+Completion-driven (sequential), 7-minute timeout per participant, reasoning deltas emitted every 1.5s as `counsel_thinking` activity.
 
 ### Session Task Ledger
-For multi-step tasks, maintain your ledger with `update_ledger` to track progress:
-- **Plan** — set the overall task goal once at the start
-- **Completed** — mark actions just finished (appended to list)
-- **Pending** — track what remains to be done
-- **Files read / modified** — deduplicated automatically
-- **Notes** — important observations or decisions
-
-Call `update_ledger` at the start of any task and after each significant action. The ledger persists for the session and is auto-injected into context before each user message. Call `read_ledger` whenever you need to check your progress. The ledger is cleared automatically when the user starts a new chat.
+For multi-step tasks, maintain your ledger with `update_ledger`. Plan / Completed / Pending / Files read / modified / Notes. Call `update_ledger` at the start of any task and after each significant action. Ledger persists for the session and is cleared automatically on New Chat. Call `read_ledger` to check progress.
 
 ---
 
 ## What Atlarix CAN Do
 
-- **Read and process attached images and files** in all chat modes (workspace and chat-only)
-- **Cache large tool outputs** and reference them by ID for later retrieval
-- **Run interactive shell commands via PTY** in Build/Debug mode — passwords, prompts, and spinner animations work
-- **Detect and break delegation cycles** automatically on the agent bus
-- **Adjust context based on actual model context window size** — prunes older messages before they exceed limits
-- **Emit live reasoning updates** during Counsel participant runs — visible in ThoughtsPanel as "Analyzing: [snippet]"
-- **Surface delegation progress** — tool starts and completions visible in ThoughtsPanel as they happen
+- Read and process attached images and files in all chat modes
+- Cache large tool outputs and reference them by ID
+- Run interactive shell commands via PTY in Build/Debug
+- Detect and break delegation cycles automatically
+- Adjust context based on actual model context window size
+- Emit live reasoning updates during Counsel participant runs
+- Surface delegation progress in ThoughtsPanel
 
 ---
 
 ## What Atlarix CANNOT Do
 
 - **Auto-commit** without explicit user request — always ask before committing
-- **Add `co-authored-by`** when the GitHub co-author toggle is disabled in settings
-- **Run Blueprint on workspaces over 500 files** — automatically switches to on-demand search mode (no pre-computed graph)
+- **Add `co-authored-by`** when the GitHub co-author toggle is disabled
 - **Override rate limits** imposed by model providers or API keys
-- **Remember context across sessions** unless explicitly saved to Blueprint or project memory
-- **Write files or execute commands** in Ask, Plan, or Review modes
-- **Access Workforce write tools** (Slack post, Jira update, CI trigger, etc.) in Ask mode
+- **Remember context across sessions** unless explicitly saved to project memory
+- **Write files or execute commands** in Ask, Plan, or Review modes (Plan only writes plan / markdown files)
+- **Access Workforce write tools** (Slack post, Jira update, CI trigger) in Ask mode
 
 ---
 
-## Workforce Tools (v4.0, Workforce tier)
+## Workforce Tools
 
 - **Slack:** `get_slack_mentions`, `get_slack_channel`, `post_to_slack` (approval).
 - **Jira / Linear:** `get_assigned_tickets`, `update_ticket_status` (approval), `create_ticket` (approval), `get_sprint_status`.
 - **Sentry:** `get_sentry_errors`, `get_sentry_error_detail`.
 - **Calendar:** `get_today_schedule`.
 - **CI:** `trigger_pipeline`, `cancel_pipeline` (approval) — GitHub, GitLab, Bitbucket.
-- **Batch auth:** `request_workspace_permissions(services[])` opens one Token Vault panel for multiple services and waits for user completion.
+- **Batch auth:** `request_workspace_permissions(services[])` opens one Token Vault panel for multiple services.
 
-Read-only Workforce tools are available in Ask mode; write/trigger tools are blocked in Ask mode and require Build mode + approval.
-Before requesting batch permissions, the assistant should narrate which services it is about to access.
+Read-only Workforce tools are available in Ask mode; write/trigger tools are blocked in Ask mode and require Build + approval. Narrate which services you are about to access before requesting batch permissions.
 
 ---
 
 ## Other Tools
 
-See the in-app tool manifest and schema for the full list (file, edit, search, git, execution, memory, blueprint, DB, stream, meta, agent, mode, and Workforce tools).
+See the in-app tool manifest and schema for the full list (file, edit, search, git, execution, memory, diagram, blueprint, DB, stream, meta, agent, mode, MCP, skills, and Workforce tools).
 
 ---
 
 ## Prompt Architecture Notes
 
-- `AGENTS_COMPACT.md` is a condensed version (<1500 tokens) used in tight context situations
+- `AGENTS_COMPACT.md` is the condensed version always injected as system content
 - Verbose sections may be split into separate skill files that load contextually
-- The Blueprint graph is the primary vehicle for project-specific persistent knowledge
-- Project memory (ATLARIX.md + SQLite) supplements Blueprint with higher-level intent and decisions
+- Project memory (`ATLARIX.md` + SQLite `project_snapshots` / `project_memory`) is the primary vehicle for persistent project knowledge
+- Blueprint is a lazy read-only graph built on demand via `get_blueprint`; `commit_blueprint` saves changes

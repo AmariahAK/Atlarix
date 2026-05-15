@@ -28,10 +28,9 @@ const STATE_CHANGING_TOOLS = [
 const SKIP_TOOLS = [
     "read_file",
     "list_files",
-    "search_code",
+    "search",
     "find_file",
     "web_search",
-    "get_current_time",
     "get_diagram",
 ];
 

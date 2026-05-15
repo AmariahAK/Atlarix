@@ -5,7 +5,7 @@
  * When opened with ?appId= (full screen), shows Chat panel on the right (same session).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useSearch } from "@tanstack/react-router";
 import { useAtomValue } from "jotai";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
@@ -18,14 +18,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     GitBranch,
     Folder,
-    Plus,
     Trash2,
     RefreshCw,
     Download,
     Copy,
     Layout,
     Check,
-    Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +45,6 @@ export default function DiagramPage() {
     const [selectedWorkspace, setSelectedWorkspace] = useState<App | null>(null);
     const [diagrams, setDiagrams] = useState<Diagram[]>([]);
     const [selectedDiagram, setSelectedDiagram] = useState<Diagram | null>(null);
-    const [isGenerating, setIsGenerating] = useState(false);
     const [copied, setCopied] = useState(false);
     const [loadingDiagrams, setLoadingDiagrams] = useState(false);
 
@@ -89,30 +86,6 @@ export default function DiagramPage() {
             setDiagrams([]);
         } finally {
             setLoadingDiagrams(false);
-        }
-    };
-
-    const handleGenerateDiagram = async () => {
-        const ws = selectedWorkspace ?? apps?.[0];
-        if (!ws) return;
-
-        setIsGenerating(true);
-        try {
-            const result = await IpcClient.getInstance().generateAiDiagram({
-                workspaceId: ws.id,
-                title: `${ws.name} Architecture`,
-            });
-
-            if (result.success && result.diagram) {
-                // Backend may update an existing diagram id; ensure state doesn't duplicate ids.
-                await loadDiagrams(ws.id);
-                setSelectedDiagram(result.diagram);
-            } else {
-                alert(`Failed to generate diagram: ${result.error}`);
-            }
-        } catch {
-        } finally {
-            setIsGenerating(false);
         }
     };
 
@@ -233,15 +206,12 @@ export default function DiagramPage() {
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={handleGenerateDiagram}
-                            disabled={isGenerating || !workspaceForActions}
+                            onClick={() => workspaceForActions && void loadDiagrams(workspaceForActions.id)}
+                            disabled={loadingDiagrams || !workspaceForActions}
                             className="h-7 px-2"
+                            title="Reload list from server"
                         >
-                            {isGenerating ? (
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                                <Plus className="h-4 w-4" />
-                            )}
+                            <RefreshCw className={cn("h-4 w-4", loadingDiagrams && "animate-spin")} />
                         </Button>
                     </div>
 
@@ -251,18 +221,8 @@ export default function DiagramPage() {
                         <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
                             <Layout className="h-8 w-8 text-muted-foreground mb-2" />
                             <p className="text-xs text-muted-foreground">
-                                No diagrams yet
+                                No diagrams yet. Use the assistant tool <code className="text-[10px] bg-muted px-1 rounded">get_diagram</code> in chat to create one.
                             </p>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleGenerateDiagram}
-                                disabled={isGenerating}
-                                className="mt-3"
-                            >
-                                <Sparkles className="h-3 w-3 mr-1" />
-                                Generate
-                            </Button>
                         </div>
                     ) : (
                         <ScrollArea className="flex-1">
@@ -378,7 +338,7 @@ export default function DiagramPage() {
                         <div className="text-center">
                             <Layout className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                             <p className="text-muted-foreground">
-                                Select a diagram or generate a new one
+                                Select a diagram from the list, or create one with <code className="text-xs bg-muted px-1 rounded">get_diagram</code> in chat
                             </p>
                         </div>
                     </div>

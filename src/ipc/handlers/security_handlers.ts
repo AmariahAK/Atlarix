@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { db } from "../../db";
 import { chats, messages } from "../../db/schema";
-import { eq, and, like, desc } from "drizzle-orm";
+import { eq, and, or, like, desc } from "drizzle-orm";
 import type { SecurityReviewResult, SecurityFinding } from "../ipc_types";
 
 export function registerSecurityHandlers() {
@@ -24,7 +24,10 @@ export function registerSecurityHandlers() {
         and(
           eq(chats.appId, appId),
           eq(messages.role, "assistant"),
-          like(messages.content, "%<dyad-security-finding%"),
+          or(
+            like(messages.content, "%<dyad-security-finding%"),
+            like(messages.content, "%<atlarix-security-finding%"),
+          ),
         ),
       )
       .orderBy(desc(messages.createdAt))
@@ -52,19 +55,22 @@ export function registerSecurityHandlers() {
 function parseSecurityFindings(content: string): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
-  // Regex to match dyad-security-finding tags
-  // Using lazy quantifier with proper boundaries to prevent catastrophic backtracking
-  const regex =
-    /<dyad-security-finding\s+title="([^"]+)"\s+level="(critical|high|medium|low)">([\s\S]*?)<\/dyad-security-finding>/g;
+  // Regex for legacy dyad-security-finding and atlarix-security-finding tags
+  const patterns = [
+    /<dyad-security-finding\s+title="([^"]+)"\s+level="(critical|high|medium|low)">([\s\S]*?)<\/dyad-security-finding>/g,
+    /<atlarix-security-finding\s+title="([^"]+)"\s+level="(critical|high|medium|low)">([\s\S]*?)<\/atlarix-security-finding>/g,
+  ];
 
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    const [, title, level, description] = match;
-    findings.push({
-      title: title.trim(),
-      level: level as "critical" | "high" | "medium" | "low",
-      description: description.trim(),
-    });
+  for (const regex of patterns) {
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const [, title, level, description] = match;
+      findings.push({
+        title: title.trim(),
+        level: level as "critical" | "high" | "medium" | "low",
+        description: description.trim(),
+      });
+    }
   }
 
   return findings;

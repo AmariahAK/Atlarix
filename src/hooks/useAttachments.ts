@@ -23,7 +23,6 @@ export function useAttachments() {
         type,
       }));
       setAttachments((attachments) => [...attachments, ...fileAttachments]);
-      // Clear the input value so the same file can be selected again
       e.target.value = "";
     }
   };
@@ -90,17 +89,15 @@ export function useAttachments() {
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
 
     if (imageItems.length > 0) {
-      e.preventDefault(); // Prevent default paste behavior for images
+      e.preventDefault();
 
       const imageFiles: File[] = [];
-      // Generate base timestamp once to avoid collisions
       const baseTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
       for (let i = 0; i < imageItems.length; i++) {
         const item = imageItems[i];
         const file = item.getAsFile();
         if (file) {
-          // Create a more descriptive filename with timestamp and counter
           const extension = file.type.split("/")[1] || "png";
           const filename =
             imageItems.length === 1
@@ -116,38 +113,45 @@ export function useAttachments() {
 
       if (imageFiles.length > 0) {
         addAttachments(imageFiles, "chat-context");
-        // Show a brief toast or indication that image was pasted
         console.log(`Pasted ${imageFiles.length} image(s) from clipboard`);
       }
       return;
     }
 
-    // v8.0.1: Check for long plain text paste (> 500 lines) → attach as file
     const plainText = clipboardData.getData("text/plain");
     if (plainText) {
       const lineCount = (plainText.match(/\n/g) || []).length + 1;
       if (lineCount > 500) {
         e.preventDefault();
 
-        // Detect language from content
         const trimmed = plainText.trim();
         let ext = "txt";
-        if (trimmed.startsWith("import ") || trimmed.startsWith("const ") ||
-            trimmed.startsWith("function ") || trimmed.startsWith("class ") ||
-            trimmed.startsWith("interface ") || trimmed.startsWith("type ") ||
-            trimmed.startsWith("export ")) {
+        if (
+          trimmed.startsWith("import ") ||
+          trimmed.startsWith("const ") ||
+          trimmed.startsWith("function ") ||
+          trimmed.startsWith("class ") ||
+          trimmed.startsWith("interface ") ||
+          trimmed.startsWith("type ") ||
+          trimmed.startsWith("export ")
+        ) {
           ext = "ts";
-        } else if (trimmed.startsWith("def ") || (trimmed.startsWith("class ") && !trimmed.includes(";"))) {
+        } else if (
+          trimmed.startsWith("def ") ||
+          (trimmed.startsWith("class ") && !trimmed.includes(";"))
+        ) {
           ext = "py";
         } else if (trimmed.startsWith("<")) {
           ext = "html";
-        } else if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && trimmed.endsWith("}")) {
-          // Basic JSON check
+        } else if (
+          (trimmed.startsWith("{") || trimmed.startsWith("[")) &&
+          trimmed.endsWith("}")
+        ) {
           try {
             JSON.parse(trimmed);
             ext = "json";
           } catch {
-            // Not valid JSON, leave as .txt
+            /* leave .txt */
           }
         }
 

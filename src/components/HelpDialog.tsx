@@ -96,7 +96,7 @@ export function HelpDialog({ isOpen, onClose }: HelpDialogProps) {
         debugInfo = `
 ---
 System Info:
-- Version: ${info.dyadVersion}
+- Version: ${info.atlarixVersion}
 - Platform: ${info.platform} ${info.architecture}
 - Node: ${info.nodeVersion || "N/A"}
 `;

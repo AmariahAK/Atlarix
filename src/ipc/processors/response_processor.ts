@@ -58,8 +58,8 @@ export async function dryRunSearchReplace({
   appPath: string;
 }) {
   const issues: { filePath: string; error: string }[] = [];
-  const dyadSearchReplaceTags = getAtlarixSearchReplaceTags(fullResponse);
-  for (const tag of dyadSearchReplaceTags) {
+  const atlarixSearchReplaceTags = getAtlarixSearchReplaceTags(fullResponse);
+  for (const tag of atlarixSearchReplaceTags) {
     const filePath = tag.path;
     const fullFilePath = safeJoin(appPath, filePath);
     try {
@@ -154,10 +154,10 @@ export async function processFullResponseActions(
 
   try {
     // Extract all tags
-    const dyadWriteTags = getAtlarixWriteTags(fullResponse);
-    const dyadRenameTags = getAtlarixRenameTags(fullResponse);
-    const dyadDeletePaths = getAtlarixDeleteTags(fullResponse);
-    const dyadExecuteSqlQueries = chatWithApp.app.supabaseProjectId
+    const atlarixWriteTags = getAtlarixWriteTags(fullResponse);
+    const atlarixRenameTags = getAtlarixRenameTags(fullResponse);
+    const atlarixDeletePaths = getAtlarixDeleteTags(fullResponse);
+    const atlarixExecuteSqlQueries = chatWithApp.app.supabaseProjectId
       ? getAtlarixExecuteSqlTags(fullResponse)
       : [];
 
@@ -175,8 +175,8 @@ export async function processFullResponseActions(
     }
 
     // Handle SQL execution tags
-    if (dyadExecuteSqlQueries.length > 0) {
-      for (const query of dyadExecuteSqlQueries) {
+    if (atlarixExecuteSqlQueries.length > 0) {
+      for (const query of atlarixExecuteSqlQueries) {
         try {
           await executeSupabaseSql({
             supabaseProjectId: chatWithApp.app.supabaseProjectId!,
@@ -206,7 +206,7 @@ export async function processFullResponseActions(
           });
         }
       }
-      logger.log(`Executed ${dyadExecuteSqlQueries.length} SQL queries`);
+      logger.log(`Executed ${atlarixExecuteSqlQueries.length} SQL queries`);
     }
 
 
@@ -224,7 +224,7 @@ export async function processFullResponseActions(
     //////////////////////
 
     // Process all file deletions
-    for (const filePath of dyadDeletePaths) {
+    for (const filePath of atlarixDeletePaths) {
       const fullFilePath = safeJoin(appPath, filePath);
 
       // Track if this is a shared module
@@ -281,7 +281,7 @@ export async function processFullResponseActions(
     }
 
     // Process all file renames
-    for (const tag of dyadRenameTags) {
+    for (const tag of atlarixRenameTags) {
       const fromPath = safeJoin(appPath, tag.from);
       const toPath = safeJoin(appPath, tag.to);
 
@@ -343,8 +343,8 @@ export async function processFullResponseActions(
     }
 
     // Process all search-replace edits
-    const dyadSearchReplaceTags = getAtlarixSearchReplaceTags(fullResponse);
-    for (const tag of dyadSearchReplaceTags) {
+    const atlarixSearchReplaceTags = getAtlarixSearchReplaceTags(fullResponse);
+    for (const tag of atlarixSearchReplaceTags) {
       const filePath = tag.path;
       const fullFilePath = safeJoin(appPath, filePath);
 
@@ -396,7 +396,7 @@ export async function processFullResponseActions(
     }
 
     // Process all file writes
-    for (const tag of dyadWriteTags) {
+    for (const tag of atlarixWriteTags) {
       const filePath = tag.path;
       let content: string | Buffer = tag.content;
       const fullFilePath = safeJoin(appPath, filePath);
@@ -510,12 +510,12 @@ export async function processFullResponseActions(
         changes.push(`renamed ${renamedFiles.length} file(s)`);
       if (deletedFiles.length > 0)
         changes.push(`deleted ${deletedFiles.length} file(s)`);
-      if (dyadExecuteSqlQueries.length > 0)
-        changes.push(`executed ${dyadExecuteSqlQueries.length} SQL queries`);
+      if (atlarixExecuteSqlQueries.length > 0)
+        changes.push(`executed ${atlarixExecuteSqlQueries.length} SQL queries`);
 
       let message = chatSummary
-        ? `[dyad] ${chatSummary} - ${changes.join(", ")}`
-        : `[dyad] ${changes.join(", ")}`;
+        ? `[atlarix] ${chatSummary} - ${changes.join(", ")}`
+        : `[atlarix] ${changes.join(", ")}`;
       // Use chat summary, if provided, or default for commit message
       let commitHash = await gitCommit({
         path: appPath,

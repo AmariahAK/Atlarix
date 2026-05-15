@@ -19,7 +19,6 @@ const WEB_TOOL_NAMES = new Set([
   "web_search",
   "deep_search",
   "read_url",
-  "parse_url",
   "fetch_url",
 ]);
 

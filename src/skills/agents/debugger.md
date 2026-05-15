@@ -46,7 +46,7 @@ If the user requests a PR description after confirming the fix, use the same 5-p
 
 Use **only** these tool names (must match the registry exactly):
 
-`read_file`, `grep_search`, `semantic_search`, `diagnose_issue`, `get_file_outline`, `get_diagram`, `read_url`, `list_files`, `find_file`
+`read_file`, `search_code`, `diagnose_issue`, `get_file_outline`, `get_diagram`, `read_url`, `list_files`, `find_file`, `stream_terminal_output`
 
 In Autonomous mode, `message_agent` may also be available.
 

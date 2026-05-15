@@ -10,7 +10,7 @@ import * as path from "path";
 import { db } from "@/db";
 import { apps, diagrams } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import type { Blueprint, CombinedBlueprint } from "@/shared/blueprint-types";
+import type { Blueprint, BlueprintRoom, CombinedBlueprint } from "@/shared/blueprint-types";
 import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { registerBlueprintFileWatcher } from "@/lib/blueprint/blueprint-file-watcher";
@@ -22,7 +22,7 @@ import {
 } from "@/lib/snapshot/snapshot-manager";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
 import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
-import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint } from "@/lib/cache/blueprint-cache";
+import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint, getUserBlueprintMtime } from "@/lib/cache/blueprint-cache";
 import {
   ATLARIX_IGNORE_FILENAME,
   createIgnorerFromSource,
@@ -46,7 +46,6 @@ import * as fs from "node:fs/promises";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
 import { analyzeWorkspace } from "@/lib/analysis/workspace-analyzer";
 import { simplifyDescriptionWithAI, simplifyRoomWithAI, simplifyArchitectureWithAI } from "@/lib/blueprint/descriptions/aiSimplifier";
-import { layoutContainerCanvas, layoutBeaconFlow } from "@/lib/blueprint/layoutEngine";
 import { parseProject } from "@/lib/pivot/parsers";
 import {
   saveNodesAndEdges,
@@ -59,14 +58,43 @@ import {
 import { clusterIntoContainers } from "@/lib/pivot/clustering";
 import log from "electron-log";
 import { invalidateBm25Index } from "@/lib/search/bm25_semantic_index";
+import { app as electronApp } from "electron";
+import { SubscriptionManager } from "@/lib/SubscriptionManager";
+import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
+import {
+  blueprintSnapshotExists,
+  getBlueprintSnapshotMtime,
+  loadBlueprintSnapshot,
+  logSnapshotLoaded,
+  snapshotBlueprintToRepo,
+  snapshotToBlueprint,
+} from "@/lib/blueprint/blueprint-snapshot";
 
 const logger = log.scope("blueprint_handlers");
 
+/** Cap in-memory blueprints so many opened workspaces do not grow RAM without bound. */
+const MAX_BLUEPRINT_CACHE_WORKSPACES = 14;
 const blueprintCache = new Map<number, Blueprint>();
 
+function touchBlueprintCache(workspaceId: number): void {
+  const b = blueprintCache.get(workspaceId);
+  if (b === undefined) return;
+  blueprintCache.delete(workspaceId);
+  blueprintCache.set(workspaceId, b);
+}
+
 function setCachedBlueprint(workspaceId: number, b: Blueprint): void {
+  if (blueprintCache.has(workspaceId)) {
+    blueprintCache.delete(workspaceId);
+  }
   blueprintCache.set(workspaceId, b);
   invalidateBm25Index(workspaceId);
+  while (blueprintCache.size > MAX_BLUEPRINT_CACHE_WORKSPACES) {
+    const oldest = blueprintCache.keys().next().value as number | undefined;
+    if (oldest === undefined) break;
+    blueprintCache.delete(oldest);
+    invalidateBm25Index(oldest);
+  }
 }
 
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
@@ -144,20 +172,13 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
     const mergedEdges = [...edges, ...inferredEdges];
     const blueprint: Blueprint = { rooms, edges: mergedEdges, envRefs: [] };
     if (rooms.some((r) => !r.hidden && r.functions.length > 0)) {
-      // v3.6: Background combined blueprint + enrichment; emit when done
-      void (async () => {
-        try {
-          const refPaths = await getReferencePaths(workspacePath);
-          if (refPaths.length > 0) {
-            const combined = await buildCombinedBlueprint(workspacePath, refPaths);
-            await saveCombinedBlueprint(workspacePath, combined);
-          }
-          await enrichAll(workspacePath, rooms, (p) => fs.readFile(p, "utf-8"));
-          sendToAllWindows("blueprint:updated", { workspaceId, blueprint });
-        } catch (e) {
-          logger.warn("Background enrichment/combined failed:", e);
-        }
-      })();
+      // PASS8: Blueprint is model-driven only. Auto-generation removed.
+      // The previous v3.6 background IIFE eagerly built a combined cross-repo
+      // blueprint + ran symbol enrichment on every workspace open and every
+      // `inferBlueprint` invocation, costing FS + CPU + a `blueprint:updated`
+      // IPC fanout. The model now triggers blueprint work via the `get_blueprint`
+      // tool; the synchronous file-tree pass above is enough to seed the cache
+      // for that on-demand call.
       return blueprint;
     }
   } catch (e) {
@@ -175,10 +196,40 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
   return inferBlueprintFromWorkspace(analysis);
 }
 
+function normalizeFocusPrefix(p: string): string {
+  return String(p || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .toLowerCase();
+}
+
+/**
+ * Narrow a full-workspace blueprint to rooms/functions under `focusPrefix`
+ * (workspace-relative path prefix). Used for scoped tools without re-parsing.
+ */
+export function filterBlueprintByPathPrefix(blueprint: Blueprint, focusPrefix: string): Blueprint {
+  const fp = normalizeFocusPrefix(focusPrefix);
+  if (!fp) return blueprint;
+  const roomOk = (r: BlueprintRoom) => {
+    const rp = normalizeFocusPrefix(r.path ?? "");
+    if (rp === fp || rp.startsWith(`${fp}/`)) return true;
+    return (r.functions ?? []).some((fn) => {
+      const f = normalizeFocusPrefix(fn.file ?? "");
+      return f === fp || f.startsWith(`${fp}/`) || f.endsWith(`/${fp}`);
+    });
+  };
+  const rooms = blueprint.rooms.filter(roomOk);
+  const keep = new Set(rooms.map((r) => r.id));
+  const edges = (blueprint.edges ?? []).filter((e) => keep.has(e.from) && keep.has(e.to));
+  return { ...blueprint, rooms, edges, envRefs: blueprint.envRefs ?? [] };
+}
+
 /** Get blueprint for workspace (memory, then persisted user blueprint, then infer). Used by IPC and AI tools. */
 export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blueprint> {
   const cached = blueprintCache.get(workspaceId);
   if (cached) {
+    touchBlueprintCache(workspaceId);
     const sanitized = sanitizeBlueprint(cached);
     const needsFunctionBackfill = sanitized.rooms.some(
       (r) => (r.functions?.length ?? 0) === 0 && !r.hidden,
@@ -194,6 +245,38 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
   if (app) {
     const workspacePath = getAtlarixAppPath(app.path);
     void ensurePlansDir(workspacePath).catch(() => {});
+
+    // Workforce Feature 2: auto-load `.atlarix/blueprint.json` snapshot when it's
+    // present and either there is no user cache or the snapshot is newer. This
+    // lets Free/Pro teammates get the Blueprint immediately on clone without
+    // re-parsing — exactly as the spec intends.
+    try {
+      const snapshot = await loadBlueprintSnapshot(workspacePath);
+      if (snapshot) {
+        const cacheMtime = await getUserBlueprintMtime(workspacePath);
+        const snapMtime = await getBlueprintSnapshotMtime(workspacePath);
+        const shouldImport =
+          cacheMtime == null ||
+          (snapMtime != null && snapMtime > cacheMtime);
+        if (shouldImport) {
+          const bp = snapshotToBlueprint(snapshot);
+          const sanitized = sanitizeBlueprint(bp);
+          setCachedBlueprint(workspaceId, sanitized);
+          try {
+            await saveUserBlueprint(workspacePath, sanitized);
+          } catch (persistErr) {
+            logger.warn("[blueprint-snapshot] Failed to persist imported snapshot:", persistErr);
+          }
+          logSnapshotLoaded(snapshot);
+          const merged = await mergeInferredEdges(workspaceId, sanitized);
+          setCachedBlueprint(workspaceId, merged);
+          return merged;
+        }
+      }
+    } catch (snapErr) {
+      logger.warn("[blueprint-snapshot] Auto-load failed (non-fatal):", snapErr);
+    }
+
     const userBlueprint = await loadUserBlueprint(workspacePath);
     if (userBlueprint != null) {
       const base = sanitizeBlueprint(userBlueprint);
@@ -391,37 +474,16 @@ export function registerBlueprintHandlers() {
         const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
         if (app) {
           const workspacePath = getAtlarixAppPath(app.path);
-          registerBlueprintFileWatcher(workspacePath, workspaceId, async (projPath, rel, wid) => {
-            const { readSettings } = await import("@/main/settings");
-            if (readSettings().selectedChatMode === "ask") return;
-            const { runDiagramRegenerateBackground } = await import(
-              "@/ipc/handlers/diagram_regenerate_background"
-            );
-            const regen = await runDiagramRegenerateBackground(wid);
-            if (!regen.success || ("skipped" in regen && regen.skipped)) return;
-            try {
-              const [drow] = await db
-                .select({ content: diagrams.content })
-                .from(diagrams)
-                .where(eq(diagrams.workspaceId, wid))
-                .limit(1);
-              const raw = drow?.content?.trim();
-              if (!raw) return;
-              const mermaid = extractMermaidFromMarkdown(raw) ?? raw;
-              const md = buildRichDiagramMarkdown({
-                mermaidBody: mermaid,
-                promptLine: `Debounced file watch — ${rel}`,
-              });
-              await captureSnapshot({
-                workspacePath: projPath,
-                turnId: "fs-watch",
-                relativePaths: [],
-                diagramBefore: md,
-                promptSummary: `fs-watch:${rel}`,
-              });
-            } catch (e) {
-              logger.warn("fs-watch diagram snapshot skipped:", e);
-            }
+          // PASS8: Diagram generation is model-driven only. Auto-generation removed.
+          // The file-system watcher used to call `runDiagramRegenerateBackground`
+          // on every debounced workspace change, which kicked off a full LLM
+          // regenerate + snapshot capture without any user / model intent.
+          // We keep the watcher itself (so the Blueprint UI can refresh when
+          // files change), but the callback is now a no-op as far as diagram
+          // generation goes — callers must invoke `get_diagram` / the diagram
+          // tool explicitly to refresh diagrams.
+          registerBlueprintFileWatcher(workspacePath, workspaceId, async () => {
+            // intentionally empty — see PASS8 note above
           });
           const [drow] = await db
             .select({ content: diagrams.content })
@@ -783,20 +845,6 @@ export function registerBlueprintHandlers() {
   );
 
   ipcMain.handle(
-    "blueprint:layout-containers",
-    async (_, { rooms, edges }: { rooms: Array<{ id: string }>; edges: Array<{ id: string; from: string; to: string }> }) => {
-      return layoutContainerCanvas(rooms, edges, rooms.length);
-    }
-  );
-
-  ipcMain.handle(
-    "blueprint:layout-beacons",
-    async (_, { beacons, flowEdges }: { beacons: Array<{ id: string }>; flowEdges: Array<{ id: string; from: string; to: string }> }) => {
-      return layoutBeaconFlow(beacons, flowEdges);
-    }
-  );
-
-  ipcMain.handle(
     "pivot:get-nodes-edges",
     async (_, { workspaceId }: { workspaceId: number }) => {
       try {
@@ -872,4 +920,103 @@ export function registerBlueprintHandlers() {
       }
     }
   );
+
+  // Workforce Feature 2: commit the current Blueprint to `.atlarix/blueprint.json`.
+  // Gated to Workforce tier; non-Workforce callers receive a structured error.
+  ipcMain.handle(
+    "blueprint:commit-snapshot",
+    async (
+      _,
+      { workspaceId }: { workspaceId: number },
+    ): Promise<{
+      success: boolean;
+      nodeCount?: number;
+      edgeCount?: number;
+      path?: string;
+      firstCommit?: boolean;
+      error?: string;
+    }> => {
+      try {
+        if (SubscriptionManager.getEffectiveTier() !== "workforce") {
+          return {
+            success: false,
+            error: "Blueprint commits are a Workforce feature.",
+          };
+        }
+        const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (!appRow) return { success: false, error: "Workspace not found" };
+
+        const workspacePath = getAtlarixAppPath(appRow.path);
+        const blueprint = await getBlueprintForWorkspace(workspaceId);
+
+        let lastCommitHash: string | undefined;
+        try {
+          lastCommitHash = await getCurrentCommitHash({ path: workspacePath });
+        } catch (e) {
+          logger.warn("[blueprint-snapshot] No git HEAD (continuing):", e);
+        }
+
+        const result = await snapshotBlueprintToRepo({
+          workspacePath,
+          blueprint,
+          workspaceName: appRow.name,
+          atlarixVersion: electronApp.getVersion(),
+          lastCommitHash,
+        });
+
+        return {
+          success: true,
+          nodeCount: result.nodeCount,
+          edgeCount: result.edgeCount,
+          path: result.path,
+          firstCommit: result.firstCommit,
+        };
+      } catch (error) {
+        logger.error("blueprint:commit-snapshot error:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // Read-only on all tiers — used by the renderer to decide whether to surface
+  // the "Blueprint loaded from snapshot" badge.
+  ipcMain.handle(
+    "blueprint:snapshot-exists",
+    async (
+      _,
+      { workspaceId }: { workspaceId: number },
+    ): Promise<{
+      exists: boolean;
+      snapshot?: { nodeCount: number; edgeCount: number; generatedAt: string };
+      error?: string;
+    }> => {
+      try {
+        const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+        if (!appRow) return { exists: false };
+        const workspacePath = getAtlarixAppPath(appRow.path);
+        const exists = await blueprintSnapshotExists(workspacePath);
+        if (!exists) return { exists: false };
+        const snap = await loadBlueprintSnapshot(workspacePath);
+        if (!snap) return { exists: true };
+        return {
+          exists: true,
+          snapshot: {
+            nodeCount: snap.nodeCount,
+            edgeCount: snap.edgeCount,
+            generatedAt: snap.generatedAt,
+          },
+        };
+      } catch (error) {
+        logger.error("blueprint:snapshot-exists error:", error);
+        return {
+          exists: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
 }

@@ -1,33 +1,25 @@
 /**
- * Incremental parse cache: reuse previous Tree when the same file is re-parsed in-process.
- * Cleared per workspace when analysis or blueprint watcher scope resets.
+ * PASS6: tree-sitter unavailable; cache helpers reduce to no-ops.
  */
 
-import type Parser from "tree-sitter";
+import type { TreeStub as Tree } from "./tree-sitter-parser";
 
-const cache = new Map<string, Parser.Tree>();
-
-export function getCachedTree(key: string): Parser.Tree | undefined {
-  return cache.get(key);
+export function getCachedTree(_key: string): Tree | undefined {
+  return undefined;
 }
 
-export function setCachedTree(key: string, tree: Parser.Tree): void {
-  cache.set(key, tree);
+export function setCachedTree(_key: string, _tree: Tree): void {
+  // no-op
 }
 
 export function clearParseTreeCache(): void {
-  cache.clear();
+  // no-op
 }
 
-/** Delete entries whose cache key starts with workspacePath + NUL separator. */
-export function clearParseTreeCacheForWorkspace(workspacePath: string): void {
-  const norm = workspacePath.replace(/\\/g, "/");
-  const prefix = `${norm}\0`;
-  for (const k of [...cache.keys()]) {
-    if (k.startsWith(prefix)) cache.delete(k);
-  }
+export function clearParseTreeCacheForWorkspace(_workspacePath: string): void {
+  // no-op
 }
 
 export function makeParseCacheKey(workspacePath: string, relativePath: string): string {
-  return `${workspacePath.replace(/\\/g, "/")}\0${relativePath.replace(/\\/g, "/")}`;
+  return `${workspacePath}:${relativePath}`;
 }

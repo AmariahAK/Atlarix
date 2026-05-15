@@ -46,8 +46,8 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
     icon: ListTodo,
     desc: "Plan file only (.atlarix/ATLARIX_PLAN.md + ATLARIX.md). Switch to Build after the plan is done.",
   },
-  { value: "build", icon: Hammer, desc: "Full write/run tools and Build-tier Blueprint context." },
-  { value: "debug", icon: Bug, desc: "Investigation focus; Ask tools + Debug-tier Blueprint." },
+  { value: "build", icon: Hammer, desc: "Full write/run tools for end-to-end implementation." },
+  { value: "debug", icon: Bug, desc: "Investigation focus; read tools + diagnose_issue + run_command." },
   { value: "review", icon: ShieldCheck, desc: "Review and quality; Ask tools + review-style prompts." },
 ];
 
@@ -170,7 +170,7 @@ export function ChatIntentSelector() {
                     </MiniSelectTrigger>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {"Work mode: tools + Blueprint tier. Open for Ask, Plan, Build, Debug, Review."}
+                    {"Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
                   </TooltipContent>
                 </Tooltip>
                 <SelectContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -201,7 +201,7 @@ export function ChatIntentSelector() {
         <p className="text-muted-foreground text-xs mb-3">
           {isReadOnlyChatChrome
             ? "This chat uses Ask (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, and Review."
-            : "Choose Ask, Plan, Build, Debug, or Review for fixed tools and Blueprint depth."}
+            : "Choose Ask, Plan, Build, Debug, or Review for a fixed tool surface."}
         </p>
         <Button size="sm" variant="secondary" onClick={dismissFirstTime}>
           Got it

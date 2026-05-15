@@ -118,7 +118,10 @@ export function SimpleInlineChat({
     );
 
     return (
-        <div className="flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden relative">
+        // PASS8 H1: `min-h-0` allows the flex-1 scroll child below to shrink past
+        // its intrinsic content height. Without it the growing composer pushes
+        // the message thread off-screen and the last messages become unreachable.
+        <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
             {/* Fix: Finding 2 — pinned New Chat (always visible) */}
             <div className="flex-shrink-0 z-10 flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-border/40 bg-background/95">
                 <button
@@ -172,15 +175,16 @@ export function SimpleInlineChat({
             )}
 
             {/* Messages area - ONLY this should scroll */}
+            {/* PASS8 H1: `min-h-0` so this child can shrink when the composer grows. */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+                className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4"
             >
                 {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
                         <span>Starting chat…</span>
                         <span className="text-xs max-w-sm">
-                            Chats are not kept as a long-lived history. Continuity comes from your Blueprint and files under{" "}
+                            Chats are not kept as a long-lived history. Continuity comes from your project memory and files under{" "}
                             <code className="text-[10px] bg-muted px-1 rounded">.atlarix</code> (including the plan file).
                         </span>
                     </div>

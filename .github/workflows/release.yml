@@ -146,9 +146,6 @@ jobs:
           echo "npm ci failed after 5 attempts"
           exit 1
 
-      - name: Patch tree-sitter binding.gyp for Electron C++20
-        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
-
       - name: Import Apple certificate
         uses: apple-actions/import-codesign-certs@v3
         with:
@@ -321,9 +318,6 @@ jobs:
           echo "npm ci failed after 5 attempts"
           exit 1
 
-      - name: Patch tree-sitter binding.gyp for Electron C++20
-        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
-
       - name: Build for Linux
         run: npm run make
         env:
@@ -434,9 +428,6 @@ jobs:
           Write-Error "npm ci failed after $maxAttempts attempts"
           exit 1
 
-      - name: Patch tree-sitter binding.gyp for Electron C++20
-        shell: pwsh
-        run: node scripts/patch-tree-sitter-electron-cpp20.cjs
 
       - name: Build for Windows
         shell: pwsh

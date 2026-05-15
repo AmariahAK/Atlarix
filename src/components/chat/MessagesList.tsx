@@ -1,6 +1,7 @@
 import type React from "react";
 import type { Message } from "@/ipc/ipc_types";
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import ChatMessage from "./ChatMessage";
 import { SetupBanner } from "../SetupBanner";
 
@@ -17,7 +18,7 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { PromoMessage } from "./PromoMessage";
-import { useCountTokens } from "@/hooks/useCountTokens";
+import { useContextTokenCount } from "@/hooks/useCountTokens";
 import { QuestionsWidget } from "./QuestionsWidget";
 import { sliceLastExchanges } from "../../lib/chat/lastExchanges";
 
@@ -41,8 +42,26 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const [isRetryLoading, setIsRetryLoading] = useState(false);
     const selectedChatId = useAtomValue(selectedChatIdAtom);
     const { userBudget } = useUserBudgetInfo();
-    const { result: tokenCountResult } = useCountTokens(selectedChatId, "");
+    // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
+    const { result: tokenCountResult } = useContextTokenCount(selectedChatId);
     const visibleMessages = sliceLastExchanges(messages, 7);
+
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const virtualizer = useVirtualizer({
+      count: visibleMessages.length,
+      getScrollElement: () => scrollRef.current,
+      estimateSize: () => 220,
+      overscan: 6,
+    });
+
+    const setScrollRef = (el: HTMLDivElement | null) => {
+      scrollRef.current = el;
+      if (typeof ref === "function") {
+        (ref as (node: HTMLDivElement | null) => void)(el);
+      } else if (ref && typeof ref === "object" && "current" in ref) {
+        (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }
+    };
 
     const renderSetupBanner = () => {
       const selectedModel = settings?.selectedModel;
@@ -65,58 +84,82 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     return (
       <div
         className="absolute inset-0 overflow-y-auto p-4"
-        ref={ref}
+        ref={setScrollRef}
         data-testid="messages-list"
       >
-        {visibleMessages.length > 0
-          ? visibleMessages.map((message, index) => (
-              <div key={message.id ?? index} className="contents">
-                <ChatMessage
-                  message={message}
-                  isLastMessage={index === visibleMessages.length - 1}
-                />
-                {message.role === "assistant" &&
-                  (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
-                    <QuestionsWidget
-                      messageId={message.id}
-                      questions={questionsByMessageId[message.id]!.questions}
-                      title={questionsByMessageId[message.id]!.title}
-                      onSubmit={async (answers) => {
-                        if (!selectedChatId) return;
-                        try {
-                          const qs = questionsByMessageId[message.id]!.questions;
-                          await IpcClient.getInstance().submitQuestionAnswers(
-                            selectedChatId,
-                            message.id,
-                            answers,
-                            qs.map((q) => ({ id: q.id, question: q.question })),
-                          );
-                          setQuestionsByMessageId((prev) => {
-                            const next = { ...prev };
-                            delete next[message.id];
-                            return next;
-                          });
-                          streamMessage({
-                            prompt: "",
-                            chatId: selectedChatId,
-                            continueAfterQuestions: true,
-                          });
-                        } catch (err) {
-                          showError(err);
-                        }
-                      }}
-                    />
+        {visibleMessages.length > 0 ? (
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              position: "relative",
+              width: "100%",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const index = virtualRow.index;
+              const message = visibleMessages[index];
+              return (
+                <div
+                  key={message.id ?? `vrow-${index}`}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                  className="pb-3"
+                >
+                  <ChatMessage
+                    message={message}
+                    isLastMessage={index === visibleMessages.length - 1}
+                  />
+                  {message.role === "assistant" &&
+                    (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
+                      <QuestionsWidget
+                        messageId={message.id}
+                        questions={questionsByMessageId[message.id]!.questions}
+                        title={questionsByMessageId[message.id]!.title}
+                        onSubmit={async (answers) => {
+                          if (!selectedChatId) return;
+                          try {
+                            const qs = questionsByMessageId[message.id]!.questions;
+                            await IpcClient.getInstance().submitQuestionAnswers(
+                              selectedChatId,
+                              message.id,
+                              answers,
+                              qs.map((q) => ({ id: q.id, question: q.question })),
+                            );
+                            setQuestionsByMessageId((prev) => {
+                              const next = { ...prev };
+                              delete next[message.id];
+                              return next;
+                            });
+                            streamMessage({
+                              prompt: "",
+                              chatId: selectedChatId,
+                              continueAfterQuestions: true,
+                            });
+                          } catch (err) {
+                            showError(err);
+                          }
+                        }}
+                      />
+                    )}
+                  {restartedAfterMessageId === message.id && (
+                    <div className="w-full max-w-3xl mx-auto py-2 flex items-center gap-2">
+                      <span className="flex-1 border-t border-border" />
+                      <span className="text-xs text-muted-foreground">conversation restarted from here</span>
+                      <span className="flex-1 border-t border-border" />
+                    </div>
                   )}
-                {restartedAfterMessageId === message.id && (
-                  <div className="w-full max-w-3xl mx-auto py-2 flex items-center gap-2">
-                    <span className="flex-1 border-t border-border" />
-                    <span className="text-xs text-muted-foreground">conversation restarted from here</span>
-                    <span className="flex-1 border-t border-border" />
-                  </div>
-                )}
-              </div>
-            ))
-          : !renderSetupBanner() && (
+                </div>
+              );
+            })}
+          </div>
+        ) : !renderSetupBanner() && (
               <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto">
                 <div className="flex flex-1 items-center justify-center text-gray-500">
                   No messages yet

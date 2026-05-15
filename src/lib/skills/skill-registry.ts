@@ -4,9 +4,12 @@ export type AgentSkillName =
   | "agents/reviewer"
   | "agents/debugger"
   | "agents/researcher"
+  | "agents/explorer"
+  | "agents/scout"
   | "agents/orchestrator"
   | "subagents/focused-writer"
-  | "subagents/focused-researcher";
+  | "subagents/focused-researcher"
+  | "subagents/focused-explorer";
 
 export type ModeSkillName =
   | "modes/ask-mode"
@@ -18,6 +21,8 @@ export type ModeSkillName =
 /** Builtin specialist ids for `delegate_to_agent` and work-mode defaults. */
 export type DelegationAgentId =
   | "research"
+  | "explore"
+  | "scout"
   | "architect"
   | "builder"
   | "reviewer"
@@ -40,10 +45,24 @@ export const AGENT_REGISTRY: Record<DelegationAgentId, AgentMetadata> = {
     icon: "Search",
     skillName: "agents/researcher",
   },
+  explore: {
+    id: "explore",
+    name: "Explore",
+    description: "Read-only repo mapping and codebase Q&A",
+    icon: "Map",
+    skillName: "agents/explorer",
+  },
+  scout: {
+    id: "scout",
+    name: "Scout",
+    description: "Dependency traces + targeted web/docs context",
+    icon: "Radar",
+    skillName: "agents/scout",
+  },
   architect: {
     id: "architect",
     name: "Architect",
-    description: "Design, Blueprint, architecture",
+    description: "Design and architecture",
     icon: "Box",
     skillName: "agents/architect",
   },
@@ -83,8 +102,11 @@ export function getFocusedSkillNameForAgent(agentId: string): AgentSkillName {
   if (agentId === "builder" || agentId === "architect") {
     return "subagents/focused-writer";
   }
-  if (agentId === "research") {
+  if (agentId === "research" || agentId === "scout") {
     return "subagents/focused-researcher";
+  }
+  if (agentId === "explore") {
+    return "subagents/focused-explorer";
   }
   return getSkillNameForAgent(agentId);
 }

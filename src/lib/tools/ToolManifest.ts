@@ -10,11 +10,10 @@ const CORE_TOOL_NAMES = new Set([
   "explore_folder",
   "write_file",
   "run_command",
-  "search_code",
-  "get_file_tree",
-  "generate_workspace_map",
-  "scan_file_structure",
-  "find_entry_points",
+  "search",
+  "get_blueprint",
+  "get_project_structure",
+  "git_status",
 ]);
 
 function isCoreTool(tool: ToolMetadata): boolean {

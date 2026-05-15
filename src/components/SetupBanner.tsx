@@ -33,6 +33,7 @@ const atlarixLogo = new URL('/logo.png', import.meta.url).href;
 import { OnboardingBanner } from "./home/OnboardingBanner";
 import { showError } from "@/lib/toast";
 import { useSettings } from "@/hooks/useSettings";
+import { useAuth } from "@/lib/auth/useAuth";
 
 type NodeInstallStep =
   | "install"
@@ -43,6 +44,7 @@ type NodeInstallStep =
 export function SetupBanner() {
   const posthog = usePostHog();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(true);
   const { isAnyProviderSetup, isLoading: loading } =
     useLanguageModelProviders();
@@ -115,7 +117,7 @@ export function SetupBanner() {
     });
   };
   const handleAtlarixProSetupClick = async () => {
-    posthog.capture("setup-flow:ai-provider-setup:dyad:click");
+    posthog.capture("setup-flow:ai-provider-setup:atlarix-pro:click");
 
     try {
       const ipcRenderer = window.electron?.ipcRenderer;
@@ -165,10 +167,18 @@ export function SetupBanner() {
   }
 
   if (itemsNeedAction.length === 0) {
+    const displayName = user?.name?.trim();
     return (
-      <h1 className="text-center text-5xl font-bold mb-8 bg-clip-text text-transparent bg-gradient-to-r from-[#10B981] via-[#059669] to-[#F59E0B] tracking-tight">
-        Build your dream app
-      </h1>
+      <div className="text-center mb-8">
+        <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#10B981] via-[#059669] to-[#F59E0B] tracking-tight">
+          {displayName ? `Hello, ${displayName}.` : "Hello."}
+        </h1>
+        <p className="mt-3 text-lg text-muted-foreground">
+          {displayName
+            ? "Welcome back. What's on your mind?"
+            : "What's on your mind?"}
+        </p>
+      </div>
     );
   }
 
@@ -274,7 +284,7 @@ export function SetupBanner() {
 
               <SetupProviderCard
                 className="mt-2"
-                variant="dyad"
+                variant="atlarix"
                 onClick={handleAtlarixProSetupClick}
                 tabIndex={0}
                 leadingIcon={

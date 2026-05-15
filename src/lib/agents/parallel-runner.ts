@@ -3,7 +3,7 @@
  */
 
 import { publishAgentMessage, type AgentId } from "./agent-bus";
-import { runDelegation } from "../tools/agent-tools";
+import { runDelegation } from "../tools/agent";
 
 /** Cap concurrent delegated runs to limit peak RSS / V8 pressure during autonomous workflows. */
 const MAX_PARALLEL_AGENT_RUNS = 2;

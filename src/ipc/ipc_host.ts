@@ -44,6 +44,7 @@ import { registerFileHandlers } from "./handlers/file_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
+// PASS6: Blueprint subsystem restored.
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
@@ -52,10 +53,8 @@ import { registerHooksHandlers } from "./handlers/hooks_handlers";
 import { registerCommandsHandlers } from "./handlers/commands_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
 import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
-import { registerTokenVaultHandlers } from "./handlers/token_vault_handlers";
 import { registerExtensionSpaceHandlers } from "./handlers/extension_space_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
-import { registerWorkforceSessionHandlers } from "./handlers/workforce_session_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
@@ -116,18 +115,17 @@ export function registerIpcHandlers() {
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
   registerFsDiagramSnapshotHandlers(); // `.atlarix/snapshots/` diagram timeline + revert
-  registerBlueprintHandlers(); // Phase 7 Additive Blueprint
-  registerPivotAnalysisHandlers(); // PIVOT analysis (SonarQube, Semgrep, SCIP)
+  // PASS6: Blueprint subsystem restored.
+  registerBlueprintHandlers();
+  registerPivotAnalysisHandlers();
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
   registerRoutingHandlers();
   registerHooksHandlers();
   registerCommandsHandlers(); // v3.6 Auto routing preview
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel
-  registerTokenVaultHandlers(); // v4.0 Token Vault (Workforce)
   registerExtensionSpaceHandlers(); // v4.0 per-workspace extension scope (Workforce)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
-  registerWorkforceSessionHandlers(); // Fix: Workforce-2 — per-chat session scope (in-memory)
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog

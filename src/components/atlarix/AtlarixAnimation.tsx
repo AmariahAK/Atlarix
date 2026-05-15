@@ -480,7 +480,7 @@ export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimatio
     <div style={containerStyle}>
       {!isFull && (
         <>
-          <div style={{position:"absolute",top:8,left:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>Blueprint Intelligence</div>
+          <div style={{position:"absolute",top:8,left:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>Workspace Intelligence</div>
           <div style={{position:"absolute",top:8,right:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>v2.9.0 · AXIS</div>
         </>
       )}

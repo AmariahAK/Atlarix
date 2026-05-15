@@ -5,6 +5,7 @@ import { getContextAssemblyCache, setContextAssemblyCache } from "./context-asse
 
 export type ContextSectionName =
   | "activeSkill"
+  | "repoSkills"
   | "installedSkills"
   | "taskProgress"
   | "fileSystemTruth"
@@ -17,8 +18,7 @@ export type ContextSectionName =
   | "counsel"
   | "counselDeepThinkSubstitute"
   | "parallelPrefetch"
-  | "lspDiagnostics"
-  | "blueprint";
+  | "lspDiagnostics";
 
 export type ContextSection = {
   name: ContextSectionName;

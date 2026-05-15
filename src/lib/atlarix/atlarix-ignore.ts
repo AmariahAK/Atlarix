@@ -88,6 +88,9 @@ miniprogram_npm/
 .git/
 .hg/
 .svn/
+# Repo-scoped Atlarix skills (loaded by Atlarix, hidden from file-tree noise)
+.atlarix/skills/
+.atlarix/blueprint.json
 `;
 
 export type AtlarixIgnoreInstance = ReturnType<typeof ignore>;

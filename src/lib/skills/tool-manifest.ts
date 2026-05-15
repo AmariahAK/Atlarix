@@ -1,5 +1,11 @@
 /**
  * Tool allow-lists per skill (names must match ToolRegistry).
+ *
+ * Pass 7 + PASS6: Manifests track post-consolidation surface.
+ *  - `search` is the unified codebase search (auto | text | semantic | structural).
+ *  - `get_blueprint` returns a focused Blueprint graph slice (lazy parse).
+ *  - edit_file replaces replace_code / insert_code / delete_lines / edit_file_section.
+ *  - get_diagram is the canonical Mermaid accessor.
  */
 
 import { ToolRegistry } from "../tools/registry";
@@ -11,38 +17,28 @@ export type ToolManifest = {
 
 const ARCHITECT: ToolManifest = {
   allowed: [
+    // PASS8 B2: get_workspace_overview removed (phantom — never registered).
     "read_file",
-    "grep_search",
-    "semantic_search",
+    "search",
     "get_blueprint",
-    "add_blueprint_room",
-    "add_blueprint_function",
-    "add_blueprint_edge",
-    "update_blueprint",
-    "compare_blueprint_to_live",
     "get_diagram",
     "get_file_outline",
   ],
-  readOnly: false,
+  readOnly: true,
 };
 
 const BUILDER: ToolManifest = {
   allowed: [
     "read_file",
     "write_file",
-    "replace_code",
-    "insert_code",
-    "delete_lines",
-    "edit_file_section",
+    "edit_file",
     "run_command",
     "list_files",
     "find_file",
-    "search_code",
-    "grep_search",
-    "semantic_search",
+    "search",
+    "get_blueprint",
     "get_file_outline",
     "get_project_structure",
-    "find_relevant_files",
   ],
   readOnly: false,
 };
@@ -50,8 +46,8 @@ const BUILDER: ToolManifest = {
 const REVIEWER: ToolManifest = {
   allowed: [
     "read_file",
-    "grep_search",
-    "semantic_search",
+    "search",
+    "get_blueprint",
     "get_file_outline",
     "get_diagram",
   ],
@@ -61,25 +57,53 @@ const REVIEWER: ToolManifest = {
 const DEBUGGER: ToolManifest = {
   allowed: [
     "read_file",
-    "grep_search",
-    "semantic_search",
+    "search",
+    "get_blueprint",
     "diagnose_issue",
     "get_file_outline",
     "get_diagram",
     "read_url",
     "list_files",
     "find_file",
+    "stream_terminal_output",
   ],
   readOnly: false,
 };
 
 const RESEARCHER: ToolManifest = {
-  allowed: ["read_file", "web_search", "read_url", "grep_search"],
+  allowed: ["read_file", "web_search", "deep_research", "read_url", "search"],
+  readOnly: true,
+};
+
+const EXPLORER: ToolManifest = {
+  allowed: [
+    "read_file",
+    "search",
+    "get_blueprint",
+    "get_file_outline",
+    "list_files",
+    "find_file",
+  ],
+  readOnly: true,
+};
+
+const SCOUT: ToolManifest = {
+  allowed: [
+    "read_file",
+    "search",
+    "get_blueprint",
+    "get_file_outline",
+    "list_files",
+    "find_file",
+    "web_search",
+    "deep_research",
+    "read_url",
+  ],
   readOnly: true,
 };
 
 const ORCHESTRATOR: ToolManifest = {
-  allowed: ["read_file", "grep_search", "semantic_search", "message_agent"],
+  allowed: ["read_file", "search", "message_agent"],
   readOnly: false,
 };
 
@@ -87,15 +111,20 @@ const FOCUSED_WRITER: ToolManifest = BUILDER;
 
 const FOCUSED_RESEARCHER: ToolManifest = RESEARCHER;
 
+const FOCUSED_EXPLORER: ToolManifest = EXPLORER;
+
 const manifests: Record<string, ToolManifest> = {
   "agents/architect": ARCHITECT,
   "agents/builder": BUILDER,
   "agents/reviewer": REVIEWER,
   "agents/debugger": DEBUGGER,
   "agents/researcher": RESEARCHER,
+  "agents/explorer": EXPLORER,
+  "agents/scout": SCOUT,
   "agents/orchestrator": ORCHESTRATOR,
   "subagents/focused-writer": FOCUSED_WRITER,
   "subagents/focused-researcher": FOCUSED_RESEARCHER,
+  "subagents/focused-explorer": FOCUSED_EXPLORER,
   "modes/build-mode": {
     allowed: ["*"],
     readOnly: false,
@@ -103,19 +132,16 @@ const manifests: Record<string, ToolManifest> = {
   "modes/debug-mode": {
     allowed: [
       "read_file",
-      "grep_search",
-      "semantic_search",
+      "search",
+      "get_blueprint",
       "run_command",
       "write_file",
-      "replace_code",
-      "insert_code",
-      "delete_lines",
-      "edit_file_section",
-      "get_blueprint",
+      "edit_file",
       "get_diagram",
       "list_files",
       "find_file",
-      "search_code",
+      "diagnose_issue",
+      "stream_terminal_output",
     ],
     readOnly: false,
   },

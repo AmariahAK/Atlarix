@@ -1,22 +1,16 @@
 /**
  * Token Budget Input - Per-provider token cap
  * Shown inside each provider's settings page.
+ *
+ * No hardcoded per-provider ceilings: a single provider hosts many models
+ * with different context windows (e.g. OpenRouter spans 8K → 1M+), so any
+ * fixed number here is wrong for most of them. We delegate to the model's
+ * real context window via `getEffectiveBudget` / `getContextWindow` and
+ * present this field purely as an *override* with a non-numeric hint.
  */
 
 import { useSettings } from "@/hooks/useSettings";
 import { useState } from "react";
-
-const DEFAULT_BUDGETS: Record<string, number> = {
-  openai: 128000,
-  anthropic: 200000,
-  google: 1000000,
-  compass: 128000,
-  openrouter: 128000,
-  groq: 128000,
-  togetherai: 128000,
-  mistral: 128000,
-  xai: 128000,
-};
 
 interface TokenBudgetInputProps {
   providerId: string;
@@ -38,7 +32,9 @@ export function TokenBudgetInput({
       : overrides[providerId] != null
         ? String(overrides[providerId])
         : "";
-  const placeholder = `${((DEFAULT_BUDGETS[providerId] ?? 128000) / 1000).toFixed(0)}K`;
+  // Placeholder is intentionally non-numeric — see file header. The active
+  // ceiling is whatever `getContextWindow(selectedModel, chatId)` resolves.
+  const placeholder = "Auto · model context";
 
   const handleBlur = async () => {
     const num = displayValue.trim() ? parseInt(displayValue, 10) : undefined;

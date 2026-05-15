@@ -13,7 +13,7 @@ import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { AppChatContext } from "../../lib/schemas";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
-import { invalidateBlueprintCache } from "./blueprint_handlers";
+// Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
@@ -114,7 +114,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
       } catch {
         /* snapshot persistence optional */
       }
-      invalidateBlueprintCache(workspaceId);
       return { success: true, action: "updated", diagramId: existingDiagram.id };
     }
 
@@ -134,7 +133,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
     } catch {
       /* snapshot persistence optional */
     }
-    invalidateBlueprintCache(workspaceId);
     return { success: true, action: "created", diagramId: diagram.id };
   } catch (error) {
     console.error("[diagram:regenerate-background] Error:", error);

@@ -184,7 +184,7 @@ async function applyComponentTagger(appPath: string) {
     await gitAddAll({ path: appPath });
     await gitCommit({
       path: appPath,
-      message: "[dyad] add Atlarix component tagger",
+      message: "[atlarix] add Atlarix component tagger",
       coAuthorTrailer: getCoAuthorTrailerForCommit(),
     });
     logger.info("Successfully committed changes");
@@ -234,7 +234,7 @@ async function applyCapacitor({
     await gitAddAll({ path: appPath });
     await gitCommit({
       path: appPath,
-      message: "[dyad] add Capacitor for mobile app support",
+      message: "[atlarix] add Capacitor for mobile app support",
       coAuthorTrailer: getCoAuthorTrailerForCommit(),
     });
     logger.info("Successfully committed Capacitor changes");

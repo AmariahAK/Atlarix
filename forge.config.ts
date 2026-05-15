@@ -28,6 +28,20 @@ function rollupExternalIdToNpmPackageRoot(id: string): string {
   return slash === -1 ? id : id.slice(0, slash);
 }
 
+/** Do not `npm install` into the pruned build — packager `ignore` runs earlier; these must be filtered here. */
+const RENDERER_ONLY_PACKAGES = new Set([
+  "lucide-react",
+  "date-fns",
+  "posthog-js",
+  "posthog-node",
+  "react-shiki",
+  "shiki",
+  "@shikijs",
+  "core-js",
+  "@tanstack",
+  "mermaid",
+]);
+
 // Based on https://github.com/electron/forge/blob/6b2d547a7216c30fde1e1fddd1118eee5d872945/packages/plugin/vite/src/VitePlugin.ts#L124
 const ignore = (file: string) => {
   if (!file) return false;
@@ -69,9 +83,20 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/@anthropic-ai/tokenizer")) {
     return false;
   }
+  // pdfjs-dist is bundled into the main Vite output; do not ship a second full copy under app.asar.
   if (file.startsWith("/node_modules/pdfjs-dist")) {
-    return false;
+    return true;
   }
+  // Force-exclude loose copies from asar (bundled into .vite renderer output or unused in main).
+  if (file.startsWith("/node_modules/lucide-react")) return true;
+  if (file.startsWith("/node_modules/date-fns")) return true;
+  if (file.startsWith("/node_modules/posthog-js")) return true;
+  if (file.startsWith("/node_modules/react-shiki")) return true;
+  if (file.startsWith("/node_modules/@shikijs")) return true;
+  if (file.startsWith("/node_modules/shiki")) return true;
+  if (file.startsWith("/node_modules/core-js")) return true;
+  if (file.startsWith("/node_modules/@tanstack")) return true;
+  if (file.startsWith("/node_modules/mermaid")) return true;
   if (file.startsWith("/node_modules/bindings")) {
     return false;
   }
@@ -98,6 +123,7 @@ const config: ForgeConfig = {
         schemes: ["atlarix"],
       },
     ],
+    /** App icon basename; Packager resolves `.icns` / `.ico` / `.png` per platform from `assets/icon/logo.*`. */
     icon: "./assets/icon/logo",
     executableName: "atlarix", // Fixes Linux 'could not find binary' error (case sensitivity)
 
@@ -122,10 +148,6 @@ const config: ForgeConfig = {
       "better-sqlite3",
       "keytar",
       "@lydell/node-pty",
-      "tree-sitter",
-      "tree-sitter-typescript",
-      "tree-sitter-javascript",
-      "tree-sitter-python",
     ],
     force: true,
   },
@@ -219,9 +241,29 @@ const config: ForgeConfig = {
         if (!id || id.startsWith("node:") || builtins.has(id)) continue;
         npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
       }
-      const toInstall = [...npmRoots];
+      const toInstall = [...npmRoots].filter((pkg) => {
+        const root = pkg.startsWith("@")
+          ? pkg.split("/").slice(0, 2).join("/")
+          : pkg.split("/")[0];
+        if (RENDERER_ONLY_PACKAGES.has(root)) return false;
+        // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
+        if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
+          return false;
+        return true;
+      });
       if (toInstall.length > 0) {
-        const commands = ["install", "--no-package-lock", "--no-save", ...toInstall];
+        // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
+        const commands = [
+          "install",
+          "--omit=dev",
+          "--omit=optional",
+          "--omit=peer",
+          "--no-package-lock",
+          "--no-save",
+          "--no-audit",
+          "--no-fund",
+          ...toInstall,
+        ];
         await new Promise<void>((resolve, reject) => {
           const proc = spawn(npm, commands, {
             cwd: buildPath,
@@ -235,23 +277,6 @@ const config: ForgeConfig = {
           proc.on("error", reject);
         });
       }
-      // Fresh `npm install` in the pruned app dir pulls pristine tree-sitter; postinstall
-      // from the repo root does not run here — patch binding.gyp before Electron rebuild.
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn(
-          process.execPath,
-          [
-            path.join(process.cwd(), "scripts", "patch-tree-sitter-electron-cpp20.cjs"),
-            buildPath,
-          ],
-          { stdio: "inherit", cwd: process.cwd(), shell: false },
-        );
-        proc.on("close", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`patch-tree-sitter exited with code ${code}`));
-        });
-        proc.on("error", reject);
-      });
       // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
       // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
       await rebuild({
@@ -264,12 +289,28 @@ const config: ForgeConfig = {
           "better-sqlite3",
           "keytar",
           "@lydell/node-pty",
-          "tree-sitter",
-          "tree-sitter-typescript",
-          "tree-sitter-javascript",
-          "tree-sitter-python",
         ],
       });
+
+      // After rebuild: remove renderer-only trees from pruned node_modules before asar is produced.
+      // Never delete runtime externals (see vite.main.config `mainRollupExternals`) — e.g. drizzle-orm.
+      const fs = await import("node:fs/promises");
+      const RENDERER_ONLY_DIRS = [
+        "lucide-react",
+        "date-fns",
+        "posthog-js",
+        "posthog-node",
+        "react-shiki",
+        "shiki",
+        "core-js",
+        "mermaid",
+        "@shikijs",
+        "@tanstack",
+      ];
+      for (const pkg of RENDERER_ONLY_DIRS) {
+        const pkgPath = path.join(buildPath, "node_modules", pkg);
+        await fs.rm(pkgPath, { recursive: true, force: true });
+      }
     },
   },
   plugins: [

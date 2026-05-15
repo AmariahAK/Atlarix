@@ -1,5 +1,42 @@
 # Atlarix Changelog
 
+## [8.1.0] (2026-05-11) — Pass 6: Blueprint restoration, unified search, streaming, tool merge
+
+### Pass 6 highlights (this branch)
+
+- **Blueprint:** Restored lazy-parse graph, DB schema + migrations bundle alignment, IPC, `BlueprintCanvas` (click-to-load, 500-node cap), single **`get_blueprint`** tool; structural queries use unified **`search`**.
+- **Unified search:** `search` (`auto` | `text` | `semantic` | `structural`) replaces `search_code` / `find_relevant_files` in core registration; manifests + `mode_system_consistency` test updated.
+- **Streaming / chat UI:** Throttled renderer updates, `@tanstack/react-virtual` message list, post-stream message trim; diagrams/blueprint no longer auto-open the right panel (sources/terminal behavior preserved where applicable).
+- **Dev server:** `DevServerProvider` stops auto-starting dev servers and forcing panel visibility; still parses output/errors for the preview pipeline.
+- **Tool consolidation:** `get_diagram` (type/scope/path/`role`); `check_environment`; `get_file_outline({include_stats})` supersedes **`analyze_context`** tool; `run_tests({path,watch})` supersedes **`test_changes`**; **`git_status`** adds optional **`workspaceId`** session summary (replaces **`get_session_changes`**); **`live_preview({port_only,workspaceId})`** replaces **`get_dev_server_port`**; **`get_project_history({revert_to})`** replaces **`revert_to_snapshot`**; **`request_tools`** description lists current categories.
+- **Diagram UX:** Tool results with `role:"reference"` populate reference chips in **`DiagramPanel`**; diagrams page defers creation to **`get_diagram`** in chat.
+- **PDF attachments:** `pdfjs` uses `GlobalWorkerOptions.workerSrc = ''` with `disableWorker: true` for reliable Electron extraction.
+
+---
+
+## [8.1.0] (2026-05-09) — Pass 7: Blueprint removal + tool consolidation
+
+> **Note:** The Pass 7 changelog below describes an intermediate removal branch. **Pass 6 (above) restores Blueprint and supersedes several Pass 7 tool removals** (e.g. `search_code` → `search`, Blueprint tables re-added). Keep Pass 7 items that still apply (`edit_file`, `memory`, MCP on-demand, mode lists).
+
+### Release highlights
+
+- **Blueprint subsystem removed:** Deleted React Flow canvas (`src/components/blueprint/`, `BlueprintCanvas.tsx`, `BlueprintEditor.tsx`, `PivotAnalysisPanel.tsx`, `LayoutToggle.tsx`), all `src/lib/blueprint/`, `src/lib/cache/blueprint-cache.ts`, `src/lib/pivot/`, `src/ipc/handlers/blueprint_handlers.ts`, `src/ipc/handlers/pivot_analysis_handlers.ts`. Removed all `blueprint:*` and `pivot:*` IPC channels from `preload.ts`. Settings tier (`blueprintInjectionModePreference`, `blueprintDebugTrace`, `blueprintDebugFile`, `blueprintAlwaysShowBeacons`) deleted. Mermaid Live diagrams stay (`DiagramPanel.tsx` simplified to Mermaid-only).
+- **Tool consolidation (~60 → ~28):** unified tools — `search_code({mode: "keyword"|"regex"|"semantic"})` (absorbs `grep_search` / `semantic_search`); `edit_file({operation: "replace"|"insert"|"delete"|"section"})` (absorbs `replace_code` / `insert_code` / `delete_lines` / `edit_file_section`); `memory({operation: "recall"|"search"})` (absorbs `recall_memory` / `search_memory`); `diagnose_issue({analysis_type: "diagnose"|"health_check"|"change_impact"})` (absorbs `health_check` / `get_change_impact`); `stream_terminal_output({source: "terminal"|"pipeline"})` (absorbs `stream_pipeline_logs`); `web_search({deep: true})` (absorbs the old multi-source `deep_search`). `deep_research` (agentic loop) stays standalone. Deleted: `template-tools`, `ai-template-tools`, `atlarix-ignore-tools`, `refactoring-tools`, `reference-project-tools`, `view_symbol`.
+- **MCP scoping rework (Part F):** Workspace chats no longer auto-merge every MCP tool. New tools `list_available_mcps` + `mcp_call` for on-demand discovery and invocation. Chat-only mode keeps global MCP pre-loading.
+- **Skills wired to ToolRegistry (Part G):** New tools `get_active_skills` + `list_installed_skills` give the model first-class access to installed skills. Removed the dead `if(false)` skills injection block in `chat_stream_handlers.ts`.
+- **Mode-aware tool surface (Part H):** New `<mode_system>` block in `system_prompt.ts` + `chat_only_handlers.ts` declares per-mode tool lists. New smoke test `src/__tests__/mode_system_consistency.test.ts` asserts the prompt lists stay in sync with runtime `modeAllowlist`.
+- **Migration 0043:** New SQL migration drops `blueprints`, `pivot_nodes`, `pivot_edges`, `pivot_containers`, `pivot_beacons`, `blueprint_snapshots` and rewrites `project_snapshots` (drops `blueprint_json`, tightens `trigger` enum from `{blueprint_change, plan_update, build_complete, session_end}` → `{plan_update, build_complete, session_end}` with `blueprint_change` rows mapped to `plan_update`). Bundled SQL regenerated; `migration_seed_verification.ts` extended.
+- **Dependency audit (Part I):** Removed `@xyflow/react`, `elkjs`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`. Removed `smoke:tree-sitter` script and `patch-tree-sitter-electron-cpp20.cjs` postinstall. Retained `konva` / `react-konva` (Pro Annotator) and `@opentelemetry/*` (telemetry). 16 packages removed via `npm install`.
+- **Tool registry telemetry:** `initializeTools()` now logs the registered tool count and the sorted name list at startup.
+
+### Notes
+
+- Stubbed `searchBlueprintBm25()` returns `null` so `search_code({mode:"semantic"})` cleanly falls back to file-walk semantic search.
+- `parseWithTreeSitter()` and `isTreeSitterAvailable()` are now no-op stubs (return `null` / `false`); workspace analysis falls through to existing heuristics without the pivot parser path.
+- Skill manifests (`src/lib/skills/tool-manifest.ts`) and skill .md files (architect / builder / debugger / researcher / reviewer / orchestrator / focused-writer / focused-researcher / ask-mode / debug-mode) updated to consolidated tool names.
+
+---
+
 ## [8.0.4] (2026-05-07)
 
 ### Release highlights
@@ -467,7 +504,7 @@ Major architectural release: agent execution, context, snapshots, parallel work,
 
 - **Diagram git:** [`diagram_git_tracker.ts`](../src/lib/diagram/diagram_git_tracker.ts) — skip `userData` and `.cursor` when mirroring the workspace into the internal diagram repo so `git add` no longer fails with “paths are ignored by .gitignore” when the project contains a `userData` tree.
 - **Blueprint:** [`BlueprintCanvas.tsx`](../src/components/preview_panel/BlueprintCanvas.tsx) — ELK layout dedupes only **after** IPC succeeds (`elkCompletedForKeyRef`), clears on structure reset and manual Re-layout, fixing Strict Mode / failed first attempt leaving nodes stacked at `(0,0)`.
-- **Preview:** [`PreviewIframe.tsx`](../src/components/preview_panel/PreviewIframe.tsx) — iframe uses **`appUrl ?? devServerUrl`** so managed Next/Vite dev servers show in Preview without dyad proxy `runApp` URL.
+- **Preview:** [`PreviewIframe.tsx`](../src/components/preview_panel/PreviewIframe.tsx) — iframe uses **`appUrl ?? devServerUrl`** so managed Next/Vite dev servers show in Preview without the Atlarix preview proxy `runApp` URL.
 
 ---
 

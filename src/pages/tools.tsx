@@ -179,15 +179,6 @@ const FEATURES: ToolFeature[] = [
       "Build uses progressive registration: core tools plus tools already used this session get full schemas for the API; the manifest tells the model what else exists. Agent mode uses a single broader tool bundle. Ask mode uses read-only and allowlisted tools with the same loader pattern for eligible tools.",
     link: { label: "Home → Chat", to: "/" },
   },
-  {
-    id: "blueprint-containers-beacons",
-    title: "Blueprint — Containers & Beacons",
-    shortDescription: "Design architecture with containers and beacons. Use full blueprint or targeted slices, compare live state, then generate code and plans.",
-    category: "diagram",
-    steps: ["Open Diagram tab, switch to Blueprint mode", "Add containers and beacons manually or ask AI", "Use compare_blueprint_to_live to see desired vs actual", "Generate `.atlarix/ATLARIX_PLAN.md` and code from Blueprint delta when ready"],
-    howItWorks: "Blueprint tools let the AI or you design full architecture, fetch focused slices for specific folders/files, then compare to live and drive `.atlarix/ATLARIX_PLAN.md` plus code generation.",
-    link: { label: "Diagram tab → Blueprint", to: "/" },
-  },
 ];
 
 const PER_PAGE = 4;

@@ -19,7 +19,9 @@ import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { SmartContextMode, UserSettings, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
+  constructSystemPromptParts,
   buildSystemPromptWithProjectInstructions,
+  type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
@@ -79,12 +81,16 @@ import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
 import {
+  normalizeToolInputSchemaForAiSdk,
+  PERMISSIVE_TOOL_JSON_SCHEMA,
+} from "@/lib/ai/normalize-tool-schema";
+import {
   clearToolsUsedForTurn,
   getToolsUsedThisTurn,
   recordToolUseForTurn,
 } from "./turn-tool-tracking";
 import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
-import { removeThinkingTags } from "../utils/thinking_tags";
+import { removeThinkingTags, stripThinkBlocks } from "../utils/thinking_tags";
 import { generateProblemReport } from "../processors/tsc";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
 import {
@@ -191,9 +197,16 @@ import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
+import { runMidLoopCompaction, pruneToolOutputsInModelMessages } from "@/lib/context/mid_loop_compaction";
+import { maybeEscalateTier } from "../../lib/routing/heuristic-classifier";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
-import { loadInstalledSkillsForSession } from "@/lib/skills/installed-skills";
+import {
+  loadPrioritySkillsForWorkspace,
+  formatPrioritySkillsForPrompt,
+} from "@/lib/skills/priority-skill-loader";
+import { SubscriptionManager } from "@/lib/SubscriptionManager";
+// Pass 7: loadInstalledSkillsForSession is now reached through the get_active_skills tool.
 import {
   ArchitectPlanPayloadSchema,
   DebuggerRootCauseSchema,
@@ -208,7 +221,6 @@ import {
 } from "../../lib/auth/require_auth_session";
 import * as Sentry from "@sentry/electron/main";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
-import { buildWorkforceWorkspaceContextBlock } from "../../lib/workforce/WorkspaceContext";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
 import { shouldAutoApprovePermissions } from "./autonomous-permissions";
@@ -229,7 +241,12 @@ import {
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
 import { readAtlarixMd, writeAtlarixMd } from "../../lib/project-memory";
-import { estimateTokens, getContextWindow } from "../utils/token_utils";
+import {
+  estimateTokens,
+  getContextWindow,
+  getContextWindowDetailed,
+  setCompassContextWindow,
+} from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
 import { settingsPatchForWorkMode } from "../../lib/work-mode";
@@ -278,10 +295,6 @@ const pendingModeChangeResolvers = new Map<
   { finish: (approved: boolean) => void }
 >();
 const MODE_CHANGE_USER_WAIT_MS = 120_000;
-const pendingWorkspacePermissionResolvers = new Map<
-  string,
-  { resolve: (result: { dismissed: boolean; grantedServices: string[] }) => void }
->();
 
 export function waitForModeChangeResponse(chatId: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -319,11 +332,7 @@ export function resolveModeChange(chatId: number, approve: boolean): void {
 function unwrapRegistryToolResult(execResult: unknown): unknown {
   if (!execResult || typeof execResult !== "object") return execResult;
   const o = execResult as Record<string, unknown>;
-  if (
-    o.__permission_required ||
-    o.__workspace_permissions_requested ||
-    o.__workforce_session_scope_needed
-  ) {
+  if (o.__permission_required) {
     return execResult;
   }
   if (o.success === true && o.result != null && typeof o.result === "object") {
@@ -353,32 +362,6 @@ function emitModeChangedIfApplied(
     newMode: (newMode ?? settingsSnapshot.workModePreference) as string,
     settings: settingsSnapshot,
   });
-}
-
-function workspacePermissionKey(chatId: number, requestId: string): string {
-  return `${chatId}:${requestId}`;
-}
-
-export function waitForWorkspacePermissionResponse(
-  chatId: number,
-  requestId: string,
-): Promise<{ dismissed: boolean; grantedServices: string[] }> {
-  return new Promise((resolve) => {
-    pendingWorkspacePermissionResolvers.set(workspacePermissionKey(chatId, requestId), { resolve });
-  });
-}
-
-export function resolveWorkspacePermissionResponse(
-  chatId: number,
-  requestId: string,
-  result: { dismissed: boolean; grantedServices: string[] },
-): void {
-  const key = workspacePermissionKey(chatId, requestId);
-  const r = pendingWorkspacePermissionResolvers.get(key);
-  if (r) {
-    pendingWorkspacePermissionResolvers.delete(key);
-    r.resolve(result);
-  }
 }
 
 /** Abort reason when the task ledger shows all steps done — not a user cancel. */
@@ -565,8 +548,53 @@ async function runAutonomousBuildVerificationAfterTaskComplete(params: {
   }
 }
 
-/** Fix: Workforce-2 — prompt UI for session scope, then re-run tool. */
-async function runToolExecuteWithWorkforceSessionGate(
+/**
+ * FIX 6: Build an `emitActivity` callback for `runMidLoopCompaction` that
+ * (a) forwards the original `type: "background"` payload (keeps the existing
+ * token-bar pulse working via `useCompactionTokenVisuals`) AND (b) mirrors
+ * the running/done lifecycle as a `type: "compaction"` event with the
+ * banner-friendly label that `CompactionProgressStrip` listens for.
+ *
+ * The compaction-typed event is intentionally NOT routed through
+ * `chat-activity-normalize.ts` — the banner subscribes to raw IPC like
+ * `SummarizationProgressStrip` does, so the un-normalized event is fine.
+ */
+function emitCompactionMirroredActivity(
+  sender: IpcMainInvokeEvent["sender"],
+  chatId: number,
+): (payload: {
+  id: string;
+  type: string;
+  label: string;
+  status: "running" | "done";
+  detail?: string;
+  timestamp: number;
+  chatId: number;
+}) => void {
+  return (payload) => {
+    safeSend(sender, "chat:activity", payload);
+    if (
+      payload.type === "background" &&
+      payload.label === "Summarizing in-task context"
+    ) {
+      safeSend(sender, "chat:activity", {
+        id: `${payload.id}-banner`,
+        type: "compaction",
+        status: payload.status,
+        label:
+          payload.status === "running"
+            ? "Compressing context to continue..."
+            : "Context compressed — continuing task",
+        timestamp: Date.now(),
+        chatId,
+        detail: payload.detail,
+      });
+    }
+  };
+}
+
+/** Execute a tool through ToolRegistry, recording ledger updates and honoring task-complete signals. */
+async function runToolExecute(
   toolName: string,
   executeArgs: Record<string, unknown>,
   sender: IpcMainInvokeEvent["sender"],
@@ -593,32 +621,31 @@ async function runToolExecuteWithWorkforceSessionGate(
     }
   };
 
-  let result: unknown = await ToolRegistry.execute(toolName, executeArgs);
+  const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
   if (streamOpts?.turnId) {
     recordToolUseForTurn(streamOpts.turnId, toolName);
   }
   maybeStopStreamForCompleteLedger();
-  if (
-    result &&
-    typeof result === "object" &&
-    (result as { __workforce_session_scope_needed?: boolean }).__workforce_session_scope_needed === true
-  ) {
-    const { waitForWorkforceSessionScope } = await import("./workforce_session_handlers");
-    safeSend(sender, "workforce:prompt-session-scope", { chatId });
-    const ok = await waitForWorkforceSessionScope(chatId, 600_000);
-    if (!ok) {
-      return {
-        success: false,
-        error: "Workforce session scope was not set (cancelled or timed out).",
-      };
-    }
-    result = await ToolRegistry.execute(toolName, executeArgs);
-    if (streamOpts?.turnId) {
-      recordToolUseForTurn(streamOpts.turnId, toolName);
-    }
-    maybeStopStreamForCompleteLedger();
-  }
   return result;
+}
+
+/** Optional callback injected into `search` so the UI shows resolved engine (text / semantic-lite / etc.). */
+function attachSearchRoutingActivity(
+  execArgs: Record<string, unknown>,
+  sender: IpcMainInvokeEvent["sender"],
+  chatId: number,
+) {
+  execArgs._onSearchRouting = (detail: string) => {
+    safeSend(sender, "chat:activity", {
+      id: `search-route-${chatId}-${Date.now()}`,
+      type: "tool_use",
+      label: "Search",
+      detail,
+      status: "done",
+      timestamp: Date.now(),
+      chatId,
+    });
+  };
 }
 
 async function resolveAskUserToolResult(
@@ -681,6 +708,48 @@ const partialResponses = new Map<number, string>();
 /** DB: assistant placeholder row receiving post–ask_user continuation (for ordering injected user Q+A). */
 const askUserContinuationAssistantIdByChatId = new Map<number, number>();
 
+// ─── FIX 4: stream reconnect plumbing ──────────────────────────────────────
+// Last successful `chat:stream` request per chat. Re-dispatched when the
+// renderer fires `chat:stream:reconnect` after the auto-retry sequence ran
+// out. Cleared on chat delete is unnecessary; entries are overwritten on the
+// next normal `chat:stream` invocation for the same chatId.
+const lastStreamRequest = new Map<number, ChatStreamParams>();
+
+const RECONNECT_DELAYS_MS = [2000, 5000, 10000];
+
+/**
+ * Distinguish a network/provider mid-stream failure (worth silently retrying)
+ * from a user abort or a malformed-request error (must not be retried).
+ *
+ * AbortError-class exceptions and `abortController.signal.aborted` already
+ * short-circuit elsewhere; this helper is defensive about the message-only
+ * cases the AI SDK surfaces when fetch socket dies.
+ */
+function isNetworkStreamError(err: unknown): boolean {
+  if (!err) return false;
+  if ((err as { name?: string })?.name === "AbortError") return false;
+  if ((err as { name?: string })?.name === "APICallError") return true;
+  const msg = String((err as { message?: unknown })?.message ?? err);
+  return /terminated|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|premature close|connection (?:reset|refused|closed)|network/i.test(
+    msg,
+  );
+}
+
+/**
+ * Thrown after the silent retry sequence exhausts itself. Carries the
+ * accumulated partial response so the outer catch can include it in the
+ * `chat:stream:disconnected` IPC payload — the renderer keeps it visible
+ * while the user decides whether to `[Reconnect]` or `[Continue]`.
+ */
+class NetworkStreamDisconnectedError extends Error {
+  partialResponse: string;
+  constructor(partialResponse: string) {
+    super("Network stream disconnected after retries");
+    this.name = "NetworkStreamDisconnectedError";
+    this.partialResponse = partialResponse;
+  }
+}
+
 
 /**
  * Abort all active AI streams - call on app quit to save tokens
@@ -706,7 +775,7 @@ export function abortAllStreams(): void {
 }
 
 // Directory for storing temporary files
-const TEMP_DIR = path.join(os.tmpdir(), "dyad-attachments");
+const TEMP_DIR = path.join(os.tmpdir(), "atlarix-attachments");
 
 // Common helper functions
 const TEXT_FILE_EXTENSIONS = [
@@ -755,8 +824,66 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-/** Abort when the model has an unfinished tool call and no stream chunks arrive for this long. */
-const STREAM_TOOL_STALL_MS = 30_000;
+/**
+ * Abort when the model has an unfinished tool call and no stream chunks arrive
+ * for this long. Bumped from 30s → 60s in tandem with the Ask-mode repetition
+ * guard (`agentic-loop-repetition.ts`): the guard now catches read_file /
+ * explore_folder / search loops *before* the provider goes silent, so the
+ * watchdog only needs to fire on genuinely stalled streams (network drop,
+ * provider hang) where a longer window is safer than an over-eager abort
+ * during legitimate tool-heavy turns on slower Compass tiers.
+ */
+const STREAM_TOOL_STALL_MS = 60_000;
+
+type TierSourceTag =
+  | "user_setting"
+  | "auto"
+  | "override"
+  | "force_thinking"
+  | "heuristic";
+
+function tierLabelForActivity(tier: string): string {
+  switch (tier) {
+    case "thinking":
+      return "Deep-thinking tier";
+    case "balanced":
+      return "Balanced tier";
+    case "fast":
+      return "Fast tier";
+    default:
+      return `${tier} tier`;
+  }
+}
+
+function tierDetailForActivity(args: {
+  tier: string;
+  source: TierSourceTag;
+  providerId: string;
+  modelName: string;
+  autoModelRouting: boolean;
+  reason?: string;
+}): string {
+  const friendlySource = (() => {
+    switch (args.source) {
+      case "user_setting":
+        return args.autoModelRouting
+          ? "manual model (auto-routing disabled for this provider)"
+          : "manual model selection";
+      case "auto":
+        return "auto-routing classifier";
+      case "override":
+        return "per-turn override";
+      case "force_thinking":
+        return "force-thinking opt-in";
+      case "heuristic":
+        return "Atlarix heuristic fallback";
+      default:
+        return args.source;
+    }
+  })();
+  const base = `${args.providerId}/${args.modelName} · source: ${friendlySource}`;
+  return args.reason ? `${base} · ${args.reason}` : base;
+}
 
 // Helper function to process stream chunks
 async function processStreamChunks({
@@ -769,6 +896,7 @@ async function processStreamChunks({
   onFirstTextDelta,
   onFirstReasoningDelta,
   onFirstTextAfterReasoning,
+  onStreamStall,
 }: {
   fullStream: AsyncIterableStream<TextStreamPart<ToolSet>>;
   fullResponse: string;
@@ -782,6 +910,14 @@ async function processStreamChunks({
   onFirstTextDelta?: () => void;
   onFirstReasoningDelta?: () => void;
   onFirstTextAfterReasoning?: () => void;
+  /**
+   * Invoked synchronously when the stall watchdog is about to abort the
+   * stream (no chunks arrived for STREAM_TOOL_STALL_MS with at least one
+   * pending tool call). Callers should emit a `chat:activity` of type
+   * `stream_stall_aborted` and a `chat:response:error` so the renderer
+   * exits the "Thinking..." state instead of hanging forever.
+   */
+  onStreamStall?: () => void;
 }): Promise<{ fullResponse: string; incrementalResponse: string }> {
   let incrementalResponse = "";
   let inThinkingBlock = false;
@@ -818,6 +954,16 @@ async function processStreamChunks({
       logger.warn(
         `[stream-stall] No stream progress for ${STREAM_TOOL_STALL_MS}ms with pending tool call(s); aborting chat ${chatId}`,
       );
+      // Notify the caller so the UI receives a clear error + activity entry
+      // before the abort silently kills the stream (which would otherwise
+      // leave the renderer stuck on "Thinking..." indefinitely). The callback
+      // is wrapped in try/catch — a renderer-side failure must not block the
+      // abort path.
+      try {
+        onStreamStall?.();
+      } catch (cbErr) {
+        logger.warn(`[stream-stall] onStreamStall callback threw:`, cbErr);
+      }
       abortController.abort();
     }
   }, 1000);
@@ -1098,20 +1244,6 @@ export function registerChatStreamHandlers() {
   );
 
   ipcMain.handle(
-    "respond-workspace-permissions",
-    async (
-      _event,
-      payload: { chatId: number; requestId: string; dismissed: boolean; grantedServices?: string[] },
-    ): Promise<{ ok: boolean }> => {
-      resolveWorkspacePermissionResponse(payload.chatId, payload.requestId, {
-        dismissed: payload.dismissed,
-        grantedServices: Array.isArray(payload.grantedServices) ? payload.grantedServices : [],
-      });
-      return { ok: true };
-    },
-  );
-
-  ipcMain.handle(
     "chat:submit-user-question-answer",
     async (
       event,
@@ -1221,10 +1353,16 @@ export function registerChatStreamHandlers() {
     return { ok: true };
   });
 
-  ipcMain.handle("chat:stream", async (event, req: ChatStreamParams) => {
+  const chatStreamHandler = async (
+    event: Electron.IpcMainInvokeEvent,
+    req: ChatStreamParams,
+  ) => {
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
     askUserContinuationAssistantIdByChatId.delete(req.chatId);
+    // FIX 4: remember this request so the renderer's [Reconnect] button can
+    // re-dispatch the exact same turn via `chat:stream:reconnect`.
+    lastStreamRequest.set(req.chatId, req);
 
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
@@ -1245,6 +1383,46 @@ export function registerChatStreamHandlers() {
         } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
       };
+
+      /**
+       * Shared stall handler wired into every `runStreamRoundWithEmptyOutputRetry`
+       * call site (agent / ask / build). Triggered by the watchdog inside
+       * `processStreamChunks` after STREAM_TOOL_STALL_MS of silence with a
+       * pending tool call. Surfaces a `chat:activity` of type
+       * `stream_stall_aborted` plus a `chat:response:error` so the renderer
+       * exits the "Thinking..." state. The watchdog still calls
+       * `abortController.abort()` after this returns; we do NOT call
+       * `ensureTerminal` here so the abort path runs through its normal
+       * cleanup (avoiding double-end emissions).
+       */
+      let streamStallReportedAt = 0;
+      const handleStreamStall = () => {
+        // Coalesce repeated fires (the watchdog only fires once per stream
+        // because it aborts immediately after, but guard regardless).
+        if (Date.now() - streamStallReportedAt < 5000) return;
+        streamStallReportedAt = Date.now();
+        const stallSeconds = Math.round(STREAM_TOOL_STALL_MS / 1000);
+        sentryAddBreadcrumbSafe({
+          category: "stream",
+          message: "stream_stall_abort",
+          level: "warning",
+          data: { chatId: req.chatId, stallSeconds },
+        });
+        safeSend(event.sender, "chat:activity", {
+          id: `stream-stall-${Date.now()}`,
+          type: "stream_stall_aborted",
+          label: "Stream paused — provider stopped responding",
+          detail: `The model stopped sending output for ${stallSeconds}s while a tool call was pending. Send another message to retry, or switch model tier.`,
+          status: "done",
+          timestamp: Date.now(),
+          chatId: req.chatId,
+        });
+        safeSend(event.sender, "chat:response:error", {
+          chatId: req.chatId,
+          error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}Stream paused: the model stopped sending output for ${stallSeconds} seconds while a tool call was pending. Retry, or switch tier.`,
+        });
+      };
+
       try {
         try {
           await requireAuthSession();
@@ -1307,7 +1485,7 @@ export function registerChatStreamHandlers() {
         });
 
         const fileUploadsState = FileUploadsState.getInstance();
-        let dyadRequestId: string | undefined;
+        let engineRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
         let autoRoutedTierForTurn: ModelTier | null = null;
 
@@ -1574,7 +1752,7 @@ export function registerChatStreamHandlers() {
 
           if (attachment.attachmentType === "upload-to-codebase") {
             // For upload-to-codebase, create a unique file ID and store the mapping
-            const fileId = `DYAD_ATTACHMENT_${index}`;
+            const fileId = `ATLARIX_ATTACHMENT_${index}`;
 
             fileUploadsState.addFileUpload(
               { chatId: req.chatId, fileId },
@@ -1706,7 +1884,7 @@ ${componentSnippet}
       // Only Atlarix Pro requests have request ids.
       if (settings.enableAtlarixPro) {
         // Generate requestId early so it can be saved with the message
-        dyadRequestId = uuidv4();
+        engineRequestId = uuidv4();
       }
 
       // Add a placeholder assistant message immediately
@@ -1725,7 +1903,7 @@ ${componentSnippet}
             chatId: req.chatId,
             role: "assistant",
             content: "", // Start with empty content
-            requestId: dyadRequestId,
+            requestId: engineRequestId,
             sourceCommitHash: await getCurrentCommitHash({
               path: resolveAppPath(chat.app.path),
             }),
@@ -1987,8 +2165,20 @@ ${componentSnippet}
           }
           }
         }
-        const { modelClient, isEngineEnabled, isSmartContextEnabled } =
-          await getModelClient(effectiveModel, settings, mainOptions);
+        // `modelClient` is `let` (not destructured const) so the mid-stream
+        // tier-escalation guard can rebind it when Auto-routing decides a
+        // tool-heavy turn deserves `balanced` or `thinking` halfway through.
+        // `isEngineEnabled` / `isSmartContextEnabled` stay tied to the initial
+        // client because they encode capabilities used during system-prompt
+        // assembly and would be unsafe to flip mid-turn.
+        const initialModelClientBundle = await getModelClient(
+          effectiveModel,
+          settings,
+          mainOptions,
+        );
+        let modelClient = initialModelClientBundle.modelClient;
+        const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
+        const isSmartContextEnabled = initialModelClientBundle.isSmartContextEnabled;
         const forceThinkingNativeSupported =
           req.forceThinkingTier === true
             ? hasNativeDeepThinkingSupport(
@@ -2002,6 +2192,57 @@ ${componentSnippet}
         if (req.forceThinkingTier === true && forceThinkingNativeSupported) {
           contextBudgetTier = "thinking";
         }
+
+        // FIX 3: tier diagnostic log. Ephemeral workspace chats already share
+        // the same resolution path as persisted chats; this log surfaces the
+        // actual source so we can confirm whether any "stuck on fast" symptom
+        // originates from user_setting (settings.selectedModel), auto routing,
+        // an explicit override, or the forceThinking branch above.
+        const tierSource: "user_setting" | "auto" | "override" | "force_thinking" =
+          req.forceThinkingTier === true && forceThinkingNativeSupported
+            ? "force_thinking"
+            : req.modelOverride
+              ? "override"
+              : settings.autoModelRouting && getEffectiveModel(settings).provider === "auto"
+                ? "auto"
+                : "user_setting";
+        logger.log(
+          `[stream:${req.chatId}] tier=${contextBudgetTier} ` +
+          `source=${tierSource} model=${effectiveModel.provider}/${effectiveModel.name} ` +
+          `ephemeral=${isEphemeralWorkspace}`,
+        );
+
+        // Surface the tier decision to the UI activity log so the user can see
+        // exactly why a turn used `fast` (e.g. "source=user_setting" = manual
+        // selection so no auto-routing inspected the prompt). Mirrors the
+        // `model_selection` shape so the renderer needs no new render code.
+        safeSend(event.sender, "chat:activity", {
+          id: `tier-selection-${req.chatId}-${Date.now()}`,
+          type: "tier_selection",
+          label: tierLabelForActivity(contextBudgetTier),
+          detail: tierDetailForActivity({
+            tier: contextBudgetTier,
+            source: tierSource,
+            providerId: effectiveModel.provider,
+            modelName: effectiveModel.name,
+            autoModelRouting: settings.autoModelRouting === true,
+          }),
+          status: "done",
+          timestamp: Date.now(),
+          chatId: req.chatId,
+          modelId: `${effectiveModel.provider}/${effectiveModel.name}`,
+        });
+
+        // FIX 5: log the true context window for this dispatch. The first
+        // lookup per (provider, model) hits "live" (catalog fetch); subsequent
+        // calls in the same process hit "cache" via the module-level memo.
+        // "fallback" means the catalog had no contextWindow and we used the
+        // 200K default — investigate if this fires for a model we know.
+        const budgetDetail = await getContextWindowDetailed(effectiveModel, req.chatId);
+        logger.log(
+          `[budget] model=${effectiveModel.provider}/${effectiveModel.name} ` +
+          `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
+        );
 
         let deepThinkCounselPromptBlock: string | null = null;
         const suppressNativeThinkingForDeepCounsel =
@@ -2217,11 +2458,14 @@ ${componentSnippet}
           let limitedMessageHistory = messageHistory;
           let contextSummaryForSystem: string | null = null;
 
-          // PASS2: Compaction is now model-triggered via the compress_context tool.
-          // The model calls compress_context({ reason: "..." }) when it needs more room.
-          // Do not re-enable automatic pre-dispatch compaction — remove this if(false) wrapper
-          // and the tool registration in compress-context-tool.ts together if reverting.
-          if (false) {
+          // Next-message auto-summarize.
+          // - Mid-turn pressure is handled by `compactAgenticMessagesIfNeeded` inside
+          //   the SMART AGENTIC TOOL LOOP (see below), so this path only fires when
+          //   the user's *new* turn would otherwise blow the per-tier budget.
+          // - The `compress_context` tool remains as the model-triggered escape hatch.
+          // - Gated by `useAutoSummarize` so ephemeral / opted-out users skip it.
+          // Honors the TokenBar UI copy that says "auto-summarize will run on next message".
+          if (useAutoSummarize) {
             const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
             const messageHistoryTokens = msgList.reduce(
               (acc, m) => acc + estimateTokens(m.content || ""),
@@ -2341,13 +2585,29 @@ ${componentSnippet}
             }
           }
 
-          const contextSize = Math.min(await getContextWindow(), 128_000);
+          const contextSize = await getContextWindow(effectiveModel, req.chatId);
           const chatMode: "ask" | "build" =
             settings.selectedChatMode === "agent"
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
+
+          // PASS8 A2: Compute effectiveWorkMode before constructing the system prompt
+          // so the active mode is the only one rendered in <mode_system>.
+          const intentModeForContext = settings.intentMode ?? chatMode;
+          const effectiveWorkMode: WorkMode =
+            intentModeForContext === "auto"
+              ? (chatMode === "build" ? "build" : "ask")
+              : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
+          const modeBlockKey: ModeSystemKey | undefined =
+            (effectiveWorkMode === "ask" ||
+              effectiveWorkMode === "plan" ||
+              effectiveWorkMode === "build" ||
+              effectiveWorkMode === "debug" ||
+              effectiveWorkMode === "review")
+              ? (effectiveWorkMode as ModeSystemKey)
+              : undefined;
+
           let baseSystemPrompt: string;
-          let blueprintRequiredBlockMessage: string | null = null;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
               where: and(
@@ -2360,24 +2620,20 @@ ${componentSnippet}
               workspacePromptContent: workspacePromptRow?.content ?? null,
               contextSize,
               chatMode,
+              effectiveWorkMode: modeBlockKey,
               userPrompt: userPrompt,
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
             });
           } else {
             baseSystemPrompt = constructSystemPrompt({
               chatMode,
+              effectiveWorkMode: modeBlockKey,
               contextSize,
               userPrompt,
               enableTurboEditsV2: isTurboEditsV2Enabled(settings),
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
             });
           }
-
-          const intentModeForContext = settings.intentMode ?? chatMode;
-          const effectiveWorkMode: WorkMode =
-            intentModeForContext === "auto"
-              ? (chatMode === "build" ? "build" : "ask")
-              : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
           let contextSections: ContextSection[] = [];
 
           const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
@@ -2462,35 +2718,51 @@ ${componentSnippet}
                 content: `[Active Skill: ${modeSkillName}]\n${modeSkillBody}`,
               });
             }
+
+            // WORKFORCE Feature 1: repo-scoped priority skills from .atlarix/skills/.
+            // Injected ahead of the active mode skill (priority -2). The `priority: true`
+            // frontmatter flag only takes effect for Workforce accounts; Free/Pro still
+            // load files in the folder as regular local skills.
+            if (hasWorkspace && appPath) {
+              try {
+                const isWorkforce =
+                  SubscriptionManager.getEffectiveTier() === "workforce";
+                const prioritySkills = await loadPrioritySkillsForWorkspace(
+                  appPath,
+                  isWorkforce,
+                );
+                if (prioritySkills.length > 0) {
+                  const block = formatPrioritySkillsForPrompt(
+                    prioritySkills,
+                    modeKey,
+                  );
+                  if (block.trim()) {
+                    contextSections.push({
+                      name: "repoSkills",
+                      priority: -2,
+                      content: block,
+                    });
+                    const priorityCount = prioritySkills.filter((s) => s.priority).length;
+                    const localCount = prioritySkills.length - priorityCount;
+                    logger.info(
+                      `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${modeKey}"`,
+                    );
+                  }
+                }
+              } catch (repoSkillErr) {
+                logger.warn(
+                  "[priority-skills] Failed to load repo skills:",
+                  repoSkillErr,
+                );
+              }
+            }
           } catch (skillErr) {
             logger.warn("[skills] Failed to load mode skill:", skillErr);
           }
 
-          // PASS5: Installed skills are now managed via the Skills Settings UI (Pass 4).
-          // Skills are injected on-demand via tool call, not pre-dispatched.
-          // The installedSkills DB table and loader remain intact for the tool handler.
-          if (false) {
-            try {
-              const installed = await loadInstalledSkillsForSession({
-                workspacePath: hasWorkspace && appPath ? appPath : undefined,
-                maxTotalSkills: 10,
-                maxCharsPerSkill: 12_000,
-                maxTotalChars: 40_000,
-              });
-              if (installed.length > 0) {
-                const body = installed
-                  .map((s) => `[Installed Skill: ${s.name} (${s.id})]\n${s.content}`)
-                  .join("\n\n");
-                contextSections.push({
-                  name: "installedSkills",
-                  priority: -0.5,
-                  content: body,
-                });
-              }
-            } catch (installedErr) {
-              logger.warn("[skills] Failed to load installed skills:", installedErr);
-            }
-          }
+          // Pass 7: Installed skills are accessed on-demand via the
+          // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
+          // The legacy pre-injection block has been removed.
           const shouldCreateTaskLedger =
             settings.selectedChatMode === "build" ||
             settings.selectedChatMode === "agent" ||
@@ -2818,109 +3090,13 @@ ${componentSnippet}
             /* non-fatal */
           }
 
-          // PASS5: Workforce workspace context is heavy and tier-specific.
-          // Removed from default pre-dispatch. Can be re-enabled as a tool call
-          // for Workforce tier users in a future pass.
-          if (false) {
-            // v4.0 Workforce: inject Workspace Context block (connected extensions) for Workforce tier only
-            try {
-              const workforceBlock = await buildWorkforceWorkspaceContextBlock(
-                req.chatId < 0 ? null : req.chatId,
-              );
-              const workforceText: string = String(workforceBlock ?? "");
-              if (workforceText.trim()) {
-                contextSections.push({
-                  name: "workspaceAnalysis",
-                  priority: 3,
-                  content: workforceText,
-                });
-                logger.info("Injected Workforce workspace context block");
-              }
-            } catch (workforceErr) {
-              logger.warn("Failed to build Workforce workspace context:", workforceErr);
-            }
-          }
+          // Pass 7: Workforce workspace context block deleted along with the
+          // Token Vault subsystem; per-extension state now lives in MCP server
+          // env vars.
 
-          // PASS5: Blueprint/Diagram is now tool-driven only.
-          // The model calls get_blueprint / query_blueprint on demand.
-          // Removing this also eliminates the 8s hang source.
-          // Do not re-enable without removing the timeout wrapper too.
-          if (false) {
-          if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0 && appPath) {
-            try {
-              const { getBlueprintForWorkspace } = await import("./blueprint_handlers");
-              const {
-                resolveBlueprintInjectionMode,
-                buildBlueprintSystemPromptInjection,
-                isBlueprintEffectivelyEmpty,
-                blueprintFirstBlockedMessage,
-              } = await import("@/lib/blueprint/blueprintPromptTiers");
-
-              const BLUEPRINT_LOAD_TIMEOUT_MS = 8000;
-              const bp = await Promise.race([
-                getBlueprintForWorkspace(effectiveAppId),
-                new Promise<never>((_, reject) =>
-                  setTimeout(() => reject(new Error("blueprint_load_timeout")), BLUEPRINT_LOAD_TIMEOUT_MS),
-                ),
-              ]);
-              const bpPref = settings.blueprintInjectionModePreference ?? "auto";
-              const explicitFromPreference =
-                bpPref === "auto"
-                  ? undefined
-                  : (bpPref as "ask" | "plan" | "build" | "debug");
-              const effectiveExplicitBlueprintMode =
-                req.blueprintInjectionMode ?? explicitFromPreference;
-              const injectionMode = resolveBlueprintInjectionMode({
-                chatMode,
-                userPrompt: userPrompt || req.prompt,
-                explicitBlueprintMode: effectiveExplicitBlueprintMode,
-              });
-              const debugTraceForBlueprint =
-                injectionMode === "debug"
-                  ? (req.blueprintDebugTrace?.trim() ||
-                      settings.blueprintDebugTrace?.trim() ||
-                      undefined)
-                  : undefined;
-              const debugFileForBlueprint =
-                injectionMode === "debug"
-                  ? (req.blueprintDebugFile?.trim() ||
-                      settings.blueprintDebugFile?.trim() ||
-                      undefined)
-                  : undefined;
-              const emptyBp = isBlueprintEffectivelyEmpty(bp);
-              if ((injectionMode === "plan" || injectionMode === "build") && emptyBp) {
-                const blocked = blueprintFirstBlockedMessage();
-                contextSections.push({
-                  name: "blueprint",
-                  priority: 2,
-                  content: blocked,
-                });
-                blueprintRequiredBlockMessage = blocked;
-                logger.info("Injected blueprint-first blocker (empty blueprint; plan/build tier)");
-              } else if (!emptyBp) {
-                const { body } = await buildBlueprintSystemPromptInjection({
-                  mode: injectionMode,
-                  workspaceId: effectiveAppId,
-                  blueprint: bp,
-                  workspacePath: appPath,
-                  userPrompt: userPrompt || req.prompt,
-                  errorTrace: debugTraceForBlueprint,
-                  bugFilePath: debugFileForBlueprint,
-                });
-                if (body) {
-                  contextSections.push({
-                    name: "blueprint",
-                    priority: 2,
-                    content: `## Blueprint (Diagram tab)\n\n${body}`,
-                  });
-                  logger.info(`Injected tiered blueprint into system prompt (mode=${injectionMode})`);
-                }
-              }
-            } catch (bpErr) {
-              logger.warn("Failed to inject blueprint into system prompt:", bpErr);
-            }
-          }
-          }
+          // PASS8: Blueprint is a lazy read-only graph built on demand when get_blueprint
+          // is called (NOT deleted — that note from Pass 7 is wrong and superseded by Pass 6).
+          // Architecture exploration is tool-driven via get_blueprint + get_diagram + search + read_file.
 
           // PASS5: SQLite project memory is now tool-driven.
           // The model calls get_project_memory when it needs to recall project context.
@@ -3155,12 +3331,12 @@ ${componentSnippet}
 When files are attached to this conversation, upload them to the codebase using this exact format:
 
 <atlarix-write path="path/to/destination/filename.ext" description="Upload file to codebase">
-DYAD_ATTACHMENT_X
+ATLARIX_ATTACHMENT_X
 </atlarix-write>
 
-Example for file with id of DYAD_ATTACHMENT_0:
+Example for file with id of ATLARIX_ATTACHMENT_0:
 <atlarix-write path="src/components/Button.jsx" description="Upload file to codebase">
-DYAD_ATTACHMENT_0
+ATLARIX_ATTACHMENT_0
 </atlarix-write>
 
   `;
@@ -3192,7 +3368,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       role: "assistant",
                       content: hasInjectedArchitectureContext
                         ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
-                        : "Understood. I do not currently have a diagram/blueprint in context, so I will discover scope with explore_folder and then request get_blueprint_slice for the relevant paths.",
+                        : "Understood. I do not currently have a diagram in context, so I will call get_blueprint / get_diagram and use search + explore_folder to scope the relevant paths.",
                     },
                   ] as const);
               void _codebasePrefix;
@@ -3239,11 +3415,102 @@ This conversation includes one or more image attachments. When the user uploads 
             effectiveModel,
             settings,
           );
+          // FIX 2 (Compass): capture the underlying model's real context length
+          // per chat. OpenRouter's registry returns the abstraction limit
+          // (e.g. 128K) for compass/*, but the real underlying model can have
+          // 1M+ context — `rawContextLength` reflects that. Subsequent calls
+          // to `getContextWindowDetailed(model, chatId)` return this value
+          // with source="compass-live" instead of the misleading 128K.
+          if (
+            modelClient.builtinProviderId === "compass" &&
+            modelContextResolved.rawContextLength
+          ) {
+            setCompassContextWindow(
+              req.chatId,
+              modelContextResolved.rawContextLength,
+            );
+          }
           const mapTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
             if (t === "thinking") return "thinking";
             if (t === "balanced") return "balanced";
             return "fast";
           };
+
+          // Closure that rebinds effectiveModel/modelClient/contextBudgetTier
+          // when mid-stream heuristic upgrades the tier in Auto mode. The
+          // outer `let` declarations make rebind possible without threading
+          // mutable state into the loop bodies. Manual selections short-circuit
+          // via the `tierSource !== "auto"` guard in maybeEscalateTier so the
+          // user's chosen model is never silently replaced.
+          const applyTierEscalation = async (args: {
+            agenticIteration: number;
+            iterationInterval: number;
+            runningTokens: number;
+            mode: import("../../lib/routing/heuristic-classifier").HeuristicClassifierMode;
+          }): Promise<boolean> => {
+            const escalation = maybeEscalateTier({
+              agenticIteration: args.agenticIteration,
+              iterationInterval: args.iterationInterval,
+              runningTokens: args.runningTokens,
+              tierTokenBudget: modelContextResolved.tierLimit,
+              tierSource,
+              currentTier: contextBudgetTier as
+                | "fast"
+                | "balanced"
+                | "thinking",
+              prompt: req.prompt ?? "",
+              mode: args.mode,
+            });
+            if (!escalation) return false;
+            const fromTier = contextBudgetTier;
+            const { resolveTierToModel } = await import(
+              "../../lib/routing/fallback-router"
+            );
+            const newModel = resolveTierToModel(settings, escalation.newTier);
+            const previousProvider = effectiveModel.provider;
+            const previousName = effectiveModel.name;
+            // Skip the rebind if the resolved model is identical (e.g. user has
+            // the same compass slot in all three tiers) — still useful to log
+            // the heuristic decision for visibility.
+            if (
+              newModel.provider !== previousProvider ||
+              newModel.name !== previousName
+            ) {
+              try {
+                const next = await getModelClient(newModel, settings, mainOptions);
+                effectiveModel = newModel;
+                modelClient = next.modelClient;
+              } catch (rebindErr) {
+                logger.warn(
+                  `[tier-escalation] failed to rebind model client for ${newModel.provider}/${newModel.name}, staying on ${previousProvider}/${previousName}: ${String(rebindErr)}`,
+                );
+                return false;
+              }
+            }
+            contextBudgetTier = escalation.newTier;
+            logger.log(
+              `[stream:${req.chatId}] tier_escalation ${fromTier} → ${escalation.newTier} (${escalation.reason})`,
+            );
+            safeSend(event.sender, "chat:activity", {
+              id: `tier-escalation-${req.chatId}-${Date.now()}`,
+              type: "tier_escalation",
+              label: `Tier escalated → ${tierLabelForActivity(escalation.newTier)}`,
+              detail: tierDetailForActivity({
+                tier: escalation.newTier,
+                source: "heuristic",
+                providerId: effectiveModel.provider,
+                modelName: effectiveModel.name,
+                autoModelRouting: settings.autoModelRouting === true,
+                reason: `from ${fromTier} · ${escalation.reason}`,
+              }),
+              status: "done",
+              timestamp: Date.now(),
+              chatId: req.chatId,
+              modelId: `${effectiveModel.provider}/${effectiveModel.name}`,
+            });
+            return true;
+          };
+
           let dispatchEstimate = estimateDispatchTokens({
             systemPrompt,
             history: limitedMessageHistory,
@@ -3437,6 +3704,9 @@ This conversation includes one or more image attachments. When the user uploads 
             modelClient,
             tools,
             systemPromptOverride = systemPrompt,
+            // PASS8 A5: When provided, prepended as a system-role message in `messages`
+            // so the static `system` field stays cache-eligible across turns.
+            dynamicSystemTail,
             dyadDisableFiles = false,
             files,
           }: {
@@ -3445,12 +3715,13 @@ This conversation includes one or more image attachments. When the user uploads 
             files: CodebaseFile[];
             tools?: ToolSet;
             systemPromptOverride?: string;
+            dynamicSystemTail?: string;
             dyadDisableFiles?: boolean;
           }) => {
             if (isEngineEnabled) {
               logger.log(
                 "sending AI request to engine with request id:",
-                dyadRequestId,
+                engineRequestId,
               );
             } else {
               logger.log("sending AI request");
@@ -3472,7 +3743,7 @@ This conversation includes one or more image attachments. When the user uploads 
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
-                dyadRequestId,
+                dyadRequestId: engineRequestId,
                 dyadDisableFiles,
                 dyadSmartContextMode: smartContextMode,
                 dyadFiles: versionedFiles ? undefined : files,
@@ -3530,6 +3801,19 @@ This conversation includes one or more image attachments. When the user uploads 
 
             ttftStartRef.ms = Date.now();
 
+            // PASS8 A5: Two-part system payload — stable header in `system` (cache-eligible
+            // on Anthropic / OpenAI / OpenRouter), per-turn dynamic tail prepended as a
+            // system-role message in `messages` (matches opencode pattern in llm.ts).
+            const streamMessages: ModelMessage[] = (() => {
+              const filtered = chatMessages.filter((m) => m.content);
+              if (dynamicSystemTail && dynamicSystemTail.trim().length > 0) {
+                return [
+                  { role: "system" as const, content: dynamicSystemTail },
+                  ...filtered,
+                ];
+              }
+              return filtered;
+            })();
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -3544,7 +3828,7 @@ This conversation includes one or more image attachments. When the user uploads 
               providerOptions,
               system: systemPromptOverride,
               tools,
-              messages: chatMessages.filter((m) => m.content),
+              messages: streamMessages,
               onFinish: (response) => {
                 const rt = reasoningTokensFromAiUsage(response.usage);
                 if (typeof rt === "number") {
@@ -3642,6 +3926,17 @@ This conversation includes one or more image attachments. When the user uploads 
                   );
                   return;
                 }
+                // FIX 4: network/transport failures are recoverable by the
+                // outer retry wrapper. Don't surface the generic error box —
+                // the wrapper will emit `chat:stream:reset-partial` and retry,
+                // or eventually emit `chat:stream:disconnected`.
+                if (isNetworkStreamError(error)) {
+                  logger.warn(
+                    "[stream] onError: network/transport failure (will retry silently)",
+                    error,
+                  );
+                  return;
+                }
                 const modelNotFoundUserMessage = "The selected model was not found for any provider. Please choose a different model in Settings.";
                 let errorMessage = (error as any)?.error?.message;
                 const responseBody = error?.error?.responseBody;
@@ -3655,7 +3950,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   message = modelNotFoundUserMessage;
                 }
                 const requestIdPrefix = isEngineEnabled
-                  ? `[Request ID: ${dyadRequestId}] `
+                  ? `[Request ID: ${engineRequestId}] `
                   : "";
                 logger.error(
                   `AI stream text error for request: ${requestIdPrefix} errorMessage=${errorMessage} error=`,
@@ -3709,14 +4004,21 @@ This conversation includes one or more image attachments. When the user uploads 
             onFirstTextDelta?: () => void;
             onFirstReasoningDelta?: () => void;
             onFirstTextAfterReasoning?: () => void;
+            onStreamStall?: () => void;
           }): Promise<{
             bundle: SimpleStreamTextBundle;
             fullResponse: string;
             finishReason: Awaited<SimpleStreamTextBundle["finishReason"]>;
           }> {
+            const initialFullResponse = params.fullResponse;
             let fullResponse = params.fullResponse;
-            for (let attempt = 1; attempt <= MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS; attempt++) {
-              const snapshot = fullResponse;
+            let emptyOutputAttempt = 0;
+            let networkAttempt = 0;
+            // Bound the loop generously; both retry counters can fire in the
+            // same round but each is independently capped.
+            const TOTAL_ATTEMPT_CAP =
+              MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS + RECONNECT_DELAYS_MS.length + 1;
+            for (let loop = 0; loop < TOTAL_ATTEMPT_CAP; loop++) {
               try {
                 const bundle = await params.runSimpleStream();
                 const chunkResult = await processStreamChunks({
@@ -3729,35 +4031,73 @@ This conversation includes one or more image attachments. When the user uploads 
                   onFirstTextDelta: params.onFirstTextDelta,
                   onFirstReasoningDelta: params.onFirstReasoningDelta,
                   onFirstTextAfterReasoning: params.onFirstTextAfterReasoning,
+                  onStreamStall: params.onStreamStall,
                 });
                 fullResponse = chunkResult.fullResponse;
                 const finishReason = await bundle.finishReason;
                 return { bundle, fullResponse, finishReason };
               } catch (err) {
+                // User abort always wins over any retry path.
+                if (params.abortController.signal.aborted) {
+                  throw err;
+                }
+
+                // Empty-output retry (pre-existing behavior).
                 if (
                   isEmptyOutputStreamError(err) &&
-                  attempt < MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS &&
-                  !params.abortController.signal.aborted
+                  emptyOutputAttempt < MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS - 1
                 ) {
+                  emptyOutputAttempt++;
                   logger.warn(
-                    `[stream] Empty output on attempt ${attempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}, retrying after ${STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS}ms...`,
+                    `[stream] Empty output on attempt ${emptyOutputAttempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}, retrying after ${STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS}ms...`,
                   );
                   sentryAddBreadcrumbSafe({
                     category: "stream_retry",
-                    message: `empty_output_retry attempt ${attempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}`,
+                    message: `empty_output_retry attempt ${emptyOutputAttempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}`,
                     level: "warning",
                   });
-                  fullResponse = snapshot;
+                  fullResponse = initialFullResponse;
                   await new Promise((r) =>
                     setTimeout(r, STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS),
                   );
                   continue;
                 }
-                if (
-                  isEmptyOutputStreamError(err) &&
-                  !params.abortController.signal.aborted
-                ) {
+                if (isEmptyOutputStreamError(err)) {
                   throw new EmptyModelOutputAfterRetryError();
+                }
+
+                // FIX 4: silent network retry. On a transient transport failure
+                // (terminated socket, fetch failed, APICallError, etc.) reset
+                // the in-flight partial — both backend accumulator and the
+                // renderer's streaming buffer — then wait with backoff and
+                // retry the same streamText call. Three attempts at 2s/5s/10s.
+                if (
+                  isNetworkStreamError(err) &&
+                  networkAttempt < RECONNECT_DELAYS_MS.length
+                ) {
+                  const delay = RECONNECT_DELAYS_MS[networkAttempt];
+                  networkAttempt++;
+                  logger.warn(
+                    `[stream] Network error on attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}, retrying after ${delay}ms: ${
+                      err instanceof Error ? err.message : String(err)
+                    }`,
+                  );
+                  sentryAddBreadcrumbSafe({
+                    category: "stream_retry",
+                    message: `network_retry attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}`,
+                    level: "warning",
+                  });
+                  safeSend(event.sender, "chat:stream:reset-partial", {
+                    chatId: params.chatId,
+                  });
+                  fullResponse = initialFullResponse;
+                  partialResponses.delete(params.chatId);
+                  await new Promise((r) => setTimeout(r, delay));
+                  if (params.abortController.signal.aborted) throw err;
+                  continue;
+                }
+                if (isNetworkStreamError(err)) {
+                  throw new NetworkStreamDisconnectedError(fullResponse);
                 }
                 throw err;
               }
@@ -3792,7 +4132,12 @@ This conversation includes one or more image attachments. When the user uploads 
             if (now - lastDbSaveAt >= 150 && !isEphemeralWorkspace) {
               await db
                 .update(messages)
-                .set({ content: fullResponse })
+                // Strip <think> blocks before persisting. The renderer stream
+                // (chat:response:chunk) still carries the live <think>...
+                // tags for ThinkingCard; the DB row stays lean so token
+                // counts don't include reasoning that the model should never
+                // see again on the next turn.
+                .set({ content: stripThinkBlocks(fullResponse) })
                 .where(eq(messages.id, placeholderAssistantMessage.id));
 
               lastDbSaveAt = now;
@@ -3849,7 +4194,7 @@ This conversation includes one or more image attachments. When the user uploads 
             } else {
               await db
                 .update(messages)
-                .set({ content: segmentA })
+                .set({ content: stripThinkBlocks(segmentA) })
                 .where(eq(messages.id, placeholderAssistantMessage.id));
               const exchangeIndex = updatedChat.messages.filter((m: any) => m.role === "assistant").length;
               const appPathForHash = chat.app?.path ?? appData?.path;
@@ -3865,7 +4210,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   chatId: req.chatId,
                   role: "assistant",
                   content: "",
-                  requestId: dyadRequestId,
+                  requestId: engineRequestId,
                   sourceCommitHash: commitHash,
                   exchangeIndex,
                 })
@@ -3890,12 +4235,7 @@ This conversation includes one or more image attachments. When the user uploads 
             await processResponseChunkUpdate({ fullResponse: "" });
           };
 
-          // PASS5: Blueprint-first blocker is disabled (blueprint is tool-driven only).
-          if (false) {
-            if (blueprintRequiredBlockMessage) {
-              fullResponse = blueprintRequiredBlockMessage ?? "";
-            }
-          }
+          // Pass 7: Blueprint-first blocker fully removed.
           if (settings.selectedChatMode === "agent") {
             // Workspace-aware tool filtering (uses effective workspace from outer scope)
             const workspaceFilteredTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
@@ -3939,7 +4279,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         const providerId =
                           getEffectiveModelForOptions(settings)?.provider ??
                           (settings.selectedModel?.provider ?? undefined);
-                        const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                        const { executeCompressContext } = await import("@/lib/tools/workspace");
                         const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
                         const outcome = await executeCompressContext(
                           { reason },
@@ -3960,7 +4300,8 @@ This conversation includes one or more image attachments. When the user uploads 
                           label: "Context compressed",
                           status: "done",
                           timestamp: Date.now(),
-                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens. ${outcome.status}`,
+                          // PASS8 F1: tokensBefore/After are estimates, not exact provider counts.
+                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens. ${outcome.status}`,
                           chatId: req.chatId,
                           modelInitiated: true,
                         });
@@ -3988,7 +4329,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       }
                     }
 
-                    const result = await runToolExecuteWithWorkforceSessionGate(
+                    const result = await runToolExecute(
                       regName,
                       { ...args, _chatSessionId: req.chatId },
                       event.sender,
@@ -4011,9 +4352,8 @@ This conversation includes one or more image attachments. When the user uploads 
               execute: async () => "",
             };
 
-            // Merge global + workspace MCP tools for Agent mode
-            const agentMcpTools = await getMcpTools(event, effectiveAppId ?? null, req.chatId);
-            Object.assign(tools, agentMcpTools);
+            // Pass 7: MCP tools are no longer pre-merged for workspace chats.
+            // The model calls list_available_mcps to discover, then mcp_call to invoke.
 
             let agentStreamMessages: ModelMessage[] = limitedHistoryChatMessages;
             const agentTabStreamLoopStartMs = Date.now();
@@ -4031,6 +4371,14 @@ This conversation includes one or more image attachments. When the user uploads 
                 });
                 break;
               }
+              // PASS8 A2 + A5: Build header + dynamic tail; pass header as system,
+              // dynamic tail prepended as a system-role message in `messages`.
+              const agentParts = constructSystemPromptParts({
+                chatMode: "build",
+                effectiveWorkMode: "build",
+                contextSize: await getContextWindow(effectiveModel, req.chatId),
+                enableTurboEditsV2: false,
+              });
               const { bundle, fullResponse: agentRoundFull, finishReason: fr } =
                 await runStreamRoundWithEmptyOutputRetry({
                   runSimpleStream: async () =>
@@ -4038,11 +4386,8 @@ This conversation includes one or more image attachments. When the user uploads 
                       chatMessages: agentStreamMessages,
                       modelClient,
                       tools,
-                      systemPromptOverride: constructSystemPrompt({
-                        chatMode: "build",
-                        contextSize: Math.min(await getContextWindow(), 128_000),
-                        enableTurboEditsV2: false,
-                      }),
+                      systemPromptOverride: agentParts.stableHeader,
+                      dynamicSystemTail: agentParts.dynamicTail,
                       files: files,
                       dyadDisableFiles: true,
                     }),
@@ -4078,6 +4423,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       chatId: req.chatId,
                     });
                   },
+                  onStreamStall: handleStreamStall,
                 });
               fullResponse = agentRoundFull;
               if (
@@ -4100,15 +4446,43 @@ This conversation includes one or more image attachments. When the user uploads 
                     turnId: String(placeholderAssistantMessage.id),
                     attemptCount: streamContinuationAttempts,
                     maxAttempts: STREAM_CONTINUATION_MAX,
-                    lastContent: fullResponse,
+                    lastContent: stripThinkBlocks(fullResponse),
                     ledgerState: getLedgerStateForContinuation(),
                   }),
                 },
               ];
+
+              // PASS8-FIX: Tool results are appended above (3997-4011), THEN
+              // prune, THEN compaction. Compaction never runs before the
+              // current round's tool results land in the message accumulator.
+              // PASS8 D1: Prune large tool outputs between rounds before compaction.
+              agentStreamMessages = pruneToolOutputsInModelMessages(agentStreamMessages);
+
+              // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
+              {
+                const agentCompaction = await runMidLoopCompaction({
+                  messages: agentStreamMessages,
+                  systemPromptEstimate: estimateTokens(agentParts.stableHeader + "\n\n" + agentParts.dynamicTail),
+                  tierLimit: modelContextResolved.tierLimit,
+                  enabled: settings.enableContextAutoSummarize !== false,
+                  chatId: req.chatId,
+                  loopLabel: "Agent tab",
+                  emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
+                  onInfo: (msg) => logger.log(msg),
+                  onWarn: (msg, err) => logger.warn(msg, err),
+                });
+                if (agentCompaction.compacted) {
+                  agentStreamMessages = agentCompaction.messages;
+                }
+              }
             }
             chatMessages.push({
               role: "assistant",
-              content: fullResponse,
+              // Strip <think> blocks from the model-facing history. The
+              // renderer stream (ThinkingCard) still receives the live tags
+              // via chat:response:chunk; only the next-turn context is
+              // stripped so the model never re-ingests its own reasoning.
+              content: stripThinkBlocks(fullResponse),
             });
             chatMessages.push({
               role: "user",
@@ -4121,7 +4495,7 @@ This conversation includes one or more image attachments. When the user uploads 
           filesWrittenInThisExchange = [];
 
           // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
-          if (!blueprintRequiredBlockMessage && settings.selectedChatMode === "ask" && effectiveApp) {
+          if (settings.selectedChatMode === "ask" && effectiveApp) {
             logger.log(
               `Ask tier with workspace — read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""} (approval where required)`,
             );
@@ -4133,6 +4507,48 @@ This conversation includes one or more image attachments. When the user uploads 
               req.chatId,
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
+
+            // Repetition guard for Ask mode — parity with Build mode. Without
+            // this, the model could hammer `read_file` / `explore_folder` /
+            // `search` indefinitely (the round-cache layer serves them from
+            // dedup, but the provider eventually goes silent and the
+            // stream-stall watchdog fires after 30s). Catching the loop here
+            // surfaces a `loop_detected` activity and injects a correction
+            // message back to the model so it self-corrects before the stall.
+            const askAgenticRepetition = createAgenticRepetitionState();
+            const handleAskAgenticRepetitionOutcome = (
+              o: AgenticRepetitionOutcome,
+            ) => {
+              if (o.kind === "none") return;
+              if (o.kind === "loop_detected") {
+                safeSend(event.sender, "chat:activity", {
+                  id: `loop-detected-${Date.now()}`,
+                  type: "loop_detected",
+                  label: "Repeated action detected",
+                  detail: `${o.toolName} on the same target ${o.count}+ times in a short window — self-correcting`,
+                  status: "running",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                  toolName: o.toolName,
+                  loopTarget: o.target,
+                  loopCount: o.count,
+                });
+                return;
+              }
+              safeSend(event.sender, "chat:activity", {
+                id: `loop-abort-${Date.now()}`,
+                type: "loop_repetition_aborted",
+                label: "Task stopped — repeated action",
+                detail:
+                  "The model kept repeating the same read or search after guidance. Review the activity log and send a message to continue.",
+                status: "done",
+                timestamp: Date.now(),
+                chatId: req.chatId,
+                toolName: o.toolName,
+                loopTarget: o.target,
+                loopCount: o.count,
+              });
+            };
 
             const askToolStreamOpts = () => ({
               turnId: streamTurnIdForLedger,
@@ -4146,77 +4562,119 @@ This conversation includes one or more image attachments. When the user uploads 
             let askToolsToInclude = askModeTools.filter(
               (t) => askLoadedNames.has(t.name) || isCoreTool(t),
             );
+            // PASS6: unified `search` tool (auto | text | semantic | structural); `get_blueprint` for graph slices.
             const modeAllowlist: Record<WorkMode, Set<string>> = {
               ask: new Set([
-                "read_file",
+                "ask_user",
+                "clear_blueprint",
+                "deep_research",
                 "explore_folder",
-                "list_files",
-                "search_code",
                 "find_file",
-                "get_diagram",
+                "get_active_skills",
                 "get_blueprint",
-                "get_blueprint_slice",
-                "compare_blueprint_to_live",
-                "git_status",
+                "get_diagram",
+                "get_file_outline",
+                "get_project_history",
+                "get_project_structure",
                 "git_diff",
                 "git_log",
-                "web_search",
-                "deep_search",
+                "git_status",
+                "list_attachments",
+                "list_available_mcps",
+                "list_files",
+                "list_installed_skills",
+                "memory",
+                "read_attachment",
+                "read_file",
                 "read_url",
-                "ask_user",
                 "request_mode_change",
-                "request_workspace_permissions",
-                "get_project_history",
+                "search",
+                "set_blueprint",
+                "web_search",
               ]),
               plan: new Set([
-                "read_file",
-                "explore_folder",
-                "list_files",
-                "search_code",
-                "find_file",
-                "get_blueprint",
-                "get_blueprint_slice",
-                "compare_blueprint_to_live",
-                "get_plan_scope",
-                "read_implementation_plan",
-                "write_implementation_plan",
-                "write_file",
-                "get_project_history",
-                "get_diagram",
                 "ask_user",
+                "clear_blueprint",
+                "edit_file",
+                "explore_folder",
+                "find_file",
+                "get_active_skills",
+                "get_blueprint",
+                "get_diagram",
+                "get_file_outline",
+                "get_plan_scope",
+                "get_project_history",
+                "get_project_structure",
+                "list_available_mcps",
+                "list_files",
+                "list_installed_skills",
+                "memory",
+                "read_file",
+                "read_implementation_plan",
                 "request_mode_change",
+                "search",
+                "set_blueprint",
+                "write_file",
+                "write_implementation_plan",
               ]),
               build: new Set(),
               debug: new Set([
-                "read_file",
+                "ask_user",
+                "clear_blueprint",
+                "diagnose_issue",
+                "edit_file",
                 "explore_folder",
-                "list_files",
-                "search_code",
                 "find_file",
+                "get_active_skills",
                 "get_blueprint",
-                "get_blueprint_slice",
-                "compare_blueprint_to_live",
-                "git_status",
+                "get_diagram",
+                "get_file_outline",
+                "get_project_structure",
                 "git_diff",
                 "git_log",
-                "ask_user",
+                "git_status",
+                "list_available_mcps",
+                "list_files",
+                "lsp_definitions",
+                "lsp_diagnostics",
+                "lsp_hover",
+                "lsp_references",
+                "mcp_call",
+                "memory",
+                "read_file",
                 "request_mode_change",
+                "run_command",
+                "search",
+                "set_blueprint",
+                "stream_terminal_output",
               ]),
               review: new Set([
-                "read_file",
+                "ask_user",
+                "clear_blueprint",
+                "diagnose_issue",
                 "explore_folder",
-                "list_files",
-                "search_code",
                 "find_file",
+                "get_active_skills",
                 "get_blueprint",
-                "get_blueprint_slice",
-                "compare_blueprint_to_live",
-                "git_status",
+                "get_diagram",
+                "get_file_outline",
+                "get_project_history",
+                "get_project_structure",
                 "git_diff",
                 "git_log",
-                "get_project_history",
-                "ask_user",
+                "git_status",
+                "list_available_mcps",
+                "list_files",
+                "list_installed_skills",
+                "lsp_definitions",
+                "lsp_diagnostics",
+                "lsp_hover",
+                "lsp_references",
+                "memory",
+                "read_file",
                 "request_mode_change",
+                "search",
+                "set_blueprint",
               ]),
             };
             // Register tools for any work mode the model can switch to mid-stream; gate at execute time.
@@ -4256,9 +4714,12 @@ This conversation includes one or more image attachments. When the user uploads 
                 ) as never,
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
-                  const askIsStream =
-                    tool.name === "stream_terminal_output" ||
-                    tool.name === "stream_pipeline_logs";
+                  if (askAgenticRepetition.isEnabled()) {
+                    handleAskAgenticRepetitionOutcome(
+                      askAgenticRepetition.record(tool.name, args),
+                    );
+                  }
+                  const askIsStream = tool.name === "stream_terminal_output";
                   // Fix: Finding 4
                   if (!askIsStream) {
                     safeSend(event.sender, "chat:tool:start", {
@@ -4296,7 +4757,8 @@ This conversation includes one or more image attachments. When the user uploads 
                             : "ask",
                       _chatSessionId: req.chatId,
                     };
-                    if (tool.name === "stream_terminal_output" || tool.name === "stream_pipeline_logs") {
+                    attachSearchRoutingActivity(execArgs, event.sender, req.chatId);
+                    if (tool.name === "stream_terminal_output") {
                       execArgs.chatId = req.chatId;
                       execArgs._sendToolActivity = (label: string) => {
                         safeSend(event.sender, "chat:tool:start", {
@@ -4309,7 +4771,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         };
                       };
                     }
-                    const result = await runToolExecuteWithWorkforceSessionGate(
+                    const result = await runToolExecute(
                       tool.name,
                       execArgs,
                       event.sender,
@@ -4326,42 +4788,6 @@ This conversation includes one or more image attachments. When the user uploads 
                     );
                     if (askUserResolvedEarly !== null) {
                       return askUserResolvedEarly;
-                    }
-
-                    if (
-                      result &&
-                      typeof result === "object" &&
-                      (result as any).__workspace_permissions_requested
-                    ) {
-                      const requestId = `workspace-permissions-${Date.now()}`;
-                      const services = Array.isArray((result as any).services)
-                        ? (result as any).services
-                        : [];
-                      safeSend(event.sender, "right-panel:set-intent", {
-                        intent: "show-workspace-permissions",
-                        context: {
-                          chatId: req.chatId,
-                          requestId,
-                          services,
-                          alreadyConnected: Array.isArray((result as any).alreadyConnected)
-                            ? (result as any).alreadyConnected
-                            : [],
-                          message:
-                            (result as any).message ??
-                            "Connect required workforce services, then click Done to continue.",
-                        },
-                        timestamp: Date.now(),
-                        source: "system",
-                      });
-                      const permissionResult = await waitForWorkspacePermissionResponse(
-                        req.chatId,
-                        requestId,
-                      );
-                      return JSON.stringify({
-                        success: true,
-                        dismissed: permissionResult.dismissed,
-                        grantedServices: permissionResult.grantedServices,
-                      });
                     }
 
                     if (
@@ -4616,11 +5042,10 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            // Merge global + workspace MCP tools so workspace chats can use MCP (e.g. GitHub)
-            const askMcpTools = await getMcpTools(event, effectiveAppId!, req.chatId);
-            Object.assign(askTools, askMcpTools);
+            // Pass 7: MCP tools are no longer pre-merged for workspace Ask chats.
+            // The model calls list_available_mcps + mcp_call from the registry on demand.
             logger.log(
-              `Ask tier: ${Object.keys(askTools).length} tools (read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""} + MCP)`,
+              `Ask tier: ${Object.keys(askTools).length} tools (read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""}; MCP via list_available_mcps + mcp_call)`,
             );
 
             const planModePrompt =
@@ -4636,23 +5061,22 @@ You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace
 IMPORTANT: **Ask** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps, phased implementation plans, or structured plan files, ask the user to switch to **Plan** mode (or call **request_mode_change** toward **plan**). Do **not** suggest **Build** for ordinary Q&A.
 
 Available tools (Ask — read-only):
-- read_file, explore_folder, list_files, search_code, find_file
-- web_search, deep_search, read_url
-- get_diagram: Architecture diagrams
-- get_blueprint_slice: Focused blueprint nodes/edges for selected folders/files
-- git_status, git_diff
-- recall_memory, search_memory
-- get_file_outline, get_change_impact, diagnose_issue, health_check
+- read_file, explore_folder, list_files, search (modes: auto prefers text | semantic-lite | structural; explicit text | semantic-lite | semantic-graph | structural; legacy semantic = semantic-graph), get_blueprint (include_panel_graph syncs Diagram mind map), set_blueprint / clear_blueprint (UI-only panel), find_file, get_file_outline
+- get_diagram (Mermaid architecture diagram)
+- web_search (set deep:true for multi-source synthesis), deep_research (full agentic research loop), read_url
+- git_status, git_diff, git_log
+- memory({ operation: "recall" | "search" })
+- get_active_skills, list_installed_skills, list_available_mcps, get_project_history
+- read_attachment, list_attachments
 - ask_user: Clarifications or choices — pass \`options\` as string array; do not fake widgets in prose only.
-- request_workspace_permissions: Batch Token Auth (narrate first, then wait)
 - request_mode_change: Instantly switch to **Plan**, **Build**, **Debug**, or **Review** when the user is ready (no confirmation).
 
-NOT in Ask mode: write_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests, save_learning.
-
-For workforce, explain services before request_workspace_permissions.`;
+NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests.`;
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             const askTierStreamLoopStartMs = Date.now();
+            askAgenticRepetition.setEnabled(true);
+            let askAgenticIteration = 0;
             while (true) {
               if (abortController.signal.aborted) {
                 logger.log(
@@ -4680,6 +5104,21 @@ For workforce, explain services before request_workspace_permissions.`;
                 });
                 break;
               }
+              // PASS8 A4: Removed redundant second constructSystemPrompt assembly.
+              // PASS8 A2 + A5: Reuse the already-assembled baseSystemPrompt parts
+              // (workspace project layers + active mode block) plus the Ask appendices.
+              const askParts = constructSystemPromptParts({
+                chatMode: "ask",
+                effectiveWorkMode: modeBlockKey,
+                contextSize: await getContextWindow(effectiveModel, req.chatId),
+                enableTurboEditsV2: false,
+              });
+              const askStableHeader =
+                askParts.stableHeader +
+                askModePrompt +
+                planModePrompt +
+                "\n\n" +
+                askManifest;
               const {
                 bundle: askBundle,
                 fullResponse: askRoundFull,
@@ -4690,16 +5129,8 @@ For workforce, explain services before request_workspace_permissions.`;
                     chatMessages: askStreamMessages,
                     modelClient,
                     tools: askTools,
-                    systemPromptOverride:
-                      constructSystemPrompt({
-                        chatMode: "ask",
-                        contextSize: Math.min(await getContextWindow(), 128_000),
-                        enableTurboEditsV2: false,
-                      }) +
-                      askModePrompt +
-                      planModePrompt +
-                      "\n\n" +
-                      askManifest,
+                    systemPromptOverride: askStableHeader,
+                    dynamicSystemTail: askParts.dynamicTail,
                     files: files,
                   }),
                 fullResponse,
@@ -4734,6 +5165,7 @@ For workforce, explain services before request_workspace_permissions.`;
                     chatId: req.chatId,
                   });
                 },
+                onStreamStall: handleStreamStall,
               });
               fullResponse = askRoundFull;
               if (
@@ -4756,13 +5188,96 @@ For workforce, explain services before request_workspace_permissions.`;
                     turnId: String(placeholderAssistantMessage.id),
                     attemptCount: streamContinuationAttempts,
                     maxAttempts: STREAM_CONTINUATION_MAX,
-                    lastContent: fullResponse,
+                    lastContent: stripThinkBlocks(fullResponse),
                     ledgerState: getLedgerStateForContinuation(),
                   }),
                 },
               ];
+
+              // Inject the repetition-guard correction (if any) so the next
+              // dispatch nudges the model away from the same read/search.
+              // Mirrors Build-mode wiring (chat_stream_handlers `agenticMessages`).
+              const askLoopCorrection = askAgenticRepetition.takePendingCorrection();
+              if (askLoopCorrection) {
+                askStreamMessages.push({
+                  role: "user" as const,
+                  content: askLoopCorrection,
+                });
+              }
+
+              // Hard stop after the model ignored the correction twice — Ask
+              // mode has nowhere to delegate write/run mitigation, so we
+              // break the loop and surface a clear message. Ask mode uses
+              // native tool calling exclusively, so the fullResponse never
+              // contains text-tool XML (no stripToolCallXML needed here,
+              // unlike the Build branch which supports both call shapes).
+              if (askAgenticRepetition.consumeLoopBreak()) {
+                logger.warn(
+                  "[Ask tier] Stopping after repeated read/search (repetition guard)",
+                );
+                fullResponse =
+                  fullResponse +
+                  "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
+                break;
+              }
+
+              // PASS8-FIX: Tool results are appended above, THEN prune, THEN
+              // compaction. Compaction never runs before the current round's
+              // tool results land in the message accumulator.
+              // PASS8 D1: Prune large tool outputs between rounds before compaction.
+              askStreamMessages = pruneToolOutputsInModelMessages(askStreamMessages);
+
+              // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
+              {
+                const askCompaction = await runMidLoopCompaction({
+                  messages: askStreamMessages,
+                  systemPromptEstimate: estimateTokens(askStableHeader + "\n\n" + askParts.dynamicTail),
+                  tierLimit: modelContextResolved.tierLimit,
+                  enabled: settings.enableContextAutoSummarize !== false,
+                  chatId: req.chatId,
+                  loopLabel: "Ask tier",
+                  emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
+                  onInfo: (msg) => logger.log(msg),
+                  onWarn: (msg, err) => logger.warn(msg, err),
+                });
+                if (askCompaction.compacted) {
+                  askStreamMessages = askCompaction.messages;
+                }
+              }
+
+              // Mid-stream tier escalation (Auto mode only — manual selections
+              // short-circuit inside `maybeEscalateTier`). Reuses the running
+              // dispatchEstimate as a cheap token proxy and bumps the loop
+              // counter so the gate only fires every N=4 iterations or once
+              // we cross 60% of the tier budget. Skipped if the iteration is
+              // still pre-counter (i.e. the very first round).
+              askAgenticIteration++;
+              try {
+                const askRunningTokens = estimateTokens(
+                  askStableHeader +
+                    "\n\n" +
+                    askParts.dynamicTail +
+                    "\n\n" +
+                    askStreamMessages
+                      .map((m) =>
+                        typeof m.content === "string" ? m.content : "",
+                      )
+                      .join("\n"),
+                );
+                await applyTierEscalation({
+                  agenticIteration: askAgenticIteration,
+                  iterationInterval: 4,
+                  runningTokens: askRunningTokens,
+                  mode: effectiveWorkMode === "plan" ? "plan" : "ask",
+                });
+              } catch (escalationErr) {
+                logger.warn(
+                  `[Ask tier] tier escalation guard failed: ${String(escalationErr)}`,
+                );
+              }
             }
-          } else if (!blueprintRequiredBlockMessage) {
+            askAgenticRepetition.setEnabled(false);
+          } else {
             // BUILD MODE - Native tool calling (like Agent mode)
             // AI has access to all workspace tools via function calling
             // Permission interceptor buffers write operations for user approval
@@ -4873,9 +5388,7 @@ For workforce, explain services before request_workspace_permissions.`;
               "write_file",
               "write_multiple_files",
               "run_command",
-              "replace_code",
-              "insert_code",
-              "delete_lines",
+              "edit_file",
             ]);
             const recentCompletedBuildToolNames: string[] = [];
 
@@ -4922,9 +5435,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   buildLoader.onToolCall(toolName);
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
                   let activityStatus: "done" | "error" = "done";
-                  const isStreamTool =
-                    toolName === "stream_terminal_output" ||
-                    toolName === "stream_pipeline_logs";
+                  const isStreamTool = toolName === "stream_terminal_output";
                   // Fix: Finding 4 — status line (stream tools use inner _sendToolActivity only)
                   const uiToolLabel = getToolActivityLabel(toolName);
                   if (!isStreamTool) {
@@ -4955,7 +5466,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         const providerId =
                           getEffectiveModelForOptions(settings)?.provider ??
                           (settings.selectedModel?.provider ?? undefined);
-                        const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                        const { executeCompressContext } = await import("@/lib/tools/workspace");
                         const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
                         const outcome = await executeCompressContext(
                           { reason },
@@ -4976,7 +5487,8 @@ For workforce, explain services before request_workspace_permissions.`;
                           label: "Context compressed",
                           status: "done",
                           timestamp: Date.now(),
-                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens. ${outcome.status}. ${reason}`,
+                          // PASS8 F1: tokensBefore/After are estimates, not exact provider counts.
+                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens. ${outcome.status}. ${reason}`,
                           chatId: req.chatId,
                           modelInitiated: true,
                         });
@@ -5013,6 +5525,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       chatMode: "build",
                       _chatSessionId: req.chatId,
                     };
+                    attachSearchRoutingActivity(executeArgs, event.sender, req.chatId);
                     if (isStreamTool) {
                       executeArgs.chatId = req.chatId;
                       executeArgs._sendToolActivity = (label: string) => {
@@ -5026,7 +5539,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         };
                       };
                     }
-                    const result = await runToolExecuteWithWorkforceSessionGate(
+                    const result = await runToolExecute(
                       toolName,
                       executeArgs,
                       event.sender,
@@ -5043,42 +5556,6 @@ For workforce, explain services before request_workspace_permissions.`;
                     );
                     if (askUserResolvedBuild !== null) {
                       return askUserResolvedBuild;
-                    }
-
-                    if (
-                      result &&
-                      typeof result === "object" &&
-                      (result as any).__workspace_permissions_requested
-                    ) {
-                      const requestId = `workspace-permissions-${Date.now()}`;
-                      const services = Array.isArray((result as any).services)
-                        ? (result as any).services
-                        : [];
-                      safeSend(event.sender, "right-panel:set-intent", {
-                        intent: "show-workspace-permissions",
-                        context: {
-                          chatId: req.chatId,
-                          requestId,
-                          services,
-                          alreadyConnected: Array.isArray((result as any).alreadyConnected)
-                            ? (result as any).alreadyConnected
-                            : [],
-                          message:
-                            (result as any).message ??
-                            "Connect required workforce services, then click Done to continue.",
-                        },
-                        timestamp: Date.now(),
-                        source: "system",
-                      });
-                      const permissionResult = await waitForWorkspacePermissionResponse(
-                        req.chatId,
-                        requestId,
-                      );
-                      return JSON.stringify({
-                        success: true,
-                        dismissed: permissionResult.dismissed,
-                        grantedServices: permissionResult.grantedServices,
-                      });
                     }
 
                     if (
@@ -5390,9 +5867,8 @@ For workforce, explain services before request_workspace_permissions.`;
               };
             }
 
-            // Merge global + workspace MCP tools so workspace Build chats can use MCP (e.g. GitHub)
-            const buildMcpTools = await getMcpTools(event, effectiveAppId ?? null, req.chatId);
-            Object.assign(tools, buildMcpTools);
+            // Pass 7: MCP tools are no longer pre-merged for workspace Build chats.
+            // The model calls list_available_mcps + mcp_call from the registry on demand.
 
             // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
             const agentMode = settings.agentMode ?? "guided";
@@ -5440,17 +5916,20 @@ For workforce, explain services before request_workspace_permissions.`;
                           : effectiveWorkMode === "build"
                             ? ("build" as const)
                             : ("ask" as const);
-                      const result = await ToolRegistry.execute("delegate_to_agent", {
-                        ...args,
-                        workspace: workspacePath || undefined,
-                        workspaceId: effectiveAppId ?? undefined,
-                        // Fix: Finding 3 — sub-agent tools respect parent work mode
-                        delegationChatMode,
-                        chatId: req.chatId,
-                        depth: 0,
-                        turnId: autonomousTurnId,
-                        parentAgentRole: "main",
-                      });
+                      const result = await ToolRegistry.execute(
+                        "delegate_to_agent",
+                        {
+                          ...args,
+                          workspace: workspacePath || undefined,
+                          workspaceId: effectiveAppId ?? undefined,
+                          // Fix: Finding 3 — sub-agent tools respect parent work mode
+                          delegationChatMode,
+                          chatId: req.chatId,
+                          depth: 0,
+                          turnId: autonomousTurnId,
+                          parentAgentRole: "main",
+                        },
+                      );
                       recordToolUseForTurn(streamTurnIdForLedger, "delegate_to_agent");
                       if (result?.success !== false) {
                         delegatedAgentsThisTurn.push(agentId);
@@ -5568,7 +6047,7 @@ For workforce, explain services before request_workspace_permissions.`;
                   if (typeof o.path === "string") {
                     const p = o.path.split(/[/\\]/).join("/");
                     if (
-                      /read_file|explore_folder|search_code|list_files|find_file|parse_url|read_url|get_/.test(
+                      /read_file|explore_folder|search|list_files|find_file|read_url|get_/.test(
                         name,
                       )
                     ) {
@@ -5692,6 +6171,7 @@ For workforce, explain services before request_workspace_permissions.`;
                         chatId: req.chatId,
                       });
                     },
+                    onStreamStall: handleStreamStall,
                   });
                   fullResponse = buildRoundFull;
                   const buildResp = await buildBundle.response;
@@ -5714,7 +6194,7 @@ For workforce, explain services before request_workspace_permissions.`;
                           turnId: String(placeholderAssistantMessage.id),
                           attemptCount: streamContinuationAttempts,
                           maxAttempts: STREAM_CONTINUATION_MAX,
-                          lastContent: fullResponse,
+                          lastContent: stripThinkBlocks(fullResponse),
                           ledgerState: getLedgerStateForContinuation(),
                         }),
                       },
@@ -5824,8 +6304,9 @@ For workforce, explain services before request_workspace_permissions.`;
                           chatMode: "build",
                           _chatSessionId: req.chatId,
                         };
+                        attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
                         try {
-                          const r = await runToolExecuteWithWorkforceSessionGate(
+                          const r = await runToolExecute(
                             tc.toolName,
                             argsWithWorkspace,
                             event.sender,
@@ -5889,7 +6370,8 @@ For workforce, explain services before request_workspace_permissions.`;
                           chatMode: "build",
                           _chatSessionId: req.chatId,
                         };
-                        toolResult = await runToolExecuteWithWorkforceSessionGate(
+                        attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
+                        toolResult = await runToolExecute(
                           toolCall.toolName,
                           argsWithWorkspace,
                           event.sender,
@@ -6105,9 +6587,11 @@ For workforce, explain services before request_workspace_permissions.`;
                     .join("\n\n");
 
                 // Add assistant's response to message history (strip text-tool XML for cleaner follow-up + UI)
+                // Also strip <think> blocks so the model doesn't re-ingest
+                // its own reasoning on the next turn.
                 agenticMessages.push({
                   role: 'assistant' as const,
-                  content: stripToolCallXML(fullResponse),
+                  content: stripThinkBlocks(stripToolCallXML(fullResponse)),
                 });
 
                 // Add tool results as a user message so AI can continue
@@ -6124,9 +6608,70 @@ For workforce, explain services before request_workspace_permissions.`;
                   });
                 }
 
+                // PASS8-FIX: Tool results are appended above (the assistant
+                // strip + synthetic "Here are the results of the tools you
+                // called" user message), THEN compaction. Compaction never
+                // runs before the current round's tool results land in
+                // agenticMessages.
+                // PASS8 C1-C4 (+ G2): Mid-turn auto-compaction via shared helper.
+                // The agentic loop accumulates one assistant turn + one synthetic
+                // user-with-tool-results turn per iteration; without this the
+                // history grows unbounded and a few `read_file` calls on big
+                // files can push a single dispatch past the per-tier budget
+                // (this is what produced the 8K -> 153K jump in the bug report).
+                // Honors `settings.enableContextAutoSummarize` so users can opt out.
+                {
+                  const compaction = await runMidLoopCompaction({
+                    messages: agenticMessages,
+                    systemPromptEstimate: estimateTokens(buildSystemPromptWithManifest),
+                    tierLimit: modelContextResolved.tierLimit,
+                    enabled: settings.enableContextAutoSummarize !== false,
+                    chatId: req.chatId,
+                    loopLabel: "Agentic Loop",
+                    emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
+                    onInfo: (msg) => logger.log(msg),
+                    onWarn: (msg, err) => logger.warn(msg, err),
+                  });
+                  if (compaction.compacted) {
+                    agenticMessages = compaction.messages;
+                  }
+                }
+
                 // Keep fullResponse for UI continuity - don't reset
                 // (Conversation history already has the response)
                 agenticIteration++;
+
+                // Mid-stream tier escalation (Auto mode only). Build loops are
+                // the heaviest agentic workload — by iteration 4-6 we usually
+                // know the user is asking for real architectural work. Reuse
+                // the same compaction-input estimate so we don't pay a second
+                // tokenizer pass.
+                try {
+                  const buildRunningTokens = estimateTokens(
+                    buildSystemPromptWithManifest +
+                      "\n\n" +
+                      agenticMessages
+                        .map((m) =>
+                          typeof m.content === "string" ? m.content : "",
+                        )
+                        .join("\n"),
+                  );
+                  await applyTierEscalation({
+                    agenticIteration,
+                    iterationInterval: 4,
+                    runningTokens: buildRunningTokens,
+                    mode:
+                      effectiveWorkMode === "plan"
+                        ? "plan"
+                        : effectiveWorkMode === "build"
+                          ? "build"
+                          : "agent",
+                  });
+                } catch (escalationErr) {
+                  logger.warn(
+                    `[Agentic Loop] tier escalation guard failed: ${String(escalationErr)}`,
+                  );
+                }
 
                 // If we hit permission requests, the AI should continue after approval
                 if (hasPermissionRequest) {
@@ -6192,7 +6737,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       await db
                         .update(messages)
                         .set({
-                          content: cancelledContent,
+                          content: stripThinkBlocks(cancelledContent),
                         })
                         .where(eq(messages.id, placeholderAssistantMessage.id));
 
@@ -6201,7 +6746,7 @@ For workforce, explain services before request_workspace_permissions.`;
                       );
                     } else {
                       const { addEphemeralMessage } = await import("./chat_only_handlers");
-                      addEphemeralMessage(req.chatId, { role: "assistant", content: cancelledContent });
+                      addEphemeralMessage(req.chatId, { role: "assistant", content: stripThinkBlocks(cancelledContent) });
                       logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
                     }
                     partialResponses.delete(req.chatId);
@@ -6402,7 +6947,7 @@ For workforce, explain services before request_workspace_permissions.`;
             });
           }
 
-          // Scrape from: <atlarix-chat-summary>Renaming profile file</dyad-chat-title>
+          // Scrape from: <atlarix-chat-summary>Renaming profile file</atlarix-chat-title>
           const chatTitle = responseToStore.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
           );
@@ -6420,7 +6965,7 @@ For workforce, explain services before request_workspace_permissions.`;
             await db
               .update(messages)
               .set({
-                content: responseToStore,
+                content: stripThinkBlocks(responseToStore),
                 ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
                 ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
                 ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
@@ -6431,7 +6976,7 @@ For workforce, explain services before request_workspace_permissions.`;
             const { addEphemeralMessage } = await import("./chat_only_handlers");
             addEphemeralMessage(req.chatId, {
               role: "assistant",
-              content: responseToStore,
+              content: stripThinkBlocks(responseToStore),
               ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
             });
           }
@@ -6450,7 +6995,7 @@ For workforce, explain services before request_workspace_permissions.`;
           } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);
           }
-          let dyadProcessedFileWrites = false;
+          let atlarixProcessedFileWrites = false;
           const settings = readSettings();
           const isBuildModeTurn =
             settings.selectedChatMode === "agent" || settings.selectedChatMode === "build";
@@ -6488,7 +7033,7 @@ For workforce, explain services before request_workspace_permissions.`;
               });
             }
 
-            dyadProcessedFileWrites = status.updatedFiles ?? false;
+            atlarixProcessedFileWrites = status.updatedFiles ?? false;
 
             const newReviewSystemActive =
               settings.agentMode === "autonomous" ||
@@ -6555,7 +7100,7 @@ For workforce, explain services before request_workspace_permissions.`;
               isBuildModeTurn &&
               effectiveAppId != null &&
               appPath &&
-              (dyadProcessedFileWrites || filesWrittenInThisExchange.length > 0)
+              (atlarixProcessedFileWrites || filesWrittenInThisExchange.length > 0)
             ) {
               const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
               void recordBuildCompleteSnapshot(
@@ -6808,6 +7353,21 @@ For workforce, explain services before request_workspace_permissions.`;
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
         logger.error("Error calling LLM:", error);
+        // FIX 4: silent retries exhausted — surface a reconnect prompt instead
+        // of the generic error box. The renderer keeps the partial visible
+        // until the user picks [Reconnect] or [Continue].
+        if (error instanceof NetworkStreamDisconnectedError) {
+          safeSend(event.sender, "chat:stream:disconnected", {
+            chatId: req.chatId,
+            partialResponse: error.partialResponse,
+            reason: "network",
+            canResume: true,
+          });
+          activeStreams.delete(req.chatId);
+          streamTerminated = true;
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
         if (error instanceof EmptyModelOutputAfterRetryError) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
@@ -6899,7 +7459,9 @@ For workforce, explain services before request_workspace_permissions.`;
 
     void runStream();
     return undefined; // Reply immediately so renderer does not get "reply was never sent"
-  });
+  };
+
+  ipcMain.handle("chat:stream", chatStreamHandler);
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {
@@ -6945,6 +7507,38 @@ For workforce, explain services before request_workspace_permissions.`;
     }
     return { success: false, message: 'No active stream for this chat' };
   });
+
+  // FIX 4: explicit "reconnect" after the auto-retry sequence gave up. The
+  // renderer holds onto the partial; we just re-dispatch the same turn.
+  // Asks the renderer to clear its in-flight stream buffer first, then runs
+  // the chat-stream handler again with the cached request.
+  ipcMain.handle(
+    "chat:stream:reconnect",
+    async (event, params: { chatId: number }) => {
+      const chatId = params?.chatId;
+      if (typeof chatId !== "number") {
+        return { success: false, message: "Invalid chatId" };
+      }
+      const cached = lastStreamRequest.get(chatId);
+      if (!cached) {
+        return {
+          success: false,
+          message: "No prior stream request to reconnect",
+        };
+      }
+      safeSend(event.sender, "chat:stream:reset-partial", { chatId });
+      try {
+        await chatStreamHandler(event, cached);
+        return { success: true };
+      } catch (error) {
+        logger.error("[chat:stream:reconnect] re-dispatch failed:", error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
 
   // v3.9: Submit clarifying-question answers — formatted user bubble + chunk flush
   ipcMain.handle(
@@ -7341,8 +7935,9 @@ export function removeProblemReportTags(text: string): string {
 }
 
 export function removeAtlarixTags(text: string): string {
-  const dyadRegex = /<dyad-[^>]*>[\s\S]*?<\/dyad-[^>]*>/g;
-  return text.replace(dyadRegex, "").trim();
+  const legacyDyadBlock = /<dyad-[^>]*>[\s\S]*?<\/dyad-[^>]*>/g;
+  const atlarixBlock = /<atlarix-[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
+  return text.replace(legacyDyadBlock, "").replace(atlarixBlock, "").trim();
 }
 
 export function hasUnclosedAtlarixWrite(text: string): boolean {
@@ -7386,26 +7981,27 @@ I have provided architecture context for this project in the prompt.
 Use this deterministic flow:
 1. High-level map from architecture context
 2. Explore likely folders/files
-3. Deep-dive only relevant code and blueprint slices
+3. Deep-dive only relevant code
 
 ## Recommended tool sequence
-- **explore_folder**: inspect directory contents first
-- **list_files** / **find_file**: refine scope
-- **get_blueprint_slice**: pull focused architecture for chosen paths
-- **read_file**: read exact files needed for implementation
-- **search_code**: locate symbols/usages
+- **get_blueprint**: structural slice (files, functions, edges) for a folder or path
+- **get_diagram**: Mermaid architecture diagram (when one is generated)
+- **explore_folder** / **list_files** / **find_file**: navigate the tree
+- **search** (mode: auto | text | semantic | structural): locate symbols, patterns, concepts, or graph relationships
+- **get_file_outline**: list functions/classes/types in a file before reading it
+- **read_file**: read exact files (use start_line/end_line for slices)
 `;
   }
   return `# Workspace Context
 
-You currently do not have project Diagram/Blueprint context in this turn.
+You currently do not have a Diagram in context for this turn.
 
 Your first actions should be:
-1. Use **explore_folder** to discover relevant folders/files.
-2. Use **get_blueprint_slice** for the selected paths to obtain focused architecture context.
-3. Use **read_file** only after narrowing to the exact files.
+1. Call **get_blueprint** or **search** to locate relevant areas.
+2. Call **get_diagram** for the Mermaid architecture (if present).
+3. Use **explore_folder** + **read_file** to drill in once you have a target.
 
-Do not claim a diagram is present until architecture context is actually provided.
+Do not claim a diagram is present until you have called get_diagram successfully.
 `;
 }
 
@@ -7419,45 +8015,9 @@ ${otherAppsCodebaseInfo}
 `;
 }
 
-const PERMISSIVE_TOOL_JSON_SCHEMA: JSONSchema7 = {
-  type: "object",
-  properties: {},
-  additionalProperties: true,
-};
-
-/**
- * Wire tool schemas for `streamText` tools. ToolRegistry uses Zod; MCP uses JSON Schema.
- * - Pass Zod through `zodSchema()` so the provider gets real parameter shapes (not empty `{}`).
- * - Pass JSON-Schema-shaped objects through `aiJsonSchema()`.
- * - If a Zod schema hits an AI SDK conversion bug, fall back to permissive schema for that tool only.
- */
-function normalizeToolInputSchemaForAiSdk(schema: unknown) {
-  if (!schema || typeof schema !== "object") {
-    return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
-  }
-  const obj = schema as Record<string, unknown>;
-  if ("_def" in obj) {
-    try {
-      return zodSchema(
-        obj as unknown as Parameters<typeof zodSchema>[0],
-        { useReferences: true },
-      );
-    } catch (e) {
-      logger.warn(
-        "Tool input Zod schema could not be wrapped for AI SDK; using permissive schema:",
-        e,
-      );
-      return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
-    }
-  }
-  if ("type" in obj || "$schema" in obj) {
-    return aiJsonSchema(obj as JSONSchema7);
-  }
-  if ("jsonSchema" in obj && obj.jsonSchema && typeof obj.jsonSchema === "object") {
-    return aiJsonSchema(obj.jsonSchema as JSONSchema7);
-  }
-  return aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA);
-}
+// `normalizeToolInputSchemaForAiSdk` + `PERMISSIVE_TOOL_JSON_SCHEMA` were moved
+// to `@/lib/ai/normalize-tool-schema` so that delegation sub-agents
+// (`src/lib/tools/agent.ts`) can reuse the exact same wiring.
 
 /** When appId is null/undefined, only global MCPs; when set, global + that workspace's MCPs (same as list-servers). */
 async function getMcpTools(

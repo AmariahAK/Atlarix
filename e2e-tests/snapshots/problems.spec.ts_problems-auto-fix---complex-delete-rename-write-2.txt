@@ -196,7 +196,7 @@ x.toString(); // replaced with existing method
 
       
 
-[[dyad-dump-path=*]]
+[[atlarix-dump-path=*]]
 
 ===
 role: user

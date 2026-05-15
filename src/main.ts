@@ -30,7 +30,6 @@ import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { clearAllSessionMemories } from "./lib/session-memory";
 import { startModelsDevRefresh } from "./lib/models_dev";
-import { initTelemetry } from "./lib/telemetry/tracer";
 import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
@@ -49,7 +48,17 @@ import {
 } from "./ipc/shared/compass_constants";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 
-log.errorHandler.startCatching();
+// Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
+// `console.log` raises EPIPE asynchronously. electron-log's default catcher
+// would then log the error AND show a dialog — and the log write itself hits
+// the same dead pipe, recursing. Returning false skips both for EPIPE only;
+// every other uncaught error still hits the normal log+dialog path.
+log.errorHandler.startCatching({
+  onError: ({ error }) => {
+    if ((error as NodeJS.ErrnoException)?.code === "EPIPE") return false;
+    return undefined;
+  },
+});
 log.eventLogger.startLogging();
 log.scope.labelPadding = false;
 
@@ -85,6 +94,16 @@ app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.commandLine.appendSwitch("disable-software-rasterizer");
 // Raise V8 old-space ceiling before Chromium hits partition_alloc hard OOM on heavy renderer work
 app.commandLine.appendSwitch("js-flags", "--max-old-space-size=4096");
+
+// Swallow EPIPE on stdout/stderr — happens when the app's parent shell closes
+// the pipe before electron-log finishes flushing during shutdown. Anything
+// other than EPIPE still throws so we don't hide real I/O errors.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code !== "EPIPE") throw err;
+});
+process.stderr.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code !== "EPIPE") throw err;
+});
 
 // Register IPC handlers before app is ready
 registerIpcHandlers();
@@ -179,11 +198,7 @@ export async function onReady() {
     );
   });
 
-  try {
-    initTelemetry();
-  } catch (e) {
-    logger.warn("Telemetry init failed (non-fatal):", e);
-  }
+  // Pass 7.3: OpenTelemetry init removed (heavy main-bundle dep, startup crash on packaged builds).
 
   void warmTierContextCache(
     getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
@@ -511,6 +526,8 @@ const createWindow = () => {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
+      /** Required for Chromium's PDF viewer extension (blob: / file: PDFs in iframes, etc.). */
+      plugins: true,
       // transparent: true,
     },
     // backgroundColor: "#00000001",
@@ -714,41 +731,10 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // Auth0 Token Vault callback: atlarix://auth0/callback?code=...
-  if (parsed.hostname === "auth0" && (parsed.pathname === "/callback" || parsed.pathname === "/callback/")) {
-    const code = parsed.searchParams.get("code");
-    if (code) {
-      import("./lib/auth/TokenVaultService").then(async ({ storeAuth0Tokens }) => {
-        const domain = process.env.AUTH0_DOMAIN ?? "";
-        const clientId = process.env.AUTH0_CLIENT_ID ?? "";
-        const clientSecret = process.env.AUTH0_CLIENT_SECRET ?? "";
-        const base = domain.startsWith("http") ? domain : `https://${domain}`;
-        const body = new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: clientId,
-          client_secret: clientSecret,
-          code,
-          redirect_uri: "atlarix://auth0/callback",
-        });
-        const res = await fetch(`${base}/oauth/token`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: body.toString(),
-        });
-        const data = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
-        if (data.access_token && data.refresh_token) {
-          storeAuth0Tokens(data.refresh_token, data.access_token, data.expires_in ?? 86400);
-          log.log("Auth0 Token Vault: tokens stored");
-          if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-            mainWindow.webContents.send("token-vault:connected", {});
-          }
-        } else {
-          log.warn("Auth0 callback: missing tokens", data);
-        }
-      }).catch((err) => log.error("Auth0 callback error:", err));
-    }
-    return;
-  }
+  // Pass 7: Auth0 / Token Vault deep-link branch removed. Workforce credentials
+  // are now provisioned per-MCP via the marketplace install flow (env vars stored
+  // directly in `mcp_servers.env_json`), so the `atlarix://auth0/callback`
+  // protocol path is no longer used.
 
   // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
   // Supabase OAuth returns tokens in hash fragment, not query params
@@ -812,7 +798,7 @@ function handleDeepLinkReturn(url: string) {
     });
     return;
   }
-  // dyad://add-mcp-server?name=Chrome%20DevTools&config=eyJjb21tYW5kIjpudWxsLCJ0eXBlIjoic3RkaW8ifQ%3D%3D
+  // atlarix://add-mcp-server?name=Chrome%20DevTools&config=eyJjb21tYW5kIjpudWxsLCJ0eXBlIjoic3RkaW8ifQ%3D%3D
   if (parsed.hostname === "add-mcp-server") {
     const name = parsed.searchParams.get("name");
     const config = parsed.searchParams.get("config");
@@ -842,7 +828,7 @@ function handleDeepLinkReturn(url: string) {
     }
     return;
   }
-  // dyad://add-prompt?data=<base64-encoded-json>
+  // atlarix://add-prompt?data=<base64-encoded-json>
   if (parsed.hostname === "add-prompt") {
     const data = parsed.searchParams.get("data");
     if (!data) {

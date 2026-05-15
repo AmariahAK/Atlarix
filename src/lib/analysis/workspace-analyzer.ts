@@ -9,7 +9,8 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'path';
 import log from 'electron-log';
-import { clearParseTreeCacheForWorkspace } from '@/lib/pivot/parsers/parse-tree-cache';
+// Pass 7: pivot tree-sitter parsers were removed with the Blueprint subsystem.
+function clearParseTreeCacheForWorkspace(_workspacePath: string): void { /* no-op */ }
 import {
     ensureDefaultAtlarixIgnore,
     loadIgnorerForProject,

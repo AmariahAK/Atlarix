@@ -12,7 +12,7 @@ Coordinates specialist agents and task flow. Prefer short status updates and cle
 
 Use **only** these tool names (must match the registry exactly):
 
-`read_file`, `grep_search`, `semantic_search`, `message_agent`
+`read_file`, `search_code`, `message_agent`
 
 ## Boundaries
 

@@ -2,10 +2,31 @@
  * Sliding-window repetition detection for the build-mode agentic tool loop.
  * Keep `normalizeRunCommandTarget` in sync with `PermissionInterceptor.executeRunCommand`
  * (cd /workspace prefix strip) in `src/ipc/handlers/permissions/interceptor.ts`.
+ *
+ * Read-side tools (read_file, explore_folder, search) are tracked with a
+ * larger window because the round-cache dedup layer already serves them
+ * cheaply on repeat. The point of detecting their loops is to escape the
+ * stream-stall watchdog: the model can hammer the same read call until the
+ * provider goes silent for 30s, at which point the watchdog aborts. Catching
+ * the loop earlier gives the model a "stop looping" correction instead.
  */
 
 const RECENT_WINDOW = 5;
 const STUCK_THRESHOLD = 3;
+/**
+ * Read-side tools (read_file / explore_folder / search) deserve a larger
+ * window before we self-correct: the model often re-reads after a related
+ * tool call, which is benign. We start nudging only when 6 of the last 10
+ * calls are the same read target — at which point it is clearly stuck.
+ */
+const READ_RECENT_WINDOW = 10;
+const READ_STUCK_THRESHOLD = 6;
+
+const READ_TOOL_NAMES = new Set([
+  "read_file",
+  "explore_folder",
+  "search",
+]);
 
 /** Same regex as PermissionInterceptor.executeRunCommand — strip generic /workspace cd prefix. */
 const WORKSPACE_CD_STRIP = /^cd\s+\/workspace(?:\/[^\s;&|]*)?\s*(?:&&|;)\s*/;
@@ -22,16 +43,62 @@ export function normalizeRunCommandTarget(command: string): string {
   return c;
 }
 
+function normalizeFsPath(raw: string): string {
+  return raw.trim().split(/[/\\]+/).join("/").replace(/^\.\//, "");
+}
+
 export function buildRepetitionKey(toolName: string, args: unknown): string | null {
-  if (toolName !== "write_file" && toolName !== "run_command") return null;
+  if (
+    toolName !== "write_file" &&
+    toolName !== "run_command" &&
+    !READ_TOOL_NAMES.has(toolName)
+  ) {
+    return null;
+  }
   if (!args || typeof args !== "object") return null;
   const o = args as Record<string, unknown>;
   if (toolName === "write_file") {
     if (typeof o.path !== "string" || !o.path.trim()) return null;
     return `write_file:${normalizeWriteFileTarget(o.path)}`;
   }
-  if (typeof o.command !== "string" || !o.command.trim()) return null;
-  return `run_command:${normalizeRunCommandTarget(o.command)}`;
+  if (toolName === "run_command") {
+    if (typeof o.command !== "string" || !o.command.trim()) return null;
+    return `run_command:${normalizeRunCommandTarget(o.command)}`;
+  }
+  if (toolName === "read_file") {
+    // The tool schema accepts either `path` or `file_path` (alias).
+    const raw =
+      typeof o.path === "string" && o.path.trim()
+        ? o.path
+        : typeof o.file_path === "string" && o.file_path.trim()
+          ? o.file_path
+          : null;
+    if (!raw) return null;
+    return `read_file:${normalizeFsPath(raw)}`;
+  }
+  if (toolName === "explore_folder") {
+    if (typeof o.path !== "string" || !o.path.trim()) return null;
+    return `explore_folder:${normalizeFsPath(o.path)}`;
+  }
+  if (toolName === "search") {
+    if (typeof o.query !== "string" || !o.query.trim()) return null;
+    // Key on query + scoped path so identical queries against different
+    // folders count as distinct calls. Mode is intentionally excluded —
+    // the model often retries the same query with mode=auto then mode=text.
+    const scope = typeof o.path === "string" && o.path.trim() ? normalizeFsPath(o.path) : "*";
+    return `search:${o.query.trim().slice(0, 200)}|${scope}`;
+  }
+  return null;
+}
+
+/** Internal: which sliding-window thresholds apply for this key family. */
+function thresholdsForKey(key: string): { window: number; stuck: number } {
+  const colon = key.indexOf(":");
+  const family = colon >= 0 ? key.slice(0, colon) : key;
+  if (READ_TOOL_NAMES.has(family)) {
+    return { window: READ_RECENT_WINDOW, stuck: READ_STUCK_THRESHOLD };
+  }
+  return { window: RECENT_WINDOW, stuck: STUCK_THRESHOLD };
 }
 
 export type AgenticRepetitionOutcome =
@@ -80,13 +147,18 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
       const key = buildRepetitionKey(toolName, args);
       if (!key) return { kind: "none" };
 
+      // Per-key sliding-window: read-side tools get a larger window so a
+      // benign re-read between unrelated calls doesn't trigger a correction,
+      // while write/run loops trip the existing tighter threshold.
+      const { window: keyWindow, stuck: keyStuck } = thresholdsForKey(key);
+      const effectiveWindow = Math.max(RECENT_WINDOW, keyWindow);
       windowKeys.push(key);
-      if (windowKeys.length > RECENT_WINDOW) {
+      if (windowKeys.length > effectiveWindow) {
         windowKeys.shift();
       }
 
       const count = windowKeys.filter((k) => k === key).length;
-      if (count < STUCK_THRESHOLD) return { kind: "none" };
+      if (count < keyStuck) return { kind: "none" };
 
       const colon = key.indexOf(":");
       const op = colon >= 0 ? key.slice(0, colon) : toolName;
@@ -100,7 +172,7 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
           kind: "loop_detected",
           toolName: op,
           target: target.slice(0, 240),
-          count: STUCK_THRESHOLD,
+          count: keyStuck,
         };
       }
 
@@ -109,7 +181,7 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
         kind: "loop_abort",
         toolName: op,
         target: target.slice(0, 240),
-        count: STUCK_THRESHOLD,
+        count: keyStuck,
       };
     },
     takePendingCorrection() {

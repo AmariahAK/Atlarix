@@ -457,23 +457,21 @@ export class SubscriptionManager {
     // ========================================
 
     /**
-     * Incognito chats are always allowed and free
-     * They have limited tools: web_search, read_url, get_current_time
+     * Incognito chats are always allowed and free.
+     * They have limited tools: web_search, read_url.
      */
     static canStartIncognitoChat(): boolean {
         return true; // Always allowed, no limits
     }
 
     /**
-     * Get tools available for incognito chat (no workspace)
-     * These are free and unlimited for all users
+     * Get tools available for incognito chat (no workspace).
+     * These are free and unlimited for all users.
      */
     static getIncognitoTools(): string[] {
         return [
             'web_search',
             'read_url',
-            'get_current_time',
-            'get_current_date',
         ];
     }
 }

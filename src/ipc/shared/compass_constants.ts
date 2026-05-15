@@ -28,7 +28,11 @@ export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
     type: "cloud" as const,
     dollarSigns: 0,
     maxOutputTokens: 32_000,
-    contextWindow: 128_000,
+    // Compass is a synthetic provider — the real context window is captured
+    // per-chat at TTFT (often 1M+). 200_000 matches the pre-TTFT fallback in
+    // `getContextWindowDetailed` so any catalog-only consumer (autorouter,
+    // proposal handler) reads the same conservative ceiling the stream uses.
+    contextWindow: 200_000,
   }),
 );
 

@@ -82,7 +82,7 @@ const COUNSEL_TOOLS_WITH_WORKSPACE = [
   "read_file",
   "explore_folder",
   "list_files",
-  "search_code",
+  "search",
   "find_file",
   "web_search",
   "deep_search",
@@ -102,6 +102,7 @@ function buildCounselParticipantTools(opts: {
     opts.workspacePath.length > 0 &&
     typeof opts.workspaceId === "number";
   const names = hasWorkspace ? COUNSEL_TOOLS_WITH_WORKSPACE : COUNSEL_TOOLS_GENERAL;
+
   const tools: ToolSet = {};
   for (const name of names) {
     const meta = ToolRegistry.get(name);
@@ -184,6 +185,9 @@ function counselCompleteDetail(synthesis: string): string {
 }
 
 function buildCounselQuestion(session: CounselSession): string {
+  if (session.trigger === "agent_blocker" || session.trigger === "low_confidence") {
+    return session.question;
+  }
   if (session.mode === "workspace") {
     return [
       "What is the best approach for:",
@@ -203,28 +207,46 @@ async function synthesiseCounsel(
   settings: UserSettings,
   degradationNote: string,
   abortSignal?: AbortSignal,
+  recoveryBullets?: boolean,
 ): Promise<string> {
   const formatResponse = (role: string, resp: string | null) =>
     resp ? `## ${role} perspective\n${resp}` : `## ${role} perspective\nUnavailable`;
 
-  const prompt = [
-    "You are synthesising a Counsel session.",
-    degradationNote ? `\nNote: ${degradationNote}\n` : "",
-    `Original question: ${question}`,
-    "",
-    formatResponse("Fast", responses.fast),
-    "",
-    formatResponse("Balanced", responses.balanced),
-    "",
-    formatResponse("Thinking", responses.thinking),
-    "",
-    "Your task:",
-    "1. Where perspectives agreed — high confidence",
-    "2. Where they disagreed — reason through which view is stronger and why",
-    "3. Produce ONE coherent answer",
-    "4. Be better than any individual perspective",
-    "5. Do not just concatenate — synthesise",
-  ].join("\n");
+  const prompt = recoveryBullets
+    ? [
+        "You are synthesising a mid-task recovery plan for a coding agent.",
+        degradationNote ? `\nNote: ${degradationNote}\n` : "",
+        `Situation and evidence:\n${question}`,
+        "",
+        formatResponse("Fast", responses.fast),
+        "",
+        formatResponse("Balanced", responses.balanced),
+        "",
+        formatResponse("Thinking", responses.thinking),
+        "",
+        "Your task:",
+        "Return EXACTLY 3 markdown bullet lines, each starting with '- '.",
+        "Each bullet is ONE concrete recovery step (verify, re-run, delegate, narrow scope, or inspect a specific path).",
+        "No preamble, no numbered lists, no headings, no code fences — only the 3 bullets.",
+      ].join("\n")
+    : [
+        "You are synthesising a Counsel session.",
+        degradationNote ? `\nNote: ${degradationNote}\n` : "",
+        `Original question: ${question}`,
+        "",
+        formatResponse("Fast", responses.fast),
+        "",
+        formatResponse("Balanced", responses.balanced),
+        "",
+        formatResponse("Thinking", responses.thinking),
+        "",
+        "Your task:",
+        "1. Where perspectives agreed — high confidence",
+        "2. Where they disagreed — reason through which view is stronger and why",
+        "3. Produce ONE coherent answer",
+        "4. Be better than any individual perspective",
+        "5. Do not just concatenate — synthesise",
+      ].join("\n");
 
   const { modelClient } = await getModelClient(synthesisModel, settings, {
     agentMode: settings.agentMode ?? "guided",
@@ -234,7 +256,7 @@ async function synthesiseCounsel(
   const result = await generateText({
     model: modelClient.model,
     messages: [{ role: "user", content: prompt }],
-    maxTokens: 2000,
+    maxTokens: recoveryBullets ? 400 : 2000,
     abortSignal,
   } as Parameters<typeof generateText>[0]);
 
@@ -563,6 +585,8 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     thinking: thinkingResp,
   };
 
+  const recoveryBullets = trigger === "agent_blocker";
+
   let synthesis = "";
   try {
     synthesis = await synthesiseCounsel(
@@ -572,6 +596,7 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
       settings,
       degradationNote,
       pipelineSignal,
+      recoveryBullets,
     );
   } catch {
     synthesis =
@@ -623,6 +648,10 @@ export async function runCounselPipeline(args: RunCounselPipelineArgs): Promise<
     } catch (e) {
       console.warn("[counsel] Failed to persist session:", e);
     }
+  }
+
+  if (trigger === "agent_blocker") {
+    return ["## Counsel recovery plan", synthesis].join("\n\n");
   }
 
   return [

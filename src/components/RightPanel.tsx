@@ -23,7 +23,6 @@ import FileDiffPanel from './preview_panel/FileDiffPanel';
 import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
-import { WorkspacePermissionsPanel } from './preview_panel/WorkspacePermissionsPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
@@ -393,17 +392,8 @@ function PanelContent({
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             case 'vault':
-                if (context.data?.requestId && Array.isArray(context.data?.services)) {
-                    return (
-                        <WorkspacePermissionsPanel
-                            chatId={context.data?.chatId}
-                            requestId={context.data?.requestId}
-                            services={context.data?.services ?? []}
-                            alreadyConnected={context.data?.alreadyConnected ?? []}
-                            message={context.data?.message}
-                        />
-                    );
-                }
+                // Pass 7: Token Vault deprecated; the panel now just shows the per-workspace
+                // credential vault (.env style) — never the Auth0 connect flow.
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             default:
                 // Default to permission queue
@@ -417,17 +407,6 @@ function PanelContent({
 
         case 'code-preview':
             if (context.activeTab === 'vault') {
-                if (context.data?.requestId && Array.isArray(context.data?.services)) {
-                    return (
-                        <WorkspacePermissionsPanel
-                            chatId={context.data?.chatId}
-                            requestId={context.data?.requestId}
-                            services={context.data?.services ?? []}
-                            alreadyConnected={context.data?.alreadyConnected ?? []}
-                            message={context.data?.message}
-                        />
-                    );
-                }
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             }
             return (

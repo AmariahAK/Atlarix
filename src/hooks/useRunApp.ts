@@ -25,13 +25,13 @@ export function useRunApp() {
   const setPreviewErrorMessage = useSetAtom(previewErrorMessageAtom);
 
   const processProxyServerOutput = (output: AppOutput) => {
-    const matchesProxyServerStart = output.message.includes(
-      "[dyad-proxy-server]started=[",
-    );
+    const matchesProxyServerStart =
+      output.message.includes("[atlarix-preview-proxy]started=[") ||
+      output.message.includes("[dyad-proxy-server]started=[");
     if (matchesProxyServerStart) {
       // Extract both proxy URL and original URL using regex
       const proxyUrlMatch = output.message.match(
-        /\[dyad-proxy-server\]started=\[(.*?)\]/,
+        /\[(?:atlarix-preview-proxy|dyad-proxy-server)\]started=\[(.*?)\]/,
       );
       const originalUrlMatch = output.message.match(/original=\[(.*?)\]/);
 

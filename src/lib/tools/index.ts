@@ -1,60 +1,46 @@
 /**
  * Atlarix Tools Index
- * ==================
- * Central export for all tools
- * 
- * Import this file to register all tools automatically
+ * ===================
+ * Central export for all tools.
+ *
+ * Importing this file (side-effect imports below) auto-registers every tool
+ * with the ToolRegistry singleton.
  */
 
 // Registry
 export * from "./registry";
 
 // Tool modules (importing registers them)
-import "./file-tools";
-import "./advanced-file-tools";
-import "./edit-tools"; // Surgical edit tools: replace_code, insert_code, delete_lines
-import "./symbol-tools"; // Symbol tools: get_file_outline, view_symbol
-import "./web-tools";
-import "./execution-tools";
-import "./memory-tools";
-import "./search-intelligence-tools";
-import "./template-tools";
-import "./ai-template-tools";
-import "./workspace-tools";
-import "./request-tools";
-import "./git-tools";
-import "./analysis-tools";
-import "./diagram-tools";
-import "./blueprint-tools"; // Phase 7 Additive Blueprint
-import "./project-memory-tools"; // v5.0 Section 2
-import "./atlarix-ignore-tools";
-import "./testing-tools";
-import "./refactoring-tools";
-import "./project-structure-tools"; // Multi-Layer Fallback System
-import "./meta-tools"; // Phase 3: New meta-tools
-import "./agent-tools"; // v2.1: delegate_to_agent
-import "./mode-tools"; // request_mode_change (Ask/Build/Auto)
-import "./reference-project-tools"; // v3.6 add_reference_project
-import "./db-tools"; // v3.6 DB Extension: db_query, db_schema, db_list, db_mutate
-import "./stream-tools"; // v3.9 stream_terminal_output, stream_pipeline_logs
-import "./workforce-tools"; // v4.0 Slack, Jira, Linear, Sentry, Calendar, CI
-import "./exploration-tools"; // v8.0: generate_workspace_map, scan_file_structure, find_entry_points
-import "./attachment-tools"; // v8.0: read_attachment, list_attachments
-import "./compress-context-tool"; // v8.1: compress_context (model-triggered compaction)
+import "./file";
+import "./edit";
+import "./search";
+import "./shell";
+import "./git";
+import "./web";
+import "./memory";
+import "./blueprint";
+import "./diagram";
+import "./agent";
+import "./workspace";
+import "./plan";
+import "./mcp";
+import "./skills";
+import "./db";
+import "./mode";
+import "./lsp-tools";
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";
 export { ToolRegistry };
 
 /**
- * Initialize all tools
- * Call this once at app startup
+ * Initialize all tools.
+ * Call this once at app startup.
  */
 export function initializeTools(): void {
-    // Tools are auto-registered on import
-    // This function exists for explicit initialization if needed
-    const toolCount = ToolRegistry.getAll().length;
-    console.log(`[Atlarix] Initialized ${toolCount} tools`);
+    const all = ToolRegistry.getAll();
+    const names = all.map((t) => t.name).sort();
+    console.log(`[Atlarix] ${names.length} tools registered:\n  ${names.join("\n  ")}`);
 }
 
 /**

@@ -328,6 +328,14 @@ export function SkillsSettingsPage() {
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({});
 
+  // Workforce Feature 1: repo-scoped priority skills loaded from .atlarix/skills/
+  // in each workspace. We keep counts keyed by workspace id; the `isWorkforce`
+  // flag is the same across workspaces but cached separately so the indicator
+  // can show the upgrade hint when the priority flag is being ignored.
+  const [repoSkillsByWorkspaceId, setRepoSkillsByWorkspaceId] = useState<
+    Record<number, { total: number; priority: number; isWorkforce: boolean }>
+  >({});
+
   const refreshInstalled = useCallback(async () => {
     const globalRows = (await ipc.skillsList({ scope: "global" })) as InstalledSkillRow[];
     setInstalledGlobal(globalRows);
@@ -360,6 +368,33 @@ export function SkillsSettingsPage() {
   useEffect(() => {
     void loadWorkspaces();
   }, [loadWorkspaces]);
+
+  // Workforce Feature 1: refresh repo-skill summaries whenever workspaces change.
+  useEffect(() => {
+    if (workspaces.length === 0) {
+      setRepoSkillsByWorkspaceId({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const next: Record<number, { total: number; priority: number; isWorkforce: boolean }> = {};
+      for (const w of workspaces) {
+        try {
+          const res = await ipc.listRepoSkills(w.id);
+          const total = res.skills.length;
+          if (total === 0) continue;
+          const priority = res.skills.filter((s) => s.priority).length;
+          next[w.id] = { total, priority, isWorkforce: res.isWorkforce };
+        } catch (e) {
+          console.warn(`Failed to load repo skills for workspace ${w.id}:`, e);
+        }
+      }
+      if (!cancelled) setRepoSkillsByWorkspaceId(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ipc, workspaces]);
 
   useEffect(() => {
     if (!isPaid) return;
@@ -647,6 +682,38 @@ export function SkillsSettingsPage() {
                       <Folder className="w-4 h-4" />
                       {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"} detected. Workspace
                       install buttons are enabled.
+                    </div>
+                  )}
+                  {Object.keys(repoSkillsByWorkspaceId).length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {workspaces
+                        .filter((w) => repoSkillsByWorkspaceId[w.id])
+                        .map((w) => {
+                          const info = repoSkillsByWorkspaceId[w.id];
+                          const priorityHonoured = info.isWorkforce && info.priority > 0;
+                          const priorityIgnored = !info.isWorkforce && info.priority > 0;
+                          return (
+                            <div key={w.id} className="flex items-center gap-2 text-xs">
+                              <Badge variant="secondary" className="font-normal">
+                                {w.name}
+                              </Badge>
+                              {priorityHonoured ? (
+                                <span className="text-foreground/80">
+                                  {info.priority} priority skill{info.priority === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>
+                                </span>
+                              ) : priorityIgnored ? (
+                                <span className="text-muted-foreground">
+                                  {info.total} repo skill{info.total === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>{" "}
+                                  <span className="text-amber-600 dark:text-amber-400">(Workforce required for priority)</span>
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  {info.total} repo skill{info.total === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </div>

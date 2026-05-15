@@ -11,6 +11,7 @@ import { db } from "@/db";
 import { apps } from "@/db/schema";
 import { blueprintToRagGraph, getCodeSnippetForBuildNode } from "@/lib/blueprint/blueprint-rag";
 import { resolveAppPath } from "@/paths/paths";
+import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 
 const logger = log.scope("bm25-semantic-index");
 
@@ -34,6 +35,8 @@ type CachedIndex = {
   engine: ReturnType<typeof createBm25Engine>;
   meta: NodeMeta[];
   filesIndexed: number;
+  /** When set, index is discarded if git HEAD changes (cheap staleness check). */
+  commitHash?: string | null;
 };
 
 const indexByWorkspaceId = new Map<number, CachedIndex>();
@@ -93,6 +96,7 @@ async function buildIndex(
   workspaceId: number,
   workspaceRootAbs: string,
 ): Promise<CachedIndex | null> {
+  const t0 = Date.now();
   const { getBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
   const blueprint = await getBlueprintForWorkspace(workspaceId);
   const graph = blueprintToRagGraph(blueprint, workspaceRootAbs);
@@ -132,7 +136,32 @@ async function buildIndex(
 
   if (docId === 0) return null;
   engine.consolidate();
-  return { engine, meta, filesIndexed: filesSeen.size };
+  let commitHash: string | null = null;
+  try {
+    commitHash = await getCurrentCommitHash({ path: workspaceRootAbs });
+  } catch {
+    commitHash = null;
+  }
+  const elapsedMs = Date.now() - t0;
+  logger.info("bm25 buildIndex: complete", {
+    workspaceId,
+    elapsedMs,
+    docs: docId,
+    filesIndexed: filesSeen.size,
+    graphNodes: graph.nodes.length,
+    commitHash: commitHash ?? "none",
+  });
+  void import("@sentry/electron/main")
+    .then((Sentry) => {
+      Sentry.addBreadcrumb({
+        category: "bm25",
+        message: "build_complete",
+        level: "info",
+        data: { workspaceId, elapsedMs, docs: docId },
+      });
+    })
+    .catch(() => {});
+  return { engine, meta, filesIndexed: filesSeen.size, commitHash };
 }
 
 export type Bm25SearchResult = {
@@ -147,7 +176,19 @@ export async function searchBlueprintBm25(
   query: string,
   maxResults: number,
 ): Promise<Bm25SearchResult | null> {
-  let cached = indexByWorkspaceId.get(workspaceId);
+  let cached: CachedIndex | undefined = indexByWorkspaceId.get(workspaceId);
+  if (cached) {
+    let head: string | null = null;
+    try {
+      head = await getCurrentCommitHash({ path: workspaceRootAbs });
+    } catch {
+      head = null;
+    }
+    if (cached.commitHash !== undefined && head !== cached.commitHash) {
+      indexByWorkspaceId.delete(workspaceId);
+      cached = undefined;
+    }
+  }
   if (!cached) {
     let built: CachedIndex | null;
     try {

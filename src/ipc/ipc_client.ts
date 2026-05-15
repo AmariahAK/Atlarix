@@ -89,6 +89,7 @@ import type {
   UninstallSkillParams,
   InstalledSkillRow,
   ActiveSkillContent,
+  ListRepoSkillsResult,
 } from "./ipc_types";
 import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
@@ -130,6 +131,95 @@ export interface GitHubDeviceFlowErrorData {
 interface DeleteCustomModelParams {
   providerId: string;
   modelApiName: string;
+}
+
+function guessMimeTypeFromFilename(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".txt") || lower.endsWith(".md")) return "text/plain";
+  return "application/octet-stream";
+}
+
+function attachmentMimeType(file: File): string {
+  if (file.type?.trim()) return file.type;
+  return guessMimeTypeFromFilename(file.name);
+}
+
+/** Base64 without FileReader — avoids renderer failures on some PDFs in Electron. */
+function uint8ToBase64(bytes: Uint8Array): string {
+  const B = (globalThis as unknown as {
+    Buffer?: { from: (input: Uint8Array) => { toString: (enc: string) => string } };
+  }).Buffer;
+  if (B) {
+    return B.from(bytes).toString("base64");
+  }
+  const chunk = 0x8000;
+  const binaryChunks: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const sub = bytes.subarray(i, Math.min(i + chunk, bytes.length));
+    binaryChunks.push(String.fromCharCode.apply(null, sub as unknown as number[]));
+  }
+  return btoa(binaryChunks.join(""));
+}
+
+async function encodeFileAttachmentForStream(attachment: FileAttachment): Promise<{
+  id?: string;
+  name: string;
+  type: string;
+  data: string;
+  attachmentType: "upload-to-codebase" | "chat-context";
+}> {
+  const file = attachment.file;
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await file.arrayBuffer();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new Error(`Failed to read file: ${file.name} (${reason})`);
+  }
+  const bytes = new Uint8Array(buffer);
+  let base64Data: string;
+  try {
+    base64Data = uint8ToBase64(bytes);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new Error(`Failed to encode file: ${file.name} (${reason})`);
+  }
+  const mime = attachmentMimeType(file);
+  const raw = `data:${mime};base64,${base64Data}`;
+  const id =
+    attachment.id ??
+    (typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : undefined);
+
+  import("@/lib/attachment-store")
+    .then(({ AttachmentStore }) => {
+      if (id) {
+        AttachmentStore.add({
+          id,
+          filename: file.name,
+          mimeType: mime,
+          data: base64Data,
+          size: file.size,
+          addedAt: Date.now(),
+        });
+      }
+    })
+    .catch(() => {});
+
+  return {
+    id,
+    name: file.name,
+    type: mime,
+    data: raw,
+    attachmentType: attachment.type,
+  };
 }
 
 export class IpcClient {
@@ -726,7 +816,7 @@ export class IpcClient {
   }
 
   public async restartAtlarix(): Promise<void> {
-    await this.ipcRenderer.invoke("restart-dyad");
+    await this.ipcRenderer.invoke("restart-atlarix");
   }
 
   public async reloadEnvPath(): Promise<void> {
@@ -859,10 +949,6 @@ export class IpcClient {
       onProblems?: (problems: ChatProblemsEvent) => void;
       /** v3.9: Continue after clarifying questions (no new user message; use last user message content). */
       continueAfterQuestions?: boolean;
-      /** v5.0: Force Blueprint injection tier (Diagram tab); omit for Auto (heuristics + settings in main). */
-      blueprintInjectionMode?: "ask" | "plan" | "build" | "debug";
-      blueprintDebugTrace?: string;
-      blueprintDebugFile?: string;
       prefillTaskLedger?: {
         steps: { description: string }[];
         sourcePlanMessageId?: number;
@@ -882,9 +968,6 @@ export class IpcClient {
       onEnd,
       onError,
       continueAfterQuestions,
-      blueprintInjectionMode,
-      blueprintDebugTrace,
-      blueprintDebugFile,
       prefillTaskLedger,
       forceThinkingTier,
     } = options;
@@ -892,50 +975,7 @@ export class IpcClient {
 
     // Handle file attachments if provided
     if (attachments && attachments.length > 0) {
-      // Process each file attachment and convert to base64
-      Promise.all(
-        attachments.map(async (attachment) => {
-          return new Promise<{
-            id?: string;
-            name: string;
-            type: string;
-            data: string;
-            attachmentType: "upload-to-codebase" | "chat-context";
-          }>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const id = attachment.id ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : undefined);
-              const raw = reader.result as string;
-              const base64Data = raw.split(";base64,").pop() || "";
-              // Store in renderer AttachmentStore so previews/downloads work.
-              import("@/lib/attachment-store")
-                .then(({ AttachmentStore }) => {
-                  if (id) {
-                    AttachmentStore.add({
-                      id,
-                      filename: attachment.file.name,
-                      mimeType: attachment.file.type || "application/octet-stream",
-                      data: base64Data,
-                      size: attachment.file.size,
-                      addedAt: Date.now(),
-                    });
-                  }
-                })
-                .catch(() => {});
-              resolve({
-                id,
-                name: attachment.file.name,
-                type: attachment.file.type,
-                data: raw,
-                attachmentType: attachment.type,
-              });
-            };
-            reader.onerror = () =>
-              reject(new Error(`Failed to read file: ${attachment.file.name}`));
-            reader.readAsDataURL(attachment.file);
-          });
-        }),
-      )
+      Promise.all(attachments.map((a) => encodeFileAttachmentForStream(a)))
         .then((fileDataArray) => {
           // Use invoke to start the stream and pass the chatId and attachments
           this.ipcRenderer
@@ -948,9 +988,6 @@ export class IpcClient {
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
               continueAfterQuestions: continueAfterQuestions ?? undefined,
-              blueprintInjectionMode: blueprintInjectionMode ?? undefined,
-              blueprintDebugTrace: blueprintDebugTrace ?? undefined,
-              blueprintDebugFile: blueprintDebugFile ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               forceThinkingTier: forceThinkingTier ?? undefined,
             })
@@ -978,9 +1015,6 @@ export class IpcClient {
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
-          blueprintInjectionMode: blueprintInjectionMode ?? undefined,
-          blueprintDebugTrace: blueprintDebugTrace ?? undefined,
-          blueprintDebugFile: blueprintDebugFile ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           forceThinkingTier: forceThinkingTier ?? undefined,
         })
@@ -998,6 +1032,13 @@ export class IpcClient {
     this.ipcRenderer.invoke("chat:cancel", chatId);
     // Also abort the backend stream to save tokens
     this.ipcRenderer.invoke("chat:abort", chatId);
+  }
+
+  // FIX 4: re-dispatch the last `chat:stream` request for this chat. Backend
+  // emits `chat:stream:reset-partial` before kicking off the fresh stream
+  // so the renderer can clear its in-flight assistant buffer.
+  public async reconnectStream(chatId: number): Promise<{ success: boolean; message?: string }> {
+    return this.ipcRenderer.invoke("chat:stream:reconnect", { chatId });
   }
 
   // Create a new chat for an app
@@ -1393,6 +1434,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-sentry-config");
   }
 
+  /** Dev-only: last N tool execution durations from main (ring buffer). */
+  public async getToolPerfSnapshot(): Promise<{ name: string; ms: number; at: number }[]> {
+    return this.ipcRenderer.invoke("perf:tool-snapshot");
+  }
+
   /** Get PostHog config (API key + anonymous ID) for renderer init. Key undefined if not set. */
   public async getPostHogConfig(): Promise<{
     posthogApiKey: string | undefined;
@@ -1433,6 +1479,35 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:test-connection", serverId);
   }
 
+  /**
+   * Pass 7 — Fetch the public MCP marketplace registry. Returns the parsed
+   * JSON index when successful. If `url` is omitted the default Atlarix
+   * registry URL is used.
+   */
+  public async fetchMcpRegistry(
+    url?: string,
+  ): Promise<{
+    success: boolean;
+    registry?: import("@/shared/mcp-registry").McpRegistryIndex;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("mcps:fetch-registry", { url });
+  }
+
+  /**
+   * Pass 7 — Install an entry from the marketplace registry. The user-supplied
+   * env vars are stored in `mcp_servers.env_json`; the row gets
+   * `from_registry=1` / `registry_id=<entry.id>` so the UI can show a badge.
+   */
+  public async installMcpFromRegistry(params: {
+    entry: import("@/shared/mcp-registry").McpRegistryEntry;
+    env: Record<string, string>;
+    scope?: "global" | "workspace";
+    appId?: number | null;
+  }): Promise<{ success: boolean; serverId?: number; error?: string }> {
+    return this.ipcRenderer.invoke("mcps:install-from-registry", params);
+  }
+
   // Removed: upsertMcpTools and setMcpToolActive – tools are fetched dynamically at runtime
 
   public async getMcpToolConsents() {
@@ -1469,6 +1544,16 @@ export class IpcClient {
 
   public async skillsGetActiveForSession(params?: { workspacePath?: string }): Promise<ActiveSkillContent[]> {
     return this.ipcRenderer.invoke("skills:get-active-for-session", params);
+  }
+
+  /**
+   * Workforce Feature 1: list repo-scoped priority skills from `.atlarix/skills/`.
+   * Available on all tiers; the `priority` flag in each skill itself reflects
+   * the Workforce gate (priority will be `false` for non-Workforce users even
+   * if the frontmatter sets `priority: true`).
+   */
+  public async listRepoSkills(workspaceId: number | null | undefined): Promise<ListRepoSkillsResult> {
+    return this.ipcRenderer.invoke("skills:list-repo-skills", { workspaceId: workspaceId ?? null });
   }
 
   // --- Hooks (advisory scripts) ---
@@ -2623,7 +2708,7 @@ export class IpcClient {
     return this.ipcRenderer.invoke("diagram:mark-stale", params);
   }
 
-  // --- Blueprint (Phase 7 Additive Blueprint) ---
+  // PASS6: Blueprint (Phase 7 Additive Blueprint) — client methods restored.
   public async getBlueprint(params: { workspaceId: number }): Promise<{
     success: boolean;
     blueprint?: import("@/shared/blueprint-types").Blueprint;
@@ -2718,22 +2803,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:simplify-architecture", params);
   }
 
-  /** Layout container canvas via ELK (main process) */
-  public async layoutContainerCanvas(
-    rooms: Array<{ id: string }>,
-    edges: Array<{ id: string; from: string; to: string }>
-  ): Promise<Array<{ id: string; x: number; y: number; width: number; height: number }>> {
-    return this.ipcRenderer.invoke("blueprint:layout-containers", { rooms, edges });
-  }
-
-  /** Layout beacon flow inside a room via ELK (main process) */
-  public async layoutBeaconFlow(
-    beacons: Array<{ id: string }>,
-    flowEdges: Array<{ id: string; from: string; to: string }>
-  ): Promise<Array<{ id: string; x: number; y: number; width: number; height: number }>> {
-    return this.ipcRenderer.invoke("blueprint:layout-beacons", { beacons, flowEdges });
-  }
-
   /** DB Extension: list connections and active id for workspace */
   public async dbListConnections(workspaceId: number | null): Promise<{
     connections: Array<{ id: string; name: string; type: string; status: string; isProd?: boolean }>;
@@ -2812,6 +2881,7 @@ export class IpcClient {
     return this.ipcRenderer.invoke("db:get-table-data", { workspaceId, table });
   }
 
+  // PASS6: PIVOT analysis + Blueprint snapshot/codegen/listener methods restored.
   /** Get PIVOT nodes and edges for workspace (for Live vs Blueprint comparison). */
   public async getPivotNodesEdges(params: { workspaceId: number }): Promise<{
     success: boolean;
@@ -2863,6 +2933,27 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("blueprint:cluster", params);
+  }
+
+  /** Workforce Feature 2: commit Blueprint snapshot to `.atlarix/blueprint.json`. */
+  public async commitBlueprintSnapshot(workspaceId: number): Promise<{
+    success: boolean;
+    nodeCount?: number;
+    edgeCount?: number;
+    path?: string;
+    firstCommit?: boolean;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:commit-snapshot", { workspaceId });
+  }
+
+  /** Workforce Feature 2: check whether a `.atlarix/blueprint.json` snapshot exists for a workspace. */
+  public async blueprintSnapshotExists(workspaceId: number): Promise<{
+    exists: boolean;
+    snapshot?: { nodeCount: number; edgeCount: number; generatedAt: string };
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("blueprint:snapshot-exists", { workspaceId });
   }
 
   /** Generate scaffold from Blueprint delta (new files + .env.local keys) */

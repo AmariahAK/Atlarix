@@ -35,9 +35,9 @@ export const createChatCompletionHandler =
       )
     ) {
       messageContent = `Uploading image to codebase
-<dyad-write path="new/image/file.png" description="Uploaded image to codebase">
-DYAD_ATTACHMENT_0
-</dyad-write>
+<atlarix-write path="new/image/file.png" description="Uploaded image to codebase">
+ATLARIX_ATTACHMENT_0
+</atlarix-write>
 `;
       messageContent += "\n\n" + generateDump(req);
     }
@@ -437,7 +437,7 @@ function generateDump(req: Request) {
       "utf-8",
     );
     console.log(`* Dumped messages to: ${dumpFilePath}`);
-    return `[[dyad-dump-path=${dumpFilePath}]]`;
+    return `[[atlarix-dump-path=${dumpFilePath}]]`;
   } catch (error) {
     console.error(`* Error writing dump file: ${error}`);
     return `Error: Could not write dump file: ${error}`;

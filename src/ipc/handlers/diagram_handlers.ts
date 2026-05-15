@@ -23,7 +23,7 @@ import { AppChatContext } from "../../lib/schemas";
 import { apps } from "@/db/schema";
 import { checkSnapshotStaleness, type StalenessCheck } from "../../lib/snapshot/staleness";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
-import { invalidateBlueprintCache } from "./blueprint_handlers";
+// Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
 import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
@@ -308,7 +308,6 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                 /* snapshot persistence optional */
             }
 
-            invalidateBlueprintCache(workspaceId);
             return { success: true, diagram: toClientDiagram(diagram) };
 
         } catch (error: unknown) {

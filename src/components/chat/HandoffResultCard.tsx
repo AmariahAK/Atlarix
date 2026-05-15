@@ -7,6 +7,8 @@ import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-reac
 import { CodeHighlight } from "./CodeHighlight";
 export type HandoffAgentRole =
   | "research"
+  | "explore"
+  | "scout"
   | "architect"
   | "builder"
   | "reviewer"
@@ -30,6 +32,10 @@ function handoffTitle(role: HandoffAgentRole): string {
       return "Reviewer returned findings";
     case "debugger":
       return "Debugger returned analysis";
+    case "explore":
+      return "Explore mapped the codebase";
+    case "scout":
+      return "Scout traced dependencies";
     case "research":
     default:
       return "Research completed";

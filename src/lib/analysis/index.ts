@@ -25,9 +25,3 @@ export {
     clearAllCaches,
     getCacheStats,
 } from './workspace-cache';
-
-export {
-    parseWithTreeSitter,
-    isTreeSitterAvailable,
-    type ParsedFileResult,
-} from './treesitter-parser';

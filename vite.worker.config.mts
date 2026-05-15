@@ -20,14 +20,11 @@ export default defineConfig({
       formats: ["cjs"],
     },
     rollupOptions: {
-      // Keep `typescript` external: bundling the full compiler exhausts Node heap during forge dev (~2GB+).
-      // Runtime resolves workspace copy first, then Atlarix's shipped dependency (see tsc_worker.ts).
       external: [
         "node:fs",
         "node:path",
         "node:worker_threads",
         "node:module",
-        "typescript",
       ],
       //   output: {
       //     dir: "dist/workers/tsc",

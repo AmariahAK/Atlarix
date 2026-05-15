@@ -74,11 +74,11 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         const files = Array.from(e.dataTransfer.files);
         if (files.length === 0) return;
 
-        const newAttachments: FileAttachment[] = files.map(file => ({
+        const newAttachments: FileAttachment[] = files.map((file) => ({
             file,
             type: "chat-context",
         }));
-        setAttachments(prev => [...prev, ...newAttachments]);
+        setAttachments((prev) => [...prev, ...newAttachments]);
     }, [isStreaming, mustSignIn]);
 
     // Auto-resize textarea when value changes (e.g., pre-filled by "Fix with AI")
@@ -93,12 +93,12 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         const files = Array.from(e.target.files ?? []);
         if (files.length === 0) return;
 
-        const newAttachments: FileAttachment[] = files.map(file => ({
+        const newAttachments: FileAttachment[] = files.map((file) => ({
             file,
             type: "chat-context",
         }));
-        setAttachments(prev => [...prev, ...newAttachments]);
-        e.target.value = '';
+        setAttachments((prev) => [...prev, ...newAttachments]);
+        e.target.value = "";
     };
 
     const removeAttachment = (index: number) => {

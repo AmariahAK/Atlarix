@@ -11,6 +11,8 @@ type BusAgentId =
   | "reviewer"
   | "research"
   | "researcher"
+  | "explore"
+  | "scout"
   | "debugger";
 
 export const DELEGATION_EDGE_WINDOW_MS = 60_000;

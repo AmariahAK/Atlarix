@@ -4,7 +4,7 @@
  * Simplified handler for chat-only sessions (no workspace/app)
  * 
  * This provides:
- * - 5 core tools: web_search, read_url, get_current_time, parse_url, request_tools
+ * - Core tools: web_search, read_url, request_tools
  * - No codebase context
  * - No file operations
  * - Simple, fast responses
@@ -29,6 +29,7 @@ import {
   type GetModelClientOptions,
 } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
+import { stripThinkBlocks } from "../utils/thinking_tags";
 import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
 import { ChatStreamParams, ChatResponseEnd, Message } from "../ipc_types";
@@ -54,11 +55,14 @@ import {
   totalTokensFromAiUsage,
 } from "../../lib/auth/compass_usage";
 import { estimateTokens } from "../utils/token_utils";
+import { runMidLoopCompaction, pruneToolOutputsInModelMessages } from "@/lib/context/mid_loop_compaction";
+import { guardToolCall } from "@/lib/tools/guard";
 import {
     compassExhaustedUserMessage,
     COMPASS_REACHABILITY_ERROR,
 } from "../shared/compass_constants";
 import { ToolRegistry } from "../../lib/tools";
+import { renderModeSystemBlock } from "../../prompts/system_prompt";
 import { getSessionMemory } from "../../lib/session-memory";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import type { LargeLanguageModel } from "../../lib/schemas";
@@ -439,29 +443,21 @@ export function addEphemeralMessage(
     }
 }
 
-/** System prompt for chat-only mode (no workspace) — includes runtime app version and NorahLabs identity */
-function getChatOnlySystemPrompt(appVersion: string): string {
-    return `You are the in-app assistant for **Atlarix**, the desktop AI coding copilot built by **NorahLabs** (norahlabs.com). Product site: atlarix.dev.
+/**
+ * System prompt for chat-only mode (no workspace) — includes runtime app version and NorahLabs identity.
+ * PASS8 A2 + A3 + A5: Returns a stable header (cacheable) + dynamic tail (per-turn).
+ * Chat-only has no workspace, so the active mode is always Ask.
+ */
+function getChatOnlySystemPromptParts(appVersion: string): { stableHeader: string; dynamicTail: string } {
+    const stableHeader = `You are the in-app assistant for **Atlarix**, the desktop AI coding copilot built by **NorahLabs** (norahlabs.com). Product site: atlarix.dev.
 
 <tool_contract>
-The following tools are available in EVERY mode including Ask, Plan, Build, Debug, Review,
-and chat-only (no workspace):
-  - read_attachment({ "attachmentId": "<id>" })
-  - list_attachments({})
-  - compress_context({ "reason": "<optional reason>" })
-    → Call this when you have finished a major subtask or notice context pressure building.
-    → Do NOT call this on every turn. Only when you genuinely need more room.
-  - web_search({ "query": "<query>" })
-
-The following tools require a workspace and are NOT available in chat-only mode:
-  - Any tool that reads or writes project files (read_file, write_file, search_code, etc.)
-  - Blueprint tools (get_blueprint, query_blueprint, etc.)
-  - Diagram tools
-
-Never say a tool is unavailable unless it is explicitly absent from the tool list provided
-to you at session start. If you are uncertain whether a tool is available, call it — do not
-assume it is missing.
+Every-mode tools: read_attachment, list_attachments, compress_context, web_search, deep_research, ask_user.
+Workspace-only tools (file read/write, search, diagram, etc.) are NOT available in chat-only mode.
+If a tool is in your tool list, call it; do not claim it is missing.
 </tool_contract>
+
+${renderModeSystemBlock("ask")}
 
 ## App version (answer exactly when asked)
 The user is running Atlarix app version **${appVersion}**. If they ask what version you are, what version the app is, or similar, give that version string. Do not say you have no version number.
@@ -504,8 +500,26 @@ Do NOT try to guess or make up attachment IDs. Use the exact ID provided in the 
 - Keep responses focused
 
 ## Important
-- Be helpful and conversational. **RULE:** For one user question, pick **either** **web_search** **or** **deep_research**, never both in the same turn for overlapping topics. After **deep_research**, answer from its output only.
-`;
+- Be helpful and conversational. **RULE:** For one user question, pick **either** **web_search** **or** **deep_research**, never both in the same turn for overlapping topics. After **deep_research**, answer from its output only.`;
+
+    const currentDateTime = new Date().toLocaleString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+    });
+    const dynamicTail = `# Current date and time
+Today is ${currentDateTime}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.`;
+    return { stableHeader, dynamicTail };
+}
+
+/** Backwards-compatible single-string joiner. */
+function getChatOnlySystemPrompt(appVersion: string): string {
+    const { stableHeader, dynamicTail } = getChatOnlySystemPromptParts(appVersion);
+    return `${stableHeader}\n\n${dynamicTail}\n`;
 }
 
 /**
@@ -860,6 +874,16 @@ export async function handleChatOnlyStream(
                         toolName: getToolActivityLabel(tool.name),
                     });
                     try {
+                    // FIX 3: wrap the entire built-in dispatch in guardToolCall
+                    // so missing params return INVALID_PARAMS and any thrown
+                    // handler error is caught as TOOL_ERROR. Permission-required
+                    // markers (none today on the chat-only path, but kept for
+                    // parity) are passed through.
+                    return await guardToolCall({
+                        toolName: tool.name,
+                        args: params,
+                        parametersSchema: (tool as { parameters?: unknown }).parameters,
+                        runner: async () => {
                     const paramsObj = params as Record<string, unknown>;
 
                     logger.log(`Executing tool: ${tool.name}`);
@@ -887,7 +911,7 @@ export async function handleChatOnlyStream(
                         try {
                             const settingsNow = await readSettings();
                             const providerId = settingsNow.selectedModel?.provider;
-                            const { executeCompressContext } = await import("@/lib/tools/compress-context-tool");
+                            const { executeCompressContext } = await import("@/lib/tools/workspace");
                             const msgList = chat.messages.map((m: any) => ({
                                 id: m.id,
                                 role: m.role,
@@ -995,6 +1019,8 @@ export async function handleChatOnlyStream(
                     }
 
                     return result;
+                        },
+                    });
                     } finally {
                         safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                     }
@@ -1018,7 +1044,19 @@ export async function handleChatOnlyStream(
                 tools[name] = {
                     description: t.description,
                     inputSchema: PERMISSIVE_SCHEMA,
-                    execute: t.execute,
+                    // FIX 3: wrap external MCP execute in guardToolCall.
+                    // MCP schemas are not exposed to the registry, so the
+                    // INVALID_PARAMS check is a no-op (parametersSchema is
+                    // undefined); TOOL_ERROR trap still applies.
+                    execute: t.execute
+                        ? async (args: any) =>
+                              guardToolCall({
+                                  toolName: name,
+                                  args,
+                                  parametersSchema: undefined,
+                                  runner: () => t.execute!(args),
+                              })
+                        : undefined,
                 } as any;
                 mergedMcpCount += 1;
             }
@@ -1129,15 +1167,21 @@ export async function handleChatOnlyStream(
         const memoryKey = chat.appId ?? req.chatId;
         const sessionMemory = getSessionMemory(memoryKey);
         const sessionContext = sessionMemory.getContextForPrompt();
-        let systemPrompt = getChatOnlySystemPrompt(app.getVersion());
+        // PASS8 A5: Two-part system payload. Static identity / mode / capability block
+        // goes into `system` (cache-eligible); date/time + session memory + per-turn
+        // counsel injection go into the dynamic tail prepended to messages.
+        const chatOnlyParts = getChatOnlySystemPromptParts(app.getVersion());
+        let chatOnlyDynamicTail = chatOnlyParts.dynamicTail;
         if (sessionContext) {
-            systemPrompt += `\n\n${sessionContext}`;
+            chatOnlyDynamicTail += `\n\n${sessionContext}`;
             logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
         }
-
         if (deepThinkCounselPromptBlock?.trim()) {
-            systemPrompt += `\n\n${deepThinkCounselPromptBlock.trim()}`;
+            chatOnlyDynamicTail += `\n\n${deepThinkCounselPromptBlock.trim()}`;
         }
+        // Backwards-compat single string for any callers still reading `systemPrompt`.
+        let systemPrompt = `${chatOnlyParts.stableHeader}\n\n${chatOnlyDynamicTail}\n`;
+        void systemPrompt; // accessed only by token-estimate paths if present
 
         const mapChatOnlyTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
             if (t === "thinking") return "thinking";
@@ -1244,10 +1288,18 @@ export async function handleChatOnlyStream(
                 emptyOutAttempt <= CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS;
                 emptyOutAttempt++
             ) {
+                // PASS8 A5: Prepend dynamic tail as a system-role message.
+                const chatOnlyMessages: ModelMessage[] =
+                    chatOnlyDynamicTail && chatOnlyDynamicTail.trim().length > 0
+                        ? [
+                            { role: "system" as const, content: chatOnlyDynamicTail },
+                            ...chatOnlyStreamMessages,
+                        ]
+                        : chatOnlyStreamMessages;
                 const result = streamText({
                     model: modelClient.model,
-                    system: systemPrompt,
-                    messages: chatOnlyStreamMessages,
+                    system: chatOnlyParts.stableHeader,
+                    messages: chatOnlyMessages,
                     tools,
                     temperature: 0.7,
                     providerOptions: chatOnlyProviderOptions as Parameters<
@@ -1523,9 +1575,36 @@ export async function handleChatOnlyStream(
                 chatOnlyContinuationAttempts++;
                 chatOnlyStreamMessages = [
                     ...chatOnlyStreamMessages,
-                    { role: "assistant" as const, content: fullResponse },
+                    // Strip <think> from history fed back to the model; the
+                    // renderer stream above still carries the live tags.
+                    { role: "assistant" as const, content: stripThinkBlocks(fullResponse) },
                     { role: "user" as const, content: "Please continue processing the request based on the tool results above." },
                 ];
+
+                // PASS8-FIX: Tool results are appended above (text-tool branch),
+                // THEN prune, THEN compaction. Compaction never runs before the
+                // current round's tool results land in chatOnlyStreamMessages.
+                // PASS8 D1: Prune large tool outputs between rounds before compaction.
+                chatOnlyStreamMessages = pruneToolOutputsInModelMessages(chatOnlyStreamMessages) as typeof chatOnlyStreamMessages;
+
+                // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
+                {
+                    const chatOnlyCompactionMid = await runMidLoopCompaction({
+                        messages: chatOnlyStreamMessages,
+                        systemPromptEstimate: estimateTokens(chatOnlyParts.stableHeader + "\n\n" + chatOnlyDynamicTail),
+                        tierLimit: chatOnlyTierLimit,
+                        enabled: settings.enableContextAutoSummarize !== false,
+                        chatId: req.chatId,
+                        loopLabel: "chat-only",
+                        emitActivity: (payload) =>
+                            safeSend(event.sender, "chat:activity", payload),
+                        onInfo: (msg) => logger.log(msg),
+                        onWarn: (msg, err) => logger.warn(msg, err),
+                    });
+                    if (chatOnlyCompactionMid.compacted) {
+                        chatOnlyStreamMessages = chatOnlyCompactionMid.messages as typeof chatOnlyStreamMessages;
+                    }
+                }
                 fr = "unknown";
                 continue;
             }
@@ -1551,10 +1630,36 @@ export async function handleChatOnlyStream(
                         turnId: `chat-only-${req.chatId}`,
                         attemptCount: chatOnlyContinuationAttempts,
                         maxAttempts: CHAT_ONLY_CONTINUATION_MAX,
-                        lastContent: fullResponse,
+                        lastContent: stripThinkBlocks(fullResponse),
                     }),
                 },
             ];
+
+            // PASS8-FIX: Tool results are appended above (generic continuation
+            // branch — SDK response.messages includes any native tool-result
+            // entries), THEN prune, THEN compaction. Compaction never runs
+            // before the current round's tool results land.
+            // PASS8 D1: Prune large tool outputs between rounds before compaction.
+            chatOnlyStreamMessages = pruneToolOutputsInModelMessages(chatOnlyStreamMessages) as typeof chatOnlyStreamMessages;
+
+            // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
+            {
+                const chatOnlyCompactionTail = await runMidLoopCompaction({
+                    messages: chatOnlyStreamMessages,
+                    systemPromptEstimate: estimateTokens(chatOnlyParts.stableHeader + "\n\n" + chatOnlyDynamicTail),
+                    tierLimit: chatOnlyTierLimit,
+                    enabled: settings.enableContextAutoSummarize !== false,
+                    chatId: req.chatId,
+                    loopLabel: "chat-only",
+                    emitActivity: (payload) =>
+                        safeSend(event.sender, "chat:activity", payload),
+                    onInfo: (msg) => logger.log(msg),
+                    onWarn: (msg, err) => logger.warn(msg, err),
+                });
+                if (chatOnlyCompactionTail.compacted) {
+                    chatOnlyStreamMessages = chatOnlyCompactionTail.messages as typeof chatOnlyStreamMessages;
+                }
+            }
         }
 
         if (!abortController.signal.aborted && !fullResponse.trim()) {
@@ -1602,7 +1707,10 @@ export async function handleChatOnlyStream(
             id: Date.now() + 1,
             chatId: req.chatId,
             role: "assistant",
-            content: responseToStore,
+            // Chat-only sessions are in-memory only, but the same model
+            // sees this on subsequent turns (chat.messages -> messageHistory).
+            // Strip <think> for parity with workspace DB persistence.
+            content: stripThinkBlocks(responseToStore),
             sources: uniqueCollectedSources.length > 0 ? uniqueCollectedSources : undefined,
             createdAt: new Date(),
             ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),

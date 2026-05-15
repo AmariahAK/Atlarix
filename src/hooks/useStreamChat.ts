@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type {
   ComponentSelection,
   Message,
@@ -25,7 +25,6 @@ import {
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
   askUserStreamFreezeBaselineByChatIdAtom,
-  blueprintInjectionChatOverrideAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
   completedTurnArtifactsByAssistantMessageIdAtom,
@@ -38,6 +37,8 @@ import {
   rightPanelSuppressAutoOpenAtom,
   pendingProposalsAtom,
   diagramStateAtom,
+  diagramReferencesAtom,
+  blueprintStateAtom,
   previewTabAtom,
   terminalOutputsAtom,
   activityStreamItemsAtom,
@@ -66,7 +67,7 @@ import { showExtraFilesToast, showError } from "@/lib/toast";
 import { useProposal } from "./useProposal";
 import { useSearch } from "@tanstack/react-router";
 import { useRunApp } from "./useRunApp";
-import { useCountTokens } from "./useCountTokens";
+import { useContextTokenCount } from "./useCountTokens";
 import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
 import * as Sentry from "@sentry/electron/renderer";
@@ -99,7 +100,6 @@ function pushRing(buf: string[], lines: string[], max: number): string[] {
   return next.slice(next.length - max);
 }
 import { playNotify, playRemaining } from "@/lib/sounds";
-import { blueprintTierForWorkMode } from "@/lib/work-mode";
 import type { WorkMode } from "@/lib/schemas";
 
 /**
@@ -136,6 +136,13 @@ function extractActualDomain(snippet: string, fallbackUrl: string): string {
 
 export function getRandomNumberId() {
   return Math.floor(Math.random() * 1_000_000_000_000_000);
+}
+
+/** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
+const MAX_RENDERER_MESSAGES = 100;
+function trimRendererMessages(msgs: Message[]): Message[] {
+  if (msgs.length <= MAX_RENDERER_MESSAGES) return msgs;
+  return msgs.slice(-MAX_RENDERER_MESSAGES);
 }
 
 function buildTurnArtifactsSnapshot(
@@ -210,7 +217,6 @@ export function useStreamChat({
   const { refetchUserBudget } = useUserBudgetInfo();
   const { checkProblems } = useCheckProblems(selectedAppId);
   const { settings } = useSettings();
-  const blueprintChatTierOverride = useAtomValue(blueprintInjectionChatOverrideAtom);
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
@@ -221,6 +227,8 @@ export function useStreamChat({
   };
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
+  const setDiagramReferences = useSetAtom(diagramReferencesAtom);
+  const setBlueprintPanel = useSetAtom(blueprintStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const setPermissionQueue = useSetAtom(permissionQueueAtom);
@@ -233,12 +241,28 @@ export function useStreamChat({
     chatId = id;
   }
   let { refreshProposal } = hasChatId ? useProposal(chatId) : useProposal();
-  const { invalidateTokenCount } = useCountTokens(chatId ?? null, "");
+  // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
+  const { invalidateTokenCount } = useContextTokenCount(chatId ?? null);
 
   const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
   const setAskUserStreamFreezeBaselineByChatId = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
+
+  // PASS6: throttle setMessagesById during streaming (max ~20/s) to avoid renderer OOM.
+  const messageStreamThrottleRef = useRef<{
+    timer: ReturnType<typeof setInterval> | null;
+    pending: Map<number, Message[]>;
+  }>({ timer: null, pending: new Map() });
+
+  useEffect(() => {
+    return () => {
+      const t = messageStreamThrottleRef.current.timer;
+      if (t != null) clearInterval(t);
+      messageStreamThrottleRef.current.timer = null;
+      messageStreamThrottleRef.current.pending.clear();
+    };
+  }, []);
 
   const streamMessage = useCallback(
     async ({
@@ -293,6 +317,13 @@ export function useStreamChat({
         next.set(chatId, true);
         return next;
       });
+
+      const th = messageStreamThrottleRef.current;
+      if (th.timer != null) {
+        clearInterval(th.timer);
+        th.timer = null;
+      }
+      th.pending.clear();
 
       // Fix: Finding 4 — instant "Thinking…" before main round-trip
       setToolIndicator({
@@ -441,7 +472,7 @@ export function useStreamChat({
               title,
               workspaceId: selectedAppId ?? undefined,
             });
-            maybeAutoOpenRightPanel(); // Show panel for diagram unless user dismissed it
+            // PASS6: do not auto-open right panel for diagrams — user opens when needed.
           }
         );
 
@@ -709,21 +740,7 @@ export function useStreamChat({
             ? "build"
             : settings?.selectedChatMode) ??
           "build";
-        const intentIsAuto = intentMode === "auto";
-        const wm = (settings?.workModePreference ??
-          (settings?.selectedChatMode === "ask" ? "ask" : "build")) as WorkMode;
-        const fromWorkMode = !intentIsAuto
-          ? blueprintTierForWorkMode(wm)
-          : undefined;
-        const bpPref = settings?.blueprintInjectionModePreference ?? "auto";
-        const fromSettingsTier =
-          bpPref !== "auto"
-            ? (bpPref as "ask" | "plan" | "build" | "debug")
-            : undefined;
-        const streamBlueprintMode =
-          blueprintChatTierOverride ?? fromWorkMode ?? fromSettingsTier;
-        const streamBlueprintTrace = settings?.blueprintDebugTrace?.trim();
-        const streamBlueprintFile = settings?.blueprintDebugFile?.trim();
+        // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
         IpcClient.getInstance().streamMessage(prompt, {
           selectedComponents: selectedComponents ?? [],
@@ -733,9 +750,6 @@ export function useStreamChat({
           modelOverride,
           appId: selectedAppId ?? undefined,
           continueAfterQuestions,
-          blueprintInjectionMode: streamBlueprintMode,
-          blueprintDebugTrace: streamBlueprintTrace || undefined,
-          blueprintDebugFile: streamBlueprintFile || undefined,
           prefillTaskLedger,
           forceThinkingTier,
           onUpdate: (updatedMessages: Message[]) => {
@@ -815,34 +829,114 @@ export function useStreamChat({
               maybeAutoOpenRightPanel(); // Auto-show panel when sources arrive
             }
 
-            // Detect diagram results from tool calls
+            // Detect diagram + blueprint panel payloads from tool calls
             for (const msg of messagesForUi) {
               if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
                 for (const toolCall of msg.toolCalls) {
                   const tc = toolCall as any;
+                  const raw = tc.result;
+                  const result =
+                    raw && typeof raw === "string"
+                      ? (() => {
+                          try {
+                            return JSON.parse(raw) as Record<string, unknown>;
+                          } catch {
+                            return null;
+                          }
+                        })()
+                      : raw;
+                  if (!result || typeof result !== "object") continue;
+
+                  if (result._panelType === "blueprint") {
+                    const widRaw =
+                      (result as any).workspace_id ?? (result as any).workspaceId ?? selectedAppId;
+                    const wid = widRaw != null ? Number(widRaw) : NaN;
+                    if (
+                      selectedAppId != null &&
+                      Number.isFinite(wid) &&
+                      wid !== Number(selectedAppId)
+                    ) {
+                      continue;
+                    }
+                    if ((result as any)._action === "clear") {
+                      setBlueprintPanel(null);
+                    } else {
+                      const graph = (result as any).graph as
+                        | { rooms?: unknown[]; edges?: unknown[] }
+                        | undefined;
+                      const rooms = (graph?.rooms ?? (result as any).rooms) as unknown[] | undefined;
+                      const edges = (graph?.edges ?? (result as any).edges) as unknown[] | undefined;
+                      if (Array.isArray(rooms) && rooms.length > 0) {
+                        setBlueprintPanel({
+                          workspaceId: selectedAppId ?? undefined,
+                          title: (result as any).title as string | undefined,
+                          rooms: rooms as any,
+                          edges: (Array.isArray(edges) ? edges : []) as any,
+                          updatedAt: Date.now(),
+                        });
+                      }
+                    }
+                    continue;
+                  }
+
                   // Check if this is a diagram tool result
-                  if (tc.result && (tc.result.mermaid_code || tc.result._panelType === 'diagram')) {
-                    const diagramData = tc.result;
-                    setDiagramState({
-                      code: diagramData.mermaid_code || '',
-                      type: diagramData.diagram_type === 'class' ? 'class' :
-                        diagramData.diagram_type === 'sequence' ? 'sequence' :
-                          diagramData.diagram_type === 'flowchart' ? 'flowchart' : 'mermaid',
-                      compareMode: 'current',
-                      title: diagramData.title,
-                      workspaceId: selectedAppId ?? undefined,
-                    });
-                    maybeAutoOpenRightPanel(); // Show panel for diagram
+                  if (result.mermaid_code || result._panelType === "diagram") {
+                    const diagramData = result as any;
+                    const mapType = (): DiagramState['type'] =>
+                      diagramData.diagram_type === 'class'
+                        ? 'class'
+                        : diagramData.diagram_type === 'sequence'
+                          ? 'sequence'
+                          : diagramData.diagram_type === 'flowchart'
+                            ? 'flowchart'
+                            : 'mermaid';
+                    const role = diagramData.role === 'reference' ? 'reference' : 'main';
+                    const refId = String(tc.id ?? tc.toolCallId ?? `tc-${Math.random().toString(36).slice(2, 9)}`);
+                    if (role === 'reference') {
+                      const code = diagramData.mermaid_code || '';
+                      setDiagramReferences((prev) => {
+                        if (prev.some((p) => p.code === code)) return prev;
+                        const entry = {
+                          id: refId,
+                          title: diagramData.title as string | undefined,
+                          code,
+                          type: mapType(),
+                        };
+                        return [...prev, entry].slice(-8);
+                      });
+                    } else {
+                      setDiagramReferences([]);
+                      setDiagramState({
+                        code: diagramData.mermaid_code || '',
+                        type: mapType(),
+                        compareMode: 'current',
+                        title: diagramData.title,
+                        workspaceId: diagramData.workspace_id ?? selectedAppId ?? undefined,
+                        role: 'main',
+                      });
+                    }
+                    // PASS6: do not auto-open right panel for AI diagram tool results.
                   }
                 }
               }
             }
 
-            setMessagesById((prev) => {
-              const next = new Map(prev);
-              next.set(chatId, messagesForUi);
-              return next;
-            });
+            const th = messageStreamThrottleRef.current;
+            th.pending.set(chatId, messagesForUi);
+            if (th.timer == null) {
+              th.timer = setInterval(() => {
+                if (th.pending.size === 0) return;
+                const snapshot = new Map(th.pending);
+                th.pending.clear();
+                setMessagesById((prev) => {
+                  const next = new Map(prev);
+                  for (const [cid, m] of snapshot) {
+                    next.set(cid, m);
+                  }
+                  return next;
+                });
+              }, 50);
+            }
           },
           onEnd: (response: ChatResponseEnd) => {
             const liveMap = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
@@ -864,6 +958,23 @@ export function useStreamChat({
               return n;
             });
             cleanupStreamListeners?.();
+
+            const thEnd = messageStreamThrottleRef.current;
+            if (thEnd.timer != null) {
+              clearInterval(thEnd.timer);
+              thEnd.timer = null;
+            }
+            if (thEnd.pending.size > 0) {
+              setMessagesById((prev) => {
+                const next = new Map(prev);
+                for (const [cid, m] of thEnd.pending) {
+                  next.set(cid, m);
+                }
+                return next;
+              });
+              thEnd.pending.clear();
+            }
+
             if (response.updatedFiles) {
               setIsPreviewOpen(true);
               refreshAppIframe();
@@ -963,6 +1074,14 @@ export function useStreamChat({
             // v3.5: Brief "done" phase of Atlarix animation when response completes
             setResponseDoneAnimation({ chatId: response.chatId, until: Date.now() + 2000 });
 
+            // PASS6: trim renderer message window after a completed turn (not during streaming).
+            setMessagesById((prev) => {
+              const next = new Map(prev);
+              const cur = next.get(response.chatId);
+              if (cur) next.set(response.chatId, trimRendererMessages(cur));
+              return next;
+            });
+
             // v3.9: Clear "conversation restarted from here" divider when stream ends
             setRestartedAfterMessageId(null);
 
@@ -988,6 +1107,21 @@ export function useStreamChat({
               return n;
             });
             cleanupStreamListeners?.();
+            const thErr = messageStreamThrottleRef.current;
+            if (thErr.timer != null) {
+              clearInterval(thErr.timer);
+              thErr.timer = null;
+            }
+            if (thErr.pending.size > 0) {
+              setMessagesById((prev) => {
+                const next = new Map(prev);
+                for (const [cid, m] of thErr.pending) {
+                  next.set(cid, m);
+                }
+                return next;
+              });
+              thErr.pending.clear();
+            }
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
             if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
               posthog?.capture("auth:chat_stream_blocked", { chat_id: chatId });
@@ -1051,6 +1185,14 @@ export function useStreamChat({
             refreshApp();
             refreshVersions();
             invalidateTokenCount();
+
+            setMessagesById((prev) => {
+              const next = new Map(prev);
+              const cur = next.get(chatId);
+              if (cur) next.set(chatId, trimRendererMessages(cur));
+              return next;
+            });
+
             onSettled?.();
           },
         });
@@ -1112,7 +1254,6 @@ export function useStreamChat({
       setRestartedAfterMessageId,
       setPendingUserQuestionByChatId,
       setAskUserStreamFreezeBaselineByChatId,
-      blueprintChatTierOverride,
       posthog,
       hasChatId,
     ],

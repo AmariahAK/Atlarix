@@ -214,7 +214,9 @@ import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
 import { createFallback } from "./fallback_ai_model";
 import { resolveContextBudgetTier } from "../../lib/routing/context_budget_routing";
 
-const dyadEngineUrl = process.env.DYAD_ENGINE_URL;
+/** Primary: `ATLARIX_ENGINE_URL`. Deprecated alias: `DYAD_ENGINE_URL`. */
+const atlarixEngineUrl =
+  process.env.ATLARIX_ENGINE_URL ?? process.env.DYAD_ENGINE_URL;
 
 /** Default model per provider when using "Auto" (Compass first when key present — usage + product default). */
 const AUTO_MODELS = [
@@ -297,7 +299,7 @@ export async function getModelClient(
 }> {
   const allProviders = await getLanguageModelProviders();
 
-  const dyadApiKey = settings.providerSettings?.auto?.apiKey?.value;
+  const atlarixProApiKey = settings.providerSettings?.auto?.apiKey?.value;
 
   // Synthetic "auto" is not in allProviders — must run before providerConfig lookup
   // Handle 'auto' provider: build fallback chain so we try next provider on failure (Phase 6)
@@ -435,23 +437,23 @@ export async function getModelClient(
   // Handle Atlarix Pro override (Compass uses its own managed key, never the engine proxy)
   if (
     model.provider !== "compass" &&
-    dyadApiKey &&
+    atlarixProApiKey &&
     settings.enableAtlarixPro
   ) {
     // Check if the selected provider supports Atlarix Pro (has a gateway prefix) OR
     // we're using local engine.
     // IMPORTANT: some providers like OpenAI have an empty string gateway prefix,
     // so we do a nullish and not a truthy check here.
-    if (providerConfig.gatewayPrefix != null || dyadEngineUrl) {
+    if (providerConfig.gatewayPrefix != null || atlarixEngineUrl) {
       const enableSmartFilesContext = settings.enableProSmartFilesContextMode;
       const includeExtendedThinking =
         resolveContextBudgetTier(model, settings) === "thinking";
       const provider = createAtlarixEngine({
-        apiKey: dyadApiKey,
-        baseURL: dyadEngineUrl ?? "https://engine.atlarix.dev/v1",
+        apiKey: atlarixProApiKey,
+        baseURL: atlarixEngineUrl ?? "https://engine.atlarix.dev/v1",
         originalProviderId: model.provider,
         includeExtendedThinking,
-        dyadOptions: {
+        atlarixEngineOptions: {
           enableLazyEdits:
             settings.selectedChatMode === "ask"
               ? false
@@ -468,7 +470,7 @@ export async function getModelClient(
       );
 
       logger.info(
-        `\x1b[1;30;42m Using Atlarix Pro engine: ${dyadEngineUrl ?? "<prod>"} \x1b[0m`,
+        `\x1b[1;30;42m Using Atlarix Pro engine: ${atlarixEngineUrl ?? "<prod>"} \x1b[0m`,
       );
 
       const modelName = model.name.split(":free")[0];

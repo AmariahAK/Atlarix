@@ -9,14 +9,14 @@ export function getAtlarixWriteTags(fullResponse: string): {
   content: string;
   description?: string;
 }[] {
-  const dyadWriteRegex = /<atlarix-write([^>]*)>([\s\S]*?)<\/atlarix-write>/gi;
+  const atlarixWriteRegex = /<atlarix-write([^>]*)>([\s\S]*?)<\/atlarix-write>/gi;
   const pathRegex = /path="([^"]+)"/;
   const descriptionRegex = /description="([^"]+)"/;
 
   let match;
   const tags: { path: string; content: string; description?: string }[] = [];
 
-  while ((match = dyadWriteRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixWriteRegex.exec(fullResponse)) !== null) {
     const attributesString = match[1];
     let content = match[2].trim();
 
@@ -51,11 +51,11 @@ export function getAtlarixRenameTags(fullResponse: string): {
   from: string;
   to: string;
 }[] {
-  const dyadRenameRegex =
+  const atlarixRenameRegex =
     /<atlarix-rename from="([^"]+)" to="([^"]+)"[^>]*>([\s\S]*?)<\/atlarix-rename>/g;
   let match;
   const tags: { from: string; to: string }[] = [];
-  while ((match = dyadRenameRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixRenameRegex.exec(fullResponse)) !== null) {
     tags.push({
       from: normalizePath(match[1]),
       to: normalizePath(match[2]),
@@ -65,20 +65,20 @@ export function getAtlarixRenameTags(fullResponse: string): {
 }
 
 export function getAtlarixDeleteTags(fullResponse: string): string[] {
-  const dyadDeleteRegex =
+  const atlarixDeleteRegex =
     /<atlarix-delete path="([^"]+)"[^>]*>([\s\S]*?)<\/atlarix-delete>/g;
   let match;
   const paths: string[] = [];
-  while ((match = dyadDeleteRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixDeleteRegex.exec(fullResponse)) !== null) {
     paths.push(normalizePath(match[1]));
   }
   return paths;
 }
 
 export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
-  const dyadChatSummaryRegex =
+  const atlarixChatSummaryRegex =
     /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/g;
-  const match = dyadChatSummaryRegex.exec(fullResponse);
+  const match = atlarixChatSummaryRegex.exec(fullResponse);
   if (match && match[1]) {
     return match[1].trim();
   }
@@ -86,13 +86,13 @@ export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
 }
 
 export function getAtlarixExecuteSqlTags(fullResponse: string): SqlQuery[] {
-  const dyadExecuteSqlRegex =
+  const atlarixExecuteSqlRegex =
     /<atlarix-execute-sql([^>]*)>([\s\S]*?)<\/atlarix-execute-sql>/g;
   const descriptionRegex = /description="([^"]+)"/;
   let match;
   const queries: { content: string; description?: string }[] = [];
 
-  while ((match = dyadExecuteSqlRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixExecuteSqlRegex.exec(fullResponse)) !== null) {
     const attributesString = match[1] || "";
     let content = match[2].trim();
     const descriptionMatch = descriptionRegex.exec(attributesString);
@@ -115,12 +115,12 @@ export function getAtlarixExecuteSqlTags(fullResponse: string): SqlQuery[] {
 }
 
 export function getAtlarixCommandTags(fullResponse: string): string[] {
-  const dyadCommandRegex =
+  const atlarixCommandRegex =
     /<atlarix-command type="([^"]+)"[^>]*><\/atlarix-command>/g;
   let match;
   const commands: string[] = [];
 
-  while ((match = dyadCommandRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixCommandRegex.exec(fullResponse)) !== null) {
     commands.push(match[1]);
   }
 
@@ -132,7 +132,7 @@ export function getAtlarixSearchReplaceTags(fullResponse: string): {
   content: string;
   description?: string;
 }[] {
-  const dyadSearchReplaceRegex =
+  const atlarixSearchReplaceRegex =
     /<atlarix-search-replace([^>]*)>([\s\S]*?)<\/atlarix-search-replace>/gi;
   const pathRegex = /path="([^"]+)"/;
   const descriptionRegex = /description="([^"]+)"/;
@@ -140,7 +140,7 @@ export function getAtlarixSearchReplaceTags(fullResponse: string): {
   let match;
   const tags: { path: string; content: string; description?: string }[] = [];
 
-  while ((match = dyadSearchReplaceRegex.exec(fullResponse)) !== null) {
+  while ((match = atlarixSearchReplaceRegex.exec(fullResponse)) !== null) {
     const attributesString = match[1] || "";
     let content = match[2].trim();
 

@@ -20,6 +20,7 @@ const validInvokeChannels = [
   "chat:message",
   "chat:cancel",
   "chat:stream",
+  "chat:stream:reconnect", // FIX 4: re-dispatch the last chat:stream after silent retries failed
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-question-answers",  // v3.9: submit clarifying-question answers and continue
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
@@ -107,6 +108,7 @@ const validInvokeChannels = [
   "vercel:disconnect",
   "get-app-version",
   "get-sentry-config",
+  "perf:tool-snapshot",
   "get-posthog-config",
   "reload-env-path",
   "get-proposal",
@@ -145,13 +147,12 @@ const validInvokeChannels = [
   "get-app-upgrades",
   "execute-app-upgrade",
   "respond-mode-change",
-  "respond-workspace-permissions",
   "is-capacitor",
   "sync-capacitor",
   "open-ios",
   "open-android",
   "check-problems",
-  "restart-dyad",
+  "restart-atlarix",
   "get-templates",
   "list-templates",
   "portal:migrate-create",
@@ -164,12 +165,15 @@ const validInvokeChannels = [
   "mcp:test-connection",
   "mcp:get-tool-consents",
   "mcp:set-tool-consent",
+  "mcps:fetch-registry",
+  "mcps:install-from-registry",
   // Skills
   "skills:fetch-registry",
   "skills:install",
   "skills:uninstall",
   "skills:list",
   "skills:get-active-for-session",
+  "skills:list-repo-skills",
   // MCP consent response from renderer to main
   "mcp:tool-consent-response",
   // Help
@@ -271,7 +275,7 @@ const validInvokeChannels = [
   "diagram:capture-initial",
   "snapshots:diagram-timeline",
   "snapshots:revert-diagram",
-  // Blueprint (Phase 7 Additive Blueprint)
+  // PASS6: Blueprint (Phase 7 Additive Blueprint) — restored.
   "blueprint:get",
   "blueprint:set",
   "blueprint:get-reference-paths",
@@ -285,9 +289,9 @@ const validInvokeChannels = [
   "blueprint:simplify-description",
   "blueprint:simplify-room",
   "blueprint:simplify-architecture",
-  "blueprint:layout-containers",
-  "blueprint:layout-beacons",
   "blueprint:cluster",
+  "blueprint:commit-snapshot",
+  "blueprint:snapshot-exists",
   "pivot:run-analysis",
   "pivot:get-nodes-edges",
   "pivot:get-snapshots",
@@ -325,16 +329,6 @@ const validInvokeChannels = [
   "db:set-active-connection",
   "db:test-connection",
   "db:parse-connection-string",
-  // v4.0 Token Vault (Workforce)
-  "token-vault:get-token",
-  "token-vault:revoke",
-  "token-vault:list-services",
-  "token-vault:start-connect",
-  "token-vault:clear-all-sessions",
-  "workforce:session:get",
-  "workforce:session:set-scope",
-  "workforce:session:clear",
-  "workforce:session:complete-prompt",
   // v4.0 Teams (Workforce)
   "team:get",
   "team:list-members",
@@ -360,6 +354,9 @@ const validReceiveChannels = [
   "chat:tool:start",
   "chat:tool:end",
   "chat:stream:phase",
+  // FIX 4: mid-stream network drop UX
+  "chat:stream:disconnected",   // backend exhausted silent retries
+  "chat:stream:reset-partial",  // backend will (re)start streaming; clear in-flight buffer
   "theme:system-updated",
   "models-dev:status",
   "window:fullscreen-changed",
@@ -381,16 +378,11 @@ const validReceiveChannels = [
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
-  "workforce:prompt-session-scope",
   "user-question-request", // ask_user: show question + options in chat UI
   "mode_change_requested",
   "mode:changed",
   "terminal-output",
   "operation-status",         // Permission queue status updates
-  // v4.0 Token Vault (Workforce)
-  "token-vault:consent-required",
-  "token-vault:fallback-warning",
-  "token-vault:connected",
   "auto-recovery-needed",     // AI self-healing on failures
   "chat:workspace-diagram",
   // AI-controlled right panel (Hybrid Intent System)
@@ -418,7 +410,7 @@ const validReceiveChannels = [
   // v3.9: Clarifying questions from AI (render QuestionsWidget)
   "chat:questions",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
-  // Blueprint: AI editing indicator (Diagram tab)
+  // PASS6: Blueprint AI-editing event channels — restored.
   "blueprint:ai-editing",
   "blueprint:updated",
   "blueprint:rte-running",

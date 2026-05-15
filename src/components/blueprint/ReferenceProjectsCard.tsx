@@ -10,9 +10,11 @@ import { showError, showSuccess } from "@/lib/toast";
 
 interface ReferenceProjectsCardProps {
   workspaceId: number | null;
+  /** Called after a new path is persisted (not when re-selecting an existing path). */
+  onReferencePathAdded?: (path: string) => void;
 }
 
-export function ReferenceProjectsCard({ workspaceId }: ReferenceProjectsCardProps) {
+export function ReferenceProjectsCard({ workspaceId, onReferencePathAdded }: ReferenceProjectsCardProps) {
   const [paths, setPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -48,11 +50,13 @@ export function ReferenceProjectsCard({ workspaceId }: ReferenceProjectsCardProp
     if (workspaceId == null) return;
     const r = await IpcClient.getInstance().selectAppFolder();
     if (!r?.path) return;
+    const isNew = !paths.includes(r.path);
     const next = paths.includes(r.path) ? paths : [...paths, r.path];
     const res = await IpcClient.getInstance().setReferencePaths(workspaceId, next);
     if (res.success) {
       setPaths(next);
       showSuccess("Reference project added");
+      if (isNew) onReferencePathAdded?.(r.path);
     } else showError(res.error ?? "Failed to add");
   };
 

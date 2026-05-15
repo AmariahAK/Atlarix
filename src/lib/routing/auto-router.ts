@@ -12,6 +12,7 @@ import type { RoutingCategory } from "./signal-sets";
 import { resolveTierToModel } from "./fallback-router";
 import type { ModelTier } from "./capability-registry";
 import { classifyPromptWithGroq } from "./groq-classifier";
+import { classifyTierWithHeuristic } from "./heuristic-classifier";
 import {
   buildClassifierUserText,
   formatRoutingHistoryWindow,
@@ -28,7 +29,7 @@ const MOMENTUM_HIGH_CONFIDENCE = 0.85;
 const STREAK_ALL_THINKING_FAST_MIN = 0.9;
 const STREAK_THINKING_TO_BALANCED_MIN = 0.8;
 
-export type ClassifierSource = "groq" | "fast-model" | "fallback";
+export type ClassifierSource = "groq" | "fast-model" | "heuristic" | "fallback";
 
 export interface AutoRouterClassifierMeta {
   tier: ModelTier;
@@ -359,8 +360,14 @@ export async function runAutoRouterAsync(
       tier = fastTier;
       source = "fast-model";
     } else {
-      tier = "balanced";
-      source = "fallback";
+      // Third-tier fallback: deterministic Atlarix heuristic. Replaces the
+      // old bare `balanced` default so a clearly complex prompt (architecture
+      // keywords, many file mentions, long token volume) escalates even when
+      // both upstream classifiers are unavailable.
+      const heuristic = classifyTierWithHeuristic({ prompt: query });
+      tier = heuristic.tier;
+      confidence = heuristic.confidence;
+      source = "heuristic";
     }
   }
 

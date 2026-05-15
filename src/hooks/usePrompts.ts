@@ -12,6 +12,11 @@ export interface PromptItem {
 
 export function usePrompts() {
   const queryClient = useQueryClient();
+  // PASS8 F3: `prompts:list` is the deprecated legacy endpoint and always
+  // returns []. The active prompts live under `prompts:get-global` /
+  // `prompts:get-workspace`. We keep the query around for the (single)
+  // LexicalChatInput consumer, but mark it as never stale so it fires once
+  // per process instead of on every mutation / message dispatch.
   const listQuery = useQuery({
     queryKey: ["prompts"],
     queryFn: async (): Promise<PromptItem[]> => {
@@ -19,6 +24,10 @@ export function usePrompts() {
       return ipc.listPrompts();
     },
     meta: { showErrorToast: true },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   const createMutation = useMutation({

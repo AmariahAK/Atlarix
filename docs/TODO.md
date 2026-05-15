@@ -1,7 +1,41 @@
 # Atlarix TODO
 
-**Current Version:** v8.0.3
-**Last Updated:** 2026-05-07
+**Current Version:** v8.1.0
+**Last Updated:** 2026-05-11
+
+---
+
+## Shipped in v8.1.0 — Pass 6 (current tree)
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Blueprint restoration (lazy) | **Done** | Schema + IPC + `get_blueprint` + canvas gate + `search` structural; pivot TS stubs |
+| Unified `search` | **Done** | Replaces `search_code` / `find_relevant_files` in registration; manifests + mode consistency test |
+| Streaming + list virtualization | **Done** | Throttled `setMessagesById`, `MessagesList` virtualizer, post-stream trim |
+| Right panel / dev server UX | **Done** | No auto-open for diagram/blueprint streams; `DevServerProvider` no auto-start / no auto panel |
+| Tool merges (Pass 6 set) | **Done** | `get_diagram`, `check_environment`, `get_file_outline`+stats, `run_tests`+path, `git_status`+session, `live_preview`+`port_only`, `get_project_history`+`revert_to`, `request_tools` text |
+| Diagram references | **Done** | `get_diagram` `role`; `diagramReferencesAtom` + chips in `DiagramPanel`; diagrams page chat-driven |
+| PDF worker | **Done** | `attachment-tools` `workerSrc ''` |
+| Pass 7 carryovers | **Done** | MCP on-demand, skills tools, `<mode_system>` / `modeAllowlist`, `edit_file` / `memory` / `diagnose_issue` consolidation (see CHANGELOG Pass 7 section for detail) |
+
+See [CHANGELOG.md](CHANGELOG.md) Pass 6 + Pass 7 entries for `[8.1.0]`.
+
+---
+
+## Shipped in v8.1.0 — Pass 7 (intermediate branch; partially superseded)
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Blueprint subsystem removal | **Superseded by Pass 6** | Pass 6 restored Blueprint; ignore this row for current behavior |
+| Tool consolidation (~60 → ~28) | **Partial** | Pass 6 adds `search` naming and tool merges listed above; `edit_file` / `memory` / etc. remain |
+| MCP scoping rework | **Done** | `list_available_mcps` + `mcp_call`; workspace MCPs no longer force-merged |
+| Skills via ToolRegistry | **Done** | `get_active_skills` + `list_installed_skills`; removed `if(false)` injection block |
+| `<mode_system>` prompt block | **Done** | `system_prompt.ts` + `chat_only_handlers.ts`; smoke test in `mode_system_consistency.test.ts` |
+| Migration 0043 | **Superseded** | Pass 6 reverted drop migration where applicable; follow bundled SQL in repo |
+| Dependency audit | **Partial** | `@xyflow/react` + `elkjs` restored for Blueprint UI; tree-sitter packages may remain absent (stubs) |
+| Tool count log | **Done** | `initializeTools()` logs sorted registered tool list at startup |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.1.0]`.
 
 ---
 
@@ -387,7 +421,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 | **S2** Schema + migration + bootstrap | **Done** | `project_snapshots`, `project_memory`; `0031_project_memory.sql`; `ensureProjectMemoryTablesIfNeeded` in `db/index.ts` |
 | **S2** Snapshots + pruning | **Done** | Max 100 rows/workspace; triggers: debounced blueprint change, plan file write, build-complete (Agent/Build + files), `session_end` on quit for touched workspaces |
 | **S2** Session system prompt injection | **Done** | `buildProjectMemoryPromptBlock` in `chat_stream_handlers.ts` |
-| **S2** Tools | **Done** | `get_project_history`, `revert_to_snapshot` (`revert_project_snapshot` permission), `set_project_memory` |
+| **S2** Tools | **Done** | `get_project_history` (with `revert_to` for `revert_project_snapshot` approval), `set_project_memory` |
 | **`.atlarixignore`** | **Done** | `ignore` npm package; filter at RTE (`generateBlueprint`), cache load (`inferBlueprint`), prompt (`buildBlueprintSystemPromptInjection`); `atlarixIgnoreSource` on cache; default file on first parse; `get_atlarixignore` / `update_atlarixignore`; Blueprint panel + IPC get/set |
 | **S3** Explicit Blueprint tier from Settings | **Done** | `blueprintInjectionModePreference` (Auto \| Ask \| Plan \| Build \| Debug); plumbed via `streamMessage` → `chat:stream`; precedence: IPC `blueprintInjectionMode` then preference then heuristics; optional `blueprintDebugTrace` / `blueprintDebugFile` in settings + `ChatStreamParams` for Debug tier |
 | **S4** Chat session override for Blueprint tier | **Done** | Config dropdown → **Blueprint in prompt**: Use Settings or force Ask/Plan/Build/Debug; `blueprintInjectionChatOverrideAtom` merged in `useStreamChat` before Settings preference |

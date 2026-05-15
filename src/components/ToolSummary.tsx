@@ -53,6 +53,7 @@ const toolIcons: Record<string, React.ElementType> = {
     list_files: FolderOpen,
     find_file: Search,
     search_code: Search,
+    search: Search,
     web_search: Globe,
     deep_search: Globe,
     read_url: Globe,

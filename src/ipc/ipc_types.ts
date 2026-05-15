@@ -48,11 +48,7 @@ export interface ChatStreamParams {
   modelOverride?: { provider: string; name: string };
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
   continueAfterQuestions?: boolean;
-  /** v5.0: Explicit Blueprint system-prompt tier (Diagram tab). When omitted, derived from chat mode + prompt heuristics. */
-  blueprintInjectionMode?: "ask" | "plan" | "build" | "debug";
-  /** v5.0: Optional debug context when tier resolves to Debug (IPC override; else settings). */
-  blueprintDebugTrace?: string;
-  blueprintDebugFile?: string;
+  // Pass 7: Blueprint injection-mode + debug-trace fields removed with the Blueprint subsystem.
   /** Optional task-ledger seed (e.g. Plan → Build). */
   prefillTaskLedger?: {
     steps: { description: string }[];
@@ -166,6 +162,26 @@ export interface ChatResponseEnd {
   /** Populated when usedCompass — for analytics (PostHog). */
   compassTokens?: number;
   compassTier?: string;
+}
+
+/**
+ * FIX 4: payload for `chat:stream:disconnected`. Emitted after silent
+ * reconnect attempts (2s/5s/10s) all fail. The renderer keeps the partial
+ * response visible and offers [Reconnect] (replays the same turn) and
+ * [Continue] (sends a new prompt asking the model to resume).
+ */
+export interface ChatStreamDisconnected {
+  chatId: number;
+  partialResponse: string;
+  reason: "network" | "timeout" | "provider_error";
+  canResume: boolean;
+}
+
+/** FIX 4: payload for `chat:stream:reset-partial`. Sent right before a silent
+ * retry or a manual reconnect so the renderer clears its in-flight stream
+ * buffer; the next chunks overwrite the cleared message cleanly. */
+export interface ChatStreamResetPartial {
+  chatId: number;
 }
 
 /** Result of `compass:get-usage` — use `reason` so UI does not treat RPC/migration failures as “signed out”. */
@@ -323,7 +339,7 @@ export interface SystemDebugInfo {
   telemetryId: string;
   telemetryConsent: string;
   telemetryUrl: string;
-  dyadVersion: string;
+  atlarixVersion: string;
   platform: string;
   architecture: string;
   logs: string;
@@ -730,6 +746,23 @@ export interface UninstallSkillParams {
   skillId: string;
   scope: "global" | "workspace";
   workspacePath?: string;
+}
+
+/** Workforce Feature 1: repo-scoped priority skill summary (from `.atlarix/skills/`). */
+export interface RepoSkillSummary {
+  name: string;
+  description: string;
+  tags: string[];
+  modes: string[];
+  priority: boolean;
+  version: string;
+  filename: string;
+}
+
+/** Result of `skills:list-repo-skills`. */
+export interface ListRepoSkillsResult {
+  skills: RepoSkillSummary[];
+  isWorkforce: boolean;
 }
 
 export interface InstalledSkillRow {

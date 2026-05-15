@@ -89,7 +89,13 @@ export async function getOrCreateClient(
   workspaceRoot: string,
   language: string
 ): Promise<LspClient | null> {
-  const cacheKey = `${workspaceRoot}::${language}`;
+  const config = await findServerForWorkspace(workspaceRoot, language);
+  if (!config) {
+    logger.info(`No LSP server found for language: ${language}`);
+    return null;
+  }
+
+  const cacheKey = `${workspaceRoot}::${config.id}`;
   const existing = lspClients.get(cacheKey);
   if (existing && !existing.broken) {
     return existing;
@@ -104,7 +110,7 @@ export async function getOrCreateClient(
     return inflight;
   }
 
-  const task = createClient(filePath, workspaceRoot, language);
+  const task = createClient(filePath, workspaceRoot, config);
   spawning.set(cacheKey, task);
 
   task.finally(() => {
@@ -119,14 +125,8 @@ export async function getOrCreateClient(
 async function createClient(
   filePath: string,
   workspaceRoot: string,
-  language: string
+  config: LspServerConfig
 ): Promise<LspClient | null> {
-  const config = await findServerForWorkspace(workspaceRoot, language);
-  if (!config) {
-    logger.info(`No LSP server found for language: ${language}`);
-    return null;
-  }
-
   const binaryPath = config.command[0];
   const args = config.command.slice(1);
   const binaryAvailable = await checkBinaryAvailable(binaryPath, workspaceRoot);
@@ -231,6 +231,9 @@ async function createClient(
         textDocument: {
           publishDiagnostics: {},
           synchronization: {},
+          hover: { dynamicRegistration: false },
+          definition: { dynamicRegistration: false },
+          references: { dynamicRegistration: false },
         },
         workspace: {},
       },
@@ -325,6 +328,128 @@ export async function waitForDiagnostics(
 
     checkAndResolve();
   });
+}
+
+export async function ensureDocumentSyncedForLsp(
+  filePath: string,
+  workspaceRoot: string,
+): Promise<LspClient | null> {
+  await notifyFileOpen(filePath, workspaceRoot);
+  await notifyFileChange(filePath, workspaceRoot);
+  const language = getLanguageFromFile(filePath);
+  return getOrCreateClient(filePath, workspaceRoot, language);
+}
+
+export async function requestLspDiagnosticsAfterSync(
+  filePath: string,
+  workspaceRoot: string,
+): Promise<Diagnostic[]> {
+  const client = await ensureDocumentSyncedForLsp(filePath, workspaceRoot);
+  if (!client || client.broken) return [];
+  try {
+    return await waitForDiagnostics(client, filePath, "document", DIAGNOSTICS_DOCUMENT_WAIT_TIMEOUT_MS);
+  } catch (err) {
+    logger.error(`Failed to pull diagnostics for ${filePath}:`, err);
+    void import("@sentry/electron/main")
+      .then((Sentry) => {
+        Sentry.addBreadcrumb({
+          category: "lsp",
+          message: "lsp_diagnostics_failed",
+          level: "warning",
+          data: { filePath },
+        });
+      })
+      .catch(() => {});
+    return client.pushDiagnostics.get(filePath) ?? [];
+  }
+}
+
+export async function requestLspHover(
+  filePath: string,
+  workspaceRoot: string,
+  line: number,
+  character: number,
+): Promise<unknown | null> {
+  const client = await ensureDocumentSyncedForLsp(filePath, workspaceRoot);
+  if (!client || client.broken) return null;
+  try {
+    return await client.connection.sendRequest("textDocument/hover", {
+      textDocument: { uri: `file://${filePath}` },
+      position: { line, character },
+    });
+  } catch (err) {
+    logger.error(`Failed to request hover for ${filePath}:`, err);
+    void import("@sentry/electron/main")
+      .then((Sentry) => {
+        Sentry.addBreadcrumb({
+          category: "lsp",
+          message: "lsp_hover_failed",
+          level: "warning",
+          data: { filePath, line, character },
+        });
+      })
+      .catch(() => {});
+    return null;
+  }
+}
+
+export async function requestLspDefinition(
+  filePath: string,
+  workspaceRoot: string,
+  line: number,
+  character: number,
+): Promise<unknown | null> {
+  const client = await ensureDocumentSyncedForLsp(filePath, workspaceRoot);
+  if (!client || client.broken) return null;
+  try {
+    return await client.connection.sendRequest("textDocument/definition", {
+      textDocument: { uri: `file://${filePath}` },
+      position: { line, character },
+    });
+  } catch (err) {
+    logger.error(`Failed to request definition for ${filePath}:`, err);
+    void import("@sentry/electron/main")
+      .then((Sentry) => {
+        Sentry.addBreadcrumb({
+          category: "lsp",
+          message: "lsp_definition_failed",
+          level: "warning",
+          data: { filePath, line, character },
+        });
+      })
+      .catch(() => {});
+    return null;
+  }
+}
+
+export async function requestLspReferences(
+  filePath: string,
+  workspaceRoot: string,
+  line: number,
+  character: number,
+): Promise<unknown | null> {
+  const client = await ensureDocumentSyncedForLsp(filePath, workspaceRoot);
+  if (!client || client.broken) return null;
+  try {
+    return await client.connection.sendRequest("textDocument/references", {
+      textDocument: { uri: `file://${filePath}` },
+      position: { line, character },
+      context: { includeDeclaration: true },
+    });
+  } catch (err) {
+    logger.error(`Failed to request references for ${filePath}:`, err);
+    void import("@sentry/electron/main")
+      .then((Sentry) => {
+        Sentry.addBreadcrumb({
+          category: "lsp",
+          message: "lsp_references_failed",
+          level: "warning",
+          data: { filePath, line, character },
+        });
+      })
+      .catch(() => {});
+    return null;
+  }
 }
 
 export async function requestCodeAction(

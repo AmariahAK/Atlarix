@@ -4,7 +4,7 @@ import { tourFeatureRequestAtom } from "@/atoms/tourAtoms";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-export type TourFeatureId = "blueprint" | "agents" | "extensions" | "db" | "tokenVault";
+export type TourFeatureId = "diagram" | "agents" | "extensions" | "db";
 
 export function TourHelpButton({
   featureId,

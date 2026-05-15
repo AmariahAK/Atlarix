@@ -1,20 +1,14 @@
 /**
  * DevServerProvider
  * =================
- * Component that auto-starts dev servers for frontend workspaces (Lovable-style)
- * 
- * Mount this at the app level to enable automatic live preview.
- * It watches for workspace changes and:
- * 1. Stops the previous dev server
- * 2. Detects if new workspace is frontend
- * 3. Auto-starts the dev server
- * 4. Updates devServerUrlAtom for live preview
+ * Watches workspace changes and syncs dev server URL / terminal output / error parsing.
+ * Pass6: does not auto-start the dev server or force the right panel open; user or tools start preview when needed.
  */
 
 import { useEffect, useRef } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
 import { selectedAppIdAtom } from '@/atoms/appAtoms';
-import { devServerUrlAtom, rightPanelVisibleAtom, projectTypeAtom, pinnedPanelAtom, terminalOutputsAtom, type TerminalOutput, browserErrorsAtom } from '@/atoms/sourceAtoms';
+import { devServerUrlAtom, projectTypeAtom, terminalOutputsAtom, type TerminalOutput, browserErrorsAtom } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
 import { deduplicateErrors, type ParsedError } from '@/lib/devServerErrorParser';
@@ -23,9 +17,7 @@ import { TerminalIntelligence } from '@/lib/terminal-intelligence';
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const workspaceId = useAtomValue(selectedAppIdAtom);
     const setDevServerUrl = useSetAtom(devServerUrlAtom);
-    const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
     const setProjectType = useSetAtom(projectTypeAtom);
-    const setPinnedPanel = useSetAtom(pinnedPanelAtom);
     const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const previousWorkspaceId = useRef<number | null>(null);
@@ -99,36 +91,23 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
                     console.log(`📦 [DevServerProvider] Workspace ${workspaceId} is backend project`);
                     setDevServerUrl(null);
                     setProjectType('backend');
-                    // Auto-show diagram for backend projects
-                    setPinnedPanel('diagram');
-                    setRightPanelVisible(true);
                     return;
                 }
 
                 console.log(`🎨 [DevServerProvider] Detected ${frontendCheck.framework} project`);
                 setProjectType('frontend');
 
-                // Check if already running
                 const status = await IpcClient.getInstance().getDevServerStatus(workspaceId);
                 if (status.isRunning && status.url) {
                     console.log(`✅ [DevServerProvider] Server already running at ${status.url}`);
                     if (isMounted) {
                         setDevServerUrl(status.url);
-                        setRightPanelVisible(true);
                     }
                     return;
                 }
 
-                // Auto-start dev server
-                console.log(`🚀 [DevServerProvider] Starting dev server for workspace ${workspaceId}...`);
-                const result = await IpcClient.getInstance().startDevServer(workspaceId);
-
-                if (result.success && result.url && isMounted) {
-                    console.log(`✅ [DevServerProvider] Dev server ready at ${result.url}`);
-                    setDevServerUrl(result.url);
-                    setRightPanelVisible(true);
-                } else if (result.error) {
-                    console.warn(`⚠️ [DevServerProvider] Failed to start: ${result.error}`);
+                if (isMounted) {
+                    setDevServerUrl(null);
                 }
             } catch (error) {
                 // IPC channels may not be registered yet (during hot reload)
@@ -143,7 +122,7 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
             isMounted = false;
             clearTimeout(timeout);
         };
-    }, [workspaceId, setDevServerUrl, setRightPanelVisible]);
+    }, [workspaceId, setDevServerUrl, setProjectType]);
 
     // Cleanup on unmount
     useEffect(() => {

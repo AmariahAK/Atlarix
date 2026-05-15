@@ -40,6 +40,7 @@ function classifyToolUse(item: ActivityStreamItem): "search" | "file" | "termina
   }
   if (
     s.includes("search_code") ||
+    s.includes("search") ||
     s.includes("semantic") ||
     s.includes("deep_search") ||
     s.includes("web_search")
@@ -237,6 +238,35 @@ export function buildActivityLogRows(items: ActivityStreamItem[]): ActivityLogRo
         flushSearch();
         flushFiles();
         const head = it.label?.trim() || (it.type === "loop_detected" ? "Repeated action" : "Task stopped");
+        const tail = it.detail?.trim();
+        rows.push({
+          kind: "line",
+          content: tail ? `${head} — ${tail}` : head,
+          timestamp: it.timestamp,
+        });
+        break;
+      }
+      case "stream_stall_aborted": {
+        flushSearch();
+        flushFiles();
+        const head = it.label?.trim() || "Stream paused — provider stopped responding";
+        const tail = it.detail?.trim();
+        rows.push({
+          kind: "line",
+          content: tail ? `${head} — ${tail}` : head,
+          timestamp: it.timestamp,
+        });
+        break;
+      }
+      case "tier_selection":
+      case "tier_escalation": {
+        flushSearch();
+        flushFiles();
+        const head =
+          it.label?.trim() ||
+          (it.type === "tier_escalation"
+            ? "Tier escalated"
+            : "Tier selected");
         const tail = it.detail?.trim();
         rows.push({
           kind: "line",

@@ -45,7 +45,6 @@ import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
-import { WorkforceSessionPromptDialog } from "@/components/WorkforceSessionPromptDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
 
@@ -141,7 +140,11 @@ function PersistentChatContainer() {
       )}
     >
       {/* Chat header + content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* PASS8 H1: `min-h-0` on the inner column so SimpleInlineChat's scroll
+          area can shrink as the composer grows; without it, last messages get
+          clipped under the input when attachments/multiline expand the
+          composer. */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Sticky header with back button and panel toggle */}
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border bg-background/95 backdrop-blur-sm">
           <button
@@ -374,7 +377,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <OnboardingTrigger />
           <TourManager />
           <CommunityDialog />
-          <WorkforceSessionPromptDialog />
           <OnboardingProgressBar />
           {showOnboardingHighlight && (
             <style>{`

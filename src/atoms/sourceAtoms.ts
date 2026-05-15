@@ -50,7 +50,6 @@ export type AIPanelIntent =
     | 'show-timeline'       // Show diagram history → maps to 'timeline'
     | 'show-files'          // Show file explorer → maps to 'files'
     | 'show-preview'        // Show dev server preview → maps to 'code-preview'
-    | 'show-workspace-permissions' // Show unified Token Auth workspace permission panel
     | 'hide'                // Clear/hide panel → maps to 'empty'
     | 'empty';              // No specific content → maps to 'empty'
 
@@ -102,8 +101,6 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
         case 'show-preview':
             // Dev server preview panel
             return 'code-preview';
-        case 'show-workspace-permissions':
-            return 'file-diff';
 
         case 'hide':
         case 'empty':
@@ -202,6 +199,9 @@ export interface ActivityStreamItem {
     | 'duration_limit_reached'
     | 'loop_detected'
     | 'loop_repetition_aborted'
+    | 'stream_stall_aborted'
+    | 'tier_selection'
+    | 'tier_escalation'
     | 'counsel_thinking'
     | 'reasoning_started'
     | 'reasoning_complete';
@@ -344,7 +344,43 @@ export interface DiagramState {
     title?: string;
     /** Workspace this diagram belongs to (for selector sync) */
     workspaceId?: number | null;
+    /** PASS6: main diagram vs auxiliary reference slices from get_diagram(role:"reference") */
+    role?: 'main' | 'reference';
 }
+
+/** Secondary diagram slices (e.g. scoped class diagrams) shown as chips next to the main panel diagram */
+export interface DiagramReferenceEntry {
+    id: string;
+    title?: string;
+    code: string;
+    type: DiagramState['type'];
+}
+
+export const diagramReferencesAtom = atom<DiagramReferenceEntry[]>([]);
+
+/** AI-pushed blueprint graph for the Diagram tab (single active canvas). */
+export interface BlueprintPanelRoom {
+  id: string;
+  name: string;
+  files?: string[];
+  functions?: string[];
+}
+
+export interface BlueprintPanelEdge {
+  from: string;
+  to: string;
+  type?: string;
+}
+
+export interface BlueprintPanelState {
+  workspaceId?: number | null;
+  title?: string;
+  rooms: BlueprintPanelRoom[];
+  edges: BlueprintPanelEdge[];
+  updatedAt: number;
+}
+
+export const blueprintStateAtom = atom<BlueprintPanelState | null>(null);
 
 /** Current diagram state */
 export const diagramStateAtom = atom<DiagramState | null>(null);
@@ -372,15 +408,8 @@ export interface DiagramStalenessWarning {
 
 export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
 
-/** Diagram tab view: Live (Mermaid from code) or Blueprint (editable rooms/functions) */
-export type DiagramViewMode = 'live' | 'blueprint';
-export const diagramViewModeAtom = atom<DiagramViewMode>('live');
-
-/** Current workspace blueprint (for Blueprint mode) */
-export const blueprintStateAtom = atom<import('@/shared/blueprint-types').Blueprint | null>(null);
-
-/** When AI is editing the blueprint (show indicator in Diagram tab) */
-export const blueprintAiEditingAtom = atom<{ workspaceId: number; action: string } | null>(null);
+// Pass 7: Legacy Blueprint editor atoms removed (`diagramViewModeAtom`, `blueprintAiEditingAtom`).
+// `blueprintStateAtom` remains for the AI panel mind map (set_blueprint / get_blueprint include_panel_graph).
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

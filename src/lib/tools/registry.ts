@@ -5,18 +5,103 @@
  */
 
 import type { Tool } from "../providers/base-provider";
-import { getToolOutputCache } from "./cache/output-cache";
+import { isMainProcessNode } from "../runtime/is-main-node";
+import { guardToolCall } from "./guard";
 
-let _toolOutputCache: ReturnType<typeof getToolOutputCache> | null = null;
+// NOTE: this module is imported by both the Electron main process AND the renderer
+// (e.g. `ToolIndicator.tsx` reads `ToolRegistry` for UI metadata). Anything that
+// touches `node:*` must therefore be loaded lazily *inside* a function, never at
+// module-top, AND guarded by `isMainProcessNode()` (not just `process.versions.node`,
+// since Electron's renderer exposes that too). Otherwise Vite's browser bundle blows
+// up with "Module 'node:crypto' has been externalized for browser compatibility".
 
-function getToolOutputCacheInstance(): ReturnType<typeof getToolOutputCache> {
-  if (!_toolOutputCache) {
-    _toolOutputCache = getToolOutputCache();
-    _toolOutputCache.initialize().catch(() => {
-      // Cache init failed - will operate in passthrough mode
-    });
-  }
-  return _toolOutputCache;
+const TOOL_OUTPUT_TRUNCATION_THRESHOLD = 50_000;
+const TOOL_OUTPUT_PREVIEW_CHARS = 2000;
+// PASS8 B3: All tools go through the standard 50 KB disk-truncation envelope.
+// Previously this exempted `read_file`, `get_blueprint`, and `get_active_skills`.
+// Each of those is now bounded (read_file by request range, get_blueprint by the
+// 300-line markdown cap added in B4, get_active_skills by its internal char cap),
+// so the envelope is a safety net rather than a removed feature. Single global
+// policy mirrors opencode's max-bytes envelope — no per-tool / per-tier carve-outs.
+const NEVER_TRUNCATE = new Set<string>([]);
+
+let _toolOutputDirPath: string | null = null;
+let _toolOutputDirReady = false;
+
+async function ensureToolOutputDir(): Promise<string | null> {
+    if (!isMainProcessNode()) return null;
+    if (_toolOutputDirReady && _toolOutputDirPath) return _toolOutputDirPath;
+    try {
+        const [{ default: os }, { default: path }, fs] = await Promise.all([
+            import("node:os"),
+            import("node:path"),
+            import("node:fs/promises"),
+        ]);
+        const dir = path.join(os.tmpdir(), "atlarix-tool-outputs");
+        await fs.mkdir(dir, { recursive: true });
+        _toolOutputDirPath = dir;
+        _toolOutputDirReady = true;
+        return dir;
+    } catch {
+        // Best-effort; we'll re-try next call if it failed.
+        return null;
+    }
+}
+
+/**
+ * If `result` serialises to more than 50 KB and the tool is not in NEVER_TRUNCATE,
+ * write the full payload to a tmp file and return a small `{ preview, diskPath,
+ * totalChars }` envelope. Otherwise return the original result unchanged.
+ *
+ * Renderer-safe: if Node modules are unavailable (browser bundle) the result is
+ * returned untouched.
+ */
+async function maybeTruncateToDisk(
+    toolName: string,
+    result: unknown,
+): Promise<{ value: unknown; truncated: boolean; totalChars: number }> {
+    if (NEVER_TRUNCATE.has(toolName)) {
+        return { value: result, truncated: false, totalChars: 0 };
+    }
+    const resultStr = typeof result === "string" ? result : JSON.stringify(result);
+    if (!resultStr || resultStr.length <= TOOL_OUTPUT_TRUNCATION_THRESHOLD) {
+        return { value: result, truncated: false, totalChars: resultStr?.length ?? 0 };
+    }
+    if (!isMainProcessNode()) {
+        return { value: result, truncated: false, totalChars: resultStr.length };
+    }
+
+    try {
+        const dir = await ensureToolOutputDir();
+        if (!dir) {
+            return { value: result, truncated: false, totalChars: resultStr.length };
+        }
+        const [{ default: path }, fs, crypto] = await Promise.all([
+            import("node:path"),
+            import("node:fs/promises"),
+            import("node:crypto"),
+        ]);
+        const id = crypto.randomBytes(4).toString("hex");
+        const diskPath = path.join(dir, `${toolName}-${id}.txt`);
+        await fs.writeFile(diskPath, resultStr, "utf-8");
+        const preview =
+            resultStr.slice(0, TOOL_OUTPUT_PREVIEW_CHARS) +
+            "\n\n[... output truncated ...]";
+        return {
+            value: {
+                truncated: true,
+                totalChars: resultStr.length,
+                preview,
+                diskPath,
+                message: `Full output written to ${diskPath}. Use read_file to access if needed.`,
+            },
+            truncated: true,
+            totalChars: resultStr.length,
+        };
+    } catch {
+        // If we can't write the file, fall back to returning the original result.
+        return { value: result, truncated: false, totalChars: resultStr.length };
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -45,9 +130,6 @@ export enum ToolCategory {
     ANALYSIS = "analysis",
     REFACTORING = "refactoring",
     TESTING = "testing",
-
-    // v4.0 Workforce (Slack, Jira, Linear, Sentry, Calendar, CI, etc.)
-    WORKFORCE = "workforce",
 }
 
 export interface ToolMetadata {
@@ -190,74 +272,57 @@ export class ToolRegistry {
     }
 
     /**
-     * Execute a tool
-     * NOTE: Permission requests are returned directly (not wrapped)
-     * so they can be detected by the interceptor
+     * Execute a tool.
+     *
+     * - FIX 3 (graceful errors): missing required params return INVALID_PARAMS,
+     *   thrown handler errors return TOOL_ERROR. No tool ever throws here.
+     * - Permission gates (`__permission_required === true`) are returned
+     *   unwrapped so the downstream interceptor in
+     *   `permissions/interceptor.ts` can still detect them.
      */
-    static async execute(name: string, args: any): Promise<any> {
+    static async execute(
+        name: string,
+        args: any,
+    ): Promise<any> {
         const tool = this.get(name);
         if (!tool) {
-            throw new Error(`Tool not found: ${name}`);
-        }
-
-        try {
-            // Fix: Workforce-2 — require per-chat session scope before Workforce tools (except batch permission request)
-            if (
-                tool.category === ToolCategory.WORKFORCE &&
-                name !== "request_workspace_permissions"
-            ) {
-                const chatId = args?._chatSessionId as number | undefined;
-                if (typeof chatId === "number" && Number.isFinite(chatId)) {
-                    const { getWorkforceChatSession } = await import("../../main/workforce-chat-session");
-                    if (!getWorkforceChatSession(chatId)?.scopeNote?.trim()) {
-                        return {
-                            __workforce_session_scope_needed: true,
-                            chatId,
-                        };
-                    }
-                }
-            }
-
-            const result = await tool.handler(args);
-
-            // If this is a permission request, return it directly (unwrapped)
-            // so the interceptor can detect __permission_required flag
-            if (result && typeof result === 'object' && result.__permission_required) {
-                return result;
-            }
-            // Workspace permission panel request (batch Token Auth)
-            if (result && typeof result === 'object' && (result as any).__workspace_permissions_requested) {
-                return result;
-            }
-
-            // v7.1.2: Cache large tool outputs to prevent stream stalls
-            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-            const cache = getToolOutputCacheInstance();
-            const cachedResult = await cache.cacheIfLarge(
-                name,
-                `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                resultStr,
-                10000 // Cache outputs > 10KB
-            );
-
-            // If output was cached, include a reference for the UI
-            const wasCached = cachedResult !== resultStr;
-
-            // Normal results get wrapped for consistency
-            return {
-                success: true,
-                result: wasCached ? cachedResult : result,
-                cost: tool.cost,
-                _cachedOutput: wasCached,
-                _originalSize: wasCached ? resultStr.length : undefined,
-            };
-        } catch (error) {
             return {
                 success: false,
-                error: String(error),
                 cost: 0,
+                error: "TOOL_ERROR",
+                tool: name,
+                message: `Tool not found: ${name}. Please try a different approach.`,
             };
         }
+
+        return guardToolCall({
+            toolName: name,
+            args,
+            parametersSchema: tool.parameters,
+            runner: async () => {
+                const result = await tool.handler(args);
+
+                // If this is a permission request, return it directly (unwrapped)
+                // so the interceptor can detect __permission_required flag.
+                if (result && typeof result === 'object' && (result as any).__permission_required) {
+                    return result;
+                }
+
+                // Pass 7: replace 10 KB output cache with 50 KB disk-truncation layer.
+                // Outputs above the threshold are written to tmpdir; the AI receives a
+                // small preview envelope instead of stalling the stream with a large
+                // payload.
+                const truncation = await maybeTruncateToDisk(name, result);
+
+                return {
+                    success: true,
+                    result: truncation.value,
+                    cost: tool.cost,
+                    _truncatedOutput: truncation.truncated,
+                    _originalSize: truncation.truncated ? truncation.totalChars : undefined,
+                };
+            },
+        });
     }
 
     /**

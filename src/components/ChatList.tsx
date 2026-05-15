@@ -84,11 +84,6 @@ export function ChatList({ show }: { show?: boolean }) {
     // Only create a new chat if an app is selected
     if (selectedAppId) {
       try {
-        try {
-          await window.electron?.ipcRenderer?.invoke("token-vault:clear-all-sessions");
-        } catch {
-          /* non-fatal */
-        }
         // Create a new chat with an empty title for now
         const chatId = await IpcClient.getInstance().createChat(selectedAppId);
 

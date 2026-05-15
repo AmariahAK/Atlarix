@@ -1,16 +1,14 @@
 /**
  * Single Config button opening a dropdown: MCP, Models & provider, Auto mode,
- * Delegation (Direct/Guided/Autonomous), Blueprint in prompt. Lucide icons only.
+ * Delegation (Direct/Guided/Autonomous). Lucide icons only.
+ *
+ * Pass 7: Blueprint-in-prompt tier override removed with the Blueprint subsystem.
  */
 
 import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
-import {
-  blueprintInjectionChatOverrideAtom,
-  forceDeepThinkNextAtom,
-  type BlueprintInjectionChatOverride,
-} from "@/atoms/chatAtoms";
+import { forceDeepThinkNextAtom } from "@/atoms/chatAtoms";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
@@ -162,12 +160,7 @@ export function ChatConfigDropdown({
   const agentMode = (settings?.agentMode ?? "guided") as AgentMode;
   const autoOn = settings?.autoModelRouting === true;
   const isAuto = settings?.selectedModel?.provider === "auto";
-  const [blueprintChatOverride, setBlueprintChatOverride] = useAtom(
-    blueprintInjectionChatOverrideAtom,
-  );
   const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
-  const blueprintTierRadioValue =
-    blueprintChatOverride === null ? "settings" : blueprintChatOverride;
 
   const [compassBuildOk, setCompassBuildOk] = useState(false);
   useEffect(() => {
@@ -438,42 +431,7 @@ export function ChatConfigDropdown({
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
 
-          <DropdownMenuSeparator />
-
-          {/* Blueprint prompt tier (v5.0 S4): overrides Settings for this session */}
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Layers className="h-3.5 w-3.5" />
-            Blueprint in prompt
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={blueprintTierRadioValue}
-            onValueChange={(value) => {
-              setBlueprintChatOverride(
-                value === "settings"
-                  ? null
-                  : (value as BlueprintInjectionChatOverride),
-              );
-            }}
-          >
-            <DropdownMenuRadioItem value="settings" className="gap-2">
-              Use Settings
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="ask" className="gap-2 text-xs">
-              Force Ask tier
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="plan" className="gap-2 text-xs">
-              Force Plan tier
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="build" className="gap-2 text-xs">
-              Force Build tier
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="debug" className="gap-2 text-xs">
-              Force Debug tier
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-          <p className="px-2 pb-1 text-xs text-muted-foreground">
-            Overrides AI → Blueprint injection for this app session. Default follows Settings.
-          </p>
+          {/* Pass 7: Blueprint prompt-tier selector removed with Blueprint subsystem. */}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -6,7 +6,7 @@ import { ChatIntentSelector } from "./ChatIntentSelector";
 import { McpToolsPickerContent } from "@/components/McpToolsPicker";
 import { AutoConfigContent } from "@/components/AutoConfigContent";
 import { useSettings } from "@/hooks/useSettings";
-import { useCountTokens } from "@/hooks/useCountTokens";
+import { useContextTokenCount } from "@/hooks/useCountTokens";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import {
   Sheet,
@@ -58,7 +58,8 @@ export function ChatInputControls({
     "model" | "mcp" | "auto" | null
   >(null);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
-  const { result: tokenResult } = useCountTokens(chatId ?? null, "");
+  // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
+  const { result: tokenResult } = useContextTokenCount(chatId ?? null);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const compassUsage = useCompassUsage();
 

@@ -40,9 +40,9 @@ export function parseFilesFromMessage(content: string): string[] {
   const matches: TagMatch[] = [];
 
   // Parse <atlarix-read path="$filePath"></atlarix-read>
-  const dyadReadRegex = /<atlarix-read\s+path="([^"]+)"\s*><\/atlarix-read>/gs;
+  const atlarixReadRegex = /<atlarix-read\s+path="([^"]+)"\s*><\/atlarix-read>/gs;
   let match: RegExpExecArray | null;
-  while ((match = dyadReadRegex.exec(content)) !== null) {
+  while ((match = atlarixReadRegex.exec(content)) !== null) {
     const filePath = normalizePath(match[1].trim());
     if (filePath) {
       matches.push({

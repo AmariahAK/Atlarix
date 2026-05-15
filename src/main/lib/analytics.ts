@@ -60,7 +60,7 @@ export function getPostHog(): PostHog | null {
 
 /**
  * Capture an event only if user has opted in. No-op otherwise.
- * Use for main-process events: app_launched, workspace_opened, blueprint_generated, etc.
+ * Use for main-process events: app_launched, workspace_opened, diagram_generated, etc.
  */
 export function capture(
   event: string,

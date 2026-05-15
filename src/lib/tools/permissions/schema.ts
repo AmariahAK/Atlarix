@@ -36,6 +36,10 @@ export const CommandOperationPreviewSchema = z.object({
     description: z.string().describe("What this command does"),
     isDangerous: z.boolean().optional().describe("Whether command is risky"),
     dangerExplanation: z.string().optional().describe("Plain-English explanation of risks"),
+    /** Max wall-clock for the shell run (ms). Clamped in the interceptor. */
+    timeout_ms: z.number().optional(),
+    /** Max UTF-8 bytes for formatted output returned to the model. */
+    max_output_bytes: z.number().optional(),
 });
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
@@ -100,9 +104,7 @@ export const PermissionOperationType = z.enum([
     "delete_lines",
     // AI-controlled diagram update
     "update_diagram",
-    // External workforce actions (Slack/Jira/CI etc.)
-    "workforce_action",
-    // Restore blueprint + plan from SQLite snapshot (v5.0 project memory)
+    // Restore plan + diagram from SQLite snapshot (v5.0 project memory)
     "revert_project_snapshot",
 ]);
 

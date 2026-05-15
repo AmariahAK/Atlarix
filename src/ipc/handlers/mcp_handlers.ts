@@ -10,6 +10,11 @@ import { getStoredConsent } from "../utils/mcp_consent";
 import { mcpManager } from "../utils/mcp_manager";
 import { CreateMcpServer, McpServerUpdate, McpTool } from "../ipc_types";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
+import {
+  DEFAULT_MCP_REGISTRY_URL,
+  parseInstallUrl,
+  type McpRegistryIndex,
+} from "@/shared/mcp-registry";
 
 const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
@@ -284,6 +289,146 @@ export function registerMcpHandlers() {
     "mcp:tool-consent-response",
     async (_event, data: { requestId: string; decision: ConsentDecision }) => {
       resolveConsent(data.requestId, data.decision);
+    },
+  );
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Pass 7 — MCP marketplace registry
+  //
+  // Fetch the curated `index.json` (no auth, public CDN) and install entries
+  // from it. We deliberately keep the fetch on the main process so the
+  // renderer never has to talk to the network for the registry.
+  // ────────────────────────────────────────────────────────────────────────
+
+  handle(
+    "mcps:fetch-registry",
+    async (
+      _event,
+      params?: { url?: string },
+    ): Promise<{ success: boolean; registry?: McpRegistryIndex; error?: string }> => {
+      const url = params?.url || DEFAULT_MCP_REGISTRY_URL;
+      try {
+        const res = await fetch(url, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "Atlarix-MCP-Marketplace",
+          },
+        });
+        if (!res.ok) {
+          return {
+            success: false,
+            error: `Registry fetch failed: HTTP ${res.status}`,
+          };
+        }
+        const json = (await res.json()) as McpRegistryIndex;
+        if (!json || json.version !== "1" || !Array.isArray(json.mcps)) {
+          return { success: false, error: "Registry payload is not a v1 index" };
+        }
+        return { success: true, registry: json };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        logger.error("[mcps:fetch-registry] error:", e);
+        return { success: false, error: message };
+      }
+    },
+  );
+
+  handle(
+    "mcps:install-from-registry",
+    async (
+      _event,
+      params: {
+        entry: McpRegistryIndex["mcps"][number];
+        env: Record<string, string>;
+        scope?: "global" | "workspace";
+        appId?: number | null;
+      },
+    ): Promise<{ success: boolean; serverId?: number; error?: string }> => {
+      try {
+        const { entry, env, scope = "global", appId = null } = params;
+
+        // Re-use the same tier / capacity gates as `mcp:create-server`.
+        const isPro = SubscriptionManager.isPro();
+        if (scope === "global") {
+          const globalCount = await db
+            .select()
+            .from(mcpServers)
+            .where(eq(mcpServers.scope, "global"));
+          if (globalCount.length >= MCP_GLOBAL_MAX) {
+            return {
+              success: false,
+              error: `Maximum ${MCP_GLOBAL_MAX} global MCP servers. Remove one to add another.`,
+            };
+          }
+          if (!isPro && globalCount.length >= MCP_FREE_TIER_LIMIT) {
+            return {
+              success: false,
+              error: "Free tier is limited to 1 MCP server. Upgrade to Pro for more.",
+            };
+          }
+        } else if (scope === "workspace" && appId != null) {
+          const workspaceCount = await db
+            .select()
+            .from(mcpServers)
+            .where(
+              and(
+                eq(mcpServers.scope, "workspace"),
+                eq(mcpServers.appId, appId),
+              ),
+            );
+          if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+            return {
+              success: false,
+              error: `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+            };
+          }
+        }
+
+        // Validate that every required env var was provided. We do not
+        // store secrets in plaintext anywhere else — they go straight into
+        // `mcp_servers.env_json` and the user can rotate from settings.
+        const missing = (entry.envVars ?? [])
+          .filter((v) => !env[v.key]?.trim())
+          .map((v) => v.key);
+        if (missing.length > 0) {
+          return {
+            success: false,
+            error: `Missing required env vars: ${missing.join(", ")}`,
+          };
+        }
+
+        const { command, args } = parseInstallUrl(entry.installUrl);
+        if (!command) {
+          return { success: false, error: "Registry entry has empty installUrl" };
+        }
+
+        const inserted = await db
+          .insert(mcpServers)
+          .values({
+            name: entry.name,
+            transport: "stdio",
+            command,
+            args,
+            envJson: Object.keys(env).length > 0 ? env : null,
+            url: null,
+            enabled: true,
+            scope,
+            appId: scope === "workspace" ? appId : null,
+            fromRegistry: true,
+            registryId: entry.id,
+          })
+          .returning();
+
+        const created = inserted[0];
+        if (!created) {
+          return { success: false, error: "Insert returned no rows" };
+        }
+        return { success: true, serverId: created.id };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        logger.error("[mcps:install-from-registry] error:", e);
+        return { success: false, error: message };
+      }
     },
   );
 }

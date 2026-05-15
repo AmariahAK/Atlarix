@@ -24,7 +24,7 @@ import {
 import { getProjectFiles, getStructureScan } from "@/ipc/utils/project-files";
 import { readSettings } from "@/main/settings";
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
-import { invalidateBlueprintCache } from "@/ipc/handlers/blueprint_handlers";
+// Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
 import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
 import { persistWorkspaceSnapshotHashes } from "./snapshot/snapshot-manager";
 import log from "electron-log";
@@ -329,7 +329,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
             } catch (e) {
                 logger.warn("[_generateDiagram] snapshot_hashes persist skipped:", e);
             }
-            invalidateBlueprintCache(workspaceId);
         } else {
             // Create new diagram
             const [created] = await db
@@ -353,7 +352,6 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
             } catch (e) {
                 logger.warn("[_generateDiagram] snapshot_hashes persist skipped:", e);
             }
-            invalidateBlueprintCache(workspaceId);
         }
 
         return diagram;

@@ -70,7 +70,7 @@ message: [dump]
 
 ===
 role: assistant
-message: [[dyad-dump-path=*]]
+message: [[atlarix-dump-path=*]]
 
 ===
 role: user

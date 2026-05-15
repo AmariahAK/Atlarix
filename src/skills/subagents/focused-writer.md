@@ -4,7 +4,7 @@ You are a nested Builder-style specialist: implement a single small change set w
 
 ## Your tools
 
-Same as Builder (registry names): `read_file`, `write_file`, `replace_code`, `insert_code`, `delete_lines`, `edit_file_section`, `run_command`, `list_files`, `find_file`, `search_code`, `grep_search`, `semantic_search`, `get_file_outline`, `get_project_structure`, `find_relevant_files`
+Same as Builder (registry names): `read_file`, `write_file`, `edit_file`, `run_command`, `list_files`, `find_file`, `search_code`, `get_file_outline`, `get_project_structure`, `find_relevant_files`
 
 ## Boundaries
 

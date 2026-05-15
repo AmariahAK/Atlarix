@@ -209,10 +209,7 @@ export const appsRelations = relations(apps, ({ many }) => ({
   chats: many(chats),
   versions: many(versions),
   workspaceDiagrams: many(workspaceDiagrams),
-  pivotNodes: many(pivotNodes),
-  pivotEdges: many(pivotEdges),
-  pivotContainers: many(pivotContainers),
-  blueprintSnapshots: many(blueprintSnapshots),
+  // Pass 7: Blueprint + PIVOT relations removed (tables dropped in migration 0043).
   projectSnapshots: many(projectSnapshots),
   projectMemoryRows: many(projectMemory),
 }));
@@ -387,6 +384,12 @@ export const mcpServers = sqliteTable("mcp_servers", {
     .default(sql`0`),
   scope: text("scope").notNull().default("global"), // 'global' | 'workspace'
   appId: integer("app_id").references(() => apps.id, { onDelete: "cascade" }),
+  /** Pass 7: when true, this server was installed from the marketplace registry. */
+  fromRegistry: integer("from_registry", { mode: "boolean" })
+    .notNull()
+    .default(sql`0`),
+  /** Pass 7: corresponds to `McpRegistryEntry.id` when installed via marketplace. */
+  registryId: text("registry_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -656,6 +659,7 @@ export const workflowTemplates = sqliteTable("workflow_templates", {
     .default(sql`(unixepoch())`),
 });
 
+// PASS6: Blueprint + PIVOT tables restored. Migration 0043 was dropped.
 // --- Blueprint (Phase 7 Additive Blueprint) ---
 // One blueprint per workspace: rooms, edges, functions per room
 export const blueprints = sqliteTable(
@@ -690,7 +694,7 @@ export const pivotNodes = sqliteTable(
     workspaceId: integer("workspace_id")
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
-    externalId: text("external_id").notNull(), // Parser-generated id (e.g. file::symbol) for dedupe and edge refs
+    externalId: text("external_id").notNull(),
     nodeType: text("node_type", {
       enum: ["file", "function", "class", "module"],
     }).notNull(),
@@ -852,6 +856,7 @@ export const installedSkills = sqliteTable(
   }),
 );
 
+// PASS6: pivot* + blueprintSnapshots relations restored.
 export const pivotNodesRelations = relations(pivotNodes, ({ one }) => ({
   workspace: one(apps, {
     fields: [pivotNodes.workspaceId],

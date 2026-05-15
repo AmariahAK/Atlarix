@@ -491,7 +491,7 @@
       e.preventDefault();
       window.parent.postMessage(
         {
-          type: "dyad-select-component-shortcut",
+          type: "atlarix-select-component-shortcut",
         },
         "*",
       );

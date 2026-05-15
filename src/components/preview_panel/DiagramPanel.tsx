@@ -11,14 +11,11 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { getDefaultStore, useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { diagramStateAtom, diagramStalenessAtom, diagramViewModeAtom, blueprintStateAtom, blueprintAiEditingAtom, type DiagramState, type GitDiagramDecision } from '@/atoms/sourceAtoms';
+import { diagramStateAtom, diagramStalenessAtom, diagramReferencesAtom, blueprintStateAtom, type DiagramState, type GitDiagramDecision, type BlueprintPanelState } from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
-import { BlueprintEditor } from '@/components/preview_panel/BlueprintEditor';
-import { ReferenceProjectsCard } from '@/components/blueprint/ReferenceProjectsCard';
 import { IpcClient } from '@/ipc/ipc_client';
-import { createEmptyBlueprint } from '@/shared/blueprint-types';
 import { toast } from 'sonner';
 import {
     GitCompare,
@@ -34,25 +31,15 @@ import {
     Check,
     AlertTriangle,
     RefreshCw,
-    Sparkles,
     Info,
-    Box,
-    Bot,
     Maximize2,
+    ChevronDown,
 } from 'lucide-react';
 import { VaultPanel } from '@/components/preview_panel/VaultPanel';
+import { BlueprintMiniCanvas } from '@/components/preview_panel/BlueprintMiniCanvas';
+import { ReferenceProjectsCard } from '@/components/blueprint/ReferenceProjectsCard';
+import type { Blueprint } from '@/shared/blueprint-types';
 import type { PanelTab } from '@/atoms/sourceAtoms';
-
-/** Humanize blueprint tool action names for display */
-function humanizeBlueprintAction(action: string): string {
-    const map: Record<string, string> = {
-        add_blueprint_room: "Adding room…",
-        add_blueprint_function: "Adding function…",
-        add_blueprint_edge: "Adding connection…",
-        update_blueprint: "Updating blueprint…",
-    };
-    return map[action] ?? action.replace(/_/g, " ");
-}
 
 interface DiagramPanelProps {
     data: DiagramState | null;
@@ -78,27 +65,51 @@ interface DiagramRecord {
     metadata?: unknown;
 }
 
+function blueprintPanelStateToBlueprint(panel: BlueprintPanelState): Blueprint {
+    const edgeType = (t: string | undefined): "import" | "call" | "api" =>
+        t === "import" || t === "api" ? t : "call";
+    return {
+        rooms: panel.rooms.map((r, idx) => ({
+            id: r.id || `room-${idx}`,
+            label: r.name || r.id,
+            path: r.files?.[0],
+            functions: (r.functions ?? []).slice(0, 25).map((name, j) => ({
+                id: `${r.id}-fn-${j}`,
+                name,
+                kind: "function" as const,
+            })),
+        })),
+        edges: panel.edges.map((e) => ({
+            from: e.from,
+            to: e.to,
+            type: edgeType(e.type),
+        })),
+        envRefs: [],
+    };
+}
+
 function isDiagramStateLike(v: unknown): v is DiagramState {
     if (!v || typeof v !== 'object') return false;
     const anyV = v as any;
     return typeof anyV.code === 'string' && typeof anyV.type === 'string' && typeof anyV.compareMode === 'string';
 }
 
-export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProps) {
+export function DiagramPanel({ data, activeTab, setActiveTab: _setActiveTab }: DiagramPanelProps) {
     const navigate = useNavigate();
     const [diagramState, setDiagramState] = useAtom(diagramStateAtom);
     const [staleness, setStaleness] = useAtom(diagramStalenessAtom);
-    const [viewMode, setViewMode] = useAtom(diagramViewModeAtom);
-    const [blueprint, setBlueprint] = useAtom(blueprintStateAtom);
-    const [aiEditing, setAiEditing] = useAtom(blueprintAiEditingAtom);
+    const [diagramRefs, setDiagramRefs] = useAtom(diagramReferencesAtom);
+    const [blueprintPanel, setBlueprintPanel] = useAtom(blueprintStateAtom);
+    const [activeRefId, setActiveRefId] = useState<string | null>(null);
+    const [secBlueprintOpen, setSecBlueprintOpen] = useState(true);
+    const [secDiagramOpen, setSecDiagramOpen] = useState(true);
+    const [secRefOpen, setSecRefOpen] = useState(true);
     const app = useAtomValue(currentAppAtom);
     const [compareMode, setCompareMode] = useState<CompareMode>('current');
     const [snapshotEntries, setSnapshotEntries] = useState<DiagramSnapshotEntry[]>([]);
     const [showHistory, setShowHistory] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadingDiagram, setLoadingDiagram] = useState(false);
-    const [loadingBlueprint, setLoadingBlueprint] = useState(false);
-    const [savingBlueprint, setSavingBlueprint] = useState(false);
     const [allDiagrams, setAllDiagrams] = useState<DiagramRecord[]>([]);
 
     const refreshDiagramsForWorkspace = useCallback(
@@ -149,22 +160,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         [app?.id, setDiagramState],
     );
 
-    // Subscribe to "AI is editing blueprint" for visual indicator
-    useEffect(() => {
-        const unsub = IpcClient.getInstance().onBlueprintAiEditing((payload) => {
-            setAiEditing(payload);
-            setTimeout(() => setAiEditing(null), 8000);
-        });
-        return unsub;
-    }, [setAiEditing]);
-
-    // When AI (or backend) updates the blueprint, refresh UI
-    useEffect(() => {
-        const unsub = IpcClient.getInstance().onBlueprintUpdated((payload) => {
-            if (app?.id === payload.workspaceId) setBlueprint(payload.blueprint);
-        });
-        return unsub;
-    }, [app?.id, setBlueprint]);
+    // Pass 7: Blueprint AI-editing + onBlueprintUpdated subscriptions removed.
 
     // Prefer diagramState when we have loaded allDiagrams for this workspace so selector and display stay in sync
     const diagram = useMemo(() => {
@@ -206,21 +202,11 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         }
     }, []);
 
-    // Load blueprint when workspace changes and in Blueprint mode
-    useEffect(() => {
-        if (!app?.id || viewMode !== 'blueprint') return;
-        setLoadingBlueprint(true);
-        IpcClient.getInstance()
-            .getBlueprint({ workspaceId: app.id })
-            .then((res) => {
-                if (res.success && res.blueprint) setBlueprint(res.blueprint);
-                else setBlueprint(createEmptyBlueprint());
-            })
-            .catch(() => setBlueprint(createEmptyBlueprint()))
-            .finally(() => setLoadingBlueprint(false));
-    }, [app?.id, viewMode, setBlueprint]);
+    // Pass 7: Blueprint loading effect removed (subsystem deleted).
 
     const handleSelectDiagram = useCallback((record: DiagramRecord) => {
+        setDiagramRefs([]);
+        setActiveRefId(null);
         setDiagramState({
             id: record.id,
             code: record.content ?? '',
@@ -229,7 +215,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
             compareMode: 'current',
             workspaceId: app?.id ?? null,
         } as DiagramState);
-    }, [app?.id, setDiagramState]);
+    }, [app?.id, setDiagramState, setDiagramRefs]);
 
     useEffect(() => {
         if (app?.id != null) {
@@ -270,21 +256,30 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         }
     }, [app?.id, diagram?.title, setDiagramState, setStaleness]);
 
-    // When Blueprint mode, we don't require a Live diagram
-    const showNoDiagram = !diagram && viewMode === 'live';
-    // Empty Live: always show Generate — do not block behind listDiagrams (loadingDiagram).
+    const appendReferenceMermaidSlice = useCallback(
+        (p: string) => {
+            const safe = p.replace(/"/g, "'").slice(0, 160);
+            const short = p.split("/").filter(Boolean).pop() ?? "ref";
+            const id = `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            const code = `flowchart LR\n  N["${safe}"]`;
+            setDiagramRefs((prev) => {
+                if (prev.some((x) => x.code === code)) return prev;
+                return [...prev, { id, title: short, code, type: "mermaid" as const }].slice(-8);
+            });
+        },
+        [setDiagramRefs],
+    );
+
+    useEffect(() => {
+        if (blueprintPanel) setSecBlueprintOpen(true);
+    }, [blueprintPanel]);
+
+    // Only block the Diagram tab when there is no Mermaid diagram; Vault / logs still render.
+    const showNoDiagram =
+        activeTab === "diagram" && !diagram && !blueprintPanel;
     if (showNoDiagram) {
         return (
             <div className="flex flex-col h-full">
-                {activeTab === 'diagram' && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/5">
-                        <span className="text-xs text-muted-foreground">View:</span>
-                        <div className="flex rounded-md border border-border overflow-hidden">
-                            <button type="button" onClick={() => setViewMode('live')} className="px-3 py-1 text-xs font-medium bg-primary text-primary-foreground">Live</button>
-                            <button type="button" onClick={() => setViewMode('blueprint')} className="px-3 py-1 text-xs font-medium bg-background text-muted-foreground hover:bg-muted">Blueprint</button>
-                        </div>
-                    </div>
-                )}
                 <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
                     {loadingDiagram && (
                         <p className="text-xs text-muted-foreground/80 mb-3 flex items-center gap-2">
@@ -296,17 +291,18 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
                         <Code2 className="w-8 h-8 text-primary" />
                     </div>
                     <h3 className="text-lg font-medium text-foreground mb-2">No Diagram</h3>
-                    <p className="text-sm text-center mb-4">
-                        Generate an architecture diagram from the sidebar to visualize your project structure, or switch to <strong>Blueprint</strong> to plan rooms and functions.
+                    <p className="text-sm text-center mb-4 max-w-sm">
+                        Use the assistant tool <code className="text-xs bg-muted px-1 rounded">get_diagram</code> to generate a diagram, or pick a saved one from the dropdown when available.
                     </p>
                     {app?.id && (
                         <button
-                            onClick={handleRefreshDiagram}
+                            type="button"
+                            onClick={() => void refreshDiagramsForWorkspace()}
                             disabled={isRefreshing}
-                            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors flex items-center gap-2 text-sm disabled:opacity-50"
                         >
-                            {isRefreshing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                            {isRefreshing ? 'Generating...' : 'Generate Diagram'}
+                            {isRefreshing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            Reload saved diagrams
                         </button>
                     )}
                 </div>
@@ -314,7 +310,7 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
         );
     }
 
-    if (loadingDiagram) {
+    if (loadingDiagram && activeTab === "diagram") {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
                 <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
@@ -327,156 +323,231 @@ export function DiagramPanel({ data, activeTab, setActiveTab }: DiagramPanelProp
 
     return (
         <div className="flex flex-col h-full">
-            {/* Diagram selector: all diagrams for this workspace (matches Diagrams page count) */}
-            {activeTab === 'diagram' && allDiagrams.length > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/10">
-                    <span className="text-xs text-muted-foreground">Diagram:</span>
-                    <select
-                        value={String((diagram as any)?.id ?? '')}
-                        onChange={(e) => {
-                            const id = Number(e.target.value);
-                            const record = allDiagrams.find((d) => d.id === id);
-                            if (record) handleSelectDiagram(record);
-                        }}
-                        className="text-xs rounded-md border border-border bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary flex-1 min-w-0"
-                    >
-                        {allDiagrams.map((d) => (
-                            <option key={d.id} value={d.id}>
-                                {d.title} ({d.type || 'mermaid'})
-                            </option>
-                        ))}
-                    </select>
-                </div>
-            )}
-            {/* Live vs Blueprint mode toggle */}
-            {activeTab === 'diagram' && (
-                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/5">
-                    <span className="text-xs text-muted-foreground">View:</span>
-                    <div className="flex rounded-md border border-border overflow-hidden">
+            {activeTab === "diagram" && (
+                <>
+                    <div className="border-b border-border/50 shrink-0">
+                        <div className="flex w-full items-center gap-2 px-3 py-2 bg-muted/10">
+                            <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs font-medium"
+                                onClick={() => setSecBlueprintOpen((v) => !v)}
+                            >
+                                {secBlueprintOpen ? (
+                                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                                ) : (
+                                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                                <span>Blueprint (AI)</span>
+                            </button>
+                            {blueprintPanel ? (
+                                <button
+                                    type="button"
+                                    className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+                                    onClick={() => setBlueprintPanel(null)}
+                                >
+                                    Clear
+                                </button>
+                            ) : null}
+                        </div>
+                        {secBlueprintOpen ? (
+                            <div className="space-y-2 border-t border-border/40 px-3 pb-3 pt-2">
+                                {blueprintPanel ? (
+                                    <>
+                                        {blueprintPanel.title ? (
+                                            <p className="text-xs text-muted-foreground">{blueprintPanel.title}</p>
+                                        ) : null}
+                                        <BlueprintMiniCanvas
+                                            blueprint={blueprintPanelStateToBlueprint(blueprintPanel)}
+                                            heightPx={300}
+                                        />
+                                    </>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                        No AI blueprint in the panel yet. The assistant can call{" "}
+                                        <code className="text-[10px] bg-muted px-1 rounded">set_blueprint</code> or{" "}
+                                        <code className="text-[10px] bg-muted px-1 rounded">get_blueprint</code> with{" "}
+                                        <code className="text-[10px] bg-muted px-1 rounded">include_panel_graph</code>.
+                                    </p>
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="flex min-h-0 flex-1 flex-col border-b border-border/50">
                         <button
                             type="button"
-                            onClick={() => setViewMode('live')}
-                            className={cn(
-                                "px-3 py-1 text-xs font-medium transition-colors",
-                                viewMode === 'live'
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-background text-muted-foreground hover:bg-muted"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium bg-muted/10 hover:bg-muted/15"
+                            onClick={() => setSecDiagramOpen((v) => !v)}
+                        >
+                            {secDiagramOpen ? (
+                                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                            ) : (
+                                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                             )}
-                        >
-                            Live
+                            Architecture diagram (Mermaid)
                         </button>
+                        {secDiagramOpen ? (
+                            <div className="flex min-h-0 flex-1 flex-col border-t border-border/40">
+                                {allDiagrams.length > 0 && (
+                                    <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/10 px-3 py-1.5">
+                                        <span className="text-xs text-muted-foreground">Diagram:</span>
+                                        <select
+                                            value={String((diagram as any)?.id ?? "")}
+                                            onChange={(e) => {
+                                                const id = Number(e.target.value);
+                                                const record = allDiagrams.find((d) => d.id === id);
+                                                if (record) handleSelectDiagram(record);
+                                            }}
+                                            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                                        >
+                                            {allDiagrams.map((d) => (
+                                                <option key={d.id} value={d.id}>
+                                                    {d.title} ({d.type || "mermaid"})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                                <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/5 px-3 py-1.5">
+                                    <span className="text-xs text-muted-foreground">Live diagram</span>
+                                    {app?.id ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate({ to: "/diagram", search: { appId: app.id } })}
+                                            className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                                        >
+                                            <Maximize2 className="h-3.5 w-3.5" />
+                                            Open in full screen
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <div className="shrink-0 border-b border-border/50 bg-muted/5 px-3 py-1.5 text-xs text-muted-foreground">
+                                    <p>
+                                        Project structure and data flow. Update from chat via{" "}
+                                        <code className="text-[10px] bg-muted px-1 rounded">get_diagram</code> or use
+                                        Refresh when stale.
+                                    </p>
+                                </div>
+                                {staleness &&
+                                (staleness.isStale || staleness.gitDecision?.action !== "none") ? (
+                                    <StalenessWarningBanner
+                                        severity={staleness.severity === "none" ? "minor" : staleness.severity}
+                                        reason={staleness.reason}
+                                        onRefresh={handleRefreshDiagram}
+                                        isRefreshing={isRefreshing}
+                                        gitDecision={staleness.gitDecision}
+                                    />
+                                ) : null}
+                                {diagram ? (
+                                    <div className="min-h-0 flex-1">
+                                        <DiagramViewer
+                                            diagram={diagram}
+                                            compareMode={compareMode}
+                                            setCompareMode={setCompareMode}
+                                            hasCompareData={hasCompareData}
+                                            workspaceId={app?.id ?? null}
+                                            snapshots={snapshotEntries}
+                                            showHistory={showHistory}
+                                            setShowHistory={setShowHistory}
+                                            onAfterRestore={async () => {
+                                                const id = (diagram as any).id as number | undefined;
+                                                await refreshDiagramsForWorkspace({ preferDiagramId: id });
+                                                if (app?.id != null) {
+                                                    await refreshSnapshotTimeline(app.id);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="px-3 py-4 text-xs text-muted-foreground">
+                                        No Mermaid diagram loaded. Use{" "}
+                                        <code className="text-[10px] bg-muted px-1 rounded">get_diagram</code> or reload
+                                        saved diagrams.
+                                    </div>
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="border-b border-border/50 shrink-0">
                         <button
                             type="button"
-                            onClick={() => setViewMode('blueprint')}
-                            className={cn(
-                                "px-3 py-1 text-xs font-medium transition-colors",
-                                viewMode === 'blueprint'
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-background text-muted-foreground hover:bg-muted"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium bg-muted/10 hover:bg-muted/15"
+                            onClick={() => setSecRefOpen((v) => !v)}
+                        >
+                            {secRefOpen ? (
+                                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                            ) : (
+                                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                             )}
-                        >
-                            Blueprint
+                            Reference projects & diagram slices
                         </button>
+                        {secRefOpen ? (
+                            <div className="space-y-3 border-t border-border/40 px-3 pb-3 pt-2">
+                                <ReferenceProjectsCard
+                                    workspaceId={app?.id ?? null}
+                                    onReferencePathAdded={appendReferenceMermaidSlice}
+                                />
+                                {diagramRefs.length > 0 ? (
+                                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/50 bg-muted/10 px-2 py-2">
+                                        <span className="shrink-0 text-xs text-muted-foreground">Slices</span>
+                                        <div className="flex flex-wrap gap-1">
+                                            {diagramRefs.map((r) => (
+                                                <button
+                                                    key={r.id}
+                                                    type="button"
+                                                    onClick={() => setActiveRefId((cur) => (cur === r.id ? null : r.id))}
+                                                    className={cn(
+                                                        "rounded-md border px-2 py-1 text-xs transition-colors",
+                                                        activeRefId === r.id
+                                                            ? "border-primary bg-primary/10 text-foreground"
+                                                            : "border-border bg-background text-muted-foreground hover:text-foreground",
+                                                    )}
+                                                >
+                                                    {r.title || "Diagram slice"}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+                                            onClick={() => {
+                                                setDiagramRefs([]);
+                                                setActiveRefId(null);
+                                            }}
+                                        >
+                                            Clear references
+                                        </button>
+                                    </div>
+                                ) : null}
+                                {activeRefId ? (
+                                    <div className="max-h-[38vh] shrink-0 overflow-auto rounded-md border border-border bg-muted/20 px-3 py-2">
+                                        {(() => {
+                                            const sel = diagramRefs.find((r) => r.id === activeRefId);
+                                            if (!sel?.code?.trim()) return null;
+                                            return (
+                                                <>
+                                                    <p className="mb-2 text-xs text-muted-foreground">
+                                                        Reference: {sel.title || "slice"}
+                                                    </p>
+                                                    <MermaidRenderer code={sel.code} className="min-h-[100px]" />
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                        {viewMode === 'live' ? 'Mermaid from code' : 'Containers & beacons'}
-                    </span>
-                    {app?.id && (
-                        <button
-                            type="button"
-                            onClick={() => navigate({ to: '/diagram', search: { appId: app.id } })}
-                            className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
-                        >
-                            <Maximize2 className="h-3.5 w-3.5" />
-                            Open in full screen
-                        </button>
-                    )}
-                </div>
-            )}
-            {/* AI is editing blueprint indicator (Cursor/Antigravity-style) - prominent sticky bar */}
-            {activeTab === 'diagram' && viewMode === 'blueprint' && aiEditing && app?.id === aiEditing.workspaceId && (
-                <div className="flex items-center gap-3 px-4 py-3 border-b-2 border-primary/50 bg-primary/15 text-primary sticky top-0 z-10 shadow-sm ring-1 ring-primary/20">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20">
-                        <Bot className="w-4 h-4 animate-pulse" />
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-semibold">AI is editing the blueprint</span>
-                        <span className="text-xs opacity-90">{humanizeBlueprintAction(aiEditing.action)}</span>
-                    </div>
-                </div>
-            )}
-            {/* Live mode hint */}
-            {activeTab === 'diagram' && viewMode === 'live' && (
-                <div className="px-3 py-1.5 border-b border-border/50 bg-muted/5 text-xs text-muted-foreground">
-                    <p>Architecture diagram: project structure, components, and data flow. Edit in chat or regenerate to sync with code.</p>
-                </div>
-            )}
-            {/* Staleness Warning Banner (with git-based Update vs Regenerate when available) */}
-            {staleness && (staleness.isStale || staleness.gitDecision?.action !== 'none') && activeTab === 'diagram' && (
-                <StalenessWarningBanner
-                    severity={staleness.severity === 'none' ? 'minor' : staleness.severity}
-                    reason={staleness.reason}
-                    onRefresh={handleRefreshDiagram}
-                    isRefreshing={isRefreshing}
-                    gitDecision={staleness.gitDecision}
-                />
+                </>
             )}
 
-            {activeTab === 'vault' && (
-                <div className="flex flex-col flex-1 min-h-0">
+            {activeTab === "vault" && (
+                <div className="flex min-h-0 flex-1 flex-col">
                     <VaultPanel appId={app?.id ?? null} />
                 </div>
             )}
-            {activeTab === 'diagram' && viewMode === 'blueprint' && (
-                <div className="flex flex-col flex-1 min-h-0">
-                    <div className="px-3 py-2 border-b border-border/50">
-                        <ReferenceProjectsCard workspaceId={app?.id ?? null} />
-                    </div>
-                    {loadingBlueprint ? (
-                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-6">
-                            <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
-                            <p className="text-sm">Loading blueprint…</p>
-                        </div>
-                    ) : (
-                        <BlueprintEditor
-                            blueprint={blueprint ?? createEmptyBlueprint()}
-                            onSave={(b) => {
-                                setBlueprint(b);
-                                if (app?.id) {
-                                    setSavingBlueprint(true);
-                                    IpcClient.getInstance()
-                                        .setBlueprint({ workspaceId: app.id, blueprint: b })
-                                        .then(() => toast.success("Blueprint saved"))
-                                        .catch((e) => toast.error(e?.message ?? "Failed to save blueprint"))
-                                        .finally(() => setSavingBlueprint(false));
-                                }
-                            }}
-                            isSaving={savingBlueprint}
-                            onOpenCreds={setActiveTab ? () => setActiveTab('vault') : undefined}
-                        />
-                    )}
-                </div>
-            )}
-            {activeTab === 'diagram' && viewMode === 'live' && diagram && (
-                <DiagramViewer
-                    diagram={diagram}
-                    compareMode={compareMode}
-                    setCompareMode={setCompareMode}
-                    hasCompareData={hasCompareData}
-                    workspaceId={app?.id ?? null}
-                    snapshots={snapshotEntries}
-                    showHistory={showHistory}
-                    setShowHistory={setShowHistory}
-                    onAfterRestore={async () => {
-                        const id = (diagram as any).id as number | undefined;
-                        await refreshDiagramsForWorkspace({ preferDiagramId: id });
-                        if (app?.id != null) {
-                            await refreshSnapshotTimeline(app.id);
-                        }
-                    }}
-                />
-            )}
-            {activeTab === 'logs' && <DiagramLogs />}
+            {activeTab === "logs" && <DiagramLogs />}
         </div>
     );
 }
@@ -685,7 +756,7 @@ function DiagramViewer({
                     <div className="flex flex-col items-center justify-center min-h-[300px] text-muted-foreground p-6">
                         <Layout className="w-12 h-12 mb-3 opacity-50" />
                         <p className="text-sm">No diagram content yet</p>
-                        <p className="text-xs mt-1">Generate or restore a diagram to see it here.</p>
+                        <p className="text-xs mt-1">Use get_diagram in chat or restore from history.</p>
                     </div>
                 ) : isMermaidLike(displayCode, diagram.type) ? (
                     <MermaidRenderer

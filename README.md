@@ -6,9 +6,33 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v8.0.3**
+**Current release:** **v8.1.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+
+---
+
+## v8.1.0 — Pass 6 (restore) + Pass 7 (trim)
+
+*May 2026*
+
+### Pass 6 — shipped in this tree
+
+- **Blueprint restored (lazy):** graph schema, IPC, `get_blueprint`, Blueprint canvas (click-to-load + 500-node cap), pivot stubs, BM25 helper, `search(..., structural)` integration.
+- **Unified `search`:** replaces `search_code` / `find_relevant_files` in core flows; manifests + mode smoke test updated.
+- **Streaming / UI:** throttled message updates, virtualized `MessagesList`, renderer message cap; right panel no longer auto-opens for diagrams/blueprint; `DevServerProvider` does not auto-start dev server or pin panels.
+- **Tool consolidation:** `get_diagram` variants merged; `check_environment`; `get_file_outline({include_stats})` replaces `analyze_context`; `run_tests({path,watch})` replaces `test_changes`; `git_status` includes session summary; `live_preview({port_only})` replaces `get_dev_server_port`; `get_project_history({revert_to})` replaces `revert_to_snapshot`; `request_tools` copy refreshed.
+- **Diagram UX:** `get_diagram` `role: main|reference` + reference chips in `DiagramPanel`; diagrams page uses chat-driven `get_diagram` instead of page-local AI generate.
+- **PDF:** `pdfjs` attachment extraction uses `GlobalWorkerOptions.workerSrc = ''` (main-thread) to avoid worker resolve failures.
+
+### Pass 7 highlights (still applicable where not superseded by Pass 6)
+
+- **Tool consolidation paths:** `edit_file` / `memory` / `diagnose_issue` / MCP on-demand patterns from Pass 7 remain where they do not conflict with Pass 6 tool names.
+- **Mode-aware tool surface:** `<mode_system>` + `modeAllowlist` smoke test.
+- **On-demand MCP:** `list_available_mcps` + `mcp_call`.
+- **Skills via ToolRegistry:** `get_active_skills` + `list_installed_skills`.
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 

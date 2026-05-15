@@ -1,5 +1,9 @@
 /**
- * v5.0 Section 2 — SQLite project memory (snapshots + key/value).
+ * SQLite project memory (snapshots + key/value).
+ *
+ * Pass 7: Blueprint subsystem removed — snapshots no longer carry
+ * blueprintJson. Plan markdown + Mermaid diagram + git commit hash + session
+ * summary remain.
  */
 
 import * as fs from "fs/promises";
@@ -8,7 +12,6 @@ import { db } from "@/db";
 import { apps, projectMemory, projectSnapshots, workspaceDiagrams } from "@/db/schema";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getAtlarixAppPath } from "@/paths/paths";
-import { loadUserBlueprint } from "@/lib/cache/blueprint-cache";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 const PLAN_FILE = ".atlarix/ATLARIX_PLAN.md";
 import log from "electron-log";
@@ -24,6 +27,7 @@ export type ProjectSnapshotTrigger =
 
 const MAX_SNAPSHOTS_PER_WORKSPACE = 100;
 const touchedWorkspaces = new Set<number>();
+// PASS6: Blueprint subsystem restored — debounce per workspace blueprint writes.
 const blueprintDebounce = new Map<number, ReturnType<typeof setTimeout>>();
 
 function markTouched(workspaceId: number): void {
@@ -52,18 +56,11 @@ async function latestDiagramMermaid(workspaceId: number): Promise<string | null>
 async function gatherPayload(
   workspaceId: number,
   workspacePath: string,
-  blueprintJsonOverride?: string,
 ): Promise<{
-  blueprintJson: string;
   planMd: string | null;
   diagramMermaid: string | null;
   gitCommitHash: string | null;
 }> {
-  let blueprintJson = blueprintJsonOverride ?? "";
-  if (!blueprintJson) {
-    const disk = await loadUserBlueprint(workspacePath);
-    blueprintJson = disk ? JSON.stringify(disk) : '{"rooms":[],"edges":[],"envRefs":[]}';
-  }
   const planMd = await readPlanMd(workspacePath);
   const diagramMermaid = await latestDiagramMermaid(workspaceId);
   let gitCommitHash: string | null = null;
@@ -72,7 +69,7 @@ async function gatherPayload(
   } catch {
     gitCommitHash = null;
   }
-  return { blueprintJson, planMd, diagramMermaid, gitCommitHash };
+  return { planMd, diagramMermaid, gitCommitHash };
 }
 
 async function pruneSnapshots(workspaceId: number): Promise<void> {
@@ -97,10 +94,13 @@ export async function insertProjectSnapshot(params: {
   const { workspaceId, workspacePath, trigger, sessionSummary, blueprintJson } = params;
   markTouched(workspaceId);
   try {
-    const payload = await gatherPayload(workspaceId, workspacePath, blueprintJson);
+    const payload = await gatherPayload(workspaceId, workspacePath);
     await db.insert(projectSnapshots).values({
       workspaceId,
-      blueprintJson: payload.blueprintJson,
+      // PASS6: Blueprint subsystem restored; column is required. Use the
+      // provided blueprintJson (blueprint_change snapshots) or an empty graph
+      // placeholder for other triggers when no Blueprint exists yet.
+      blueprintJson: blueprintJson ?? "{}",
       planMd: payload.planMd,
       diagramMermaid: payload.diagramMermaid,
       gitCommitHash: payload.gitCommitHash,
@@ -114,6 +114,9 @@ export async function insertProjectSnapshot(params: {
   }
 }
 
+/**
+ * PASS6: Debounced blueprint-change snapshot writer used by Blueprint IPC handlers.
+ */
 export function scheduleBlueprintChangeSnapshot(
   workspaceId: number,
   workspacePath: string,
@@ -204,13 +207,9 @@ export async function listProjectSnapshots(
 export async function getProjectSnapshotRow(
   snapshotId: number,
   workspaceId: number,
-): Promise<{
-  blueprintJson: string;
-  planMd: string | null;
-} | null> {
+): Promise<{ planMd: string | null } | null> {
   const [row] = await db
     .select({
-      blueprintJson: projectSnapshots.blueprintJson,
       planMd: projectSnapshots.planMd,
       workspaceId: projectSnapshots.workspaceId,
     })
@@ -218,7 +217,7 @@ export async function getProjectSnapshotRow(
     .where(and(eq(projectSnapshots.id, snapshotId), eq(projectSnapshots.workspaceId, workspaceId)))
     .limit(1);
   if (!row) return null;
-  return { blueprintJson: row.blueprintJson, planMd: row.planMd };
+  return { planMd: row.planMd };
 }
 
 export async function applyProjectSnapshotRevert(
@@ -229,9 +228,6 @@ export async function applyProjectSnapshotRevert(
   const row = await getProjectSnapshotRow(snapshotId, workspaceId);
   if (!row) return { success: false, error: "Snapshot not found for this workspace" };
   try {
-    const { setBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
-    const blueprint = JSON.parse(row.blueprintJson) as import("@/shared/blueprint-types").Blueprint;
-    await setBlueprintForWorkspace(workspaceId, blueprint);
     if (row.planMd != null) {
       await fs.mkdir(path.join(workspacePath, ".atlarix"), { recursive: true });
       await fs.writeFile(path.join(workspacePath, PLAN_FILE), row.planMd, "utf-8");

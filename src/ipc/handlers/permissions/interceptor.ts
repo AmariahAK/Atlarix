@@ -23,7 +23,6 @@ import {
     PermissionResult,
     FileOperationPreview,
     CommandOperationPreview,
-    WorkforceActionPreview,
     DiagramUpdatePreview,
     BatchPlanPreview,
     parsePermissionRequest,
@@ -45,12 +44,11 @@ import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
 import { runDiagramRegenerateBackground } from "../diagram_regenerate_background";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
-import * as TokenVault from "../../../lib/auth/TokenVaultService";
-import * as SlackApi from "../../../lib/workforce/slack-api";
 import {
     runHooksForTrigger,
     type HookTrigger,
 } from "../../../lib/hooks/hooks-manager";
+import { SubscriptionManager } from "../../../lib/SubscriptionManager";
 
 const logger = log.scope("permission-interceptor");
 
@@ -100,6 +98,9 @@ export class PermissionInterceptor extends EventEmitter {
 
     /** Map of operation ID to command execution results */
     private commandOutputs: Map<string, CommandResult> = new Map();
+
+    /** Per run_command operation: max UTF-8 bytes for formatted output (survives pendingOperations eviction). */
+    private commandOutputMaxBytes: Map<string, number> = new Map();
 
     /** Skip redundant full re-seeds when the model writes the same plan twice in quick succession. */
     private static planLedgerRefreshGuard = new Map<string, { hash: string; at: number }>();
@@ -655,10 +656,6 @@ export class PermissionInterceptor extends EventEmitter {
                 case "update_diagram":
                     await this.executeUpdateDiagram(request);
                     break;
-                // Workforce side-effect actions
-                case "workforce_action":
-                    await this.executeWorkforceAction(request);
-                    break;
                 // Parent-aggregated: execute each sub-operation in order (v2.2)
                 case "batch_plan":
                     await this.executeBatchPlan(operationId, request);
@@ -690,7 +687,7 @@ export class PermissionInterceptor extends EventEmitter {
 
             // ═══════════════════════════════════════════════════════════════
             // SESSION TRACKER: Record file changes for AI awareness (v0.9.16)
-            // This feeds the get_session_changes tool
+            // Session tracker feeds git_status session summary when workspaceId is passed
             // NOTE: Staleness emission happens in executeAllOperations (batch-aware)
             // ═══════════════════════════════════════════════════════════════
             if (this.workspaceId && preview?.path) {
@@ -733,10 +730,8 @@ export class PermissionInterceptor extends EventEmitter {
                     const { recordPlanUpdateSnapshot } = await import("@/lib/project-memory/service");
                     void recordPlanUpdateSnapshot(this.workspaceId, this.workspacePath);
                 }
-                if (sawIgnoreWrite) {
-                    const { invalidateBlueprintCache } = await import("../blueprint_handlers");
-                    invalidateBlueprintCache(this.workspaceId);
-                }
+                // Pass 7: Blueprint cache no longer exists; .atlarixignore writes don't need invalidation here.
+                void sawIgnoreWrite;
             }
 
             // Queue timeline capture for file operations
@@ -783,6 +778,32 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /**
+     * Pass 7: when the AI runs `git commit ...` in a Workforce workspace,
+     * append a structured suggestion to the result so the model can ask the
+     * user "would you also like a Blueprint snapshot?". No side-effect, no
+     * automation — the AI calls `commit_blueprint` only if the user agrees.
+     */
+    private maybeAttachBlueprintSuggestion(
+        command: string | undefined,
+        success: boolean,
+        base: Record<string, unknown>,
+    ): Record<string, unknown> {
+        if (!success) return base;
+        if (!command || !/git\s+commit/.test(command)) return base;
+        try {
+            if (SubscriptionManager.getEffectiveTier() !== "workforce") return base;
+        } catch {
+            return base;
+        }
+        return {
+            ...base,
+            blueprintSuggestion: true,
+            blueprintSuggestionMessage:
+                "Commit successful. You can also call `commit_blueprint` to save a `.atlarix/blueprint.json` snapshot so your team gets the current architecture state. Ask the user before running it.",
+        };
+    }
+
+    /**
      * Get the execution result for an operation (for returning to AI)
      * For run_command, includes formatted terminal output with smart truncation
      */
@@ -793,6 +814,8 @@ export class PermissionInterceptor extends EventEmitter {
         output?: string;
         exitCode?: number;
         duration?: number;
+        blueprintSuggestion?: boolean;
+        blueprintSuggestionMessage?: string;
     } {
         const operation = this.pendingOperations.get(operationId);
 
@@ -802,29 +825,50 @@ export class PermissionInterceptor extends EventEmitter {
         if (!operation) {
             const cmdResult = this.commandOutputs.get(operationId);
             if (cmdResult) {
+                const maxB = this.getMaxOutputBytesForCommand(operationId, null);
                 // Command was executed - return result with exitCode
-                return {
+                const base = {
                     success: cmdResult.success,
-                    output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                    output: this.formatCommandOutput(
+                        cmdResult.stdout,
+                        cmdResult.stderr,
+                        maxB,
+                    ),
                     exitCode: cmdResult.exitCode,
                     error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500) || 'Command failed',
                 };
+                // We do not have the command string here, so we cannot attach the
+                // Blueprint suggestion in this code path. The hot path (operation
+                // still in pendingOperations) handles git-commit detection below.
+                return base;
             }
             // Truly not found - this is a user rejection or timeout
             return { success: false, error: `Operation ${operationId} not found` };
         }
+
+        const maxOutBytes = this.getMaxOutputBytesForCommand(operationId, operation);
 
         if (operation.status === 'executed') {
             // Include command output for run_command operations
             if (operation.request.operation === 'run_command') {
                 const cmdResult = this.commandOutputs.get(operationId);
                 if (cmdResult) {
-                    return {
+                    const cmdPreview = operation.request.preview as { command?: string } | undefined;
+                    const base = {
                         success: cmdResult.success,
-                        output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                        output: this.formatCommandOutput(
+                            cmdResult.stdout,
+                            cmdResult.stderr,
+                            maxOutBytes,
+                        ),
                         exitCode: cmdResult.exitCode,
                         error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),
                     };
+                    return this.maybeAttachBlueprintSuggestion(
+                        cmdPreview?.command,
+                        cmdResult.success,
+                        base,
+                    ) as ReturnType<PermissionInterceptor['getExecutionResult']>;
                 }
             }
 
@@ -842,7 +886,11 @@ export class PermissionInterceptor extends EventEmitter {
             if (cmdResult) {
                 return {
                     success: false,
-                    output: this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr),
+                    output: this.formatCommandOutput(
+                        cmdResult.stdout,
+                        cmdResult.stderr,
+                        maxOutBytes,
+                    ),
                     exitCode: cmdResult.exitCode,
                     error: cmdResult.stderr.slice(0, 500) || 'Command failed',
                 };
@@ -853,94 +901,87 @@ export class PermissionInterceptor extends EventEmitter {
         return { success: false, error: `Operation status: ${operation.status}` };
     }
 
+    private getMaxOutputBytesForCommand(
+        operationId: string,
+        operation: BufferedOperation | null | undefined,
+    ): number {
+        const fromMap = this.commandOutputMaxBytes.get(operationId);
+        if (fromMap != null) return fromMap;
+        if (operation?.request?.operation === "run_command") {
+            const p = operation.request.preview as CommandOperationPreview;
+            const raw = (p as { max_output_bytes?: number }).max_output_bytes;
+            return Math.min(300_000, Math.max(1024, Number(raw) || 80_000));
+        }
+        return 80_000;
+    }
+
     /**
      * Format command output with smart truncation for AI context.
-     * Priority: Errors > Warnings > First 5 lines > Last 5 lines
+     * Priority: Errors > Warnings > First 5 lines > Last 5 lines; then UTF-8 byte cap.
      */
-    private formatCommandOutput(stdout: string, stderr: string): string {
-        const MAX_OUTPUT = 1500; // Conservative limit for context
-        const output = stdout || stderr;
-
-        if (!output) {
-            return '(no output)';
+    private formatCommandOutput(
+        stdout: string,
+        stderr: string,
+        maxOutputBytes: number,
+    ): string {
+        const hasOut = Boolean(stdout?.trim());
+        const hasErr = Boolean(stderr?.trim());
+        let combined: string;
+        if (hasOut && hasErr) {
+            combined = `=== STDOUT ===\n${stdout}\n\n=== STDERR ===\n${stderr}`;
+        } else {
+            combined = stdout || stderr || "";
         }
 
-        if (output.length <= MAX_OUTPUT) {
-            return output;
+        if (!combined.trim()) {
+            return "(no output)";
         }
 
-        // Extract key information with priority slicing
-        const lines = output.split('\n');
-        const errors = lines.filter(l =>
-            l.toLowerCase().includes('error') ||
-            l.toLowerCase().includes('failed') ||
-            l.includes('\u2717') || // ✗
-            l.includes('ERR!')
+        const utf8ByteLength = (s: string): number => Buffer.byteLength(s, "utf8");
+
+        const truncateUtf8 = (s: string, maxBytes: number): string => {
+            const buf = Buffer.from(s, "utf8");
+            if (buf.length <= maxBytes) return s;
+            const cut = buf.subarray(0, Math.max(0, maxBytes - 80));
+            return (
+                cut.toString("utf8") +
+                "\n\n… [truncated: output exceeded max_output_bytes; pass a higher max_output_bytes or a narrower command]"
+            );
+        };
+
+        if (utf8ByteLength(combined) <= maxOutputBytes) {
+            return combined;
+        }
+
+        const lines = combined.split("\n");
+        const errors = lines.filter(
+            (l) =>
+                l.toLowerCase().includes("error") ||
+                l.toLowerCase().includes("failed") ||
+                l.includes("\u2717") ||
+                l.includes("ERR!"),
         );
-        const warnings = lines.filter(l =>
-            l.toLowerCase().includes('warn') ||
-            l.includes('\u26a0') // ⚠
+        const warnings = lines.filter(
+            (l) => l.toLowerCase().includes("warn") || l.includes("\u26a0"),
         );
 
-        let summary = '';
+        let summary = "";
 
         if (errors.length > 0) {
-            summary += '=== ERRORS ===\n' + errors.slice(0, 10).join('\n') + '\n\n';
+            summary += "=== ERRORS ===\n" + errors.slice(0, 10).join("\n") + "\n\n";
         }
 
         if (warnings.length > 0) {
-            summary += '=== WARNINGS ===\n' + warnings.slice(0, 5).join('\n') + '\n\n';
+            summary += "=== WARNINGS ===\n" + warnings.slice(0, 5).join("\n") + "\n\n";
         }
 
-        summary += '=== FIRST 5 LINES ===\n' + lines.slice(0, 5).join('\n') + '\n\n';
-        summary += '=== LAST 5 LINES ===\n' + lines.slice(-5).join('\n');
+        summary +=
+            "=== FIRST 5 LINES ===\n" +
+            lines.slice(0, 5).join("\n") +
+            "\n\n";
+        summary += "=== LAST 5 LINES ===\n" + lines.slice(-5).join("\n");
 
-        return summary.slice(0, MAX_OUTPUT); // Hard cap
-    }
-
-    private async executeWorkforceAction(request: PermissionRequest): Promise<void> {
-        const preview = request.preview as WorkforceActionPreview;
-        const service = String(preview.service || "").toLowerCase();
-        const action = String(preview.action || "").toLowerCase();
-        const payload = preview.payload ?? {};
-
-        if (!service || !action) {
-            throw new Error("Invalid workforce action request");
-        }
-
-        if (action === "post_to_slack") {
-            const token = await TokenVault.getToken("slack", ["chat:write"]);
-            if (!token) throw new Error("Slack is not connected");
-            const channelId = String((payload as any).channelId ?? "");
-            const text = String((payload as any).text ?? "");
-            if (!channelId || !text) throw new Error("Slack action missing channelId/text");
-            const result = await SlackApi.postMessage(token, channelId, text);
-            if (!result.ok) throw new Error(result.error ?? "Failed to post to Slack");
-            return;
-        }
-
-        if (action === "update_ticket_status" || action === "create_ticket") {
-            if (service === "linear") {
-                const token = await TokenVault.getToken("linear", ["write"]);
-                if (!token) throw new Error("Linear is not connected");
-            } else {
-                const token = await TokenVault.getToken("jira", ["write:jira-work"]);
-                if (!token) throw new Error("Jira is not connected");
-            }
-            return;
-        }
-
-        if (action === "trigger_pipeline" || action === "cancel_pipeline") {
-            const provider = service;
-            if (provider === "gitlab") {
-                const token = await TokenVault.getToken("gitlab", ["read_api", "read_repository"]);
-                if (!token) throw new Error("GitLab is not connected");
-            } else if (provider === "bitbucket") {
-                const token = await TokenVault.getToken("bitbucket", ["pipeline:read", "repository:read"]);
-                if (!token) throw new Error("Bitbucket is not connected");
-            }
-            return;
-        }
+        return truncateUtf8(summary, maxOutputBytes);
     }
 
     /**
@@ -1403,6 +1444,11 @@ export class PermissionInterceptor extends EventEmitter {
      */
     private async executeRunCommand(operationId: string, request: PermissionRequest): Promise<void> {
         const preview = request.preview as CommandOperationPreview;
+        const maxOutputBytes = Math.min(
+            300_000,
+            Math.max(1024, Number((preview as { max_output_bytes?: number }).max_output_bytes) || 80_000),
+        );
+        this.commandOutputMaxBytes.set(operationId, maxOutputBytes);
         const workingDir = preview.workingDirectory
             ? path.isAbsolute(preview.workingDirectory)
                 ? preview.workingDirectory
@@ -1435,13 +1481,13 @@ export class PermissionInterceptor extends EventEmitter {
             logger.log(`[executeRunCommand] Stripped 'cd /workspace' prefix (shell already in workspace); running: ${commandToRun}`);
         }
 
-        // Detect dev server commands that run indefinitely
+        // Dev servers get 10 seconds to start; other commands use timeout_ms from preview (default 2 min).
         const isDevServerCommand = this.isDevServerCommand(commandToRun);
-
-        // Dev servers get 10 seconds to start; regular commands get 5 minutes
-        const timeoutMs = isDevServerCommand
-            ? 10 * 1000  // 10 seconds for dev servers
-            : ((preview as any).timeout || 5 * 60 * 1000);
+        const requestedTimeout = Math.min(
+            1_800_000,
+            Math.max(1000, Number((preview as { timeout_ms?: number }).timeout_ms) || 120_000),
+        );
+        const timeoutMs = isDevServerCommand ? 10 * 1000 : requestedTimeout;
         const startTime = Date.now();
 
         logger.log(`[executeRunCommand] Running: ${commandToRun} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);

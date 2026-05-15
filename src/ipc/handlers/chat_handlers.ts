@@ -16,6 +16,7 @@ import { UpdateChatParams } from "../ipc_types";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { clearAllSessionMemories } from "../../lib/session-memory";
 import { clearInMemoryTaskLedgers } from "../../lib/tasks/task-ledger";
+import { clearCompassContextWindow } from "../utils/token_utils";
 
 const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
@@ -154,6 +155,7 @@ export function registerChatHandlers() {
   });
 
   handle("delete-chat", async (_, chatId: number): Promise<void> => {
+    clearCompassContextWindow(chatId);
     await db.delete(chats).where(eq(chats.id, chatId));
   });
 

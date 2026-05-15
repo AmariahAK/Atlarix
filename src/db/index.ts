@@ -156,12 +156,7 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       try { fixMcpServersSchemaIfNeeded(sqlite); } catch (error) {
         logger.error("Error fixing mcp_servers schema (non-fatal):", error);
       }
-      try { ensureBlueprintsTableIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring blueprints table (non-fatal):", error);
-      }
-      try { ensurePivotTablesIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring PIVOT tables (non-fatal):", error);
-      }
+      // Pass 7: Blueprint + PIVOT table ensure-fns removed; migration 0043 drops the tables.
       try { ensureProjectMemoryTablesIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring project memory tables (non-fatal):", error);
       }
@@ -396,7 +391,10 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
   const columns = sqlite.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
   const hasScope = columns.some((c) => c.name === "scope");
   const hasAppId = columns.some((c) => c.name === "app_id");
-  if (hasScope && hasAppId) {
+  // Pass 7: from_registry / registry_id columns track marketplace installs.
+  const hasFromRegistry = columns.some((c) => c.name === "from_registry");
+  const hasRegistryId = columns.some((c) => c.name === "registry_id");
+  if (hasScope && hasAppId && hasFromRegistry && hasRegistryId) {
     return;
   }
   if (!hasScope) {
@@ -407,33 +405,23 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
     sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN app_id INTEGER");
     logger.log("[Schema Fix] mcp_servers: added app_id column");
   }
+  if (!hasFromRegistry) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN from_registry INTEGER NOT NULL DEFAULT 0");
+    logger.log("[Schema Fix] mcp_servers: added from_registry column");
+  }
+  if (!hasRegistryId) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN registry_id TEXT");
+    logger.log("[Schema Fix] mcp_servers: added registry_id column");
+  }
 }
 
-/**
- * Ensure blueprints table exists (Phase 7 Additive Blueprint).
- * Fixes "SqliteError: no such table: blueprints" when migration 0028 wasn't applied.
- */
-function ensureBlueprintsTableIfNeeded(sqlite: Database.Database): void {
-  const tableExists = sqlite.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'"
-  ).get();
-  if (tableExists) {
-    return;
-  }
-  logger.log("[Schema Fix] Creating blueprints table");
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS blueprints (
-      id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-      workspace_id integer NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-      content text NOT NULL,
-      updated_at integer DEFAULT (unixepoch()) NOT NULL
-    )
-  `);
-  sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS blueprints_workspace_unique ON blueprints (workspace_id)");
-}
+// Pass 7: ensureBlueprintsTableIfNeeded removed (Blueprint subsystem deleted).
 
 /**
  * v3.6: Ensure review_patterns table exists (lightning review memory).
+ *
+ * Pass 7: project_snapshots no longer carries `blueprint_json`; migration 0043
+ * drops that column. Newly-created tables omit it as well.
  */
 function ensureProjectMemoryTablesIfNeeded(sqlite: Database.Database): void {
   if (
@@ -447,7 +435,6 @@ function ensureProjectMemoryTablesIfNeeded(sqlite: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
       created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
-      blueprint_json TEXT NOT NULL,
       plan_md TEXT,
       diagram_mermaid TEXT,
       git_commit_hash TEXT,
@@ -490,93 +477,7 @@ function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
   sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
 }
 
-/**
- * Ensure PIVOT tables exist (Full PIVOT implementation).
- * Creates pivot_nodes, pivot_edges, pivot_containers, pivot_beacons, blueprint_snapshots if missing.
- */
-function ensurePivotTablesIfNeeded(sqlite: Database.Database): void {
-  const tables = [
-    "pivot_nodes",
-    "pivot_edges",
-    "pivot_containers",
-    "pivot_beacons",
-    "blueprint_snapshots",
-  ];
-  for (const table of tables) {
-    const exists = sqlite.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-    ).get(table);
-    if (exists) continue;
-    logger.log("[Schema Fix] Creating PIVOT table:", table);
-  }
-  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_nodes'").get()) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS pivot_nodes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-        external_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        label TEXT NOT NULL,
-        file_path TEXT NOT NULL,
-        range_start INTEGER,
-        range_end INTEGER,
-        metadata TEXT
-      )
-    `);
-    sqlite.exec("CREATE INDEX IF NOT EXISTS pivot_nodes_workspace_idx ON pivot_nodes (workspace_id)");
-    sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS pivot_nodes_workspace_external_unique ON pivot_nodes (workspace_id, external_id)");
-  }
-  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_edges'").get()) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS pivot_edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-        from_id TEXT NOT NULL,
-        to_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        metadata TEXT
-      )
-    `);
-    sqlite.exec("CREATE INDEX IF NOT EXISTS pivot_edges_workspace_idx ON pivot_edges (workspace_id)");
-  }
-  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_containers'").get()) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS pivot_containers (
-        id TEXT PRIMARY KEY NOT NULL,
-        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-        label TEXT NOT NULL,
-        intent TEXT,
-        position TEXT,
-        created_at INTEGER DEFAULT (unixepoch()) NOT NULL
-      )
-    `);
-  }
-  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pivot_beacons'").get()) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS pivot_beacons (
-        id TEXT PRIMARY KEY NOT NULL,
-        container_id TEXT NOT NULL REFERENCES pivot_containers(id) ON DELETE CASCADE,
-        label TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        description TEXT,
-        file_path TEXT,
-        position TEXT
-      )
-    `);
-  }
-  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='blueprint_snapshots'").get()) {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS blueprint_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-        workspace_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-        snapshot_at INTEGER DEFAULT (unixepoch()) NOT NULL,
-        blueprint_json TEXT NOT NULL,
-        source TEXT NOT NULL
-      )
-    `);
-    sqlite.exec("CREATE INDEX IF NOT EXISTS blueprint_snapshots_workspace_idx ON blueprint_snapshots (workspace_id)");
-  }
-}
+// Pass 7: ensurePivotTablesIfNeeded removed (PIVOT subsystem deleted; migration 0043 drops tables).
 
 /**
  * Whether the database has been initialized (safe to use from IPC handlers).

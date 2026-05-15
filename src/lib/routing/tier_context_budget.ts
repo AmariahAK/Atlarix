@@ -284,3 +284,139 @@ export async function enforceTierContextBudget(
     llmCompactionApplied,
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// MID-TURN AGENTIC-LOOP COMPACTION
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Extract the text portion of a ModelMessage's content for estimation/summary. */
+function modelMessageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const p = part as { type?: string; text?: string; output?: unknown; result?: unknown };
+        if (p.type === "text" && typeof p.text === "string") return p.text;
+        if (p.type === "tool-result") {
+          const v = p.output ?? p.result;
+          return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+export interface MidLoopCompactionParams {
+  /** Mutable list of agentic-loop messages (ModelMessage shape; we only require role + content). */
+  messages: ModelMessage[];
+  /** Estimated tokens used by the system prompt + any prefix messages we cannot trim here. */
+  systemPromptEstimate: number;
+  /** Effective per-dispatch limit (from `resolveModelContextLimit`). */
+  tierLimit: number;
+  /** Trigger compaction when `(systemPromptEstimate + history) >= threshold * tierLimit`. */
+  threshold?: number;
+  /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
+  protectExchanges?: number;
+  /** Optional session stats forwarded to the compaction model. */
+  sessionStats?: { toolCallCount?: number; delegationCount?: number };
+}
+
+export interface MidLoopCompactionResult {
+  messages: ModelMessage[];
+  compacted: boolean;
+  beforeTokens: number;
+  afterTokens: number;
+}
+
+/**
+ * In-loop compaction for the SMART AGENTIC TOOL LOOP. Estimates the token weight
+ * of `agenticMessages` plus the system prompt; if it crosses `threshold` of the
+ * model's tier limit, replaces older user+assistant turns with a single summary
+ * message produced by `summarizeMessagesWithCompactionPrompt`. The last
+ * `protectExchanges` user+assistant exchanges (= most recent tool result) are
+ * always preserved verbatim so the model can keep reasoning.
+ *
+ * If compaction is unnecessary or the summarizer call fails, the messages are
+ * returned unchanged (`compacted: false`).
+ */
+export async function compactAgenticMessagesIfNeeded(
+  params: MidLoopCompactionParams,
+): Promise<MidLoopCompactionResult> {
+  const threshold = params.threshold ?? 0.7;
+  const protect = params.protectExchanges ?? 3;
+
+  const tokensOf = (m: ModelMessage) => estimateTokens(modelMessageText(m.content));
+  const total = (msgs: ModelMessage[]) =>
+    msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
+
+  const beforeTokens = total(params.messages);
+  if (beforeTokens < threshold * params.tierLimit) {
+    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+  }
+
+  // Locate the protected suffix: walk back from the tail collecting `protect`
+  // assistant->user pairs of user+assistant exchanges (mirrors the
+  // `protectedEntryStartIndex` heuristic in this file).
+  const entries = nonSystemEntries(
+    params.messages.map((m) => ({ role: m.role, content: modelMessageText(m.content) })),
+  );
+  if (entries.length === 0) {
+    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+  }
+  let e = entries.length - 1;
+  let exchanges = 0;
+  while (exchanges < protect && e >= 0) {
+    if (entries[e].role === "assistant") {
+      e--;
+    }
+    if (e < 0) break;
+    if (entries[e].role === "user") {
+      exchanges++;
+      e--;
+    } else {
+      break;
+    }
+  }
+  const firstProtectedOriginalIndex =
+    e + 1 < entries.length ? entries[e + 1].i : params.messages.length;
+
+  const head = params.messages.slice(0, firstProtectedOriginalIndex);
+  const tail = params.messages.slice(firstProtectedOriginalIndex);
+  const headConversation = head.filter(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+
+  // Without anything to summarize, just return as-is.
+  if (headConversation.length === 0) {
+    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+  }
+
+  const summary = await summarizeMessagesWithCompactionPrompt({
+    messages: headConversation.map((m) => ({
+      role: m.role,
+      content: modelMessageText(m.content),
+    })),
+    sessionStats: params.sessionStats,
+  });
+  if (!summary) {
+    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+  }
+
+  const summaryMsg: ModelMessage = {
+    role: "user",
+    content: "[Earlier in-task conversation — compressed for context budget]\n" + summary,
+  };
+  const headSystem = head.filter((m) => m.role === "system");
+  const newMessages = [...headSystem, summaryMsg, ...tail];
+  const afterTokens = total(newMessages);
+  return {
+    messages: newMessages,
+    compacted: true,
+    beforeTokens,
+    afterTokens,
+  };
+}

@@ -40,7 +40,7 @@ or to provide a custom fetch implementation for e.g. testing.
   originalProviderId: string;
   /** Align gateway body extras with main chat: extended thinking only on the thinking context tier. */
   includeExtendedThinking?: boolean;
-  dyadOptions: {
+  atlarixEngineOptions: {
     enableLazyEdits?: boolean;
     enableSmartFilesContext?: boolean;
     enableWebSearch?: boolean;
@@ -70,7 +70,7 @@ export function createAtlarixEngine(
   options: ExampleProviderSettings,
 ): AtlarixEngineProvider {
   const baseURL = withoutTrailingSlash(options.baseURL);
-  logger.info("creating dyad engine with baseURL", baseURL);
+  logger.info("creating Atlarix engine proxy with baseURL", baseURL);
 
   // Track request ID attempts
   const requestIdAttempts = new Map<string, number>();
@@ -127,11 +127,11 @@ export function createAtlarixEngine(
               options.includeExtendedThinking === true,
             ),
           };
-          const dyadVersionedFiles = parsedBody.dyadVersionedFiles;
+          const versionedFilesPayload = parsedBody.dyadVersionedFiles;
           if ("dyadVersionedFiles" in parsedBody) {
             delete parsedBody.dyadVersionedFiles;
           }
-          const dyadFiles = parsedBody.dyadFiles;
+          const filesPayload = parsedBody.dyadFiles;
           if ("dyadFiles" in parsedBody) {
             delete parsedBody.dyadFiles;
           }
@@ -139,19 +139,19 @@ export function createAtlarixEngine(
           if ("dyadRequestId" in parsedBody) {
             delete parsedBody.dyadRequestId;
           }
-          const dyadAppId = parsedBody.dyadAppId;
+          const appIdPayload = parsedBody.dyadAppId;
           if ("dyadAppId" in parsedBody) {
             delete parsedBody.dyadAppId;
           }
-          const dyadDisableFiles = parsedBody.dyadDisableFiles;
+          const disableFilesPayload = parsedBody.dyadDisableFiles;
           if ("dyadDisableFiles" in parsedBody) {
             delete parsedBody.dyadDisableFiles;
           }
-          const dyadMentionedApps = parsedBody.dyadMentionedApps;
+          const mentionedAppsPayload = parsedBody.dyadMentionedApps;
           if ("dyadMentionedApps" in parsedBody) {
             delete parsedBody.dyadMentionedApps;
           }
-          const dyadSmartContextMode = parsedBody.dyadSmartContextMode;
+          const smartContextModePayload = parsedBody.dyadSmartContextMode;
           if ("dyadSmartContextMode" in parsedBody) {
             delete parsedBody.dyadSmartContextMode;
           }
@@ -165,19 +165,19 @@ export function createAtlarixEngine(
           }
 
           // Add files to the request if they exist
-          if (!dyadDisableFiles) {
+          if (!disableFilesPayload) {
             parsedBody.dyad_options = {
-              files: dyadFiles,
-              versioned_files: dyadVersionedFiles,
-              enable_lazy_edits: options.dyadOptions.enableLazyEdits,
+              files: filesPayload,
+              versioned_files: versionedFilesPayload,
+              enable_lazy_edits: options.atlarixEngineOptions.enableLazyEdits,
               enable_smart_files_context:
-                options.dyadOptions.enableSmartFilesContext,
-              smart_context_mode: dyadSmartContextMode,
-              enable_web_search: options.dyadOptions.enableWebSearch,
-              app_id: dyadAppId,
+                options.atlarixEngineOptions.enableSmartFilesContext,
+              smart_context_mode: smartContextModePayload,
+              enable_web_search: options.atlarixEngineOptions.enableWebSearch,
+              app_id: appIdPayload,
             };
-            if (dyadMentionedApps?.length) {
-              parsedBody.dyad_options.mentioned_apps = dyadMentionedApps;
+            if (mentionedAppsPayload?.length) {
+              parsedBody.dyad_options.mentioned_apps = mentionedAppsPayload;
             }
           }
 

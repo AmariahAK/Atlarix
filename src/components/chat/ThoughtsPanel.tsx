@@ -52,9 +52,11 @@ type ThoughtBubble = {
   counselParticipantCount?: number;
 };
  
-const AGENT_ORDER = ["research", "architect", "builder", "debugger", "reviewer"] as const;
+const AGENT_ORDER = ["explore", "scout", "research", "architect", "builder", "debugger", "reviewer"] as const;
 const AGENT_COLORS: Record<string, string> = {
   main: "#10b981",
+  explore: "#94a3b8",
+  scout: "#06b6d4",
   research: "#38bdf8",
   architect: "#a78bfa",
   builder: "#f59e0b",
@@ -299,6 +301,21 @@ function bubbleTextFor(item: ActivityStreamItem): string {
       const head = item.label?.trim() || "Task stopped — repeated action";
       const tail = item.detail?.trim();
       return tail ? `${head}\n${tail}` : head;
+    }
+    case "stream_stall_aborted": {
+      const head = item.label?.trim() || "Stream paused — provider stopped responding";
+      const tail = item.detail?.trim();
+      return tail ? `${head}\n${tail}` : head;
+    }
+    case "tier_selection": {
+      const head = item.label?.trim() || "Tier selected";
+      const tail = item.detail?.trim();
+      return tail ? `${head} — ${tail}` : head;
+    }
+    case "tier_escalation": {
+      const head = item.label?.trim() || "Tier escalated";
+      const tail = item.detail?.trim();
+      return tail ? `${head} — ${tail}` : head;
     }
     case "reasoning_started":
       return item.label?.trim() || "Thinking deeply...";

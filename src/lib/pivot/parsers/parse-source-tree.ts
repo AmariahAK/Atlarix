@@ -1,24 +1,12 @@
 /**
- * Build a tree-sitter Tree for a source file (no incremental cache — used by RTE per file).
+ * PASS6: tree-sitter dependency was removed in Pass 7 and not reinstalled.
+ * This file is a no-op stub. The Blueprint regex parsers in
+ * `src/lib/blueprint/rte/parsers/{typescript,python}.ts` handle the fallback
+ * path when `parseSourceToTree` returns null.
  */
 
-import Parser from "tree-sitter";
-import { getLanguageForGrammar, grammarKeyFromFilePath } from "./grammar-loader";
+import type { TreeStub as Tree } from "./tree-sitter-parser";
 
-export function parseSourceToTree(content: string, filePath: string): Parser.Tree | null {
-  const gk = grammarKeyFromFilePath(filePath);
-  if (!gk) return null;
-  const lang = getLanguageForGrammar(gk);
-  if (!lang) return null;
-  const parser = new Parser();
-  try {
-    parser.setLanguage(lang as unknown as Parameters<Parser["setLanguage"]>[0]);
-  } catch {
-    return null;
-  }
-  try {
-    return parser.parse(content);
-  } catch {
-    return null;
-  }
+export function parseSourceToTree(_content: string, _filePath: string): Tree | null {
+  return null;
 }

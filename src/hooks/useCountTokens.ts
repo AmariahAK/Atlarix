@@ -60,3 +60,16 @@ export function useCountTokens(chatId: number | null, input: string = "") {
     invalidateTokenCount,
   };
 }
+
+/**
+ * PASS8 E3: Context-only token-count helper.
+ * Callers that do not need the live composer input (`MessagesList`,
+ * `ChatInputControls`, `useStreamChat`) should use this hook so they all
+ * share the same React-Query cache key `["tokenCount", chatId, ""]`. TanStack
+ * Query already dedupes identical keys, so a single IPC call serves every
+ * subscriber — this wrapper exists to make that intent explicit and to keep
+ * a single chokepoint if the dedup strategy needs to change.
+ */
+export function useContextTokenCount(chatId: number | null) {
+  return useCountTokens(chatId, "");
+}

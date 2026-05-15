@@ -118,7 +118,7 @@ export function registerPortalHandlers() {
 
         const commitHash = await gitCommit({
           path: appPath,
-          message: "[dyad] Generate database migration file",
+          message: "[atlarix] Generate database migration file",
           coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
 

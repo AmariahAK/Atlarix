@@ -275,7 +275,7 @@ function listenToProcess({
           onStarted: (proxyUrl) => {
             safeSend(event.sender, "app:output", {
               type: "stdout",
-              message: `[dyad-proxy-server]started=[${proxyUrl}] original=[${urlMatch[1]}]`,
+              message: `[atlarix-preview-proxy]started=[${proxyUrl}] original=[${urlMatch[1]}]`,
               appId,
             });
           },
@@ -374,9 +374,16 @@ async function executeAppInDocker({
     );
   }
 
-  // Create a Dockerfile in the app directory if it doesn't exist
-  const dockerfilePath = path.join(appPath, "Dockerfile.dyad");
-  if (!fs.existsSync(dockerfilePath)) {
+  // Prefer Dockerfile.atlarix; fall back to legacy Dockerfile.dyad for existing workspaces.
+  const dockerfileAtlarix = path.join(appPath, "Dockerfile.atlarix");
+  const dockerfileLegacy = path.join(appPath, "Dockerfile.dyad");
+  let dockerfileName: "Dockerfile.atlarix" | "Dockerfile.dyad";
+  if (fs.existsSync(dockerfileAtlarix)) {
+    dockerfileName = "Dockerfile.atlarix";
+  } else if (fs.existsSync(dockerfileLegacy)) {
+    dockerfileName = "Dockerfile.dyad";
+  } else {
+    dockerfileName = "Dockerfile.atlarix";
     const dockerfileContent = `FROM node:22-alpine
 
 # Install pnpm
@@ -384,7 +391,7 @@ RUN npm install -g pnpm
 `;
 
     try {
-      await fsPromises.writeFile(dockerfilePath, dockerfileContent, "utf-8");
+      await fsPromises.writeFile(dockerfileAtlarix, dockerfileContent, "utf-8");
     } catch (error) {
       logger.error(`Failed to create Dockerfile for app ${appId}:`, error);
       throw new Error(`Failed to create Dockerfile: ${error}`);
@@ -394,7 +401,7 @@ RUN npm install -g pnpm
   // Build the Docker image
   const buildProcess = spawn(
     "docker",
-    ["build", "-f", "Dockerfile.dyad", "-t", `atlarix-app-${appId}`, "."],
+    ["build", "-f", dockerfileName, "-t", `atlarix-app-${appId}`, "."],
     {
       cwd: appPath,
       stdio: "pipe",
@@ -433,7 +440,7 @@ RUN npm install -g pnpm
       "-v",
       `${appPath}:/app`,
       "-v",
-      `dyad-pnpm-${appId}:/app/.pnpm-store`,
+      `atlarix-pnpm-${appId}:/app/.pnpm-store`,
       "-e",
       "PNPM_STORE_PATH=/app/.pnpm-store",
       "-w",
@@ -558,7 +565,7 @@ async function stopDockerContainersOnPort(port: number): Promise<void> {
 }
 
 export function registerAppHandlers() {
-  handle("restart-dyad", async () => {
+  handle("restart-atlarix", async () => {
     app.relaunch();
     app.quit();
   });
@@ -992,12 +999,12 @@ export function registerAppHandlers() {
             // If running in Docker mode, also remove container volumes so deps reinstall freshly
             if (runtimeMode === "docker") {
               logger.log(
-                `Docker mode detected for app ${appId}. Removing Docker volumes dyad-pnpm-${appId}...`,
+                `Docker mode detected for app ${appId}. Removing Docker pnpm volumes (atlarix + legacy dyad names if present)...`,
               );
               try {
                 await removeDockerVolumesForApp(appId);
                 logger.log(
-                  `Removed Docker volumes for app ${appId} (dyad-pnpm-${appId}).`,
+                  `Removed Docker pnpm volumes for app ${appId} (atlarix-pnpm-${appId} / legacy dyad-pnpm-*).`,
                 );
               } catch (e) {
                 // Best-effort cleanup; log and continue
@@ -1472,11 +1479,11 @@ export function registerAppHandlers() {
     // Doing this last because it's the most time-consuming and the least important
     // in terms of resetting the app state.
     logger.log("removing all app files...");
-    const dyadAppPath = getAtlarixAppPath(".");
-    if (fs.existsSync(dyadAppPath)) {
-      await fsPromises.rm(dyadAppPath, { recursive: true, force: true });
+    const workspaceAppsPath = getAtlarixAppPath(".");
+    if (fs.existsSync(workspaceAppsPath)) {
+      await fsPromises.rm(workspaceAppsPath, { recursive: true, force: true });
       // Recreate the base directory
-      await fsPromises.mkdir(dyadAppPath, { recursive: true });
+      await fsPromises.mkdir(workspaceAppsPath, { recursive: true });
     }
     logger.log("all app files removed.");
     logger.log("reset all complete.");
@@ -1498,6 +1505,15 @@ export function registerAppHandlers() {
         version: app.getVersion(),
         isPackaged: app.isPackaged,
       };
+    },
+  );
+
+  ipcMain.handle(
+    "perf:tool-snapshot",
+    async (): Promise<{ name: string; ms: number; at: number }[]> => {
+      if (app.isPackaged) return [];
+      const { getToolPerfSnapshot } = await import("../../lib/perf/tool-perf");
+      return getToolPerfSnapshot();
     },
   );
 

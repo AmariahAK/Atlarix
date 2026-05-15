@@ -33,12 +33,9 @@ import {
   Code2,
   ChevronDown,
   ChevronRight,
-  List,
-  GitBranch,
   RefreshCw,
   Layers,
   Settings2,
-  Maximize2,
   X,
   Sparkles,
   Shield,
@@ -49,15 +46,8 @@ import {
 } from "lucide-react";
 import { GenerateBlueprintsModal } from "@/components/preview_panel/GenerateBlueprintsModal";
 import { BlueprintFunctionListItem } from "@/components/preview_panel/BlueprintFunctionListItem";
-import { BlueprintRoomFlowView } from "@/components/preview_panel/BlueprintRoomFlowView";
 import { FUNCTION_KIND_CONFIG } from "@/lib/blueprint/function-kind-config";
 import type { BlueprintRoomFlowEdge } from "@/shared/blueprint-types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { BlueprintTree } from "@/components/preview_panel/BlueprintTree";
 import { PivotAnalysisPanel } from "@/components/preview_panel/PivotAnalysisPanel";
 import { LiveVsBlueprintCompare } from "@/components/preview_panel/LiveVsBlueprintCompare";
@@ -268,8 +258,6 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
   /** When set, bottom panel shows beacon view (Edit Internals) for this room; when null, show Summary Card or hint */
   const [beaconViewForRoomId, setBeaconViewForRoomId] = useState<string | null>(null);
   const [selectedFunctionId, setSelectedFunctionId] = useState<string | null>(null);
-  const [roomDetailViewMode, setRoomDetailViewMode] = useState<Record<string, "list" | "flow">>({});
-  const [flowExpandRoomId, setFlowExpandRoomId] = useState<string | null>(null);
   const selectedRoomRef = useRef<HTMLDivElement | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isClustering, setIsClustering] = useState(false);
@@ -693,69 +681,6 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
           onOpenChange={setComparePanelOpen}
           currentBlueprint={local}
         />
-        <Dialog open={flowExpandRoomId != null} onOpenChange={(open) => !open && setFlowExpandRoomId(null)}>
-          <DialogContent className="max-w-[95vw] min-w-[85vw] w-full max-h-[85vh] flex flex-col gap-2" showCloseButton>
-            <DialogHeader>
-              <DialogTitle>
-                {flowExpandRoomId ? local.rooms.find((r) => r.id === flowExpandRoomId)?.label ?? "Flow" : "Flow"}
-              </DialogTitle>
-            </DialogHeader>
-            {flowExpandRoomId && (() => {
-              const room = local.rooms.find((r) => r.id === flowExpandRoomId);
-              if (!room) return null;
-              const selectedInThisRoom = selectedFunctionId && (room.functions ?? []).some((f) => f.id === selectedFunctionId);
-              return (
-                <div className="flex gap-3 flex-1 min-h-[70vh] min-w-0">
-                  <div className="flex-1 min-w-0 rounded-lg overflow-hidden border border-border bg-muted/10">
-                    <BlueprintRoomFlowView
-                      room={room}
-                      onFlowEdgesChange={handleFlowEdgesChange}
-                      onSelectFunction={setSelectedFunctionId}
-                      className="h-[70vh] w-full"
-                    />
-                  </div>
-                  {selectedInThisRoom && selectedFunctionId && (() => {
-                    const fn = (room.functions ?? []).find((f) => f.id === selectedFunctionId);
-                    if (!fn) return null;
-                    return (
-                      <div className="w-72 shrink-0 flex flex-col rounded-lg border border-border bg-card overflow-hidden">
-                        <div className="flex items-center justify-between px-2 py-1.5 border-b border-border bg-muted/30">
-                          <span className="text-xs font-medium text-foreground">Edit beacon</span>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedFunctionId(null)}
-                            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                            title="Close"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="flex-1 overflow-auto p-2 min-h-0">
-                          <BlueprintFunctionListItem
-                            fn={fn}
-                            roomId={room.id}
-                            workspaceId={app?.id ?? null}
-                            onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
-                            onRemove={(fnId) => {
-                              removeFunction(room.id, fnId);
-                              setSelectedFunctionId(null);
-                            }}
-                            onOpenCreds={onOpenCreds}
-                            defaultExpanded={true}
-                            subBeacons={(room.functions ?? []).filter((f) => f.parentId === fn.id)}
-                            flowEdges={room.flowEdges ?? []}
-                            onFlowEdgesChange={(edges) => handleFlowEdgesChange(room.id, edges)}
-                            otherFunctions={room.functions ?? []}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })()}
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* .atlarixignore — gitignore-style excludes for Blueprint / RTE */}
@@ -948,114 +873,27 @@ export function BlueprintEditor({ blueprint, onSave, onOpenCreds }: BlueprintEdi
                       </div>
                       {room.functions.length > 0 && (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "list" }))}
-                              className={cn(
-                                "flex items-center gap-1 rounded px-1.5 py-0.5",
-                                roomDetailViewMode[room.id] !== "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
-                              )}
-                              title="List view"
-                            >
-                              <List className="w-3.5 h-3.5" />
-                              List
-                            </button>
-                            <span className="text-border">|</span>
-                            <button
-                              type="button"
-                              onClick={() => setRoomDetailViewMode((m) => ({ ...m, [room.id]: "flow" }))}
-                              className={cn(
-                                "flex items-center gap-1 rounded px-1.5 py-0.5",
-                                roomDetailViewMode[room.id] === "flow" ? "bg-muted text-foreground" : "opacity-70 hover:opacity-100"
-                              )}
-                              title="Flow view: connect functions"
-                            >
-                              <GitBranch className="w-3.5 h-3.5" />
-                              Flow
-                            </button>
-                            {roomDetailViewMode[room.id] === "flow" && (
-                              <button
-                                type="button"
-                                onClick={() => setFlowExpandRoomId(room.id)}
-                                className="flex items-center gap-1 rounded px-1.5 py-0.5 opacity-70 hover:opacity-100"
-                                title="Expand flow in full view"
-                              >
-                                <Maximize2 className="w-3.5 h-3.5" />
-                                Expand
-                              </button>
-                            )}
-                          </div>
-                          {roomDetailViewMode[room.id] === "flow" ? (
-                            <div className="flex gap-3 min-h-0">
-                              <div className="flex-1 min-w-0 rounded-lg overflow-hidden border border-border bg-muted/10">
-                                <BlueprintRoomFlowView
-                                  room={room}
-                                  onFlowEdgesChange={handleFlowEdgesChange}
-                                  onSelectFunction={setSelectedFunctionId}
-                                />
-                              </div>
-                              {selectedFunctionId && (() => {
-                                const fn = (room.functions ?? []).find((f) => f.id === selectedFunctionId);
-                                if (!fn) return null;
-                                return (
-                                  <div className="w-72 shrink-0 flex flex-col rounded-lg border border-border bg-card overflow-hidden">
-                                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-border bg-muted/30">
-                                      <span className="text-xs font-medium text-foreground">Edit beacon</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedFunctionId(null)}
-                                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                                        title="Close"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                    <div className="flex-1 overflow-auto p-2">
-                                      <BlueprintFunctionListItem
-                                        fn={fn}
-                                        roomId={room.id}
-                                        workspaceId={app?.id ?? null}
-                                        onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
-                                        onRemove={(fnId) => {
-                                          removeFunction(room.id, fnId);
-                                          setSelectedFunctionId(null);
-                                        }}
-                                        onOpenCreds={onOpenCreds}
-                                        defaultExpanded={true}
-                                        subBeacons={(room.functions ?? []).filter((f) => f.parentId === fn.id)}
-                                        flowEdges={room.flowEdges ?? []}
-                                        onFlowEdgesChange={(edges) => handleFlowEdgesChange(room.id, edges)}
-                                        otherFunctions={room.functions ?? []}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <ul className="space-y-2 list-none pl-0">
-                              {(room.functions ?? [])
-                                .filter((f) => !f.parentId)
-                                .map((fn) => (
-                                  <li key={fn.id}>
-                                    <BlueprintFunctionListItem
-                                      fn={fn}
-                                      roomId={room.id}
-                                      workspaceId={app?.id ?? null}
-                                      onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
-                                      onRemove={(fnId) => removeFunction(room.id, fnId)}
-                                      onOpenCreds={onOpenCreds}
-                                      defaultExpanded={selectedFunctionId === fn.id}
-                                      subBeacons={(room.functions ?? []).filter((f) => f.parentId === fn.id)}
-                                      flowEdges={room.flowEdges ?? []}
-                                      onFlowEdgesChange={(edges) => handleFlowEdgesChange(room.id, edges)}
-                                      otherFunctions={room.functions ?? []}
-                                    />
-                                  </li>
-                                ))}
-                            </ul>
-                          )}
+                          <ul className="space-y-2 list-none pl-0">
+                            {(room.functions ?? [])
+                              .filter((f) => !f.parentId)
+                              .map((fn) => (
+                                <li key={fn.id}>
+                                  <BlueprintFunctionListItem
+                                    fn={fn}
+                                    roomId={room.id}
+                                    workspaceId={app?.id ?? null}
+                                    onUpdate={(fnId, updates) => updateFunction(room.id, fnId, updates)}
+                                    onRemove={(fnId) => removeFunction(room.id, fnId)}
+                                    onOpenCreds={onOpenCreds}
+                                    defaultExpanded={selectedFunctionId === fn.id}
+                                    subBeacons={(room.functions ?? []).filter((f) => f.parentId === fn.id)}
+                                    flowEdges={room.flowEdges ?? []}
+                                    onFlowEdgesChange={(edges) => handleFlowEdgesChange(room.id, edges)}
+                                    otherFunctions={room.functions ?? []}
+                                  />
+                                </li>
+                              ))}
+                          </ul>
                         </div>
                       )}
                     </div>

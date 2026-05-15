@@ -802,7 +802,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                       <span className="max-w-50 truncate font-medium">
                         {
                           messageVersion.message
-                            .replace(/^\[dyad\]\s*/i, "")
+                            .replace(/^\[(?:atlarix|dyad)\]\s*/i, "")
                             .split("\n")[0]
                         }
                       </span>

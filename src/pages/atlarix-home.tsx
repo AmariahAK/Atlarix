@@ -364,7 +364,7 @@ export default function AtlarixHome() {
                         className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                     >
                         <span>
-                            <strong>No long-lived chat history.</strong> Continuity comes from your Blueprint and project files under{" "}
+                            <strong>No long-lived chat history.</strong> Continuity comes from your project memory and files under{" "}
                             <code className="text-xs bg-muted px-1 rounded">.atlarix</code> (including your plan file).
                         </span>
                         <div className="flex items-center gap-2 shrink-0">

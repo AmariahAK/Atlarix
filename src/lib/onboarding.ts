@@ -37,7 +37,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "welcome",
     title: "Welcome to Atlarix",
-    body: "Your private sovereign AI IDE — Blueprint memory, work modes, and Compass built in.",
+    body: "Your private sovereign AI IDE — project memory, work modes, and Compass built in.",
     target: null as string | null,
   },
   {
@@ -56,7 +56,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "chat-continuity",
     title: "How chat memory works",
-    body: "There is no long-lived chat history. Use Blueprint and your .atlarix folder (including ATLARIX_PLAN.md) so context carries across sessions.",
+    body: "There is no long-lived chat history. Use your .atlarix folder (project memory, snapshots, ATLARIX_PLAN.md) so context carries across sessions.",
     target: "[data-onboarding=chat-continuity]",
   },
   {
@@ -68,7 +68,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "done",
     title: "You're set",
-    body: "Explore workspaces, Blueprint, and work modes (Ask, Plan, Build, Debug, Review). On Workforce, connect Token Vault services in Settings; the app will ask for per-chat scope when using integration tools.",
+    body: "Explore workspaces, diagrams, and work modes (Ask, Plan, Build, Debug, Review). On Workforce, connect Token Vault services in Settings; the app will ask for per-chat scope when using integration tools.",
     target: null,
   },
 ] as const;

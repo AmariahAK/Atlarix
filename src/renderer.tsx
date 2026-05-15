@@ -16,6 +16,7 @@ import { showError, showMcpConsentToast } from "./lib/toast";
 import { IpcClient } from "./ipc/ipc_client";
 import { DevServerProvider } from "./components/DevServerProvider";
 import { AppLoadingScreen } from "./components/AppLoadingScreen";
+import { PerfDevOverlayHost } from "./components/dev/PerfDevOverlay";
 import { useDbReady } from "./hooks/useDbReady";
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
@@ -202,7 +203,12 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  return <RouterProvider router={router} />;
+  return (
+    <>
+      <RouterProvider router={router} />
+      <PerfDevOverlayHost />
+    </>
+  );
 }
 
 const SentryFallback = () => (

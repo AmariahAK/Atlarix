@@ -1,5 +1,5 @@
 /**
- * Query telemetry spans from SQLite for Blueprint runtime overlay.
+ * Query telemetry spans from SQLite for runtime overlay / hot-path analysis.
  * Call frequency, latency, call graph, and hot paths.
  */
 

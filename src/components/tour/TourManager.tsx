@@ -85,12 +85,12 @@ export function TourManager() {
       {
         id: "welcome",
         title: "Welcome",
-        text: "Quick tour: Blueprint, Ask vs Build, models, and the right panel.",
+        text: "Quick tour: Diagram, Ask vs Build, models, and the right panel.",
       },
       {
-        id: "blueprint",
-        title: "Blueprint",
-        text: "Open **Diagram** in the sidebar for the Blueprint canvas (architecture, containers, beacons).",
+        id: "diagram",
+        title: "Diagram",
+        text: "Open **Diagram** in the sidebar for the live Mermaid architecture view.",
         attach: '[data-tour="tour-blueprint-canvas"]',
         on: "bottom",
       },
@@ -176,8 +176,8 @@ export function TourManager() {
         string,
         Array<{ title: string; text: string; attach?: string; on?: "top" | "bottom" | "left" | "right" }>
       > = {
-        blueprint: [
-          { title: "Blueprint", text: "The Diagram page is your Blueprint canvas — open it from the sidebar.", attach: '[data-tour="tour-blueprint-canvas"]', on: "bottom" },
+        diagram: [
+          { title: "Diagram", text: "The Diagram page renders a Mermaid view of your code — open it from the sidebar.", attach: '[data-tour="tour-blueprint-canvas"]', on: "bottom" },
           { title: "Live diagram", text: "Refresh and refine your architecture as code changes.", attach: '[data-tour="tour-blueprint-canvas"]', on: "bottom" },
         ],
         agents: [
@@ -188,9 +188,6 @@ export function TourManager() {
         ],
         db: [
           { title: "DB connections", text: "Add PostgreSQL, MySQL, or SQLite — the AI uses read tools and approvals for writes.", attach: '[data-tour="tour-db"]', on: "bottom" },
-        ],
-        tokenVault: [
-          { title: "Token Vault", text: "Workforce: connect Slack, Jira, Linear, CI, and more via secure Token Vault — no secrets in chat.", attach: '[data-tour="tour-token-vault"]', on: "bottom" },
         ],
       };
 

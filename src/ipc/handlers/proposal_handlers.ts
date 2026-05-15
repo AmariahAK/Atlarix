@@ -100,9 +100,12 @@ async function getCodebaseTokenCount(
   // - Daily logs: ~200 tokens
   // Total: ~3-4K tokens
 
-  const DIAGRAM_CONTEXT_TOKENS = 3500; // Estimated diagram-first context size
+  // PASS8 I: Diagram generation is model-driven only — no auto-injection on
+  // workspace open. Match `token_count_handlers.ts` which already reports 0,
+  // so the budget the UI sees and what the stream actually sends are in sync.
+  const DIAGRAM_CONTEXT_TOKENS = 0;
 
-  logger.log(`Using diagram-first context estimation for chatId: ${chatId}: ~${DIAGRAM_CONTEXT_TOKENS} tokens`);
+  logger.log(`Using diagram-first context estimation for chatId: ${chatId}: ~${DIAGRAM_CONTEXT_TOKENS} tokens (model-driven only)`);
 
   // Store in cache
   codebaseTokenCache.set(chatId, {

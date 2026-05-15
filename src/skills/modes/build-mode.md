@@ -19,9 +19,13 @@ All tools are available in Build mode.
 
 - Use Architect for complex planning decisions
 - Use Debugger when you hit errors you cannot fix
-- Use Researcher when you need external context
+- Use **Explore** for read-only repo mapping; **Scout** for dependency + external doc traces; **Research** for broader web/docs
 - Use Reviewer when a task is complete
 
 ## Completion
 
 When all tasks in the ledger are done, produce a clear summary of what changed.
+
+## IDE / LSP
+
+After **edit_file** or **write_file**, call **`lsp_diagnostics`** on the touched paths when a language server is available — do not claim the change is clean while diagnostics still report errors you could have seen.

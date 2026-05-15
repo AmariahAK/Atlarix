@@ -28,14 +28,16 @@ testSkipIfWindows(
 
     // Wait for the LLM response containing the dump path to appear in the UI
     // before attempting to extract it from the messages list
-    await po.page.waitForSelector("text=/\\[\\[dyad-dump-path=.*\\]\\]/");
+    await po.page.waitForSelector(
+      "text=/\\[\\[(?:dyad|atlarix)-dump-path=.*\\]\\]/",
+    );
 
     // Get the dump file path from the messages list
     const messagesListText = await po.page
       .getByTestId("messages-list")
       .textContent();
     const dumpPathMatch = messagesListText?.match(
-      /\[\[dyad-dump-path=([^\]]+)\]\]/,
+      /\[\[(?:dyad|atlarix)-dump-path=([^\]]+)\]\]/,
     );
 
     if (!dumpPathMatch) {

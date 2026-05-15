@@ -32,6 +32,7 @@ import {
   forceDeepThinkNextAtom,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
+  streamReconnectByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { useAtom, useSetAtom, useAtomValue, getDefaultStore } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -87,6 +88,8 @@ import { UserQuestionBar } from "./UserQuestionBar";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
 import { ToolIndicator } from "./ToolIndicator";
 import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
+import { CompactionProgressStrip } from "./CompactionProgressStrip";
+import { StreamReconnectBanner } from "./StreamReconnectBanner";
 import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEditingChangesDialog";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { useCompassSendGate } from "@/hooks/useCompassSendGate";
@@ -173,6 +176,18 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const currentChatId = activeChatId ?? chatId ?? selectedChatId;
+  const setStreamReconnectMap = useSetAtom(streamReconnectByChatIdAtom);
+  // FIX 4: dismiss the reconnect banner the moment the user starts typing —
+  // they've chosen to move on from the interrupted turn.
+  useEffect(() => {
+    if (!inputValue || currentChatId == null) return;
+    setStreamReconnectMap((prev) => {
+      if (!prev.has(currentChatId)) return prev;
+      const next = new Map(prev);
+      next.delete(currentChatId);
+      return next;
+    });
+  }, [inputValue, currentChatId, setStreamReconnectMap]);
   const [showError, setShowError] = useState(true);
   const [isApproving, setIsApproving] = useState(false); // State for approving
   const [isRejecting, setIsRejecting] = useState(false); // State for rejecting
@@ -455,6 +470,8 @@ export function ChatInput({ chatId }: { chatId?: number }) {
         </div>
       )}
       <SummarizationProgressStrip />
+      {chatId != null && <CompactionProgressStrip chatId={chatId} />}
+      {chatId != null && <StreamReconnectBanner chatId={chatId} />}
       <div className="p-4 flex-shrink-0" data-testid="chat-input-container">
         <div
           className={`relative flex flex-col border border-border rounded-lg bg-(--background-lighter) shadow-sm ${isDraggingOver ? "ring-2 ring-blue-500 border-blue-500" : ""

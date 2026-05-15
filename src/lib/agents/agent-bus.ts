@@ -18,6 +18,8 @@ export type AgentId =
   | "reviewer"
   | "research"
   | "researcher"
+  | "explore"
+  | "scout"
   | "debugger";
 
 export type AgentMessageType =
@@ -82,6 +84,8 @@ export function toAgentId(role: string): AgentId {
   const r = role.toLowerCase();
   if (r === "main") return "main";
   if (r === "research" || r === "researcher") return "research";
+  if (r === "explore") return "explore";
+  if (r === "scout") return "scout";
   if (r === "architect") return "architect";
   if (r === "builder") return "builder";
   if (r === "reviewer") return "reviewer";

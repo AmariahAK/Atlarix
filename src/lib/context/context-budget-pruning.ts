@@ -1,13 +1,13 @@
 /**
  * Rule-based synchronous pruning of context sections when dispatch estimate is high.
- * Never touches activeSkill or blueprint (caller must skip or filter protected names).
+ * Never touches activeSkill or other protected sections (caller must skip or filter protected names).
  */
 
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import type { ContextSection, ContextSectionName } from "@/lib/context/ContextAssembler";
 import type { ContextBudgetHealth } from "@/lib/context/context-budget-tracker";
 
-const PROTECTED_NAMES = new Set<ContextSectionName>(["activeSkill"]);
+const PROTECTED_NAMES = new Set<ContextSectionName>(["activeSkill", "repoSkills"]);
 
 function truncateToTokens(content: string, maxTokens: number): string {
   if (estimateTokens(content) <= maxTokens) return content;

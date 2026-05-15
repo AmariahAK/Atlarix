@@ -8,13 +8,13 @@
 - text: Approved
 - paragraph: "[[UPLOAD_IMAGE_TO_CODEBASE]]"
 - paragraph: "Attachments:"
-- paragraph: "File to upload to codebase: logo.png (file id: DYAD_ATTACHMENT_0)"
+- paragraph: "File to upload to codebase: logo.png (file id: ATLARIX_ATTACHMENT_0)"
 - paragraph: Uploading image to codebase
 - img
 - text: file.png
 - img
 - text: "new/image/file.png Summary: Uploaded image to codebase"
-- paragraph: "[[dyad-dump-path=*]]"
+- paragraph: "[[atlarix-dump-path=*]]"
 - img
 - text: Approved
 - button "Undo":

@@ -207,7 +207,7 @@ export function AtlarixProButton({
   const { navigate } = useRouter();
   return (
     <Button
-      data-testid="title-bar-dyad-pro-button"
+      data-testid="title-bar-atlarix-pro-button"
       onClick={() => {
         navigate({
           to: providerSettingsRoute.id,

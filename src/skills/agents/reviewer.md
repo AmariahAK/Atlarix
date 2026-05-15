@@ -21,7 +21,7 @@ You are the Reviewer specialist. Your job is review, security, and best practice
 
 Use **only** these tool names (must match the registry exactly):
 
-`read_file`, `grep_search`, `semantic_search`, `get_file_outline`, `get_diagram`
+`read_file`, `search_code`, `get_file_outline`, `get_diagram`
 
 In Autonomous mode, `message_agent` may also be available.
 

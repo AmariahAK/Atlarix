@@ -21,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BlueprintInjectionModePreference } from "@/lib/schemas";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -722,42 +721,7 @@ export function AISettings() {
         <AutoFixProblemsSwitch />
       </div>
 
-      <div className="mt-6 space-y-3 border-t border-border pt-6">
-        <h3 className="text-sm font-medium text-foreground">
-          Blueprint context (Diagram tab)
-        </h3>
-        <p className="text-xs text-muted-foreground max-w-2xl">
-          Controls how much Blueprint detail is injected into the AI system prompt.
-          Auto uses chat mode (Ask/Build) and message heuristics; other values force
-          that tier.
-        </p>
-        <div className="space-y-2 max-w-md">
-          <Label htmlFor="blueprint-injection-mode">Injection tier</Label>
-          <Select
-            value={settings?.blueprintInjectionModePreference ?? "auto"}
-            onValueChange={(v) =>
-              updateSettings({
-                blueprintInjectionModePreference:
-                  v as BlueprintInjectionModePreference,
-              })
-            }
-          >
-            <SelectTrigger
-              id="blueprint-injection-mode"
-              className="w-full max-w-sm"
-            >
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Auto</SelectItem>
-              <SelectItem value="ask">Ask</SelectItem>
-              <SelectItem value="plan">Plan</SelectItem>
-              <SelectItem value="build">Build</SelectItem>
-              <SelectItem value="debug">Debug</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      {/* Pass 7: Blueprint context tier selector removed with the Blueprint subsystem. */}
 
       <div className="mt-6 space-y-4 border-t border-border pt-6">
         <h3 className="text-sm font-medium text-foreground">Counsel</h3>
