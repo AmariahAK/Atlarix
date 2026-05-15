@@ -561,7 +561,7 @@ Major architectural release: agent execution, context, snapshots, parallel work,
 
 ## v6.0.0 — Workforce session scope, autonomous agents, UX hardening, Thoughts & routing (2026-04-02)
 
-- **Workforce — Change 1 / 2:** Removed stored “base of origin” / default group-repo-workspace pre-selection for Workforce services; selections are **in-memory per chat** (`workforce-chat-session`, IPC `workforce:session:*`, `WorkforceSessionPromptDialog`). First tool use can prompt for scope; **New Chat** clears session. `buildWorkforceWorkspaceContextBlock` and stream handlers append **Connected workspace contexts (this session only)** to the Workforce prompt block. Token Vault OAuth unchanged.
+- **Workforce — Change 1 / 2:** Removed stored “base of origin” / default group-repo-workspace pre-selection for Workforce services; selections are **in-memory per chat** (`workforce-chat-session`, IPC `workforce:session:*`, `WorkforceSessionPromptDialog`). First tool use can prompt for scope; **New Chat** clears session. `buildWorkforceWorkspaceContextBlock` and stream handlers append **Connected workspace contexts (this session only)** to the Workforce prompt block. Integration OAuth flows unchanged for configured MCP servers.
 - **Workforce — gate:** `ToolRegistry` / `runToolExecuteWithWorkforceSessionGate` block Workforce tools until session scope is set where required (`// Fix: Workforce-Change-N` trace comments in touched files).
 - **Autonomous — Change 3:** Nested autonomous sub-agents auto-execute permissioned tools (no user queue); `logger.info('[Autonomous] Tool executed without user approval: …')`. Guided delegation permission flow unchanged. Delegation summaries append autonomous tool footers where applicable.
 - **Onboarding — Change 4:** Extra steps for chat continuity, right panel resize, autonomous expectations, and session-only Workforce context (`onboarding.ts`, home/settings UI).
@@ -700,14 +700,14 @@ For detailed historical notes (v1.x–v4.x) and implementation phases, see [`doc
 
 ### Added
 
-- **Workforce tier** ($79/mo): Up to 5 seats; extra seats $10/mo. Teams, Token Vault, Workspace Context, and all Workforce extensions.
-- **Auth0 Token Vault**: Secure agent authentication; step-up for high-stakes actions; fallback to stored credentials when vault unavailable.
+- **Workforce tier** ($79/mo): Up to 5 seats; extra seats $10/mo. Teams, MCP-configured integrations, Workspace Context, and all Workforce extensions.
+- **Agent authentication for integrations:** OAuth and API credentials are configured per MCP server; high-stakes actions use approvals and per-integration re-auth as applicable.
 - **Workspace Context** (Workforce only): Injected block after system prompt with open PRs, failing pipelines, assigned tickets, unread mentions, Sentry errors, today's meetings from connected extensions.
 - **Teams**: Create team, invite members, manage seats; shared .atlarix (team-memory.md, Blueprint) via Git; effective tier = max(own plan, team plan).
-- **Workforce extensions**: Slack, Google Chat, Jira, Linear, Sentry, Notion, Google Calendar, GitLab CI, Bitbucket Pipelines — connect via Token Vault.
+- **Workforce extensions**: Slack, Google Chat, Jira, Linear, Sentry, Notion, Google Calendar, GitLab CI, Bitbucket Pipelines — connect via configured MCP servers and credentials in Settings.
 - **Progressive Tool Reveal**: Tool manifest (one line per tool) in system prompt; full schemas loaded on first use; core tools always loaded.
 - **New AI tools**: get_slack_mentions, get_slack_channel, post_to_slack; get_assigned_tickets, update_ticket_status, create_ticket, get_sprint_status; get_sentry_errors, get_sentry_error_detail; get_today_schedule; trigger_pipeline, cancel_pipeline. Read-only in Ask mode; write/trigger with approval in Build.
-- **GitLab CI & Bitbucket Pipelines**: CIPlatform implementations using Token Vault; list runs, jobs, logs, stream.
+- **GitLab CI & Bitbucket Pipelines**: CIPlatform implementations using MCP-configured credentials; list runs, jobs, logs, stream.
 - **Conversation rollback** *(superseded in v6.2.0 by unified snapshots):* Earlier releases restored file state from a snapshot tied to a chat turn. **Current behavior (v6.2.0+):** restore files and diagram from `.atlarix/snapshots/`; the full transcript stays visible with `is_reverted` markers — messages are not deleted. **Hash metadata (v6.2.1+):** `snapshot_hashes.json` is stored under `.atlarix/snapshots/` with one-time migration from the legacy root `.atlarix/snapshot_hashes.json`.
 
 ### Changed

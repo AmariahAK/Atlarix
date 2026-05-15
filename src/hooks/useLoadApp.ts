@@ -49,6 +49,30 @@ export function useLoadApp(appId: number | null) {
         }
       }
 
+      if (appData.workspaceDiscoveryHints && appData.pathExists !== false && appId !== null) {
+        const disc = appData.workspaceDiscoveryHints;
+        const key = `atlarix:discovery-hint:${appId}`;
+        try {
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, "1");
+            if (disc.isMultiRepoWorkspace) {
+              toast.message("Multi-repo workspace", {
+                description:
+                  "File discovery and repo overview are scoped to nested git repos. Open a single repo folder if you only need one project.",
+                duration: 10_000,
+              });
+            } else if (!disc.hasRootGit) {
+              toast.warning(
+                "This workspace root has no .git folder. File discovery may be degraded; open a repository subfolder when possible.",
+                { duration: 9000 },
+              );
+            }
+          }
+        } catch {
+          /* sessionStorage unavailable */
+        }
+      }
+
       if (appData.pathExists === false) {
         loadedAppIdRef.current = appId;
         return;

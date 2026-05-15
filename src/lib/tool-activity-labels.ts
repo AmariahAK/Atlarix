@@ -41,6 +41,8 @@ const LABELS: Record<string, string> = {
   generate_code: "Generating code…",
   request_mode_change: "Requesting mode change…",
   ask_user: "Asking you…",
+  get_repo_overview: "Mapping repository…",
+  get_project_structure: "Reading project layout…",
   get_project_history: "Reading project history…",
   set_project_memory: "Updating project memory…",
   get_atlarixignore: "Reading ignore rules…",

@@ -71,7 +71,30 @@ export function getSettingsFilePath(): string {
   return path.join(getUserDataPath(), SETTINGS_FILE);
 }
 
+/** Decrypt a stored secret; on failure (corrupt blob, keychain rotation), drop it and log once per read. */
+function tryDecryptSecret(
+  secret: Secret,
+  onFirstFailure: (err: unknown) => void,
+): string | undefined {
+  try {
+    return decrypt(secret);
+  } catch (err) {
+    onFirstFailure(err);
+    return undefined;
+  }
+}
+
 export function readSettings(): UserSettings {
+  let decryptFailureLogged = false;
+  const onDecryptFailure = (err: unknown) => {
+    if (decryptFailureLogged) return;
+    decryptFailureLogged = true;
+    logger.warn(
+      "settings: Could not decrypt one or more stored secrets (OS keychain changed, different machine, or corrupt data). Re-enter API keys or sign in again in Settings.",
+      err,
+    );
+  };
+
   try {
     const filePath = getSettingsFilePath();
     if (!fs.existsSync(filePath)) {
@@ -96,19 +119,29 @@ export function readSettings(): UserSettings {
       if (supabase.refreshToken) {
         const encryptionType = supabase.refreshToken.encryptionType;
         if (encryptionType) {
-          supabase.refreshToken = {
-            value: decrypt(supabase.refreshToken),
-            encryptionType,
-          };
+          const value = tryDecryptSecret(supabase.refreshToken, onDecryptFailure);
+          if (value !== undefined) {
+            supabase.refreshToken = {
+              value,
+              encryptionType,
+            };
+          } else {
+            delete supabase.refreshToken;
+          }
         }
       }
       if (supabase.accessToken) {
         const encryptionType = supabase.accessToken.encryptionType;
         if (encryptionType) {
-          supabase.accessToken = {
-            value: decrypt(supabase.accessToken),
-            encryptionType,
-          };
+          const value = tryDecryptSecret(supabase.accessToken, onDecryptFailure);
+          if (value !== undefined) {
+            supabase.accessToken = {
+              value,
+              encryptionType,
+            };
+          } else {
+            delete supabase.accessToken;
+          }
         }
       }
     }
@@ -117,44 +150,78 @@ export function readSettings(): UserSettings {
       if (neon.refreshToken) {
         const encryptionType = neon.refreshToken.encryptionType;
         if (encryptionType) {
-          neon.refreshToken = {
-            value: decrypt(neon.refreshToken),
-            encryptionType,
-          };
+          const value = tryDecryptSecret(neon.refreshToken, onDecryptFailure);
+          if (value !== undefined) {
+            neon.refreshToken = {
+              value,
+              encryptionType,
+            };
+          } else {
+            delete neon.refreshToken;
+          }
         }
       }
       if (neon.accessToken) {
         const encryptionType = neon.accessToken.encryptionType;
         if (encryptionType) {
-          neon.accessToken = {
-            value: decrypt(neon.accessToken),
-            encryptionType,
-          };
+          const value = tryDecryptSecret(neon.accessToken, onDecryptFailure);
+          if (value !== undefined) {
+            neon.accessToken = {
+              value,
+              encryptionType,
+            };
+          } else {
+            delete neon.accessToken;
+          }
         }
       }
     }
     if (combinedSettings.githubAccessToken) {
       const encryptionType = combinedSettings.githubAccessToken.encryptionType;
-      combinedSettings.githubAccessToken = {
-        value: decrypt(combinedSettings.githubAccessToken),
-        encryptionType,
-      };
+      const value = tryDecryptSecret(
+        combinedSettings.githubAccessToken,
+        onDecryptFailure,
+      );
+      if (value !== undefined) {
+        combinedSettings.githubAccessToken = {
+          value,
+          encryptionType,
+        };
+      } else {
+        delete combinedSettings.githubAccessToken;
+      }
     }
     if (combinedSettings.vercelAccessToken) {
       const encryptionType = combinedSettings.vercelAccessToken.encryptionType;
-      combinedSettings.vercelAccessToken = {
-        value: decrypt(combinedSettings.vercelAccessToken),
-        encryptionType,
-      };
+      const value = tryDecryptSecret(
+        combinedSettings.vercelAccessToken,
+        onDecryptFailure,
+      );
+      if (value !== undefined) {
+        combinedSettings.vercelAccessToken = {
+          value,
+          encryptionType,
+        };
+      } else {
+        delete combinedSettings.vercelAccessToken;
+      }
     }
     for (const provider in combinedSettings.providerSettings) {
       if (combinedSettings.providerSettings[provider].apiKey) {
         const encryptionType =
           combinedSettings.providerSettings[provider].apiKey.encryptionType;
-        combinedSettings.providerSettings[provider].apiKey = {
-          value: decrypt(combinedSettings.providerSettings[provider].apiKey),
-          encryptionType,
-        };
+        const value = tryDecryptSecret(
+          combinedSettings.providerSettings[provider].apiKey!,
+          onDecryptFailure,
+        );
+        if (value !== undefined) {
+          combinedSettings.providerSettings[provider].apiKey = {
+            value,
+            encryptionType,
+          };
+        } else {
+          delete combinedSettings.providerSettings[provider].apiKey;
+        }
       }
       // Decrypt Vertex service account key if present
       const v = combinedSettings.providerSettings[
@@ -162,10 +229,15 @@ export function readSettings(): UserSettings {
       ] as VertexProviderSetting;
       if (provider === "vertex" && v?.serviceAccountKey) {
         const encryptionType = v.serviceAccountKey.encryptionType;
-        v.serviceAccountKey = {
-          value: decrypt(v.serviceAccountKey),
-          encryptionType,
-        };
+        const value = tryDecryptSecret(v.serviceAccountKey, onDecryptFailure);
+        if (value !== undefined) {
+          v.serviceAccountKey = {
+            value,
+            encryptionType,
+          };
+        } else {
+          delete v.serviceAccountKey;
+        }
       }
     }
 

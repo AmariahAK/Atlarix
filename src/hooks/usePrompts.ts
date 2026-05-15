@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 
 export interface PromptItem {
   id: number;
@@ -10,18 +12,50 @@ export interface PromptItem {
   updatedAt: Date;
 }
 
+function mapGlobalRow(
+  row: NonNullable<Awaited<ReturnType<IpcClient["getGlobalPrompt"]>>>,
+): PromptItem {
+  return {
+    id: row.id,
+    title: "Global prompt",
+    description: null,
+    content: row.content,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapWorkspaceRow(
+  row: NonNullable<Awaited<ReturnType<IpcClient["getWorkspacePrompt"]>>>,
+): PromptItem {
+  return {
+    id: row.id,
+    title: "Workspace prompt",
+    description: null,
+    content: row.content,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export function usePrompts() {
   const queryClient = useQueryClient();
-  // PASS8 F3: `prompts:list` is the deprecated legacy endpoint and always
-  // returns []. The active prompts live under `prompts:get-global` /
-  // `prompts:get-workspace`. We keep the query around for the (single)
-  // LexicalChatInput consumer, but mark it as never stale so it fires once
-  // per process instead of on every mutation / message dispatch.
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
+
   const listQuery = useQuery({
-    queryKey: ["prompts"],
+    queryKey: ["prompts", selectedAppId],
     queryFn: async (): Promise<PromptItem[]> => {
       const ipc = IpcClient.getInstance();
-      return ipc.listPrompts();
+      const [globalRow, workspaceRow] = await Promise.all([
+        ipc.getGlobalPrompt(),
+        selectedAppId != null
+          ? ipc.getWorkspacePrompt(selectedAppId)
+          : Promise.resolve(null),
+      ]);
+      const out: PromptItem[] = [];
+      if (globalRow) out.push(mapGlobalRow(globalRow));
+      if (workspaceRow) out.push(mapWorkspaceRow(workspaceRow));
+      return out;
     },
     meta: { showErrorToast: true },
     staleTime: Infinity,

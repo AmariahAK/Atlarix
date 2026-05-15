@@ -317,7 +317,9 @@ export interface MidLoopCompactionParams {
   systemPromptEstimate: number;
   /** Effective per-dispatch limit (from `resolveModelContextLimit`). */
   tierLimit: number;
-  /** Trigger compaction when `(systemPromptEstimate + history) >= threshold * tierLimit`. */
+  /** Catalog raw context length; when set, fill ratio uses this instead of `tierLimit`. */
+  contextWindowTokens?: number;
+  /** Trigger compaction when `(systemPromptEstimate + history) >= threshold * limitDenom`. */
   threshold?: number;
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
@@ -335,8 +337,8 @@ export interface MidLoopCompactionResult {
 /**
  * In-loop compaction for the SMART AGENTIC TOOL LOOP. Estimates the token weight
  * of `agenticMessages` plus the system prompt; if it crosses `threshold` of the
- * model's tier limit, replaces older user+assistant turns with a single summary
- * message produced by `summarizeMessagesWithCompactionPrompt`. The last
+ * model's context window (or `tierLimit` when `contextWindowTokens` is omitted),
+ * replaces older user+assistant turns with a single summary
  * `protectExchanges` user+assistant exchanges (= most recent tool result) are
  * always preserved verbatim so the model can keep reasoning.
  *
@@ -346,15 +348,16 @@ export interface MidLoopCompactionResult {
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
-  const threshold = params.threshold ?? 0.7;
+  const threshold = params.threshold ?? 0.75;
   const protect = params.protectExchanges ?? 3;
+  const limitDenom = params.contextWindowTokens ?? params.tierLimit;
 
   const tokensOf = (m: ModelMessage) => estimateTokens(modelMessageText(m.content));
   const total = (msgs: ModelMessage[]) =>
     msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
 
   const beforeTokens = total(params.messages);
-  if (beforeTokens < threshold * params.tierLimit) {
+  if (beforeTokens < threshold * limitDenom) {
     return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
   }
 

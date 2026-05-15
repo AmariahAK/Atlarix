@@ -23,7 +23,7 @@ const EXCLUDED_DIR_NAMES = new Set([
     // Timezone data — thousands of tiny files, zero value
     "tzdata", "zoneinfo",
     // AWS CDK/SAM build artifacts
-    "cdk.out", ".aws-sam", ".aws-cdk",
+    "cdk.out", ".cdk-out-deploy", ".cdk-staging", ".aws-sam", ".aws-cdk",
     // Other build artifacts
     "target", "vendor", ".idea", ".vscode", "coverage",
     ".pnpm", ".pnpm-store", ".yarn", ".yarn-cache", ".turbo", ".parcel-cache",
@@ -34,10 +34,14 @@ const EXCLUDED_DIR_NAMES = new Set([
     ".nyc_output",
 ]);
 
+const CDK_ASSET_HASH_DIR = /^[a-f0-9]{64}$/i;
+
 export function isExcludedDir(name: string): boolean {
     if (EXCLUDED_DIR_NAMES.has(name)) return true;
     if (name.startsWith(".venv")) return true;
     if (name.startsWith("venv")) return true;
+    if (name.startsWith("asset.")) return true;
+    if (CDK_ASSET_HASH_DIR.test(name)) return true;
     return false;
 }
 

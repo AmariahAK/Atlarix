@@ -307,8 +307,16 @@ export interface App {
   pathExists?: boolean;
   /** Non-fatal file-list issues from fallback discovery (permissions, symlinks). */
   fileDiscoveryWarnings?: string[];
+  /** Repo layout hints for discovery UX (multi-repo parent folder, missing root .git). */
+  workspaceDiscoveryHints?: WorkspaceDiscoveryHints;
   /** Derived from pathExists: active = folder present, missing = folder absent */
   status?: "active" | "missing";
+}
+
+export interface WorkspaceDiscoveryHints {
+  hasRootGit: boolean;
+  isMultiRepoWorkspace: boolean;
+  nestedRepoNames?: string[];
 }
 
 export interface Version {

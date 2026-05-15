@@ -1,5 +1,4 @@
 import { IpcClient } from "@/ipc/ipc_client";
-import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
 import {
   X,
@@ -28,6 +27,23 @@ export function ChatErrorBox({
           </UpgradeButton>
         </span>{" "}
         or switch to another model.
+      </ChatErrorContainer>
+    );
+  }
+
+  // Stream stalled mid-tool-call (watchdog) — not fixable by upgrading; docs + retry only.
+  if (
+    error.includes("Stream paused:") ||
+    error.includes("while a tool call was pending")
+  ) {
+    return (
+      <ChatErrorContainer onDismiss={onDismiss}>
+        {error}
+        <div className="mt-2 space-y-2 space-x-2">
+          <ExternalLink href="https://www.atlarix.dev/docs/faq">
+            Read docs
+          </ExternalLink>
+        </div>
       </ChatErrorContainer>
     );
   }
@@ -102,13 +118,6 @@ export function ChatErrorBox({
     <ChatErrorContainer onDismiss={onDismiss}>
       {error}
       <div className="mt-2 space-y-2 space-x-2">
-        {!isAtlarixProEnabled &&
-          error.includes(AI_STREAMING_ERROR_MESSAGE_PREFIX) &&
-          !error.includes("TypeError: terminated") && (
-            <UpgradeButton>
-              Upgrade to Atlarix Pro
-            </UpgradeButton>
-          )}
         <ExternalLink href="https://www.atlarix.dev/docs/faq">
           Read docs
         </ExternalLink>

@@ -14,6 +14,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
   ask: [
     "ask_user",
     "clear_blueprint",
+    "compress_context",
     "deep_research",
     "explore_folder",
     "find_file",
@@ -43,6 +44,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
   plan: [
     "ask_user",
     "clear_blueprint",
+    "compress_context",
     "edit_file",
     "explore_folder",
     "find_file",

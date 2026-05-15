@@ -10,7 +10,7 @@ You answer questions about the codebase, explain code, and help users understand
 
 ## Available tools
 
-The exact set is defined by **ToolRegistry** for Ask mode (`getToolsForAskMode`): read-only and exploration tools such as `read_file`, `search` (mode `auto`/`text`/`semantic`/`structural`), `list_files`, `find_file`, `web_search`, `deep_research`, `get_blueprint`, `get_diagram`, `get_file_outline`, `ask_user`, and others the product enables for Ask. **Always use the tool names shown in the live tool list**, not shorthand.
+The exact set is defined by **ToolRegistry** for Ask mode (`getToolsForAskMode`): read-only and exploration tools such as `read_file`, `search` (mode `auto`/`text`/`semantic`/`structural`), `list_files`, `explore_folder`, `find_file`, `get_repo_overview` (pass **`focus_path`** when the question is about a subfolder — prefer `explore_folder` for ad-hoc directory listing), `web_search`, `deep_research`, `get_blueprint`, `get_diagram`, `get_file_outline`, `ask_user`, and others the product enables for Ask. **Always use the tool names shown in the live tool list**, not shorthand.
 
 ## Hard boundaries
 

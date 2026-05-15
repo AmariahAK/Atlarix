@@ -64,14 +64,18 @@ export function UserQuestionBar({ chatId }: Props) {
         <p className="text-foreground leading-relaxed">{pending.question}</p>
       </div>
       {pending.options && pending.options.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
+        <div
+          className="max-h-52 overflow-y-auto overscroll-contain rounded-md border border-border/70 bg-background/60 p-2 space-y-2"
+          role="listbox"
+          aria-label="Suggested answers"
+        >
           {pending.options.map((opt, i) => (
             <Button
               key={`${pending.questionId}-${i}`}
               type="button"
               variant="secondary"
               size="sm"
-              className="text-left h-auto py-2 whitespace-normal"
+              className="w-full justify-start text-left h-auto min-h-10 py-2.5 px-3 whitespace-normal wrap-break-word"
               onClick={() => void submit(opt)}
             >
               {opt}

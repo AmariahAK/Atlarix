@@ -20,10 +20,38 @@ import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import { getFilesRecursively } from "./file_utils";
+import {
+    projectFilesCacheKey,
+    getCachedWorkspaceDiscovery,
+    clearWorkspaceDiscoverySessionCache,
+} from "./workspace-discovery";
 import { parseFileStructure } from "@/lib/workspace/oxc-structure";
 
 const execAsync = promisify(exec);
 const logger = log.scope("project-files");
+
+const CDK_ASSET_HEX_SEGMENT = /^[0-9a-f]{64}$/;
+
+export function isExcludedDiscoveryRelPath(rel: string): boolean {
+    const norm = rel.replace(/\\/g, "/");
+    for (const seg of norm.split("/")) {
+        if (!seg) continue;
+        if (
+            seg === ".cdk-out-deploy" ||
+            seg === "cdk.out" ||
+            seg === ".cdk-staging" ||
+            seg === ".aws-sam"
+        ) {
+            return true;
+        }
+        if (CDK_ASSET_HEX_SEGMENT.test(seg)) return true;
+    }
+    return false;
+}
+
+function filterDiscoveryPaths(files: string[]): string[] {
+    return files.filter((f) => !isExcludedDiscoveryRelPath(f));
+}
 
 export interface ProjectFilesResult {
     files: string[];
@@ -102,7 +130,7 @@ export async function getProjectFiles(
         extensions?: string[];
     }
 ): Promise<ProjectFilesResult> {
-    const cacheKey = workspacePath;
+    const cacheKey = projectFilesCacheKey(workspacePath);
     const cached = fileListCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < FILE_LIST_TTL_MS) {
@@ -134,13 +162,15 @@ export async function getProjectFiles(
 
         // git ls-files returns relative paths (src/lib/foo.ts)
         // Normalize to workspace-relative immediately so all strategies return the same format
-        const files = stdout
-            .split("\n")
-            .filter(Boolean)
-            .map((f) => {
-                // f is already relative from git ls-files; just normalize separators
-                return f.replace(/\\/g, "/");
-            });
+        const files = filterDiscoveryPaths(
+            stdout
+                .split("\n")
+                .filter(Boolean)
+                .map((f) => {
+                    // f is already relative from git ls-files; just normalize separators
+                    return f.replace(/\\/g, "/");
+                }),
+        );
 
         if (files.length > 0) {
             const result: ProjectFilesResult = {
@@ -164,6 +194,58 @@ export async function getProjectFiles(
                 error: err instanceof Error ? err.message : String(err),
             }
         );
+    }
+
+    // -----------------------------------------------
+    // STRATEGY 1b: multi-repo parent — aggregate git ls-files from each nested repo
+    // -----------------------------------------------
+    const hints1b = getCachedWorkspaceDiscovery(workspacePath);
+    if (hints1b.isMultiRepoWorkspace && hints1b.nestedRepoNames?.length) {
+        logger.info(
+            `[project-files] multi-repo: detected ${hints1b.nestedRepoNames.length} repos, trying git ls-files per subfolder`,
+        );
+        const merged: string[] = [];
+        for (const name of hints1b.nestedRepoNames) {
+            const subRoot = path.join(workspacePath, name);
+            try {
+                const args = ["ls-files"];
+                if (options?.extensions?.length) {
+                    for (const ext of options.extensions) {
+                        args.push(`*.${ext}`);
+                    }
+                }
+                const { stdout } = await execAsync("git " + args.join(" "), {
+                    cwd: subRoot,
+                    timeout,
+                    maxBuffer: 50 * 1024 * 1024,
+                });
+                const rels = stdout
+                    .split("\n")
+                    .filter(Boolean)
+                    .map((f) => f.replace(/\\/g, "/"));
+                for (const r of rels) {
+                    merged.push(`${name}/${r}`);
+                }
+            } catch {
+                /* not a git worktree or git failed */
+            }
+        }
+        const filesMulti = filterDiscoveryPaths(merged);
+        if (filesMulti.length > 0) {
+            const result: ProjectFilesResult = {
+                files: filesMulti,
+                strategy: "git",
+                count: filesMulti.length,
+            };
+            fileListCache.set(cacheKey, {
+                result,
+                timestamp: Date.now(),
+            });
+            logger.info(
+                `[project-files] ${filesMulti.length} files via git ls-files (multi-repo aggregate)`,
+            );
+            return result;
+        }
     }
 
     // -----------------------------------------------
@@ -195,14 +277,16 @@ export async function getProjectFiles(
         });
 
         // fd always returns absolute paths; convert to workspace-relative
-        const files = stdout
-            .split("\n")
-            .filter(Boolean)
-            .map((f) => {
-                const abs = f.replace(/\\/g, "/");
-                return path.relative(workspacePath, abs).replace(/\\/g, "/");
-            })
-            .filter((f) => !f.startsWith(".."));
+        const files = filterDiscoveryPaths(
+            stdout
+                .split("\n")
+                .filter(Boolean)
+                .map((f) => {
+                    const abs = f.replace(/\\/g, "/");
+                    return path.relative(workspacePath, abs).replace(/\\/g, "/");
+                })
+                .filter((f) => !f.startsWith("..")),
+        );
 
         if (files.length > 0) {
             const result: ProjectFilesResult = {
@@ -244,14 +328,16 @@ export async function getProjectFiles(
         });
 
         // ripgrep --files returns absolute paths; convert to workspace-relative
-        const files = stdout
-            .split("\n")
-            .filter(Boolean)
-            .map((f) => {
-                const abs = f.replace(/\\/g, "/");
-                return path.relative(workspacePath, abs).replace(/\\/g, "/");
-            })
-            .filter((f) => !f.startsWith(".."));
+        const files = filterDiscoveryPaths(
+            stdout
+                .split("\n")
+                .filter(Boolean)
+                .map((f) => {
+                    const abs = f.replace(/\\/g, "/");
+                    return path.relative(workspacePath, abs).replace(/\\/g, "/");
+                })
+                .filter((f) => !f.startsWith("..")),
+        );
 
         if (files.length > 0) {
             const result: ProjectFilesResult = {
@@ -280,21 +366,40 @@ export async function getProjectFiles(
     // -----------------------------------------------
     // STRATEGY 4: getFilesRecursively (last resort)
     // -----------------------------------------------
-    logger.warn(
-        "[project-files] all fast strategies failed — using legacy recursive scan. " +
-            "Results may include build artifacts."
-    );
+    const discovery = getCachedWorkspaceDiscovery(workspacePath);
+    if (discovery.isMultiRepoWorkspace && discovery.nestedRepoNames?.length) {
+        logger.info(
+            `[project-files] multi-repo: detected ${discovery.nestedRepoNames.length} repos, scanning subfolders only (legacy walk)`,
+        );
+    } else {
+        logger.warn(
+            "[project-files] all fast strategies failed — using legacy recursive scan. " +
+                "Results may include build artifacts.",
+        );
+    }
     const accessWarnings: string[] = [];
-    // getFilesRecursively returns paths relative to workspacePath
-    const legacyFiles = getFilesRecursively(
-      workspacePath,
-      workspacePath,
-      accessWarnings,
-    ).map((f) => f.replace(/\\/g, "/"));
+    let legacyFiles: string[];
+    if (discovery.isMultiRepoWorkspace && discovery.nestedRepoNames?.length) {
+        legacyFiles = [];
+        for (const name of discovery.nestedRepoNames) {
+            const subRoot = path.join(workspacePath, name);
+            const subFiles = getFilesRecursively(subRoot, subRoot, accessWarnings).map((f) =>
+                f.replace(/\\/g, "/"),
+            );
+            for (const f of subFiles) {
+                legacyFiles.push(`${name}/${f}`);
+            }
+        }
+    } else {
+        legacyFiles = getFilesRecursively(workspacePath, workspacePath, accessWarnings).map((f) =>
+            f.replace(/\\/g, "/"),
+        );
+    }
+    const filteredLegacy = filterDiscoveryPaths(legacyFiles);
     const result: ProjectFilesResult = {
-        files: legacyFiles,
+        files: filteredLegacy,
         strategy: "fallback",
-        count: legacyFiles.length,
+        count: filteredLegacy.length,
         ...(accessWarnings.length > 0 ? { accessWarnings } : {}),
     };
     fileListCache.set(cacheKey, {
@@ -310,8 +415,11 @@ export async function getProjectFiles(
  */
 export function clearFileListCache(workspacePath?: string): void {
     if (workspacePath) {
+        clearWorkspaceDiscoverySessionCache(workspacePath);
         fileListCache.delete(workspacePath);
+        fileListCache.delete(projectFilesCacheKey(workspacePath));
     } else {
+        clearWorkspaceDiscoverySessionCache();
         fileListCache.clear();
     }
 }

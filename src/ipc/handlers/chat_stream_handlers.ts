@@ -232,15 +232,14 @@ import {
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
 import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
+import { readAtlarixMd } from "../../lib/project-memory";
 import {
-  shouldCompact,
-  runCompaction,
   getContextSummary,
   schedulePostTurnCompaction,
   notifyCompactionLedgerSettled,
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
-import { readAtlarixMd, writeAtlarixMd } from "../../lib/project-memory";
+import { summarizeOversizedToolResultsInContent } from "../../lib/context/post_turn_tool_result_summary";
 import {
   estimateTokens,
   getContextWindow,
@@ -593,6 +592,72 @@ function emitCompactionMirroredActivity(
   };
 }
 
+/** Per `chat:stream` invocation — duplicate tool collapse + hard per-tool cap. */
+type ToolTurnDedupState = {
+  dedupeByKey: Map<string, unknown>;
+  callCountByTool: Map<string, number>;
+};
+
+const TOOL_DEDUP_EXEMPT = new Set(["ask_user", "stream_terminal_output"]);
+
+/** Max distinct invocations per tool per `chat:stream` turn (exact duplicates are skipped earlier and do not count). */
+const TOOL_CALL_CAP_READ = 20;
+const TOOL_CALL_CAP_WRITE = 10;
+
+const TOOL_NAMES_CAP_READ_20 = new Set([
+  "read_file",
+  "search",
+  "find_file",
+  "list_files",
+  "get_file_outline",
+  "explore_folder",
+  "get_repo_overview",
+  "get_blueprint",
+]);
+
+const TOOL_NAMES_CAP_WRITE_10 = new Set([
+  "write_file",
+  "edit_file",
+  "write_multiple_files",
+  "run_command",
+  "write_implementation_plan",
+]);
+
+function perTurnCallCapForTool(toolName: string): number {
+  if (TOOL_NAMES_CAP_READ_20.has(toolName)) return TOOL_CALL_CAP_READ;
+  if (TOOL_NAMES_CAP_WRITE_10.has(toolName)) return TOOL_CALL_CAP_WRITE;
+  return TOOL_CALL_CAP_WRITE;
+}
+
+const TOOL_CALL_LIMIT_ERROR = (toolName: string) =>
+  JSON.stringify({
+    success: false,
+    error: `Per-turn call limit reached for ${toolName}. Summarize your findings so far and respond to the user — do not attempt more ${toolName} calls this turn.`,
+  });
+
+function stableNormalizeForToolDedup(value: unknown): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(stableNormalizeForToolDedup);
+  }
+  const o = value as Record<string, unknown>;
+  const keys = Object.keys(o)
+    .filter((k) => !k.startsWith("_"))
+    .sort();
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    out[k] = stableNormalizeForToolDedup(o[k]);
+  }
+  return out;
+}
+
+function hashToolArgsForDedup(executeArgs: Record<string, unknown>): string {
+  const normalized = stableNormalizeForToolDedup(executeArgs) as Record<string, unknown>;
+  return crypto.createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+}
+
 /** Execute a tool through ToolRegistry, recording ledger updates and honoring task-complete signals. */
 async function runToolExecute(
   toolName: string,
@@ -605,6 +670,7 @@ async function runToolExecute(
     onTaskLedgerComplete?: () => void;
     /** When false, ledger "task complete" does not abort the chat stream (Ask tier). Default true. */
     abortStreamOnLedgerComplete?: boolean;
+    toolTurnDedup?: ToolTurnDedupState;
   },
 ): Promise<unknown> {
   const maybeStopStreamForCompleteLedger = () => {
@@ -621,7 +687,46 @@ async function runToolExecute(
     }
   };
 
+  const dedup = streamOpts?.toolTurnDedup;
+
+  // Exact-duplicate collapse first: same tool + same args does not consume the per-turn cap.
+  if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
+    const argHashEarly = hashToolArgsForDedup(executeArgs);
+    const dedupeKeyEarly = `${toolName}\0${argHashEarly}`;
+    const cached = dedup.dedupeByKey.get(dedupeKeyEarly);
+    if (cached !== undefined) {
+      logger.warn(`[tool-dedup] Skipped duplicate call: ${toolName} (already ran this turn)`);
+      if (streamOpts?.turnId) {
+        recordToolUseForTurn(streamOpts.turnId, toolName);
+      }
+      maybeStopStreamForCompleteLedger();
+      return cached;
+    }
+  }
+
+  if (dedup) {
+    const cap = perTurnCallCapForTool(toolName);
+    const prev = dedup.callCountByTool.get(toolName) ?? 0;
+    const next = prev + 1;
+    dedup.callCountByTool.set(toolName, next);
+    if (next > cap) {
+      logger.warn(
+        `[tool-dedup] Per-turn call cap exceeded for ${toolName} (cap=${cap}, chatId=${chatId})`,
+      );
+      if (streamOpts?.turnId) {
+        recordToolUseForTurn(streamOpts.turnId, toolName);
+      }
+      maybeStopStreamForCompleteLedger();
+      return TOOL_CALL_LIMIT_ERROR(toolName);
+    }
+  }
+
   const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
+  if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
+    const argHash = hashToolArgsForDedup(executeArgs);
+    const dedupeKey = `${toolName}\0${argHash}`;
+    dedup.dedupeByKey.set(dedupeKey, result);
+  }
   if (streamOpts?.turnId) {
     recordToolUseForTurn(streamOpts.turnId, toolName);
   }
@@ -943,6 +1048,8 @@ async function processStreamChunks({
 
   let lastStreamProgress = Date.now();
   let pendingToolCallDepth = 0;
+  /** Most recent tool-call `toolName` while depth &gt; 0 (for stall diagnostics). */
+  let lastPendingToolName: string | undefined;
   let loggedFirstStreamPart = false;
   let loggedReasoningDelta = false;
   const stallInterval = setInterval(() => {
@@ -951,6 +1058,29 @@ async function processStreamChunks({
       pendingToolCallDepth > 0 &&
       Date.now() - lastStreamProgress >= STREAM_TOOL_STALL_MS
     ) {
+      // #region agent log
+      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "348356",
+        },
+        body: JSON.stringify({
+          sessionId: "348356",
+          hypothesisId: "stall",
+          location: "chat_stream_handlers.ts:processStreamChunks",
+          message: "stream_stall_watchdog_fire",
+          data: {
+            chatId,
+            pendingToolCallDepth,
+            lastPendingToolName,
+            msSinceProgress: Date.now() - lastStreamProgress,
+            stallThresholdMs: STREAM_TOOL_STALL_MS,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       logger.warn(
         `[stream-stall] No stream progress for ${STREAM_TOOL_STALL_MS}ms with pending tool call(s); aborting chat ${chatId}`,
       );
@@ -1014,6 +1144,29 @@ async function processStreamChunks({
       chunk += escapeAtlarixTags(rtext);
     } else if (part.type === "tool-call") {
       pendingToolCallDepth += 1;
+      lastPendingToolName =
+        typeof part.toolName === "string" ? part.toolName : undefined;
+      // #region agent log
+      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "348356",
+        },
+        body: JSON.stringify({
+          sessionId: "348356",
+          hypothesisId: "tool-call",
+          location: "chat_stream_handlers.ts:processStreamChunks",
+          message: "stream_tool_call_chunk",
+          data: {
+            chatId,
+            toolName: lastPendingToolName,
+            pendingToolCallDepth,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(JSON.stringify(part.input));
@@ -1027,6 +1180,29 @@ async function processStreamChunks({
       }
     } else if (part.type === "tool-result") {
       pendingToolCallDepth = Math.max(0, pendingToolCallDepth - 1);
+      if (pendingToolCallDepth === 0) lastPendingToolName = undefined;
+      // #region agent log
+      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "348356",
+        },
+        body: JSON.stringify({
+          sessionId: "348356",
+          hypothesisId: "tool-result",
+          location: "chat_stream_handlers.ts:processStreamChunks",
+          message: "stream_tool_result_chunk",
+          data: {
+            chatId,
+            toolName:
+              typeof part.toolName === "string" ? part.toolName : undefined,
+            pendingToolCallDepth,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(part.output);
@@ -1367,6 +1543,10 @@ export function registerChatStreamHandlers() {
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
       let streamTerminated = false;
+      const toolTurnDedupState: ToolTurnDedupState = {
+        dedupeByKey: new Map<string, unknown>(),
+        callCountByTool: new Map<string, number>(),
+      };
       const ensureTerminal = (error?: unknown) => {
         if (streamTerminated) return;
         streamTerminated = true;
@@ -2034,6 +2214,7 @@ ${componentSnippet}
         onTaskLedgerComplete: () => {
           streamStopWasTaskComplete = true;
         },
+        toolTurnDedup: toolTurnDedupState,
       });
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -2467,12 +2648,6 @@ ${componentSnippet}
           // Honors the TokenBar UI copy that says "auto-summarize will run on next message".
           if (useAutoSummarize) {
             const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
-            const messageHistoryTokens = msgList.reduce(
-              (acc, m) => acc + estimateTokens(m.content || ""),
-              0
-            );
-            const systemPromptEstimate = 6000; // Conservative: base + diagram + session memory
-            const inputTokens = estimateTokens(userPrompt);
 
             // Check for existing summary
             const existingSummary = (await getContextSummary(req.chatId)) as any;
@@ -2486,73 +2661,9 @@ ${componentSnippet}
               logger.log(
                 `Using context summary + ${afterSummary.length} messages (after msg ${existingSummary.lastMessageId})`,
               );
-            } else {
-              const toolCallsInLast6 = msgList
-                .slice(-6)
-                .filter((m) => (m.content || "").includes("tool_result") || (m.content || "").includes("tool_use"))
-                .length;
-              const toolCallCount = msgList.filter(
-                (m) => (m.content || "").includes("tool_result") || (m.content || "").includes("tool_use")
-              ).length;
-              const delegationCount = msgList.filter(
-                (m) => (m.content || "").includes("delegate_to_agent") || (m.content || "").includes("delegation")
-              ).length;
-              const shouldRun = await shouldCompact({
-                chatId: req.chatId,
-                messageHistoryTokens,
-                systemPromptTokens: systemPromptEstimate,
-                inputTokens,
-                providerId: getEffectiveModelForOptions(settings)?.provider,
-                exchangeCount: msgList.length,
-                toolCallsInLast6,
-                hasWorkspace: !!hasWorkspace,
-              });
-              if (shouldRun) {
-              // Emit "running" so frontend can show summarization progress above input
-              safeSend(event.sender, "chat:activity", {
-                id: `compaction-start-${req.chatId}-${Date.now()}`,
-                type: "background",
-                label: "Summarizing conversation",
-                status: "running",
-                timestamp: Date.now(),
-                chatId: req.chatId,
-              });
-              // Run compaction when over threshold
-              const compactionResult = (await runCompaction({
-                chatId: req.chatId,
-                chatMessages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
-                systemPromptTokens: systemPromptEstimate,
-                inputTokens,
-                providerId: getEffectiveModelForOptions(settings)?.provider,
-                sessionStats: { toolCallCount, delegationCount },
-              })) as any;
-              if (compactionResult.status === "completed") {
-                contextSummaryForSystem = compactionResult.summaryText;
-                limitedMessageHistory = compactionResult.messagesAfterSummary.map((m: any) => ({
-                  role: m.role as "user" | "assistant" | "system",
-                  content: m.content || "",
-                }));
-                logger.log(
-                  `Compaction complete: ${compactionResult.messagesAfterSummary.length} messages after summary`,
-                );
-                safeSend(event.sender, "chat:activity", {
-                  id: `compaction-${req.chatId}-${Date.now()}`,
-                  type: "background",
-                  label: "Summarizing conversation",
-                  status: "done",
-                  timestamp: Date.now(),
-                  detail: `Compacted to ${compactionResult.messagesAfterSummary.length} messages`,
-                  chatId: req.chatId,
-                });
-                // Persist to .atlarix/ATLARIX.md for cross-session memory
-                if (hasWorkspace && appPath) {
-                  writeAtlarixMd(appPath, compactionResult.summaryText).catch((err) =>
-                    logger.warn("Failed to write .atlarix/ATLARIX.md:", err)
-                  );
-                }
-              }
-              }
             }
+            // Token-percent compaction (55% / 75% / 90%) runs later against
+            // `resolveModelContextLimit` + full dispatch estimate — not here.
           }
 
           logger.log(
@@ -3091,7 +3202,7 @@ ${componentSnippet}
           }
 
           // Pass 7: Workforce workspace context block deleted along with the
-          // Token Vault subsystem; per-extension state now lives in MCP server
+          // Legacy hosted credential store removed; per-extension state lives in MCP server
           // env vars.
 
           // PASS8: Blueprint is a lazy read-only graph built on demand when get_blueprint
@@ -3436,6 +3547,13 @@ This conversation includes one or more image attachments. When the user uploads 
             return "fast";
           };
 
+          /** Catalog / heuristic raw context length (not tierLimit × 0.8). */
+          const contextWindowTokens =
+            modelContextResolved.rawContextLength != null &&
+            modelContextResolved.rawContextLength > 0
+              ? modelContextResolved.rawContextLength
+              : Math.max(1, Math.round(modelContextResolved.tierLimit / 0.8));
+
           // Closure that rebinds effectiveModel/modelClient/contextBudgetTier
           // when mid-stream heuristic upgrades the tier in Auto mode. The
           // outer `let` declarations make rebind possible without threading
@@ -3585,6 +3703,308 @@ This conversation includes one or more image attachments. When the user uploads 
             dispatchEstimate,
             mapTierLabel(contextBudgetTier),
           );
+
+          let proactiveContextReminderForStream: string | undefined;
+          await (async () => {
+            let loggedCompactionRem55 = false;
+            let loggedCompactionAuto75 = false;
+            let loggedCompactionForced90 = false;
+            const logCompactionLine = (
+              est: number,
+              kind: "reminder" | "auto" | "forced",
+              gate: 55 | 75 | 90,
+            ) => {
+              const pct = (est / contextWindowTokens) * 100;
+              if (gate === 55 && loggedCompactionRem55) return;
+              if (gate === 75 && loggedCompactionAuto75) return;
+              if (gate === 90 && loggedCompactionForced90) return;
+              if (gate === 55) loggedCompactionRem55 = true;
+              if (gate === 75) loggedCompactionAuto75 = true;
+              if (gate === 90) loggedCompactionForced90 = true;
+              logger.info(
+                `[compaction] Context at ${pct.toFixed(1)}% (${est}tokens / ${contextWindowTokens}tokens) — ${kind}`,
+              );
+            };
+
+            const runCompressAndRebuild = async (
+              compressReason: string,
+              canDbR: boolean,
+              canEphemeralR: boolean,
+            ): Promise<{ ok: boolean; tokensBefore?: number; tokensAfter?: number; status?: string }> => {
+              const providerId =
+                getEffectiveModelForOptions(settings)?.provider ??
+                (settings.selectedModel?.provider ?? undefined);
+              const { executeCompressContext } = await import("@/lib/tools/workspace");
+              const { getEphemeralChat } = await import("./chat_only_handlers");
+              const msgListR = updatedChat.messages as {
+                id: number;
+                role: string;
+                content: string;
+              }[];
+              const outcomeR = await executeCompressContext(
+                { reason: compressReason },
+                {
+                  chatId: req.chatId,
+                  messages: msgListR.map((m) => ({
+                    id: m.id,
+                    role: m.role,
+                    content: m.content || "",
+                  })),
+                  systemPromptTokens: 6000,
+                  inputTokens: estimateTokens(userPrompt),
+                  providerId,
+                  sessionStats: { toolCallCount: 0, delegationCount: 0 },
+                  turnId: null,
+                  ephemeral: canEphemeralR,
+                  setMessages: canEphemeralR
+                    ? (next) => {
+                        updatedChat.messages = next as typeof updatedChat.messages;
+                        const ec = getEphemeralChat(req.chatId);
+                        if (ec) ec.messages = next as typeof ec.messages;
+                      }
+                    : undefined,
+                },
+              );
+              if (!(outcomeR.success && outcomeR.status === "completed")) {
+                return {
+                  ok: false,
+                  tokensBefore: outcomeR.tokensBefore,
+                  tokensAfter: outcomeR.tokensAfter,
+                  status: outcomeR.status,
+                };
+              }
+              if (canDbR) {
+                const fetchedChatR = await db.query.chats.findFirst({
+                  where: eq(chats.id, req.chatId),
+                  with: {
+                    messages: {
+                      orderBy: (messages, { asc: ascOrd }) => [ascOrd(messages.createdAt)],
+                    },
+                    app: true,
+                  },
+                });
+                if (fetchedChatR) updatedChat = fetchedChatR;
+                const summaryRowR = await getContextSummary(req.chatId);
+                if (summaryRowR) {
+                  contextSummaryForSystem = summaryRowR.summaryText;
+                  const freshR = updatedChat.messages as {
+                    id: number;
+                    role: string;
+                    content: string;
+                  }[];
+                  const afterSummaryR = freshR.filter((m) => m.id > summaryRowR.lastMessageId);
+                  limitedMessageHistory = afterSummaryR.map((m) => ({
+                    role: m.role as "user" | "assistant" | "system",
+                    content: m.content || "",
+                  }));
+                }
+              } else if (canEphemeralR) {
+                type EphemeralMsgR = {
+                  role: string;
+                  content?: string;
+                  sourceCommitHash?: string;
+                  commitHash?: string;
+                };
+                limitedMessageHistory = (updatedChat.messages as EphemeralMsgR[]).map((message) => {
+                  const content = message.content || "";
+                  const baseMessage: {
+                    role: "user" | "assistant" | "system";
+                    content: string;
+                  } = {
+                    role: message.role as "user" | "assistant" | "system",
+                    content,
+                  };
+                  const commitFields: { sourceCommitHash?: string; commitHash?: string } = {};
+                  if (message.sourceCommitHash) {
+                    commitFields.sourceCommitHash = message.sourceCommitHash;
+                  }
+                  if (message.commitHash) {
+                    commitFields.commitHash = message.commitHash;
+                  }
+                  return { ...baseMessage, ...commitFields };
+                });
+                const maxChatTurnsR = isDeepContextEnabled
+                  ? 201
+                  : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
+                if (limitedMessageHistory.length > maxChatTurnsR * 2) {
+                  let recentMessagesR = limitedMessageHistory
+                    .filter((msg: EphemeralMsgR) => msg.role !== "system")
+                    .slice(-maxChatTurnsR * 2);
+                  if (recentMessagesR.length > 0 && recentMessagesR[0].role !== "user") {
+                    const firstUserIndexR = recentMessagesR.findIndex(
+                      (msg: EphemeralMsgR) => msg.role === "user",
+                    );
+                    if (firstUserIndexR > 0) {
+                      recentMessagesR = recentMessagesR.slice(firstUserIndexR);
+                    } else if (firstUserIndexR === -1) {
+                      recentMessagesR = [];
+                    }
+                  }
+                  limitedMessageHistory = [...recentMessagesR];
+                }
+              }
+              contextSections = contextSections.filter((s) => s.name !== "contextSummary");
+              if (contextSummaryForSystem) {
+                contextSections.push({
+                  name: "contextSummary",
+                  priority: 5,
+                  content: `## Session Summary (earlier conversation)\n${contextSummaryForSystem}`,
+                });
+              }
+              workingSections = [...contextSections];
+              promptBundle = await buildPromptBundle(workingSections);
+              ({
+                systemPrompt,
+                contextAssemblerBlob,
+                assembledContext,
+                hasInjectedArchitectureContext,
+                codebasePrefix,
+                otherCodebasePrefix,
+              } = promptBundle);
+              limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
+              const tierBudgetedR = await enforceTierContextBudget({
+                resolvedTier: contextBudgetTier,
+                settings,
+                effectiveModel,
+                userPrompt,
+                systemPrompt,
+                contextAssemblerBlob,
+                limitedMessageHistory,
+                codebasePrefixMessages: [...codebasePrefix],
+                otherCodebasePrefixMessages: [...otherCodebasePrefix],
+              });
+              systemPrompt = tierBudgetedR.systemPrompt;
+              limitedMessageHistory = tierBudgetedR.limitedMessageHistory;
+              contextAssemblerBlob = tierBudgetedR.contextAssemblerBlob;
+              dispatchEstimate = estimateDispatchTokens({
+                systemPrompt,
+                history: limitedMessageHistory,
+                codebasePrefixMessages: [...codebasePrefix],
+                otherCodebasePrefixMessages: [...otherCodebasePrefix],
+              });
+              budgetTracker = new ContextBudgetTracker(
+                modelContextResolved.tierLimit,
+                dispatchEstimate,
+                mapTierLabel(contextBudgetTier),
+              );
+              return {
+                ok: true,
+                tokensBefore: outcomeR.tokensBefore,
+                tokensAfter: outcomeR.tokensAfter,
+                status: outcomeR.status,
+              };
+            };
+
+            const fillRatioBefore = dispatchEstimate / contextWindowTokens;
+            let proactiveCompactionSucceeded = false;
+            if (
+              fillRatioBefore >= 0.75 &&
+              settings.enableContextAutoSummarize !== false
+            ) {
+              const canEphemeral = isEphemeralWorkspace && req.chatId < 0;
+              const canDb = req.chatId > 0 && !isEphemeralWorkspace;
+              if (canEphemeral || canDb) {
+                const reason = "proactive-fill-75%";
+                logCompactionLine(dispatchEstimate, "auto", 75);
+                logger.log(
+                  `[stream:${req.chatId}] proactive context compaction (${reason}) fill=${(fillRatioBefore * 100).toFixed(1)}% est=${dispatchEstimate}/${contextWindowTokens}`,
+                );
+                const activityBase = `proactive-compact-${req.chatId}-${Date.now()}`;
+                safeSend(event.sender, "chat:activity", {
+                  id: `${activityBase}-run`,
+                  type: "compaction",
+                  label: "Context compacted automatically",
+                  status: "running",
+                  timestamp: Date.now(),
+                  detail: reason,
+                  chatId: req.chatId,
+                  modelInitiated: false,
+                });
+                try {
+                  const cr = await runCompressAndRebuild(reason, canDb, canEphemeral);
+                  if (cr.ok) proactiveCompactionSucceeded = true;
+                  safeSend(event.sender, "chat:activity", {
+                    id: `${activityBase}-done`,
+                    type: "compaction",
+                    label: "Context compacted automatically",
+                    status: cr.ok ? "done" : "error",
+                    timestamp: Date.now(),
+                    detail:
+                      typeof cr.tokensBefore === "number" && typeof cr.tokensAfter === "number"
+                        ? `${cr.tokensBefore} → ${cr.tokensAfter} est. (${String(cr.status ?? "")})`
+                        : String(cr.status ?? "noop"),
+                    chatId: req.chatId,
+                    modelInitiated: false,
+                  });
+                } catch (e) {
+                  safeSend(event.sender, "chat:activity", {
+                    id: `${activityBase}-err`,
+                    type: "compaction",
+                    label: "Context compacted automatically",
+                    status: "error",
+                    timestamp: Date.now(),
+                    detail: String(e),
+                    chatId: req.chatId,
+                    modelInitiated: false,
+                  });
+                  logger.warn(`[stream:${req.chatId}] proactive compaction failed`, e);
+                }
+              }
+            }
+            const fillAfter75 = dispatchEstimate / contextWindowTokens;
+            if (
+              fillAfter75 >= 0.9 &&
+              settings.enableContextAutoSummarize !== false
+            ) {
+              const canEphemeral90 = isEphemeralWorkspace && req.chatId < 0;
+              const canDb90 = req.chatId > 0 && !isEphemeralWorkspace;
+              if (canEphemeral90 || canDb90) {
+                logCompactionLine(dispatchEstimate, "forced", 90);
+                const forcedBase = `forced-compact-${req.chatId}-${Date.now()}`;
+                safeSend(event.sender, "chat:activity", {
+                  id: `${forcedBase}-run`,
+                  type: "compaction",
+                  label: "Compacting context before continuing...",
+                  status: "running",
+                  timestamp: Date.now(),
+                  detail: "forced-fill-90%",
+                  chatId: req.chatId,
+                  modelInitiated: false,
+                });
+                let forcedAny = false;
+                try {
+                  for (let fi = 0; fi < 3; fi++) {
+                    if (dispatchEstimate / contextWindowTokens < 0.9) break;
+                    const crF = await runCompressAndRebuild(
+                      "forced-fill-90%",
+                      canDb90,
+                      canEphemeral90,
+                    );
+                    if (!crF.ok) break;
+                    forcedAny = true;
+                  }
+                } catch (forcedErr) {
+                  logger.warn(`[stream:${req.chatId}] forced compaction failed`, forcedErr);
+                }
+                safeSend(event.sender, "chat:activity", {
+                  id: `${forcedBase}-done`,
+                  type: "compaction",
+                  label: "Compacting context before continuing...",
+                  status: forcedAny ? "done" : "error",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                  modelInitiated: false,
+                });
+              }
+            }
+
+            const fillAfterProactive = dispatchEstimate / contextWindowTokens;
+            if (fillAfterProactive >= 0.55) {
+              logCompactionLine(dispatchEstimate, "reminder", 55);
+              proactiveContextReminderForStream =
+                "Context is at 55% capacity. Consider calling compress_context before your next heavy tool use.";
+            }
+          })();
 
           const ttftStartRef = { ms: null as number | null };
           const ttftShouldLog =
@@ -3806,9 +4226,13 @@ This conversation includes one or more image attachments. When the user uploads 
             // system-role message in `messages` (matches opencode pattern in llm.ts).
             const streamMessages: ModelMessage[] = (() => {
               const filtered = chatMessages.filter((m) => m.content);
-              if (dynamicSystemTail && dynamicSystemTail.trim().length > 0) {
+              const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
+                (s): s is string => typeof s === "string" && s.trim().length > 0,
+              );
+              const mergedDynamic = tailParts.length > 0 ? tailParts.join("\n\n") : "";
+              if (mergedDynamic) {
                 return [
-                  { role: "system" as const, content: dynamicSystemTail },
+                  { role: "system" as const, content: mergedDynamic },
                   ...filtered,
                 ];
               }
@@ -3822,7 +4246,8 @@ This conversation includes one or more image attachments. When the user uploads 
                 : undefined,
               maxOutputTokens,
               temperature,
-              maxRetries: 2,
+              maxRetries:
+                tools != null && Object.keys(tools as object).length > 0 ? 0 : 2,
               model: modelClient.model,
               stopWhen: [() => false],
               providerOptions,
@@ -4464,6 +4889,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   messages: agentStreamMessages,
                   systemPromptEstimate: estimateTokens(agentParts.stableHeader + "\n\n" + agentParts.dynamicTail),
                   tierLimit: modelContextResolved.tierLimit,
+                  contextWindowTokens,
                   enabled: settings.enableContextAutoSummarize !== false,
                   chatId: req.chatId,
                   loopLabel: "Agent tab",
@@ -4554,6 +4980,7 @@ This conversation includes one or more image attachments. When the user uploads 
               turnId: streamTurnIdForLedger,
               abortController,
               abortStreamOnLedgerComplete: false,
+              toolTurnDedup: toolTurnDedupState,
             });
 
             const askModeTools = ToolRegistry.getToolsForAskMode();
@@ -4567,6 +4994,7 @@ This conversation includes one or more image attachments. When the user uploads 
               ask: new Set([
                 "ask_user",
                 "clear_blueprint",
+                "compress_context",
                 "deep_research",
                 "explore_folder",
                 "find_file",
@@ -4596,6 +5024,7 @@ This conversation includes one or more image attachments. When the user uploads 
               plan: new Set([
                 "ask_user",
                 "clear_blueprint",
+                "compress_context",
                 "edit_file",
                 "explore_folder",
                 "find_file",
@@ -4699,8 +5128,8 @@ This conversation includes one or more image attachments. When the user uploads 
             ) {
               askToolsToInclude = [...askToolsToInclude, planWriteMeta];
             }
-            for (const name of ["write_file", "get_plan_scope", "read_implementation_plan"] as const) {
-              if (!modeAllowlist.plan.has(name)) continue;
+            for (const name of ["compress_context", "write_file", "get_plan_scope", "read_implementation_plan"] as const) {
+              if (!reachableModeTools.has(name)) continue;
               const meta = ToolRegistry.get(name);
               if (meta && !askToolsToInclude.some((t) => t.name === name)) {
                 askToolsToInclude = [...askToolsToInclude, meta];
@@ -4748,6 +5177,90 @@ This conversation includes one or more image attachments. When the user uploads 
                         success: false,
                         error: `${tool.name} is not available in ${liveWorkMode} mode. Call request_mode_change first.`,
                       });
+                    }
+                    if (tool.name === "compress_context") {
+                      const reason =
+                        args && typeof args.reason === "string" && args.reason.trim()
+                          ? args.reason.trim()
+                          : "model-initiated";
+                      safeSend(event.sender, "chat:activity", {
+                        id: `compress-context-${req.chatId}-${Date.now()}`,
+                        type: "compaction",
+                        label: "Context compressed",
+                        status: "running",
+                        timestamp: Date.now(),
+                        detail: reason,
+                        chatId: req.chatId,
+                        modelInitiated: true,
+                      });
+                      try {
+                        const providerId =
+                          getEffectiveModelForOptions(settings)?.provider ??
+                          (settings.selectedModel?.provider ?? undefined);
+                        const { executeCompressContext } = await import("@/lib/tools/workspace");
+                        const { getEphemeralChat } = await import("./chat_only_handlers");
+                        const msgList = updatedChat.messages as {
+                          id: number;
+                          role: string;
+                          content: string;
+                        }[];
+                        const outcome = await executeCompressContext(
+                          { reason },
+                          {
+                            chatId: req.chatId,
+                            messages: msgList.map((m) => ({
+                              id: m.id,
+                              role: m.role,
+                              content: m.content || "",
+                            })),
+                            systemPromptTokens: 6000,
+                            inputTokens: 0,
+                            providerId,
+                            sessionStats: { toolCallCount: 0, delegationCount: 0 },
+                            turnId: isEphemeralWorkspace
+                              ? null
+                              : String(placeholderAssistantMessage?.id ?? ""),
+                            ephemeral: isEphemeralWorkspace,
+                            setMessages: isEphemeralWorkspace
+                              ? (next) => {
+                                  updatedChat.messages = next as typeof updatedChat.messages;
+                                  const ec = getEphemeralChat(req.chatId);
+                                  if (ec) ec.messages = next as typeof ec.messages;
+                                }
+                              : undefined,
+                          },
+                        );
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "done",
+                          timestamp: Date.now(),
+                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. (${outcome.status}). ${reason}`,
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+                        return JSON.stringify({
+                          success: outcome.success,
+                          reason: outcome.reason,
+                          tokensBefore: outcome.tokensBefore,
+                          tokensAfter: outcome.tokensAfter,
+                          summary: outcome.summary,
+                          status: outcome.status,
+                        });
+                      } catch (e) {
+                        safeSend(event.sender, "chat:activity", {
+                          id: `compress-context-${req.chatId}-${Date.now()}`,
+                          type: "compaction",
+                          label: "Context compressed",
+                          status: "error",
+                          timestamp: Date.now(),
+                          detail: String(e),
+                          chatId: req.chatId,
+                          modelInitiated: true,
+                        });
+                        return JSON.stringify({ success: false, error: String(e), reason });
+                      }
                     }
                     const execArgs: any = {
                       ...args,
@@ -5072,7 +5585,7 @@ Available tools (Ask — read-only):
 - memory({ operation: "recall" | "search" })
 - get_active_skills, list_installed_skills, list_available_mcps, get_project_history
 - read_attachment, list_attachments
-- ask_user: Clarifications or choices — pass \`options\` as string array; do not fake widgets in prose only.
+- ask_user: Clarifications or choices — pass \`options\` (or \`choices\`) as a JSON string array for buttons; or put one choice per line after the question. Do not rely on prose-only lists without \`options\`.
 - request_mode_change: Instantly switch to **Plan**, **Build**, **Debug**, or **Review** when the user is ready (no confirmation).
 
 NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests.`;
@@ -5237,6 +5750,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                   messages: askStreamMessages,
                   systemPromptEstimate: estimateTokens(askStableHeader + "\n\n" + askParts.dynamicTail),
                   tierLimit: modelContextResolved.tierLimit,
+                  contextWindowTokens,
                   enabled: settings.enableContextAutoSummarize !== false,
                   chatId: req.chatId,
                   loopLabel: "Ask tier",
@@ -6629,6 +7143,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                     messages: agenticMessages,
                     systemPromptEstimate: estimateTokens(buildSystemPromptWithManifest),
                     tierLimit: modelContextResolved.tierLimit,
+                    contextWindowTokens,
                     enabled: settings.enableContextAutoSummarize !== false,
                     chatId: req.chatId,
                     loopLabel: "Agentic Loop",
@@ -6943,6 +7458,10 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
           } = parseQuestions(fullResponse);
           let responseToStore = questions != null ? contentAfterQuestions : fullResponse;
           responseToStore = sanitizeAssistantOutput(responseToStore);
+          responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
+            settings: readSettings(),
+            mainOptions,
+          });
           if (questions != null && questions.length > 0) {
             safeSend(event.sender, "chat:questions", {
               messageId: placeholderAssistantMessage.id,
@@ -7455,6 +7974,8 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
         streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
+        toolTurnDedupState.dedupeByKey.clear();
+        toolTurnDedupState.callCountByTool.clear();
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         ensureTerminal();

@@ -77,8 +77,9 @@ import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import type { ModelTier } from "@/lib/routing/capability-registry";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
-import { captureSafe } from "../../main/lib/analytics";
 import { parseQuestions } from "../utils/cleanFullResponse";
+import { captureSafe } from "../../main/lib/analytics";
+import { summarizeOversizedToolResultsInContent } from "@/lib/context/post_turn_tool_result_summary";
 import * as path from "path";
 import { readFile } from "fs/promises";
 import { AttachmentStore } from "../../lib/attachment-store";
@@ -1188,10 +1189,15 @@ export async function handleChatOnlyStream(
             if (t === "balanced") return "balanced";
             return "fast";
         };
-        const { tierLimit: chatOnlyTierLimit } = await resolveModelContextLimit(
+        const chatOnlyModelCtx = await resolveModelContextLimit(
             effectiveModel as LargeLanguageModel,
             settings,
         );
+        const chatOnlyTierLimit = chatOnlyModelCtx.tierLimit;
+        const chatOnlyContextWindowTokens =
+            chatOnlyModelCtx.rawContextLength != null && chatOnlyModelCtx.rawContextLength > 0
+                ? chatOnlyModelCtx.rawContextLength
+                : Math.max(1, Math.round(chatOnlyModelCtx.tierLimit / 0.8));
 
         const messagesForCompaction = (messageHistory as { id?: number; role: string; content?: string }[]).map((m, idx) => ({
             id: m.id ?? Date.now() + idx,
@@ -1593,6 +1599,7 @@ export async function handleChatOnlyStream(
                         messages: chatOnlyStreamMessages,
                         systemPromptEstimate: estimateTokens(chatOnlyParts.stableHeader + "\n\n" + chatOnlyDynamicTail),
                         tierLimit: chatOnlyTierLimit,
+                        contextWindowTokens: chatOnlyContextWindowTokens,
                         enabled: settings.enableContextAutoSummarize !== false,
                         chatId: req.chatId,
                         loopLabel: "chat-only",
@@ -1648,6 +1655,7 @@ export async function handleChatOnlyStream(
                     messages: chatOnlyStreamMessages,
                     systemPromptEstimate: estimateTokens(chatOnlyParts.stableHeader + "\n\n" + chatOnlyDynamicTail),
                     tierLimit: chatOnlyTierLimit,
+                    contextWindowTokens: chatOnlyContextWindowTokens,
                     enabled: settings.enableContextAutoSummarize !== false,
                     chatId: req.chatId,
                     loopLabel: "chat-only",
@@ -1691,6 +1699,10 @@ export async function handleChatOnlyStream(
         let responseToStore =
             questions != null ? contentAfterQuestions : fullResponse;
         responseToStore = sanitizeAssistantOutput(responseToStore);
+        responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
+            settings,
+            mainOptions,
+        });
         // ═══════════════════════════════════════════════════════════════
 
         // Create assistant message (in-memory only) WITH SOURCES

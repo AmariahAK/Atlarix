@@ -59,6 +59,8 @@ export interface RunMidLoopCompactionParams {
   messages: ModelMessage[];
   systemPromptEstimate: number;
   tierLimit: number;
+  /** When set, mid-loop compaction compares fill to this raw context size (tokens). */
+  contextWindowTokens?: number;
   /** Mirrors `settings.enableContextAutoSummarize !== false` from the caller. */
   enabled: boolean;
   chatId: number;
@@ -90,13 +92,14 @@ export async function runMidLoopCompaction(
     messages,
     systemPromptEstimate,
     tierLimit,
+    contextWindowTokens,
     enabled,
     chatId,
     loopLabel,
     emitActivity,
     onInfo,
     onWarn,
-    threshold = 0.7,
+    threshold = 0.75,
   } = params;
 
   if (!enabled) {
@@ -125,6 +128,7 @@ export async function runMidLoopCompaction(
       messages,
       systemPromptEstimate,
       tierLimit,
+      contextWindowTokens,
       threshold,
     });
 

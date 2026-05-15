@@ -1,7 +1,7 @@
 # Atlarix TODO
 
 **Current Version:** v8.2.0
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-05-15
 
 ---
 
@@ -60,6 +60,16 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.1.0]`.
 | Quit lifecycle logs | **Done** | `main.ts` `[lifecycle]` memory on `before-quit` / `will-quit` |
 
 See [CHANGELOG.md](CHANGELOG.md) `[8.0.3]`.
+
+---
+
+## Shipped in v8.0.4
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Dev install / Electron binary | **Done** | Root `postinstall` runs `node_modules/electron/install.js` after native rebuilds so `Electron.app` / binary exists when `dist/` was incomplete (fixes `spawn …/Electron ENOENT` on `npm start`) |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.0.4]`.
 
 ---
 

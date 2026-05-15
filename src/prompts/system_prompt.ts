@@ -119,6 +119,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
   ask: [
     "ask_user",
     "clear_blueprint",
+    "compress_context",
     "deep_research",
     "explore_folder",
     "find_file",
@@ -148,6 +149,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
   plan: [
     "ask_user",
     "clear_blueprint",
+    "compress_context",
     "edit_file",
     "explore_folder",
     "find_file",
@@ -330,7 +332,7 @@ whether a workspace is open.
 **Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode (or use \`request_mode_change\` toward plan). Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
 
 **Deterministic discovery flow:**
-1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on likely paths to confirm scope.
+1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
 2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
 3. **Architecture:** Call \`get_blueprint\` (optionally \`include_panel_graph: true\`) or \`get_diagram\` when you need an explicit structural map. To show a curated slice in the Diagram tab mind map, call \`set_blueprint\` with the **current best** graph (it **replaces** the prior panel state—do not accumulate). Use \`clear_blueprint\` when the panel should be emptied.
 

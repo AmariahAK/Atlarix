@@ -57,6 +57,7 @@ interface InstallDialogState {
 
 const MAX_GLOBAL_MCP = 5;
 const MAX_WORKSPACE_MCP = 5;
+const PAGE_SIZE = 6;
 
 export function McpMarketplaceTab({
   workspaces,
@@ -75,6 +76,7 @@ export function McpMarketplaceTab({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
 
   // Track which registry ids are already installed and at what scope, so the
   // card can show "Installed" instead of "Connect".
@@ -151,6 +153,20 @@ export function McpMarketplaceTab({
     });
   }, [registry, search, tagFilter, tier]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [search, tagFilter]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  }, [filtered.length]);
+
+  const pagedFiltered = useMemo(() => {
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, page, totalPages]);
+
   const onConnect = useCallback(
     (entry: McpRegistryEntry) => {
       const initialEnv: Record<string, string> = {};
@@ -193,7 +209,7 @@ export function McpMarketplaceTab({
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 text-sm">
         <div className="font-medium text-foreground mb-1">Marketplace is a Pro feature</div>
         <p className="text-muted-foreground">
-          Free workspaces can still add MCPs manually, but one-click installs from the public registry
+          Free accounts can add <strong>one</strong> global MCP manually in Settings. One-click installs from the public registry
           require Pro or Workforce. Upgrade in Settings → Pricing.
         </p>
       </div>
@@ -240,9 +256,37 @@ export function McpMarketplaceTab({
         </div>
       )}
 
-      <ScrollArea className="max-h-[560px] pr-2">
+      <ScrollArea className="max-h-[640px] pr-2">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 pr-2">
+          <div className="text-sm text-muted-foreground">
+            Showing <span className="text-foreground font-medium">{pagedFiltered.length}</span> of{" "}
+            <span className="text-foreground font-medium">{filtered.length}</span> MCPs
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              Prev
+            </Button>
+            <div className="text-sm text-muted-foreground">
+              Page <span className="text-foreground font-medium">{Math.min(page, totalPages)}</span> of{" "}
+              <span className="text-foreground font-medium">{totalPages}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {filtered.map((entry) => {
+          {pagedFiltered.map((entry) => {
             const installList = installed.get(entry.id) ?? [];
             const isInstalled = installList.length > 0;
             return (

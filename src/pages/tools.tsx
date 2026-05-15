@@ -1,23 +1,11 @@
 /**
- * Tools page – 4 features per view, search, categories, short descriptions and in-app links.
- * Atlarix 6.2.2: Auto + Compass tier-aware context; Build vs Agent tool surfacing documented.
+ * Tools page – feature catalog with search, categories, and deep links into the app.
  */
 
 import { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Sparkles,
   Search,
-  Network,
-  Wrench,
-  Globe,
-  Eye,
-  Zap,
-  MessageSquare,
-  FileCode,
-  Database,
-  Server,
-  Workflow,
   ExternalLink,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -28,7 +16,9 @@ type Category =
   | "all"
   | "ai"
   | "code"
+  | "blueprint"
   | "diagram"
+  | "skills"
   | "mcp"
   | "preview"
   | "models"
@@ -46,138 +36,226 @@ interface ToolFeature {
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "ai", label: "AI" },
+  { id: "ai", label: "AI & modes" },
   { id: "code", label: "Code" },
+  { id: "blueprint", label: "Blueprint" },
   { id: "diagram", label: "Diagram" },
+  { id: "skills", label: "Skills" },
   { id: "mcp", label: "MCP" },
   { id: "preview", label: "Preview" },
   { id: "models", label: "Models" },
-  { id: "integration", label: "Integration" },
+  { id: "integration", label: "Workforce" },
 ];
 
 const FEATURES: ToolFeature[] = [
   {
-    id: "codegen",
-    title: "Intelligent Code Generation",
-    shortDescription: "Generate apps from natural language. Context-aware, multi-framework.",
+    id: "modes",
+    title: "Work modes (Ask, Plan, Build, Debug, Review)",
+    shortDescription:
+      "Match the chat to the job: read-only exploration, structured planning, executing edits, debugging, or review passes.",
     category: "ai",
-    steps: ["Open Home", "Select workspace", "Describe what you want in chat", "Review and iterate"],
-    howItWorks: "Uses your selected model and workspace context to produce runnable code.",
+    steps: [
+      "Pick a mode from the chat toolbar",
+      "Ask stays read-only (no project writes)",
+      "Plan shapes work before Build runs commands and file edits through approvals",
+    ],
+    howItWorks:
+      "Modes change which tools the model may call. Build unlocks writes and terminal runs behind the permission queue; Ask limits you to safe, read-only tools.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
-    id: "chat",
-    title: "Context-Aware Chat",
-    shortDescription: "Ask questions, refactor, debug. Full workspace and history context.",
-    category: "ai",
-    steps: ["Select a workspace", "Use Ask or Build mode", "Reference files in chat", "Use right panel for preview/diagram"],
-    howItWorks: "Chat is tied to the active workspace and shares context with Code/Diagram panels.",
-    link: { label: "Home → Config", to: "/" },
-  },
-  {
-    id: "editing",
-    title: "Smart Code Editing",
-    shortDescription: "Request precise edits in natural language. Structure and types preserved.",
-    category: "code",
-    steps: ["Build mode in chat", "Describe the change", "Approve edits in Permissions tab if prompted", "Save with Cmd+S"],
-    howItWorks: "AI suggests file changes; you approve in the right panel. Errors tab shows issues.",
-    link: { label: "Home → Code tab", to: "/" },
-  },
-  {
-    id: "autofix",
-    title: "Automated Problem Fixing",
-    shortDescription: "Detect and fix TypeScript/lint errors. Optional auto-fix in settings.",
-    category: "code",
-    steps: ["Run dev server or build", "Open Errors tab in right panel", "Use Fix with AI or Mark done", "View code jumps to file/line"],
-    howItWorks: "Errors from preview/terminal appear in the Errors tab. Fix with AI sends context to chat.",
-    link: { label: "Right panel → Errors", to: "/" },
-  },
-  {
-    id: "diagram",
-    title: "Architecture Diagrams",
-    shortDescription: "Generate and view project structure. Version history and restore.",
-    category: "diagram",
-    steps: ["Select workspace", "Open Diagram tab or generate from chat", "Toggle Live / History", "Export or copy Mermaid"],
-    howItWorks: "Diagrams are generated from your codebase and stored per workspace.",
-    link: { label: "Diagram full screen", to: "/diagram" },
-  },
-  {
-    id: "preview",
-    title: "Live Preview & Hot Reload",
-    shortDescription: "See changes instantly. Mobile/tablet/desktop viewports.",
-    category: "preview",
-    steps: ["Start dev server (Build mode)", "Open Preview tab in right panel", "Resize or switch viewport", "Hot reload updates automatically"],
-    howItWorks: "Iframe loads your app URL. Use Run command to start the dev server.",
-    link: { label: "Right panel → Preview", to: "/" },
-  },
-  {
-    id: "mcp",
-    title: "MCP Servers & Tools",
-    shortDescription: "Use external tools (e.g. filesystem, APIs) in chat. Global and per-workspace.",
-    category: "mcp",
-    steps: ["Settings → Tools (MCP)", "Add server (command or URL)", "In chat, open Config → Manage MCP tools", "Set consent per tool (Ask / Always / Deny)"],
-    howItWorks: "In a workspace, chat sees global + that workspace's MCPs. No workspace = global only.",
-    link: { label: "Settings → MCP", to: "/settings" },
-  },
-  {
-    id: "models",
-    title: "Models & Providers",
-    shortDescription: "Compass built in (no key). Plus Ollama, LM Studio, OpenAI, Anthropic, and more. Auto: one provider, up to 3 models (Fast/Balanced/Thinking).",
+    id: "auto-routing",
+    title: "Auto & Compass tiers",
+    shortDescription:
+      "Compass is the managed provider (no API key). Free gets Fast only; Pro and Workforce unlock Balanced and Thinking with higher monthly allowances.",
     category: "models",
-    steps: ["Settings → Model Providers", "Add API keys for providers", "Config → Change model or Configure Auto (provider + Fast/Medium/Thinking)"],
+    steps: [
+      "Sign in for Compass, or add BYOK keys under Settings → Model Providers",
+      "Toggle Auto in Config to route Fast / Balanced / Thinking when your plan allows",
+      "Watch the context bar for long threads—Balanced/Thinking use tier-aware windows",
+    ],
     howItWorks:
-      "Select a single model for manual control or turn on Auto to route by complexity using your chosen Fast/Balanced/Thinking models for a single provider. Auto and Compass tiers use context sized for that tier so Balanced and Thinking stay reliable on long threads—replies are much less likely to stop mid-answer when context grows.",
+      "Compass tiers are enforced server-side. BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Compass—pick the active model per chat.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
+    id: "delegation",
+    title: "Agent delegation",
+    shortDescription:
+      "Hand off to Research, Architect, Builder, Reviewer, or Debugger with Guided (flat) or Autonomous (nested) delegation.",
+    category: "ai",
+    steps: ["Enable Guided or Autonomous in chat settings", "Ask for research, design, implementation, or review", "Watch activity and tool traces in the stream"],
+    howItWorks:
+      "Delegation reuses your workspace tools under stricter depth and ledger rules so long autonomous runs stay bounded.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "tool-manifest",
+    title: "How tools surface to the model",
+    shortDescription:
+      "Build mode progressively registers core tools; the prompt still carries a manifest of names. Workspace MCP attaches via list_available_mcps + mcp_call.",
+    category: "ai",
+    steps: [
+      "Start in Build: common file/search/git tools are callable immediately",
+      "After a tool runs, it stays hot for the rest of the chat where allowed",
+      "Ask uses a read-only allowlist; workspace chats avoid merging every MCP tool by default",
+    ],
+    howItWorks:
+      "This keeps small chats fast while still advertising the full catalog to the planner. MCP-heavy workflows opt in per call.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "search-unified",
+    title: "Unified search",
+    shortDescription:
+      "Single search tool for keyword, semantic, or structural queries across the repo (replaces scattered find helpers).",
+    category: "code",
+    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "Pair with Blueprint for graph-backed structural lookups"],
+    howItWorks:
+      "Search modes share one entry point; structural mode leans on Blueprint data after you load the graph.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "editing",
+    title: "Edits & codegen",
+    shortDescription: "Natural-language edits land as diffs you approve before they hit disk.",
+    category: "code",
+    steps: ["Build mode", "Describe the change", "Approve in Permissions", "Iterate from Errors if tests fail"],
+    howItWorks: "File writes and shell commands queue in the right panel with previews.",
+    link: { label: "Right panel → Permissions", to: "/" },
+  },
+  {
+    id: "tests-env",
+    title: "Tests, environment & git",
+    shortDescription: "Run tests, check toolchains, and inspect git + session summaries from chat tools.",
+    category: "code",
+    steps: ["Ask the model to run targeted tests", "Use git summaries before pushing", "check_environment before new toolchain work"],
+    howItWorks: "These tools share the same approval rules as other command executions.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "autofix",
+    title: "Errors panel",
+    shortDescription: "Surface TypeScript, lint, and runtime issues; jump back into chat to fix.",
+    category: "code",
+    steps: ["Open Errors in the right stack", "Click a row to jump to code", "Use Fix with AI when you want a guided patch"],
+    howItWorks: "Diagnostics aggregate preview + terminal output so you do not hunt tabs manually.",
+    link: { label: "Right panel → Errors", to: "/" },
+  },
+  {
+    id: "blueprint-graph",
+    title: "Blueprint graph",
+    shortDescription:
+      "Lazy-load structural graph data with get_blueprint; inspect rooms, beacons, and edges without pasting the entire repo into context.",
+    category: "blueprint",
+    steps: ["Open a workspace", "Ask the model to load Blueprint for an area", "Navigate the canvas; compare to Live view"],
+    howItWorks:
+      "RTE workers parse TS/JS via oxc and selected langs via WASM tree-sitter; results merge into the graph store used for structural search.",
+    link: { label: "Home → Blueprint", to: "/" },
+  },
+  {
+    id: "blueprint-commit",
+    title: "Blueprint snapshot to git (Workforce)",
+    shortDescription: "Serialize approved Blueprint snapshots back into the repository—gated to Workforce.",
+    category: "blueprint",
+    steps: ["Upgrade to Workforce", "Finalize a Blueprint layout", "Run commit_blueprint / snapshot flow from chat when enabled"],
+    howItWorks: "This keeps design artifacts versioned beside code; Pro and Free tiers can still edit locally without auto-commit.",
+    link: { label: "Settings → Subscription", to: "/settings" },
+  },
+  {
+    id: "diagram",
+    title: "Mermaid diagrams",
+    shortDescription: "Generate architecture diagrams from chat via get_diagram; reference chips track multiple views.",
+    category: "diagram",
+    steps: ["Ask for a diagram of a subsystem", "Open Diagram tab for fullscreen", "Export or copy Mermaid"],
+    howItWorks:
+      "Diagrams complement Blueprint: faster visual communication, while Blueprint holds rich structural data.",
+    link: { label: "Diagram page", to: "/diagram" },
+  },
+  {
+    id: "skills-marketplace",
+    title: "Skills marketplace (Pro / Workforce)",
+    shortDescription:
+      "Install Apache-licensed playbooks from the public registry—five global slots and five per workspace.",
+    category: "skills",
+    steps: ["Settings → Skills", "Browse and install", "Use Build/Review modes to activate compatible skills"],
+    howItWorks:
+      "Skills shrink repetitive prompt boilerplate; they never replace your workspace instructions in `.atlarix/ATLARIX.md`.",
+    link: { label: "Settings → Skills", to: "/settings" },
+  },
+  {
+    id: "repo-skills",
+    title: "Repo skills & Workforce priority",
+    shortDescription:
+      "Drop markdown skills under `.atlarix/skills/`. The priority flag is honored only for Workforce seats.",
+    category: "skills",
+    steps: ["Add skill files to `.atlarix/skills/`", "Commit them like other project docs", "Upgrade to Workforce to enforce priority ordering"],
+    howItWorks: "Free and Pro still read the folder for context, but priority ordering remains a Workforce feature.",
+    link: { label: "Open workspace folder", to: "/" },
+  },
+  {
+    id: "mcp-manual",
+    title: "MCP servers (manual)",
+    shortDescription:
+      "Wire stdio or HTTP MCP servers globally or per workspace. Free tier: one global server; Pro/Workforce: up to five global and five per workspace.",
+    category: "mcp",
+    steps: ["Settings → Tools → MCP", "Add command or URL + env", "Approve tool calls per capability"],
+    howItWorks:
+      "Manual entries are unchanged by the marketplace; they are ideal for private or bespoke servers.",
+    link: { label: "Settings → MCP", to: "/settings" },
+  },
+  {
+    id: "mcp-marketplace",
+    title: "MCP marketplace (Pro / Workforce)",
+    shortDescription:
+      "One-click installs from the curated atlarix-mcps registry; pagination matches the skills browser.",
+    category: "mcp",
+    steps: ["Open MCP → Marketplace tab", "Filter or search", "Connect with env vars, choose scope"],
+    howItWorks:
+      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers. Some entries may be Workforce-only.",
+    link: { label: "Settings → MCP marketplace", to: "/settings" },
+  },
+  {
+    id: "mcp-ondemand",
+    title: "On-demand MCP in workspace chat",
+    shortDescription: "list_available_mcps and mcp_call attach external tools without flooding every turn.",
+    category: "mcp",
+    steps: ["Work inside a workspace chat", "Let the model list servers when needed", "Approve individual MCP tool calls"],
+    howItWorks: "Workspace sessions no longer auto-merge every MCP definition into the initial tool bundle.",
+    link: { label: "Home → Chat", to: "/" },
+  },
+  {
+    id: "preview",
+    title: "Live preview & dev server",
+    shortDescription: "Embed your local dev server, parse output, and keep preview/errors linked.",
+    category: "preview",
+    steps: ["Start the dev command from Build", "Open Preview tab", "Resize breakpoints and watch hot reload"],
+    howItWorks: "Preview shares state with the Errors tab so UI stack traces line up with code.",
+    link: { label: "Right panel → Preview", to: "/" },
+  },
+  {
     id: "websearch",
-    title: "Web Search",
-    shortDescription: "Search the web from chat. Docs, Stack Overflow, examples.",
+    title: "Web & deep research",
+    shortDescription: "Built-in web search when the provider supports it; optional local SearxNG via Docker.",
     category: "integration",
-    steps: ["Ask in chat for docs or examples", "AI can use web search", "Results appear in Sources/Search tab"],
-    howItWorks: "Web search is available when the provider supports it; results are shown in the panel.",
+    steps: ["Ask for external docs or CVEs", "Review citations in Search tab", "Use deep research sparingly—it's multi-step"],
+    howItWorks: "Remote calls obey your networking and consent settings; local search keeps traffic on-machine.",
     link: { label: "Home → Search tab", to: "/" },
   },
   {
     id: "workspace-workforce",
-    title: "Workspace & Workforce (Teams, Extensions, Context)",
-    shortDescription: "Workspaces with Teams, Workforce billing, and connected extensions (Slack, Jira, Linear, Sentry, Calendar, CI).",
+    title: "Workforce: teams, MCP integrations, session scope",
+    shortDescription:
+      "Workforce unlocks team billing (default five seats), the largest Compass pool, MCP-based team integrations, repo skill priority, Blueprint commit, and Workforce-only MCP catalog rows.",
     category: "integration",
     steps: [
-      "Create or select a workspace on Home",
-      "Upgrade to Workforce in Settings → Subscription or sidebar Account menu",
-      "Open Settings → Workspace to connect extensions via Token Vault (Slack, Jira, Linear, etc.)",
-      "When a Workforce tool runs, choose the service scope for this chat (e.g. Slack workspace, GitHub org/repo)—stored for the session, not in settings JSON",
-      "Chat in Build or Ask mode and let Workforce tools fetch tickets, mentions, pipelines, and errors for the active workspace",
-    ],
-    /* Fix: Workforce-1 — session-scoped service context (picker), not a static per-workspace JSON \"space\" blob. */
-    howItWorks:
-      "Each workspace has its own Team, plan (Free / Pro / Workforce), and Token Vault connections. Workforce users connect Slack, Jira, Linear, Sentry, Calendar, CI in Settings → Workspace. For each chat session, the first time a Workforce tool needs a scope, you pick the Slack workspace, default channel area, GitHub org/repo, or similar; that choice is remembered for that chat only (cleared on new chat). Atlarix injects a Workforce context block into the prompt from those connections. Tools are gated by your effective tier.",
-    link: { label: "Settings → Subscription & Workspace", to: "/settings" },
-  },
-  {
-    id: "agent-delegation",
-    title: "Agent Delegation (delegate_to_agent)",
-    shortDescription: "Hand off to Research, Architect, Builder, or Reviewer. Guided (flat) or Autonomous (nested) delegation.",
-    category: "ai",
-    steps: ["Select Guided or Autonomous mode in chat", "Ask for research, architecture, or implementation", "AI delegates to the right agent; see activity in the response"],
-    howItWorks:
-      "In Guided mode the main model delegates once to a specialist. In Autonomous mode agents can delegate to each other up to a depth limit. Context is managed across those steps so the main thread stays coherent for long autonomous runs.",
-    link: { label: "Home → Chat", to: "/" },
-  },
-  {
-    id: "tool-discovery",
-    title: "How tools appear to the model",
-    shortDescription: "Build: core tools callable first + full manifest in the prompt. Agent: wider tool set at once. Ask: read-only allowlist.",
-    category: "ai",
-    steps: [
-      "Build mode: start chatting—core file/search/command tools are registered for function-calling immediately",
-      "The system prompt still lists every workspace tool by name with a one-line description (manifest)",
-      "After a tool runs once, it stays in the callable set for that chat; Agent mode passes a broader set in one go",
+      "Upgrade in Settings → Subscription",
+      "Connect Slack, Jira, Linear, Sentry, CI, calendar under Settings → Workspace",
+      "When a tool needs context, pick org/repo/channel scope for that chat session (clears on New Chat)",
     ],
     howItWorks:
-      "Build uses progressive registration: core tools plus tools already used this session get full schemas for the API; the manifest tells the model what else exists. Agent mode uses a single broader tool bundle. Ask mode uses read-only and allowlisted tools with the same loader pattern for eligible tools.",
-    link: { label: "Home → Chat", to: "/" },
+      "Effective tier can follow your personal plan or team membership. Integrations never bypass the permission queue for writes.",
+    link: { label: "Settings → Workspace", to: "/settings" },
   },
 ];
 
@@ -222,22 +300,21 @@ export default function ToolsPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Tools</h1>
           <p className="text-muted-foreground text-sm">
-            Features, where to use them, and how to set up.
+            What the desktop app can do today—modes, Blueprint, Skills, MCP, previews, and team features.
           </p>
         </div>
 
-        {/* Setup models */}
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-          <p className="font-medium text-foreground mb-1">Setup models</p>
+          <p className="font-medium text-foreground mb-1">Models & tiers</p>
           <p className="text-muted-foreground mb-2">
-            Add API keys in Settings → Model Providers. For Auto mode, use Config → Configure Auto (provider + Fast/Balanced/Thinking). With Compass, pick your tier in settings—Balanced and Thinking get context matched to those models for long chats.
+            Free includes Compass Fast plus BYOK/local models. Pro and Workforce unlock Compass Balanced &amp; Thinking, the Skills and MCP marketplaces, and higher MCP capacity.
+            Workforce adds MCP-based team integrations, repo skill priority, Blueprint git snapshots, and pooled team usage.
           </p>
           <Button variant="outline" size="sm" onClick={() => goTo("/settings")}>
             Open Settings
           </Button>
         </div>
 
-        {/* Search + categories */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -272,7 +349,6 @@ export default function ToolsPage() {
           </div>
         </div>
 
-        {/* Grid: 4 per view */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {paginated.map((f) => (
             <div
@@ -310,7 +386,6 @@ export default function ToolsPage() {
           </p>
         )}
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex justify-center gap-2">
             <Button

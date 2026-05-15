@@ -1,6 +1,6 @@
 /**
  * LocalProviderFavoritesSelector - Select 3 favorites for Ollama or LM Studio
- * Fast / Balanced / Deep
+ * Fast / Balanced / Thinking
  */
 
 import { useState, useEffect } from "react";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const MAX_FAVORITES = 3;
-const TIER_LABELS = ["Fast", "Balanced", "Deep"];
+const TIER_LABELS = ["Fast", "Balanced", "Thinking"];
 
 interface LocalProviderFavoritesSelectorProps {
   providerId: "ollama" | "lmstudio";
@@ -51,7 +51,7 @@ export function LocalProviderFavoritesSelector({
     } else if (favorites.length < MAX_FAVORITES) {
       onFavoritesChange([...favorites, modelId]);
     } else {
-      toast.error(`Maximum ${MAX_FAVORITES} favorites (Fast/Balanced/Deep)`);
+      toast.error(`Maximum ${MAX_FAVORITES} favorites (Fast/Balanced/Thinking)`);
     }
   };
 
@@ -187,7 +187,7 @@ export function LocalProviderFavoritesSelector({
           </div>
         </ScrollArea>
         <p className="text-xs text-muted-foreground">
-          Favorites appear first in the model picker. Select 3 for Fast / Balanced / Deep.
+          Favorites appear first in the model picker. Select 3 for Fast / Balanced / Thinking.
         </p>
       </div>
     </div>

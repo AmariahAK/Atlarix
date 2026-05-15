@@ -225,43 +225,20 @@ const AGENT_COMPACTION_THRESHOLDS: Record<string, number> = {
 };
 
 /**
- * v3.6: Trigger-based compaction. Evaluate in order; first match wins.
- * Returns true if any trigger fires.
+ * Token-only compaction gate (exchange / tool-burst triggers removed).
  */
 export function evaluateCompactionTriggers(params: {
   tokenRatio: number;
-  exchangeCount?: number;
-  contextWindowKnown?: boolean;
-  toolCallsInLast6?: number;
   agentId?: string;
-  hasWorkspace?: boolean;
-  settingsExchangeThreshold?: number;
 }): boolean {
-  const {
-    tokenRatio,
-    exchangeCount = 0,
-    contextWindowKnown = true,
-    toolCallsInLast6 = 0,
-    agentId,
-    hasWorkspace = true,
-    settingsExchangeThreshold = 6,
-  } = params;
-
-  // Use agent-specific threshold if available, otherwise use COMPACTION_THRESHOLD (0.75)
+  const { tokenRatio, agentId } = params;
   const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
-
-  // Primary trigger: token ratio exceeds threshold
-  if (tokenRatio > threshold) return true;
-  // Fallback trigger: unknown context window with enough exchanges
-  if (!contextWindowKnown && exchangeCount >= settingsExchangeThreshold) return true;
-  // Tool call burst trigger
-  if (toolCallsInLast6 >= 8) return true;
-  return false;
+  return tokenRatio > threshold;
 }
 
 /**
  * Check if we should run compaction (over threshold).
- * v3.6: When triggerParams provided, uses trigger-based evaluation; otherwise single threshold.
+ * Token ratio only — uses provider usable budget from settings.
  */
 export async function shouldCompact(params: {
   chatId: number;
@@ -269,9 +246,6 @@ export async function shouldCompact(params: {
   systemPromptTokens: number;
   inputTokens?: number;
   providerId?: string;
-  /** v3.6: Trigger params for multi-trigger evaluation */
-  exchangeCount?: number;
-  toolCallsInLast6?: number;
   agentId?: string;
   hasWorkspace?: boolean;
 }): Promise<boolean> {
@@ -281,13 +255,10 @@ export async function shouldCompact(params: {
     systemPromptTokens,
     inputTokens = 0,
     providerId,
-    exchangeCount,
-    toolCallsInLast6,
     agentId,
-    hasWorkspace = true,
   } = params;
 
-  if (chatId < 0) return false; // Ephemeral chat - no compaction
+  if (chatId < 0) return false;
 
   const total = estimateContextTokens({
     systemPromptTokens,
@@ -299,21 +270,6 @@ export async function shouldCompact(params: {
   const { budget } = await getEffectiveBudget(pid);
   const usableBudget = Math.floor(budget * (1 - OUTPUT_RESERVE_RATIO));
   const tokenRatio = budget > 0 ? total / usableBudget : 0;
-
-  const settings = readSettings();
-  const exchangeThreshold = settings.autoRoutingExchangeThreshold ?? 6;
-
-  if (exchangeCount != null || toolCallsInLast6 != null) {
-    return evaluateCompactionTriggers({
-      tokenRatio,
-      exchangeCount,
-      contextWindowKnown: budget > 0,
-      toolCallsInLast6,
-      agentId,
-      hasWorkspace,
-      settingsExchangeThreshold: exchangeThreshold,
-    });
-  }
 
   const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
   return total > usableBudget * threshold;

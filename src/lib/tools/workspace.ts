@@ -31,6 +31,7 @@ import { runCompaction, type CompactionRunOutcome, getUsableBudget } from "../co
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
+import { normalizeAskUserPayload } from "./ask_user_options";
 
 const execAsync = promisify(exec);
 const logger = log.scope("workspace-tools");
@@ -274,7 +275,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "ask_user",
     description:
-        "Ask the user a question and wait for their response. Use for clarifications or choices. Pass `options` (string array) for multiple-choice; the app shows buttons plus a text field.",
+        "Ask the user a question and wait for their response. For multiple choice, pass `options` as a string array (same as `choices`). You may also put one choice per line after the question. The app shows a scrollable list of buttons plus a text field.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: false,
@@ -286,16 +287,22 @@ ToolRegistry.register({
             options: {
                 type: "array",
                 items: { type: "string" },
-                description: "Optional: List of choices for the user",
+                description: "Optional: list of choices (preferred for multiple choice)",
+            },
+            choices: {
+                type: "array",
+                items: { type: "string" },
+                description: "Optional: same as options (alias if the model uses this name)",
             },
         },
         ["question"]
     ),
-    handler: async ({ question, options }) => {
+    handler: async (args) => {
+        const { question, options } = normalizeAskUserPayload(args as Record<string, unknown>);
         return {
             __ask_user: true as const,
-            question: String(question ?? ""),
-            options: Array.isArray(options) ? options.map((o: string) => String(o)) : undefined,
+            question,
+            ...(options != null && options.length > 0 ? { options } : {}),
         };
     },
 });
@@ -391,11 +398,13 @@ ToolRegistry.register({
     requiresWorkspace: false,
     isReadOnly: true,
     allowInAskMode: true,
+    isCore: true,
     category: ToolCategory.ANALYSIS,
     cost: 0,
     description:
-        "Compress older completed parts of this conversation to free up context. " +
-        "Call only when context pressure is real (after a finished subtask, long history, near the limit) — not preemptively.",
+        "Summarize and compress older turns of this conversation into a session summary to free context. " +
+        "Use on long threads, after substantial tool output, or when context is filling up—especially before more heavy tools. " +
+        "The app may compact automatically when usage is very high; you can still call this to reclaim space earlier.",
     parameters: {
         type: "object",
         properties: {

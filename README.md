@@ -10,6 +10,8 @@ Atlarix is a desktop AI coding copilot that pairs **structural codebase understa
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
+**Open ecosystem (source / installers / registries):** community **Skills** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
 ---
 
 ## v8.1.0 — Pass 6 (restore) + Pass 7 (trim)
@@ -214,10 +216,11 @@ For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ### Workspace Tools & Extensions
 
-- **Core tools (all tiers):** File read/write, code search, Blueprint queries, git, terminal, web search, and more. Ask mode auto-filters to read-only tools.
-- **MCP tools:** Add MCP servers in Settings → Tools → MCP. Mention with `@mcp:ServerName` in chat.
-- **Workforce tools:** Slack, Jira, Linear, GitHub, GitLab CI, Bitbucket, Sentry, Notion, Google Calendar — connected via Auth0 Token Vault. Per-chat session scope; resets on New Chat.
-- **Database extension:** PostgreSQL, MySQL, SQLite. Read (`db_query`, `db_schema`) and write (`db_mutate`, requires approval) tools.
+- **Core tools (all tiers):** File read/write, unified **`search`**, Blueprint / `get_blueprint`, git, terminal, web search, diagrams via **`get_diagram`**, and more. **Ask** mode uses a read-only tool allowlist.
+- **MCP:** Configure stdio or HTTP servers in Settings → Tools → **MCP**. **Free:** up to **1** global MCP (add manually). **Pro / Workforce:** MCP **marketplace** (one-click from the public registry) plus up to **5** global and **5** per-workspace servers. In workspace chats, MCP tools are exposed **on demand** via **`list_available_mcps`** and **`mcp_call`** (not all tools merged every turn).
+- **Skills:** **Pro / Workforce** — browse and install from the [atlarix-skills](https://github.com/AmariahAK/atlarix-skills) registry (5 global + 5 per-workspace). Optional **`.atlarix/skills/`** markdown in the repo; on **Workforce**, manifests can set **`priority: true`** so those skills are honored as high-priority.
+- **Workforce-only product features:** MCP-based team integrations (Slack, Jira, Linear, Sentry, calendar, CI, etc. via marketplace servers and per-server credentials); session-scoped service context per chat; **`commit_blueprint` / Blueprint snapshot to git**; registry MCP rows tagged **`tier: "workforce"`** in [atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps).
+- **Database extension:** PostgreSQL, MySQL, SQLite — read (`db_query`, `db_schema`) and write (`db_mutate`, with approval) where enabled.
 
 ### Live Preview & Error Detection
 
@@ -228,7 +231,7 @@ For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 ### Context & Session Management
 
 - **Context bar** — Real-time token usage with color-coded warnings.
-- **Auto-summarize** — Long conversations compressed automatically.
+- **Compaction** — The model can call **`compress_context`** when threads get long (model-triggered; not a fixed pre-turn summarize on every message).
 - **Project memory** — `.atlarix/ATLARIX.md` for persistent workspace instructions.
 - **Conversation revert** — Revert workspace files and diagram to before a turn while keeping the full transcript (`is_reverted` markers).
 - **Permission queue** — Approve / reject AI file and command changes before execution, with diff preview.
@@ -261,7 +264,6 @@ Releases are built and published from **this repository** ([`AmariahAK/Atlarix`]
 - **Secrets:** Go to **Settings → Secrets and variables → Actions** and add the variables from [.env.example](.env.example). See [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for setup instructions. Required:
 
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_ID`, `LEMONSQUEEZY_WORKFORCE_VARIANT_ID`, `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,  
-  `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_TOKEN_VAULT_ID`, `AUTH0_AUDIENCE`,  
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`,  
   `SENTRY_DSN`, `POSTHOG_API_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`,  
   `COMPASS_OPENROUTER_API_KEY`, `COMPASS_MODEL_FAST`, `COMPASS_MODEL_BALANCED`, `COMPASS_MODEL_THINKING`,  
@@ -289,17 +291,21 @@ cp .env.example .env
 npm start
 ```
 
+After `npm install`, root **`postinstall`** runs **`electron/install.js`** so the Electron binary is present even when `dist/` was incomplete (avoids **`spawn …/Electron ENOENT`** on **`npm start`**). See [docs/CHANGELOG.md](docs/CHANGELOG.md) **[8.0.4]**.
+
 **Schema changes:** Any update that modifies the database schema must include a Drizzle migration under [`drizzle/`](drizzle/) and regenerate [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) via `npm run db:generate` (which runs `db:bundle-sql` via `postdb:generate`). Every new migration also needs a matching `isJournalMigrationApplied` case in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts) (e.g. `0035_unified_snapshots_revert` checks `diagram_versions.chat_turn_id`, `diagrams.last_snapshot_hashes`, and `messages.is_reverted`).
 
 ---
 
 ## Pricing
 
-| Tier      | Price   | Workspaces       | Notes                                                                     |
-|-----------|---------|------------------|---------------------------------------------------------------------------|
-| Free      | $0      | 1 workspace chat | Full tool access, BYOK                                                    |
-| Pro       | $19/mo  | Unlimited        | Priority support, GitHub Actions extension, Compass Balanced + Thinking   |
-| Workforce | $79/mo  | Unlimited        | Teams (up to 5 seats; add paid seats), Token Vault, Workforce extensions  |
+| Tier      | Price   | Workspaces | Highlights |
+|-----------|---------|------------|------------|
+| **Free**  | $0      | 1          | Compass **Fast** only; BYOK / local models; core tools; **1** global MCP (manual); Skills & MCP marketplace locked |
+| **Pro**   | $19/mo  | Unlimited  | Compass **Fast / Balanced / Thinking**; higher included Compass usage; **Skills** + **MCP marketplace**; up to **5** global + **5** per-workspace MCPs; priority support |
+| **Workforce** | $79/mo | Unlimited | Everything in **Pro** + team **seats** (default 5) and **high pool** Compass usage; **team MCP** integrations (marketplace + credentials in-app); **priority** repo skills; **Blueprint commit** to git; Workforce-only MCP registry rows |
+
+Default **Compass token allowances** (server-side, adjustable): see [docs/compass-limits.md](docs/compass-limits.md).
 
 ---
 

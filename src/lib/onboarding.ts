@@ -68,7 +68,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "done",
     title: "You're set",
-    body: "Explore workspaces, diagrams, and work modes (Ask, Plan, Build, Debug, Review). On Workforce, connect Token Vault services in Settings; the app will ask for per-chat scope when using integration tools.",
+    body: "Explore workspaces, diagrams, and work modes (Ask, Plan, Build, Debug, Review). On Workforce, configure team MCP servers and credentials in Settings; the app will ask for per-chat scope when using integration tools.",
     target: null,
   },
 ] as const;

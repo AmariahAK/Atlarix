@@ -324,7 +324,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                 <div>
                   <h3 className="font-medium mb-1">Favorite Models</h3>
                   <p className="text-sm text-muted-foreground">
-                    Select 3 models for Fast / Balanced / Deep.
+                    Select 3 models for Fast / Balanced / Thinking.
                   </p>
                 </div>
                 <LocalProviderFavoritesSelector

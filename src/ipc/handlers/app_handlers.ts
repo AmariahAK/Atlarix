@@ -20,6 +20,7 @@ import { promises as fsPromises } from "node:fs";
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
 import { getProjectFiles } from "../utils/project-files";
+import { analyzeWorkspaceDiscovery } from "../utils/workspace-discovery";
 import {
   runningApps,
   processCounter,
@@ -730,6 +731,9 @@ export function registerAppHandlers() {
     let files: string[] = [];
 
     let fileDiscoveryWarnings: string[] | undefined;
+    const workspaceDiscoveryHints = pathExists
+      ? analyzeWorkspaceDiscovery(appPath)
+      : { hasRootGit: false, isMultiRepoWorkspace: false };
 
     if (pathExists) {
       try {
@@ -768,6 +772,7 @@ export function registerAppHandlers() {
       vercelTeamSlug,
       pathExists,
       status,
+      workspaceDiscoveryHints,
       ...(fileDiscoveryWarnings?.length
         ? { fileDiscoveryWarnings }
         : {}),

@@ -11,11 +11,6 @@ try {
 
 // Build-time credentials embedded via Vite define (main process)
 const MAIN_KEYS = [
-  "AUTH0_DOMAIN",
-  "AUTH0_CLIENT_ID",
-  "AUTH0_CLIENT_SECRET",
-  "AUTH0_AUDIENCE",
-  "AUTH0_TOKEN_VAULT_ID",
   "LEMONSQUEEZY_API_KEY",
   "LEMONSQUEEZY_STORE_ID",
   "LEMONSQUEEZY_VARIANT_ID",

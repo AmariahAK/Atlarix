@@ -392,8 +392,7 @@ function PanelContent({
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             case 'vault':
-                // Pass 7: Token Vault deprecated; the panel now just shows the per-workspace
-                // credential vault (.env style) — never the Auth0 connect flow.
+                // Per-workspace credential vault (.env style) for MCP / local secrets — not a hosted OAuth broker.
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             default:
                 // Default to permission queue

@@ -11,18 +11,29 @@ import {
   numberParam,
   stringParam,
 } from "./registry";
+import { analyzeWorkspaceDiscovery } from "../../ipc/utils/workspace-discovery";
 
 const IGNORE_DIRS = new Set([
   "node_modules",
   ".git",
   "dist",
   "build",
+  "out",
   ".next",
   "venv",
+  ".venv",
   "__pycache__",
   ".turbo",
   "coverage",
   ".cache",
+  "cdk.out",
+  ".cdk-out-deploy",
+  ".cdk-staging",
+  ".aws-sam",
+  "target",
+  "vendor",
+  ".nx",
+  "site-packages",
 ]);
 
 const README_NAMES = ["README.md", "readme.md", "README.MD", "README.rst", "readme.rst"];
@@ -104,14 +115,21 @@ async function buildStructureLines(root: string, relBase: string, maxDepth: numb
   return lines;
 }
 
-async function collectLanguageStats(root: string, maxFiles = 5000): Promise<Map<string, number>> {
+/** Bounded tree walk — avoids minutes-long full-repo enumeration on huge workspaces. */
+const REPO_OVERVIEW_MAX_WALK_FILES = 3000;
+const REPO_OVERVIEW_MAX_WALK_DEPTH = 14;
+
+async function collectLanguageStats(root: string): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
-  const stack: string[] = [root];
+  type Frame = { dir: string; depth: number };
+  const stack: Frame[] = [{ dir: root, depth: 0 }];
   let scanned = 0;
-  while (stack.length > 0 && scanned < maxFiles) {
-    const dir = stack.pop()!;
+  while (stack.length > 0 && scanned < REPO_OVERVIEW_MAX_WALK_FILES) {
+    const { dir, depth } = stack.pop()!;
+    if (depth > REPO_OVERVIEW_MAX_WALK_DEPTH) continue;
     const entries = await readDirSafe(dir);
     for (const name of entries) {
+      if (name.startsWith(".") && name !== ".github") continue;
       if (IGNORE_DIRS.has(name)) continue;
       const full = path.join(dir, name);
       let stat;
@@ -121,7 +139,7 @@ async function collectLanguageStats(root: string, maxFiles = 5000): Promise<Map<
         continue;
       }
       if (stat.isDirectory()) {
-        stack.push(full);
+        stack.push({ dir: full, depth: depth + 1 });
       } else {
         scanned++;
         const ext = path.extname(name).toLowerCase() || "(no ext)";
@@ -147,11 +165,27 @@ async function findReadmeExcerpt(root: string): Promise<string | null> {
   return null;
 }
 
-async function listAllFilesRel(root: string, relPrefix = ""): Promise<string[]> {
+/**
+ * Lists files under root with hard caps. Used for entry-point detection only —
+ * must never walk unbounded trees (stalls streaming on large/CDK/asset trees).
+ */
+async function listAllFilesRelBounded(
+  root: string,
+  relPrefix = "",
+): Promise<{ files: string[]; hitCap: boolean }> {
   const out: string[] = [];
-  const walk = async (dir: string, rel: string) => {
+  type Frame = { dir: string; rel: string; depth: number };
+  const stack: Frame[] = [{ dir: root, rel: relPrefix, depth: 0 }];
+  while (
+    stack.length > 0 &&
+    out.length < REPO_OVERVIEW_MAX_WALK_FILES
+  ) {
+    const { dir, rel, depth } = stack.pop()!;
+    if (depth > REPO_OVERVIEW_MAX_WALK_DEPTH) continue;
     const entries = await readDirSafe(dir);
     for (const name of entries) {
+      if (out.length >= REPO_OVERVIEW_MAX_WALK_FILES) break;
+      if (name.startsWith(".") && name !== ".github") continue;
       if (IGNORE_DIRS.has(name)) continue;
       const full = path.join(dir, name);
       const relPath = rel ? `${rel}/${name}` : name;
@@ -161,16 +195,24 @@ async function listAllFilesRel(root: string, relPrefix = ""): Promise<string[]> 
       } catch {
         continue;
       }
-      if (stat.isDirectory()) await walk(full, relPath);
-      else out.push(relPath);
+      if (stat.isDirectory()) {
+        stack.push({ dir: full, rel: relPath, depth: depth + 1 });
+      } else {
+        out.push(relPath);
+      }
     }
-  };
-  await walk(root, relPrefix);
-  return out;
+  }
+  const hitCap =
+    out.length >= REPO_OVERVIEW_MAX_WALK_FILES || stack.length > 0;
+  return { files: out, hitCap };
 }
 
-async function detectEntryPoints(root: string): Promise<{ entries: string[]; hints: string[] }> {
-  const files = await listAllFilesRel(root);
+async function detectEntryPoints(root: string): Promise<{
+  entries: string[];
+  hints: string[];
+  entryScanHitCap: boolean;
+}> {
+  const { files, hitCap } = await listAllFilesRelBounded(root);
   const entries = files.filter((f) => ENTRY_RE.test(f)).slice(0, 8);
   const hints: string[] = [];
 
@@ -205,7 +247,7 @@ async function detectEntryPoints(root: string): Promise<{ entries: string[]; hin
   const rootScripts = files.filter((f) => !f.includes("/") && /\.(sh|bash)$/.test(f));
   for (const s of rootScripts.slice(0, 2)) hints.push(`executable script: ${s}`);
 
-  return { entries, hints: hints.slice(0, 3) };
+  return { entries, hints: hints.slice(0, 3), entryScanHitCap: hitCap };
 }
 
 async function detectDependencyFiles(root: string): Promise<string[]> {
@@ -260,6 +302,26 @@ export async function buildRepoOverviewMarkdown(
     return { success: false, error: `Workspace not accessible: ${root}` };
   }
 
+  if (!focusPath) {
+    const disc = analyzeWorkspaceDiscovery(root);
+    if (disc.isMultiRepoWorkspace && disc.nestedRepoNames?.length) {
+      const list = disc.nestedRepoNames.map((n) => `- \`${n}/\``).join("\n");
+      const example = disc.nestedRepoNames[0] ?? "subdir";
+      return {
+        success: true,
+        markdown: [
+          `# Multi-repo workspace`,
+          ``,
+          `This folder has **no .git** at the root but contains **${disc.nestedRepoNames.length}** nested repo(s):`,
+          ``,
+          list,
+          ``,
+          `Call **get_repo_overview** again with \`focus_path\` set to one repo (e.g. \`${example}\`) for a scoped tree and stats. Avoid assuming a single root tree when listing files from the parent folder.`,
+        ].join("\n"),
+      };
+    }
+  }
+
   let base = root;
   let relFocus = "";
   if (focusPath) {
@@ -300,13 +362,19 @@ export async function buildRepoOverviewMarkdown(
   if (!structBody) structBody = "_Empty or inaccessible directory._";
   push(`\n## Top-level structure\n${structBody}`);
 
-  const { entries, hints } = await detectEntryPoints(base);
+  const { entries, hints, entryScanHitCap } = await detectEntryPoints(base);
   if (entries.length > 0) {
-    push(`\n## Entry points\n${entries.map((e) => `- ${e}`).join("\n")}`);
+    const capNote = entryScanHitCap
+      ? "\n\n_(Entry detection used a bounded file sample; pass focus_path or use explore_folder if something missing.)_"
+      : "";
+    push(`\n## Entry points\n${entries.map((e) => `- ${e}`).join("\n")}${capNote}`);
   } else {
     const hintLine =
       hints.length > 0 ? `\nHints: ${hints.map((h) => `- ${h}`).join("\n")}` : "";
-    push(`\n## Entry points\n_No standard entry point detected._${hintLine}`);
+    const capNote = entryScanHitCap
+      ? `\n\n_(Scan hit size/depth limits — pass **focus_path** to the relevant subfolder or use **explore_folder**.)_`
+      : "";
+    push(`\n## Entry points\n_No standard entry point detected._${hintLine}${capNote}`);
   }
 
   const deps = await detectDependencyFiles(base);
@@ -319,8 +387,10 @@ export async function buildRepoOverviewMarkdown(
   const langCounts = await collectLanguageStats(base);
   const sortedLang = [...langCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
   if (sortedLang.length > 0 && lineBudget > 0) {
+    const capNote =
+      ` _(sampled up to ${REPO_OVERVIEW_MAX_WALK_FILES} files / depth ${REPO_OVERVIEW_MAX_WALK_DEPTH}; pass focus_path for a narrower slice)._`;
     push(
-      `\n## Dominant languages\n${sortedLang.map(([ext, n]) => `- ${ext}: ${n}`).join("\n")}`,
+      `\n## Dominant languages\n${sortedLang.map(([ext, n]) => `- ${ext}: ${n}`).join("\n")}${capNote}`,
     );
   }
 
@@ -349,8 +419,9 @@ ToolRegistry.register({
   name: "get_repo_overview",
   category: ToolCategory.FILE,
   description:
-    "Lightweight cold-session orientation: shallow tree, README excerpt, entry points, and language stats. " +
-    "Prefer this before get_blueprint when you only need layout — no architecture parse.",
+    "Lightweight orientation: shallow directory tree, README excerpt, entry points (from a bounded file sample), and language stats. " +
+    "On monorepos or large trees, pass focus_path (e.g. apps/web, packages/api) to scope to what the user asked about — do not rely on root-only overview for deep paths. " +
+    "For ad-hoc directory listing, use explore_folder or list_files on that path instead.",
   cost: 1,
   requiresWorkspace: true,
   isCore: true,
@@ -359,7 +430,7 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       focus_path: stringParam(
-        "Optional subfolder (e.g. packages/api) for monorepos; scopes the overview without Blueprint.",
+        "Strongly recommended for monorepos and large repos: relative subfolder (e.g. apps/web, packages/api). Scans that subtree only.",
       ),
       max_depth: numberParam("Maximum directory depth (default 3, max 5)"),
     },

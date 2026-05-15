@@ -731,8 +731,8 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // Pass 7: Auth0 / Token Vault deep-link branch removed. Workforce credentials
-  // are now provisioned per-MCP via the marketplace install flow (env vars stored
+  // Pass 7: Legacy Auth deep-link branch removed. Workforce credentials are
+  // provisioned per MCP via the marketplace install flow (env vars stored
   // directly in `mcp_servers.env_json`), so the `atlarix://auth0/callback`
   // protocol path is no longer used.
 
