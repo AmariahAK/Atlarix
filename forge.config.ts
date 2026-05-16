@@ -316,6 +316,11 @@ const config: ForgeConfig = {
       }
 
       // oxc-parser native bindings are optionalDependencies — stripped by --omit=optional above.
+      // Re-install oxc-parser with target --os/--cpu flags so npm picks the matching binding
+      // via optional deps without tripping EBADPLATFORM on cross-arch (e.g. arm64 host -> darwin/x64).
+      // We MUST allow optional deps here so npm can install the correct @oxc-parser/binding-* package.
+      // Requesting the binding by name directly bypasses --os/--cpu (those flags only affect optional
+      // dep resolution, not directly-requested packages) and would still throw EBADPLATFORM.
       const bindingPkg = getOxcBindingPackageName(
         platform as NodeJS.Platform,
         arch,
@@ -324,19 +329,18 @@ const config: ForgeConfig = {
       if (bindingPkg) {
         const oxcVersion = readOxcParserVersion();
         console.log(
-          `[forge] Installing oxc-parser@${oxcVersion} + ${bindingPkg} for ${platform}/${arch}`,
+          `[forge] Installing oxc-parser@${oxcVersion} (target ${platform}/${arch}) — npm will pick ${bindingPkg}`,
         );
         await runNpmInstall(buildPath, [
           "install",
           "--omit=dev",
-          "--omit=optional",
+          "--omit=peer",
           "--no-save",
           "--no-package-lock",
           "--no-audit",
           "--no-fund",
           ...npmTargetPlatformArgs(platform, arch),
           `oxc-parser@${oxcVersion}`,
-          `${bindingPkg}@${oxcVersion}`,
         ]);
       } else {
         console.warn(`[forge] No oxc binding package for ${platform}/${arch}`);
