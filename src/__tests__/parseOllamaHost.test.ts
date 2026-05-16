@@ -4,17 +4,17 @@ import { describe, it, expect } from "vitest";
 describe("parseOllamaHost", () => {
   it("should return default URL when no host is provided", () => {
     const result = parseOllamaHost();
-    expect(result).toBe("http://localhost:11434");
+    expect(result).toBe("http://127.0.0.1:11434");
   });
 
   it("should return default URL when host is undefined", () => {
     const result = parseOllamaHost(undefined);
-    expect(result).toBe("http://localhost:11434");
+    expect(result).toBe("http://127.0.0.1:11434");
   });
 
   it("should return default URL when host is empty string", () => {
     const result = parseOllamaHost("");
-    expect(result).toBe("http://localhost:11434");
+    expect(result).toBe("http://127.0.0.1:11434");
   });
 
   describe("full URLs with protocol", () => {

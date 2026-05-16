@@ -47,6 +47,7 @@ vi.mock("../ipc/utils/git_utils", () => ({
   gitAdd: vi.fn(),
   gitCommit: vi.fn(),
   gitRemove: vi.fn(),
+  gitAddAll: vi.fn(),
   gitRenameBranch: vi.fn(),
   gitCurrentBranch: vi.fn(),
   gitLog: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("../ipc/utils/git_utils", () => ({
   gitSetRemoteUrl: vi.fn(),
   gitStatus: vi.fn().mockResolvedValue([]),
   getGitUncommittedFiles: vi.fn().mockResolvedValue([]),
+  getCoAuthorTrailerForCommit: vi.fn(() => undefined),
 }));
 
 // Mock paths module to control getAtlarixAppPath

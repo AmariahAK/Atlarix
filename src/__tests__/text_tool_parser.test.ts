@@ -51,7 +51,7 @@ describe("sanitizeMermaid", () => {
     const { sanitizeMermaid } = await import("@/lib/sanitizeMermaid");
     const input = `graph LR\n    subgraph X [A]\n        Style N fill:red\n    end`;
     expect(sanitizeMermaid(input)).toBe(
-      `graph LR\n    subgraph X [A]\n        style N fill:red\n    end`,
+      `graph LR\n    subgraph X [A]\nstyle N fill:red\n    end`,
     );
   });
 });

@@ -6,15 +6,9 @@ import { readSettings, getSettingsFilePath } from "@/main/settings";
 import { getUserDataPath } from "@/paths/paths";
 import { UserSettings } from "@/lib/schemas";
 
-// Mock dependencies
+// Mock dependencies (electron stub lives in vitest.setup.ts)
 vi.mock("node:fs");
 vi.mock("node:path");
-vi.mock("electron", () => ({
-  safeStorage: {
-    isEncryptionAvailable: vi.fn(),
-    decryptString: vi.fn(),
-  },
-}));
 vi.mock("@/paths/paths", () => ({
   getUserDataPath: vi.fn(),
 }));
@@ -54,11 +48,27 @@ describe("readSettings", () => {
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
           "agentMode": "guided",
+          "autoMemory": {
+            "enabled": true,
+            "minConfidence": 0.7,
+            "writeToFile": true,
+          },
           "autoModelIds": undefined,
           "autoModelRouting": false,
           "autoProviderId": null,
           "autoRoutingExchangeThreshold": 6,
           "autoRoutingShowReasoning": true,
+          "blueprintAlwaysShowBeacons": false,
+          "blueprintInjectionModePreference": "auto",
+          "buildVerification": {
+            "enabled": true,
+          },
+          "counsel": {
+            "autoTriggerOnThinking": true,
+            "enabled": true,
+            "showParticipantPreviews": true,
+            "timeoutSeconds": 30,
+          },
           "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
           "enableContextAutoSummarize": true,
@@ -311,11 +321,27 @@ describe("readSettings", () => {
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
           "agentMode": "guided",
+          "autoMemory": {
+            "enabled": true,
+            "minConfidence": 0.7,
+            "writeToFile": true,
+          },
           "autoModelIds": undefined,
           "autoModelRouting": false,
           "autoProviderId": null,
           "autoRoutingExchangeThreshold": 6,
           "autoRoutingShowReasoning": true,
+          "blueprintAlwaysShowBeacons": false,
+          "blueprintInjectionModePreference": "auto",
+          "buildVerification": {
+            "enabled": true,
+          },
+          "counsel": {
+            "autoTriggerOnThinking": true,
+            "enabled": true,
+            "showParticipantPreviews": true,
+            "timeoutSeconds": 30,
+          },
           "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
           "enableContextAutoSummarize": true,
