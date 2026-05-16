@@ -34,6 +34,10 @@ function runNpmInstall(cwd: string, args: string[]): Promise<void> {
   });
 }
 
+function npmTargetPlatformArgs(platform: string, arch: string): string[] {
+  return [`--os=${platform}`, `--cpu=${arch}`];
+}
+
 function readOxcParserVersion(): string {
   const oxcPkgPath = path.join(process.cwd(), "node_modules", "oxc-parser", "package.json");
   const oxcPkg = JSON.parse(readFileSync(oxcPkgPath, "utf-8")) as { version: string };
@@ -330,6 +334,7 @@ const config: ForgeConfig = {
           "--no-package-lock",
           "--no-audit",
           "--no-fund",
+          ...npmTargetPlatformArgs(platform, arch),
           `oxc-parser@${oxcVersion}`,
           `${bindingPkg}@${oxcVersion}`,
         ]);
