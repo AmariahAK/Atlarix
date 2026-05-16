@@ -323,6 +323,7 @@ const config: ForgeConfig = {
         await runNpmInstall(buildPath, [
           "install",
           "--omit=dev",
+          "--omit=optional",
           "--no-save",
           "--no-package-lock",
           "--no-audit",
