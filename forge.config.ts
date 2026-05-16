@@ -288,6 +288,10 @@ const config: ForgeConfig = {
           ? pkg.split("/").slice(0, 2).join("/")
           : pkg.split("/")[0];
         if (RENDERER_ONLY_PACKAGES.has(root)) return false;
+        // oxc-parser lists many platform bindings as optional deps, including wasm32-wasi.
+        // Installing any @oxc-parser/* package from generic externals can fail on native
+        // build hosts; install only the resolved platform binding in the dedicated step below.
+        if (pkg === "oxc-parser" || pkg.startsWith("@oxc-parser/")) return false;
         // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
         if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
           return false;
