@@ -13,7 +13,6 @@ const CORE_TOOL_NAMES = new Set([
   "search",
   "get_blueprint",
   "get_project_structure",
-  "git_status",
 ]);
 
 function isCoreTool(tool: ToolMetadata): boolean {
@@ -57,6 +56,8 @@ export function generateManifest(
     out += `- ${t.name}: ${oneLineDescription(t)}\n`;
   }
   out += "\nTo use any tool, simply call it. Full parameter details are provided when you invoke the tool.";
+  out +=
+    "\n\nGit operations should be performed via the terminal tool. Use standard git CLI commands directly in the terminal — this gives full control and visibility without abstraction.";
   return out;
 }
 

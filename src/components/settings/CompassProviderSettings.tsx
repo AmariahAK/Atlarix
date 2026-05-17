@@ -24,7 +24,7 @@ export function CompassProviderSettings() {
   return (
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
-        No API key needed. Compass works out of the box with your Atlarix account.
+        No API key needed. The Model Bridge works out of the box with your Atlarix account.
       </p>
 
       <div className="space-y-4">
@@ -41,7 +41,7 @@ export function CompassProviderSettings() {
 
       <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Subscription tier and monthly Compass limits come from your Atlarix account in Supabase
+          Subscription tier and monthly Model Bridge limits come from your Atlarix account in Supabase
           (updated from Lemon Squeezy). The app only reads and displays them.
         </p>
         <div className="flex items-center justify-between text-sm gap-2">
@@ -64,7 +64,7 @@ export function CompassProviderSettings() {
         </div>
         <div className="flex flex-col gap-1 text-sm">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">Compass tokens (this month)</span>
+            <span className="text-muted-foreground">Model Bridge tokens (this month)</span>
             {loading ? (
               <span className="text-muted-foreground">…</span>
             ) : error || needsSignIn ? (

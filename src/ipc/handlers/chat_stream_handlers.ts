@@ -90,7 +90,12 @@ import {
   recordToolUseForTurn,
 } from "./turn-tool-tracking";
 import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
-import { removeThinkingTags, stripThinkBlocks } from "../utils/thinking_tags";
+import {
+  removeThinkingTags,
+  stripAssistantDisplayContent,
+  stripTaskCompleteTags,
+  stripThinkBlocks,
+} from "../utils/thinking_tags";
 import { generateProblemReport } from "../processors/tsc";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
 import {
@@ -2499,7 +2504,7 @@ ${componentSnippet}
                 safeSend(event.sender, "chat:stream:phase", {
                   chatId: req.chatId,
                   phase,
-                  label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                  label: phase === "counsel_start" ? "Consulting multiple models..." : "",
                 });
               },
             });
@@ -2791,7 +2796,7 @@ ${componentSnippet}
                     safeSend(event.sender, "chat:stream:phase", {
                       chatId: req.chatId,
                       phase,
-                      label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                      label: phase === "counsel_start" ? "Consulting multiple models..." : "",
                     });
                   },
                 })
@@ -4562,7 +4567,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 // tags for ThinkingCard; the DB row stays lean so token
                 // counts don't include reasoning that the model should never
                 // see again on the next turn.
-                .set({ content: stripThinkBlocks(fullResponse) })
+                .set({ content: stripAssistantDisplayContent(fullResponse) })
                 .where(eq(messages.id, placeholderAssistantMessage.id));
 
               lastDbSaveAt = now;
@@ -4574,7 +4579,8 @@ This conversation includes one or more image attachments. When the user uploads 
               currentMessages.length > 0 &&
               currentMessages[currentMessages.length - 1].role === "assistant"
             ) {
-              currentMessages[currentMessages.length - 1].content = fullResponse;
+              currentMessages[currentMessages.length - 1].content =
+                stripTaskCompleteTags(fullResponse);
             }
 
             // Update the assistant message in the database
@@ -5005,9 +5011,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "get_project_history",
                 "get_project_structure",
                 "get_repo_overview",
-                "git_diff",
-                "git_log",
-                "git_status",
                 "list_attachments",
                 "list_available_mcps",
                 "list_files",
@@ -5062,9 +5065,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "get_file_outline",
                 "get_project_structure",
                 "get_repo_overview",
-                "git_diff",
-                "git_log",
-                "git_status",
                 "list_available_mcps",
                 "list_files",
                 "lsp_definitions",
@@ -5093,9 +5093,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "get_project_history",
                 "get_project_structure",
                 "get_repo_overview",
-                "git_diff",
-                "git_log",
-                "git_status",
                 "list_available_mcps",
                 "list_files",
                 "list_installed_skills",
@@ -5529,7 +5526,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
                   const inner = unwrapRegistryToolResult(execResult);
                   if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
-                    const modeLabelMap: Record<string, string> = { ask: "Ask", plan: "Plan", build: "Build", debug: "Debug", review: "Review" };
+                    const modeLabelMap: Record<string, string> = { ask: "Explore", plan: "Plan", build: "Build", debug: "Fix", review: "Review" };
                     const ml = modeLabelMap[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
                     safeSend(event.sender, "chat:activity", {
                       id: `mode-change-${Date.now()}`,
@@ -5575,20 +5572,20 @@ You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace
                 : "";
 
             const askModePrompt = `
-IMPORTANT: **Ask** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps, phased implementation plans, or structured plan files, ask the user to switch to **Plan** mode (or call **request_mode_change** toward **plan**). Do **not** suggest **Build** for ordinary Q&A.
+IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps, phased implementation plans, or structured plan files, ask the user to switch to **Plan** mode (or call **request_mode_change** toward **plan**). Do **not** suggest **Build** for ordinary Q&A.
 
-Available tools (Ask — read-only):
+Available tools (Explore — read-only):
 - read_file, explore_folder, list_files, search (modes: auto prefers text | semantic-lite | structural; explicit text | semantic-lite | semantic-graph | structural; legacy semantic = semantic-graph), get_blueprint (include_panel_graph syncs Diagram mind map), set_blueprint / clear_blueprint (UI-only panel), find_file, get_file_outline
 - get_diagram (Mermaid architecture diagram)
 - web_search (set deep:true for multi-source synthesis), deep_research (full agentic research loop), read_url
-- git_status, git_diff, git_log
+- run_command for git CLI (status, diff, log, etc.) — no dedicated git tools
 - memory({ operation: "recall" | "search" })
 - get_active_skills, list_installed_skills, list_available_mcps, get_project_history
 - read_attachment, list_attachments
 - ask_user: Clarifications or choices — pass \`options\` (or \`choices\`) as a JSON string array for buttons; or put one choice per line after the question. Do not rely on prose-only lists without \`options\`.
 - request_mode_change: Instantly switch to **Plan**, **Build**, **Debug**, or **Review** when the user is ready (no confirmation).
 
-NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests.`;
+NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests.`;
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             const askTierStreamLoopStartMs = Date.now();
@@ -6331,7 +6328,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                                 safeSend(event.sender, "chat:stream:phase", {
                                   chatId: req.chatId,
                                   phase,
-                                  label: phase === "counsel_start" ? "Consulting the counsel..." : "",
+                                  label: phase === "counsel_start" ? "Consulting multiple models..." : "",
                                 });
                               },
                             })
@@ -6412,7 +6409,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                       const startTime = Date.now();
                       const shortAgent =
                         agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
-                      let delegationLabel = `Delegation to ${shortAgent.replace(/^./, (c) => c.toUpperCase())}`;
+                      let delegationLabel = `Agent team: ${shortAgent.replace(/^./, (c) => c.toUpperCase())} assigned`;
                       if (delegationLabel.length > 60) {
                         delegationLabel = `${delegationLabel.slice(0, 57)}…`;
                       }
@@ -6512,7 +6509,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                   recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
                   const inner = unwrapRegistryToolResult(execResult);
                   if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
-                    const modeLabelMap2: Record<string, string> = { ask: "Ask", plan: "Plan", build: "Build", debug: "Debug", review: "Review" };
+                    const modeLabelMap2: Record<string, string> = { ask: "Explore", plan: "Plan", build: "Build", debug: "Fix", review: "Review" };
                     const modeLabel = modeLabelMap2[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
                     safeSend(event.sender, "chat:activity", {
                       id: `mode-change-${Date.now()}`,
@@ -7109,7 +7106,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
                 // its own reasoning on the next turn.
                 agenticMessages.push({
                   role: 'assistant' as const,
-                  content: stripThinkBlocks(stripToolCallXML(fullResponse)),
+                  content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
                 });
 
                 // Add tool results as a user message so AI can continue
@@ -7457,7 +7454,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
             title: questionsTitle,
           } = parseQuestions(fullResponse);
           let responseToStore = questions != null ? contentAfterQuestions : fullResponse;
-          responseToStore = sanitizeAssistantOutput(responseToStore);
+          responseToStore = stripTaskCompleteTags(sanitizeAssistantOutput(responseToStore));
           responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
             settings: readSettings(),
             mainOptions,
@@ -7488,7 +7485,7 @@ NOT in Ask mode: write_file, edit_file, write_implementation_plan, delete_file, 
             await db
               .update(messages)
               .set({
-                content: stripThinkBlocks(responseToStore),
+                content: stripAssistantDisplayContent(responseToStore),
                 ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
                 ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
                 ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),

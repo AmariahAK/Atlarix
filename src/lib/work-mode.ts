@@ -27,13 +27,13 @@ export function settingsPatchForWorkMode(mode: WorkMode): {
 export function labelForWorkMode(mode: WorkMode): string {
   switch (mode) {
     case "ask":
-      return "Ask";
+      return "Explore";
     case "plan":
       return "Plan";
     case "build":
       return "Build";
     case "debug":
-      return "Debug";
+      return "Fix";
     case "review":
       return "Review";
   }

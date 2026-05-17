@@ -1,5 +1,5 @@
 /**
- * Permission Queue Panel
+ * Approval Queue Panel
  * ======================
  * Shows operations in clear status sections:
  * Pending (await approval) → Queued (approved) → Running → Completed/Failed
@@ -153,8 +153,21 @@ function OperationCard({
 
     const isBatchPlan = operation.operation === 'batch_plan';
     const isRevertSnapshot = operation.operation === 'revert_project_snapshot';
+    const isWriteFile =
+        operation.operation === 'write_file' || operation.operation === 'write_multiple_files';
+    const isEditFile = operation.operation === 'edit_file';
+    const filePreview = (() => {
+        try {
+            const raw = operation.preview;
+            if (!raw) return null;
+            const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return p && typeof p === 'object' ? (p as { path?: string; lines?: number }) : null;
+        } catch {
+            return null;
+        }
+    })();
     const displayName = isDiagramUpdate
-        ? 'Diagram Update Request'
+        ? 'Update diagram'
         : isRevertSnapshot
             ? (() => {
                 try {
@@ -162,17 +175,27 @@ function OperationCard({
                     const summary = p.planExcerpt
                         ? ` — ${String(p.planExcerpt).replace(/\s+/g, ' ').slice(0, 80)}`
                         : '';
-                    return (p.label || `Revert snapshot #${p.snapshotId ?? '?'}`) + summary;
+                    return (p.label || `Revert checkpoint #${p.snapshotId ?? '?'}`) + summary;
                 } catch {
-                    return 'Revert project snapshot';
+                    return 'Revert checkpoint';
                 }
             })()
         : isBatchPlan
             ? (operation.batchPlanTitle || 'Plan') + (operation.batchPlanOperationsCount != null ? ` (${operation.batchPlanOperationsCount} operations)` : '')
-            : operation.command
-                ? (operation.command.length > 60 ? operation.command.slice(0, 60) + '...' : operation.command)
-                : operation.path
-                    ? operation.path.split('/').pop()
+            : isWriteFile && filePreview?.path
+              ? filePreview.lines != null
+                  ? `Write ${filePreview.lines} lines to ${filePreview.path}`
+                  : `Write to ${filePreview.path}`
+              : isEditFile && filePreview?.path
+                ? filePreview.lines != null
+                    ? `Edit ${filePreview.lines} lines in ${filePreview.path}`
+                    : `Edit ${filePreview.path}`
+                : operation.command
+                  ? operation.command.length > 60
+                      ? operation.command.slice(0, 60) + '...'
+                      : operation.command
+                  : operation.path
+                    ? operation.path.split('/').pop() ?? operation.path
                     : `${operation.operation} operation`;
 
     // Full path for tooltip
@@ -567,7 +590,7 @@ export function PermissionQueuePanel({ chatId, onFixWithAI }: PermissionQueuePan
         <div className="h-full flex flex-col bg-slate-900/50">
             {/* Header */}
             <div className="border-b border-slate-700/50 p-4">
-                <h2 className="text-lg font-semibold text-slate-100 mb-1">Permission Queue</h2>
+                <h2 className="text-lg font-semibold text-slate-100 mb-1">Approval Queue</h2>
                 <p className="text-sm text-slate-400">
                     {pending.length > 0 && `${pending.length} awaiting`}
                     {pending.length > 0 && (queued.length + running.length > 0) && ' • '}

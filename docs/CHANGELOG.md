@@ -1,5 +1,17 @@
 # Atlarix Changelog
 
+## [8.3.0] (2026-05-17) — Agent Workstation reframe
+
+### Release highlights
+
+- **Positioning:** Agent Workstation across website, README, and in-app copy — the editor stays yours; the agent gets its own workspace beside it.
+- **Language:** Solo / Studio / Team tiers; Explore / Fix mode labels; Model Bridge tiers Speed / Standard / Deep; Approval Queue, Agent Memory, Checkpoints, Multi-Model Review, Agent Teams.
+- **Tools:** Removed `git_status`, `git_diff`, and `git_log` from the agent registry — use the terminal tool for standard `git` CLI commands.
+- **Fix:** Raw `<task_complete>` tags are stripped before chat UI render and DB persist.
+- **Docs:** Live Code Map / parser deep-dive in [architecture.md](architecture.md); README lead rewritten.
+
+---
+
 ## [8.2.0] (2026-05-15) — Parser worker pool, WASM tree-sitter, packaging fix
 
 ### Release highlights

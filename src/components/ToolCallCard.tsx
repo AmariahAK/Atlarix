@@ -58,8 +58,6 @@ const toolIcons: Record<string, React.FC<{ size?: number; className?: string }>>
     deep_search: Globe,
     read_url: Globe,
     get_diagram: BarChart3,
-    git_status: GitBranch,
-    git_diff: GitBranch,
     recall_memory: Database,
     search_memory: Database,
     run_command: Terminal,

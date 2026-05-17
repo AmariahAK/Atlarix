@@ -152,7 +152,7 @@ Would you like to upgrade or delete the existing workspace?`,
 Now you can:
 - Call apply_template() to use a starter template
 - Call write_file() to create files from scratch
-- Call git_status() to check repository state
+- Use run_command for git status, diff, log, and other git CLI operations
 
 What would you like to build?`,
             };

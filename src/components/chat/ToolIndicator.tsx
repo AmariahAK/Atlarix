@@ -199,7 +199,7 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
   if (autonomousOverride) {
     displayLine = "Splitting to autonomous agents…";
   } else if (state.counselPhaseActive) {
-    displayLine = "Consulting the counsel…";
+    displayLine = "Consulting multiple models…";
   } else if (state.count > 0 && state.toolName) {
     const key = state.toolId ?? state.toolName;
     displayLine = groupToLabel(classifyTool(key), state.toolName);

@@ -130,9 +130,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "get_project_history",
     "get_project_structure",
     "get_repo_overview",
-    "git_diff",
-    "git_log",
-    "git_status",
     "list_attachments",
     "list_available_mcps",
     "list_files",
@@ -187,9 +184,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "get_file_outline",
     "get_project_structure",
     "get_repo_overview",
-    "git_diff",
-    "git_log",
-    "git_status",
     "list_available_mcps",
     "list_files",
     "lsp_definitions",
@@ -218,9 +212,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "get_project_history",
     "get_project_structure",
     "get_repo_overview",
-    "git_diff",
-    "git_log",
-    "git_status",
     "list_available_mcps",
     "list_files",
     "list_installed_skills",
@@ -239,12 +230,16 @@ export const MODE_SYSTEM_TOOL_LISTS = {
 export type ModeSystemKey = keyof typeof MODE_SYSTEM_TOOL_LISTS;
 
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
-  ask: "Read-only exploration. Answer questions, summarise code, and never mutate the workspace.",
+  ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
   plan: "Author .atlarix/ATLARIX_PLAN.md (and other plan/markdown files) before any production code change.",
   build: "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
-  debug: "Investigate and fix bugs. Read tools + diagnose_issue + run_command + edit_file. After substantive edits, call **lsp_diagnostics** on touched files before claiming success.",
+  debug: "Fix mode — investigate and fix bugs. Read tools + diagnose_issue + run_command + edit_file. After substantive edits, call **lsp_diagnostics** on touched files before claiming success.",
   review: "Read-only review. Inspect changes, surface findings; do not mutate files. Use **lsp_diagnostics** / **lsp_hover** when IDE-grade signals help.",
 };
+
+/** Shown in tool context — git is terminal-only (no dedicated git tools). */
+export const GIT_VIA_TERMINAL_NOTE =
+  "Git operations should be performed via the terminal tool. Use standard git CLI commands directly in the terminal — this gives full control and visibility without abstraction.";
 
 /**
  * Render `<mode_system>` block — declares which tools are available per work mode.
@@ -271,6 +266,8 @@ export function renderModeSystemBlock(activeMode?: ModeSystemKey): string {
   }
   lines.push("");
   lines.push("If you need a tool outside the current mode's surface, call request_mode_change with a brief reason.");
+  lines.push("");
+  lines.push(GIT_VIA_TERMINAL_NOTE);
   lines.push("</mode_system>");
   return lines.join("\n");
 }

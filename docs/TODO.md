@@ -1,7 +1,18 @@
 # Atlarix TODO
 
-**Current Version:** v8.2.0
-**Last Updated:** 2026-05-15
+**Current Version:** v8.3.0
+**Last Updated:** 2026-05-17
+
+---
+
+## Shipped in v8.3.0
+
+- **Agent Workstation reframe:** README, launchpad, in-app copy (tiers, modes, Model Bridge, Approval Queue).
+- **Git tools removed:** Agent uses terminal for `git` CLI; system prompt note added.
+- **`task_complete` UI fix:** Tags stripped in stream/DB/render paths.
+- **architecture.md:** Live Code Map / parser documentation moved out of README lead.
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.3.0]`.
 
 ---
 

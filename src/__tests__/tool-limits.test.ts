@@ -11,7 +11,6 @@ import { ToolRegistry } from "../lib/tools/registry";
 beforeAll(async () => {
   await import("../lib/tools/file");
   await import("../lib/tools/shell");
-  await import("../lib/tools/git");
 });
 
 describe("run_command preview limits", () => {

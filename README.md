@@ -1,16 +1,43 @@
 # Atlarix
+## The Agent Workstation for Software Development
 
-**Atlas + Axis + Intelligence**
+Atlarix is a desktop environment that gives AI agents the same structural awareness
+and tool access that IDEs give human developers — without replacing your editor.
 
-Atlarix is a desktop AI coding copilot that pairs **structural codebase understanding** with **visual architecture** and **controlled execution**: you see what the model plans, approve writes and commands, and keep context across long sessions without drowning in raw tokens.
+Your team writes code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a live
+map of the codebase, a terminal, file operations, web search, and external integrations.
+Every destructive action goes through an approval queue. The agent has a workspace.
+You have control.
+
+## How it works
+
+**Map** — Atlarix parses your repo into a live graph. The agent navigates architecture, not raw text.
+
+**Connect** — Wire in any LLM: local Ollama, OpenAI, Anthropic, or the managed model bridge.
+
+**Execute** — The agent plans, reads, writes, runs commands, searches the web. You approve every destructive action.
+
+**Remember** — Session state, task progress, and project context persist across sessions.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
-**Website:** [atlarix.dev](https://atlarix.dev)
-**Current release:** **v8.2.0**
+**Website:** [atlarix.dev](https://atlarix.dev)  
+**Current release:** **v8.3.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
-**Open ecosystem (source / installers / registries):** community **Skills** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+**Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.3.0 — Agent Workstation reframe
+
+- **Positioning:** Agent Workstation across README, website, and in-app copy (editor stays yours; agent gets its own workspace).
+- **Language:** Solo / Studio / Team tiers; Explore / Fix mode labels; Model Bridge tiers Speed / Standard / Deep; Approval Queue, Agent Memory, Checkpoints, Multi-Model Review, Agent Teams.
+- **Tools:** Git inspection tools removed from the agent registry — use the terminal for `git` CLI.
+- **Fix:** Raw `<task_complete>` tags no longer appear in chat UI.
+- **Docs:** Live Code Map / parser deep-dive moved to [docs/architecture.md](docs/architecture.md).
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -173,54 +200,40 @@ Atlarix v7 is a complete rebuild of the agent and context systems on top of the 
 
 ## What makes Atlarix different
 
-- **Blueprint (RTE + graph):** Your repo is parsed into a live graph (rooms, beacons, edges). The AI queries structure first, not just open files—so context stays focused on the architecture that matters.
-- **Skills & workspace memory:** Project instructions and skills shape behavior without repeating yourself every turn.
-- **Task ledger:** Multi-step work gets an external **task ledger** that survives compaction—clear pending steps, progress, and file touch lists for the model.
-- **Counsel:** Optional **fast / balanced / thinking** perspectives run ahead of the main reply (or via IPC for UI-triggered runs), then synthesize—useful for hard design questions.
-- **Parallel agents:** Research and architect-style **parallel prefetch** and **post-task verification** (reviewer + debugger) run with safe depth and ledger rules so sub-runs do not fight the parent turn.
+- **Live Code Map:** Your repo is parsed into a live graph (rooms, beacons, edges). The agent queries structure first—not just open files. Technical details: [docs/architecture.md](docs/architecture.md).
+- **Agent Behaviors & workspace memory:** Project instructions and behaviors shape the agent without repeating yourself every turn.
+- **Agent Memory:** Multi-step work persists across compaction—clear pending steps, progress, and file touch lists.
+- **Multi-Model Review:** Optional Speed / Standard / Deep perspectives run ahead of the main reply, then synthesize—useful for hard design questions.
+- **Agent Teams:** Research and architect-style parallel prefetch and post-task verification (reviewer + debugger) with safe depth rules.
 - **Self-correction:** Capped synthetic follow-ups can address test or diagnostics output after substantive build turns.
-- **Living plan:** **`.atlarix/ATLARIX_PLAN.md`** can track execution with checkboxes and a completion section; previous versions are archived under **`.atlarix/plans/archive/`** when the plan is replaced.
-- **Hooks & custom commands:** Advisory **hooks** around file and command operations; **slash commands** expand prompts with optional mode overrides.
-- **Auto memory:** High-signal turn summaries can append under **`.atlarix/ATLARIX.md`** (optional **`writeToFile`** toggle), with tool names reflected when available.
+- **Living plan:** **`.atlarix/ATLARIX_PLAN.md`** tracks execution with checkboxes; previous versions archive under **`.atlarix/plans/archive/`**.
+- **Hooks & custom commands:** Advisory hooks around file and command operations; slash commands expand prompts with optional mode overrides.
+- **Auto memory:** High-signal turn summaries can append under **`.atlarix/ATLARIX.md`**.
 
-**Providers:** Compass (managed tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, local via Ollama / LM Studio, and more). Core product behaviors—ledger, continuation, verification, compaction—are **not** tied to a single provider; tier limits and billing remain provider-specific where applicable.
+**Providers:** Managed **Model Bridge** tiers and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more). Core behaviors are not tied to a single provider.
 
 For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ## Features
 
-### Blueprint (RTE + RAG)
+### Live Code Map & Blueprint (in-app)
 
-**Blueprint on demand.** Atlarix builds a Blueprint graph via Round-Trip Engineering when you call `get_blueprint` or structural search — not by injecting the whole repo every turn. The model loads focused slices from the graph instead of scanning hundreds of thousands of raw tokens.
-
-| Language / extension | Primary parser | Fallback / merge |
-| --- | --- | --- |
-| `.ts`, `.tsx`, `.js`, `.jsx` | **oxc-parser** (native, worker pool, 256 KB cap) | Regex for routes / framework handlers |
-| `.py` | **tree-sitter WASM** | Regex for Flask/FastAPI/Django routes |
-| `.go` | **tree-sitter WASM** | Regex for types and functions |
-| `.rs` | **tree-sitter WASM** | Regex for structs and functions |
-| Other supported langs | Regex heuristics | — |
-
-- **Live View** — Diagram extracted from your codebase (Mermaid). Read-only architecture visualization.
-- **Blueprint Mode** — Add containers, beacons, and edges; compare desired vs actual; generate `.atlarix/ATLARIX_PLAN.md`.
-- **Incremental Updates** — File watcher updates affected Blueprint nodes automatically.
-- **Combined Blueprints** — Polyrepo / monorepo: one view with cross-project edges.
-- **`.atlarixignore`** — Gitignore-syntax exclusions from RTE parsing, Blueprint nodes, and prompt injection.
+On-demand graph via `get_blueprint` and structural `search`—not whole-repo injection every turn. Parser tiers, Live View, Blueprint canvas, and `.atlarixignore` are documented in **[docs/architecture.md](docs/architecture.md)**.
 
 ### AI Agents & Modes
 
-- **Work modes:** Ask (read-only), Plan, Build, Debug, Review — plus **Auto** routing that picks Fast / Balanced / Thinking using an external **Groq** classifier (with fallback to your fast model and a **Balanced** baseline when classification is uncertain).
-- **Built-in specialists:** Research, Architect, Builder, Reviewer, Debugger — each with a dedicated tool set.
-- **Delegation:** Guided (flat) or Autonomous (nested sub-agents, depth-limited).
-- **Compass:** Managed cloud provider (OpenRouter-backed, no user-facing API key). Fast / Balanced / Thinking tiers. Free tier: Fast only; Pro / Workforce: all three.
+- **Work modes:** Explore (read-only), Plan, Build, Fix, Review — plus **Auto** routing (Speed / Standard / Deep via Groq classifier when uncertain).
+- **Built-in specialists:** Research, Architect, Builder, Reviewer, Debugger.
+- **Agent Teams:** Guided (flat) or Autonomous (nested sub-agents, depth-limited).
+- **Model Bridge:** Managed cloud models (no API key). Speed tier on Solo; all three on Studio and Team.
 
 ### Workspace Tools & Extensions
 
-- **Core tools (all tiers):** File read/write, unified **`search`**, Blueprint / `get_blueprint`, git, terminal, web search, diagrams via **`get_diagram`**, and more. **Ask** mode uses a read-only tool allowlist.
-- **MCP:** Configure stdio or HTTP servers in Settings → Tools → **MCP**. **Free:** up to **1** global MCP (add manually). **Pro / Workforce:** MCP **marketplace** (one-click from the public registry) plus up to **5** global and **5** per-workspace servers. In workspace chats, MCP tools are exposed **on demand** via **`list_available_mcps`** and **`mcp_call`** (not all tools merged every turn).
-- **Skills:** **Pro / Workforce** — browse and install from the [atlarix-skills](https://github.com/AmariahAK/atlarix-skills) registry (5 global + 5 per-workspace). Optional **`.atlarix/skills/`** markdown in the repo; on **Workforce**, manifests can set **`priority: true`** so those skills are honored as high-priority.
-- **Workforce-only product features:** MCP-based team integrations (Slack, Jira, Linear, Sentry, calendar, CI, etc. via marketplace servers and per-server credentials); session-scoped service context per chat; **`commit_blueprint` / Blueprint snapshot to git**; registry MCP rows tagged **`tier: "workforce"`** in [atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps).
-- **Database extension:** PostgreSQL, MySQL, SQLite — read (`db_query`, `db_schema`) and write (`db_mutate`, with approval) where enabled.
+- **Core tools (all tiers):** File read/write, unified **`search`**, `get_blueprint`, terminal (including `git` CLI), web search, **`get_diagram`**, and more. **Explore** mode uses a read-only allowlist.
+- **MCP:** **Solo:** 1 global MCP (manual). **Studio / Team:** marketplace plus up to **5** global and **5** per-workspace servers; on-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **Agent Behaviors:** **Studio / Team** — install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills) (5 global + 5 per workspace). Optional **`.atlarix/skills/`** in the repo; **Team** honors **`priority: true`** on manifests.
+- **Team tier:** MCP-based integrations (Slack, Jira, Linear, Sentry, CI, etc.); session-scoped service context; **`commit_blueprint`** to git; workforce-only MCP registry rows in [atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps).
+- **Database extension:** PostgreSQL, MySQL, SQLite — read/write with approval where enabled.
 
 ### Live Preview & Error Detection
 
@@ -231,10 +244,10 @@ For detailed release notes see **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 ### Context & Session Management
 
 - **Context bar** — Real-time token usage with color-coded warnings.
-- **Compaction** — The model can call **`compress_context`** when threads get long (model-triggered; not a fixed pre-turn summarize on every message).
+- **Compaction** — Model-triggered **`compress_context`** when threads get long.
 - **Project memory** — `.atlarix/ATLARIX.md` for persistent workspace instructions.
-- **Conversation revert** — Revert workspace files and diagram to before a turn while keeping the full transcript (`is_reverted` markers).
-- **Permission queue** — Approve / reject AI file and command changes before execution, with diff preview.
+- **Conversation revert** — Revert workspace files and diagram while keeping the transcript (`is_reverted` markers).
+- **Approval queue** — Approve / reject file and command changes before execution, with diff preview.
 
 ### Multi-Provider AI
 
@@ -301,9 +314,9 @@ After `npm install`, root **`postinstall`** runs **`electron/install.js`** so th
 
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
-| **Free**  | $0      | 1          | Compass **Fast** only; BYOK / local models; core tools; **1** global MCP (manual); Skills & MCP marketplace locked |
-| **Pro**   | $19/mo  | Unlimited  | Compass **Fast / Balanced / Thinking**; higher included Compass usage; **Skills** + **MCP marketplace**; up to **5** global + **5** per-workspace MCPs; priority support |
-| **Workforce** | $79/mo | Unlimited | Everything in **Pro** + team **seats** (default 5) and **high pool** Compass usage; **team MCP** integrations (marketplace + credentials in-app); **priority** repo skills; **Blueprint commit** to git; Workforce-only MCP registry rows |
+| **Solo**  | $0      | 1          | Model Bridge **Speed** only; BYOK / local models; core tools; **1** global MCP (manual); Agent Behaviors & MCP marketplace locked |
+| **Studio**   | $19/mo  | Unlimited  | Model Bridge **Speed / Standard / Deep**; higher included usage; **Agent Behaviors** + **MCP marketplace**; up to **5** global + **5** per-workspace MCPs; priority support |
+| **Team** | $79/mo | Unlimited | Everything in **Studio** + team **seats** (default 5) and high-pool Model Bridge usage; team MCP integrations; priority repo behaviors; Blueprint commit to git; Team-only MCP registry rows |
 
 Default **Compass token allowances** (server-side, adjustable): see [docs/compass-limits.md](docs/compass-limits.md).
 

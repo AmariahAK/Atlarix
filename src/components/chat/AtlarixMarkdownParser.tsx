@@ -43,6 +43,7 @@ import {
   type PlanCardData,
 } from "@/lib/plan-cards/plan-card-renderer";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
+import { stripTaskCompleteTags } from "@/ipc/utils/thinking_tags";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -165,7 +166,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const busExchanges =
     chatId != null ? (agentBusRingByChatId[chatId] ?? []) : [];
   const displayContent = useMemo(() => {
-    let s = stripAssistantPlanForDisplay(content);
+    let s = stripTaskCompleteTags(stripAssistantPlanForDisplay(content));
     if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
     return s;
   }, [content, isStreaming]);

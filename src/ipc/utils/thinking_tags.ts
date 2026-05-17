@@ -24,3 +24,17 @@ export function removeThinkingTags(text: string): string {
 export function stripThinkBlocks(content: string): string {
   return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
+
+/** Remove model task-completion signal tags before UI render or persistence. */
+export function stripTaskCompleteTags(content: string): string {
+  return content
+    .replace(/<task_complete\b[^>]*>[\s\S]*?<\/task_complete>/gi, "")
+    .replace(/<\/?task_complete\b[^>]*>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Strip internal signals for assistant bubbles and DB rows (keeps think blocks out via stripThinkBlocks). */
+export function stripAssistantDisplayContent(content: string): string {
+  return stripTaskCompleteTags(stripThinkBlocks(content));
+}
