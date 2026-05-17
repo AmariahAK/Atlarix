@@ -111,7 +111,15 @@ export function CompactModelSearch({
           <span className="truncate max-w-[180px]">{triggerLabel ?? displayName}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[280px] p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        avoidCollisions
+        collisionPadding={16}
+        className="z-200 w-[280px] max-h-[min(70vh,var(--radix-popover-content-available-height,70vh))] overflow-hidden p-0"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <div className="p-2 border-b border-border">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

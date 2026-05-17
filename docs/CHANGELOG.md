@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## [8.3.1] (2026-05-17) — Chat config dropdown placement
+
+### Release highlights
+
+- **Chat config / model / work-mode menus:** Open **above** the composer by default with Radix collision avoidance so Guided / Direct / Autonomous, model, and MCP sub-panels stay on screen instead of clipping below the viewport edge.
+
+---
+
 ## [8.3.0] (2026-05-17) — Agent Workstation reframe
 
 ### Release highlights

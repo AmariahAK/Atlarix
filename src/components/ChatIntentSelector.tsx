@@ -173,7 +173,14 @@ export function ChatIntentSelector() {
                     {"Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
                   </TooltipContent>
                 </Tooltip>
-                <SelectContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+                <SelectContent
+                  align="start"
+                  side="top"
+                  position="popper"
+                  avoidCollisions
+                  collisionPadding={12}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                >
                   {WORK_MODES.map(({ value, icon: Icon, desc }) => {
                     const disabled = noWorkspace && value !== "ask";
                     return (

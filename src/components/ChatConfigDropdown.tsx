@@ -253,11 +253,12 @@ export function ChatConfigDropdown({
       </Tooltip>
       <DropdownMenuContent
         align="start"
-        side="bottom"
-        avoidCollisions={false}
-        collisionPadding={12}
-        className="w-72 overflow-y-auto overflow-x-hidden p-0"
-        sideOffset={6}
+        side="top"
+        sideOffset={8}
+        avoidCollisions
+        collisionPadding={16}
+        sticky="partial"
+        className="z-200 w-72 max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto overflow-x-hidden p-0"
       >
         <div className="p-1">
           {/* MCP */}
@@ -306,7 +307,7 @@ export function ChatConfigDropdown({
                       <SelectTrigger className="h-8 w-full">
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent position="popper" side="top" avoidCollisions collisionPadding={12}>
                         {providersForAuto.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
                             {p.name}

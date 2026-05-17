@@ -217,7 +217,14 @@ export function ChatInputControls({
               />
             </span>
           </PopoverAnchor>
-          <PopoverContent align="start" className="w-auto max-w-[90vw] p-0">
+          <PopoverContent
+            align="start"
+            side="top"
+            sideOffset={8}
+            avoidCollisions
+            collisionPadding={16}
+            className="z-200 w-auto max-w-[min(90vw,24rem)] max-h-[min(70vh,var(--radix-popover-content-available-height,70vh))] overflow-y-auto p-0"
+          >
             {configSubView === "mcp" && <McpToolsPickerContent appId={appId} />}
             {configSubView === "auto" && <AutoConfigContent />}
           </PopoverContent>
