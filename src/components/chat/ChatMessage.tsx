@@ -23,7 +23,11 @@ import {
 import { formatDistanceToNow, format } from "date-fns";
 import { useVersions } from "@/hooks/useVersions";
 import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import {
+  currentAppAtom,
+  selectedAppIdAtom,
+  selectedWorkspaceInfoAtom,
+} from "@/atoms/appAtoms";
 import {
   activityStreamItemsAtom,
   previewTabAtom,
@@ -70,6 +74,20 @@ import {
   shouldRenderInlineThoughtsPanel,
 } from "../ActivityDisplay";
 import { AttachmentChip } from "./AttachmentChip";
+import type { WorkMode } from "@/lib/schemas";
+import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RotateCcw } from "lucide-react";
+import {
+  resolveWorkspaceAppId,
+  showWorkspaceModeControls as shouldShowWorkspaceModeControls,
+} from "@/lib/chat/show-workspace-mode-controls";
 
 interface ChatMessageProps {
   message: Message;
@@ -78,8 +96,10 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const { isStreaming, streamMessage } = useStreamChat();
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const appId = useAtomValue(selectedAppIdAtom);
+  const currentApp = useAtomValue(currentAppAtom);
+  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
@@ -214,6 +234,12 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   };
 
   const [isEditing, setIsEditing] = useState(false);
+  const [resendMode, setResendMode] = useState<WorkMode>(
+    () =>
+      (message.workMode as WorkMode | null | undefined) ??
+      settings?.workModePreference ??
+      "ask",
+  );
   const [editContent, setEditContent] = useState(message.content);
   const lastTurnHadToolCallsByChatId = useAtomValue(lastTurnHadToolCallsByChatIdAtom);
   const doneAnimationState = useAtomValue(responseDoneAnimationAtom);
@@ -345,6 +371,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const handleEditSend = async () => {
     if (currentChatId == null || message.role !== "user") return;
     try {
+      if (showWorkspaceModeControls) {
+        await updateSettings(settingsPatchForWorkMode(resendMode));
+      }
       await IpcClient.getInstance().editMessage(currentChatId, message.id, editContent);
       const chat = await IpcClient.getInstance().getChat(currentChatId);
       setMessagesById((prev) => {
@@ -360,6 +389,26 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     }
   };
 
+  const handleResendInMode = async () => {
+    if (currentChatId == null || message.role !== "user" || isStreaming) return;
+    try {
+      await updateSettings(settingsPatchForWorkMode(resendMode));
+      await IpcClient.getInstance().editMessage(currentChatId, message.id, message.content);
+      const chat = await IpcClient.getInstance().getChat(currentChatId);
+      setMessagesById((prev) => {
+        const next = new Map(prev);
+        next.set(currentChatId, chat.messages);
+        return next;
+      });
+      setRestartedAfterMessageId(message.id);
+      streamMessage({ prompt: "", chatId: currentChatId, continueAfterQuestions: true });
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const WORK_MODES_RESEND: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
+
   const handlePlanSwitchToBuild = (autoMessage: string, planData: PlanCardData) => {
     if (currentChatId == null || isStreaming) return;
     const steps = planData.taskGroups.flatMap((g) =>
@@ -374,11 +423,20 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
 
   const isEphemeralChat =
     currentChatId != null && currentChatId < 0;
+  const resolvedWorkspaceAppId = resolveWorkspaceAppId({
+    selectedAppId: appId,
+    currentAppId: currentApp?.id ?? null,
+    workspaceInfoId: workspaceInfo?.id ?? null,
+  });
+  const showWorkspaceModeControls = shouldShowWorkspaceModeControls(
+    message,
+    resolvedWorkspaceAppId,
+  );
   const canCheckSnapshot =
     message.role === "assistant" &&
     !isStreaming &&
     Boolean(message.content) &&
-    Boolean(appId) &&
+    Boolean(resolvedWorkspaceAppId) &&
     !isEphemeralChat;
 
   const [hasWorkspaceSnapshot, setHasWorkspaceSnapshot] = useState<
@@ -483,14 +541,36 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               </TooltipProvider>
               <button
                 type="button"
-                onClick={() => { setEditContent(message.content); setIsEditing(true); }}
-                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
-                title="Edit"
+                onClick={() => {
+                  setEditContent(message.content);
+                  setResendMode(
+                    (message.workMode as WorkMode | null | undefined) ??
+                      settings?.workModePreference ??
+                      "ask",
+                  );
+                  setIsEditing(true);
+                }}
+                disabled={isStreaming}
+                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-40"
+                title={isStreaming ? "Wait for the current response to finish" : "Edit"}
                 aria-label="Edit message"
               >
                 <Edit2 className="h-3 w-3" />
                 <span>Edit</span>
               </button>
+              {showWorkspaceModeControls ? (
+                <button
+                  type="button"
+                  onClick={() => void handleResendInMode()}
+                  disabled={isStreaming}
+                  className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-40"
+                  title={isStreaming ? "Wait for the current response to finish" : "Resend in current composer mode"}
+                  aria-label="Resend message"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Resend</span>
+                </button>
+              ) : null}
             </div>
           ) : null}
           {message.role === "user" && message.isSynthetic && !isEditing ? (
@@ -501,22 +581,12 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             </div>
           ) : null}
           {message.role === "user" && isEditing ? (
-            <>
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-sm resize-y"
-                autoFocus
-              />
-              <div className="flex gap-2 mt-2">
-                <Button size="sm" onClick={handleEditSend}>
-                  Send
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => { setIsEditing(false); setEditContent(message.content); }}>
-                  Cancel
-                </Button>
-              </div>
-            </>
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-sm resize-y"
+              autoFocus
+            />
           ) : message.role === "assistant" && isLastMessage && isStreaming ? (
             <>
               {liftInlineThoughtsAboveStreamChrome ? (
@@ -663,6 +733,53 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               )}
             </div>
           )}
+          {message.role === "user" &&
+            !message.isSynthetic &&
+            isEditing &&
+            !isStreaming && (
+              <div className="flex justify-end mt-1 flex-wrap items-center gap-1">
+                {showWorkspaceModeControls ? (
+                  <>
+                    <span className="text-[11px] text-muted-foreground px-1">Mode</span>
+                    <Select
+                      value={resendMode}
+                      onValueChange={(v) => setResendMode(v as WorkMode)}
+                      disabled={isStreaming}
+                    >
+                      <SelectTrigger className="h-7 w-[108px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WORK_MODES_RESEND.map((m) => (
+                          <SelectItem key={m} value={m} className="text-xs">
+                            {labelForWorkMode(m)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                ) : null}
+                <Button size="sm" onClick={handleEditSend} disabled={isStreaming}>
+                  {showWorkspaceModeControls ? "Send" : "Save"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isStreaming}
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditContent(message.content);
+                    setResendMode(
+                      (message.workMode as WorkMode | null | undefined) ??
+                        settings?.workModePreference ??
+                        "ask",
+                    );
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
           {/* Done phase: show A beneath last assistant message for ~2s after response completes */}
           {message.role === "assistant" && isLastMessage && !isStreaming && showDoneBeneath && (
             <div className="mt-3 flex justify-start">

@@ -16,8 +16,6 @@ export interface GitCommitParams extends GitBaseParams {
   amend?: boolean;
   /** Allow creating a commit with no staged changes (e.g. empty repo) */
   allowEmpty?: boolean;
-  /** Optional Co-authored-by trailer (e.g. "Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>") */
-  coAuthorTrailer?: string;
 }
 export interface GitFileParams extends GitBaseParams {
   filepath: string;

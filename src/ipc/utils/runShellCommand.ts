@@ -1,4 +1,4 @@
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, type ChildProcess } from "child_process";
 import path from "path";
 import fs from "fs";
 import log from "electron-log";
@@ -50,151 +50,71 @@ export interface CommandResult {
   success: boolean;
 }
 
-/**
- * Run a shell command with full output capture.
- * Uses explicit shell (SHELL or platform default) so PATH/env match user's terminal where possible.
- *
- * @param command - Shell command to execute
- * @param cwd - Working directory (optional). Must exist and be a directory to avoid EPERM/uv_cwd in child (e.g. npm).
- * @returns Promise with stdout, stderr, exitCode, and success flag
- */
-export function runShellCommand(command: string, cwd?: string): Promise<CommandResult> {
-  let resolvedCwd: string | undefined = cwd;
-  if (cwd) {
-    try {
-      const absolute = path.resolve(cwd);
-      resolvedCwd = fs.realpathSync(absolute);
-      const stat = fs.statSync(resolvedCwd);
-      if (!stat.isDirectory()) {
-        const err = new Error(`Working directory is not a directory: ${resolvedCwd}`);
-        logger.error(err.message);
-        return Promise.resolve({
+function resolveWorkingDirectory(cwd?: string): { cwd?: string; error?: CommandResult } {
+  if (!cwd) return { cwd: undefined };
+  try {
+    const absolute = path.resolve(cwd);
+    const resolved = fs.realpathSync(absolute);
+    const stat = fs.statSync(resolved);
+    if (!stat.isDirectory()) {
+      const err = new Error(`Working directory is not a directory: ${resolved}`);
+      logger.error(err.message);
+      return {
+        error: {
           stdout: "",
           stderr: err.message,
           exitCode: 1,
           success: false,
-        });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const out = `Invalid or inaccessible working directory: ${cwd}. ${message}`;
-      logger.error(out);
-      return Promise.resolve({
+        },
+      };
+    }
+    return { cwd: resolved };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const out = `Invalid or inaccessible working directory: ${cwd}. ${message}`;
+    logger.error(out);
+    return {
+      error: {
         stdout: "",
         stderr: out,
         exitCode: 1,
         success: false,
-      });
-    }
+      },
+    };
   }
-
-  logger.log(`Running command: ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ''}`);
-
-  const shell = getShell();
-  const env = { ...process.env, CI: "true" }; // CI encourages CLIs (e.g. create-vite) to run non-interactively
-
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-
-    const proc = spawn(command, {
-      shell,
-      cwd: resolvedCwd || undefined,
-      env,
-      stdio: ["ignore", "pipe", "pipe"], // ignore stdin, pipe stdout/stderr
-    });
-
-    proc.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on("error", (error) => {
-      logger.error(`Error executing command "${command}":`, error.message);
-      resolve({
-        stdout,
-        stderr: error.message,
-        exitCode: 1,
-        success: false,
-      });
-    });
-
-    proc.on("close", (code) => {
-      const exitCode = code ?? 1;
-      const success = exitCode === 0;
-
-      if (success) {
-        logger.debug(`Command "${command}" succeeded with code ${exitCode}`);
-      } else {
-        logger.error(`Command "${command}" failed with code ${exitCode}`);
-      }
-
-      resolve({
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        exitCode,
-        success,
-      });
-    });
-  });
 }
 
-export interface RunShellCommandStreamingOptions {
-  /** Called on each stdout/stderr chunk with accumulated output so far. */
-  onOutput: (accumulated: { stdout: string; stderr: string }) => void;
+interface RunShellProcessOptions {
+  command: string;
+  cwd?: string;
+  onOutput?: (accumulated: { stdout: string; stderr: string }) => void;
+  /** Called immediately after spawn so callers can kill the process on timeout. */
+  onSpawn?: (proc: ChildProcess) => void;
 }
 
 /**
- * Run a shell command and stream output via callback.
- * Calls onOutput on each stdout/stderr chunk with accumulated stdout and stderr.
- * Resolves with the same CommandResult as runShellCommand when the process exits.
+ * Spawn a shell command and resolve once on exit/close/error (single resolution).
  */
-export function runShellCommandStreaming(
-  command: string,
-  cwd?: string,
-  options?: RunShellCommandStreamingOptions
-): Promise<CommandResult> {
-  let resolvedCwd: string | undefined = cwd;
-  if (cwd) {
-    try {
-      const absolute = path.resolve(cwd);
-      resolvedCwd = fs.realpathSync(absolute);
-      const stat = fs.statSync(resolvedCwd);
-      if (!stat.isDirectory()) {
-        const err = new Error(`Working directory is not a directory: ${cwd}`);
-        logger.error(err.message);
-        return Promise.resolve({
-          stdout: "",
-          stderr: err.message,
-          exitCode: 1,
-          success: false,
-        });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const out = `Invalid or inaccessible working directory: ${cwd}. ${message}`;
-      logger.error(out);
-      return Promise.resolve({
-        stdout: "",
-        stderr: out,
-        exitCode: 1,
-        success: false,
-      });
-    }
-  }
-
-  logger.log(`Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ''}`);
-
+function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult> {
+  const { command, cwd, onOutput, onSpawn } = options;
   const shell = getShell();
   const env = { ...process.env, CI: "true" };
-  const onOutput = options?.onOutput;
 
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const finish = (result: CommandResult) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        stdout: result.stdout.trim(),
+        stderr: result.stderr.trim(),
+        exitCode: result.exitCode,
+        success: result.success,
+      });
+    };
 
     const emit = () => {
       onOutput?.({ stdout, stderr });
@@ -202,10 +122,12 @@ export function runShellCommandStreaming(
 
     const proc = spawn(command, {
       shell,
-      cwd: resolvedCwd || undefined,
+      cwd: cwd || undefined,
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    onSpawn?.(proc);
 
     proc.stdout?.on("data", (data) => {
       stdout += data.toString();
@@ -219,7 +141,7 @@ export function runShellCommandStreaming(
 
     proc.on("error", (error) => {
       logger.error(`Error executing command "${command}":`, error.message);
-      resolve({
+      finish({
         stdout,
         stderr: error.message,
         exitCode: 1,
@@ -227,7 +149,7 @@ export function runShellCommandStreaming(
       });
     });
 
-    proc.on("close", (code) => {
+    const onProcessEnd = (code: number | null) => {
       const exitCode = code ?? 1;
       const success = exitCode === 0;
       if (success) {
@@ -235,14 +157,70 @@ export function runShellCommandStreaming(
       } else {
         logger.error(`Command "${command}" failed with code ${exitCode}`);
       }
-      resolve({
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        exitCode,
-        success,
-      });
-    });
+      finish({ stdout, stderr, exitCode, success });
+    };
+
+    // Listen to both: some shells/platforms emit exit before close; either must settle the promise.
+    proc.on("exit", (code) => onProcessEnd(code));
+    proc.on("close", (code) => onProcessEnd(code));
   });
+}
+
+/**
+ * Run a shell command with full output capture.
+ */
+export function runShellCommand(command: string, cwd?: string): Promise<CommandResult> {
+  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd);
+  if (error) return Promise.resolve(error);
+
+  logger.log(`Running command: ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
+  return runShellProcess({ command, cwd: resolvedCwd });
+}
+
+export interface RunShellCommandStreamingOptions {
+  /** Called on each stdout/stderr chunk with accumulated output so far. */
+  onOutput: (accumulated: { stdout: string; stderr: string }) => void;
+  /** Called immediately after spawn so callers can kill the process on timeout. */
+  onSpawn?: (proc: ChildProcess) => void;
+}
+
+/**
+ * Run a shell command and stream output via callback.
+ * Resolves with CommandResult when the process exits.
+ */
+export function runShellCommandStreaming(
+  command: string,
+  cwd?: string,
+  options?: RunShellCommandStreamingOptions,
+): Promise<CommandResult> {
+  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd);
+  if (error) return Promise.resolve(error);
+
+  logger.log(`Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
+  return runShellProcess({
+    command,
+    cwd: resolvedCwd,
+    onOutput: options?.onOutput,
+    onSpawn: options?.onSpawn,
+  });
+}
+
+/** Kill a child process (SIGTERM, then SIGKILL after delay). */
+export function killShellProcess(proc: ChildProcess | null | undefined): void {
+  if (!proc || proc.killed) return;
+  try {
+    proc.kill("SIGTERM");
+  } catch {
+    /* noop */
+  }
+  setTimeout(() => {
+    if (proc.killed) return;
+    try {
+      proc.kill("SIGKILL");
+    } catch {
+      /* noop */
+    }
+  }, 2000);
 }
 
 /**
@@ -251,7 +229,6 @@ export function runShellCommandStreaming(
  */
 export function runShellCommandSimple(command: string): Promise<string | null> {
   return runShellCommand(command).then((result) =>
-    result.success ? result.stdout : null
+    result.success ? result.stdout : null,
   );
 }
-

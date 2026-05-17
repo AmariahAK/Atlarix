@@ -253,13 +253,26 @@ import {
 } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
-import { settingsPatchForWorkMode } from "../../lib/work-mode";
+import { labelForWorkMode, settingsPatchForWorkMode } from "../../lib/work-mode";
+import { classifyTerminalCommand } from "../../lib/terminal-command-class";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { captureSafe } from "../../main/lib/analytics";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
+
+function runCommandModeGateResult(
+  command: string,
+  workMode: WorkMode,
+): string | null {
+  if (classifyTerminalCommand(command) !== "implementation") return null;
+  if (workMode === "build") return null;
+  return JSON.stringify({
+    success: false,
+    error: `This command (${command}) makes changes to the environment and is only available in Build mode. You are currently in ${labelForWorkMode(workMode)} mode. Ask the user to switch to Build mode in the UI, or use a read-only command.`,
+  });
+}
 
 function sentryAddBreadcrumbSafe(
   breadcrumb: Parameters<typeof Sentry.addBreadcrumb>[0],
@@ -2049,6 +2062,18 @@ ${componentSnippet}
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
       // Capture inserted user message id so we can attach session-only metadata (attachments) for renderer.
       let insertedUserMessageId: number | null = null;
+      const workModeForUserMessage: WorkMode = (() => {
+        const s = readSettings();
+        const cm: "ask" | "build" =
+          s.selectedChatMode === "agent"
+            ? "build"
+            : s.selectedChatMode === "ask" || s.selectedChatMode === "build"
+              ? s.selectedChatMode
+              : "ask";
+        const intent = s.intentMode ?? cm;
+        if (intent === "auto") return cm === "build" ? "build" : "ask";
+        return s.workModePreference ?? (cm === "build" ? "build" : "ask");
+      })();
       if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
         clearSelfCorrectionAttemptsForChat(req.chatId);
         const inserted = await db
@@ -2057,6 +2082,7 @@ ${componentSnippet}
             chatId: req.chatId,
             role: "user",
             content: userPrompt,
+            workMode: workModeForUserMessage,
           })
           .returning();
         insertedUserMessageId = inserted?.[0]?.id ?? null;
@@ -2178,21 +2204,10 @@ ${componentSnippet}
       } else {
         // Ephemeral workspace chat - no DB operations
         logger.log(`Ephemeral workspace chat ${req.chatId} - skipping DB operations`);
-        const { addEphemeralMessage, getEphemeralChat } = await import("./chat_only_handlers");
-        // Build from current store WITHOUT adding the new user message yet to avoid duplication
+        const { getEphemeralChat } = await import("./chat_only_handlers");
         const ephemeralChat = getEphemeralChat(req.chatId);
         const existingMessages = ephemeralChat?.messages || [];
 
-        const newUserMessage = {
-          id: Date.now(),
-          chatId: req.chatId,
-          role: "user",
-          content: userPrompt,
-          createdAt: new Date(),
-          sourceCommitHash: null,
-          commitHash: null,
-          attachments: attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
-        };
         const placeholderMessage = {
           id: Date.now() + 1,
           chatId: req.chatId,
@@ -2203,7 +2218,27 @@ ${componentSnippet}
           commitHash: null,
         };
 
-        updatedChat.messages = [...existingMessages, newUserMessage, placeholderMessage];
+        if (req.continueAfterQuestions) {
+          // Edit resend or Q&A continue — user row already in store; only append assistant placeholder.
+          updatedChat.messages = [...existingMessages, placeholderMessage];
+        } else {
+          const newUserMessage = {
+            id: Date.now(),
+            chatId: req.chatId,
+            role: "user",
+            content: userPrompt,
+            createdAt: new Date(),
+            sourceCommitHash: null,
+            commitHash: null,
+            attachments:
+              attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
+          };
+          updatedChat.messages = [
+            ...existingMessages,
+            newUserMessage,
+            placeholderMessage,
+          ];
+        }
         placeholderAssistantMessage = placeholderMessage;
         if (ephemeralChat) {
           ephemeralChat.messages = updatedChat.messages;
@@ -4579,8 +4614,22 @@ This conversation includes one or more image attachments. When the user uploads 
               currentMessages.length > 0 &&
               currentMessages[currentMessages.length - 1].role === "assistant"
             ) {
-              currentMessages[currentMessages.length - 1].content =
-                stripTaskCompleteTags(fullResponse);
+              const stripped = stripTaskCompleteTags(fullResponse);
+              currentMessages[currentMessages.length - 1].content = stripped;
+              if (isEphemeralWorkspace) {
+                const lastIdx = updatedChat.messages.length - 1;
+                if (
+                  lastIdx >= 0 &&
+                  updatedChat.messages[lastIdx]?.role === "assistant"
+                ) {
+                  updatedChat.messages[lastIdx].content = stripped;
+                  const { getEphemeralChat } = await import("./chat_only_handlers");
+                  const ec = getEphemeralChat(req.chatId);
+                  if (ec) {
+                    ec.messages = updatedChat.messages;
+                  }
+                }
+              }
             }
 
             // Update the assistant message in the database
@@ -5019,7 +5068,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_attachment",
                 "read_file",
                 "read_url",
-                "request_mode_change",
+                "run_command",
                 "search",
                 "set_blueprint",
                 "web_search",
@@ -5045,7 +5094,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 "memory",
                 "read_file",
                 "read_implementation_plan",
-                "request_mode_change",
+                "run_command",
                 "search",
                 "set_blueprint",
                 "write_file",
@@ -5074,7 +5123,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "mcp_call",
                 "memory",
                 "read_file",
-                "request_mode_change",
                 "run_command",
                 "search",
                 "set_blueprint",
@@ -5102,7 +5150,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 "lsp_references",
                 "memory",
                 "read_file",
-                "request_mode_change",
+                "run_command",
                 "search",
                 "set_blueprint",
               ]),
@@ -5125,7 +5173,13 @@ This conversation includes one or more image attachments. When the user uploads 
             ) {
               askToolsToInclude = [...askToolsToInclude, planWriteMeta];
             }
-            for (const name of ["compress_context", "write_file", "get_plan_scope", "read_implementation_plan"] as const) {
+            for (const name of [
+              "compress_context",
+              "write_file",
+              "get_plan_scope",
+              "read_implementation_plan",
+              "run_command",
+            ] as const) {
               if (!reachableModeTools.has(name)) continue;
               const meta = ToolRegistry.get(name);
               if (meta && !askToolsToInclude.some((t) => t.name === name)) {
@@ -5165,14 +5219,13 @@ This conversation includes one or more image attachments. When the user uploads 
                     const liveAllowedSet =
                       modeAllowlist[liveWorkMode] ?? modeAllowlist.ask;
                     const askAllowed =
-                      tool.name === "request_mode_change" ||
                       liveAllowedSet.has(tool.name) ||
                       meta?.isReadOnly === true ||
                       meta?.allowInAskMode === true;
                     if (!askAllowed) {
                       return JSON.stringify({
                         success: false,
-                        error: `${tool.name} is not available in ${liveWorkMode} mode. Call request_mode_change first.`,
+                        error: `${tool.name} is not available in ${liveWorkMode} mode. Ask the user to switch modes in the UI.`,
                       });
                     }
                     if (tool.name === "compress_context") {
@@ -5353,16 +5406,23 @@ This conversation includes one or more image attachments. When the user uploads 
                     if (askPermissionInterceptor.isPermissionRequest(result)) {
                       const permRequest = askPermissionInterceptor.parsePermissionRequest(result);
                       if (permRequest) {
+                        if (permRequest.operation === "run_command") {
+                          const cmd =
+                            (permRequest.preview as { command?: string }).command ?? "";
+                          const gate = runCommandModeGateResult(cmd, liveWorkMode);
+                          if (gate) return gate;
+                        }
                         const operationId = askPermissionInterceptor.generateOperationId();
-                        const alwaysAutoAtlarix =
+                        const skipPermissionWait =
+                          shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                         askPermissionInterceptor.bufferOperation(
                           operationId,
                           permRequest,
-                          alwaysAutoAtlarix,
+                          skipPermissionWait,
                         );
 
-                        if (!alwaysAutoAtlarix) {
+                        if (!skipPermissionWait) {
                           safeSend(event.sender, "permission-request", {
                             chatId: req.chatId,
                             operationId,
@@ -5370,6 +5430,8 @@ This conversation includes one or more image attachments. When the user uploads 
                           });
 
                           logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
+                        } else if (settings.agentMode === "autonomous") {
+                          logger.log(`[Ask Mode] Autonomous auto-exec: ${operationId}`);
                         } else {
                           logger.log(
                             `[Ask Mode] Auto-approved .atlarix internal write: ${operationId}`,
@@ -5378,7 +5440,7 @@ This conversation includes one or more image attachments. When the user uploads 
 
                         try {
                           let approved: boolean;
-                          if (alwaysAutoAtlarix) {
+                          if (skipPermissionWait) {
                             const execMeta =
                               await askPermissionInterceptor.executeOperation(operationId);
                             approved = execMeta.approved;
@@ -5506,56 +5568,6 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            // request_mode_change: applied in main; renderer notified via mode:changed (no wait / no dialog)
-            const requestModeChangeTool = ToolRegistry.get("request_mode_change");
-            if (requestModeChangeTool) {
-              askTools["request_mode_change"] = {
-                description: requestModeChangeTool.description,
-                inputSchema: normalizeToolInputSchemaForAiSdk(
-                  requestModeChangeTool.parameters ?? {},
-                ) as never,
-                execute: async (args: any) => {
-                  const execResult = await ToolRegistry.execute("request_mode_change", {
-                    ...args,
-                    hasWorkspace: true,
-                    currentMode: "ask",
-                    intentMode: settings.intentMode ?? "ask",
-                    hasPendingPermissions: false,
-                    chatId: req.chatId,
-                  });
-                  recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
-                  const inner = unwrapRegistryToolResult(execResult);
-                  if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
-                    const modeLabelMap: Record<string, string> = { ask: "Explore", plan: "Plan", build: "Build", debug: "Fix", review: "Review" };
-                    const ml = modeLabelMap[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
-                    safeSend(event.sender, "chat:activity", {
-                      id: `mode-change-${Date.now()}`,
-                      type: "mode_change",
-                      label: `Switched to ${ml} (Auto)`,
-                      status: "done",
-                      timestamp: Date.now(),
-                      detail: (inner as any).reason,
-                      chatId: req.chatId,
-                    });
-                  }
-                  emitModeChangedIfApplied(event.sender, req.chatId, args?.mode, inner);
-                  if (inner && typeof inner === "object" && (inner as any).success === false) {
-                    return JSON.stringify(inner);
-                  }
-                  captureSafe("mode_switched_mid_stream", {
-                    from_mode: "ask",
-                    to_mode: String(args?.mode ?? ""),
-                    chat_id: req.chatId,
-                    workspace_id: effectiveAppId ?? null,
-                    turn_id: streamTurnIdForLedger,
-                  });
-                  return JSON.stringify(
-                    inner && typeof inner === "object" ? { success: true, ...(inner as object) } : { success: true },
-                  );
-                },
-              };
-            }
-
             // Pass 7: MCP tools are no longer pre-merged for workspace Ask chats.
             // The model calls list_available_mcps + mcp_call from the registry on demand.
             logger.log(
@@ -5572,20 +5584,18 @@ You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace
                 : "";
 
             const askModePrompt = `
-IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps, phased implementation plans, or structured plan files, ask the user to switch to **Plan** mode (or call **request_mode_change** toward **plan**). Do **not** suggest **Build** for ordinary Q&A.
+IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps or structured plan files, ask the user to switch to **Plan** mode in the UI. Do **not** suggest **Build** for ordinary Q&A.
+
+**Git and shell:** Use the **run_command** tool for git and read-only shell (git status, git log -1, git diff, ls, cat). Do not read .git/objects manually when run_command can answer. Mutating commands (npm install, git commit, rm, etc.) are blocked in Explore.
 
 Available tools (Explore — read-only):
-- read_file, explore_folder, list_files, search (modes: auto prefers text | semantic-lite | structural; explicit text | semantic-lite | semantic-graph | structural; legacy semantic = semantic-graph), get_blueprint (include_panel_graph syncs Diagram mind map), set_blueprint / clear_blueprint (UI-only panel), find_file, get_file_outline
-- get_diagram (Mermaid architecture diagram)
-- web_search (set deep:true for multi-source synthesis), deep_research (full agentic research loop), read_url
-- run_command for git CLI (status, diff, log, etc.) — no dedicated git tools
-- memory({ operation: "recall" | "search" })
-- get_active_skills, list_installed_skills, list_available_mcps, get_project_history
-- read_attachment, list_attachments
-- ask_user: Clarifications or choices — pass \`options\` (or \`choices\`) as a JSON string array for buttons; or put one choice per line after the question. Do not rely on prose-only lists without \`options\`.
-- request_mode_change: Instantly switch to **Plan**, **Build**, **Debug**, or **Review** when the user is ready (no confirmation).
+- read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline, get_diagram
+- **run_command** (read-only git/shell only)
+- web_search, deep_research, read_url
+- memory, get_active_skills, list_installed_skills, list_available_mcps, get_project_history
+- read_attachment, list_attachments, ask_user
 
-NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_command, run_tests.`;
+NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_tests, or mutating run_command (npm install, git commit, etc.).`;
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             const askTierStreamLoopStartMs = Date.now();
@@ -5891,6 +5901,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 output: payload.output,
                 status: payload.status,
                 exitCode: payload.exitCode,
+                source: "agent",
                 isPermissionBased: true, // Don't force-switch to terminal tab
               });
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
@@ -6093,6 +6104,14 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   if (permissionInterceptor.isPermissionRequest(result)) {
                     const permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
+                      if (permRequest.operation === "run_command") {
+                        const cmdPreview = permRequest.preview as { command?: string };
+                        const gate = runCommandModeGateResult(
+                          cmdPreview.command ?? "",
+                          readSettings().workModePreference ?? effectiveWorkMode,
+                        );
+                        if (gate) return gate;
+                      }
                       const operationId = permissionInterceptor.generateOperationId();
                       const skipPermissionWait =
                         shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
@@ -6486,60 +6505,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               }
             }
 
-            // request_mode_change: Build path — same instant apply + mode:changed notification
-            const requestModeChangeToolBuild = ToolRegistry.get("request_mode_change");
-            if (requestModeChangeToolBuild) {
-              tools["request_mode_change"] = {
-                description: requestModeChangeToolBuild.description,
-                inputSchema: normalizeToolInputSchemaForAiSdk(
-                  requestModeChangeToolBuild.parameters ?? {},
-                ) as never,
-                execute: async (args: any) => {
-                  const hasPending =
-                    permissionInterceptor.getAllOperationsCount() >
-                    permissionInterceptor.getExecutedOperationsCount();
-                  const execResult = await ToolRegistry.execute("request_mode_change", {
-                    ...args,
-                    hasWorkspace,
-                    currentMode: "build",
-                    intentMode: settings.intentMode ?? "build",
-                    hasPendingPermissions: hasPending,
-                    chatId: req.chatId,
-                  });
-                  recordToolUseForTurn(streamTurnIdForLedger, "request_mode_change");
-                  const inner = unwrapRegistryToolResult(execResult);
-                  if (inner && typeof inner === "object" && (inner as any).__emit_mode_change_activity) {
-                    const modeLabelMap2: Record<string, string> = { ask: "Explore", plan: "Plan", build: "Build", debug: "Fix", review: "Review" };
-                    const modeLabel = modeLabelMap2[String((inner as any).requestedMode)] ?? String((inner as any).requestedMode);
-                    safeSend(event.sender, "chat:activity", {
-                      id: `mode-change-${Date.now()}`,
-                      type: "mode_change",
-                      label: `Switched to ${modeLabel} (Auto)`,
-                      status: "done",
-                      timestamp: Date.now(),
-                      detail: (inner as any).reason,
-                      chatId: req.chatId,
-                    });
-                  }
-                  emitModeChangedIfApplied(event.sender, req.chatId, args?.mode, inner);
-                  if (typeof execResult === "string") return execResult;
-                  if (inner && typeof inner === "object" && (inner as any).success === false) {
-                    return JSON.stringify(inner);
-                  }
-                  captureSafe("mode_switched_mid_stream", {
-                    from_mode: "build",
-                    to_mode: String(args?.mode ?? ""),
-                    chat_id: req.chatId,
-                    workspace_id: effectiveAppId ?? null,
-                    turn_id: streamTurnIdForLedger,
-                  });
-                  return JSON.stringify(
-                    inner && typeof inner === "object" ? { success: true, ...(inner as object) } : { success: true },
-                  );
-                },
-              };
-            }
-
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
 
             const recordBuildToolLedger = (name: string, payload: unknown) => {
@@ -6922,6 +6887,17 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     if (permissionInterceptor.isPermissionRequest(toolResult)) {
                       const permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
                       if (permRequest) {
+                        if (permRequest.operation === "run_command") {
+                          const cmdPreview = permRequest.preview as { command?: string };
+                          const gate = runCommandModeGateResult(
+                            cmdPreview.command ?? "",
+                            readSettings().workModePreference ?? effectiveWorkMode,
+                          );
+                          if (gate) {
+                            iterationResults.push({ tool: toolCall.toolName, result: gate });
+                            continue;
+                          }
+                        }
                         const operationId = permissionInterceptor.generateOperationId();
                         const skipPermissionWait =
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
@@ -7492,13 +7468,33 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               })
               .where(eq(messages.id, placeholderAssistantMessage.id));
           } else {
-            // For ephemeral workspace chats, save to in-memory store
-            const { addEphemeralMessage } = await import("./chat_only_handlers");
-            addEphemeralMessage(req.chatId, {
-              role: "assistant",
-              content: stripThinkBlocks(responseToStore),
-              ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
-            });
+            // For ephemeral workspace chats, update the placeholder assistant in place
+            const { getEphemeralChat } = await import("./chat_only_handlers");
+            const ec = getEphemeralChat(req.chatId);
+            const finalContent = stripThinkBlocks(responseToStore);
+            const lastInUpdated =
+              updatedChat.messages.length > 0
+                ? updatedChat.messages[updatedChat.messages.length - 1]
+                : null;
+            if (lastInUpdated?.role === "assistant") {
+              lastInUpdated.content = finalContent;
+              if (autoRoutedTierForTurn != null) {
+                (lastInUpdated as { autoRoutedTier?: string }).autoRoutedTier =
+                  autoRoutedTierForTurn;
+              }
+            } else if (ec) {
+              const last = ec.messages[ec.messages.length - 1];
+              if (last?.role === "assistant") {
+                last.content = finalContent;
+                if (autoRoutedTierForTurn != null) {
+                  (last as { autoRoutedTier?: string }).autoRoutedTier =
+                    autoRoutedTierForTurn;
+                }
+              }
+            }
+            if (ec) {
+              ec.messages = updatedChat.messages;
+            }
           }
 
           // Record exchange in session memory for conversation continuity
@@ -7510,7 +7506,11 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               .replace(/<[^>]*>/g, '')
               .replace(/```[\s\S]*?```/g, '[code]')
               .trim();
-            sessionMemory.addExchange(userPrompt, cleanResponse);
+            if (req.continueAfterQuestions) {
+              sessionMemory.replaceLastExchange(userPrompt, cleanResponse);
+            } else {
+              sessionMemory.addExchange(userPrompt, cleanResponse);
+            }
             logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
           } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);

@@ -36,7 +36,6 @@ const LABELS: Record<string, string> = {
   delegate_to_agent: "Agent team assigned…",
   create_workspace: "Creating workspace…",
   generate_code: "Generating code…",
-  request_mode_change: "Requesting mode change…",
   ask_user: "Asking you…",
   get_repo_overview: "Mapping repository…",
   get_project_structure: "Reading project layout…",

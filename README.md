@@ -21,11 +21,24 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.3.0**
+**Current release:** **v8.4.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.4.0 — Terminal, CLI, modes, and session fixes
+
+- **Terminal:** Reliable command completion (exit/close, kill on timeout); interactive terminal in Activity panel (`terminal:run` IPC).
+- **CLI:** Install `atlarix` from Settings; open workspaces with `atlarix .`, open-file, and second-instance handling.
+- **Modes:** Per-mode system prompt blocks; per-message `work_mode` + resend UI; terminal command classification by work mode.
+- **Edit/resend:** Workspace message edit shows **Mode** + **Send** (not **Save** only); no duplicate user rows on resend; session memory replaces last exchange on continue.
+- **Git:** Agent commits use **atlarix-agent** `<agent@atlarix.dev>`; co-author trailer respects Settings without restart.
+- **Other:** PDF attachment timeout/fallback; `run_command` in Explore; Autonomous terminal auto-approve alignment.
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 

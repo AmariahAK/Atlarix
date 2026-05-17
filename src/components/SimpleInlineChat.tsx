@@ -6,7 +6,7 @@
  * Receives all state as props or from atoms directly.
  */
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
     chatMessagesByIdAtom,
@@ -30,6 +30,7 @@ import { useStreamChat } from "@/hooks/useStreamChat";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -55,10 +56,16 @@ export function SimpleInlineChat({
     const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
     // IMPORTANT: This component renders on non-"/chat" routes; avoid route-scoped search hooks.
     const { streamMessage } = useStreamChat({ hasChatId: false });
+    const selectedAppId = useAtomValue(selectedAppIdAtom);
+    const [chatAppId, setChatAppId] = useState<number | null>(() =>
+        selectedAppId != null ? selectedAppId : null,
+    );
 
     useEffect(() => {
-        void chatId;
-    }, [chatId]);
+        if (selectedAppId != null) {
+            setChatAppId((prev) => prev ?? selectedAppId);
+        }
+    }, [selectedAppId, chatId]);
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -78,6 +85,7 @@ export function SimpleInlineChat({
     const fetchMessages = useCallback(async () => {
         try {
             const chat = await IpcClient.getInstance().getChat(chatId);
+            setChatAppId(chat.appId ?? null);
             setMessagesById((prev) => {
                 const next = new Map(prev);
                 next.set(chatId, chat.messages);
@@ -106,6 +114,7 @@ export function SimpleInlineChat({
         async (messageId: number, newContent: string) => {
             await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
             const chat = await IpcClient.getInstance().getChat(chatId);
+            setChatAppId(chat.appId ?? null);
             setMessagesById((prev) => {
                 const next = new Map(prev);
                 next.set(chatId, chat.messages);
@@ -193,6 +202,8 @@ export function SimpleInlineChat({
                         <div key={message.id || index} className="contents">
                             <SimpleMessage
                                 message={message}
+                                chatId={chatId}
+                                workspaceAppId={chatAppId}
                                 isStreaming={isStreaming && index === visibleMessages.length - 1}
                                 onEditUserMessage={handleEditUserMessage}
                             />

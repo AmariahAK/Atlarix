@@ -8,7 +8,7 @@ import { getAtlarixAppPath } from "../../paths/paths";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { getCoAuthorTrailerForCommit, gitAddAll, gitCommit } from "../utils/git_utils";
+import { gitAddAll, gitCommit } from "../utils/git_utils";
 import { simpleSpawn } from "../utils/simpleSpawn";
 
 export const logger = log.scope("app_upgrade_handlers");
@@ -185,7 +185,6 @@ async function applyComponentTagger(appPath: string) {
     await gitCommit({
       path: appPath,
       message: "[atlarix] add Atlarix component tagger",
-      coAuthorTrailer: getCoAuthorTrailerForCommit(),
     });
     logger.info("Successfully committed changes");
   } catch (err) {
@@ -235,7 +234,6 @@ async function applyCapacitor({
     await gitCommit({
       path: appPath,
       message: "[atlarix] add Capacitor for mobile app support",
-      coAuthorTrailer: getCoAuthorTrailerForCommit(),
     });
     logger.info("Successfully committed Capacitor changes");
   } catch (err) {

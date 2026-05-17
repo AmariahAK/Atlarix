@@ -109,7 +109,7 @@ The full per-mode tool surface lives in the `<mode_system>` block of the system 
 
 ### Ask (UI label: Explore)
 - Read-only analysis of code, files, and project structure
-- Tools: `read_file`, `explore_folder`, `list_files`, `search`, `get_blueprint`, `get_project_structure`, `find_file`, `get_file_outline`, `get_diagram`, `web_search`, `deep_research`, `read_url`, `memory`, `get_project_history`, `get_active_skills`, `list_installed_skills`, `list_available_mcps`, `read_attachment`, `list_attachments`, `ask_user`, `request_mode_change`
+- Tools: `read_file`, `explore_folder`, `list_files`, `search`, `get_blueprint`, `get_project_structure`, `find_file`, `get_file_outline`, `get_diagram`, `web_search`, `deep_research`, `read_url`, `memory`, `get_project_history`, `get_active_skills`, `list_installed_skills`, `list_available_mcps`, `read_attachment`, `list_attachments`, `ask_user`, `run_command`
 - **Git:** Use `run_command` / terminal for `git` CLI — no dedicated git tools.
 - No file writes, no command execution, LSP OFF
 

@@ -85,6 +85,28 @@ export class SessionMemory {
     }
 
     /**
+     * Replace the most recent exchange (edit resend / continue-after-questions redo).
+     */
+    replaceLastExchange(user: string, assistant: string, toolsUsed?: string[]) {
+        const truncatedUser = this.truncate(user, this.maxUserChars);
+        const truncatedAssistant = this.truncate(assistant, this.maxAssistantChars);
+        const entry = {
+            user: truncatedUser,
+            assistant: truncatedAssistant,
+            timestamp: Date.now(),
+            toolsUsed,
+        };
+        if (this.context.exchanges.length === 0) {
+            this.context.exchanges.push(entry);
+        } else {
+            this.context.exchanges[this.context.exchanges.length - 1] = entry;
+        }
+        logger.log(
+            `Exchange replaced (${this.context.exchanges.length}/${this.maxExchanges})`,
+        );
+    }
+
+    /**
      * Record an error that occurred
      */
     addError(error: string) {

@@ -41,6 +41,7 @@ ToolRegistry.register({
     name: "run_command",
     description:
         "Execute a shell command in the workspace. Commands run at the workspace (project) root; do not use paths under atlarix-apps. " +
+        "Available in Explore, Plan, Fix, and Review for read-only commands (git status, git log, git diff, ls, cat); mutating commands require Build mode. " +
         "Shows permission dialog before running. Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
         "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
@@ -50,6 +51,7 @@ ToolRegistry.register({
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,
+    allowInAskMode: true,
     parameters: createParameters(
         {
             command: stringParam("Shell command to execute"),

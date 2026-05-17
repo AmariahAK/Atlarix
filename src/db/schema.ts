@@ -127,6 +127,10 @@ export const messages = sqliteTable("messages", {
   isSynthetic: integer("is_synthetic", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
+  /** Work mode active when the user sent this message (explore/plan/build/fix/review). */
+  workMode: text("work_mode", {
+    enum: ["ask", "plan", "build", "debug", "review"],
+  }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

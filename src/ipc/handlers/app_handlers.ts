@@ -44,7 +44,6 @@ import { startProxy } from "../utils/start_proxy_server";
 import { Worker } from "worker_threads";
 import { createFromTemplate } from "./createFromTemplate";
 import {
-  getCoAuthorTrailerForCommit,
   gitCommit,
   gitAdd,
   gitInit,
@@ -620,7 +619,6 @@ export function registerAppHandlers() {
       const commitHash = await gitCommit({
         path: fullAppPath,
         message: "Init Atlarix app",
-        coAuthorTrailer: getCoAuthorTrailerForCommit(),
       });
 
       // Update chat with initial commit hash
@@ -691,7 +689,6 @@ export function registerAppHandlers() {
         await gitCommit({
           path: newAppPath,
           message: "Init Atlarix app",
-          coAuthorTrailer: getCoAuthorTrailerForCommit(),
         });
       }
 
@@ -1101,7 +1098,6 @@ export function registerAppHandlers() {
           await gitCommit({
             path: appPath,
             message: `Updated ${filePath}`,
-            coAuthorTrailer: getCoAuthorTrailerForCommit(),
           });
         }
       } catch (error: any) {

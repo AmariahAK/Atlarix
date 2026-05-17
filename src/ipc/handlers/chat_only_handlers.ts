@@ -1743,7 +1743,11 @@ export async function handleChatOnlyStream(
                 .replace(/<[^>]*>/g, '')
                 .replace(/```[\s\S]*?```/g, '[code]')
                 .trim();
-            sessionMemory.addExchange(gatedPrompt, cleanResponse);
+            if (req.continueAfterQuestions) {
+                sessionMemory.replaceLastExchange(gatedPrompt, cleanResponse);
+            } else {
+                sessionMemory.addExchange(gatedPrompt, cleanResponse);
+            }
             logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
         } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);

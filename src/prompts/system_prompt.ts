@@ -138,7 +138,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_attachment",
     "read_file",
     "read_url",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
     "web_search",
@@ -164,7 +164,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "memory",
     "read_file",
     "read_implementation_plan",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
     "write_file",
@@ -193,7 +193,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "mcp_call",
     "memory",
     "read_file",
-    "request_mode_change",
     "run_command",
     "search",
     "set_blueprint",
@@ -221,7 +220,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "lsp_references",
     "memory",
     "read_file",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
   ],
@@ -239,7 +238,7 @@ const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
 
 /** Shown in tool context — git is terminal-only (no dedicated git tools). */
 export const GIT_VIA_TERMINAL_NOTE =
-  "Git operations should be performed via the terminal tool. Use standard git CLI commands directly in the terminal — this gives full control and visibility without abstraction.";
+  "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
 
 /**
  * Render `<mode_system>` block — declares which tools are available per work mode.
@@ -249,23 +248,108 @@ export const GIT_VIA_TERMINAL_NOTE =
  * all five blocks render — used by token_count_handlers and other static callers
  * that do not know the live work mode at call time.
  */
+/** Mode-specific system context — only the active mode (no other modes, no mode-switch tool). */
+export function getModeSystemBlock(mode: ModeSystemKey): string {
+  const blocks: Record<ModeSystemKey, string> = {
+    ask: `## Current mode: Explore
+
+You are in Explore mode. This is a read-only investigation mode.
+
+You CAN:
+- Read files and search the codebase
+- Use **run_command** for read-only shell/git (git status, git log, git diff, ls, cat) — this tool is registered and available
+- Use get_blueprint, get_diagram, search
+- Answer questions about the codebase
+- Look up documentation via web search
+
+You CANNOT:
+- Write or edit files
+- Run mutating commands via run_command (npm install, git commit, rm, etc.) — blocked at runtime
+- Use the approval queue (no writes to approve)
+
+Do not claim run_command is unavailable. For git history/status, call run_command instead of reading .git/objects.
+
+Focus on understanding and explaining. If the user wants you to implement something, tell them to switch to Build mode in the UI.`,
+
+    plan: `## Current mode: Plan
+
+You are in Plan mode. This is a planning and architecture mode.
+
+You CAN:
+- Read files and search the codebase
+- Use **run_command** for read-only shell/git (git status, git log, git diff)
+- Create and edit plan files (.atlarix/ATLARIX_PLAN.md)
+- Use get_blueprint and get_diagram
+- Write markdown documents, specs, and plans
+
+You CANNOT:
+- Write or edit source code files
+- Run build, install, or execution commands
+- Make changes that affect the running application
+
+Focus on producing clear, actionable plans. If the user wants implementation, tell them to switch to Build mode in the UI.`,
+
+    build: `## Current mode: Build
+
+You are in Build mode. This is the full implementation mode.
+
+You CAN:
+- Read and write any file (with approval queue for writes)
+- Run any terminal command including npm install, builds, and scripts
+- Use all available tools
+- Delegate to specialist agents (Architect, Builder, Reviewer, etc.)
+
+Focus on implementing correctly and completely. Every file write goes through the approval queue — do not ask the user to approve, just make the change and it will be queued automatically.`,
+
+    debug: `## Current mode: Fix
+
+You are in Fix mode. This is a targeted debugging and repair mode.
+
+You CAN:
+- Read and write files (with approval)
+- Use **run_command** for shell/git and test runners (mutating commands allowed when needed for the fix)
+- Run the test suite to verify fixes
+- Use search and get_blueprint to investigate
+
+You CANNOT:
+- Run broad installation or build commands unrelated to the fix
+- Refactor or restructure code beyond what is needed for the fix
+
+Focus on identifying the root cause and making the minimal correct change.`,
+
+    review: `## Current mode: Review
+
+You are in Review mode. This is a code review and quality assessment mode.
+
+You CAN:
+- Read all files
+- Use **run_command** for read-only shell/git and test runners
+- Search the codebase
+- Write review notes and comments
+
+You CANNOT:
+- Write or edit source code files
+- Run installation or build commands
+
+Focus on identifying issues, inconsistencies, and improvements. Produce clear, specific feedback.`,
+  };
+  return blocks[mode] ?? blocks.ask;
+}
+
 export function renderModeSystemBlock(activeMode?: ModeSystemKey): string {
+  if (activeMode) {
+    return `${getModeSystemBlock(activeMode)}\n\n${GIT_VIA_TERMINAL_NOTE}`;
+  }
   const lines: string[] = [];
   lines.push("<mode_system>");
-  lines.push("Each work mode exposes a fixed tool surface. Mode-switch via request_mode_change.");
-  lines.push("Tools registered in EVERY mode (also chat-only): read_attachment, list_attachments, compress_context, web_search, deep_research, ask_user.");
+  lines.push("Tools registered in EVERY mode: read_attachment, list_attachments, compress_context, web_search, deep_research, ask_user.");
   lines.push("");
-  const modesToEmit: ModeSystemKey[] = activeMode
-    ? [activeMode]
-    : (Object.keys(MODE_SYSTEM_TOOL_LISTS) as ModeSystemKey[]);
-  for (const mode of modesToEmit) {
+  for (const mode of Object.keys(MODE_SYSTEM_TOOL_LISTS) as ModeSystemKey[]) {
     const tools = MODE_SYSTEM_TOOL_LISTS[mode];
     const display = tools[0] === "*" ? "ALL registered tools" : tools.join(", ");
     lines.push(`- **${mode}** — ${MODE_SYSTEM_DESCRIPTIONS[mode]}`);
     lines.push(`  tools: ${display}`);
   }
-  lines.push("");
-  lines.push("If you need a tool outside the current mode's surface, call request_mode_change with a brief reason.");
   lines.push("");
   lines.push(GIT_VIA_TERMINAL_NOTE);
   lines.push("</mode_system>");
@@ -326,7 +410,7 @@ read_attachment({ "attachmentId": "<id>" }) and list_attachments({}) ARE availab
 mode and in every other mode. Use them whenever the user has attached a file, regardless of
 whether a workspace is open.
 
-**Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode (or use \`request_mode_change\` toward plan). Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
+**Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode in the UI. Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
 
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.

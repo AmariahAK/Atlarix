@@ -1,4 +1,9 @@
-import { getGitAuthor } from "./git_author";
+import {
+  ATLARIX_CO_AUTHOR_TRAILER,
+  getGitAuthor,
+} from "./git_author";
+
+export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/node";
 import { exec } from "dugite";
@@ -88,9 +93,7 @@ export async function isGitStatusClean({
   }
 }
 
-export const ATLARIX_CO_AUTHOR_TRAILER = "Co-authored-by: Atlarix AI Agent <agent@atlarix.dev>";
-
-/** Returns the co-author trailer when user has not disabled it in settings. */
+/** Returns the co-author trailer when user has not disabled it in settings (fresh read every call). */
 export function getCoAuthorTrailerForCommit(): string | undefined {
   const settings = readSettings();
   return settings.includeAtlarixCoAuthor !== false ? ATLARIX_CO_AUTHOR_TRAILER : undefined;
@@ -101,9 +104,9 @@ export async function gitCommit({
   message,
   amend,
   allowEmpty,
-  coAuthorTrailer,
 }: GitCommitParams): Promise<string> {
   const settings = readSettings();
+  const coAuthorTrailer = getCoAuthorTrailerForCommit();
   const finalMessage =
     coAuthorTrailer && !message.trimEnd().endsWith(coAuthorTrailer)
       ? `${message}\n\n${coAuthorTrailer}`

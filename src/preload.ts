@@ -246,6 +246,10 @@ const validInvokeChannels = [
   "execute-all-permissions",
   "reject-all-permissions",
   "get-pending-permissions",
+  "terminal:run",
+  "cli:install",
+  "cli:uninstall",
+  "cli:check-installed",
   // Diagram system
   "diagram:list",
   "diagram:get",
@@ -382,6 +386,7 @@ const validReceiveChannels = [
   "mode_change_requested",
   "mode:changed",
   "terminal-output",
+  "workspace:opened-from-cli",
   "operation-status",         // Permission queue status updates
   "auto-recovery-needed",     // AI self-healing on failures
   "chat:workspace-diagram",

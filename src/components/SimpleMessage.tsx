@@ -14,25 +14,71 @@ import {
 import { motion } from "framer-motion";
 import { Copy, Check, Bot, Edit2 } from "lucide-react";
 import { useState } from "react";
+import { useAtomValue } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
 import { MessageSources } from "./MessageSources";
 import { AttachmentChip } from "./chat/AttachmentChip";
+import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import type { WorkMode } from "@/lib/schemas";
+import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { showError } from "@/lib/toast";
+import {
+    resolveWorkspaceAppId,
+    showWorkspaceModeControls as shouldShowWorkspaceModeControls,
+} from "@/lib/chat/show-workspace-mode-controls";
+
+const WORK_MODES: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
 
 interface SimpleMessageProps {
     message: Message;
+    chatId?: number;
+    /** Workspace bound to this chat (from getChat.appId). */
+    workspaceAppId?: number | null;
     isStreaming?: boolean;
     onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
 }
 
 export function SimpleMessage({
     message,
+    chatId: chatIdProp,
+    workspaceAppId,
     isStreaming = false,
     onEditUserMessage,
 }: SimpleMessageProps) {
     const [copied, setCopied] = useState(false);
-    const { settings } = useSettings();
+    const { settings, updateSettings } = useSettings();
+    const appId = useAtomValue(selectedAppIdAtom);
+    const currentApp = useAtomValue(currentAppAtom);
+    const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
+    const activeChatId = useAtomValue(activeChatIdAtom);
+    const chatId = chatIdProp ?? activeChatId;
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(message.content);
+    const [editMode, setEditMode] = useState<WorkMode>(
+        () =>
+            (message.workMode as WorkMode | null | undefined) ??
+            settings?.workModePreference ??
+            "ask",
+    );
+
+    const resolvedWorkspaceAppId = resolveWorkspaceAppId({
+        workspaceAppId,
+        selectedAppId: appId,
+        currentAppId: currentApp?.id ?? null,
+        workspaceInfoId: workspaceInfo?.id ?? null,
+    });
+    const showWorkspaceModeControls = shouldShowWorkspaceModeControls(
+        message,
+        resolvedWorkspaceAppId,
+    );
 
     const handleCopy = async () => {
         try {
@@ -168,44 +214,18 @@ export function SimpleMessage({
                                 )}
 
                             {isUser && isEditing ? (
-                                <div className="space-y-2">
-                                    <textarea
-                                        value={editContent}
-                                        onChange={(e) => setEditContent(e.target.value)}
-                                        className="w-full min-h-[120px] rounded-md border border-border/50 bg-background/70 p-2 text-sm text-foreground"
-                                    />
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                try {
-                                                    await onEditUserMessage?.(message.id, editContent);
-                                                    setIsEditing(false);
-                                                } catch (err) {
-                                                    console.error("Failed to edit message:", err);
-                                                }
-                                            }}
-                                            className="px-2 py-1 rounded-md bg-background/70 border border-border/50 text-xs text-foreground hover:bg-background transition-colors"
-                                        >
-                                            Save
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setEditContent(message.content);
-                                                setIsEditing(false);
-                                            }}
-                                            className="px-2 py-1 rounded-md bg-background/40 border border-border/40 text-xs text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
-                                        >
-                                            Cancel
-                                        </button>
-                                    </div>
-                                </div>
+                                <textarea
+                                    value={editContent}
+                                    onChange={(e) => setEditContent(e.target.value)}
+                                    className="w-full min-h-[120px] rounded-md border border-border/50 bg-background/70 p-2 text-sm text-foreground"
+                                    autoFocus
+                                />
                             ) : isAssistant ? (
                                 <AtlarixMarkdownParser content={message.content} />
                             ) : (
                                 <VanillaMarkdownParser content={message.content} />
                             )}
+
 
                             {/* Streaming indicator */}
                             {isAssistant && isStreaming && message.content && (
@@ -220,11 +240,12 @@ export function SimpleMessage({
                     <MessageSources sources={message.sources} />
                 )}
 
-                {/* Actions under messages */}
-                {message.content && !isStreaming && (
-                    <div className={`flex mt-1 ${isUser ? "justify-end" : "justify-start"}`}>
-                        <div className="flex items-center gap-1">
+                {/* Actions under messages — Copy / Edit / Mode / Save / Cancel */}
+                {isUser && (message.content || isEditing) && !isStreaming && (
+                    <div className="flex mt-1 justify-end">
+                        <div className="flex flex-wrap items-center gap-1">
                             <button
+                                type="button"
                                 onClick={handleCopy}
                                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
                             >
@@ -240,11 +261,16 @@ export function SimpleMessage({
                                     </>
                                 )}
                             </button>
-                            {isUser && !isEditing && (
+                            {!isEditing ? (
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setEditContent(message.content);
+                                        setEditMode(
+                                            (message.workMode as WorkMode | null | undefined) ??
+                                                settings?.workModePreference ??
+                                                "ask",
+                                        );
                                         setIsEditing(true);
                                     }}
                                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
@@ -254,6 +280,67 @@ export function SimpleMessage({
                                     <Edit2 className="h-3 w-3" />
                                     Edit
                                 </button>
+                            ) : (
+                                <>
+                                    {showWorkspaceModeControls ? (
+                                        <>
+                                            <span className="text-xs text-muted-foreground px-1">
+                                                Mode
+                                            </span>
+                                            <Select
+                                                value={editMode}
+                                                onValueChange={(v) => setEditMode(v as WorkMode)}
+                                                disabled={isStreaming}
+                                            >
+                                                <SelectTrigger className="h-7 w-[108px] text-xs border-border bg-background">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {WORK_MODES.map((m) => (
+                                                        <SelectItem key={m} value={m} className="text-xs">
+                                                            {labelForWorkMode(m)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        disabled={isStreaming}
+                                        onClick={async () => {
+                                            try {
+                                                if (showWorkspaceModeControls) {
+                                                    await updateSettings(
+                                                        settingsPatchForWorkMode(editMode),
+                                                    );
+                                                }
+                                                await onEditUserMessage?.(message.id, editContent);
+                                                setIsEditing(false);
+                                            } catch (err) {
+                                                showError(err);
+                                            }
+                                        }}
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted disabled:opacity-40"
+                                    >
+                                        {showWorkspaceModeControls ? "Send" : "Save"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditContent(message.content);
+                                            setEditMode(
+                                                (message.workMode as WorkMode | null | undefined) ??
+                                                    settings?.workModePreference ??
+                                                    "ask",
+                                            );
+                                            setIsEditing(false);
+                                        }}
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                                    >
+                                        Cancel
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>

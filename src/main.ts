@@ -47,6 +47,10 @@ import {
   getOpenRouterModelIdForCompassTier,
 } from "./ipc/shared/compass_constants";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
+import {
+  openWorkspaceFromCliPath,
+  parseDirectoryArgFromArgv,
+} from "./main/open_workspace_from_cli";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -191,6 +195,11 @@ export async function onReady() {
     return;
   }
   sendDbReadyToWindow();
+
+  const cliDir = parseDirectoryArgFromArgv(process.argv);
+  if (cliDir) {
+    void openWorkspaceFromCliPath(cliDir);
+  }
 
   app.on("browser-window-focus", () => {
     void import("./ipc/utils/workspace_path_status_broadcast").then((m) =>
@@ -675,6 +684,10 @@ if (!gotTheLock) {
       if (url) {
         queueOrHandleDeepLink(url);
       }
+      const cliDir = parseDirectoryArgFromArgv(commandLine);
+      if (cliDir) {
+        void openWorkspaceFromCliPath(cliDir);
+      }
     });
   }
   app.whenReady().then(() => {
@@ -688,6 +701,19 @@ if (!gotTheLock) {
     });
   });
 }
+
+// macOS: open folder via dock drop or `open -a Atlarix /path`
+app.on("open-file", (event, filePath) => {
+  event.preventDefault();
+  focusMainWindow();
+  try {
+    if (fs.statSync(filePath).isDirectory()) {
+      void openWorkspaceFromCliPath(filePath);
+    }
+  } catch {
+    /* ignore */
+  }
+});
 
 // Handle the protocol. On macOS, deep links come through open-url event
 app.on("open-url", (event, url) => {

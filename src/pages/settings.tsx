@@ -205,7 +205,7 @@ export default function SettingsPage() {
                 </label>
               </div>
               <p className="text-xs text-muted-foreground">
-                When enabled, every commit made through Atlarix will include a Co-authored-by trailer for Atlarix AI Agent.
+                When enabled, every commit made through Atlarix will include a Co-authored-by trailer for atlarix-agent.
               </p>
             </div>
           </div>
@@ -402,6 +402,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             </SelectContent>
           </Select>
         </div>
+        <CliLauncherSettings />
         <div className="pt-4 border-t border-border mt-4">
           <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>
             Restart onboarding guide
@@ -410,6 +411,91 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             Show the welcome guide again (Code to Canvas, Blueprint, Ask vs Build, API key).
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CliLauncherSettings() {
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  const [cliPath, setCliPath] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const status = await IpcClient.getInstance().checkCliInstalled();
+      setInstalled(status.installed);
+      setCliPath(status.path);
+    } catch {
+      setInstalled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handleInstall = async () => {
+    setBusy(true);
+    try {
+      const result = await IpcClient.getInstance().installCli();
+      if (result.success) {
+        showSuccess(
+          result.message ?? "Installed — open a new terminal and try `atlarix .`",
+        );
+      } else if (result.sudoCommand) {
+        await navigator.clipboard.writeText(result.sudoCommand);
+        showError("Administrator access required — install command copied to clipboard");
+      } else {
+        showError("Could not install the atlarix command");
+      }
+      await refresh();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUninstall = async () => {
+    setBusy(true);
+    try {
+      const result = await IpcClient.getInstance().uninstallCli();
+      if (result.success) {
+        showSuccess("Removed atlarix from PATH");
+      } else {
+        showError(result.error ?? "Could not uninstall");
+      }
+      await refresh();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pt-4 border-t border-border mt-4 space-y-2">
+      <div className="space-y-0.5">
+        <p className="text-sm font-medium text-foreground">Shell command</p>
+        <p className="text-xs text-muted-foreground">
+          Install <code className="text-[11px]">atlarix</code> in your PATH to open a folder from
+          the terminal: <code className="text-[11px]">atlarix .</code>
+        </p>
+        {cliPath ? (
+          <p className="text-[11px] text-muted-foreground font-mono truncate">{cliPath}</p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {installed ? (
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleUninstall()}>
+            Uninstall from PATH
+          </Button>
+        ) : (
+          <Button size="sm" disabled={busy} onClick={() => void handleInstall()}>
+            Install atlarix in PATH
+          </Button>
+        )}
       </div>
     </div>
   );

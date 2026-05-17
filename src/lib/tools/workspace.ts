@@ -32,6 +32,11 @@ import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { normalizeAskUserPayload } from "./ask_user_options";
+import {
+    ATLARIX_GIT_AUTHOR_EMAIL,
+    ATLARIX_GIT_AUTHOR_NAME,
+} from "@/ipc/utils/git_author";
+import { gitAdd, gitCommit } from "@/ipc/utils/git_utils";
 
 const execAsync = promisify(exec);
 const logger = log.scope("workspace-tools");
@@ -120,8 +125,14 @@ Would you like to upgrade or delete the existing workspace?`,
             await fs.mkdir(projectPath, { recursive: true });
 
             await execAsync("git init", { cwd: projectPath });
-            await execAsync("git config user.email 'atlarix@ai.dev'", { cwd: projectPath });
-            await execAsync("git config user.name 'Atlarix AI'", { cwd: projectPath });
+            await execAsync(
+                `git config user.email '${ATLARIX_GIT_AUTHOR_EMAIL}'`,
+                { cwd: projectPath },
+            );
+            await execAsync(
+                `git config user.name '${ATLARIX_GIT_AUTHOR_NAME}'`,
+                { cwd: projectPath },
+            );
 
             const readmeContent = `# ${projectName}\n\n${params.description || "Created with Atlarix AI"}\n`;
             await fs.writeFile(
@@ -130,9 +141,10 @@ Would you like to upgrade or delete the existing workspace?`,
                 "utf-8"
             );
 
-            await execAsync("git add .", { cwd: projectPath });
-            await execAsync('git commit -m "Init Atlarix app"', {
-                cwd: projectPath,
+            await gitAdd({ path: projectPath, filepath: "." });
+            await gitCommit({
+                path: projectPath,
+                message: "Init Atlarix app",
             });
 
             if (params.chatId) {
@@ -454,10 +466,11 @@ function isDocumentFile(ext: string): boolean {
     return SUPPORTED_DOCUMENT_EXTENSIONS.includes(ext);
 }
 
-/**
- * PDF text extraction via pdfjs-dist legacy build, bundled into the main process (see vite.main.config).
- */
-async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number; success: boolean }> {
+const PDF_EXTRACT_TIMEOUT_MS = 30_000;
+
+async function extractTextFromPdfWithPdfjs(
+    buffer: Buffer,
+): Promise<{ text: string; pages: number; success: boolean }> {
     try {
         const { pathToFileURL } = await import("node:url");
         const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -529,6 +542,80 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages
         logger.warn(`pdfjs-dist failed: ${msg}`);
         return { text: "", pages: 0, success: false };
     }
+}
+
+async function extractTextFromPdfWithPdf2json(
+    buffer: Buffer,
+): Promise<{ text: string; pages: number; success: boolean }> {
+    try {
+        const { default: PDFParser } = await import("pdf2json");
+        return await new Promise((resolve) => {
+            const parser = new PDFParser(null, true);
+            parser.on("pdfParser_dataError", (err: { parserError?: string }) => {
+                logger.warn(`pdf2json failed: ${err?.parserError ?? "unknown"}`);
+                resolve({ text: "", pages: 0, success: false });
+            });
+            parser.on("pdfParser_dataReady", (pdfData: { Pages?: unknown[] }) => {
+                try {
+                    const raw = parser.getRawTextContent?.() ?? "";
+                    const text = typeof raw === "string" ? raw.trim() : "";
+                    const pages = Array.isArray(pdfData?.Pages) ? pdfData.Pages.length : 0;
+                    resolve({
+                        text,
+                        pages,
+                        success: Boolean(text),
+                    });
+                } catch (e) {
+                    resolve({
+                        text: "",
+                        pages: 0,
+                        success: false,
+                    });
+                }
+            });
+            parser.parseBuffer(buffer);
+        });
+    } catch (err) {
+        logger.warn(`pdf2json import/parse failed: ${err}`);
+        return { text: "", pages: 0, success: false };
+    }
+}
+
+function pdfExtractTimeoutResult(): { text: string; pages: number; success: boolean } {
+    return {
+        text: "[PDF extraction timed out after 30s]",
+        pages: 0,
+        success: false,
+    };
+}
+
+/**
+ * PDF text extraction — always completes within PDF_EXTRACT_TIMEOUT_MS.
+ */
+async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number; success: boolean }> {
+    const timeout = new Promise<{ text: string; pages: number; success: boolean }>((resolve) => {
+        setTimeout(() => resolve(pdfExtractTimeoutResult()), PDF_EXTRACT_TIMEOUT_MS);
+    });
+
+    const pdfjsResult = await Promise.race([extractTextFromPdfWithPdfjs(buffer), timeout]).catch(
+        (err) => ({
+            text: `[PDF extraction failed: ${err instanceof Error ? err.message : String(err)}]`,
+            pages: 0,
+            success: false,
+        }),
+    );
+
+    if (pdfjsResult.success && pdfjsResult.text.trim()) {
+        return pdfjsResult;
+    }
+
+    const fallback = await Promise.race([extractTextFromPdfWithPdf2json(buffer), timeout]);
+    if (fallback.success && fallback.text.trim()) {
+        return fallback;
+    }
+
+    if (pdfjsResult.text.startsWith("[PDF")) return pdfjsResult;
+    return fallback.text ? fallback : pdfjsResult;
 }
 
 async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; paragraphs: number; success: boolean }> {

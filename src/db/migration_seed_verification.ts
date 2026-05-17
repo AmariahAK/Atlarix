@@ -161,7 +161,10 @@ export function isJournalMigrationApplied(
       return !tableExists(sqlite, "diagram_versions");
     case "0042_installed_skills":
       return columnExists(sqlite, "installed_skills", "scope");
-    // PASS6: 0043_drop_blueprint_pivot dropped; Blueprint restored.
+    case "0043_mcp_registry_columns":
+      return columnExists(sqlite, "mcp_servers", "from_registry");
+    case "0044_messages_work_mode":
+      return columnExists(sqlite, "messages", "work_mode");
     default:
       return false;
   }

@@ -57,7 +57,7 @@ export function generateManifest(
   }
   out += "\nTo use any tool, simply call it. Full parameter details are provided when you invoke the tool.";
   out +=
-    "\n\nGit operations should be performed via the terminal tool. Use standard git CLI commands directly in the terminal — this gives full control and visibility without abstraction.";
+    "\n\nGit operations: use **run_command** with git CLI (git status, git log, git diff). Do not read .git/objects manually.";
   return out;
 }
 

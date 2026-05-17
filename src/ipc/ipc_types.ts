@@ -267,6 +267,8 @@ export interface Message {
   autoRoutedTier?: "fast" | "balanced" | "thinking" | null;
   /** Compaction: auto-inserted continuation user line. */
   isSynthetic?: boolean | null;
+  /** Work mode when this user message was sent. */
+  workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   /** File attachments for this message (shown as chips in UI). */
   attachments?: AttachmentInfo[] | null;
 }

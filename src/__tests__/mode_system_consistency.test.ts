@@ -4,6 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { MODE_SYSTEM_TOOL_LISTS } from "../prompts/system_prompt";
+import { ToolRegistry } from "../lib/tools/registry";
+import "../lib/tools";
 
 /**
  * Mirror of `modeAllowlist` in chat_stream_handlers.ts (non-build modes).
@@ -33,7 +35,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_attachment",
     "read_file",
     "read_url",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
     "web_search",
@@ -59,7 +61,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "memory",
     "read_file",
     "read_implementation_plan",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
     "write_file",
@@ -87,7 +89,6 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "mcp_call",
     "memory",
     "read_file",
-    "request_mode_change",
     "run_command",
     "search",
     "set_blueprint",
@@ -115,7 +116,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "lsp_references",
     "memory",
     "read_file",
-    "request_mode_change",
+    "run_command",
     "search",
     "set_blueprint",
   ],
@@ -136,4 +137,9 @@ describe("mode system consistency", () => {
       expect(tools).toEqual(sortNames(tools));
     });
   }
+
+  it("run_command is offered in Ask-mode tool discovery (allowInAskMode)", () => {
+    const askNames = ToolRegistry.getToolsForAskMode().map((t) => t.name);
+    expect(askNames).toContain("run_command");
+  });
 });

@@ -1,5 +1,29 @@
 # Atlarix Changelog
 
+## [8.4.0] (2026-05-17) — Terminal, CLI, modes, and session fixes
+
+### Features
+
+- **Terminal reliability:** `runShellCommand` listens to `exit` and `close`, guards double-resolve, kills child on permission timeout; interactive [`terminal:run`](../../src/ipc/handlers/terminal_handlers.ts) IPC; [`TerminalPanel`](../../src/components/panels/TerminalPanel.tsx) + Activity tab (Lucide icons).
+- **CLI:** `atlarix .` / open-file / second-instance ([`open_workspace_from_cli.ts`](../../src/main/open_workspace_from_cli.ts), [`cli_handlers.ts`](../../src/ipc/handlers/cli_handlers.ts)); Settings PATH install scripts; layout `workspace:opened-from-cli` listener.
+- **Terminal mode permissions:** [`classifyTerminalCommand`](../../src/lib/terminal-command-class.ts) + stream enforcement in [`chat_stream_handlers.ts`](../../src/ipc/handlers/chat_stream_handlers.ts).
+- **PDF attachments:** 30s timeout + pdf2json fallback in [`workspace.ts`](../../src/lib/tools/workspace.ts) read path.
+- **Per-mode system prompts:** removed `request_mode_change`; per-mode blocks in [`system_prompt.ts`](../../src/prompts/system_prompt.ts).
+- **Per-message work mode:** migration `0044_messages_work_mode`; resend UI in [`ChatMessage.tsx`](../../src/components/chat/ChatMessage.tsx).
+
+### Fixes
+
+- **Message edit (workspace):** [`show-workspace-mode-controls.ts`](../../src/lib/chat/show-workspace-mode-controls.ts) — Mode dropdown + **Send** for ephemeral workspace chats (negative `chatId`), not **Save** only ([`SimpleMessage.tsx`](../../src/components/SimpleMessage.tsx)).
+- **Edit resend duplicate:** ephemeral workspace path respects `continueAfterQuestions` (no second user row); `SessionMemory.replaceLastExchange` on continue-after-edit.
+- **Explore + terminal:** `run_command` registered for Ask mode; Autonomous ask-tier uses `shouldAutoApprovePermissions` for terminal like Build.
+- **Git identity:** canonical author `atlarix-agent <agent@atlarix.dev>` in [`git_author.ts`](../../src/ipc/utils/git_author.ts); co-authored-by reads `includeAtlarixCoAuthor` live inside `gitCommit()`.
+
+### Tests / migrations
+
+- Bundled SQL migrations (45); new tests: `show-workspace-mode-controls`, `session-memory-replace`, `git_author`, `git_commit_coauthor`.
+
+---
+
 ## [8.3.1] (2026-05-17) — Chat config dropdown placement
 
 ### Release highlights

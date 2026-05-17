@@ -27,7 +27,13 @@ import {
     BatchPlanPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
-import { runShellCommand, runShellCommandStreaming, CommandResult } from "../../utils/runShellCommand";
+import {
+    runShellCommand,
+    runShellCommandStreaming,
+    killShellProcess,
+    CommandResult,
+} from "../../utils/runShellCommand";
+import type { ChildProcess } from "child_process";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
 import { queueCapture } from "../../../lib/diagram-timeline";
 import { db } from "@/db";
@@ -1505,12 +1511,8 @@ export class PermissionInterceptor extends EventEmitter {
             status: 'running' as const,
         });
 
-        // Create timeout promise
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => {
-                reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)} seconds`));
-            }, timeoutMs);
-        });
+        let commandProc: ChildProcess | null = null;
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
         await this.runAdvisoryHooks("before_run_command", {
             ATLARIX_COMMAND: commandToRun,
@@ -1520,8 +1522,20 @@ export class PermissionInterceptor extends EventEmitter {
         try {
             try {
                 // Stream stdout/stderr and emit on each chunk for live tool indicator
-                const result = await Promise.race([
+                const result = await new Promise<CommandResult>((resolve, reject) => {
+                    timeoutHandle = setTimeout(() => {
+                        killShellProcess(commandProc);
+                        reject(
+                            new Error(
+                                `Command timed out after ${Math.round(timeoutMs / 1000)} seconds`,
+                            ),
+                        );
+                    }, timeoutMs);
+
                     runShellCommandStreaming(commandToRun, workingDir, {
+                        onSpawn: (proc) => {
+                            commandProc = proc;
+                        },
                         onOutput: ({ stdout, stderr }) => {
                             const output = stdout + (stderr ? `\n${stderr}` : '');
                             this.emit('terminal-output', {
@@ -1531,9 +1545,16 @@ export class PermissionInterceptor extends EventEmitter {
                                 status: 'running' as const,
                             });
                         },
-                    }),
-                    timeoutPromise
-                ]);
+                    })
+                        .then((r) => {
+                            if (timeoutHandle) clearTimeout(timeoutHandle);
+                            resolve(r);
+                        })
+                        .catch((err) => {
+                            if (timeoutHandle) clearTimeout(timeoutHandle);
+                            reject(err);
+                        });
+                });
 
                 const duration = Date.now() - startTime;
 

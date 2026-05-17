@@ -1690,6 +1690,61 @@ export class IpcClient {
   // --- End Proposal Management ---
 
   // --- Permission Management (New Tool-based Permissions) ---
+  public async runTerminalCommand(params: {
+    command: string;
+    cwd?: string;
+    timeoutMs?: number;
+    chatId: number;
+    source?: "user" | "agent";
+  }): Promise<{
+    exitCode: number;
+    output: string;
+    success: boolean;
+    timedOut: boolean;
+    command: string;
+    operationId: string;
+  }> {
+    return this.ipcRenderer.invoke("terminal:run", params);
+  }
+
+  public async installCli(): Promise<{
+    success: boolean;
+    path?: string;
+    message?: string;
+    needsSudo?: boolean;
+    sudoCommand?: string;
+  }> {
+    return this.ipcRenderer.invoke("cli:install");
+  }
+
+  public async uninstallCli(): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("cli:uninstall");
+  }
+
+  public async checkCliInstalled(): Promise<{ installed: boolean; path: string }> {
+    return this.ipcRenderer.invoke("cli:check-installed");
+  }
+
+  public onWorkspaceOpenedFromCli(
+    handler: (payload: {
+      appId: number;
+      chatId: number;
+      path: string;
+      name: string;
+    }) => void,
+  ): () => void {
+    const listener = (_event: unknown, data: {
+      appId: number;
+      chatId: number;
+      path: string;
+      name: string;
+    }) => handler(data);
+    this.ipcRenderer.on("workspace:opened-from-cli", listener);
+    return () => {
+      this.ipcRenderer.removeListener("workspace:opened-from-cli", listener);
+    };
+  }
+
   public async executePermission({
     chatId,
     operationId,

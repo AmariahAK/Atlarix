@@ -11,6 +11,7 @@ import {
   generateArchitectureDiagram,
   generateTextSummary,
 } from '../../lib/analysis';
+import { gitAdd, gitCommit, gitInit } from "../utils/git_utils";
 
 const execAsync = promisify(exec);
 const logger = log.scope("template_handlers");
@@ -166,9 +167,12 @@ async function configureProject(projectPath: string, projectName: string): Promi
 
 async function initializeGit(projectPath: string): Promise<void> {
   try {
-    await execAsync('git init', { cwd: projectPath });
-    await execAsync('git add .', { cwd: projectPath });
-    await execAsync('git commit -m "Initial commit from Atlarix"', { cwd: projectPath });
+    await gitInit({ path: projectPath, ref: "main" });
+    await gitAdd({ path: projectPath, filepath: "." });
+    await gitCommit({
+      path: projectPath,
+      message: "Initial commit from Atlarix",
+    });
   } catch { }
 }
 

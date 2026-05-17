@@ -3,6 +3,8 @@ import { registerChatHandlers } from "./handlers/chat_handlers";
 import { registerChatStreamHandlers } from "./handlers/chat_stream_handlers";
 import { registerSettingsHandlers } from "./handlers/settings_handlers";
 import { registerShellHandlers } from "./handlers/shell_handler";
+import { registerTerminalHandlers } from "./handlers/terminal_handlers";
+import { registerCliHandlers } from "./handlers/cli_handlers";
 import { registerGithubHandlers } from "./handlers/github_handlers";
 import { registerVercelHandlers } from "./handlers/vercel_handlers";
 import { registerNodeHandlers } from "./handlers/node_handlers";
@@ -71,6 +73,8 @@ export function registerIpcHandlers() {
   registerChatStreamHandlers();
   registerSettingsHandlers();
   registerShellHandlers();
+  registerTerminalHandlers();
+  registerCliHandlers();
   registerGithubHandlers();
   registerVercelHandlers();
   registerNodeHandlers();

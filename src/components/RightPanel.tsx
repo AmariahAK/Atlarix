@@ -30,8 +30,10 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare, ListTree,
 } from 'lucide-react';
+import { TerminalPanel } from './panels/TerminalPanel';
+import { ActivityPanel } from './panels/ActivityPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
@@ -62,7 +64,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
     vault: { icon: KeyRound, label: 'Vault' },
-    activity: { icon: Workflow, label: 'Activity' },  // Deprecated: Activity moved to chat; kept for PanelTab type
+    activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
 };
 
@@ -387,7 +389,9 @@ function PanelContent({
             case 'diagram':
                 return <DiagramPanel data={context.data} activeTab="diagram" setActiveTab={setActiveTab} />;
             case 'terminal':
-                return <TerminalPanel data={context.data} />;
+                return <TerminalPanel />;
+            case 'activity':
+                return <ActivityPanel />;
             case 'search':
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
@@ -408,6 +412,12 @@ function PanelContent({
             if (context.activeTab === 'vault') {
                 return <VaultPanel appId={context.data?.appId ?? null} />;
             }
+            if (context.activeTab === 'terminal') {
+                return <TerminalPanel />;
+            }
+            if (context.activeTab === 'activity') {
+                return <ActivityPanel />;
+            }
             return (
                 <CodePreviewPanel
                     data={context.data}
@@ -422,7 +432,7 @@ function PanelContent({
             return <DiagramPanel data={context.data} activeTab={context.activeTab} setActiveTab={setActiveTab} />;
 
         case 'terminal':
-            return <TerminalPanel data={context.data} />;
+            return <TerminalPanel />;
 
         case 'timeline':
             // Timeline panel for workspace diagram snapshots
@@ -456,37 +466,6 @@ function PanelContent({
     }
 }
 
-/**
- * Terminal Panel - Simple inline component for terminal output
- */
-function TerminalPanel({ data }: { data: any }) {
-    if (!data) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Terminal className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No terminal output</p>
-                <p className="text-xs">Command output will appear here</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col h-full bg-[#1e1e1e]">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-700 bg-zinc-900">
-                <Terminal className="w-4 h-4 text-zinc-400" />
-                <span className="text-sm text-zinc-300">Terminal</span>
-                {data.status === 'running' && (
-                    <span className="ml-auto text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">
-                        Running
-                    </span>
-                )}
-            </div>
-            <div className="flex-1 overflow-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap">
-                {data.output || 'No output'}
-            </div>
-        </div>
-    );
-}
 
 export default RightPanel;
 

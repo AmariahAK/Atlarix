@@ -26,7 +26,6 @@ import "./plan";
 import "./mcp";
 import "./skills";
 import "./db";
-import "./mode";
 import "./lsp-tools";
 
 // Re-export registry for convenience

@@ -1,7 +1,28 @@
 # Atlarix TODO
 
-**Current Version:** v8.3.0
+**Current Version:** v8.4.0
 **Last Updated:** 2026-05-17
+
+---
+
+## Shipped in v8.4.0
+
+| Area | Notes |
+|------|--------|
+| Terminal completion + kill on timeout | `runShellCommand.ts`, permissions interceptor |
+| Terminal UI + `terminal:run` IPC | `TerminalPanel`, Activity tab, `terminal_handlers.ts` |
+| CLI `atlarix .` / open-file / second-instance | `open_workspace_from_cli.ts`, `cli_handlers.ts`, Settings install |
+| Terminal mode permissions | `terminal-command-class.ts`, `chat_stream_handlers.ts` |
+| PDF 30s timeout + pdf2json fallback | `workspace.ts` tool read path |
+| Per-mode system prompts (no `request_mode_change`) | `system_prompt.ts` |
+| Per-message `work_mode` + resend UI | migration `0044`, `ChatMessage.tsx` |
+| Edit toolbar Mode + Send (ephemeral workspace) | `show-workspace-mode-controls.ts`, `SimpleMessage.tsx` |
+| Edit resend no duplicate user message | ephemeral `continueAfterQuestions` in `chat_stream_handlers.ts` |
+| Session memory on edit resend | `replaceLastExchange` in `session-memory.ts` |
+| Ask mode `run_command` + Autonomous terminal approve | `shell.ts`, ask-tier stream path |
+| Git author `atlarix-agent` + live co-author toggle | `git_author.ts`, `git_utils.ts` |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.4.0]`.
 
 ---
 

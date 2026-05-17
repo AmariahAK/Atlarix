@@ -11,7 +11,8 @@ import { previewModeAtom, selectedAppIdAtom, currentAppAtom, userSettingsAtom } 
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
-import { chatInputValueAtom, activeChatIdAtom } from "@/atoms/chatAtoms";
+import { chatInputValueAtom, activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { useNavigate } from "@tanstack/react-router";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
@@ -234,6 +235,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
+  const setSelectedChatId = useSetAtom(selectedChatIdAtom);
+  const setActiveChatId = useSetAtom(activeChatIdAtom);
+  const navigate = useNavigate();
   const currentApp = useAtomValue(currentAppAtom);
   const { visible: rightPanelVisible, toggle: toggleRightPanel } = useRightPanelUserPreference();
   const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
@@ -262,6 +266,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
   // Load diagram when workspace is selected (even before first prompt)
   useLoadApp(selectedAppId);
+
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onWorkspaceOpenedFromCli(
+      ({ appId, chatId, path }) => {
+        setSelectedAppId(appId);
+        setSelectedChatId(chatId);
+        setActiveChatId(chatId);
+        navigate({ to: "/" });
+        toast.success(`Opened workspace: ${path}`);
+      },
+    );
+    return unsub;
+  }, [navigate, setSelectedAppId, setSelectedChatId, setActiveChatId]);
 
   // Re-check workspace path when loading a chat: sync selectedAppId from chat so useLoadApp refetches and banner shows if path missing
   useEffect(() => {

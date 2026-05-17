@@ -449,7 +449,7 @@ export const UserSettingsSchema = z.object({
   blueprintDebugTrace: z.string().optional(),
   blueprintDebugFile: z.string().optional(),
 
-  /** When true (default), commits made via Atlarix include Co-authored-by: Atlarix AI Agent <agent@atlarix.dev> */
+  /** When true (default), commits made via Atlarix include Co-authored-by: atlarix-agent <agent@atlarix.dev> */
   includeAtlarixCoAuthor: z.boolean().optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
