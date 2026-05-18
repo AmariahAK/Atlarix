@@ -10,14 +10,17 @@ import { importWorkspaceFromPath } from "../ipc/handlers/import_workspace_core";
 
 const logger = log.scope("open-workspace-cli");
 
-export function parseDirectoryArgFromArgv(argv: string[]): string | null {
+export function parseDirectoryArgFromArgv(
+  argv: string[],
+  baseCwd: string = process.cwd(),
+): string | null {
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || arg.startsWith("-")) continue;
     if (arg.includes("://")) continue;
     if (arg.endsWith(".asar")) continue;
     try {
-      const resolved = path.resolve(arg);
+      const resolved = path.resolve(baseCwd, arg);
       const stat = fs.statSync(resolved);
       if (stat.isDirectory()) return resolved;
     } catch {

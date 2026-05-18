@@ -196,7 +196,7 @@ export async function onReady() {
   }
   sendDbReadyToWindow();
 
-  const cliDir = parseDirectoryArgFromArgv(process.argv);
+  const cliDir = parseDirectoryArgFromArgv(process.argv, process.cwd());
   if (cliDir) {
     void openWorkspaceFromCliPath(cliDir);
   }
@@ -668,7 +668,10 @@ nativeTheme.on("updated", () => {
 
 // Packaged app: single instance only. In dev, skip the lock so a second `npm start`
 // or Forge helper process does not exit immediately without onReady (confusing "crash").
-const gotTheLock = app.isPackaged ? app.requestSingleInstanceLock() : true;
+const singleInstanceData = { argv: process.argv, cwd: process.cwd() };
+const gotTheLock = app.isPackaged
+  ? app.requestSingleInstanceLock(singleInstanceData)
+  : true;
 
 if (!gotTheLock) {
   logger.warn(
@@ -677,18 +680,26 @@ if (!gotTheLock) {
   app.quit();
 } else {
   if (app.isPackaged) {
-    app.on("second-instance", (_event, commandLine, _workingDirectory) => {
-      // Someone tried to run a second instance, we should focus our window.
-      focusMainWindow();
-      const url = extractDeepLinkUrl(commandLine);
-      if (url) {
-        queueOrHandleDeepLink(url);
-      }
-      const cliDir = parseDirectoryArgFromArgv(commandLine);
-      if (cliDir) {
-        void openWorkspaceFromCliPath(cliDir);
-      }
-    });
+    app.on(
+      "second-instance",
+      (_event, commandLine, workingDirectory, additionalData) => {
+        // Someone tried to run a second instance, we should focus our window.
+        focusMainWindow();
+        const url = extractDeepLinkUrl(commandLine);
+        if (url) {
+          queueOrHandleDeepLink(url);
+        }
+        const payload = additionalData as
+          | { argv?: string[]; cwd?: string }
+          | undefined;
+        const argv = payload?.argv?.length ? payload.argv : commandLine;
+        const cwd = payload?.cwd ?? workingDirectory;
+        const cliDir = parseDirectoryArgFromArgv(argv, cwd);
+        if (cliDir) {
+          void openWorkspaceFromCliPath(cliDir);
+        }
+      },
+    );
   }
   app.whenReady().then(() => {
     void onReady().catch((err: unknown) => {

@@ -23,7 +23,8 @@ if [ ! -f "$ATLARIX_APP" ]; then
   echo "atlarix: Atlarix.app not found. Install Atlarix in /Applications." >&2
   exit 1
 fi
-exec "$ATLARIX_APP" "$@"
+"$ATLARIX_APP" "$@" > /dev/null 2>&1 &
+disown $! 2>/dev/null || true
 `;
 }
 
@@ -36,7 +37,9 @@ for ATLARIX_BIN in \\
   "$HOME/.local/bin/Atlarix" \\
   "$HOME/Applications/Atlarix.AppImage"; do
   if [ -f "$ATLARIX_BIN" ]; then
-    exec "$ATLARIX_BIN" "$@"
+    "$ATLARIX_BIN" "$@" > /dev/null 2>&1 &
+    disown $! 2>/dev/null || true
+    exit 0
   fi
 done
 echo "atlarix: Atlarix binary not found." >&2
