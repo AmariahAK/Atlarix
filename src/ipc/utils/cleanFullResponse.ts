@@ -93,7 +93,10 @@ export function cleanFullResponse(text: string): string {
  * Example (before): "<think>thoughts</think>Hey! How are you?Hey! How are you?"
  * Example (after):  "<think>thoughts</think>Hey! How are you?"
  */
-const THINK_END_TAGS = ["</think>", "</think>"] as const;
+const THINK_END_TAGS = [
+  "</" + "redacted_thinking" + ">",
+  "</" + "think" + ">",
+] as const;
 
 function findFirstThinkEnd(text: string): {
   index: number;
