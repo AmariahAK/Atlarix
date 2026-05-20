@@ -1198,7 +1198,6 @@ export function useStreamChat({
     },
     [
       setMessagesById,
-      setQuestionsByMessageId,
       setToolIndicator,
       setStreamLastActivityAtByChatId,
       setStreamSlowWarningByChatId,
