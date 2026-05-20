@@ -2,6 +2,21 @@
 
 This directory contains utility scripts for the project.
 
+## send-user-feedback-email.mjs
+
+One-off outreach to confirmed Supabase users (product research email). Reads [`Atlarix/.env`](../.env) (`SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`).
+
+```bash
+cd Atlarix
+npm run email:user-feedback:dry-run
+npm run email:user-feedback -- --only you@example.com
+npm run email:user-feedback
+```
+
+- Prefers **From:** `Amariah <amariah@atlarix.dev>`; falls back to `EMAIL_SOURCE` with `reply_to: amariah@atlarix.dev` if Resend rejects the sender.
+- Excludes `amariah.abish@gmail.com` and `amani.kamau06@gmail.com` by default.
+- Log: `scripts/.outreach-sent.log.json` (gitignored).
+
 ## extract-codebase.ts
 
 A script that extracts code files from a directory, respecting `.gitignore` rules, and outputs them in a format suitable for LLM consumption.
