@@ -89,7 +89,7 @@ import {
   getToolsUsedThisTurn,
   recordToolUseForTurn,
 } from "./turn-tool-tracking";
-import { cleanFullResponse, parseQuestions } from "../utils/cleanFullResponse";
+import { cleanFullResponse, stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
   removeThinkingTags,
   stripAssistantDisplayContent,
@@ -1076,29 +1076,6 @@ async function processStreamChunks({
       pendingToolCallDepth > 0 &&
       Date.now() - lastStreamProgress >= STREAM_TOOL_STALL_MS
     ) {
-      // #region agent log
-      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "348356",
-        },
-        body: JSON.stringify({
-          sessionId: "348356",
-          hypothesisId: "stall",
-          location: "chat_stream_handlers.ts:processStreamChunks",
-          message: "stream_stall_watchdog_fire",
-          data: {
-            chatId,
-            pendingToolCallDepth,
-            lastPendingToolName,
-            msSinceProgress: Date.now() - lastStreamProgress,
-            stallThresholdMs: STREAM_TOOL_STALL_MS,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       logger.warn(
         `[stream-stall] No stream progress for ${STREAM_TOOL_STALL_MS}ms with pending tool call(s); aborting chat ${chatId}`,
       );
@@ -1164,27 +1141,6 @@ async function processStreamChunks({
       pendingToolCallDepth += 1;
       lastPendingToolName =
         typeof part.toolName === "string" ? part.toolName : undefined;
-      // #region agent log
-      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "348356",
-        },
-        body: JSON.stringify({
-          sessionId: "348356",
-          hypothesisId: "tool-call",
-          location: "chat_stream_handlers.ts:processStreamChunks",
-          message: "stream_tool_call_chunk",
-          data: {
-            chatId,
-            toolName: lastPendingToolName,
-            pendingToolCallDepth,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(JSON.stringify(part.input));
@@ -1199,28 +1155,6 @@ async function processStreamChunks({
     } else if (part.type === "tool-result") {
       pendingToolCallDepth = Math.max(0, pendingToolCallDepth - 1);
       if (pendingToolCallDepth === 0) lastPendingToolName = undefined;
-      // #region agent log
-      fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "348356",
-        },
-        body: JSON.stringify({
-          sessionId: "348356",
-          hypothesisId: "tool-result",
-          location: "chat_stream_handlers.ts:processStreamChunks",
-          message: "stream_tool_result_chunk",
-          data: {
-            chatId,
-            toolName:
-              typeof part.toolName === "string" ? part.toolName : undefined,
-            pendingToolCallDepth,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       markFirstModelActivity();
       const { serverName, toolName } = parseMcpToolKey(part.toolName);
       const content = escapeAtlarixTags(part.output);
@@ -2056,7 +1990,7 @@ ${componentSnippet}
         }
       }
 
-      // Check if this is an ephemeral workspace chat (skip DB writes)
+      // Check if this is an ephemeral workspace chat (skip legacy chats/messages DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
@@ -3382,7 +3316,6 @@ ${componentSnippet}
             codebasePrefix: readonly ModelMessage[];
             otherCodebasePrefix: readonly ModelMessage[];
           }> => {
-            // #region agent log
             const assembledContext = assembleContextSections({
               chatId: req.chatId,
               appId: effectiveAppId ?? null,
@@ -5048,7 +4981,6 @@ This conversation includes one or more image attachments. When the user uploads 
             const modeAllowlist: Record<WorkMode, Set<string>> = {
               ask: new Set([
                 "ask_user",
-                "clear_blueprint",
                 "compress_context",
                 "deep_research",
                 "explore_folder",
@@ -5070,12 +5002,10 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_url",
                 "run_command",
                 "search",
-                "set_blueprint",
                 "web_search",
               ]),
               plan: new Set([
                 "ask_user",
-                "clear_blueprint",
                 "compress_context",
                 "edit_file",
                 "explore_folder",
@@ -5096,14 +5026,12 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_implementation_plan",
                 "run_command",
                 "search",
-                "set_blueprint",
                 "write_file",
                 "write_implementation_plan",
               ]),
               build: new Set(),
               debug: new Set([
                 "ask_user",
-                "clear_blueprint",
                 "diagnose_issue",
                 "edit_file",
                 "explore_folder",
@@ -5125,12 +5053,10 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_file",
                 "run_command",
                 "search",
-                "set_blueprint",
                 "stream_terminal_output",
               ]),
               review: new Set([
                 "ask_user",
-                "clear_blueprint",
                 "diagnose_issue",
                 "explore_folder",
                 "find_file",
@@ -5152,7 +5078,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_file",
                 "run_command",
                 "search",
-                "set_blueprint",
               ]),
             };
             // Register tools for any work mode the model can switch to mid-stream; gate at execute time.
@@ -7423,26 +7348,12 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           if (!fullResponse.trim()) {
             fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
           }
-          // v3.9: Parse and strip <questions> block; emit chat:questions if present (first block only)
-          const {
-            cleanContent: contentAfterQuestions,
-            questions,
-            title: questionsTitle,
-          } = parseQuestions(fullResponse);
-          let responseToStore = questions != null ? contentAfterQuestions : fullResponse;
+          let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
           responseToStore = stripTaskCompleteTags(sanitizeAssistantOutput(responseToStore));
           responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
             settings: readSettings(),
             mainOptions,
           });
-          if (questions != null && questions.length > 0) {
-            safeSend(event.sender, "chat:questions", {
-              messageId: placeholderAssistantMessage.id,
-              questions,
-              ...(questionsTitle ? { title: questionsTitle } : {}),
-            });
-          }
-
           // Scrape from: <atlarix-chat-summary>Renaming profile file</atlarix-chat-title>
           const chatTitle = responseToStore.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
@@ -7455,7 +7366,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           }
           const chatSummary = chatTitle?.[1];
 
-          // Update the placeholder assistant message with the full response (with <questions> stripped if present)
+          // Update the placeholder assistant message with the full response (legacy <questions> stripped if present)
           // v3.9: Also set snapshotId and filesWritten when from Build mode
           if (!isEphemeralWorkspace) {
             await db
@@ -8059,84 +7970,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           message: error instanceof Error ? error.message : String(error),
         };
       }
-    },
-  );
-
-  // v3.9: Submit clarifying-question answers — formatted user bubble + chunk flush
-  ipcMain.handle(
-    "chat:submit-question-answers",
-    async (
-      event,
-      payload: {
-        chatId: number;
-        assistantMessageId: number;
-        answers: Record<string, string>;
-        questionSnapshots: { id: string; question: string }[];
-      },
-    ) => {
-      const { chatId, assistantMessageId, answers, questionSnapshots } = payload;
-      const { formatInteractiveQaBlock } = await import("../../lib/interactive-qa-format");
-      const {
-        isEphemeralChatId,
-        insertClarifyingAnswersUserMessageEphemeral,
-        getEphemeralChat,
-      } = await import("./chat_only_handlers");
-
-      const pairs = questionSnapshots.map((q) => ({
-        question: q.question,
-        answer: answers[q.id] ?? "",
-      }));
-      const content = formatInteractiveQaBlock(pairs);
-
-      if (isEphemeralChatId(chatId)) {
-        const ok = insertClarifyingAnswersUserMessageEphemeral(chatId, assistantMessageId, content);
-        if (!ok) throw new Error("Assistant message not found in ephemeral chat");
-        const chat = getEphemeralChat(chatId);
-        safeSend(event.sender, "chat:response:chunk", {
-          chatId,
-          messages: [...(chat?.messages ?? [])],
-        });
-        return { success: true };
-      }
-
-      const assistantMsg = await db.query.messages.findFirst({
-        where: and(eq(messages.id, assistantMessageId), eq(messages.chatId, chatId)),
-      });
-      if (!assistantMsg) {
-        throw new Error("Assistant message not found");
-      }
-
-      let insertCreatedAt = new Date();
-      if (assistantMsg.createdAt) {
-        insertCreatedAt = new Date(assistantMsg.createdAt.getTime() + 1);
-      }
-
-      await db.insert(messages).values({
-        chatId,
-        role: "user",
-        content,
-        createdAt: insertCreatedAt,
-      });
-      await db.update(chats).set({ hasAnsweredQuestions: true }).where(eq(chats.id, chatId));
-
-      const rowsAfter = await db
-        .select()
-        .from(messages)
-        .where(eq(messages.chatId, chatId))
-        .orderBy(asc(messages.createdAt));
-
-      safeSend(event.sender, "chat:response:chunk", {
-        chatId,
-        messages: rowsAfter.map((row) => ({
-          id: row.id,
-          chatId: row.chatId,
-          role: row.role as "user" | "assistant" | "system",
-          content: row.content ?? "",
-          createdAt: row.createdAt ?? new Date(),
-        })) as import("../ipc_types").Message[],
-      });
-
-      return { success: true };
     },
   );
 

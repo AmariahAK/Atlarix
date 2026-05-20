@@ -93,7 +93,7 @@ export function useLoadApp(appId: number | null) {
             });
             setPinnedPanel('code-preview');
             setRightPanelVisible(true);
-            setPreviewTab('diagram');
+            setPreviewTab('activity');
             console.log(`[useLoadApp] Loaded diagram for workspace ${appId}: ${latestDiagram.title}`);
           } else {
             console.log(`[useLoadApp] No saved diagram for workspace ${appId}. Model can generate on demand.`);

@@ -1,9 +1,12 @@
 import path from "path";
 import { createRequire } from "module";
+import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { rendererMainOnlyShimsPlugin } from "./vite/renderer-main-only-shims-plugin";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 try {
   require("dotenv").config();
@@ -19,13 +22,15 @@ const RENDERER_KEYS = [
   "SENTRY_DSN",
 ] as const;
 
+const shims = (name: string) => path.resolve(__dirname, `./src/shims/${name}`);
+
 // https://vite.dev/config/
 export default defineConfig({
   /** RTE pulls oxc-parse transitively; without this, resolve uses oxc's "browser" → wasm (fails in UI bundle). */
   optimizeDeps: {
     exclude: ["oxc-parser"],
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [rendererMainOnlyShimsPlugin(), react(), tailwindcss()],
   /** Modern Chromium (Electron): less downlevel work for esbuild during large renderer bundles. */
   esbuild: {
     target: "es2022",
@@ -49,18 +54,32 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "oxc-parser": path.resolve(__dirname, "./src/shims/oxc-parser-renderer-stub.ts"),
-      /**
-       * `guard.ts` (pulled in via `ToolRegistry`) dynamically imports `@sentry/electron/main`.
-       * In the renderer graph that would bundle `@sentry/node` and fail (Node `util`, `url`, …).
-       */
-      "@sentry/electron/main": path.resolve(
-        __dirname,
-        "./src/shims/sentry-electron-main-stub.ts",
-      ),
-    },
+    /**
+     * Specific `@/…` aliases MUST come before `{ find: "@", … }` or Vite resolves
+     * `@/lib/models_dev` as `src` + `/lib/models_dev` (real main-only file).
+     */
+    alias: [
+      { find: "@/lib/models_dev", replacement: shims("models-dev-renderer-stub.ts") },
+      {
+        find: "@/lib/auth/supabase-secure-storage",
+        replacement: shims("supabase-secure-storage-renderer-stub.ts"),
+      },
+      {
+        find: "@/lib/auth/supabase-client",
+        replacement: shims("supabase-client-renderer-stub.ts"),
+      },
+      { find: "@/ipc/utils/read_env", replacement: shims("read-env-stub.ts") },
+      /** Do not alias `@/db` — it prefix-matches `@/db/schema`. DB stub is via resolve plugin (db/index only). */
+      { find: "@/main/settings", replacement: shims("main-settings-renderer-stub.ts") },
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: "oxc-parser", replacement: shims("oxc-parser-renderer-stub.ts") },
+      {
+        find: "@sentry/electron/main",
+        replacement: shims("sentry-electron-main-stub.ts"),
+      },
+      { find: "shell-env", replacement: shims("shell-env-stub.ts") },
+      { find: "default-shell", replacement: shims("default-shell-stub.ts") },
+    ],
   },
   server: {
     watch: {

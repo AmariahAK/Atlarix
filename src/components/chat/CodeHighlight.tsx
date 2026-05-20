@@ -7,6 +7,8 @@ import ShikiHighlighter, {
 import type { Element as HastElement } from "hast";
 import { useTheme } from "../../contexts/ThemeContext";
 import { Copy, Check } from "lucide-react";
+import { MermaidRenderer } from "@/components/MermaidRenderer";
+import { MarkmapRenderer } from "@/components/chat/MarkmapRenderer";
 import github from "@shikijs/themes/github-light-default";
 import githubDark from "@shikijs/themes/github-dark-default";
 // common languages
@@ -95,6 +97,22 @@ export const CodeHighlight = memo(
 
     const { isDarkMode } = useTheme();
     const highlighter = useHighlighter();
+
+    if (!isInline && language === "mermaid") {
+      return (
+        <div className="not-prose my-2 w-full">
+          <MermaidRenderer code={code} className="min-h-[280px] max-h-[480px]" />
+        </div>
+      );
+    }
+
+    if (!isInline && language === "markmap") {
+      return (
+        <div className="not-prose my-2 w-full">
+          <MarkmapRenderer content={code} />
+        </div>
+      );
+    }
 
     return !isInline ? (
       <div

@@ -2,15 +2,26 @@
  * CLI install / uninstall — shell command in PATH (atlarix .)
  */
 
-import { app, dialog, shell } from "electron";
+import { dialog } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
+import sudoPrompt from "@vscode/sudo-prompt";
 
 const logger = log.scope("cli-handlers");
 const handle = createLoggedHandler(logger);
+
+export type CliInstallResult = {
+  success: boolean;
+  path?: string;
+  message?: string;
+  needsSudo?: boolean;
+  sudoCommand?: string;
+  cancelled?: boolean;
+  error?: string;
+};
 
 function macLauncherScript(): string {
   return `#!/bin/sh
@@ -72,8 +83,181 @@ function cliTargetPath(): { dir: string; file: string } {
   return { dir: "/usr/local/bin", file: "/usr/local/bin/atlarix" };
 }
 
+function shellEscapePath(file: string): string {
+  return `'${file.replace(/'/g, "'\\''")}'`;
+}
+
+function sudoUninstallCommand(file: string): string {
+  if (process.platform === "win32") {
+    return `del "${file.replace(/"/g, '\\"')}"`;
+  }
+  return `sudo rm -f ${shellEscapePath(file)}`;
+}
+
+function sudoInstallCommand(file: string, content: string): string {
+  if (process.platform === "win32") {
+    return `Copy atlarix.cmd to a folder on your PATH`;
+  }
+  return `sudo tee ${shellEscapePath(file)} << 'EOF'\n${content}\nEOF\nsudo chmod +x ${shellEscapePath(file)}`;
+}
+
+function isSudoCancelled(err: Error): boolean {
+  const msg = err.message?.toLowerCase() ?? "";
+  return (
+    msg.includes("user did not grant") ||
+    msg.includes("cancelled") ||
+    msg.includes("canceled") ||
+    msg.includes("user canceled")
+  );
+}
+
+function runSudoCommand(
+  command: string,
+): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+  if (process.platform === "win32") {
+    return Promise.resolve({
+      ok: false,
+      error: "Windows requires manual PATH setup.",
+    });
+  }
+  return new Promise((resolve) => {
+    sudoPrompt.exec(command, { name: "Atlarix" }, (error) => {
+      if (error) {
+        if (isSudoCancelled(error)) {
+          resolve({ ok: false, cancelled: true });
+          return;
+        }
+        resolve({ ok: false, error: error.message });
+        return;
+      }
+      resolve({ ok: true });
+    });
+  });
+}
+
+function runSudoInstall(file: string, content: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+  const tmp = path.join(os.tmpdir(), `atlarix-cli-install-${process.pid}`);
+  try {
+    fs.writeFileSync(tmp, content, { mode: 0o755 });
+    const command = `cp ${shellEscapePath(tmp)} ${shellEscapePath(file)} && chmod +x ${shellEscapePath(file)}`;
+    return runSudoCommand(command).finally(() => {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        /* temp cleanup best-effort */
+      }
+    });
+  } catch (err) {
+    return Promise.resolve({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function runSudoUninstall(file: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+  if (process.platform === "win32") {
+    return Promise.resolve({
+      ok: false,
+      error: "Windows requires manual removal from your PATH folder.",
+    });
+  }
+  return runSudoCommand(`rm -f ${shellEscapePath(file)}`);
+}
+
+async function promptSudoInstall(file: string, content: string): Promise<CliInstallResult> {
+  const sudoCmd = sudoInstallCommand(file, content);
+
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "Install atlarix command",
+    message: "Administrator access is required",
+    detail:
+      "Atlarix can install the CLI command for you, or you can run a command in Terminal.",
+    buttons: ["Install with administrator access", "Copy command", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+  });
+
+  if (response === 2) {
+    logger.info("cli:install cancelled by user");
+    return { success: false, cancelled: true };
+  }
+
+  if (response === 1) {
+    return { success: false, needsSudo: true, sudoCommand: sudoCmd };
+  }
+
+  const elevated = await runSudoInstall(file, content);
+  if (elevated.ok) {
+    return {
+      success: true,
+      path: file,
+      message: "Installed. Open a new terminal and try: atlarix .",
+    };
+  }
+  if (elevated.cancelled) {
+    return { success: false, cancelled: true };
+  }
+
+  logger.warn("cli:install elevated install failed:", elevated.error);
+  await dialog.showMessageBox({
+    type: "info",
+    title: "Install atlarix command",
+    message: "Could not install automatically",
+    detail: `Run this in Terminal:\n\n${sudoCmd}`,
+    buttons: ["OK"],
+  });
+  return { success: false, needsSudo: true, sudoCommand: sudoCmd, error: elevated.error };
+}
+
+async function promptSudoUninstall(file: string): Promise<CliInstallResult> {
+  const sudoCmd =
+    process.platform === "win32"
+      ? `Remove the file manually:\n${file}`
+      : `sudo rm -f ${shellEscapePath(file)}`;
+
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "Remove atlarix command",
+    message: "Administrator access is required",
+    detail:
+      "Atlarix can remove the CLI symlink for you, or you can run a command in Terminal.",
+    buttons: ["Remove with administrator access", "Copy command", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+  });
+
+  if (response === 2) {
+    logger.info("cli:uninstall cancelled by user");
+    return { success: false, cancelled: true };
+  }
+
+  if (response === 1) {
+    return { success: false, needsSudo: true, sudoCommand: sudoCmd };
+  }
+
+  const elevated = await runSudoUninstall(file);
+  if (elevated.ok) {
+    return { success: true, message: "Removed atlarix from PATH" };
+  }
+  if (elevated.cancelled) {
+    return { success: false, cancelled: true };
+  }
+
+  logger.warn("cli:uninstall elevated remove failed:", elevated.error);
+  await dialog.showMessageBox({
+    type: "info",
+    title: "Remove atlarix command",
+    message: "Could not remove automatically",
+    detail: `Run this in Terminal:\n\n${sudoCmd}`,
+    buttons: ["OK"],
+  });
+  return { success: false, needsSudo: true, sudoCommand: sudoCmd, error: elevated.error };
+}
+
 export function registerCliHandlers(): void {
-  handle("cli:install", async () => {
+  handle("cli:install", async (): Promise<CliInstallResult> => {
     const { dir, file } = cliTargetPath();
     const content =
       process.platform === "darwin"
@@ -102,32 +286,29 @@ export function registerCliHandlers(): void {
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code === "EACCES" || code === "EPERM") {
-        const cmd =
-          process.platform === "win32"
-            ? `Copy atlarix.cmd to a folder on your PATH`
-            : `sudo tee ${file} << 'EOF'\n${content}\nEOF\nsudo chmod +x ${file}`;
-        await dialog.showMessageBox({
-          type: "info",
-          title: "Install atlarix command",
-          message: "Administrator access required",
-          detail: `Run this in Terminal:\n\n${cmd}`,
-          buttons: ["Copy command", "OK"],
-        });
-        return { success: false, needsSudo: true, sudoCommand: cmd };
+        return promptSudoInstall(file, content);
       }
-      logger.error("cli:install failed:", err);
-      throw err;
+      logger.warn("cli:install failed:", err);
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 
-  handle("cli:uninstall", async () => {
+  handle("cli:uninstall", async (): Promise<CliInstallResult> => {
     const { file } = cliTargetPath();
+    if (!fs.existsSync(file)) {
+      return { success: true, message: "CLI command was not installed" };
+    }
+
     try {
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-      return { success: true };
-    } catch (err) {
-      logger.error("cli:uninstall failed:", err);
-      return { success: false, error: String(err) };
+      await fs.promises.unlink(file);
+      return { success: true, message: "Removed atlarix from PATH" };
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === "EACCES" || code === "EPERM") {
+        return promptSudoUninstall(file);
+      }
+      logger.warn("cli:uninstall failed:", err);
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 

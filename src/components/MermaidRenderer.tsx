@@ -175,7 +175,7 @@ export function MermaidRenderer({
         });
     }, [theme]);
 
-    // Render diagram (retry when container ref not mounted yet — e.g. first paint on /diagram)
+    // Render diagram (retry when container ref not mounted yet — e.g. first paint in chat)
     const renderDiagram = useCallback(async () => {
         if (!code?.trim()) {
             return;

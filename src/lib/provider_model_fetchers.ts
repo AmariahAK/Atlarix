@@ -9,7 +9,6 @@
 import log from "electron-log";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
-import { getEnvVar } from "@/ipc/utils/read_env";
 
 const logger = log.scope("provider_fetchers");
 
@@ -472,14 +471,21 @@ export async function fetchModelsFromElastic(
   const cached = fromCache("elastic");
   if (cached) return cached;
 
-  let baseUrl = getEnvVar("ELASTIC_AGENT_BUILDER_KIBANA_URL")?.trim();
-  if (!baseUrl && typeof process !== "undefined" && (process as NodeJS.Process).type === "browser") {
+  let baseUrl: string | undefined;
+  try {
+    const { readSettings } = await import("@/main/settings");
+    baseUrl = (
+      readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined
+    )?.baseUrl?.trim();
+  } catch {
+    // Renderer bundle — settings live in main; Elastic URL must be set there.
+  }
+  if (!baseUrl) {
     try {
-      const { readSettings } = await import("@/main/settings");
-      const elasticBase = (readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined)?.baseUrl?.trim();
-      if (elasticBase) baseUrl = elasticBase;
+      const { getEnvVar } = await import("@/ipc/utils/read_env");
+      baseUrl = getEnvVar("ELASTIC_AGENT_BUILDER_KIBANA_URL")?.trim();
     } catch {
-      // ignore
+      // read_env is main-only (shell-env); stubbed in renderer.
     }
   }
   if (!baseUrl) {

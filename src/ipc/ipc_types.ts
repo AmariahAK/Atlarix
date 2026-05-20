@@ -684,6 +684,30 @@ export interface HelpChatResponseError {
   error: string;
 }
 
+// --- Workspace session persistence ---
+export interface WorkspaceChatSession {
+  id: string;
+  workspaceId: number;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WorkspaceSessionMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  createdAt: Date;
+}
+
+export interface WorkspaceSessionWithMessages {
+  session: WorkspaceChatSession;
+  messages: WorkspaceSessionMessage[];
+  truncated?: boolean;
+  totalCount?: number;
+}
+
 // --- MCP Types ---
 export interface McpServer {
   id: number;
@@ -694,6 +718,7 @@ export interface McpServer {
   cwd?: string | null;
   envJson?: Record<string, string> | null;
   url?: string | null;
+  apiKey?: string | null;
   enabled: boolean;
   scope?: "global" | "workspace";
   appId?: number | null;

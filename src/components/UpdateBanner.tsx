@@ -1,18 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
-import { X, Download, RefreshCw } from "lucide-react";
+import { X, Download, RefreshCw, ExternalLink } from "lucide-react";
+
+const DOWNLOAD_PAGE = "https://atlarix.dev";
 
 /**
  * UpdateBanner
  * ============
- * - Shows a subtle "Downloading update…" strip when update:downloading fires.
- * - Replaces the strip with a "Restart Now / Remind me later" banner when update:downloaded fires.
- * - "Remind me later" writes a defer flag via IPC so the update installs on next cold start.
- * - Dismiss (×) without deferring just hides the banner for the session via localStorage.
+ * - Notify-only strip when a newer GitHub release exists (update:available).
+ * - Download progress + ready-to-install for electron-updater (update:downloading / update:downloaded).
  */
 export function UpdateBanner() {
   const [downloadingVersion, setDownloadingVersion] = useState<string | null>(null);
   const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null);
+  const [notifyUpdate, setNotifyUpdate] = useState<{
+    latestVersion: string;
+    releaseUrl: string;
+  } | null>(null);
+  const notifyDismissedRef = useRef(false);
 
   useEffect(() => {
     const unsub1 = IpcClient.getInstance().onUpdateDownloading(({ version }) => {
@@ -25,13 +30,66 @@ export function UpdateBanner() {
         setDownloadedVersion(version);
       }
     });
+    const unsub3 = IpcClient.getInstance().onUpdateAvailable(
+      ({ latestVersion, releaseUrl }) => {
+        if (!notifyDismissedRef.current) {
+          setNotifyUpdate({ latestVersion, releaseUrl });
+        }
+      },
+    );
     return () => {
       unsub1();
       unsub2();
+      unsub3();
     };
   }, []);
 
-  // Subtle download-in-progress indicator
+  if (notifyUpdate && !downloadedVersion && !downloadingVersion) {
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm bg-muted/60 border-b border-border shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Download className="w-4 h-4 text-primary shrink-0" />
+          <span className="text-foreground truncate">
+            Atlarix {notifyUpdate.latestVersion} is available
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              void IpcClient.getInstance().openExternalUrl(DOWNLOAD_PAGE);
+            }}
+            className="flex items-center gap-1 text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
+          >
+            Download update
+            <ExternalLink className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              notifyDismissedRef.current = true;
+              setNotifyUpdate(null);
+            }}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Dismiss
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss update banner"
+            onClick={() => {
+              notifyDismissedRef.current = true;
+              setNotifyUpdate(null);
+            }}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (downloadingVersion && !downloadedVersion) {
     return (
       <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground bg-muted/40 border-b border-border shrink-0">
@@ -41,7 +99,6 @@ export function UpdateBanner() {
     );
   }
 
-  // Ready-to-install banner
   if (!downloadedVersion) return null;
 
   return (

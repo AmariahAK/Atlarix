@@ -6,11 +6,11 @@
 
 import React, { useState } from 'react';
 import { TitleBar } from '@/components/TitleBar';
-import { Sidebar, HelpPanel, DiagramPanel, WebPanel } from '@/components/Sidebar';
+import { Sidebar, HelpPanel, WebPanel } from '@/components/Sidebar';
 import { ChatInterface } from '@/components/ChatInterface';
 import { InputBar } from '@/components/InputBar';
 
-type SidebarTab = 'help' | 'diagram' | 'web';
+type SidebarTab = 'help' | 'web';
 
 export function MainLayout() {
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('help');
@@ -83,7 +83,6 @@ export function MainLayout() {
                     }}
                 >
                     {sidebarTab === 'help' && <HelpPanel />}
-                    {sidebarTab === 'diagram' && <DiagramPanel />}
                     {sidebarTab === 'web' && <WebPanel />}
                 </div>
 

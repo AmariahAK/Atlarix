@@ -87,7 +87,7 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
             return 'web-search';
 
         case 'show-diagram':
-            return 'diagram';
+            return 'code-preview';
 
         case 'show-terminal':
             return 'terminal';
@@ -409,7 +409,7 @@ export interface DiagramStalenessWarning {
 export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
 
 // Pass 7: Legacy Blueprint editor atoms removed (`diagramViewModeAtom`, `blueprintAiEditingAtom`).
-// `blueprintStateAtom` remains for the AI panel mind map (set_blueprint / get_blueprint include_panel_graph).
+// `blueprintStateAtom` — legacy panel state; primary architecture viz is inline markmap/mermaid in chat.
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

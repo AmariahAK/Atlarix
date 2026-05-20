@@ -1,7 +1,6 @@
 /**
- * WorkspacePanelBar - Quick access to Diagram | Preview | Code
+ * WorkspacePanelBar - Quick access to Preview | Code | Activity
  * Shows when workspace is selected, above the main content.
- * Lets users view diagram/preview/code without sending first prompt.
  */
 
 import { useAtomValue, useSetAtom } from "jotai";
@@ -13,7 +12,7 @@ import {
   devServerUrlAtom,
 } from "@/atoms/sourceAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { Workflow, Eye, Code2 } from "lucide-react";
+import { Eye, Code2, ListTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -22,7 +21,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 
-type QuickTab = "diagram" | "preview" | "code";
+type QuickTab = "activity" | "preview" | "code";
 
 export function WorkspacePanelBar() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
@@ -51,14 +50,14 @@ export function WorkspacePanelBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => handleQuickTab("diagram")}
+                onClick={() => handleQuickTab("activity")}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors text-muted-foreground hover:text-foreground"
               >
-                <Workflow className="h-3.5 w-3.5" />
-                Diagram
+                <ListTree className="h-3.5 w-3.5" />
+                Activity
               </button>
             </TooltipTrigger>
-            <TooltipContent>View project architecture diagram</TooltipContent>
+            <TooltipContent>Tool and session activity</TooltipContent>
           </Tooltip>
 
           <Tooltip>

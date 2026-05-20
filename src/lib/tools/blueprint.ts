@@ -1,7 +1,6 @@
 /**
  * Blueprint tools: lazy `get_blueprint` (Markdown + optional raw/panel graph),
- * read-only `set_blueprint` / `clear_blueprint` to push a **UI-only** mind-map
- * into the Diagram tab (no repo writes), plus `commit_blueprint` (Workforce).
+ * `commit_blueprint` (Workforce). Panel-push blueprint tools removed — use inline markmap in chat.
  * Structural search still uses `search` with `mode: "structural"`.
  */
 
@@ -157,56 +156,13 @@ function sliceToPanelGraph(slice: SliceResult): {
   return { rooms, edges };
 }
 
-function normalizeSetBlueprintInput(raw: {
-  title?: string;
-  rooms?: unknown[];
-  edges?: unknown[];
-}): {
-  title?: string;
-  rooms: Array<{ id: string; name: string; files?: string[]; functions?: string[] }>;
-  edges: Array<{ from: string; to: string; type?: string }>;
-} | { error: string } {
-  const roomsIn = Array.isArray(raw.rooms) ? raw.rooms : [];
-  const edgesIn = Array.isArray(raw.edges) ? raw.edges : [];
-  if (roomsIn.length === 0) {
-    return { error: "set_blueprint requires at least one room in `rooms`." };
-  }
-  const rooms: Array<{ id: string; name: string; files?: string[]; functions?: string[] }> = [];
-  for (let i = 0; i < Math.min(roomsIn.length, MAX_PANEL_ROOMS); i++) {
-    const r = roomsIn[i] as Record<string, unknown>;
-    const id = String(r?.id ?? `room-${i}`).trim() || `room-${i}`;
-    const name = String(r?.name ?? r?.label ?? id).trim() || id;
-    const files = Array.isArray(r?.files)
-      ? (r.files as unknown[]).map((f) => String(f)).filter(Boolean).slice(0, 12)
-      : undefined;
-    const functions = Array.isArray(r?.functions)
-      ? (r.functions as unknown[]).map((f) => String(f)).filter(Boolean).slice(0, MAX_FUNCS_PER_ROOM)
-      : undefined;
-    rooms.push({ id, name, files, functions });
-  }
-  const edges: Array<{ from: string; to: string; type?: string }> = [];
-  for (let i = 0; i < Math.min(edgesIn.length, MAX_PANEL_EDGES); i++) {
-    const e = edgesIn[i] as Record<string, unknown>;
-    const from = String(e?.from ?? "").trim();
-    const to = String(e?.to ?? "").trim();
-    if (!from || !to) continue;
-    edges.push({
-      from,
-      to,
-      type: e?.type != null ? String(e.type) : undefined,
-    });
-  }
-  const title = raw.title != null ? String(raw.title).trim().slice(0, 200) : undefined;
-  return { title, rooms, edges };
-}
-
 ToolRegistry.register({
   name: "get_blueprint",
   category: ToolCategory.SEARCH_INTELLIGENCE,
   // PASS8 B1: Description trimmed to ≤ 2 sentences.
   description:
     "Lazy read-only architecture slice (Markdown tree of files, functions, imports, edges). " +
-    "Pass focus_path for multi-repo workspaces; include_raw:true for raw nodes/edges; include_panel_graph:true to also sync the Diagram-tab mind map.",
+    "Pass focus_path for multi-repo workspaces; include_raw:true for raw nodes/edges; include_panel_graph:true for a graph object.",
   cost: 3,
   requiresWorkspace: true,
   isCore: false,
@@ -241,7 +197,7 @@ ToolRegistry.register({
       include_panel_graph: {
         type: "boolean",
         description:
-          "When true, include a normalized `graph` plus `_showInPanel` / `_panelType` so the Diagram tab can render the same slice as a mind map (UI only).",
+          "When true, include a normalized `graph` object for the architecture slice (markdown is always returned).",
       },
       workspaceId: { type: "number", description: "Workspace ID (auto-provided)" },
     },
@@ -316,8 +272,6 @@ ToolRegistry.register({
         edgeCount: number;
         focusPath?: string;
         raw?: SliceResult;
-        _showInPanel?: boolean;
-        _panelType?: "blueprint";
         graph?: ReturnType<typeof sliceToPanelGraph>;
       } = {
         success: true,
@@ -328,8 +282,6 @@ ToolRegistry.register({
       if (focus) out.focusPath = params.focus_path;
       if (includeRaw) out.raw = slice;
       if (includePanelGraph) {
-        out._showInPanel = true;
-        out._panelType = "blueprint";
         out.graph = sliceToPanelGraph(slice);
       }
       return out;
@@ -342,118 +294,7 @@ ToolRegistry.register({
   },
 });
 
-ToolRegistry.register({
-  name: "set_blueprint",
-  category: ToolCategory.SEARCH_INTELLIGENCE,
-  description:
-    "Push a read-only architecture mind-map to the Diagram tab (replaces any prior AI panel blueprint). " +
-    "Use after get_blueprint or your own reasoning; does not write files.",
-  cost: 0,
-  requiresWorkspace: true,
-  isCore: false,
-  isReadOnly: true,
-  allowInAskMode: true,
-  parameters: createParameters(
-    {
-      title: {
-        type: "string",
-        description: "Optional short title for the panel.",
-      },
-      rooms: {
-        type: "array",
-        description: "Rooms/containers (id, name, optional files[], functions[]).",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            name: { type: "string" },
-            files: { type: "array", items: { type: "string" } },
-            functions: { type: "array", items: { type: "string" } },
-          },
-          required: ["id", "name"],
-        },
-      },
-      edges: {
-        type: "array",
-        description: "Edges between room ids (from, to, optional type).",
-        items: {
-          type: "object",
-          properties: {
-            from: { type: "string" },
-            to: { type: "string" },
-            type: { type: "string" },
-          },
-          required: ["from", "to"],
-        },
-      },
-      workspaceId: { type: "number", description: "Workspace ID (auto-provided)" },
-    },
-    ["rooms"],
-  ),
-  handler: async (params: {
-    title?: string;
-    rooms?: unknown[];
-    edges?: unknown[];
-    workspaceId?: number;
-  }) => {
-    if (params.workspaceId == null) {
-      return { success: false, error: "set_blueprint requires workspaceId." };
-    }
-    const normalized = normalizeSetBlueprintInput({
-      title: params.title,
-      rooms: params.rooms,
-      edges: params.edges,
-    });
-    if ("error" in normalized) {
-      return { success: false, error: normalized.error };
-    }
-    return {
-      success: true,
-      message: "Blueprint panel updated (UI only).",
-      _showInPanel: true,
-      _panelType: "blueprint" as const,
-      _action: "set" as const,
-      workspaceId: params.workspaceId,
-      title: normalized.title,
-      rooms: normalized.rooms,
-      edges: normalized.edges,
-      graph: {
-        rooms: normalized.rooms,
-        edges: normalized.edges,
-      },
-    };
-  },
-});
-
-ToolRegistry.register({
-  name: "clear_blueprint",
-  category: ToolCategory.SEARCH_INTELLIGENCE,
-  description: "Clear the AI-pushed blueprint mind-map from the Diagram tab (UI only).",
-  cost: 0,
-  requiresWorkspace: true,
-  isCore: false,
-  isReadOnly: true,
-  allowInAskMode: true,
-  parameters: createParameters(
-    {
-      workspaceId: { type: "number", description: "Workspace ID (auto-provided)" },
-    },
-    [],
-  ),
-  handler: async (params: { workspaceId?: number }) => {
-    if (params.workspaceId == null) {
-      return { success: false, error: "clear_blueprint requires workspaceId." };
-    }
-    return {
-      success: true,
-      message: "Blueprint panel cleared.",
-      _showInPanel: true,
-      _panelType: "blueprint" as const,
-      _action: "clear" as const,
-      workspaceId: params.workspaceId,
-    };
-  },
-});
+// DEAD? set_blueprint / clear_blueprint removed — architecture viz is inline via ```markmap``` in chat.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pass 7 — `commit_blueprint`

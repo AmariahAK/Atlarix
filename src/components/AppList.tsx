@@ -1,8 +1,18 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen, FileCode2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen } from "lucide-react";
 import { Trash2 } from "lucide-react";
-import { useAtom, useSetAtom } from "jotai";
+import { getDefaultStore, useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import {
+  activeWorkspaceSessionIdAtom,
+  loadedSessionResumeAtom,
+  workspaceSidebarTabAtom,
+  chatIdToSessionIdAtom,
+  workspaceSessionsRefreshAtom,
+} from "@/atoms/sessionAtoms";
+import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
+import { cn } from "@/lib/utils";
 import {
   selectedErrorForCodeAtom,
   rightPanelVisibleAtom,
@@ -57,6 +67,12 @@ export function AppList({ show }: { show?: boolean }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
+  const [sidebarTab, setSidebarTab] = useAtom(workspaceSidebarTabAtom);
+  const setActiveWorkspaceSessionId = useSetAtom(activeWorkspaceSessionIdAtom);
+  const setLoadedSessionResume = useSetAtom(loadedSessionResumeAtom);
+  const setChatIdToSessionId = useSetAtom(chatIdToSessionIdAtom);
+  const setActiveChatId = useSetAtom(activeChatIdAtom);
+  const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
   // Paid tiers + main-process limit (Workforce was incorrectly gated as Free before)
   const canAddWorkspace = useMemo(() => {
@@ -162,27 +178,33 @@ export function AppList({ show }: { show?: boolean }) {
     ));
   };
 
-  const handleChatClick = (workspaceId: number, chatId: number) => {
-    const st = apps.find((a) => a.id === workspaceId);
-    if (st?.status === "missing" || st?.pathExists === false) return;
-    setSelectedAppId(workspaceId);
-    setSelectedChatId(chatId);
-    navigate({ to: `/chat/${chatId}` });
-  };
-
-  const handleNewChatInWorkspace = async (workspaceId: number) => {
+  const handleNewConversationInWorkspace = async (workspaceId: number) => {
     const st = apps.find((a) => a.id === workspaceId);
     if (st?.status === "missing" || st?.pathExists === false) return;
     try {
+      const session = await IpcClient.getInstance().createWorkspaceSession(
+        workspaceId,
+      );
       const chatId = await IpcClient.getInstance().createChat(workspaceId);
       setSelectedAppId(workspaceId);
+      setActiveWorkspaceSessionId(session.id);
+      setLoadedSessionResume(false);
+      setChatIdToSessionId((prev) => {
+        const next = new Map(prev);
+        next.set(chatId, session.id);
+        return next;
+      });
+      setActiveChatId(chatId);
       setSelectedChatId(chatId);
-      navigate({ to: `/chat/${chatId}` });
+      getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+      navigate({ to: "/" });
       refreshApps?.();
     } catch (error) {
-      console.error('Failed to create chat:', error);
+      console.error("Failed to create conversation:", error);
     }
   };
+
+  const handleNewChatInWorkspace = handleNewConversationInWorkspace;
 
   const handleFileClick = (workspaceId: number, filePath: string) => {
     const st = apps.find((a) => a.id === workspaceId);
@@ -407,7 +429,11 @@ export function AppList({ show }: { show?: boolean }) {
                       onClick={() => {
                         if (isMissing) return;
                         setSelectedAppId(ws.id);
-                        setSelectedWorkspaceInfo({ id: ws.id, name: ws.name });
+                        setSelectedWorkspaceInfo({
+                          id: ws.id,
+                          name: ws.name,
+                          path: ws.path,
+                        });
                         setWorkspaces((prev) =>
                           prev.map((w) =>
                             w.id === ws.id
@@ -506,54 +532,79 @@ export function AppList({ show }: { show?: boolean }) {
                       )}
                     </div>
 
-                    {/* File tree (IDE-style) - when expanded */}
+                    {/* Files / Sessions tabs — when expanded */}
                     {ws.isExpanded && !isMissing && (
                       <div className="pl-6 pr-2 pt-1">
-                        {ws.filesLoading ? (
-                          <div className="text-[10px] text-muted-foreground py-1">Loading files...</div>
-                        ) : ws.files && ws.files.length > 0 ? (
-                          <>
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              <FileCode2 className="h-3 w-3" />
-                              Files
+                        <div className="flex gap-1 mb-1 px-1">
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex-1 text-[10px] font-medium py-0.5 rounded",
+                              sidebarTab === "files"
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSidebarTab("files");
+                            }}
+                          >
+                            Files
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex-1 text-[10px] font-medium py-0.5 rounded",
+                              sidebarTab === "sessions"
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSidebarTab("sessions");
+                            }}
+                          >
+                            Sessions
+                          </button>
+                        </div>
+                        {sidebarTab === "files" ? (
+                          ws.filesLoading ? (
+                            <div className="text-[10px] text-muted-foreground py-1">
+                              Loading files...
                             </div>
+                          ) : ws.files && ws.files.length > 0 ? (
                             <WorkspaceFileTree
                               files={ws.files}
                               onFileClick={(path) => handleFileClick(ws.id, path)}
                             />
-                          </>
-                        ) : null}
-                      </div>
-                    )}
-
-                    {/* Chats List (Collapsible) */}
-                    {ws.isExpanded && !isMissing && ws.chats.length > 0 && (
-                      <div className="pl-6 pr-2 pb-1 space-y-0.5">
-                        {ws.chats.map((chat) => (
-                          <div
-                            key={chat.id}
-                            onClick={() => handleChatClick(ws.id, chat.id)}
-                            className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-accent ${selectedChatId === chat.id ? 'bg-accent' : ''
-                              }`}
-                          >
-                            <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                            <span className="text-xs truncate flex-1">
-                              {chat.title || 'New conversation'}
-                            </span>
-                          </div>
-                        ))}
-
-                        {ws.chats.length >= 10 && (
-                          <button
-                            className="text-[10px] text-muted-foreground hover:text-foreground pl-2 py-1"
-                            onClick={() => {
-                              setSelectedAppId(ws.id);
-                              setIsSearchDialogOpen(true);
-                            }}
-                          >
-                            See all...
-                          </button>
+                          ) : (
+                            <div className="text-[10px] text-muted-foreground py-1 px-2">
+                              No files indexed.
+                            </div>
+                          )
+                        ) : (
+                          <WorkspaceSessionList
+                            workspaceId={ws.id}
+                            activeSessionId={
+                              selectedAppId === ws.id
+                                ? activeWorkspaceSessionId
+                                : null
+                            }
+                          />
                         )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-xs mt-2 h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleNewConversationInWorkspace(ws.id);
+                          }}
+                        >
+                          <MessageSquare className="h-3.5 w-3.5 mr-2" />
+                          New conversation
+                        </Button>
                       </div>
                     )}
                   </div>

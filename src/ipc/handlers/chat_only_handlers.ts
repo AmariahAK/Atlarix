@@ -77,7 +77,7 @@ import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import type { ModelTier } from "@/lib/routing/capability-registry";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
-import { parseQuestions } from "../utils/cleanFullResponse";
+import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import { captureSafe } from "../../main/lib/analytics";
 import { summarizeOversizedToolResultsInContent } from "@/lib/context/post_turn_tool_result_summary";
 import * as path from "path";
@@ -279,30 +279,6 @@ export function insertAskUserAnswerUserMessage(chatId: number, formattedContent:
 }
 
 /**
- * Insert clarifying `<questions>` formatted answer bubble before the assistant message that hosted the widget (by id).
- */
-export function insertClarifyingAnswersUserMessageEphemeral(
-    chatId: number,
-    assistantMessageId: number,
-    formattedContent: string,
-): boolean {
-    const chat = ephemeralChats.get(chatId);
-    if (!chat) return false;
-    const msgs = chat.messages;
-    const idx = msgs.findIndex((m) => m.id === assistantMessageId);
-    if (idx < 0) return false;
-    const msg: Message = {
-        id: Date.now(),
-        chatId,
-        role: "user",
-        content: formattedContent,
-        createdAt: new Date(),
-    };
-    msgs.splice(idx + 1, 0, msg);
-    return true;
-}
-
-/**
  * Edit a user message in an ephemeral chat and truncate messages after it.
  * Used by `chat:edit-message` when chatId is negative (incognito/home chat).
  */
@@ -413,6 +389,18 @@ export function isEphemeralChatId(chatId: number): boolean {
 }
 
 /**
+ * Clear in-memory messages for an ephemeral chat (model context only).
+ * Used when resuming a persisted workspace session so history is display-only.
+ */
+export function clearEphemeralChatMessages(chatId: number): void {
+    const chat = ephemeralChats.get(chatId);
+    if (!chat) return;
+    chat.messages = [];
+    ephemeralChats.set(chatId, chat);
+    logger.log(`Cleared ephemeral messages for chat: ${chatId}`);
+}
+
+/**
  * Clear all ephemeral chats (e.g., on app close)
  */
 export function clearEphemeralChats(): void {
@@ -474,7 +462,7 @@ You can help with:
 - Planning before building
 
 ## When the user wants to build something
-1. Understand requirements; ask clarifying questions if needed
+1. Understand requirements; use the **ask_user** tool when you need choices or confirmation from the user (never emit \`<questions>\` XML blocks)
 2. Call create_workspace() to set up a project when appropriate
 
 After a workspace exists in the full flow, file and codebase tools unlock; in this chat-only path you still guide them toward create_workspace first.
@@ -1691,13 +1679,7 @@ export async function handleChatOnlyStream(
         fullResponse = stripToolCallXML(fullResponse);
         fullResponse = sanitizeAssistantOutput(fullResponse);
 
-        const {
-            cleanContent: contentAfterQuestions,
-            questions,
-            title: questionsTitle,
-        } = parseQuestions(fullResponse);
-        let responseToStore =
-            questions != null ? contentAfterQuestions : fullResponse;
+        let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
         responseToStore = sanitizeAssistantOutput(responseToStore);
         responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
             settings,
@@ -1728,14 +1710,6 @@ export async function handleChatOnlyStream(
             ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
         };
         chat.messages.push(assistantMessage);
-
-        if (questions != null && questions.length > 0) {
-            safeSend(event.sender, "chat:questions", {
-                messageId: assistantMessage.id,
-                questions,
-                ...(questionsTitle ? { title: questionsTitle } : {}),
-            });
-        }
 
         // Record exchange in session memory for conversation continuity
         try {

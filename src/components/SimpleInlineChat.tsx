@@ -7,14 +7,13 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
     chatMessagesByIdAtom,
     chatStreamCountByIdAtom,
     isStreamingByIdAtom,
     activeChatIdAtom,
     pendingUserQuestionByChatIdAtom,
-    questionsByMessageIdAtom,
     chatErrorByIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -22,8 +21,6 @@ import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { ToolIndicator } from "@/components/chat/ToolIndicator";
 import { UserQuestionBar } from "@/components/chat/UserQuestionBar";
-import { QuestionsWidget } from "@/components/chat/QuestionsWidget";
-import { showError } from "@/lib/toast";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -31,18 +28,16 @@ import type { FileAttachment } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 
 interface SimpleInlineChatProps {
     chatId: number;
     onSendMessage: (prompt: string, attachments?: FileAttachment[]) => void;
-    /** Start continuation stream after `<questions>` submit (same as MessagesList). */
-    onContinueAfterQuestions?: () => void;
 }
 
 export function SimpleInlineChat({
     chatId,
     onSendMessage,
-    onContinueAfterQuestions,
 }: SimpleInlineChatProps) {
     const messagesById = useAtomValue(chatMessagesByIdAtom);
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
@@ -52,8 +47,6 @@ export function SimpleInlineChat({
     const setErrorById = useSetAtom(chatErrorByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
     const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
-    const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
-    const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
     // IMPORTANT: This component renders on non-"/chat" routes; avoid route-scoped search hooks.
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const selectedAppId = useAtomValue(selectedAppIdAtom);
@@ -83,6 +76,10 @@ export function SimpleInlineChat({
 
     // Fetch initial messages
     const fetchMessages = useCallback(async () => {
+        const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
+        if (existing && existing.length > 0) {
+            return;
+        }
         try {
             const chat = await IpcClient.getInstance().getChat(chatId);
             setChatAppId(chat.appId ?? null);
@@ -147,6 +144,8 @@ export function SimpleInlineChat({
                 <ToolIndicator forChatId={chatId} />
             </div>
 
+            <LoadedSessionBanner />
+
             {error && (
                 <div className="px-4">
                     <ChatErrorBox
@@ -193,7 +192,7 @@ export function SimpleInlineChat({
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
                         <span>Starting chat…</span>
                         <span className="text-xs max-w-sm">
-                            Chats are not kept as a long-lived history. Continuity comes from your project memory and files under{" "}
+                            Workspace conversations save as sessions in the sidebar — resume anytime. Terminal output and panel state persist until you start a new chat. Long-term context also lives in project memory and files under{" "}
                             <code className="text-[10px] bg-muted px-1 rounded">.atlarix</code> (including the plan file).
                         </span>
                     </div>
@@ -207,34 +206,6 @@ export function SimpleInlineChat({
                                 isStreaming={isStreaming && index === visibleMessages.length - 1}
                                 onEditUserMessage={handleEditUserMessage}
                             />
-                            {message.role === "assistant" &&
-                                onContinueAfterQuestions &&
-                                (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
-                                    <QuestionsWidget
-                                        messageId={message.id}
-                                        questions={questionsByMessageId[message.id]!.questions}
-                                        title={questionsByMessageId[message.id]!.title}
-                                        onSubmit={async (answers) => {
-                                            try {
-                                                const qs = questionsByMessageId[message.id]!.questions;
-                                                await IpcClient.getInstance().submitQuestionAnswers(
-                                                    chatId,
-                                                    message.id,
-                                                    answers,
-                                                    qs.map((q) => ({ id: q.id, question: q.question })),
-                                                );
-                                                setQuestionsByMessageId((prev) => {
-                                                    const next = { ...prev };
-                                                    delete next[message.id];
-                                                    return next;
-                                                });
-                                                onContinueAfterQuestions();
-                                            } catch (err) {
-                                                showError(err);
-                                            }
-                                        }}
-                                    />
-                                )}
                         </div>
                     ))
                 )}
@@ -272,7 +243,7 @@ export function SimpleInlineChat({
                     });
                     onSendMessage(prompt, attachments);
                 }}
-                placeholder="Continue the conversation..."
+                disabled={isStreaming || !!pendingUserQuestionByChatId[chatId]}
             />
         </div>
     );

@@ -41,7 +41,7 @@ export const mainRollupExternals: readonly string[] = [
   "@anthropic-ai/tokenizer",
   "tiktoken/lite",
   "tiktoken",
-  // pdfjs-dist: bundled into main (no separate node_modules tree in prod).
+  "@vscode/sudo-prompt",
   "better-sqlite3",
   "keytar",
   "mysql2",
@@ -67,13 +67,14 @@ export const mainRollupExternals: readonly string[] = [
   "@babel/parser",
   "@babel/traverse",
   "@babel/generator",
+  "shell-env",
+  "default-shell",
 ];
 
 // https://vitejs.dev/config
 export default defineConfig({
   // NO assetsInclude for .sql — conflicts with raw-sql inlining for bundled.generated.ts.
   ssr: {
-    noExternal: ["pdfjs-dist"],
     external: [...mainRollupExternals],
   },
   resolve: {

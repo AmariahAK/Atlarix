@@ -1,5 +1,34 @@
 # Atlarix Changelog
 
+## [8.5.0] (2026-05-20) — Single ask path, terminals, sessions, packaging
+
+### Features
+
+- **One question UX:** Clarifying `<questions>` XML / `QuestionsWidget` removed; agents use **`ask_user`** only (`UserQuestionBar` in workspace and chat-only). Prompts direct models to `ask_user`, not inline question blocks.
+- **Multi-terminal Activity panel:** You/Agent terminal instances per chat; output and draft input persist across tab switches until a new chat or close; AI can spawn multiple agent terminals.
+- **Workspace sessions:** Sidebar session list + titles; chats tied to workspace sessions via [`ensure-workspace-session.ts`](../../src/lib/ensure-workspace-session.ts).
+- **Right panel:** Diagram tab removed from default tabs (Activity/terminal focus); diagram content remains via tools/chat where applicable.
+
+### Fixes / build
+
+- **Renderer packaging:** [`vite/renderer-main-only-shims-plugin.ts`](../../vite/renderer-main-only-shims-plugin.ts) + alias order fix so main-only modules (`models_dev`, Supabase, `db/index`, `SubscriptionManager`) do not land in the UI bundle; fixes `npm run package` Rollup errors.
+- **CLI uninstall:** `atlarix uninstall` uses elevated install when global `node_modules` is not writable ([`cli_handlers.ts`](../../src/ipc/handlers/cli_handlers.ts)).
+- **Markmap:** Dark-theme CSS variables, destroy/recreate on theme change, zoom/fit controls ([`MarkmapRenderer.tsx`](../../src/components/MarkmapRenderer.tsx)).
+- **`read_file`:** Structured `ENOENT` / directory / path errors; quieter logs ([`file.ts`](../../src/lib/tools/file.ts)).
+- **Viz prompts:** Proactive markmap vs mermaid routing in [`system_prompt.ts`](../../src/prompts/system_prompt.ts).
+
+### Copy
+
+- Inline chat “Starting chat…” and launchpad FAQ reflect session + terminal persistence.
+
+---
+
+## [8.4.2] (2026-05-19) — Patch
+
+- Renderer Vite shims (in progress toward 8.5.0 packaging fixes).
+
+---
+
 ## [8.4.0] (2026-05-17) — Terminal, CLI, modes, and session fixes
 
 ### Features

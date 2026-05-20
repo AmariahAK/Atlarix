@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   chatMessagesByIdAtom,
   chatStreamCountByIdAtom,
@@ -19,6 +19,8 @@ import { IterationProgressBar } from "./IterationProgressBar";
 import { AutonomousReviewPanel } from "./chat/AutonomousReviewPanel";
 import { CompassQuotaInlineBanner } from "./chat/CompassQuotaInlineBanner";
 import { CompassUsageStrip } from "./chat/CompassUsageStrip";
+import { LoadedSessionBanner } from "./chat/LoadedSessionBanner";
+import { SessionLoadingOverlay } from "./chat/SessionLoadingOverlay";
 import { useCompassSendGate } from "@/hooks/useCompassSendGate";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { Button } from "@/components/ui/button";
@@ -184,6 +186,10 @@ export function ChatPanel({
       // no-op when no chat
       return;
     }
+    const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
+    if (existing && existing.length > 0) {
+      return;
+    }
     const chat = await IpcClient.getInstance().getChat(chatId);
     setMessagesById((prev) => {
       const next = new Map(prev);
@@ -259,7 +265,10 @@ export function ChatPanel({
             {/* Iteration progress bar - shows during agentic loop */}
             <IterationProgressBar chatId={chatId ?? -999} />
 
+            <LoadedSessionBanner />
+
             <div className="flex-1 relative min-h-0 overflow-hidden">
+              <SessionLoadingOverlay />
               <MessagesList
                 messages={messages}
                 messagesEndRef={messagesEndRef}

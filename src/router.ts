@@ -9,7 +9,6 @@ import { skillsSettingsRoute } from "./routes/settings/skills";
 import { appDetailsRoute } from "./routes/app-details";
 import { hubRoute } from "./routes/hub";
 import { libraryRoute } from "./routes/library";
-import { diagramRoute } from "./routes/diagram";
 import { codeRoute } from "./routes/code";
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
@@ -19,7 +18,6 @@ const routeTree = rootRoute.addChildren([
   homeRoute,
   hubRoute,
   libraryRoute,
-  diagramRoute,
   codeRoute,
   toolsRoute,
   chatRoute,

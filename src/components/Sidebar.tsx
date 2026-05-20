@@ -1,14 +1,14 @@
 /**
  * Sidebar Navigation Component
  * ============================
- * Modified sidebar with Help, Diagram, Web sections and OAuth login
+ * Modified sidebar with Help and Web sections and OAuth login
  */
 
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth/useAuth';
 import { LogIn, LogOut, User, Github, Chrome } from 'lucide-react';
 
-type SidebarTab = 'help' | 'diagram' | 'web';
+type SidebarTab = 'help' | 'web';
 
 interface SidebarProps {
     activeTab: SidebarTab;
@@ -21,7 +21,6 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
 
     const tabs: Array<{ id: SidebarTab; label: string; symbol: string }> = [
         { id: 'help', label: 'Help', symbol: '?' },
-        { id: 'diagram', label: 'Diagram', symbol: '◈' },
         { id: 'web', label: 'Web', symbol: '⊕' },
     ];
 
@@ -403,36 +402,6 @@ export function HelpPanel() {
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--secondary-text)' }}>
                     Use @ to attach files from your workspace or computer. Atlarix will analyze them in context.
-                </div>
-            </div>
-        </div>
-    );
-}
-
-export function DiagramPanel() {
-    return (
-        <div style={{ padding: '24px', color: 'var(--primary-text)' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>
-                Project Diagrams
-            </h2>
-            <p style={{ color: 'var(--secondary-text)', marginBottom: '24px', fontSize: '14px' }}>
-                Visual representation of your workspace architecture
-            </p>
-
-            <div
-                style={{
-                    padding: '16px',
-                    background: 'var(--graphite-hover)',
-                    borderRadius: '8px',
-                    textAlign: 'center',
-                }}
-            >
-                <div style={{ fontSize: '48px', marginBottom: '12px' }}>◈</div>
-                <div style={{ fontSize: '14px', color: 'var(--secondary-text)' }}>
-                    No workspace selected
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--secondary-text)', marginTop: '4px' }}>
-                    Open a project to generate diagrams
                 </div>
             </div>
         </div>

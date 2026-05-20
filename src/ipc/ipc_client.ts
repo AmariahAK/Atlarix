@@ -253,11 +253,10 @@ export class IpcClient {
   > = new Set();
   private windowFullscreenHandlers: Set<(payload: { fullscreen: boolean }) => void> = new Set();
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
-  /** v3.9: Clarifying questions from AI — handlers receive { messageId, questions }. */
-  private questionsHandlers: Set<
-    (payload: { messageId: number; questions: Question[]; title?: string }) => void
-  > = new Set();
   private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
+  private updateAvailableHandlers: Set<
+    (payload: { currentVersion: string; latestVersion: string; releaseUrl: string }) => void
+  > = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
   private constructor() {
@@ -540,18 +539,6 @@ export class IpcClient {
       }
     });
 
-    // v3.9: Clarifying questions from AI (<questions> block)
-    this.ipcRenderer.on("chat:questions", (payload: unknown) => {
-      if (payload && typeof payload === "object" && "messageId" in payload && "questions" in payload) {
-        const { messageId, questions, title } = payload as {
-          messageId: number;
-          questions: Question[];
-          title?: string;
-        };
-        this.questionsHandlers.forEach((h) => h({ messageId, questions, title }));
-      }
-    });
-
     this.ipcRenderer.on("update:downloading", (data) => {
       if (data && typeof data === "object" && "version" in data) {
         this.updateDownloadingHandlers.forEach((h) => h(data as { version: string }));
@@ -561,6 +548,25 @@ export class IpcClient {
     this.ipcRenderer.on("update:downloaded", (data) => {
       if (data && typeof data === "object" && "version" in data) {
         this.updateDownloadedHandlers.forEach((h) => h(data as { version: string }));
+      }
+    });
+
+    this.ipcRenderer.on("update:available", (data) => {
+      if (
+        data &&
+        typeof data === "object" &&
+        "latestVersion" in data &&
+        "releaseUrl" in data
+      ) {
+        this.updateAvailableHandlers.forEach((h) =>
+          h(
+            data as {
+              currentVersion: string;
+              latestVersion: string;
+              releaseUrl: string;
+            },
+          ),
+        );
       }
     });
 
@@ -576,33 +582,6 @@ export class IpcClient {
           payload as AutonomousSessionCompletePayload,
         );
       }
-    });
-  }
-
-  /** v3.9: Register for clarifying questions. Returns unsubscribe. */
-  public onQuestions(
-    handler: (payload: {
-      messageId: number;
-      questions: Question[];
-      title?: string;
-    }) => void,
-  ): () => void {
-    this.questionsHandlers.add(handler);
-    return () => this.questionsHandlers.delete(handler);
-  }
-
-  /** v3.9: Submit clarifying-question answers and mark chat as answered (backend appends to user message). */
-  public async submitQuestionAnswers(
-    chatId: number,
-    assistantMessageId: number,
-    answers: Record<string, string>,
-    questionSnapshots: { id: string; question: string }[],
-  ): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("chat:submit-question-answers", {
-      chatId,
-      assistantMessageId,
-      answers,
-      questionSnapshots,
     });
   }
 
@@ -1044,6 +1023,47 @@ export class IpcClient {
   // Create a new chat for an app
   public async createChat(appId: number): Promise<number> {
     return this.ipcRenderer.invoke("create-chat", appId);
+  }
+
+  public async clearEphemeralChatMessages(chatId: number): Promise<void> {
+    await this.ipcRenderer.invoke("chat:clear-ephemeral-messages", chatId);
+  }
+
+  public async listWorkspaceSessions(workspaceId: number) {
+    return this.ipcRenderer.invoke("sessions:list", workspaceId);
+  }
+
+  public async createWorkspaceSession(workspaceId: number) {
+    return this.ipcRenderer.invoke("sessions:create", workspaceId);
+  }
+
+  public async renameWorkspaceSession(sessionId: string, title: string) {
+    return this.ipcRenderer.invoke("sessions:rename", sessionId, title);
+  }
+
+  public async deleteWorkspaceSession(sessionId: string) {
+    return this.ipcRenderer.invoke("sessions:delete", sessionId);
+  }
+
+  public async getWorkspaceSession(
+    sessionId: string,
+    opts?: { limit?: number },
+  ) {
+    return this.ipcRenderer.invoke("sessions:get", sessionId, opts);
+  }
+
+  public async generateWorkspaceSessionTitle(
+    sessionId: string,
+  ): Promise<{ title: string }> {
+    return this.ipcRenderer.invoke("sessions:generate-title", sessionId);
+  }
+
+  public async addSessionMessage(
+    sessionId: string,
+    role: "user" | "assistant" | "tool",
+    content: string,
+  ) {
+    return this.ipcRenderer.invoke("messages:add", sessionId, role, content);
   }
 
   public async updateChat(params: UpdateChatParams): Promise<void> {
@@ -1713,11 +1733,20 @@ export class IpcClient {
     message?: string;
     needsSudo?: boolean;
     sudoCommand?: string;
+    cancelled?: boolean;
+    error?: string;
   }> {
     return this.ipcRenderer.invoke("cli:install");
   }
 
-  public async uninstallCli(): Promise<{ success: boolean; error?: string }> {
+  public async uninstallCli(): Promise<{
+    success: boolean;
+    message?: string;
+    needsSudo?: boolean;
+    sudoCommand?: string;
+    cancelled?: boolean;
+    error?: string;
+  }> {
     return this.ipcRenderer.invoke("cli:uninstall");
   }
 
@@ -3179,6 +3208,17 @@ export class IpcClient {
   public onUpdateDownloaded(handler: (payload: { version: string }) => void): () => void {
     this.updateDownloadedHandlers.add(handler);
     return () => this.updateDownloadedHandlers.delete(handler);
+  }
+
+  public onUpdateAvailable(
+    handler: (payload: {
+      currentVersion: string;
+      latestVersion: string;
+      releaseUrl: string;
+    }) => void,
+  ): () => void {
+    this.updateAvailableHandlers.add(handler);
+    return () => this.updateAvailableHandlers.delete(handler);
   }
 
   public async deferUpdate(): Promise<void> {

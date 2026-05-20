@@ -60,11 +60,6 @@ export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 
-/** v3.9: Pending clarifying questions per assistant message (messageId -> questions). Cleared when user submits answers. */
-export const questionsByMessageIdAtom = atom<
-  Record<number, import("@/ipc/ipc_types").ClarifyingQuestionsPayload>
->({});
-
 /** Counsel session activity rows pinned to an assistant message (survives activity stream clear). */
 export const counselPreviewByMessageIdAtom = atom<Record<number, ActivityStreamItem[]>>({});
 

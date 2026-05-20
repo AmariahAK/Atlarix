@@ -165,6 +165,13 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "mcp_servers", "from_registry");
     case "0044_messages_work_mode":
       return columnExists(sqlite, "messages", "work_mode");
+    case "0045_chat_sessions":
+      return (
+        tableExists(sqlite, "chat_sessions") &&
+        tableExists(sqlite, "session_messages")
+      );
+    case "0046_mcp_api_key":
+      return columnExists(sqlite, "mcp_servers", "api_key");
     default:
       return false;
   }

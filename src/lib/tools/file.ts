@@ -37,6 +37,12 @@ import {
     ENV_SECRET_BLOCK_MESSAGE,
     isBlockedSecretBasename,
 } from "@/lib/security/env-secret-paths";
+import {
+    logReadFileError,
+    logReadFileUnexpected,
+    readFileStructuredError,
+    type ReadFileStructuredError,
+} from "./file-read-errors";
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
@@ -211,25 +217,50 @@ ToolRegistry.register({
         end_line,
         workspace,
     }) => {
+        let displayPath: string | undefined;
         try {
             let filePath = pathArg || file_path;
 
             if (!filePath) {
-                throw new Error("Missing required parameter: path or file_path");
+                const structured: ReadFileStructuredError = {
+                    success: false,
+                    error: "missing_path",
+                    message: "Missing required parameter: path or file_path",
+                };
+                logReadFileError(structured);
+                return structured;
             }
 
-            const displayPath = workspace
-                ? safeRelativePathUnderWorkspace(filePath)
-                : stripToolPathPrefixes(filePath);
+            try {
+                displayPath = workspace
+                    ? safeRelativePathUnderWorkspace(filePath)
+                    : stripToolPathPrefixes(filePath);
+            } catch (normErr) {
+                const structured = readFileStructuredError(normErr, String(filePath));
+                if (structured) {
+                    logReadFileError(structured);
+                    return structured;
+                }
+                throw normErr;
+            }
 
             const fullPath = workspace
                 ? resolvePathUnderWorkspace(workspace, filePath)
                 : path.resolve(stripToolPathPrefixes(filePath));
 
-            if (workspace) {
-                assertReadablePath(String(filePath), workspace);
-            } else if (isBlockedSecretBasename(path.basename(fullPath))) {
-                throw new Error(ENV_SECRET_BLOCK_MESSAGE);
+            try {
+                if (workspace) {
+                    assertReadablePath(String(filePath), workspace);
+                } else if (isBlockedSecretBasename(path.basename(fullPath))) {
+                    throw new Error(ENV_SECRET_BLOCK_MESSAGE);
+                }
+            } catch (pathErr) {
+                const structured = readFileStructuredError(pathErr, displayPath);
+                if (structured) {
+                    logReadFileError(structured);
+                    return structured;
+                }
+                throw pathErr;
             }
 
             const capLines = Math.min(
@@ -241,15 +272,16 @@ ToolRegistry.register({
                 Math.max(1024, Number(max_bytes) || READ_FILE_DEFAULT_MAX_BYTES),
             );
 
-            console.log(
-                `[read_file] workspace: ${workspace}, filePath: ${displayPath}, context: ${context}, max_lines: ${capLines}, max_bytes: ${capBytes}`,
-            );
-
             const stat = await fs.promises.stat(fullPath);
             if (stat.isDirectory()) {
-                throw new Error(
-                    `Path "${displayPath}" is a directory, not a file. Use explore_folder or list_files for directories.`,
+                const structured = readFileStructuredError(
+                    new Error(`Path "${displayPath}" is a directory, not a file.`),
+                    displayPath,
                 );
+                if (structured) {
+                    logReadFileError(structured);
+                    return structured;
+                }
             }
 
             const content = await fs.promises.readFile(fullPath, "utf-8");
@@ -286,8 +318,18 @@ ToolRegistry.register({
 
             return truncateUtf8ByBytes(result, capBytes);
         } catch (error) {
-            console.error(`[read_file] Error:`, error);
-            throw new Error(`Failed to read file: ${error}`);
+            const structured = readFileStructuredError(error, displayPath);
+            if (structured) {
+                logReadFileError(structured);
+                return structured;
+            }
+            logReadFileUnexpected(error, displayPath);
+            return {
+                success: false,
+                error: "read_failed",
+                path: displayPath,
+                message: error instanceof Error ? error.message : String(error),
+            };
         }
     },
 });

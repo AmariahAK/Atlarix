@@ -14,9 +14,6 @@ export function useTerminalOutputListener(chatId: number) {
     const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
 
     useEffect(() => {
-        // Skip for ephemeral chats (negative IDs)
-        if (chatId < 0) return;
-
         const ipc = IpcClient.getInstance();
 
         const unsubscribe = ipc.onTerminalOutput(chatId, (payload) => {

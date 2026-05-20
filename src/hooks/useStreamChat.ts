@@ -21,7 +21,6 @@ import {
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
   responseDoneAnimationAtom,
-  questionsByMessageIdAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
   askUserStreamFreezeBaselineByChatIdAtom,
@@ -37,8 +36,6 @@ import {
   rightPanelSuppressAutoOpenAtom,
   pendingProposalsAtom,
   diagramStateAtom,
-  diagramReferencesAtom,
-  blueprintStateAtom,
   previewTabAtom,
   terminalOutputsAtom,
   activityStreamItemsAtom,
@@ -62,6 +59,12 @@ import type { ChatResponseEnd } from "@/ipc/ipc_types";
 import { useChats } from "./useChats";
 import { useLoadApp } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
+import {
+  generateWorkspaceSessionTitleWithAI,
+  titleWorkspaceSessionFromUserMessage,
+} from "@/lib/workspace-session-title";
+import { workspaceSessionsRefreshAtom } from "@/atoms/sessionAtoms";
 import { useVersions } from "./useVersions";
 import { showExtraFilesToast, showError } from "@/lib/toast";
 import { useProposal } from "./useProposal";
@@ -227,8 +230,6 @@ export function useStreamChat({
   };
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
-  const setDiagramReferences = useSetAtom(diagramReferencesAtom);
-  const setBlueprintPanel = useSetAtom(blueprintStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const setPermissionQueue = useSetAtom(permissionQueueAtom);
@@ -244,7 +245,6 @@ export function useStreamChat({
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { invalidateTokenCount } = useContextTokenCount(chatId ?? null);
 
-  const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
   const setAskUserStreamFreezeBaselineByChatId = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
@@ -742,6 +742,31 @@ export function useStreamChat({
           "build";
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
+        const store = getDefaultStore();
+        const workspaceAppId = store.get(selectedAppIdAtom);
+        let workspaceSessionId: string | null = null;
+        if (workspaceAppId != null && !continueAfterQuestions && !redo && prompt.trim()) {
+          workspaceSessionId = await ensureWorkspaceSessionForChat(
+            workspaceAppId,
+            chatId,
+          );
+          if (workspaceSessionId) {
+            try {
+              await IpcClient.getInstance().addSessionMessage(
+                workspaceSessionId,
+                "user",
+                prompt.trim(),
+              );
+              await titleWorkspaceSessionFromUserMessage(
+                workspaceSessionId,
+                prompt.trim(),
+              );
+            } catch (e) {
+              console.error("Failed to persist user session message:", e);
+            }
+          }
+        }
+
         IpcClient.getInstance().streamMessage(prompt, {
           selectedComponents: selectedComponents ?? [],
           chatId,
@@ -827,98 +852,6 @@ export function useStreamChat({
             if (allSources.length > 0) {
               setSourceList(allSources);
               maybeAutoOpenRightPanel(); // Auto-show panel when sources arrive
-            }
-
-            // Detect diagram + blueprint panel payloads from tool calls
-            for (const msg of messagesForUi) {
-              if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
-                for (const toolCall of msg.toolCalls) {
-                  const tc = toolCall as any;
-                  const raw = tc.result;
-                  const result =
-                    raw && typeof raw === "string"
-                      ? (() => {
-                          try {
-                            return JSON.parse(raw) as Record<string, unknown>;
-                          } catch {
-                            return null;
-                          }
-                        })()
-                      : raw;
-                  if (!result || typeof result !== "object") continue;
-
-                  if (result._panelType === "blueprint") {
-                    const widRaw =
-                      (result as any).workspace_id ?? (result as any).workspaceId ?? selectedAppId;
-                    const wid = widRaw != null ? Number(widRaw) : NaN;
-                    if (
-                      selectedAppId != null &&
-                      Number.isFinite(wid) &&
-                      wid !== Number(selectedAppId)
-                    ) {
-                      continue;
-                    }
-                    if ((result as any)._action === "clear") {
-                      setBlueprintPanel(null);
-                    } else {
-                      const graph = (result as any).graph as
-                        | { rooms?: unknown[]; edges?: unknown[] }
-                        | undefined;
-                      const rooms = (graph?.rooms ?? (result as any).rooms) as unknown[] | undefined;
-                      const edges = (graph?.edges ?? (result as any).edges) as unknown[] | undefined;
-                      if (Array.isArray(rooms) && rooms.length > 0) {
-                        setBlueprintPanel({
-                          workspaceId: selectedAppId ?? undefined,
-                          title: (result as any).title as string | undefined,
-                          rooms: rooms as any,
-                          edges: (Array.isArray(edges) ? edges : []) as any,
-                          updatedAt: Date.now(),
-                        });
-                      }
-                    }
-                    continue;
-                  }
-
-                  // Check if this is a diagram tool result
-                  if (result.mermaid_code || result._panelType === "diagram") {
-                    const diagramData = result as any;
-                    const mapType = (): DiagramState['type'] =>
-                      diagramData.diagram_type === 'class'
-                        ? 'class'
-                        : diagramData.diagram_type === 'sequence'
-                          ? 'sequence'
-                          : diagramData.diagram_type === 'flowchart'
-                            ? 'flowchart'
-                            : 'mermaid';
-                    const role = diagramData.role === 'reference' ? 'reference' : 'main';
-                    const refId = String(tc.id ?? tc.toolCallId ?? `tc-${Math.random().toString(36).slice(2, 9)}`);
-                    if (role === 'reference') {
-                      const code = diagramData.mermaid_code || '';
-                      setDiagramReferences((prev) => {
-                        if (prev.some((p) => p.code === code)) return prev;
-                        const entry = {
-                          id: refId,
-                          title: diagramData.title as string | undefined,
-                          code,
-                          type: mapType(),
-                        };
-                        return [...prev, entry].slice(-8);
-                      });
-                    } else {
-                      setDiagramReferences([]);
-                      setDiagramState({
-                        code: diagramData.mermaid_code || '',
-                        type: mapType(),
-                        compareMode: 'current',
-                        title: diagramData.title,
-                        workspaceId: diagramData.workspace_id ?? selectedAppId ?? undefined,
-                        role: 'main',
-                      });
-                    }
-                    // PASS6: do not auto-open right panel for AI diagram tool results.
-                  }
-                }
-              }
             }
 
             const th = messageStreamThrottleRef.current;
@@ -1037,6 +970,32 @@ export function useStreamChat({
 
             const msgs =
               getDefaultStore().get(chatMessagesByIdAtom).get(response.chatId) ?? [];
+            const appIdForPersist = getDefaultStore().get(selectedAppIdAtom);
+            void (async () => {
+              const sessionIdForPersist =
+                appIdForPersist != null
+                  ? await ensureWorkspaceSessionForChat(
+                      appIdForPersist,
+                      response.chatId,
+                    )
+                  : null;
+              if (!sessionIdForPersist || appIdForPersist == null) return;
+              const lastAssistant = [...msgs]
+                .reverse()
+                .find((m) => m.role === "assistant");
+              const assistantContent = lastAssistant?.content?.trim();
+              if (!assistantContent) return;
+              try {
+                await IpcClient.getInstance().addSessionMessage(
+                  sessionIdForPersist,
+                  "assistant",
+                  assistantContent,
+                );
+                await generateWorkspaceSessionTitleWithAI(sessionIdForPersist);
+              } catch (e) {
+                console.error("Failed to persist assistant session message:", e);
+              }
+            })();
             const activitySnap = getDefaultStore().get(activityStreamItemsAtom);
             const ring = getDefaultStore().get(agentBusRingByChatIdAtom);
             const artifacts = buildTurnArtifactsSnapshot(
@@ -1258,17 +1217,6 @@ export function useStreamChat({
       hasChatId,
     ],
   );
-
-  // v3.9: Update questionsByMessageIdAtom when main process emits chat:questions
-  useEffect(() => {
-    const unsub = IpcClient.getInstance().onQuestions(({ messageId, questions, title }) => {
-      setQuestionsByMessageId((prev) => ({
-        ...prev,
-        [messageId]: title ? { questions, title } : { questions },
-      }));
-    });
-    return unsub;
-  }, [setQuestionsByMessageId]);
 
   return {
     streamMessage,

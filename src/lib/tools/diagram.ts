@@ -162,8 +162,6 @@ ToolRegistry.register({
                                         mermaidCode: generatedDiagram.content,
                                         focusPath: params.focus_path,
                                     }),
-                                    _showInPanel: true,
-                                    _panelType: "diagram",
                                 };
                             }
                         }
@@ -189,8 +187,6 @@ ToolRegistry.register({
                                 mermaidCode: newDiagram.content,
                                 focusPath: params.focus_path,
                             }),
-                            _showInPanel: true,
-                            _panelType: "diagram",
                         };
                     }
 
@@ -212,8 +208,6 @@ ToolRegistry.register({
                             mermaidCode: existingDiagram.content,
                             focusPath: params.focus_path,
                         }),
-                        _showInPanel: true,
-                        _panelType: "diagram",
                     };
                 } catch (dbError) {
                     console.error("[get_diagram] Failed to fetch from database, falling back to local generation:", dbError);
@@ -269,9 +263,6 @@ ToolRegistry.register({
                     mermaidCode,
                     focusPath: params.focus_path,
                 }),
-                // Signal to show in Right Panel
-                _showInPanel: true,
-                _panelType: "diagram",
             };
         } catch (error) {
             console.error('[get_diagram] Failed:', error);

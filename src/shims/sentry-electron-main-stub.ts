@@ -1,11 +1,20 @@
 /**
  * Stub for the Chromium/renderer Vite bundle only.
  *
- * `registry.ts` is imported from the renderer (e.g. ToolIndicator) and pulls in `guard.ts`,
- * which dynamically imports `@sentry/electron/main`. Resolving that to the real package would
- * drag `@sentry/node` (Node builtins) into the browser bundle and break `electron-forge package`.
- * Main/preload use the real `@sentry/electron/main` via their own Vite configs.
+ * Main-process code that imports `@sentry/electron/main` is aliased here in
+ * `vite.renderer.config.mts` so Node-only Sentry packages never enter the UI bundle.
  */
 export function addBreadcrumb(): void {
-  /* noop in renderer — breadcrumbs are recorded from the main process tool paths */
+  /* noop */
+}
+
+export function captureException(_error: unknown): void {
+  /* noop */
+}
+
+export function captureMessage(
+  _message: string,
+  _captureContext?: unknown,
+): void {
+  /* noop */
 }

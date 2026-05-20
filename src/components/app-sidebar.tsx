@@ -3,7 +3,6 @@ import {
   Settings,
   HelpCircle,
   BookOpen,
-  GitBranch,
   Wrench,
   LogIn,
   LogOut,
@@ -48,11 +47,6 @@ const items = [
   },
   // Chat removed - everything is in the home page now
   {
-    title: "Diagram",
-    to: "/diagram",
-    icon: GitBranch,
-  },
-  {
     title: "Tools",
     to: "/tools",
     icon: Wrench,
@@ -73,7 +67,6 @@ const items = [
 type HoverState =
   | "start-hover:app"
   | "start-hover:chat"
-  | "start-hover:diagram"
   | "start-hover:tools"
   | "start-hover:settings"
   | "start-hover:library"
@@ -140,8 +133,6 @@ export function AppSidebar() {
     selectedItem = "Apps";
   } else if (hoverState === "start-hover:chat") {
     selectedItem = "Chat";
-  } else if (hoverState === "start-hover:diagram") {
-    selectedItem = "Diagram";
   } else if (hoverState === "start-hover:tools") {
     selectedItem = "Tools";
   } else if (hoverState === "start-hover:settings") {
@@ -419,8 +410,8 @@ function AppIcons({
                 >
                   <Link
                     to={item.to}
-                    data-onboarding={item.title === "Apps" ? "workspace-selector" : item.title === "Diagram" ? "blueprint-tab" : item.title === "Settings" ? "settings-link" : undefined}
-                    data-tour={item.title === "Diagram" ? "tour-blueprint-canvas" : item.title === "Settings" ? "tour-extensions" : undefined}
+                    data-onboarding={item.title === "Apps" ? "workspace-selector" : item.title === "Settings" ? "settings-link" : undefined}
+                    data-tour={item.title === "Settings" ? "tour-extensions" : undefined}
                     className={`flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
                       }`}
                     onMouseEnter={() => {
@@ -428,8 +419,6 @@ function AppIcons({
                         onHoverChange("start-hover:app");
                       } else if (item.title === "Chat") {
                         onHoverChange("start-hover:chat");
-                      } else if (item.title === "Diagram") {
-                        onHoverChange("start-hover:diagram");
                       } else if (item.title === "Tools") {
                         onHoverChange("start-hover:tools");
                       } else if (item.title === "Settings") {

@@ -9,11 +9,11 @@ import { ChatHandler } from '@/lib/chat-handler';
 import { useAtlarixStore } from '@/lib/store';
 import type { Message } from '@/types';
 import { TitleBar } from '@/components/TitleBar';
-import { Sidebar, HelpPanel, DiagramPanel, WebPanel } from '@/components/Sidebar';
+import { Sidebar, HelpPanel, WebPanel } from '@/components/Sidebar';
 import { ChatInterface } from '@/components/ChatInterface';
 import { InputBar } from '@/components/InputBar';
 
-type SidebarTab = 'help' | 'diagram' | 'web';
+type SidebarTab = 'help' | 'web';
 
 export default function AtlarixChat() {
     const [chatHandler] = useState(() => new ChatHandler());
@@ -128,7 +128,6 @@ export default function AtlarixChat() {
                     }}
                 >
                     {sidebarTab === 'help' && <HelpPanel />}
-                    {sidebarTab === 'diagram' && <DiagramPanel />}
                     {sidebarTab === 'web' && <WebPanel />}
                 </div>
 

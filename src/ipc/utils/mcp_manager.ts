@@ -27,16 +27,27 @@ class McpManager {
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     if (s.transport === "stdio") {
       const args = s.args ?? [];
-      const env = s.envJson ?? undefined;
+      const apiKey = s.apiKey?.trim();
+      const env: Record<string, string> | undefined = {
+        ...(s.envJson ?? {}),
+        ...(apiKey ? { MCP_API_KEY: apiKey } : {}),
+      };
+      const envForTransport =
+        Object.keys(env).length > 0 ? env : undefined;
       if (!s.command) throw new Error("MCP server command is required");
       transport = new StdioClientTransport({
         command: s.command,
         args,
-        env,
+        env: envForTransport,
       });
     } else if (s.transport === "http") {
       if (!s.url) throw new Error("HTTP MCP requires url");
-      transport = new StreamableHTTPClientTransport(new URL(s.url as string));
+      const apiKey = s.apiKey?.trim();
+      transport = new StreamableHTTPClientTransport(new URL(s.url as string), {
+        requestInit: apiKey
+          ? { headers: { Authorization: `Bearer ${apiKey}` } }
+          : undefined,
+      });
     } else {
       throw new Error(`Unsupported MCP transport: ${s.transport}`);
     }

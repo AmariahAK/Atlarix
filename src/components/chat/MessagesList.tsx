@@ -6,7 +6,7 @@ import ChatMessage from "./ChatMessage";
 import { SetupBanner } from "../SetupBanner";
 
 import { useStreamChat } from "@/hooks/useStreamChat";
-import { selectedChatIdAtom, chatMessagesByIdAtom, questionsByMessageIdAtom, restartedAfterMessageIdAtom } from "@/atoms/chatAtoms";
+import { selectedChatIdAtom, chatMessagesByIdAtom, restartedAfterMessageIdAtom } from "@/atoms/chatAtoms";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Loader2, RefreshCw, Undo } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,6 @@ import { useSettings } from "@/hooks/useSettings";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { PromoMessage } from "./PromoMessage";
 import { useContextTokenCount } from "@/hooks/useCountTokens";
-import { QuestionsWidget } from "./QuestionsWidget";
 import { sliceLastExchanges } from "../../lib/chat/lastExchanges";
 
 interface MessagesListProps {
@@ -35,8 +34,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
     const { isAnyProviderSetup, isProviderSetup } = useLanguageModelProviders();
     const { settings } = useSettings();
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-    const questionsByMessageId = useAtomValue(questionsByMessageIdAtom);
-    const setQuestionsByMessageId = useSetAtom(questionsByMessageIdAtom);
     const restartedAfterMessageId = useAtomValue(restartedAfterMessageIdAtom);
     const [isUndoLoading, setIsUndoLoading] = useState(false);
     const [isRetryLoading, setIsRetryLoading] = useState(false);
@@ -116,38 +113,6 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
                     message={message}
                     isLastMessage={index === visibleMessages.length - 1}
                   />
-                  {message.role === "assistant" &&
-                    (questionsByMessageId[message.id]?.questions?.length ?? 0) > 0 && (
-                      <QuestionsWidget
-                        messageId={message.id}
-                        questions={questionsByMessageId[message.id]!.questions}
-                        title={questionsByMessageId[message.id]!.title}
-                        onSubmit={async (answers) => {
-                          if (!selectedChatId) return;
-                          try {
-                            const qs = questionsByMessageId[message.id]!.questions;
-                            await IpcClient.getInstance().submitQuestionAnswers(
-                              selectedChatId,
-                              message.id,
-                              answers,
-                              qs.map((q) => ({ id: q.id, question: q.question })),
-                            );
-                            setQuestionsByMessageId((prev) => {
-                              const next = { ...prev };
-                              delete next[message.id];
-                              return next;
-                            });
-                            streamMessage({
-                              prompt: "",
-                              chatId: selectedChatId,
-                              continueAfterQuestions: true,
-                            });
-                          } catch (err) {
-                            showError(err);
-                          }
-                        }}
-                      />
-                    )}
                   {restartedAfterMessageId === message.id && (
                     <div className="w-full max-w-3xl mx-auto py-2 flex items-center gap-2">
                       <span className="flex-1 border-t border-border" />

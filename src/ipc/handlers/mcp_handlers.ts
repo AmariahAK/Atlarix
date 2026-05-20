@@ -132,7 +132,8 @@ export function registerMcpHandlers() {
         }
       }
 
-      const { name, transport, command, args, envJson, url, enabled } = params;
+      const { name, transport, command, args, envJson, url, apiKey, enabled } =
+        params;
       const result = await db
         .insert(mcpServers)
         .values({
@@ -142,6 +143,7 @@ export function registerMcpHandlers() {
           args: args || null,
           envJson: envJson || null,
           url: url || null,
+          apiKey: apiKey?.trim() || null,
           enabled: !!enabled,
           scope,
           appId,
@@ -177,6 +179,10 @@ export function registerMcpHandlers() {
       if (params.cwd !== undefined) update.cwd = params.cwd;
       if (params.envJson !== undefined) update.envJson = params.envJson || null;
       if (params.url !== undefined) update.url = params.url;
+      if (params.apiKey !== undefined) {
+        update.apiKey = params.apiKey?.trim() || null;
+        mcpManager.dispose(params.id);
+      }
       if (params.enabled !== undefined) update.enabled = !!params.enabled;
 
       const result = await db

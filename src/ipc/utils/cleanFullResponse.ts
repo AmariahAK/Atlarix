@@ -1,179 +1,54 @@
-import type { Question } from "../ipc_types";
+const QUESTIONS_REGEX = /<questions>([\s\S]*?)<\/questions>/gi;
+const QUESTIONS_LOOSE_OPEN = /<questions\s*>([\s\S]*?)(?:<\/questions>|$)/gi;
+const FENCED_JSON_ARRAY = /```(?:json)?\s*(\[[\s\S]*?\])\s*```/gi;
 
-const QUESTIONS_REGEX = /<questions>([\s\S]*?)<\/questions>/i;
-const QUESTIONS_LOOSE_OPEN = /<questions\s*>([\s\S]*?)(?:<\/questions>|$)/i;
-const FENCED_JSON_ARRAY = /```(?:json)?\s*(\[[\s\S]*?\])\s*```/i;
-
-function normalizeQuestionItem(raw: unknown): Question | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const id = typeof o.id === "string" ? o.id : null;
-  const question = typeof o.question === "string" ? o.question : null;
-  if (!id || !question) return null;
-  const choices = Array.isArray(o.choices)
-    ? (o.choices as unknown[]).map((c) => String(c)).filter(Boolean)
-    : [];
-  const allowCustom =
-    typeof o.allowCustom === "boolean"
-      ? o.allowCustom
-      : String(o.allowCustom ?? "false").toLowerCase() === "true";
-  return { id, question, choices, allowCustom };
-}
-
-function parseQuestionsPayloadFromUnknown(parsed: unknown): {
-  questions: Question[];
-  title?: string;
-} | null {
-  if (Array.isArray(parsed)) {
-    const questions: Question[] = [];
-    for (const item of parsed) {
-      const q = normalizeQuestionItem(item);
-      if (q) questions.push(q);
-    }
-    return questions.length > 0 ? { questions } : null;
-  }
-  if (parsed && typeof parsed === "object") {
-    const o = parsed as Record<string, unknown>;
-    const titleRaw = o.title ?? o.prompt;
-    const title =
-      typeof titleRaw === "string" && titleRaw.trim()
-        ? titleRaw.trim()
-        : undefined;
-    const arr = o.questions;
-    if (!Array.isArray(arr)) return null;
-    const questions: Question[] = [];
-    for (const item of arr) {
-      const q = normalizeQuestionItem(item);
-      if (q) questions.push(q);
-    }
-    if (questions.length === 0) return null;
-    return title ? { questions, title } : { questions };
-  }
-  return null;
-}
-
-function parseQuestionsPayloadFromJsonText(raw: string): {
-  questions: Question[] | null;
-  title?: string;
-} {
-  const trimmed = raw.trim();
-  if (!trimmed) return { questions: null };
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    const payload = parseQuestionsPayloadFromUnknown(parsed);
-    if (!payload) return { questions: null };
-    return { questions: payload.questions, ...(payload.title ? { title: payload.title } : {}) };
-  } catch {
-    return { questions: null };
-  }
-}
-
-/** Find first top-level JSON array starting at `[` with bracket depth (strings ignored roughly). */
-function extractBalancedJsonArray(s: string, fromIndex: number): string | null {
-  const i = s.indexOf("[", fromIndex);
-  if (i === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let esc = false;
-  for (let j = i; j < s.length; j++) {
-    const c = s[j];
-    if (inString) {
-      if (esc) {
-        esc = false;
-        continue;
-      }
-      if (c === "\\") {
-        esc = true;
-        continue;
-      }
-      if (c === '"') inString = false;
-      continue;
-    }
-    if (c === '"') {
-      inString = true;
-      continue;
-    }
-    if (c === "[") depth++;
-    else if (c === "]") {
-      depth--;
-      if (depth === 0) return s.slice(i, j + 1);
-    }
-  }
-  return null;
-}
-
-/**
- * Parse and remove the <questions>...</questions> block from the response.
- * Returns cleaned content and parsed questions, or null if malformed/missing.
- */
-export function parseQuestions(fullResponse: string): {
-  cleanContent: string;
-  questions: Question[] | null;
-  title?: string | null;
-} {
-  let match = fullResponse.match(QUESTIONS_REGEX);
-  if (match) {
-    const raw = match[1].trim();
-    const { questions, title } = parseQuestionsPayloadFromJsonText(raw);
-    const cleanContent = fullResponse.replace(QUESTIONS_REGEX, "").trim();
-    return {
-      cleanContent,
-      questions,
-      ...(title ? { title } : {}),
-    };
-  }
-
-  match = fullResponse.match(QUESTIONS_LOOSE_OPEN);
-  if (match) {
-    const raw = match[1].trim();
-    let payload = parseQuestionsPayloadFromJsonText(raw);
-    if (!payload.questions) {
-      const arr = extractBalancedJsonArray(match[1], 0);
-      if (arr) payload = parseQuestionsPayloadFromJsonText(arr);
-    }
-    const cleanContent = fullResponse.replace(QUESTIONS_LOOSE_OPEN, "").trim();
-    if (payload.questions?.length) {
-      return {
-        cleanContent,
-        questions: payload.questions,
-        ...(payload.title ? { title: payload.title } : {}),
-      };
-    }
-    return { cleanContent, questions: null };
-  }
-
-  const fence = fullResponse.match(FENCED_JSON_ARRAY);
-  if (fence?.[1]) {
-    const payload = parseQuestionsPayloadFromJsonText(fence[1]);
-    if (payload.questions?.length) {
-      const cleanContent = fullResponse.replace(FENCED_JSON_ARRAY, "").trim();
-      return {
-        cleanContent,
-        questions: payload.questions,
-        ...(payload.title ? { title: payload.title } : {}),
-      };
-    }
-  }
-
-  const qOpen = fullResponse.search(/<questions\b/i);
+/** Remove legacy `<questions>` XML blocks from stored/displayed assistant text. */
+export function stripQuestionsBlockFromResponse(fullResponse: string): string {
+  let text = fullResponse;
+  text = text.replace(QUESTIONS_REGEX, "").trim();
+  text = text.replace(QUESTIONS_LOOSE_OPEN, "").trim();
+  text = text.replace(FENCED_JSON_ARRAY, "").trim();
+  const qOpen = text.search(/<questions\b/i);
   if (qOpen !== -1) {
-    const after = fullResponse.slice(qOpen);
-    const arr = extractBalancedJsonArray(after, 0);
-    if (arr) {
-      const payload = parseQuestionsPayloadFromJsonText(arr);
-      if (payload.questions?.length) {
-        const endArr = qOpen + after.indexOf(arr) + arr.length;
-        const cleanContent = (fullResponse.slice(0, qOpen) + fullResponse.slice(endArr)).replace(/\n{3,}/g, "\n\n").trim();
-        return {
-          cleanContent,
-          questions: payload.questions,
-          ...(payload.title ? { title: payload.title } : {}),
-        };
+    const after = text.slice(qOpen);
+    const arrStart = after.indexOf("[");
+    if (arrStart !== -1) {
+      let depth = 0;
+      let inString = false;
+      let esc = false;
+      for (let j = arrStart; j < after.length; j++) {
+        const c = after[j];
+        if (inString) {
+          if (esc) {
+            esc = false;
+            continue;
+          }
+          if (c === "\\") {
+            esc = true;
+            continue;
+          }
+          if (c === '"') inString = false;
+          continue;
+        }
+        if (c === '"') {
+          inString = true;
+          continue;
+        }
+        if (c === "[") depth++;
+        else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            const endArr = qOpen + j + 1;
+            text = (text.slice(0, qOpen) + text.slice(endArr)).replace(/\n{3,}/g, "\n\n").trim();
+            break;
+          }
+        }
       }
+    } else {
+      text = text.slice(0, qOpen).trim();
     }
   }
-
-  return { cleanContent: fullResponse, questions: null };
+  return text;
 }
 
 /** While streaming: hide prose after an unclosed `<questions>` block so raw JSON does not flash in the bubble. */
@@ -218,7 +93,7 @@ export function cleanFullResponse(text: string): string {
  * Example (before): "<think>thoughts</think>Hey! How are you?Hey! How are you?"
  * Example (after):  "<think>thoughts</think>Hey! How are you?"
  */
-const THINK_END_TAGS = ["</think>", "</redacted_thinking>"] as const;
+const THINK_END_TAGS = ["</think>", "</think>"] as const;
 
 function findFirstThinkEnd(text: string): {
   index: number;

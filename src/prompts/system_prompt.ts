@@ -118,7 +118,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
   // lists mirror modeAllowlist in chat_stream_handlers.ts exactly.
   ask: [
     "ask_user",
-    "clear_blueprint",
     "compress_context",
     "deep_research",
     "explore_folder",
@@ -140,12 +139,10 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_url",
     "run_command",
     "search",
-    "set_blueprint",
     "web_search",
   ],
   plan: [
     "ask_user",
-    "clear_blueprint",
     "compress_context",
     "edit_file",
     "explore_folder",
@@ -166,14 +163,12 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_implementation_plan",
     "run_command",
     "search",
-    "set_blueprint",
     "write_file",
     "write_implementation_plan",
   ],
   build: ["*"],
   debug: [
     "ask_user",
-    "clear_blueprint",
     "diagnose_issue",
     "edit_file",
     "explore_folder",
@@ -195,12 +190,10 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_file",
     "run_command",
     "search",
-    "set_blueprint",
     "stream_terminal_output",
   ],
   review: [
     "ask_user",
-    "clear_blueprint",
     "diagnose_issue",
     "explore_folder",
     "find_file",
@@ -222,7 +215,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_file",
     "run_command",
     "search",
-    "set_blueprint",
   ],
 } as const;
 
@@ -374,7 +366,7 @@ export interface ConstructSystemPromptParams {
     optionalProjectInstructions?: string;
     /** Legacy: unused in builder, kept for call-site compatibility. */
     enableTurboEditsV2?: boolean;
-    /** v3.9: When true, omit the <questions> clarifying-questions instruction (user already answered). */
+    /** @deprecated Legacy flag; clarifying `<questions>` blocks are no longer used. */
     hasAnsweredQuestions?: boolean;
 }
 
@@ -384,7 +376,7 @@ export interface ConstructSystemPromptParams {
  *    mode-specific instruction, web-research rules, runtime identity. Stable across
  *    turns within a session for a given chatMode + effectiveWorkMode.
  *  - `dynamicTail` carries per-turn content: current date/time, user_context block,
- *    clarifying-questions block. Caller appends ContextAssembler additions as well.
+ *    per-turn tail (date, user_context, ask_user guidance). Caller appends ContextAssembler additions as well.
  *
  * Modeled on packages/opencode/src/session/llm.ts (system: string[]) but adapted to
  * the AI SDK shape — see chat_stream_handlers.ts where the header is passed as the
@@ -415,7 +407,7 @@ whether a workspace is open.
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
 2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-3. **Architecture:** Call \`get_blueprint\` (optionally \`include_panel_graph: true\`) or \`get_diagram\` when you need an explicit structural map. To show a curated slice in the Diagram tab mind map, call \`set_blueprint\` with the **current best** graph (it **replaces** the prior panel state—do not accumulate). Use \`clear_blueprint\` when the panel should be emptied.
+3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need an explicit structural map. When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -431,7 +423,7 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 **Deterministic discovery flow (Build):**
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
 2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-3. **Architecture:** Call \`get_blueprint\` (optionally \`include_panel_graph: true\`) or \`get_diagram\` when you need an explicit structural map. To show a curated slice in the Diagram tab mind map, call \`set_blueprint\` with the **current best** graph (it **replaces** the prior panel state—do not accumulate). Use \`clear_blueprint\` when the panel should be emptied.
+3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need an explicit structural map. When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask. After folder/repo exploration summarizing structure, prefer **one** \`\`\`markmap\`\`\`; after tracing flows or dependencies, prefer **one** \`\`\`mermaid\`\`\`. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 If architecture context is missing, obtain it before changing code.
 
@@ -490,6 +482,31 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 
 If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.`;
 
+    const inlineVizRules = `**Inline visualizations (chat)**
+
+Diagrams render in the conversation (no side panel). When a visual clearly helps, **include the fence in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary viz per answer unless the user asked for multiple views.
+
+| Situation | Use |
+|-----------|-----|
+| Repo/folder tree, module outline, doc hierarchy, brainstorm branches | \`\`\`markmap\`\`\` |
+| Request/response flow, sequence, state machine, class/ER, dependencies, \`get_diagram\` output | \`\`\`mermaid\`\`\` |
+| After \`explore_folder\` / \`get_repo_overview\` summarizing structure | Prefer **one** markmap unless they asked for a flow |
+| After tracing a bug or API call chain | Prefer **one** mermaid sequence or flowchart |
+
+- \`\`\`mermaid\`\`\`: flowcharts, sequence diagrams, class diagrams, ER, architecture graphs.
+- \`\`\`markmap\`\`\`: hierarchical mind-maps (markdown headings and bullet lists).
+- \`get_diagram\` → always echo \`mermaid_code\` in a \`\`\`mermaid\`\`\` fence.
+
+Example markmap:
+
+\`\`\`markmap
+# My App
+## API
+- routes
+## UI
+- components
+\`\`\``;
+
     const modeBlock = renderModeSystemBlock(effectiveWorkMode);
     const modeSpecific = buildModeSpecificInstruction(chatMode);
     const appVersion = getElectronAppVersion();
@@ -501,6 +518,7 @@ You run inside the **Atlarix** desktop app by **NorahLabs** (norahlabs.com). Pro
     const stableHeader = [
         base.trim(),
         toolContract,
+        inlineVizRules,
         modeBlock,
         webResearchRules,
         modeSpecific.trim(),
@@ -523,10 +541,8 @@ Today is ${currentDateTime}. Use this date when answering questions about "today
     if (userPrompt && userPrompt.trim().length > 0) {
         tail += `\n\n<user_context>\n${userPrompt.trim()}\n</user_context>`;
     }
-    if (!hasAnsweredQuestions) {
-        tail += `\n\n# Clarifying questions
-If a task is ambiguous in ways that produce fundamentally different outcomes — architecture decisions, destructive ops, unclear scope — emit ONE <questions> block before responding (max 4 questions, 4 choices each). Do NOT use for cosmetic details. After user answers, proceed directly without asking again.`;
-    }
+    tail += `\n\n# User input
+When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool. Do not emit \`<questions>\` XML blocks or inline multiple-choice JSON in prose. After they answer via ask_user, proceed without asking again for the same decision.`;
 
     return { stableHeader, dynamicTail: tail };
 };

@@ -20,7 +20,6 @@ import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanel
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
-import DiagramPanel from './preview_panel/DiagramPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
@@ -54,7 +53,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     permissions: { icon: Shield, label: 'Permissions' },
     search: { icon: Globe, label: 'Search' },
     sources: { icon: Globe, label: 'Sources' },
-    diagram: { icon: Workflow, label: 'Diagram' },
     logs: { icon: FileText, label: 'Logs' },
     files: { icon: FileText, label: 'Files' },
     diff: { icon: Code2, label: 'Diff' },
@@ -75,12 +73,11 @@ type PrimaryMode = 'search' | 'code' | 'diagrams' | 'preview' | 'tools';
 const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'web-search': 'search',
     'code-preview': 'preview',
-    'diagram': 'diagrams',
     'terminal': 'code',
     'file-diff': 'code',
     'files': 'code',
     'tools': 'tools',
-    'timeline': 'diagrams',
+    'timeline': 'code',
     'permission': 'code',  // Permission requests appear in Code mode
     'empty': 'search',
 };
@@ -184,7 +181,7 @@ Please fix these errors in priority order (structural/build errors first, then r
         const modeToPanel: Record<PrimaryMode, PanelType> = {
             'search': 'web-search',
             'code': 'file-diff',
-            'diagrams': 'diagram',
+            'diagrams': 'code-preview',
             'preview': 'code-preview',
             'tools': 'tools',
         };
@@ -305,7 +302,7 @@ Please fix these errors in priority order (structural/build errors first, then r
             {context.tabs.length > 0 && (
                 <TooltipProvider>
                     <div className="flex flex-nowrap items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0 min-w-0">
-                        {context.tabs.map((tab) => {
+                        {context.tabs.filter((tab) => tab !== "diagram").map((tab) => {
                             const tabConfig = TAB_ICONS[tab];
                             const Icon = tabConfig?.icon || Code2;
                             const label = tabConfig?.label || tab;
@@ -387,11 +384,10 @@ function PanelContent({
                     />
                 );
             case 'diagram':
-                return <DiagramPanel data={context.data} activeTab="diagram" setActiveTab={setActiveTab} />;
-            case 'terminal':
-                return <TerminalPanel />;
             case 'activity':
                 return <ActivityPanel />;
+            case 'terminal':
+                return <TerminalPanel />;
             case 'search':
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
@@ -429,7 +425,7 @@ function PanelContent({
             );
 
         case 'diagram':
-            return <DiagramPanel data={context.data} activeTab={context.activeTab} setActiveTab={setActiveTab} />;
+            return <ActivityPanel />;
 
         case 'terminal':
             return <TerminalPanel />;
@@ -455,7 +451,7 @@ function PanelContent({
                     <ul className="text-xs mt-3 space-y-1 text-left">
                         <li><strong>Search</strong> - Web search results</li>
                         <li><strong>Code</strong> - File changes & diffs</li>
-                        <li><strong>Diagrams</strong> - Architecture views</li>
+                        <li><strong>Activity</strong> - Tool and session activity</li>
                         <li><strong>Preview</strong> - Live preview</li>
                     </ul>
                     <p className="text-xs mt-4 opacity-60">

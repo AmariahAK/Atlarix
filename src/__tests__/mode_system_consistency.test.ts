@@ -15,7 +15,6 @@ import "../lib/tools";
 const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", string[]> = {
   ask: [
     "ask_user",
-    "clear_blueprint",
     "compress_context",
     "deep_research",
     "explore_folder",
@@ -37,12 +36,10 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_url",
     "run_command",
     "search",
-    "set_blueprint",
     "web_search",
   ],
   plan: [
     "ask_user",
-    "clear_blueprint",
     "compress_context",
     "edit_file",
     "explore_folder",
@@ -63,13 +60,11 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_implementation_plan",
     "run_command",
     "search",
-    "set_blueprint",
     "write_file",
     "write_implementation_plan",
   ],
   debug: [
     "ask_user",
-    "clear_blueprint",
     "diagnose_issue",
     "edit_file",
     "explore_folder",
@@ -91,12 +86,10 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_file",
     "run_command",
     "search",
-    "set_blueprint",
     "stream_terminal_output",
   ],
   review: [
     "ask_user",
-    "clear_blueprint",
     "diagnose_issue",
     "explore_folder",
     "find_file",
@@ -118,7 +111,6 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_file",
     "run_command",
     "search",
-    "set_blueprint",
   ],
 };
 

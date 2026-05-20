@@ -122,10 +122,6 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/@anthropic-ai/tokenizer")) {
     return false;
   }
-  // pdfjs-dist is bundled into the main Vite output; do not ship a second full copy under app.asar.
-  if (file.startsWith("/node_modules/pdfjs-dist")) {
-    return true;
-  }
   // Force-exclude loose copies from asar (bundled into .vite renderer output or unused in main).
   if (file.startsWith("/node_modules/lucide-react")) return true;
   if (file.startsWith("/node_modules/date-fns")) return true;

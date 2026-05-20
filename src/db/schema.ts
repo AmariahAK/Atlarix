@@ -136,6 +136,33 @@ export const messages = sqliteTable("messages", {
     .default(sql`(unixepoch())`),
 });
 
+/** Workspace-scoped chat sessions (local persistence). */
+export const chatSessions = sqliteTable("chat_sessions", {
+  id: text("id").primaryKey(),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default("New session"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const sessionMessages = sqliteTable("session_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
+  content: text("content").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 /** Persisted multi-model counsel sessions (optional history). */
 export const counselSessions = sqliteTable("counsel_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -211,11 +238,27 @@ export const versions = sqliteTable(
 // Define relations
 export const appsRelations = relations(apps, ({ many }) => ({
   chats: many(chats),
+  chatSessions: many(chatSessions),
   versions: many(versions),
   workspaceDiagrams: many(workspaceDiagrams),
   // Pass 7: Blueprint + PIVOT relations removed (tables dropped in migration 0043).
   projectSnapshots: many(projectSnapshots),
   projectMemoryRows: many(projectMemory),
+}));
+
+export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
+  workspace: one(apps, {
+    fields: [chatSessions.workspaceId],
+    references: [apps.id],
+  }),
+  messages: many(sessionMessages),
+}));
+
+export const sessionMessagesRelations = relations(sessionMessages, ({ one }) => ({
+  session: one(chatSessions, {
+    fields: [sessionMessages.sessionId],
+    references: [chatSessions.id],
+  }),
 }));
 
 export const chatsRelations = relations(chats, ({ many, one }) => ({
@@ -383,6 +426,7 @@ export const mcpServers = sqliteTable("mcp_servers", {
     string
   > | null>(),
   url: text("url"),
+  apiKey: text("api_key"),
   enabled: integer("enabled", { mode: "boolean" })
     .notNull()
     .default(sql`0`),

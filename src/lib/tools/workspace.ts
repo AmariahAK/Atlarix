@@ -468,119 +468,6 @@ function isDocumentFile(ext: string): boolean {
 
 const PDF_EXTRACT_TIMEOUT_MS = 30_000;
 
-async function extractTextFromPdfWithPdfjs(
-    buffer: Buffer,
-): Promise<{ text: string; pages: number; success: boolean }> {
-    try {
-        const { pathToFileURL } = await import("node:url");
-        const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-
-        let standardFontDataUrl: string | undefined;
-        try {
-            const { createRequire } = await import("node:module");
-            const req = createRequire(import.meta.url);
-            if (pdfjs?.GlobalWorkerOptions) {
-                try {
-                    const workerPath = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
-                    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-                } catch {
-                    const workerPath = req.resolve("pdfjs-dist/build/pdf.worker.mjs");
-                    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-                }
-            }
-            const fontPath = req.resolve("pdfjs-dist/standard_fonts/FoxitFixed.pbf");
-            const fontsDir = path.dirname(fontPath);
-            if (existsSync(path.join(fontsDir, "FoxitFixed.pfb"))) {
-                standardFontDataUrl = pathToFileURL(`${fontsDir}${path.sep}`).toString();
-            }
-        } catch {
-            /* Bundled prod: package tree may be absent; useSystemFonts covers typical PDFs. */
-        }
-
-        logger.info("[pdfjs] using bundled pdfjs-dist/legacy/build/pdf.mjs");
-
-        const getDocument = pdfjs.getDocument ?? pdfjs.default?.getDocument;
-        if (typeof getDocument !== "function") {
-            throw new Error("pdfjs-dist getDocument not found");
-        }
-
-        const loadingTask = getDocument({
-            data: new Uint8Array(buffer),
-            disableWorker: true,
-            useSystemFonts: true,
-            ...(standardFontDataUrl ? { standardFontDataUrl } : {}),
-        });
-
-        const doc = await loadingTask.promise;
-        const numPages = doc.numPages ?? 0;
-        const pageTexts: string[] = [];
-
-        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-            const page = await doc.getPage(pageNum);
-            const content = await page.getTextContent();
-            const items: any[] = Array.isArray(content?.items) ? content.items : [];
-            const line = items
-                .map((it) => (typeof it?.str === "string" ? it.str : ""))
-                .filter(Boolean)
-                .join(" ");
-            if (line.trim()) pageTexts.push(line);
-        }
-
-        const text = pageTexts.join("\n\n").trim();
-        return {
-            text,
-            pages: numPages,
-            success: Boolean(text),
-        };
-    } catch (err: any) {
-        const msg = String(err?.message ?? err ?? "");
-        const name = String(err?.name ?? "");
-        if (name === "PasswordException" || /password/i.test(msg) || /encrypted/i.test(msg)) {
-            logger.warn(`pdfjs-dist failed (encrypted/password?): ${msg}`);
-            return { text: "", pages: 0, success: false };
-        }
-        logger.warn(`pdfjs-dist failed: ${msg}`);
-        return { text: "", pages: 0, success: false };
-    }
-}
-
-async function extractTextFromPdfWithPdf2json(
-    buffer: Buffer,
-): Promise<{ text: string; pages: number; success: boolean }> {
-    try {
-        const { default: PDFParser } = await import("pdf2json");
-        return await new Promise((resolve) => {
-            const parser = new PDFParser(null, true);
-            parser.on("pdfParser_dataError", (err: { parserError?: string }) => {
-                logger.warn(`pdf2json failed: ${err?.parserError ?? "unknown"}`);
-                resolve({ text: "", pages: 0, success: false });
-            });
-            parser.on("pdfParser_dataReady", (pdfData: { Pages?: unknown[] }) => {
-                try {
-                    const raw = parser.getRawTextContent?.() ?? "";
-                    const text = typeof raw === "string" ? raw.trim() : "";
-                    const pages = Array.isArray(pdfData?.Pages) ? pdfData.Pages.length : 0;
-                    resolve({
-                        text,
-                        pages,
-                        success: Boolean(text),
-                    });
-                } catch (e) {
-                    resolve({
-                        text: "",
-                        pages: 0,
-                        success: false,
-                    });
-                }
-            });
-            parser.parseBuffer(buffer);
-        });
-    } catch (err) {
-        logger.warn(`pdf2json import/parse failed: ${err}`);
-        return { text: "", pages: 0, success: false };
-    }
-}
-
 function pdfExtractTimeoutResult(): { text: string; pages: number; success: boolean } {
     return {
         text: "[PDF extraction timed out after 30s]",
@@ -589,33 +476,39 @@ function pdfExtractTimeoutResult(): { text: string; pages: number; success: bool
     };
 }
 
+async function readPdfFile(
+    buffer: Buffer,
+): Promise<{ text: string; pages: number; success: boolean }> {
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { totalPages, text } = await extractText(pdf, { mergePages: true });
+    const merged =
+        typeof text === "string"
+            ? text
+            : Array.isArray(text)
+              ? text.join("\n\n")
+              : "";
+    const trimmed = merged.trim();
+    return {
+        text: trimmed,
+        pages: totalPages ?? 0,
+        success: Boolean(trimmed),
+    };
+}
+
 /**
- * PDF text extraction — always completes within PDF_EXTRACT_TIMEOUT_MS.
+ * PDF text extraction via unpdf — completes within PDF_EXTRACT_TIMEOUT_MS.
  */
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number; success: boolean }> {
     const timeout = new Promise<{ text: string; pages: number; success: boolean }>((resolve) => {
         setTimeout(() => resolve(pdfExtractTimeoutResult()), PDF_EXTRACT_TIMEOUT_MS);
     });
 
-    const pdfjsResult = await Promise.race([extractTextFromPdfWithPdfjs(buffer), timeout]).catch(
-        (err) => ({
-            text: `[PDF extraction failed: ${err instanceof Error ? err.message : String(err)}]`,
-            pages: 0,
-            success: false,
-        }),
-    );
-
-    if (pdfjsResult.success && pdfjsResult.text.trim()) {
-        return pdfjsResult;
-    }
-
-    const fallback = await Promise.race([extractTextFromPdfWithPdf2json(buffer), timeout]);
-    if (fallback.success && fallback.text.trim()) {
-        return fallback;
-    }
-
-    if (pdfjsResult.text.startsWith("[PDF")) return pdfjsResult;
-    return fallback.text ? fallback : pdfjsResult;
+    return Promise.race([readPdfFile(buffer), timeout]).catch((err) => ({
+        text: `[PDF extraction failed: ${err instanceof Error ? err.message : String(err)}]`,
+        pages: 0,
+        success: false,
+    }));
 }
 
 async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; paragraphs: number; success: boolean }> {

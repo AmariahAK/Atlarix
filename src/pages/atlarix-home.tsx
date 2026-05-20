@@ -258,7 +258,7 @@ export default function AtlarixHome() {
                     showError('Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.');
                     return;
                 }
-                // Workspace-bound chat - persisted to DB
+                // Ephemeral chat id for streaming; SQLite session created on first message
                 chatId = await IpcClient.getInstance().createChat(selectedAppId);
                 console.log(`Created workspace chat ${chatId} for app ${selectedAppId}`);
             } else {

@@ -63,7 +63,7 @@ export function registerChatHandlers() {
       chatId,
       "for app:",
       appId,
-      "(workspace chats are now incognito)"
+      "(UI stream only; messages persist via workspace sessions)",
     );
     return chatId;
   });
@@ -77,16 +77,20 @@ export function registerChatHandlers() {
       }
       throw e;
     }
-    // NOTE: For chat-only (no workspace), we CAN clear previous session memory
-    // since there's no workspace context to preserve
     clearAllSessionMemories();
     clearInMemoryTaskLedgers();
-
-    // Import ephemeral chat creator from chat_only_handlers
     const { createEphemeralChat } = await import("./chat_only_handlers");
     const chatId = createEphemeralChat();
     logger.info("Created ephemeral (incognito) chat-only session:", chatId);
     return chatId;
+  });
+
+  handle("chat:clear-ephemeral-messages", async (_, chatId: number) => {
+    const { clearEphemeralChatMessages, isEphemeralChatId } = await import(
+      "./chat_only_handlers"
+    );
+    if (!isEphemeralChatId(chatId)) return;
+    clearEphemeralChatMessages(chatId);
   });
 
   ipcMain.handle("get-chat", async (_, chatId: number) => {

@@ -22,7 +22,6 @@ const validInvokeChannels = [
   "chat:stream",
   "chat:stream:reconnect", // FIX 4: re-dispatch the last chat:stream after silent retries failed
   "chat:abort",  // User can stop AI to save tokens
-  "chat:submit-question-answers",  // v3.9: submit clarifying-question answers and continue
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
   "workspace:prewarm-cache",
   "chat:edit-message",             // v3.9: edit user message and truncate after
@@ -43,6 +42,14 @@ const validInvokeChannels = [
   "chat:count-tokens",
   "create-chat",
   "create-chat-only",
+  "chat:clear-ephemeral-messages",
+  "sessions:list",
+  "sessions:create",
+  "sessions:rename",
+  "sessions:delete",
+  "sessions:get",
+  "sessions:generate-title",
+  "messages:add",
   "create-app",
   "copy-app",
   "get-chat",
@@ -412,8 +419,6 @@ const validReceiveChannels = [
   "counsel:participant-update",
   "counsel:complete",
   "autonomous:session-complete",
-  // v3.9: Clarifying questions from AI (render QuestionsWidget)
-  "chat:questions",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // PASS6: Blueprint AI-editing event channels — restored.
   "blueprint:ai-editing",
@@ -428,6 +433,7 @@ const validReceiveChannels = [
   // Auto-updater
   "update:downloading",   // update is being fetched in background; payload: { version: string }
   "update:downloaded",    // update ready to install; payload: { version: string }
+  "update:available",     // notify-only: newer release on GitHub; payload: { currentVersion, latestVersion, releaseUrl }
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

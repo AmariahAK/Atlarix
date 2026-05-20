@@ -1,0 +1,21 @@
+import { atom } from "jotai";
+
+export type WorkspaceSidebarTab = "files" | "sessions";
+
+export const workspaceSidebarTabAtom = atom<WorkspaceSidebarTab>("files");
+
+export const activeWorkspaceSessionIdAtom = atom<string | null>(null);
+
+/** True when UI shows history from a loaded session but model context is empty. */
+export const loadedSessionResumeAtom = atom<boolean>(false);
+
+export const chatIdToSessionIdAtom = atom<Map<number, string>>(new Map());
+
+export const workspaceSessionLoadingAtom = atom<boolean>(false);
+
+export const workspaceSessionLoadingLabelAtom = atom<string>("Loading session…");
+
+export const loadedSessionTruncatedAtom = atom<boolean>(false);
+
+/** Bump to reload workspace session lists after create/rename. */
+export const workspaceSessionsRefreshAtom = atom(0);

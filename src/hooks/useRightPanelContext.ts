@@ -44,14 +44,14 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 // Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'diagram', 'vault'],
-    'diagram': ['diagram'],
+    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
+    'diagram': ['activity'],
     'terminal': ['terminal', 'activity'],
-    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'diagram', 'vault'],  // Same as code-preview
+    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'diagram', 'vault'],  // Same as code-preview
+    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
     'empty': [],
 };
 
@@ -89,6 +89,20 @@ export function useRightPanelContext(): RightPanelContextResult {
     const browserErrors = useAtomValue(browserErrorsAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
+
+    // Diagram tab removed — migrate legacy selection
+    useEffect(() => {
+        if (activeTab === 'diagram') {
+            setActiveTab('activity');
+        }
+    }, [activeTab, setActiveTab]);
+
+    useEffect(() => {
+        if (pinnedPanel === 'diagram') {
+            setPinnedPanel('code-preview');
+            setActiveTab('activity');
+        }
+    }, [pinnedPanel, setPinnedPanel, setActiveTab]);
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
     const currentApp = useAtomValue(currentAppAtom);
@@ -163,14 +177,6 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'web-search';
         }
 
-        // Priority 7: Diagram only (non-workspace with diagram state)
-        if (diagramState && lastToolCall?.name === 'generate_diagram') {
-            return 'diagram';
-        }
-        if (diagramState) {
-            return 'diagram';
-        }
-
         return 'empty';
     }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
 
@@ -204,7 +210,9 @@ export function useRightPanelContext(): RightPanelContextResult {
         if (chatAreaHidden && !tabs.includes('chat')) {
             tabs = ['chat', ...tabs];
         }
-        const validTab = tabs.includes(activeTab) ? activeTab : tabs[0];
+        const normalizedTab =
+            activeTab === "diagram" ? "activity" : activeTab;
+        const validTab = tabs.includes(normalizedTab) ? normalizedTab : tabs[0];
 
         return {
             type: effectiveType,

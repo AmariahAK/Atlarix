@@ -85,13 +85,13 @@ export function TourManager() {
       {
         id: "welcome",
         title: "Welcome",
-        text: "Quick tour: Diagram, Ask vs Build, models, and the right panel.",
+        text: "Quick tour: Ask vs Build, models, inline diagrams in chat, and the right panel.",
       },
       {
-        id: "diagram",
-        title: "Diagram",
-        text: "Open **Diagram** in the sidebar for the live Mermaid architecture view.",
-        attach: '[data-tour="tour-blueprint-canvas"]',
+        id: "inline-viz",
+        title: "Diagrams in chat",
+        text: "Ask for architecture views — the assistant renders **mermaid** and **markmap** blocks inline in the conversation.",
+        attach: '[data-tour="tour-ask-build"]',
         on: "bottom",
       },
       {
@@ -177,8 +177,8 @@ export function TourManager() {
         Array<{ title: string; text: string; attach?: string; on?: "top" | "bottom" | "left" | "right" }>
       > = {
         diagram: [
-          { title: "Diagram", text: "The Diagram page renders a Mermaid view of your code — open it from the sidebar.", attach: '[data-tour="tour-blueprint-canvas"]', on: "bottom" },
-          { title: "Live diagram", text: "Refresh and refine your architecture as code changes.", attach: '[data-tour="tour-blueprint-canvas"]', on: "bottom" },
+          { title: "Inline diagrams", text: "Request a diagram in chat — Mermaid and markmap fences render in the thread.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },
+          { title: "get_diagram tool", text: "The assistant can call get_diagram for workspace architecture; results appear as inline Mermaid in the reply.", attach: '[data-tour="tour-activity-panel"]', on: "left" },
         ],
         agents: [
           { title: "Agent modes", text: "**Direct** — no agents. **Guided** — flat delegation. **Autonomous** — nested agents.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },

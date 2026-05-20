@@ -316,6 +316,20 @@
       "when": 1778350000000,
       "tag": "0044_messages_work_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1778450000000,
+      "tag": "0045_chat_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1778550000000,
+      "tag": "0046_mcp_api_key",
+      "breakpoints": true
     }
   ]
 }

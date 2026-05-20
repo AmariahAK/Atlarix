@@ -443,11 +443,13 @@ function CliLauncherSettings() {
         showSuccess(
           result.message ?? "Installed — open a new terminal and try `atlarix .`",
         );
+      } else if (result.cancelled) {
+        /* user dismissed admin prompt */
       } else if (result.sudoCommand) {
         await navigator.clipboard.writeText(result.sudoCommand);
         showError("Administrator access required — install command copied to clipboard");
       } else {
-        showError("Could not install the atlarix command");
+        showError(result.error ?? "Could not install the atlarix command");
       }
       await refresh();
     } catch (err) {
@@ -462,7 +464,14 @@ function CliLauncherSettings() {
     try {
       const result = await IpcClient.getInstance().uninstallCli();
       if (result.success) {
-        showSuccess("Removed atlarix from PATH");
+        showSuccess(result.message ?? "Removed atlarix from PATH");
+      } else if (result.cancelled) {
+        /* user dismissed admin prompt */
+      } else if (result.sudoCommand) {
+        await navigator.clipboard.writeText(result.sudoCommand);
+        showError(
+          "Administrator access required — remove command copied to clipboard",
+        );
       } else {
         showError(result.error ?? "Could not uninstall");
       }

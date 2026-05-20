@@ -13,7 +13,7 @@ import {
 import { useMcp, type Transport } from "@/hooks/useMcp";
 import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
-import { Edit2, Plus, Save, Trash2, X, Wifi } from "lucide-react";
+import { Edit2, Eye, EyeOff, Plus, Save, Trash2, X, Wifi } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
@@ -327,6 +327,8 @@ export function ToolsMcpSettings({
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState<string>("");
   const [url, setUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
   const { lastDeepLink, clearLastDeepLink } = useDeepLink();
@@ -382,6 +384,7 @@ export function ToolsMcpSettings({
         command: command || null,
         args: parsedArgs,
         url: url || null,
+        apiKey: apiKey.trim() || null,
         enabled,
         scope: scope ?? "global",
         appId: scope === "workspace" ? appId ?? null : null,
@@ -390,6 +393,8 @@ export function ToolsMcpSettings({
       setCommand("");
       setArgs("");
       setUrl("");
+      setApiKey("");
+      setShowApiKey(false);
       setEnabled(true);
       showSuccess("MCP server added. Use \"Test connection\" to verify.");
     } catch (e) {
@@ -485,6 +490,35 @@ export function ToolsMcpSettings({
               />
             </div>
           )}
+          <div className="col-span-2 space-y-1.5">
+            <Label>API Key (optional)</Label>
+            <div className="relative">
+              <Input
+                type={showApiKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-... or your server's API key"
+                className="pr-10"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="absolute right-0 top-0 h-full px-3"
+                onClick={() => setShowApiKey((v) => !v)}
+              >
+                {showApiKey ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Only required for servers that need authentication. Stored
+              locally on your machine.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <Switch checked={enabled} onCheckedChange={setEnabled} />
             <Label>Enabled</Label>

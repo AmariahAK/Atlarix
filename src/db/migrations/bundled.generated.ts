@@ -48,6 +48,8 @@ import raw_41_0041_drop_diagram_versions from "../../../drizzle/0041_drop_diagra
 import raw_42_0042_installed_skills from "../../../drizzle/0042_installed_skills.sql?raw";
 import raw_43_0043_mcp_registry_columns from "../../../drizzle/0043_mcp_registry_columns.sql?raw";
 import raw_44_0044_messages_work_mode from "../../../drizzle/0044_messages_work_mode.sql?raw";
+import raw_45_0045_chat_sessions from "../../../drizzle/0045_chat_sessions.sql?raw";
+import raw_46_0046_mcp_api_key from "../../../drizzle/0046_mcp_api_key.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -103,6 +105,8 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0042_installed_skills", sql: raw_42_0042_installed_skills as string, drizzleHash: "686fbe4f9449e6b46995d2d9350753288d5a0dcbb79b2bcd4adde3b4cf602c79", when: 1778159288260 },
   { name: "0043_mcp_registry_columns", sql: raw_43_0043_mcp_registry_columns as string, drizzleHash: "8ca9cb910653e71796ea334fe3adf4d96eee4c83e3b432db81227f45baf86e54", when: 1778250000000 },
   { name: "0044_messages_work_mode", sql: raw_44_0044_messages_work_mode as string, drizzleHash: "8ce5d298c1f37d76d6933e16336b41b2c3252b2f972df3e5f83886e044084e08", when: 1778350000000 },
+  { name: "0045_chat_sessions", sql: raw_45_0045_chat_sessions as string, drizzleHash: "7da8615b4b94b24097ce184fa278b099fa47189571cda08347587bd69ba1b65b", when: 1778450000000 },
+  { name: "0046_mcp_api_key", sql: raw_46_0046_mcp_api_key as string, drizzleHash: "9e62d06abc2767128b28b4d197ac6054e9fc6b601b6d053ca49f51dcc7bc1dad", when: 1778550000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -152,4 +156,6 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "686fbe4f9449e6b46995d2d9350753288d5a0dcbb79b2bcd4adde3b4cf602c79": "0042_installed_skills",
   "8ca9cb910653e71796ea334fe3adf4d96eee4c83e3b432db81227f45baf86e54": "0043_mcp_registry_columns",
   "8ce5d298c1f37d76d6933e16336b41b2c3252b2f972df3e5f83886e044084e08": "0044_messages_work_mode",
+  "7da8615b4b94b24097ce184fa278b099fa47189571cda08347587bd69ba1b65b": "0045_chat_sessions",
+  "9e62d06abc2767128b28b4d197ac6054e9fc6b601b6d053ca49f51dcc7bc1dad": "0046_mcp_api_key",
 };

@@ -167,10 +167,9 @@ const FEATURES: ToolFeature[] = [
     title: "Mermaid diagrams",
     shortDescription: "Generate architecture diagrams from chat via get_diagram; reference chips track multiple views.",
     category: "diagram",
-    steps: ["Ask for a diagram of a subsystem", "Open Diagram tab for fullscreen", "Export or copy Mermaid"],
+    steps: ["Ask for a diagram of a subsystem", "View inline mermaid or markmap fences in chat", "Copy or refine Mermaid from the assistant"],
     howItWorks:
-      "Diagrams complement Blueprint: faster visual communication, while Blueprint holds rich structural data.",
-    link: { label: "Diagram page", to: "/diagram" },
+      "Diagrams complement Blueprint: faster visual communication in chat, while Blueprint holds rich structural data.",
   },
   {
     id: "skills-marketplace",

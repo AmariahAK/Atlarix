@@ -7,7 +7,13 @@ import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
 import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
-import { previewModeAtom, selectedAppIdAtom, currentAppAtom, userSettingsAtom } from "@/atoms/appAtoms";
+import {
+  previewModeAtom,
+  selectedAppIdAtom,
+  currentAppAtom,
+  selectedWorkspaceInfoAtom,
+  userSettingsAtom,
+} from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
@@ -42,6 +48,7 @@ import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
+import { preloadSounds } from "@/lib/sounds";
 import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
 import { TourManager } from "@/components/tour/TourManager";
@@ -105,16 +112,6 @@ function PersistentChatContainer() {
       streamMessage({ prompt, chatId: activeChatId, attachments: attachments ?? [] });
     }
   }, [activeChatId, streamMessage, mustSignIn]);
-
-  const handleContinueAfterQuestions = useCallback(() => {
-    if (!activeChatId) return;
-    streamMessage({
-      prompt: "",
-      chatId: activeChatId,
-      attachments: [],
-      continueAfterQuestions: true,
-    });
-  }, [activeChatId, streamMessage]);
 
   // Handle new chat - reset to home state
   const handleNewChat = useCallback(() => {
@@ -211,7 +208,6 @@ function PersistentChatContainer() {
         <SimpleInlineChat
           chatId={activeChatId}
           onSendMessage={handleContinueChat}
-          onContinueAfterQuestions={handleContinueAfterQuestions}
         />
       </div>
 
@@ -235,6 +231,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
+  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const navigate = useNavigate();
@@ -253,6 +250,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     (location.pathname === "/" || location.pathname.startsWith("/chat"));
 
   usePanelShortcuts();
+
+  useEffect(() => {
+    preloadSounds();
+  }, []);
 
   // When user adds first extension, open the left panel
   useEffect(() => {
@@ -289,6 +290,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         const chat = await IpcClient.getInstance().getChat(activeChatId);
         if (cancelled || chat.appId == null) return;
         setSelectedAppId(chat.appId);
+        try {
+          const app = await IpcClient.getInstance().getApp(chat.appId);
+          if (!cancelled && app.path) {
+            setSelectedWorkspaceInfo({
+              id: app.id,
+              name: app.name,
+              path: app.path,
+            });
+          }
+        } catch {
+          /* path sync best-effort */
+        }
       } catch {
         // ignore
       }
@@ -296,7 +309,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [activeChatId, setSelectedAppId]);
+  }, [activeChatId, setSelectedAppId, setSelectedWorkspaceInfo]);
 
   useEffect(() => {
     const zoomLevel = settings?.zoomLevel ?? DEFAULT_ZOOM_LEVEL;

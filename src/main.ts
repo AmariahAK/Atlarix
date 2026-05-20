@@ -259,6 +259,50 @@ export async function onReady() {
   if (settings.enableAutoUpdate) {
     initAutoUpdater();
   }
+
+  setTimeout(() => {
+    void checkForUpdatesNotify();
+  }, 5000);
+}
+
+const ATLARIX_RELEASES_API =
+  "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest";
+
+/**
+ * Notify-only update check (all platforms). Complements electron-updater silent install.
+ */
+async function checkForUpdatesNotify(): Promise<void> {
+  if (IS_TEST_BUILD) return;
+  try {
+    const currentVersion = app.getVersion();
+    const res = await fetch(ATLARIX_RELEASES_API, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "Atlarix" },
+    });
+    if (!res.ok) {
+      log.warn(`[UpdateNotify] GitHub API ${res.status}`);
+      return;
+    }
+    const data = (await res.json()) as { tag_name?: string; html_url?: string };
+    const latestVersion = (data.tag_name ?? "").replace(/^v/, "");
+    if (!latestVersion || !isNewer(latestVersion, currentVersion)) {
+      log.info(
+        `[UpdateNotify] up to date (current=${currentVersion}, latest=${latestVersion || "n/a"})`,
+      );
+      return;
+    }
+    const releaseUrl =
+      data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
+    log.info(`[UpdateNotify] Update available: ${latestVersion} (current ${currentVersion})`);
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("update:available", {
+        currentVersion,
+        latestVersion,
+        releaseUrl,
+      });
+    }
+  } catch (err) {
+    log.warn("[UpdateNotify] check failed:", (err as Error)?.message ?? err);
+  }
 }
 
 export async function onFirstRunMaybe(settings: UserSettings) {

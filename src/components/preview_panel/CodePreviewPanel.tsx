@@ -43,8 +43,8 @@ import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
 import { FileEditor } from './FileEditor';
-import { DiagramPanel } from './DiagramPanel';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
+import { TerminalPanel } from '@/components/panels/TerminalPanel';
 
 interface CodePreviewPanelProps {
     data: {
@@ -131,7 +131,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 </div>
             )}
             {activeTab === 'terminal' && (
-                <TerminalTab data={terminalData} terminalOutputs={data?.terminalOutputs} />
+                <TerminalPanel />
             )}
             {activeTab === 'errors' && (
                 <ErrorsTab
@@ -158,9 +158,6 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     sources={sourcesData}
                     appId={currentAppId}
                 />
-            )}
-            {activeTab === 'diagram' && (
-                <DiagramPanel data={null} activeTab="diagram" />
             )}
         </div>
     );

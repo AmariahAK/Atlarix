@@ -394,7 +394,8 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
   // Pass 7: from_registry / registry_id columns track marketplace installs.
   const hasFromRegistry = columns.some((c) => c.name === "from_registry");
   const hasRegistryId = columns.some((c) => c.name === "registry_id");
-  if (hasScope && hasAppId && hasFromRegistry && hasRegistryId) {
+  const hasApiKey = columns.some((c) => c.name === "api_key");
+  if (hasScope && hasAppId && hasFromRegistry && hasRegistryId && hasApiKey) {
     return;
   }
   if (!hasScope) {
@@ -412,6 +413,10 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
   if (!hasRegistryId) {
     sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN registry_id TEXT");
     logger.log("[Schema Fix] mcp_servers: added registry_id column");
+  }
+  if (!hasApiKey) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN api_key TEXT");
+    logger.log("[Schema Fix] mcp_servers: added api_key column");
   }
 }
 

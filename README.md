@@ -21,11 +21,24 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.4.1**
+**Current release:** **v8.5.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.5.0 — Questions, terminals, sessions
+
+- **Questions:** Agents use the **`ask_user`** tool only (removed legacy `<questions>` block UI).
+- **Terminals:** Multiple You/Agent terminals per chat; panel state persists until you start a new chat.
+- **Sessions:** Workspace chats save as resumable sessions in the sidebar.
+- **Panel:** Diagram tab removed from the right panel default; Activity/terminal first.
+- **Build:** Renderer packaging shims for production `npm run package`.
+- **Also:** CLI uninstall elevation, Markmap dark theme + zoom, structured `read_file` errors, viz routing in prompts.
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 

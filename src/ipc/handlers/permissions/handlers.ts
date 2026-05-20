@@ -26,7 +26,7 @@ const activeInterceptors = new Map<number, PermissionInterceptor>();
  * - 'show-permissions': Show file/command approval UI → maps to FileDiffPanel
  * - 'show-file-changes': Show file diff viewer → maps to FileDiffPanel
  * - 'show-web-search': Show web search results → maps to WebSearchPanel
- * - 'show-diagram': Show architecture diagram → maps to DiagramPanel
+ * - 'show-diagram': Legacy permission label (diagram UI removed; AI still uses get_diagram)
  * - 'show-terminal': Show command output → maps to TerminalPanel
  * - 'empty': Clear the panel
  */

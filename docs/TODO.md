@@ -1,7 +1,25 @@
 # Atlarix TODO
 
-**Current Version:** v8.4.0
-**Last Updated:** 2026-05-17
+**Current Version:** v8.5.0
+**Last Updated:** 2026-05-20
+
+---
+
+## Shipped in v8.5.0
+
+| Area | Notes |
+|------|--------|
+| `ask_user` only (no `<questions>` widget) | Removed `QuestionsWidget`, `chat:questions` IPC; prompts + `stripQuestionsBlockFromResponse` |
+| Multi-terminal + persistence | `terminalInstancesAtoms`, `TerminalPanel`, `terminal-instances.ts` |
+| Workspace sessions sidebar | `ensure-workspace-session`, `workspace_session_handlers`, session list UI |
+| Right panel diagram tab removed | `useRightPanelContext`, `RightPanel`, `CodePreviewPanel` |
+| Renderer package shims | `vite/renderer-main-only-shims-plugin.ts`, `vite.renderer.config.mts` |
+| CLI uninstall sudo parity | `cli_handlers.ts`, settings types |
+| Markmap theme/zoom | `MarkmapRenderer.tsx` |
+| `read_file` structured errors | `file.ts`, tests |
+| Viz prompt routing | `system_prompt.ts` inline viz rules |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.5.0]`.
 
 ---
 
