@@ -1,5 +1,14 @@
 # Atlarix Changelog
 
+## [8.5.1] (2026-05-21) — Hotfix
+
+### Fixes
+
+- **App load crash:** Removed stale `setQuestionsByMessageId` from `useStreamChat` dependency array after `QuestionsWidget` removal (`ReferenceError` on startup).
+- **Reasoning dedup:** `cleanFullResponse` now recognizes long-form `</think>` close tags (duplicate answer text after thinking blocks is trimmed again).
+
+---
+
 ## [8.5.0] (2026-05-20) — Single ask path, terminals, sessions, packaging
 
 ### Features
