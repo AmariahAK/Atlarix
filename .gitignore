@@ -1,5 +1,6 @@
 # Outreach email send log (one-off script)
 scripts/.outreach-sent.log.json
+scripts/.feedback-outreach-v85-sent.jsonl
 
 # Logs
 logs

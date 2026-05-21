@@ -17,6 +17,26 @@ npm run email:user-feedback
 - Excludes `amariah.abish@gmail.com` and `amani.kamau06@gmail.com` by default.
 - Log: `scripts/.outreach-sent.log.json` (gitignored).
 
+## send-v85-upgrade-emails.mjs
+
+One-off outreach: notify confirmed Supabase users that **v8.5.0** is available at [atlarix.dev](https://atlarix.dev). Reads [`Atlarix/.env`](../.env). Replies go to **amariah@atlarix.dev**.
+
+```bash
+cd Atlarix
+npm run email:v85-upgrade:dry-run
+npm run email:v85-upgrade -- --only you@example.com
+npm run email:v85-upgrade
+```
+
+- **From:** `Amariah @ Atlarix <amariah@atlarix.dev>` (or `EMAIL_SOURCE` in `.env`)
+- **Reply-To:** `amariah@atlarix.dev`
+- Excludes `amariah.abish@gmail.com` and `amani.kamau06@gmail.com`
+- Ledger: `scripts/.feedback-outreach-v85-sent.jsonl` (gitignored)
+- `--init-ledger-from-supabase` — seed ledger without sending
+- `--include-unconfirmed` — include users without confirmed email
+
+Workspace copy (same campaign): `../scripts/send-v85-upgrade-emails.mjs` with `node --env-file=../Atlarix/.env`.
+
 ## extract-codebase.ts
 
 A script that extracts code files from a directory, respecting `.gitignore` rules, and outputs them in a format suitable for LLM consumption.

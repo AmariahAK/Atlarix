@@ -17,7 +17,7 @@ export const OnboardingBanner = ({
         onClick={(e) => {
           e.preventDefault();
           IpcClient.getInstance().openExternalUrl(
-            "https://youtu.be/oTlJXBS1azM",
+            "https://youtu.be/DvtxIFclpas",
           );
           setIsVisible(false);
         }}
@@ -27,7 +27,7 @@ export const OnboardingBanner = ({
       >
         <div className="relative aspect-video w-full">
           <img
-            src="/images/setup-thumbnail.jpg"
+            src="https://i.ytimg.com/vi/DvtxIFclpas/hqdefault.jpg"
             alt="Setup Atlarix Guide"
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
           />

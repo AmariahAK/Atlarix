@@ -22,6 +22,8 @@
     "verify-release": "node scripts/verify-release-assets.js",
     "email:user-feedback": "node scripts/send-user-feedback-email.mjs",
     "email:user-feedback:dry-run": "node scripts/send-user-feedback-email.mjs --dry-run",
+    "email:v85-upgrade": "node scripts/send-v85-upgrade-emails.mjs",
+    "email:v85-upgrade:dry-run": "node scripts/send-v85-upgrade-emails.mjs --dry-run",
     "ts": "npm run ts:main && npm run ts:workers",
     "ts:main": "node node_modules/typescript/lib/tsc.js -p tsconfig.main.json --noEmit",
     "ts:workers": "node node_modules/typescript/lib/tsc.js -p workers/tsc/tsconfig.json --noEmit",
