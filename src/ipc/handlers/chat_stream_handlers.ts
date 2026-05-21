@@ -797,26 +797,9 @@ async function resolveAskUserToolResult(
   return JSON.stringify({ success: true, answer });
 }
 
-/**
- * Detect if AI signals task completion.
- * Checks for explicit <task_complete> tag OR natural language patterns in the end of response.
- */
+/** Agentic loop completion: explicit model tag only (no inferred prose). */
 function isTaskComplete(response: string): boolean {
-  // Explicit completion signal
-  if (response.includes('<task_complete>')) return true;
-
-  // Natural language patterns (must appear near end of response)
-  const completionPatterns = [
-    /task (is |has been )?completed successfully/i,
-    /i('ve| have) completed (the |all )/i,
-    /all done/i,
-    /everything (is |has been )?(set up|ready|working)/i,
-    /implementation (is )?complete/i,
-    /successfully (created|built|implemented|set up)/i,
-  ];
-
-  const endOfResponse = response.slice(-500);
-  return completionPatterns.some(pattern => pattern.test(endOfResponse));
+  return response.includes("<task_complete>");
 }
 
 // Track active streams for cancellation
@@ -947,17 +930,6 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-/**
- * Abort when the model has an unfinished tool call and no stream chunks arrive
- * for this long. Bumped from 30s → 60s in tandem with the Ask-mode repetition
- * guard (`agentic-loop-repetition.ts`): the guard now catches read_file /
- * explore_folder / search loops *before* the provider goes silent, so the
- * watchdog only needs to fire on genuinely stalled streams (network drop,
- * provider hang) where a longer window is safer than an over-eager abort
- * during legitimate tool-heavy turns on slower Compass tiers.
- */
-const STREAM_TOOL_STALL_MS = 60_000;
-
 type TierSourceTag =
   | "user_setting"
   | "auto"
@@ -1033,13 +1005,7 @@ async function processStreamChunks({
   onFirstTextDelta?: () => void;
   onFirstReasoningDelta?: () => void;
   onFirstTextAfterReasoning?: () => void;
-  /**
-   * Invoked synchronously when the stall watchdog is about to abort the
-   * stream (no chunks arrived for STREAM_TOOL_STALL_MS with at least one
-   * pending tool call). Callers should emit a `chat:activity` of type
-   * `stream_stall_aborted` and a `chat:response:error` so the renderer
-   * exits the "Thinking..." state instead of hanging forever.
-   */
+  /** @deprecated Stall watchdog removed — long tool runs are not time-aborted. */
   onStreamStall?: () => void;
 }): Promise<{ fullResponse: string; incrementalResponse: string }> {
   let incrementalResponse = "";
@@ -1064,39 +1030,15 @@ async function processStreamChunks({
     });
   };
 
-  let lastStreamProgress = Date.now();
   let pendingToolCallDepth = 0;
   /** Most recent tool-call `toolName` while depth &gt; 0 (for stall diagnostics). */
   let lastPendingToolName: string | undefined;
   let loggedFirstStreamPart = false;
   let loggedReasoningDelta = false;
-  const stallInterval = setInterval(() => {
-    if (abortController.signal.aborted) return;
-    if (
-      pendingToolCallDepth > 0 &&
-      Date.now() - lastStreamProgress >= STREAM_TOOL_STALL_MS
-    ) {
-      logger.warn(
-        `[stream-stall] No stream progress for ${STREAM_TOOL_STALL_MS}ms with pending tool call(s); aborting chat ${chatId}`,
-      );
-      // Notify the caller so the UI receives a clear error + activity entry
-      // before the abort silently kills the stream (which would otherwise
-      // leave the renderer stuck on "Thinking..." indefinitely). The callback
-      // is wrapped in try/catch — a renderer-side failure must not block the
-      // abort path.
-      try {
-        onStreamStall?.();
-      } catch (cbErr) {
-        logger.warn(`[stream-stall] onStreamStall callback threw:`, cbErr);
-      }
-      abortController.abort();
-    }
-  }, 1000);
 
   try {
     try {
       for await (const part of fullStream) {
-    lastStreamProgress = Date.now();
     if (!loggedFirstStreamPart) {
       loggedFirstStreamPart = true;
     }
@@ -1216,8 +1158,6 @@ async function processStreamChunks({
     }
 
     return { fullResponse, incrementalResponse };
-  } finally {
-    clearInterval(stallInterval);
   }
 }
 
@@ -1516,44 +1456,8 @@ export function registerChatStreamHandlers() {
         activeStreams.delete(req.chatId);
       };
 
-      /**
-       * Shared stall handler wired into every `runStreamRoundWithEmptyOutputRetry`
-       * call site (agent / ask / build). Triggered by the watchdog inside
-       * `processStreamChunks` after STREAM_TOOL_STALL_MS of silence with a
-       * pending tool call. Surfaces a `chat:activity` of type
-       * `stream_stall_aborted` plus a `chat:response:error` so the renderer
-       * exits the "Thinking..." state. The watchdog still calls
-       * `abortController.abort()` after this returns; we do NOT call
-       * `ensureTerminal` here so the abort path runs through its normal
-       * cleanup (avoiding double-end emissions).
-       */
-      let streamStallReportedAt = 0;
-      const handleStreamStall = () => {
-        // Coalesce repeated fires (the watchdog only fires once per stream
-        // because it aborts immediately after, but guard regardless).
-        if (Date.now() - streamStallReportedAt < 5000) return;
-        streamStallReportedAt = Date.now();
-        const stallSeconds = Math.round(STREAM_TOOL_STALL_MS / 1000);
-        sentryAddBreadcrumbSafe({
-          category: "stream",
-          message: "stream_stall_abort",
-          level: "warning",
-          data: { chatId: req.chatId, stallSeconds },
-        });
-        safeSend(event.sender, "chat:activity", {
-          id: `stream-stall-${Date.now()}`,
-          type: "stream_stall_aborted",
-          label: "Stream paused — provider stopped responding",
-          detail: `The model stopped sending output for ${stallSeconds}s while a tool call was pending. Send another message to retry, or switch model tier.`,
-          status: "done",
-          timestamp: Date.now(),
-          chatId: req.chatId,
-        });
-        safeSend(event.sender, "chat:response:error", {
-          chatId: req.chatId,
-          error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}Stream paused: the model stopped sending output for ${stallSeconds} seconds while a tool call was pending. Retry, or switch tier.`,
-        });
-      };
+      /** No-op: stream stall watchdog removed (8.5.2). */
+      const handleStreamStall = () => {};
 
       try {
         try {
@@ -6482,6 +6386,9 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             // ═══════════════════════════════════════════════════════════════
             const loopStartTime = Date.now();
             let agenticIteration = 0;
+            let agenticProseOnlyStreak = 0;
+            /** Safety cap when the model keeps replying without tools or <task_complete>. */
+            const AGENTIC_PROSE_ONLY_MAX = 5;
             let agenticMessages = [...chatMessages]; // Copy current messages
             let allToolResults: { tool: string; result: string }[] = [];
             let totalToolExecutions = 0; // Track total tools executed across all iterations
@@ -6658,18 +6565,54 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   totalToolExecutions = currentOpCount;
                 }
 
-                // Check if task is explicitly complete
+                // End only on explicit <task_complete> or a completed task ledger
                 if (isTaskComplete(fullResponse)) {
                   logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
                   break;
                 }
 
-                // If no tool calls of any kind, end the loop
-                if (!hasTextToolCalls && !hadNativeToolExecution) {
-                  logger.log("[Agentic Loop] No tool calls detected (text-based or native), ending loop");
-                  logger.log(`[Agentic Loop] Total tools executed: ${totalToolExecutions}`);
+                const ledgerAfterRound = getLedger(streamTurnIdForLedger);
+                if (ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound)) {
+                  logger.info(
+                    `[Agentic Loop] Ledger complete at iteration ${agenticIteration + 1}`,
+                  );
                   break;
                 }
+
+                // Prose-only round: nudge the model to keep working instead of ending the turn
+                if (!hasTextToolCalls && !hadNativeToolExecution) {
+                  agenticProseOnlyStreak++;
+                  if (agenticProseOnlyStreak >= AGENTIC_PROSE_ONLY_MAX) {
+                    logger.warn(
+                      `[Agentic Loop] Prose-only cap (${AGENTIC_PROSE_ONLY_MAX}) reached; ending loop`,
+                    );
+                    break;
+                  }
+                  const pendingSteps = ledgerAfterRound
+                    ? getRemainingSteps(ledgerAfterRound)
+                    : [];
+                  const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
+                  const nudge =
+                    pendingSteps.length > 0
+                      ? buildPendingStepsContinuationPrompt(pendingSteps) +
+                        (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
+                      : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.";
+                  agenticMessages.push({
+                    role: "assistant" as const,
+                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
+                  });
+                  agenticMessages.push({
+                    role: "user" as const,
+                    content: nudge,
+                  });
+                  agenticIteration++;
+                  logger.log(
+                    `[Agentic Loop] Prose-only streak ${agenticProseOnlyStreak}/${AGENTIC_PROSE_ONLY_MAX}; continuing`,
+                  );
+                  continue;
+                }
+
+                agenticProseOnlyStreak = 0;
 
                 // Parse and execute text-based tool calls
                 const textToolCalls = hasTextToolCalls ? parseTextToolCalls(fullResponse) : [];

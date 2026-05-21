@@ -1,5 +1,15 @@
 # Atlarix Changelog
 
+## [8.5.2] (2026-05-21) — Agentic stream completion
+
+### Fixes
+
+- **Build agentic loop:** No longer ends the turn when the model replies with prose only; nudges continuation until `<task_complete>` or the task ledger is complete (prose-only safety cap: 5 rounds).
+- **Completion signal:** Agentic completion uses explicit `<task_complete>` only (removed inferred “all done” / similar phrase matching).
+- **Stream stall watchdog:** Removed the 60s pending-tool stall abort so long tool-heavy turns are not cut off mid-stream.
+
+---
+
 ## [8.5.1] (2026-05-21) — Hotfix
 
 ### Fixes
