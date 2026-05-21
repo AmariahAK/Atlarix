@@ -1037,8 +1037,7 @@ async function processStreamChunks({
   let loggedReasoningDelta = false;
 
   try {
-    try {
-      for await (const part of fullStream) {
+    for await (const part of fullStream) {
     if (!loggedFirstStreamPart) {
       loggedFirstStreamPart = true;
     }
@@ -1127,38 +1126,37 @@ async function processStreamChunks({
       break;
     }
     }
-    } catch (err) {
-      const isNoUsableOutput = isNoUsableModelOutputError(err);
-      if (isNoUsableOutput && !abortController.signal.aborted) {
-        logger.warn(
-          `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
-          err,
-        );
-        if (!fullResponse.trim()) {
-          await applyEmptyFallback();
-        }
-      } else {
-        throw err;
+  } catch (err) {
+    const isNoUsableOutput = isNoUsableModelOutputError(err);
+    if (isNoUsableOutput && !abortController.signal.aborted) {
+      logger.warn(
+        `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
+        err,
+      );
+      if (!fullResponse.trim()) {
+        await applyEmptyFallback();
       }
+    } else {
+      throw err;
     }
-
-    if (inThinkingBlock) {
-      const flushChunk = "</think>";
-      fullResponse += flushChunk;
-      incrementalResponse += flushChunk;
-      inThinkingBlock = false;
-      fullResponse = cleanFullResponse(fullResponse);
-      fullResponse = await processResponseChunkUpdate({
-        fullResponse,
-      });
-    }
-
-    if (!abortController.signal.aborted && !fullResponse.trim()) {
-      await applyEmptyFallback();
-    }
-
-    return { fullResponse, incrementalResponse };
   }
+
+  if (inThinkingBlock) {
+    const flushChunk = "</think>";
+    fullResponse += flushChunk;
+    incrementalResponse += flushChunk;
+    inThinkingBlock = false;
+    fullResponse = cleanFullResponse(fullResponse);
+    fullResponse = await processResponseChunkUpdate({
+      fullResponse,
+    });
+  }
+
+  if (!abortController.signal.aborted && !fullResponse.trim()) {
+    await applyEmptyFallback();
+  }
+
+  return { fullResponse, incrementalResponse };
 }
 
 async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier[]> {
