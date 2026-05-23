@@ -1,5 +1,15 @@
 # Atlarix Changelog
 
+## [8.6.5] (2026-05-23) — Windows file-discovery path fix
+
+### Fixes
+
+- **`project-files`:** normalize paths returned by `fd` and `rg --files` to workspace-relative posix; the previous `path.relative(workspacePath, "src/app.ts")` resolved the relative argument against `process.cwd()` and produced cross-drive garbage on Windows runners (manifesting as `ctags-index` returning 0 symbols).
+- **`ctags-index`:** validate that discovered paths actually exist under the workspace before running ctags; fall back to recursive scan when not.
+- **`settings`:** create the `userData/` parent directory before seeding default settings (silences `ENOENT user-settings.json` noise in CI / headless tests).
+
+---
+
 ## [8.6.4] (2026-05-23) — Windows ctags index fix
 
 ### Fixes

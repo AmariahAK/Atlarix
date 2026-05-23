@@ -3,6 +3,7 @@
  */
 
 import * as fs from "fs/promises";
+import * as fsSync from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -165,7 +166,17 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     const t0 = Date.now();
 
     let { files } = await getProjectFiles(normPath);
-    if (files.length === 0) {
+    // Validate that discovered paths actually resolve under the workspace.
+    // fd / rg sometimes return paths that mishandle Windows drives; the legacy
+    // recursive scan is a known-good fallback.
+    const allResolvable = files.length > 0 && files.every((f) => {
+      try {
+        return fsSync.existsSync(path.join(normPath, f));
+      } catch {
+        return false;
+      }
+    });
+    if (!allResolvable) {
       files = getFilesRecursively(normPath, normPath).map((f) => f.replace(/\\/g, "/"));
     }
     const { symbols, ctagsVersion } = await runCtags(normPath, files);

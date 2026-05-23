@@ -98,7 +98,14 @@ export function readSettings(): UserSettings {
   try {
     const filePath = getSettingsFilePath();
     if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, JSON.stringify(DEFAULT_SETTINGS, null, 2));
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, JSON.stringify(DEFAULT_SETTINGS, null, 2));
+      } catch (writeErr) {
+        // Headless / test environments may not have a writable userData dir.
+        // Returning defaults keeps callers (e.g. getCurrentCommitHash) working.
+        logger.debug("settings: could not seed defaults", writeErr);
+      }
       return DEFAULT_SETTINGS;
     }
     const rawSettings = JSON.parse(fs.readFileSync(filePath, "utf-8"));

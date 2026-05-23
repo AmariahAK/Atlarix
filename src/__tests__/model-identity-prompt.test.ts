@@ -32,7 +32,7 @@ describe("model-identity-prompt", () => {
       modelDisplayName: "DeepSeek V4 Pro",
       providerBrand: "openrouter",
       labelWithProvider: "DeepSeek V4 Pro (openrouter)",
-      appVersion: "8.6.4",
+      appVersion: "8.6.5",
     });
     expect(block).toMatch(/agent workstation/i);
     expect(block).toMatch(/norahlabs\.com/);

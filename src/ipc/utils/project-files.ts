@@ -54,6 +54,33 @@ function filterDiscoveryPaths(files: string[]): string[] {
     return files.filter((f) => !isExcludedDiscoveryRelPath(f));
 }
 
+/**
+ * Normalize a path emitted by `fd` / `rg --files` to a workspace-relative posix path.
+ *
+ * - When the tool returns a relative path (the common case when run with `cwd`),
+ *   `path.relative(cwd, "src/app.ts")` would resolve `src/app.ts` against
+ *   process.cwd() rather than the workspace, producing absolute or cross-drive
+ *   garbage on Windows runners. So treat already-relative paths as relative
+ *   to the workspace.
+ * - When the tool returns an absolute path, compute the workspace-relative form.
+ */
+function normalizeDiscoveredFile(
+    workspacePath: string,
+    raw: string,
+): string | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const stripped = trimmed.replace(/^\.[\\/]+/, "");
+    let rel: string;
+    if (path.isAbsolute(stripped)) {
+        rel = path.relative(workspacePath, stripped);
+        if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    } else {
+        rel = stripped;
+    }
+    return rel.replace(/\\/g, "/");
+}
+
 export interface ProjectFilesResult {
     files: string[];
     strategy: "git" | "fd" | "ripgrep" | "fallback";
@@ -277,16 +304,12 @@ export async function getProjectFiles(
             maxBuffer: 50 * 1024 * 1024,
         });
 
-        // fd always returns absolute paths; convert to workspace-relative
+        // fd path output may be relative (default with `cwd`) or absolute (some flags).
         const files = filterDiscoveryPaths(
             stdout
                 .split("\n")
-                .filter(Boolean)
-                .map((f) => {
-                    const abs = f.replace(/\\/g, "/");
-                    return path.relative(workspacePath, abs).replace(/\\/g, "/");
-                })
-                .filter((f) => !f.startsWith("..")),
+                .map((f) => normalizeDiscoveredFile(workspacePath, f))
+                .filter((f): f is string => f !== null),
         );
 
         if (files.length > 0) {
@@ -328,16 +351,12 @@ export async function getProjectFiles(
             maxBuffer: 50 * 1024 * 1024,
         });
 
-        // ripgrep --files returns absolute paths; convert to workspace-relative
+        // `rg --files` emits paths relative to its cwd by default.
         const files = filterDiscoveryPaths(
             stdout
                 .split("\n")
-                .filter(Boolean)
-                .map((f) => {
-                    const abs = f.replace(/\\/g, "/");
-                    return path.relative(workspacePath, abs).replace(/\\/g, "/");
-                })
-                .filter((f) => !f.startsWith("..")),
+                .map((f) => normalizeDiscoveredFile(workspacePath, f))
+                .filter((f): f is string => f !== null),
         );
 
         if (files.length > 0) {
