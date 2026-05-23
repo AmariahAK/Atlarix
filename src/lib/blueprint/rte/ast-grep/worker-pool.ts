@@ -134,6 +134,12 @@ export async function shutdownAstGrepPool(): Promise<void> {
   logger.info("[ast-grep-pool] shutdown complete");
 }
 
+/** When set, structural scans run in-process (used by CI bench; bundled worker is unreliable in worker_threads). */
+export function preferInProcessAstGrep(): boolean {
+  return process.env.ATLARIX_ASTGREP_IN_PROCESS === "1";
+}
+
 export function isAstGrepWorkerPoolAvailable(): boolean {
+  if (preferInProcessAstGrep()) return false;
   return workerScriptAvailable();
 }

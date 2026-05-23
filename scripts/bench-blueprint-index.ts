@@ -1,7 +1,12 @@
 /**
  * Blueprint index benchmarks for CI gate.
  * Run: npx tsx scripts/bench-blueprint-index.ts
+ *
+ * Uses in-process ast-grep (not worker_threads) — the bundled worker hangs on
+ * findInFiles in CI; main-process scans are what we gate on.
  */
+
+process.env.ATLARIX_ASTGREP_IN_PROCESS = "1";
 
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -50,6 +55,10 @@ async function main(): Promise<void> {
     );
     if (scanElapsed > AST_GREP_LIMIT_MS) {
       console.error(`FAIL: ast-grep scan exceeded ${AST_GREP_LIMIT_MS}ms`);
+      process.exit(1);
+    }
+    if (scan.edges.length === 0) {
+      console.error("FAIL: ast-grep scan produced zero edges (scan likely broken)");
       process.exit(1);
     }
 

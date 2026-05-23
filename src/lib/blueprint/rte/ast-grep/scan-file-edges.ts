@@ -4,7 +4,8 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { findInFiles, Lang, type NapiLang } from "@ast-grep/napi";
+import { findInFiles, Lang, type NapiConfig, type NapiLang } from "@ast-grep/napi";
+import type { SgNode } from "@ast-grep/napi/types/sgnode";
 import type { RTEBlueprintEdge } from "../parsers/types";
 import type { SymbolRecord } from "@/lib/index/symbol-types";
 import { langForExtension } from "./lang-map";
@@ -46,6 +47,26 @@ function findSymbolIdForName(
   return hit?.id ?? null;
 }
 
+/**
+ * Await ast-grep findInFiles. The native API resolves its promise even when the
+ * callback is skipped (no matches); do not wrap in a callback-only Promise.
+ */
+async function runFindInFiles(
+  lang: NapiLang,
+  absPath: string,
+  matcher: NapiConfig,
+  onMatch: (nodes: SgNode[]) => void,
+): Promise<void> {
+  try {
+    await findInFiles(lang, { paths: [absPath], matcher }, (err, nodes) => {
+      if (err || !nodes?.length) return;
+      onMatch(nodes);
+    });
+  } catch {
+    /* invalid matcher for this language/file */
+  }
+}
+
 export async function scanImportsForFile(
   projectRoot: string,
   relFile: string,
@@ -69,23 +90,12 @@ export async function scanImportsForFile(
   const importPaths = new Set<string>();
 
   for (const importMatcher of importPatterns(lang)) {
-    await new Promise<void>((resolve, reject) => {
-      findInFiles(
-        lang,
-        { paths: [absPath], matcher: importMatcher },
-        (err, nodes) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          for (const n of nodes) {
-            const cap = n.getMatch(IMPORT_CAPTURE)?.text();
-            if (cap) importPaths.add(cap.replace(/^['"]|['"]$/g, ""));
-          }
-          resolve();
-        },
-      ).catch(reject);
-    }).catch(() => {});
+    await runFindInFiles(lang, absPath, importMatcher, (nodes) => {
+      for (const n of nodes) {
+        const cap = n.getMatch(IMPORT_CAPTURE)?.text();
+        if (cap) importPaths.add(cap.replace(/^['"]|['"]$/g, ""));
+      }
+    });
   }
 
   for (const imp of importPaths) {
@@ -118,41 +128,30 @@ export async function scanCallsForFile(
   const defaultCaller = callerSymbols[0]?.id ?? nodeIdForFileLine(relFile, 1, "module");
 
   for (const callMatcher of callPatterns(lang)) {
-    await new Promise<void>((resolve, reject) => {
-      findInFiles(
-        lang,
-        { paths: [absPath], matcher: callMatcher },
-        (err, nodes) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          for (const n of nodes) {
-            const callee = n.getMatch(CALLEE_CAPTURE)?.text();
-            if (!callee || !/^[a-zA-Z_$][\w$]*$/.test(callee)) continue;
-            const line = n.range().start.line + 1;
-            const fromId =
-              callerSymbols.find((s) => s.line <= line && (s.endLine ?? s.line) >= line)?.id ??
-              defaultCaller;
+    await runFindInFiles(lang, absPath, callMatcher, (nodes) => {
+      for (const n of nodes) {
+        const callee = n.getMatch(CALLEE_CAPTURE)?.text();
+        if (!callee || !/^[a-zA-Z_$][\w$]*$/.test(callee)) continue;
+        const line = n.range().start.line + 1;
+        const fromId =
+          callerSymbols.find((s) => s.line <= line && (s.endLine ?? s.line) >= line)?.id ??
+          defaultCaller;
 
-            for (const [, syms] of byFile) {
-              const target = syms.find((s) => s.name === callee);
-              if (!target) continue;
-              const key = `${fromId}->${target.id}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              edges.push({
-                from: fromId,
-                to: target.id,
-                type: "calls",
-                label: callee,
-              });
-            }
-          }
-          resolve();
-        },
-      ).catch(reject);
-    }).catch(() => {});
+        for (const [, syms] of byFile) {
+          const target = syms.find((s) => s.name === callee);
+          if (!target) continue;
+          const key = `${fromId}->${target.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          edges.push({
+            from: fromId,
+            to: target.id,
+            type: "calls",
+            label: callee,
+          });
+        }
+      }
+    });
   }
 
   return edges;
@@ -172,58 +171,47 @@ export async function scanRoutesForFile(
   const defaultCaller = callerSymbols[0]?.id ?? nodeIdForFileLine(relFile, 1, "module");
 
   for (const spec of routePatternSpecs(lang)) {
-    await new Promise<void>((resolve, reject) => {
-      findInFiles(
-        lang,
-        { paths: [absPath], matcher: spec.matcher },
-        (err, nodes) => {
-          if (err) {
-            reject(err);
-            return;
+    await runFindInFiles(lang, absPath, spec.matcher, (nodes) => {
+      for (const n of nodes) {
+        const line = n.range().start.line + 1;
+        const fromId =
+          callerSymbols.find((s) => s.line <= line && (s.endLine ?? s.line) >= line)?.id ??
+          defaultCaller;
+
+        let httpMethod = spec.httpMethod ?? null;
+        let routePath: string | null = null;
+
+        if (spec.capturePath) {
+          const cap = n.getMatch(ROUTE_PATH_CAPTURE)?.text()?.replace(/^['"]|['"]$/g, "");
+          if (cap) routePath = cap;
+        }
+        if (spec.captureMethod) {
+          const methodRaw = n.getMatch(ROUTE_METHOD_CAPTURE)?.text();
+          httpMethod = normalizeRouteHttpMethod(methodRaw) ?? httpMethod;
+          if (!routePath && httpMethod) {
+            routePath = inferNextRoutePath(relFile);
           }
-          for (const n of nodes) {
-            const line = n.range().start.line + 1;
-            const fromId =
-              callerSymbols.find((s) => s.line <= line && (s.endLine ?? s.line) >= line)?.id ??
-              defaultCaller;
+        }
 
-            let httpMethod = spec.httpMethod ?? null;
-            let routePath: string | null = null;
+        if (!httpMethod && !routePath) continue;
 
-            if (spec.capturePath) {
-              const cap = n.getMatch(ROUTE_PATH_CAPTURE)?.text()?.replace(/^['"]|['"]$/g, "");
-              if (cap) routePath = cap;
-            }
-            if (spec.captureMethod) {
-              const methodRaw = n.getMatch(ROUTE_METHOD_CAPTURE)?.text();
-              httpMethod = normalizeRouteHttpMethod(methodRaw) ?? httpMethod;
-              if (!routePath && httpMethod) {
-                routePath = inferNextRoutePath(relFile);
-              }
-            }
-
-            if (!httpMethod && !routePath) continue;
-
-            const label = [httpMethod, routePath].filter(Boolean).join(" ");
-            const toId = nodeIdForFileLine(
-              relFile,
-              line,
-              `route:${httpMethod ?? "handler"}:${routePath ?? "unknown"}`,
-            );
-            const key = `${fromId}->${toId}:api_call`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            edges.push({
-              from: fromId,
-              to: toId,
-              type: "api_call",
-              label: label || "route",
-            });
-          }
-          resolve();
-        },
-      ).catch(reject);
-    }).catch(() => {});
+        const label = [httpMethod, routePath].filter(Boolean).join(" ");
+        const toId = nodeIdForFileLine(
+          relFile,
+          line,
+          `route:${httpMethod ?? "handler"}:${routePath ?? "unknown"}`,
+        );
+        const key = `${fromId}->${toId}:api_call`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({
+          from: fromId,
+          to: toId,
+          type: "api_call",
+          label: label || "route",
+        });
+      }
+    });
   }
 
   return edges;

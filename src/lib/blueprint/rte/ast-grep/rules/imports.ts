@@ -17,7 +17,7 @@ export function importPatterns(lang: NapiLang): NapiConfig[] {
   return [
     pattern(lang as Lang, "import $$$ from '$PATH'"),
     pattern(lang as Lang, "import '$PATH'"),
-    pattern(lang as Lang, "export $$$ from '$PATH'"),
+    pattern(lang as Lang, "export { $$$ } from '$PATH'"),
     pattern(lang as Lang, "require('$PATH')"),
     pattern(lang as Lang, "import('$PATH')"),
   ];
