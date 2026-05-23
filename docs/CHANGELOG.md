@@ -1,5 +1,18 @@
 # Atlarix Changelog
 
+## [8.6.4] (2026-05-23) — Windows ctags index fix
+
+### Fixes
+
+- **ctags-index:** when file discovery returns no paths (common on Windows CI temp fixtures), fall back to recursive scan before running ctags; normalize `-L` file list paths to forward slashes.
+- **ctags-parse:** resolve Windows absolute/relative path shapes when matching ctags JSON `path` to workspace root.
+
+### CI
+
+- **ctags-index.test:** clear file-list cache between temp fixtures.
+
+---
+
 ## [8.6.3] (2026-05-23) — Windows CI ripgrep
 
 ### CI

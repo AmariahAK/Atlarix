@@ -9,11 +9,16 @@ import {
   isSymbolIndexWarm,
   updateSymbolIndexForFile,
 } from "../lib/index/ctags-index";
+import { clearFileListCache } from "../ipc/utils/project-files";
 import { hasCtags } from "./helpers/native-tools";
 
 const tmpDirs: string[] = [];
 
 afterEach(async () => {
+  for (const root of tmpDirs) {
+    invalidateSymbolIndex(root);
+    clearFileListCache(root);
+  }
   await Promise.all(tmpDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
 });
 

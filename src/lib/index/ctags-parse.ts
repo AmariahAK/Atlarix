@@ -3,6 +3,7 @@
  */
 
 import { createHash } from "crypto";
+import * as path from "node:path";
 import type { SymbolRecord } from "./symbol-types";
 
 export type RawCtagsJsonLine = {
@@ -46,7 +47,6 @@ export function parseCtagsJsonOutput(
   stdout: string,
   workspaceRoot: string,
 ): SymbolRecord[] {
-  const normRoot = workspaceRoot.replace(/\\/g, "/").replace(/\/$/, "");
   const symbols: SymbolRecord[] = [];
   const seen = new Set<string>();
 
@@ -63,12 +63,20 @@ export function parseCtagsJsonOutput(
     const filePath = row.path?.replace(/\\/g, "/");
     if (!name || !filePath) continue;
 
-    let rel = filePath;
-    const normFile = filePath.replace(/\\/g, "/");
-    if (normFile.startsWith(normRoot + "/")) {
-      rel = normFile.slice(normRoot.length + 1);
-    } else if (normFile.startsWith(normRoot)) {
-      rel = normFile.slice(normRoot.length).replace(/^\//, "");
+    const absRoot = path.resolve(workspaceRoot);
+    const absFile = path.isAbsolute(filePath)
+      ? path.resolve(filePath)
+      : path.resolve(absRoot, filePath);
+    let rel = path.relative(absRoot, absFile).replace(/\\/g, "/");
+    if (rel.startsWith("..")) {
+      // Fallback when ctags emits a path shape path.relative cannot normalize (e.g. 8.3 vs long path).
+      const normRoot = absRoot.replace(/\\/g, "/").replace(/\/$/, "");
+      const normFile = absFile.replace(/\\/g, "/");
+      if (normFile.startsWith(`${normRoot}/`)) {
+        rel = normFile.slice(normRoot.length + 1);
+      } else {
+        rel = filePath;
+      }
     }
 
     const lineNum = Number(row.line);

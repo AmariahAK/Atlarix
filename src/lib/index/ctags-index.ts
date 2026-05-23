@@ -8,6 +8,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import log from "electron-log";
 import { getProjectFiles } from "@/ipc/utils/project-files";
+import { getFilesRecursively } from "@/ipc/utils/file_utils";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 import { resolveCtagsPath } from "@/lib/native/resolve-ctags-path";
 import { parseCtagsJsonOutput } from "./ctags-parse";
@@ -99,7 +100,11 @@ async function runCtags(
 
   const listPath = path.join(projectPath, ATLARIX_DIR, ".ctags-filelist");
   await fs.mkdir(path.dirname(listPath), { recursive: true });
-  await fs.writeFile(listPath, filtered.join("\n"), "utf-8");
+  await fs.writeFile(
+    listPath,
+    filtered.map((f) => f.replace(/\\/g, "/")).join("\n"),
+    "utf-8",
+  );
 
   const args = [
     "--output-format=json",
@@ -159,7 +164,10 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     logger.info("ensureSymbolIndex: building", { projectPath: normPath });
     const t0 = Date.now();
 
-    const { files } = await getProjectFiles(normPath);
+    let { files } = await getProjectFiles(normPath);
+    if (files.length === 0) {
+      files = getFilesRecursively(normPath, normPath).map((f) => f.replace(/\\/g, "/"));
+    }
     const { symbols, ctagsVersion } = await runCtags(normPath, files);
 
     let commitHash: string | null = null;
