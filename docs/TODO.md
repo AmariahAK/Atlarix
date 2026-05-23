@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v8.6.0
-**Last Updated:** 2026-05-22
+**Current Version:** v8.6.1
+**Last Updated:** 2026-05-23
 
 ---
 
@@ -22,7 +22,7 @@
 | **Blast radius** | BFS on flow edges; permission + `diagnose_issue` wiring; skipped in autonomous auto-approve |
 | **`edit_file` permission fix** | schema + interceptor `executeOperation` |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.6.0]`.
+See [CHANGELOG.md](CHANGELOG.md) `[8.6.0]` / `[8.6.1]`.
 
 ---
 

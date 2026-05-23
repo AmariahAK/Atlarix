@@ -21,11 +21,20 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.6.0**
+**Current release:** **v8.6.1**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.6.1 — Packaging hotfix
+
+- **Packaged builds:** ast-grep native bindings now ship correctly on macOS, Windows, and Linux (fixes startup crash in v8.6.0 installers).
+- **Release CI:** Windows build stability, Discord forum announce, ctags-win32 download URL.
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) `[8.6.1]`.
 
 ---
 

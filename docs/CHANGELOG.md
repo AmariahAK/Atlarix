@@ -1,5 +1,18 @@
 # Atlarix Changelog
 
+## [8.6.1] (2026-05-23) — Packaging & release hotfix
+
+### Fixes
+
+- **Packaged app — ast-grep native binding:** `packageAfterPrune` no longer skips `@ast-grep/napi` platform optionalDependencies (`@ast-grep/napi-darwin-arm64`, etc.); fixes startup crash *Cannot find native binding* in production builds.
+- **Release CI — Windows:** skip flaky `setup-node` npm cache on `windows-latest`; disable cancel-in-progress on same-tag release runs so retags do not abort `build-windows` mid-step.
+- **Release CI — Discord:** forum-channel webhooks require `thread_name` on release announce payload.
+- **Release CI — ctags-win32:** resolve Windows ctags download URL via GitHub releases API (correct `ctags-{version}-x64.zip` asset names).
+- **ast-grep scan:** `findInFiles` no longer hangs when the native callback is skipped on zero matches.
+- **CI:** `extract-changelog.sh` executable in repo.
+
+---
+
 ## [8.6.0] (2026-05-22) — ctags + ast-grep Blueprint stack
 
 ### Features
