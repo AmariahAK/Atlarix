@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## [8.6.3] (2026-05-23) — Windows CI ripgrep
+
+### CI
+
+- **build-windows:** install ripgrep via Chocolatey before blueprint index benchmarks so file discovery uses `rg --files` instead of legacy recursive scan.
+
+---
+
 ## [8.6.2] (2026-05-23) — Atlarix Core build embed fix
 
 ### Fixes

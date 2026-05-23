@@ -446,6 +446,18 @@ jobs:
         shell: pwsh
         run: npm run fetch-ctags
 
+      - name: Install ripgrep
+        shell: pwsh
+        run: |
+          choco install ripgrep -y --no-progress
+          $rg = Get-Command rg -ErrorAction SilentlyContinue
+          if (-not $rg) {
+            Write-Error "rg not on PATH after choco install"
+            exit 1
+          }
+          Write-Host "ripgrep: $($rg.Source)"
+          rg --version
+
       - name: Test and blueprint index benchmarks
         shell: pwsh
         run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-blueprint-index.ts
