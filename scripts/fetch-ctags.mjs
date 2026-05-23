@@ -20,7 +20,7 @@ const ROOT = path.resolve(__dirname, "..");
 
 /** Pin nightly snapshot (Universal Ctags 6.x). Updated periodically. */
 const CTAGS_NIGHTLY_TAG = "2026.05.14+173707379ee89beaea30896652bd23931cb2f08d";
-const CTAGS_WIN32_TAG = "2025-10-25";
+const CTAGS_WIN32_API = "https://api.github.com/repos/universal-ctags/ctags-win32/releases";
 const NIGHTLY_API = "https://api.github.com/repos/universal-ctags/ctags-nightly-build/releases/tags/";
 
 function platformKey() {
@@ -62,6 +62,50 @@ async function downloadToFile(url, dest) {
   if (!res.ok) throw new Error(`Download failed ${res.status}: ${url}`);
   if (!res.body) throw new Error(`Empty body: ${url}`);
   await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+}
+
+function isWin64ZipAsset(name) {
+  return (
+    /^ctags-.*-x64\.zip$/i.test(name) &&
+    !name.includes("debug") &&
+    !name.includes("clang")
+  );
+}
+
+/** Resolve ctags-win32 x64 zip (asset names: ctags-{version}-x64.zip, not -win-x64). */
+async function resolveWin32AssetUrl() {
+  const res = await fetch(`${CTAGS_WIN32_API}?per_page=20`, {
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "atlarix-fetch-ctags" },
+  });
+  if (!res.ok) throw new Error(`GitHub API ${res.status} for ctags-win32 releases`);
+  const releases = await res.json();
+  if (!Array.isArray(releases) || releases.length === 0) {
+    throw new Error("No ctags-win32 releases found");
+  }
+
+  const commitPrefix = CTAGS_NIGHTLY_TAG.split("+")[1]?.slice(0, 7);
+  const datePart = CTAGS_NIGHTLY_TAG.split("+")[0]?.replace(/\./g, "-");
+
+  const pickAsset = (rel) =>
+    rel.assets?.find((a) => isWin64ZipAsset(a.name));
+
+  // Prefer a win32 build aligned with the pinned nightly commit/date.
+  for (const rel of releases) {
+    const tag = String(rel.tag_name ?? "");
+    const matchesPinned =
+      (commitPrefix && tag.includes(commitPrefix)) ||
+      (datePart && tag.includes(datePart));
+    if (!matchesPinned) continue;
+    const asset = pickAsset(rel);
+    if (asset) return asset.browser_download_url;
+  }
+
+  for (const rel of releases) {
+    const asset = pickAsset(rel);
+    if (asset) return asset.browser_download_url;
+  }
+
+  throw new Error("No ctags-win32 x64 zip asset found in recent releases");
 }
 
 function copyFromMacHomebrew() {
@@ -153,15 +197,16 @@ async function fetchDarwin() {
 }
 
 async function fetchWindows() {
-  const url = `https://github.com/universal-ctags/ctags-win32/releases/download/${CTAGS_WIN32_TAG}/ctags-${CTAGS_WIN32_TAG}-win-x64.zip`;
+  const url = await resolveWin32AssetUrl();
   const dest = path.join(destDir(), exeName());
   const zipPath = path.join(destDir(), "ctags-win.zip");
   fs.mkdirSync(destDir(), { recursive: true });
   console.log(`Downloading ${url}`);
   await downloadToFile(url, zipPath);
-  execSync(`powershell -NoProfile -Command "Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir()}'"`, {
-    stdio: "inherit",
-  });
+  execSync(
+    `powershell -NoProfile -Command "Expand-Archive -Force -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir().replace(/'/g, "''")}'"`,
+    { stdio: "inherit" },
+  );
   const candidates = [
     path.join(destDir(), "ctags.exe"),
     path.join(destDir(), "ctags", "ctags.exe"),
@@ -231,5 +276,5 @@ async function main() {
 
 main().catch((e) => {
   console.error(e);
-  process.exit(1);
+  setImmediate(() => process.exit(1));
 });
