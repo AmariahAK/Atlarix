@@ -24,13 +24,6 @@ export const COMPASS_TIER_ORDER = [
   COMPASS_TIER_THINKING,
 ] as const;
 
-/** Main-process only; renderer has no `process.env`. */
-function readCompassEnv(name: string): string | undefined {
-  if (typeof process === "undefined" || !process.env) return undefined;
-  const v = process.env[name];
-  return typeof v === "string" && v.trim() ? v.trim() : undefined;
-}
-
 export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
   (row) => {
     const openRouterModelId = getOpenRouterModelIdForCompassTier(row.id)?.trim() ?? "";
@@ -53,19 +46,39 @@ export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
   },
 );
 
+/** Main-process only; renderer has no `process.env`. */
+function trimEnv(value: string | undefined): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Read build-time Compass env vars.
+ * Must use static `process.env.COMPASS_*` property access so Vite `define` in
+ * `vite.main.config.mts` can embed CI secrets into the packaged main bundle.
+ */
+function compassEnvAvailable(): boolean {
+  return typeof process !== "undefined" && !!process.env;
+}
+
 export function getCompassMasterApiKey(): string | undefined {
-  return readCompassEnv("COMPASS_OPENROUTER_API_KEY");
+  if (!compassEnvAvailable()) return undefined;
+  return trimEnv(process.env.COMPASS_OPENROUTER_API_KEY);
 }
 
 export function getOpenRouterModelIdForCompassTier(
   internalTierId: string,
 ): string | undefined {
-  const envMap: Record<string, string | undefined> = {
-    [COMPASS_TIER_FAST]: readCompassEnv("COMPASS_MODEL_FAST"),
-    [COMPASS_TIER_BALANCED]: readCompassEnv("COMPASS_MODEL_BALANCED"),
-    [COMPASS_TIER_THINKING]: readCompassEnv("COMPASS_MODEL_THINKING"),
-  };
-  return envMap[internalTierId];
+  if (!compassEnvAvailable()) return undefined;
+  switch (internalTierId) {
+    case COMPASS_TIER_FAST:
+      return trimEnv(process.env.COMPASS_MODEL_FAST);
+    case COMPASS_TIER_BALANCED:
+      return trimEnv(process.env.COMPASS_MODEL_BALANCED);
+    case COMPASS_TIER_THINKING:
+      return trimEnv(process.env.COMPASS_MODEL_THINKING);
+    default:
+      return undefined;
+  }
 }
 
 /** True when the packaged app has Compass credentials (counts as "configured" in Settings). */

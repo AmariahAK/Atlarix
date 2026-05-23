@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## [8.6.2] (2026-05-23) — Atlarix Core build embed fix
+
+### Fixes
+
+- **Atlarix Core “Not Setup” in release builds:** `compass_constants` now uses static `process.env.COMPASS_*` reads so Vite `define` embeds `COMPASS_OPENROUTER_API_KEY` and model IDs from CI secrets into the packaged main process (dynamic `process.env[name]` was never inlined).
+
+---
+
 ## [8.6.1] (2026-05-23) — Packaging & release hotfix
 
 ### Fixes
