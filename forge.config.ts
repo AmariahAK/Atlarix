@@ -36,6 +36,79 @@ function npmTargetPlatformArgs(platform: string, arch: string): string[] {
   return [`--os=${platform}`, `--cpu=${arch}`];
 }
 
+/** @ast-grep/napi platform .node bindings are optionalDependencies — never install with --omit=optional. */
+const AST_GREP_RUNTIME_PACKAGES = [
+  "@ast-grep/napi",
+  "@ast-grep/lang-python",
+  "@ast-grep/lang-go",
+] as const;
+
+function astGrepNativeBindingPackage(platform: string, arch: string): string | null {
+  if (platform === "darwin") {
+    if (arch === "arm64") return "@ast-grep/napi-darwin-arm64";
+    if (arch === "x64") return "@ast-grep/napi-darwin-x64";
+    return null;
+  }
+  if (platform === "win32") {
+    if (arch === "x64") return "@ast-grep/napi-win32-x64-msvc";
+    if (arch === "arm64") return "@ast-grep/napi-win32-arm64-msvc";
+    return null;
+  }
+  if (platform === "linux") {
+    // GitHub ubuntu-latest and typical Linux desktop targets use glibc (gnu).
+    if (arch === "x64") return "@ast-grep/napi-linux-x64-gnu";
+    if (arch === "arm64") return "@ast-grep/napi-linux-arm64-gnu";
+    return null;
+  }
+  return null;
+}
+
+async function readPinnedDependencyVersions(
+  buildPath: string,
+  packageNames: readonly string[],
+): Promise<string[]> {
+  const fs = await import("node:fs/promises");
+  const pkg = JSON.parse(
+    await fs.readFile(path.join(buildPath, "package.json"), "utf8"),
+  ) as { dependencies?: Record<string, string> };
+  const deps = pkg.dependencies ?? {};
+  return packageNames
+    .filter((name) => deps[name])
+    .map((name) => `${name}@${String(deps[name]).trim()}`);
+}
+
+async function installAstGrepRuntimePackages(
+  buildPath: string,
+  platform: string,
+  arch: string,
+): Promise<void> {
+  const pinned = await readPinnedDependencyVersions(buildPath, AST_GREP_RUNTIME_PACKAGES);
+  if (pinned.length === 0) return;
+
+  await runNpmInstall(buildPath, [
+    "install",
+    "--omit=dev",
+    "--no-package-lock",
+    "--no-save",
+    "--no-audit",
+    "--no-fund",
+    ...npmTargetPlatformArgs(platform, arch),
+    ...pinned,
+  ]);
+
+  const bindingPkg = astGrepNativeBindingPackage(platform, arch);
+  if (!bindingPkg) return;
+  const fs = await import("node:fs/promises");
+  const bindingDir = path.join(buildPath, "node_modules", bindingPkg);
+  try {
+    await fs.access(bindingDir);
+  } catch {
+    throw new Error(
+      `Missing ${bindingPkg} after ast-grep install (optional native binding for ${platform}/${arch})`,
+    );
+  }
+}
+
 /** Rollup `external` may use subpaths (`tiktoken/lite`, `pdfjs-dist/build/foo`); `npm install` needs the package root. */
 function rollupExternalIdToNpmPackageRoot(id: string): string {
   if (!id || id.startsWith("node:")) return id;
@@ -277,11 +350,13 @@ const config: ForgeConfig = {
         if (!id || id.startsWith("node:") || builtins.has(id)) continue;
         npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
       }
+      const astGrepRoots = new Set<string>(AST_GREP_RUNTIME_PACKAGES);
       const toInstall = [...npmRoots].filter((pkg) => {
         const root = pkg.startsWith("@")
           ? pkg.split("/").slice(0, 2).join("/")
           : pkg.split("/")[0];
         if (RENDERER_ONLY_PACKAGES.has(root)) return false;
+        if (astGrepRoots.has(root)) return false;
         // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
         if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
           return false;
@@ -298,10 +373,14 @@ const config: ForgeConfig = {
           "--no-save",
           "--no-audit",
           "--no-fund",
+          ...npmTargetPlatformArgs(platform, arch),
           ...toInstall,
         ];
         await runNpmInstall(buildPath, commands);
       }
+
+      // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) must be installed separately.
+      await installAstGrepRuntimePackages(buildPath, platform, arch);
 
       // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
       // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
