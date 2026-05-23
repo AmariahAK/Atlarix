@@ -16,6 +16,7 @@ import * as path from "path";
 import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
+import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 
 const logger = log.scope("edit-tools");
 
@@ -133,6 +134,9 @@ interface EditFileArgs {
   section_identifier?: string;
   workspace?: string;
   chatMode?: string;
+  agentMode?: string;
+  _chatSessionId?: number;
+  workspaceId?: number;
 }
 
 function normalizeRelativePath(input: string): string {
@@ -169,8 +173,9 @@ function permissionPayload(args: {
   reasoning: string;
   diff?: any;
   operation: string;
+  metadata?: Awaited<ReturnType<typeof enrichPermissionWithBlastRadius>>;
 }) {
-  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation } = args;
+  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, metadata } = args;
   return {
     __permission_required: true,
     operation,
@@ -184,10 +189,28 @@ function permissionPayload(args: {
       ...(diff ? { diff } : {}),
     },
     reasoning,
+    ...(metadata ? { metadata } : {}),
   };
 }
 
-async function runReplace(args: EditFileArgs, normalizedPath: string, fullPath: string, workspace?: string) {
+async function permissionPayloadWithBlastRadius(
+  workspace: string | undefined,
+  args: Omit<Parameters<typeof permissionPayload>[0], "metadata">,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
+) {
+  const metadata = workspace
+    ? await enrichPermissionWithBlastRadius(workspace, args.normalizedPath, blastOpts)
+    : undefined;
+  return permissionPayload({ ...args, metadata });
+}
+
+async function runReplace(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
+) {
   const { old_content, new_content, description } = args;
   if (!old_content || new_content === undefined) {
     return { error: "operation=replace requires old_content and new_content", operation: "edit_file" };
@@ -229,20 +252,24 @@ async function runReplace(args: EditFileArgs, normalizedPath: string, fullPath: 
     r.content.slice(match.index + match.matchLength);
   const oldLines = old_content.split("\n").length;
   const newLines = new_content.split("\n").length;
-  return permissionPayload({
-    normalizedPath,
-    newContent,
-    oldContent: r.content,
-    description: description ?? "Surgical replace",
-    operation: "edit_file",
-    diff: {
-      removed: oldLines,
-      added: newLines,
-      old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
-      new_snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
+  return permissionPayloadWithBlastRadius(
+    workspace,
+    {
+      normalizedPath,
+      newContent,
+      oldContent: r.content,
+      description: description ?? "Surgical replace",
+      operation: "edit_file",
+      diff: {
+        removed: oldLines,
+        added: newLines,
+        old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
+        new_snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
+      },
+      reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
     },
-    reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
-  });
+    blastOpts,
+  );
 }
 
 async function runInsert(
@@ -250,6 +277,7 @@ async function runInsert(
   normalizedPath: string,
   fullPath: string,
   workspace?: string,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
 ) {
   const { line, new_content, description } = args;
   if (line === undefined || !new_content) {
@@ -269,19 +297,23 @@ async function runInsert(
   const codeLines = new_content.split("\n");
   const newLines = [...lines.slice(0, line), ...codeLines, ...lines.slice(line)];
   const newContent = newLines.join("\n");
-  return permissionPayload({
-    normalizedPath,
-    newContent,
-    oldContent: r.content,
-    description: description ?? "Insert lines",
-    operation: "edit_file",
-    diff: {
-      inserted_at: line,
-      lines_added: codeLines.length,
-      snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
+  return permissionPayloadWithBlastRadius(
+    workspace,
+    {
+      normalizedPath,
+      newContent,
+      oldContent: r.content,
+      description: description ?? "Insert lines",
+      operation: "edit_file",
+      diff: {
+        inserted_at: line,
+        lines_added: codeLines.length,
+        snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
+      },
+      reasoning: `Insert ${codeLines.length} lines at ${line} in ${normalizedPath}: ${description ?? "(no description)"}`,
     },
-    reasoning: `Insert ${codeLines.length} lines at ${line} in ${normalizedPath}: ${description ?? "(no description)"}`,
-  });
+    blastOpts,
+  );
 }
 
 async function runDelete(
@@ -289,6 +321,7 @@ async function runDelete(
   normalizedPath: string,
   fullPath: string,
   workspace?: string,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
 ) {
   const { start_line, end_line, description } = args;
   if (start_line === undefined || end_line === undefined) {
@@ -309,19 +342,23 @@ async function runDelete(
   const deletedContent = deletedLines.join("\n");
   const newLines = [...lines.slice(0, start_line - 1), ...lines.slice(end_line)];
   const newContent = newLines.join("\n");
-  return permissionPayload({
-    normalizedPath,
-    newContent,
-    oldContent: r.content,
-    description: description ?? "Delete lines",
-    operation: "edit_file",
-    diff: {
-      deleted_range: `${start_line}-${end_line}`,
-      lines_removed: deletedLines.length,
-      deleted_snippet: deletedContent.slice(0, 200) + (deletedContent.length > 200 ? "..." : ""),
+  return permissionPayloadWithBlastRadius(
+    workspace,
+    {
+      normalizedPath,
+      newContent,
+      oldContent: r.content,
+      description: description ?? "Delete lines",
+      operation: "edit_file",
+      diff: {
+        deleted_range: `${start_line}-${end_line}`,
+        lines_removed: deletedLines.length,
+        deleted_snippet: deletedContent.slice(0, 200) + (deletedContent.length > 200 ? "..." : ""),
+      },
+      reasoning: `Delete ${start_line}-${end_line} from ${normalizedPath}: ${description ?? "(no description)"}`,
     },
-    reasoning: `Delete ${start_line}-${end_line} from ${normalizedPath}: ${description ?? "(no description)"}`,
-  });
+    blastOpts,
+  );
 }
 
 async function runSection(
@@ -329,6 +366,7 @@ async function runSection(
   normalizedPath: string,
   fullPath: string,
   workspace?: string,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
 ) {
   const { section_identifier, new_content, description } = args;
   if (!section_identifier || new_content === undefined) {
@@ -380,14 +418,18 @@ async function runSection(
   const after = lines.slice(endLine + 1);
   const newLines = [...before, new_content, ...after];
   const newContent = newLines.join("\n");
-  return permissionPayload({
-    normalizedPath,
-    newContent,
-    oldContent: r.content,
-    description: description ?? `Replace section ${section_identifier}`,
-    operation: "edit_file",
-    reasoning: `Section edit (${section_identifier}) in ${normalizedPath}: ${description ?? "(no description)"}`,
-  });
+  return permissionPayloadWithBlastRadius(
+    workspace,
+    {
+      normalizedPath,
+      newContent,
+      oldContent: r.content,
+      description: description ?? `Replace section ${section_identifier}`,
+      operation: "edit_file",
+      reasoning: `Section edit (${section_identifier}) in ${normalizedPath}: ${description ?? "(no description)"}`,
+    },
+    blastOpts,
+  );
 }
 
 ToolRegistry.register({
@@ -445,7 +487,8 @@ Prefer "replace" for code changes — it requires matching the existing content 
     required: ["path", "operation"],
   },
   handler: async (rawArgs: EditFileArgs) => {
-    const { path: filePath, operation, workspace, chatMode } = rawArgs;
+    const { path: filePath, operation, workspace, chatMode, agentMode, _chatSessionId, workspaceId } = rawArgs;
+    const blastOpts = { agentMode, chatSessionId: _chatSessionId, workspaceId };
 
     if (chatMode === "ask") {
       return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
@@ -471,13 +514,13 @@ Prefer "replace" for code changes — it requires matching the existing content 
 
     switch (operation) {
       case "replace":
-        return runReplace(rawArgs, normalizedPath, fullPath, workspace);
+        return runReplace(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "insert":
-        return runInsert(rawArgs, normalizedPath, fullPath, workspace);
+        return runInsert(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "delete":
-        return runDelete(rawArgs, normalizedPath, fullPath, workspace);
+        return runDelete(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "section":
-        return runSection(rawArgs, normalizedPath, fullPath, workspace);
+        return runSection(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       default:
         return { error: `Unknown operation: ${operation}. Use replace | insert | delete | section.`, operation: "edit_file" };
     }

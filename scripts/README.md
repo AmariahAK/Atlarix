@@ -37,6 +37,27 @@ npm run email:v85-upgrade
 
 Workspace copy (same campaign): `../scripts/send-v85-upgrade-emails.mjs` with `node --env-file=../Atlarix/.env`.
 
+## fetch-ctags.mjs
+
+Downloads or copies **Universal Ctags** into `assets/ctags/{platform}/` (gitignored). Used by the Blueprint symbol index and `get_file_outline`.
+
+```bash
+cd Atlarix
+npm run fetch-ctags
+```
+
+- **macOS:** Homebrew `universal-ctags` if present, else nightly build from [ctags-nightly-build](https://github.com/universal-ctags/ctags-nightly-build).
+- **Linux / Windows:** pinned nightly / ctags-win32 release.
+- Also runs automatically on **`npm install`** (`postinstall`).
+
+## bench-blueprint-index.ts
+
+CI gate for the Blueprint index stack (ctags warm + ast-grep structural scan on a synthetic fixture):
+
+```bash
+npx tsx scripts/bench-blueprint-index.ts
+```
+
 ## extract-codebase.ts
 
 A script that extracts code files from a directory, respecting `.gitignore` rules, and outputs them in a format suitable for LLM consumption.

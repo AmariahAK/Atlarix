@@ -22,6 +22,8 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 interface MermaidRendererProps {
     code: string;
     className?: string;
+    /** When true, fill parent artifact card instead of enforcing standalone min-height */
+    embedded?: boolean;
     onRender?: (svg: string) => void;
     onError?: (error: string) => void;
 }
@@ -131,6 +133,7 @@ function ErrorOverlay({
 export function MermaidRenderer({
     code,
     className = "",
+    embedded = false,
     onRender,
     onError,
 }: MermaidRendererProps) {
@@ -284,7 +287,7 @@ export function MermaidRenderer({
     }, [renderDiagram, theme]);
 
     return (
-        <div className={`relative w-full h-full min-h-[500px] ${className}`}>
+        <div className={`relative w-full h-full ${embedded ? "min-h-0" : "min-h-[500px]"} ${className}`}>
             {/* Error Message - Full overlay with raw code view */}
             {error && (
                 <ErrorOverlay
@@ -354,7 +357,7 @@ export function MermaidRenderer({
                             wrapperStyle={{
                                 width: '100%',
                                 height: '100%',
-                                minHeight: '500px',
+                                minHeight: embedded ? 0 : '500px',
                                 overflow: 'hidden',
                                 cursor: 'grab',
                             }}
@@ -367,11 +370,12 @@ export function MermaidRenderer({
                                 ref={containerRef}
                                 className="mermaid-container flex items-center justify-center"
                                 style={{
-                                    padding: "40px",
+                                    padding: embedded ? "24px" : "40px",
                                     opacity: isRendering ? 0.3 : 1,
                                     transition: 'opacity 0.2s ease-in-out',
                                     minWidth: '100%',
-                                    minHeight: '500px',
+                                    minHeight: embedded ? 0 : '500px',
+                                    height: embedded ? '100%' : undefined,
                                 }}
                             />
                         </TransformComponent>

@@ -11,7 +11,10 @@ vi.mock("electron-log", () => ({
   },
 }));
 
-import { readFileStructuredError } from "../lib/tools/file-read-errors";
+import {
+  enrichReadFileStructuredError,
+  readFileStructuredError,
+} from "../lib/tools/file-read-errors";
 import { ENV_SECRET_BLOCK_MESSAGE, PATH_ESCAPE_BLOCK_MESSAGE } from "../lib/security/env-secret-paths";
 
 describe("readFileStructuredError", () => {
@@ -56,6 +59,19 @@ describe("readFileStructuredError", () => {
     expect(result?.error).toBe("path_not_allowed");
   });
 
+
+  it("enrichReadFileStructuredError appends inventory", () => {
+    const base = readFileStructuredError(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      "package.json",
+    )!;
+    const enriched = enrichReadFileStructuredError(
+      base,
+      'This workspace has only 2 tracked file(s): "a.md", "b.txt".',
+    );
+    expect(enriched.message).toContain("package.json");
+    expect(enriched.message).toContain("2 tracked file");
+  });
   it("returns null for unknown errors", () => {
     expect(readFileStructuredError(new Error("disk on fire"), "x.ts")).toBeNull();
   });

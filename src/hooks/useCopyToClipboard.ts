@@ -25,6 +25,9 @@ const CUSTOM_TAG_NAMES = [
   "atlarix-code-search",
   "atlarix-code-search-result",
   "atlarix-read",
+  "redacted_thinking",
+  "reasoning",
+  "thinking",
 ];
 export const useCopyToClipboard = () => {
   const [copied, setCopied] = useState(false);
@@ -93,6 +96,9 @@ export const useCopyToClipboard = () => {
     switch (tag) {
       // Exclude thinking and tool tags from copy output - user wants the response only
       case "think":
+      case "redacted_thinking":
+      case "reasoning":
+      case "thinking":
       case "atlarix-tool-call":
       case "atlarix-tool-result":
       case "atlarix-mcp-tool-call":

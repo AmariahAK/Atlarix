@@ -150,7 +150,7 @@ const FEATURES: ToolFeature[] = [
     category: "blueprint",
     steps: ["Open a workspace", "Ask the model to load Blueprint for an area", "Navigate the canvas; compare to Live view"],
     howItWorks:
-      "RTE workers parse TS/JS via oxc and selected langs via WASM tree-sitter; results merge into the graph store used for structural search.",
+      "Universal Ctags builds the symbol index; ast-grep/napi extracts import and call edges. BM25 ranks symbols for semantic search; ripgrep is the text fallback.",
     link: { label: "Home → Blueprint", to: "/" },
   },
   {

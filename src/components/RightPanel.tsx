@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare, ListTree,
+    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare, ListTree, ClipboardList,
 } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
@@ -43,6 +43,8 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
+import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
+import { PlanExecutionPanel } from './preview_panel/PlanExecutionPanel';
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
@@ -64,6 +66,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     vault: { icon: KeyRound, label: 'Vault' },
     activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
+    plan: { icon: ClipboardList, label: 'Plan' },
 };
 
 // Primary mode categories for the toolbar
@@ -79,10 +82,12 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'tools': 'tools',
     'timeline': 'code',
     'permission': 'code',  // Permission requests appear in Code mode
+    'plan': 'code',
     'empty': 'search',
 };
 
 export function RightPanel() {
+    useWorkspacePlanPanel();
     const { context, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
@@ -437,6 +442,9 @@ function PanelContent({
         case 'tools':
             // Tool execution activity panel
             return <ToolsPanel data={context.data} />;
+
+        case 'plan':
+            return <PlanExecutionPanel />;
 
         default:
             return (

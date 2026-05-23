@@ -6,6 +6,10 @@
 
 import { atom } from 'jotai';
 import { type ParsedError } from '@/lib/devServerErrorParser';
+import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
+import type { PlanUpdatePayload } from '@/ipc/ipc_types';
+import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
+import type { PlanUpdatePayload } from '@/ipc/ipc_types';
 
 // ═══════════════════════════════════════════════════════════
 // PANEL TYPES
@@ -19,9 +23,10 @@ export type PanelType =
     | 'file-diff'       // File changes + approval
     | 'files'           // File explorer (default)
     | 'timeline'        // Diagram timeline (project evolution)
-    | 'tools'           // Tool execution activity (Ask mode)
-    | 'permission'      // Permission approval panel (run_command, write_file)
+    | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
+
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat' | 'plan';
 
 export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat';
 
@@ -48,6 +53,7 @@ export type AIPanelIntent =
     | 'show-diagram'        // Show architecture diagram → maps to 'diagram'
     | 'show-terminal'       // Show command output → maps to 'terminal'
     | 'show-timeline'       // Show diagram history → maps to 'timeline'
+    | 'show-plan'           // Show ATLARIX plan execution panel → maps to 'plan'
     | 'show-files'          // Show file explorer → maps to 'files'
     | 'show-preview'        // Show dev server preview → maps to 'code-preview'
     | 'hide'                // Clear/hide panel → maps to 'empty'
@@ -100,6 +106,9 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
 
         case 'show-preview':
             // Dev server preview panel
+        case 'show-plan':
+            return 'plan';
+
             return 'code-preview';
 
         case 'hide':
@@ -443,6 +452,17 @@ export const rightPanelVisibleAtom = atom<boolean>(false);
  * non-critical UI (sources, diagram tool results, terminal). Cleared when the user
  * opens the panel explicitly.
  */
+/** Right-panel Plan tab: workspace markdown, parsed changes, live ledger. */
+export const workspacePlanPanelAtom = atom<{
+  markdown: string | null;
+  changes: PlanChangesPayload | null;
+  ledger: PlanUpdatePayload | null;
+}>({
+  markdown: null,
+  changes: null,
+  ledger: null,
+});
+
 export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
 
 /** Whether left panel is visible (extension panel). Toggled by Cmd+I / Ctrl+I when Pro. */

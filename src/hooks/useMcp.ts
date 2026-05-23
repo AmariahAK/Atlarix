@@ -87,12 +87,33 @@ export function useMcp(filter?: McpListFilter) {
     meta: { showErrorToast: true },
   });
 
+  const serversQueryKey = [
+    "mcp",
+    "servers",
+    filter?.scope ?? "all",
+    filter?.appId ?? null,
+  ] as const;
+
   const deleteServerMutation = useMutation({
     mutationFn: async (id: number) => {
       const ipc = IpcClient.getInstance();
       return ipc.deleteMcpServer(id);
     },
-    onSuccess: async () => {
+    onMutate: async (id: number) => {
+      await queryClient.cancelQueries({ queryKey: ["mcp", "servers"] });
+      const previous = queryClient.getQueryData<McpServer[]>(serversQueryKey);
+      queryClient.setQueryData<McpServer[]>(
+        serversQueryKey,
+        (old) => (old ?? []).filter((s) => s.id !== id),
+      );
+      return { previous, serversQueryKey };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous != null) {
+        queryClient.setQueryData(context.serversQueryKey, context.previous);
+      }
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["mcp"] });
     },
     meta: { showErrorToast: true },

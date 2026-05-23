@@ -142,7 +142,7 @@ export const chatSessions = sqliteTable("chat_sessions", {
   workspaceId: integer("workspace_id")
     .notNull()
     .references(() => apps.id, { onDelete: "cascade" }),
-  title: text("title").notNull().default("New session"),
+  title: text("title").notNull().default("Untitled"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -707,32 +707,7 @@ export const workflowTemplates = sqliteTable("workflow_templates", {
     .default(sql`(unixepoch())`),
 });
 
-// PASS6: Blueprint + PIVOT tables restored. Migration 0043 was dropped.
-// --- Blueprint (Phase 7 Additive Blueprint) ---
-// One blueprint per workspace: rooms, edges, functions per room
-export const blueprints = sqliteTable(
-  "blueprints",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    workspaceId: integer("workspace_id")
-      .notNull()
-      .references(() => apps.id, { onDelete: "cascade" }),
-    content: text("content", { mode: "json" })
-      .$type<{ rooms: unknown[]; edges: unknown[]; envRefs?: string[] }>()
-      .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
-  },
-  (table) => [unique("blueprints_workspace_unique").on(table.workspaceId)]
-);
-
-export const blueprintsRelations = relations(blueprints, ({ one }) => ({
-  workspace: one(apps, {
-    fields: [blueprints.workspaceId],
-    references: [apps.id],
-  }),
-}));
+// PASS6: PIVOT tables restored. Legacy `blueprints` SQLite table dropped in 0047.
 
 // --- PIVOT (Full PIVOT: nodes, edges, containers, beacons, blueprint_snapshots) ---
 export const pivotNodes = sqliteTable(

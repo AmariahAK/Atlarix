@@ -1,4 +1,4 @@
-/** Shared shape for workspace oxc-parser / regex file parsing. */
+/** Shared shape for workspace ctags / regex file parsing. */
 
 export interface ParsedFileResult {
   imports: string[];

@@ -10,7 +10,7 @@
 
 ## Tool surface (Pass 7 consolidated)
 
-- **Search:** `search({ mode: "auto" | "text" | "semantic" | "semantic-lite" | "semantic-graph" | "structural" })`. Prefer an explicit `mode`. Legacy `semantic` is treated as `semantic-graph` (BM25 over blueprint). `auto` never picks `semantic-graph` — use explicit `semantic-graph` for beacon BM25. `semantic-lite` scans source files only (no blueprint parse). `web_search({deep: true})` for multi-source web; `deep_research` is the agentic loop. `read_url` for a specific URL.
+- **Search:** `search({ mode: "auto" | "text" | "semantic" | "semantic-lite" | "semantic-graph" | "structural" })`. Prefer an explicit `mode`. Legacy `semantic` is treated as `semantic-graph` (BM25 over ctags symbols). `auto` picks text, semantic-lite, or structural; upgrades concept queries to `semantic-graph` when `.atlarix/symbols.json` is warm. `semantic-lite` scans source files only (no symbol index). `web_search({deep: true})` for multi-source web; `deep_research` is the agentic loop. `read_url` for a specific URL.
 - **Edit:** `edit_file({operation: "replace" | "insert" | "delete" | "section"})`.
 - **Memory:** `memory({operation: "recall" | "search"})` for session activity. Project memory uses `get_project_history` (optional `revert_to`) / `set_project_memory`.
 - **Diagnostics:** `diagnose_issue({analysis_type: "diagnose" | "health_check" | "change_impact"})`.
@@ -38,7 +38,7 @@ Blueprint is a **lazy read-only architecture graph** built on demand when you ca
 1. `get_repo_overview` for cold-session layout (README excerpt, entry points, shallow tree) — no Blueprint parse
 2. `get_blueprint` and/or `get_diagram` when you need a structural map
 3. `explore_folder` / `list_files` / `find_file` to navigate
-4. `search` — prefer explicit `mode`: `text` (ripgrep), `semantic-lite` (file scan, no blueprint), `semantic-graph` (BM25 beacons), `structural` (blueprint graph). `auto` picks text vs semantic-lite vs structural only (never `semantic-graph`). Then `get_file_outline` to pin-point
+4. `search` — prefer explicit `mode`: `text` (ripgrep), `semantic-lite` (file scan), `semantic-graph` (BM25 over ctags), `structural` (blueprint graph). `auto` picks text vs semantic-lite vs structural; uses BM25 when symbol index is warm. Then `get_file_outline` to pin-point
 5. `read_file` with `start_line`/`end_line` for exact ranges
 
 ## Context layers

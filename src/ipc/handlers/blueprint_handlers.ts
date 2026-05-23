@@ -37,7 +37,8 @@ import { scheduleBlueprintChangeSnapshot } from "@/lib/project-memory/service";
 import { generateFromBlueprintDelta, type CodegenDelta, type CodegenResult } from "@/lib/blueprint/codegen";
 import { inferBlueprintFromWorkspace } from "@/lib/blueprint/workspace_to_blueprint";
 import { rteResultToBlueprint } from "@/lib/blueprint/rte_to_blueprint";
-import { generateBlueprint } from "@/lib/blueprint/rte/parsers";
+import { generateBlueprint, blueprintEngineLabel } from "@/lib/blueprint/rte/parsers";
+import { invalidateSymbolIndex } from "@/lib/index/ctags-index";
 import { buildBlueprintFromFileTree } from "@/lib/blueprint/fileTreeSource";
 import { getReferencePaths, setReferencePaths, buildCombinedBlueprint, saveCombinedBlueprint } from "@/lib/blueprint/reference-manager";
 import { enrichAll } from "@/lib/blueprint/enricher";
@@ -46,18 +47,8 @@ import * as fs from "node:fs/promises";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
 import { analyzeWorkspace } from "@/lib/analysis/workspace-analyzer";
 import { simplifyDescriptionWithAI, simplifyRoomWithAI, simplifyArchitectureWithAI } from "@/lib/blueprint/descriptions/aiSimplifier";
-import { parseProject } from "@/lib/pivot/parsers";
-import {
-  saveNodesAndEdges,
-  saveBlueprintSnapshot,
-  saveContainersAndBeacons,
-  loadNodesAndEdges,
-  loadBlueprintSnapshots,
-  getBlueprintSnapshot,
-} from "@/lib/pivot/pivot-service";
-import { clusterIntoContainers } from "@/lib/pivot/clustering";
 import log from "electron-log";
-import { invalidateBm25Index } from "@/lib/search/bm25_semantic_index";
+import { invalidateBm25Index, markBm25Dirty } from "@/lib/search/bm25_semantic_index";
 import { app as electronApp } from "electron";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
@@ -74,27 +65,50 @@ const logger = log.scope("blueprint_handlers");
 
 /** Cap in-memory blueprints so many opened workspaces do not grow RAM without bound. */
 const MAX_BLUEPRINT_CACHE_WORKSPACES = 14;
-const blueprintCache = new Map<number, Blueprint>();
+
+type BlueprintCacheEntry = {
+  blueprint: Blueprint;
+  /** When true, mergeInferredEdges has already been applied for this cached graph. */
+  inferredEdgesMerged: boolean;
+  /** RTE engine that produced the cached graph (when known). */
+  engine?: "ast-grep+ctags" | "file-tree";
+};
+
+const blueprintCache = new Map<number, BlueprintCacheEntry>();
 
 function touchBlueprintCache(workspaceId: number): void {
-  const b = blueprintCache.get(workspaceId);
-  if (b === undefined) return;
+  const entry = blueprintCache.get(workspaceId);
+  if (entry === undefined) return;
   blueprintCache.delete(workspaceId);
-  blueprintCache.set(workspaceId, b);
+  blueprintCache.set(workspaceId, entry);
 }
 
-function setCachedBlueprint(workspaceId: number, b: Blueprint): void {
+function setCachedBlueprint(
+  workspaceId: number,
+  b: Blueprint,
+  options?: { inferredEdgesMerged?: boolean; engine?: "ast-grep+ctags" | "file-tree" },
+): void {
+  const prev = blueprintCache.get(workspaceId);
   if (blueprintCache.has(workspaceId)) {
     blueprintCache.delete(workspaceId);
   }
-  blueprintCache.set(workspaceId, b);
-  invalidateBm25Index(workspaceId);
+  blueprintCache.set(workspaceId, {
+    blueprint: b,
+    inferredEdgesMerged:
+      options?.inferredEdgesMerged ?? prev?.inferredEdgesMerged ?? false,
+    engine: options?.engine ?? prev?.engine,
+  });
+  markBm25Dirty(workspaceId);
   while (blueprintCache.size > MAX_BLUEPRINT_CACHE_WORKSPACES) {
     const oldest = blueprintCache.keys().next().value as number | undefined;
     if (oldest === undefined) break;
     blueprintCache.delete(oldest);
     invalidateBm25Index(oldest);
   }
+}
+
+function getCachedBlueprint(workspaceId: number): BlueprintCacheEntry | undefined {
+  return blueprintCache.get(workspaceId);
 }
 
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
@@ -129,22 +143,7 @@ export function emitBlueprintAiEditing(workspaceId: number, action: string) {
   sendToAllWindows("blueprint:ai-editing", { workspaceId, action });
 }
 
-/** Persist PIVOT: parse project, save nodes/edges and a blueprint snapshot (source: rte). */
-async function persistPivotFromRefresh(
-  workspaceId: number,
-  workspacePath: string,
-  blueprint: Blueprint,
-): Promise<void> {
-  try {
-    const parsed = await parseProject(workspacePath);
-    await saveNodesAndEdges(workspaceId, parsed.nodes, parsed.edges);
-    await saveBlueprintSnapshot(workspaceId, JSON.stringify(blueprint), "rte");
-  } catch (e) {
-    throw e;
-  }
-}
-
-/** Infer blueprint when no user blueprint: RTE cache first, then file-tree (no full RTE). */
+/** Infer blueprint: RTE disk cache → ctags+ast-grep generateBlueprint → file-tree → workspace analysis. */
 async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (!app) return createEmptyBlueprint();
@@ -165,20 +164,64 @@ async function inferBlueprint(workspaceId: number): Promise<Blueprint> {
       },
       workspacePath
     );
-    if (b.rooms.length > 0) return b;
+    if (b.rooms.length > 0) {
+      setCachedBlueprint(workspaceId, b, {
+        engine: cached.manifest.engine ?? "file-tree",
+      });
+      return b;
+    }
+  }
+  try {
+    const t0 = Date.now();
+    const rteResult = await generateBlueprint(workspacePath);
+    if (rteResult && rteResult.nodes.length > 0) {
+      const ignoreSrc =
+        rteResult.atlarixIgnoreSource?.trim() ||
+        (await readAtlarixIgnoreSource(workspacePath)).trim();
+      const engine = blueprintEngineLabel(rteResult);
+      await saveBlueprintCache(workspacePath, {
+        manifest: {
+          projectPath: workspacePath,
+          framework: rteResult.framework.name,
+          language: rteResult.framework.name,
+          engine,
+        },
+        nodes: rteResult.nodes,
+        edges: rteResult.edges,
+        ...(ignoreSrc ? { atlarixIgnoreSource: ignoreSrc } : {}),
+      });
+      const blueprint = rteResultToBlueprint(rteResult, workspacePath);
+      if (blueprint.rooms.length > 0) {
+        logger.info("inferBlueprint: generateBlueprint complete", {
+          workspaceId,
+          elapsedMs: Date.now() - t0,
+          engine,
+          nodes: rteResult.nodes.length,
+          edges: rteResult.edges.length,
+        });
+        void import("@sentry/electron/main")
+          .then((Sentry) => {
+            Sentry.addBreadcrumb({
+              category: "blueprint",
+              message: "infer_generate_complete",
+              level: "info",
+              data: { workspaceId, elapsedMs: Date.now() - t0, engine },
+            });
+          })
+          .catch(() => {});
+        setCachedBlueprint(workspaceId, blueprint, { engine });
+        return blueprint;
+      }
+    }
+  } catch (e) {
+    logger.warn("generateBlueprint failed, falling back to file-tree:", e);
   }
   try {
     const { rooms, edges, inferredEdges } = await buildBlueprintFromFileTree(workspacePath);
     const mergedEdges = [...edges, ...inferredEdges];
     const blueprint: Blueprint = { rooms, edges: mergedEdges, envRefs: [] };
     if (rooms.some((r) => !r.hidden && r.functions.length > 0)) {
-      // PASS8: Blueprint is model-driven only. Auto-generation removed.
-      // The previous v3.6 background IIFE eagerly built a combined cross-repo
-      // blueprint + ran symbol enrichment on every workspace open and every
-      // `inferBlueprint` invocation, costing FS + CPU + a `blueprint:updated`
-      // IPC fanout. The model now triggers blueprint work via the `get_blueprint`
-      // tool; the synchronous file-tree pass above is enough to seed the cache
-      // for that on-demand call.
+      setCachedBlueprint(workspaceId, blueprint, { engine: "file-tree" });
       return blueprint;
     }
   } catch (e) {
@@ -227,16 +270,16 @@ export function filterBlueprintByPathPrefix(blueprint: Blueprint, focusPrefix: s
 
 /** Get blueprint for workspace (memory, then persisted user blueprint, then infer). Used by IPC and AI tools. */
 export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blueprint> {
-  const cached = blueprintCache.get(workspaceId);
+  const cached = getCachedBlueprint(workspaceId);
   if (cached) {
     touchBlueprintCache(workspaceId);
-    const sanitized = sanitizeBlueprint(cached);
+    const sanitized = sanitizeBlueprint(cached.blueprint);
     const needsFunctionBackfill = sanitized.rooms.some(
       (r) => (r.functions?.length ?? 0) === 0 && !r.hidden,
     );
-    if (needsFunctionBackfill) {
+    if (!cached.inferredEdgesMerged || needsFunctionBackfill) {
       const merged = await mergeInferredEdges(workspaceId, sanitized);
-      setCachedBlueprint(workspaceId, merged);
+      setCachedBlueprint(workspaceId, merged, { inferredEdgesMerged: true });
       return merged;
     }
     return sanitized;
@@ -269,7 +312,7 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
           }
           logSnapshotLoaded(snapshot);
           const merged = await mergeInferredEdges(workspaceId, sanitized);
-          setCachedBlueprint(workspaceId, merged);
+          setCachedBlueprint(workspaceId, merged, { inferredEdgesMerged: true });
           return merged;
         }
       }
@@ -281,14 +324,15 @@ export async function getBlueprintForWorkspace(workspaceId: number): Promise<Blu
     if (userBlueprint != null) {
       const base = sanitizeBlueprint(userBlueprint);
       const merged = await mergeInferredEdges(workspaceId, base);
-      setCachedBlueprint(workspaceId, merged);
+      setCachedBlueprint(workspaceId, merged, { inferredEdgesMerged: true });
       return merged;
     }
   }
   const inferred = await inferBlueprint(workspaceId);
   const sanitized = sanitizeBlueprint(inferred);
-  setCachedBlueprint(workspaceId, sanitized);
-  return sanitized;
+  const merged = await mergeInferredEdges(workspaceId, sanitized);
+  setCachedBlueprint(workspaceId, merged, { inferredEdgesMerged: true });
+  return merged;
 }
 
 /** Normalize room label for matching (lowercase, trim, collapse spaces to underscore). */
@@ -297,12 +341,22 @@ function normalizedRoomKey(room: { label: string; path?: string }): string {
   return s || "_";
 }
 
-/** Merge inferred flow/cross-room edges from file tree into an existing blueprint so users can see and edit connections. */
+/** Merge inferred flow/cross-room edges from file tree when RTE graph is incomplete. */
 async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Promise<Blueprint> {
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (!app) return blueprint;
+
+  const memEntry = getCachedBlueprint(workspaceId);
+  const workspacePath = getAtlarixAppPath(app.path);
+  const diskCache = await loadBlueprintCache(workspacePath);
+  const engine = memEntry?.engine ?? diskCache?.manifest?.engine;
+  const hasFlowEdges = (blueprint.rooms ?? []).some((r) => (r.flowEdges?.length ?? 0) > 0);
+  const hasCrossRoom = (blueprint.edges?.length ?? 0) > 0;
+  if (engine === "ast-grep+ctags" && (hasFlowEdges || hasCrossRoom)) {
+    return blueprint;
+  }
+
   try {
-    const workspacePath = getAtlarixAppPath(app.path);
     const { rooms: inferredRooms, inferredEdges } = await buildBlueprintFromFileTree(workspacePath);
     const roomIds = new Set((blueprint.rooms ?? []).map((r) => r.id));
     const existingEdgeKeys = new Set((blueprint.edges ?? []).map((e) => `${e.from}\t${e.to}`));
@@ -387,7 +441,7 @@ async function mergeInferredEdges(workspaceId: number, blueprint: Blueprint): Pr
 export async function setBlueprintForWorkspace(workspaceId: number, blueprint: Blueprint): Promise<void> {
   let b = sanitizeBlueprint(blueprint);
   b = await mergeInferredEdges(workspaceId, b);
-  const currentMerged = blueprintCache.get(workspaceId);
+  const currentMerged = getCachedBlueprint(workspaceId)?.blueprint;
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (app) {
     try {
@@ -431,9 +485,8 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
           removedInferredEdgeKeys: [...new Set([...(previous?.removedInferredEdgeKeys ?? []), ...newlyRemoved])],
         };
       }
-      setCachedBlueprint(workspaceId, b);
+      setCachedBlueprint(workspaceId, b, { inferredEdgesMerged: true });
       await saveUserBlueprint(workspacePath, b);
-      await saveBlueprintSnapshot(workspaceId, JSON.stringify(b), "user");
       scheduleBlueprintChangeSnapshot(workspaceId, workspacePath, JSON.stringify(b));
     } catch (e) {
       logger.warn("Failed to persist user blueprint:", e);
@@ -452,6 +505,14 @@ export async function setBlueprintForWorkspace(workspaceId: number, blueprint: B
 export function invalidateBlueprintCache(workspaceId: number): void {
   blueprintCache.delete(workspaceId);
   invalidateBm25Index(workspaceId);
+  void (async () => {
+    try {
+      const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+      if (app) invalidateSymbolIndex(getAtlarixAppPath(app.path));
+    } catch {
+      /* ignore */
+    }
+  })();
 }
 
 /** After diagram/code revert: drop cache, re-infer blueprint, push to all renderer windows (`blueprint:updated`). */
@@ -601,7 +662,10 @@ export function registerBlueprintHandlers() {
           return { success: false, error: "Workspace not found" };
         }
         const workspacePath = getAtlarixAppPath(app.path);
-        const current = blueprintCache.get(workspaceId) ?? (await loadUserBlueprint(workspacePath)) ?? createEmptyBlueprint();
+        const current =
+          getCachedBlueprint(workspaceId)?.blueprint ??
+          (await loadUserBlueprint(workspacePath)) ??
+          createEmptyBlueprint();
         let merged: Blueprint;
         try {
           const rteResult = await generateBlueprint(workspacePath);
@@ -614,6 +678,7 @@ export function registerBlueprintHandlers() {
                 projectPath: workspacePath,
                 framework: rteResult.framework.name,
                 language: rteResult.framework.name,
+                engine: blueprintEngineLabel(rteResult),
               },
               nodes: rteResult.nodes,
               edges: rteResult.edges,
@@ -635,14 +700,12 @@ export function registerBlueprintHandlers() {
               edges: Array.from(edgeMap.values()),
               envRefs: current.envRefs ?? [],
             };
-            setCachedBlueprint(workspaceId, merged);
-            await saveUserBlueprint(workspacePath, merged);
-            sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
+            const mergedWithInferred = await mergeInferredEdges(workspaceId, merged);
+            setCachedBlueprint(workspaceId, mergedWithInferred, { inferredEdgesMerged: true });
+            await saveUserBlueprint(workspacePath, mergedWithInferred);
+            sendToAllWindows("blueprint:updated", { workspaceId, blueprint: mergedWithInferred });
             sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
-            persistPivotFromRefresh(workspaceId, workspacePath, merged).catch((e) =>
-              logger.warn("PIVOT persist after RTE failed (non-fatal):", e)
-            );
-            return { success: true, blueprint: merged, newConnectionsCount: added.length };
+            return { success: true, blueprint: mergedWithInferred, newConnectionsCount: added.length };
           }
         } catch (e) {
           logger.warn("RTE refresh failed, falling back to file-tree:", e);
@@ -653,13 +716,11 @@ export function registerBlueprintHandlers() {
           edges: [...fileTree.edges, ...fileTree.inferredEdges],
           envRefs: current.envRefs ?? [],
         };
-        setCachedBlueprint(workspaceId, merged);
-        sendToAllWindows("blueprint:updated", { workspaceId, blueprint: merged });
+        const mergedWithInferred = await mergeInferredEdges(workspaceId, merged);
+        setCachedBlueprint(workspaceId, mergedWithInferred, { inferredEdgesMerged: true });
+        sendToAllWindows("blueprint:updated", { workspaceId, blueprint: mergedWithInferred });
         sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
-        persistPivotFromRefresh(workspaceId, workspacePath, merged).catch((e) =>
-          logger.warn("PIVOT persist after file-tree failed (non-fatal):", e)
-        );
-        return { success: true, blueprint: merged, newConnectionsCount: 0 };
+        return { success: true, blueprint: mergedWithInferred, newConnectionsCount: 0 };
       } catch (error) {
         sendToAllWindows("blueprint:rte-running", { workspaceId, running: false });
         logger.error("blueprint:refresh-from-code error:", error);
@@ -836,83 +897,6 @@ export function registerBlueprintHandlers() {
         return { success: true, summary };
       } catch (error) {
         logger.error("blueprint:simplify-architecture error:", error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "pivot:get-nodes-edges",
-    async (_, { workspaceId }: { workspaceId: number }) => {
-      try {
-        const { nodes, edges } = await loadNodesAndEdges(workspaceId);
-        return { success: true, nodes, edges };
-      } catch (error) {
-        logger.error("pivot:get-nodes-edges error:", error);
-        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "pivot:get-snapshots",
-    async (_, { workspaceId, limit }: { workspaceId: number; limit?: number }) => {
-      try {
-        const snapshots = await loadBlueprintSnapshots(workspaceId, limit ?? 50);
-        return { success: true, snapshots };
-      } catch (error) {
-        logger.error("pivot:get-snapshots error:", error);
-        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "pivot:restore-snapshot",
-    async (_, { workspaceId, snapshotId }: { workspaceId: number; snapshotId: number }) => {
-      try {
-        const data = await getBlueprintSnapshot(snapshotId);
-        if (!data || data.workspaceId !== workspaceId) {
-          return { success: false, error: "Snapshot not found" };
-        }
-        const blueprint = JSON.parse(data.blueprintJson) as Blueprint;
-        await setBlueprintForWorkspace(workspaceId, blueprint);
-        return { success: true, blueprint };
-      } catch (error) {
-        logger.error("pivot:restore-snapshot error:", error);
-        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "blueprint:cluster",
-    async (
-      _,
-      { workspaceId }: { workspaceId: number }
-    ): Promise<{ success: boolean; blueprint?: Blueprint; error?: string }> => {
-      try {
-        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
-        if (!app) return { success: false, error: "Workspace not found" };
-        const workspacePath = getAtlarixAppPath(app.path);
-        const parsed = await parseProject(workspacePath);
-        if (parsed.nodes.length === 0) {
-          return { success: false, error: "No nodes to cluster (parse project first or refresh from code)" };
-        }
-        const { blueprint, pivotBlueprint } = await clusterIntoContainers(
-          parsed.nodes,
-          parsed.edges,
-          { framework: parsed.framework, workspaceId }
-        );
-        await saveContainersAndBeacons(workspaceId, pivotBlueprint.containers, pivotBlueprint.beacons);
-        await saveBlueprintSnapshot(workspaceId, JSON.stringify(blueprint), "ai_cluster");
-        await setBlueprintForWorkspace(workspaceId, blueprint);
-        return { success: true, blueprint };
-      } catch (error) {
-        logger.error("blueprint:cluster error:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",

@@ -98,7 +98,8 @@ export const PermissionOperationType = z.enum([
     "batch_refactor",
     // Parent-aggregated: one approval for a full plan (v2.2)
     "batch_plan",
-    // Surgical edit tools
+    // Surgical edit tools (unified edit_file + legacy names)
+    "edit_file",
     "replace_code",
     "insert_code",
     "delete_lines",

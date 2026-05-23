@@ -13,7 +13,20 @@ import {
 import { useMcp, type Transport } from "@/hooks/useMcp";
 import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
-import { Edit2, Eye, EyeOff, Plus, Save, Trash2, X, Wifi } from "lucide-react";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Edit2,
+  Eye,
+  EyeOff,
+  Plus,
+  Save,
+  Trash2,
+  X,
+  Wifi,
+} from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { UrlInputField, UrlReadOnlyRow } from "@/components/settings/UrlDisplayField";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
@@ -310,6 +323,7 @@ export function ToolsMcpSettings({
     setToolConsent: updateToolConsent,
     updateServer,
     isUpdatingServer,
+    isDeleting,
     refetchAll,
   } = useMcp(filter);
   const { status: authStatus, loading: authLoading } = useAuth();
@@ -330,8 +344,21 @@ export function ToolsMcpSettings({
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [enabled, setEnabled] = useState(true);
-  const [testingId, setTestingId] = useState<number | null>(null);
+  const [expandedServerIds, setExpandedServerIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const { lastDeepLink, clearLastDeepLink } = useDeepLink();
+
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const toggleServerExpanded = (serverId: number) => {
+    setExpandedServerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(serverId)) next.delete(serverId);
+      else next.add(serverId);
+      return next;
+    });
+  };
+
   useEffect(() => {
     const handleDeepLink = async () => {
       if (lastDeepLink?.type === "add-mcp-server") {
@@ -341,17 +368,17 @@ export function ToolsMcpSettings({
         setName(payload.name);
         setTransport(payload.config.type);
         if (payload.config.type === "stdio") {
-          const [command, ...args] = payload.config.command.split(" ");
-          setCommand(command);
-          setArgs(args.join(" "));
+          const [cmd, ...rest] = payload.config.command.split(" ");
+          setCommand(cmd);
+          setArgs(rest.join(" "));
         } else {
           setUrl(payload.config.url);
         }
         clearLastDeepLink();
       }
     };
-    handleDeepLink();
-  }, [lastDeepLink?.timestamp]);
+    void handleDeepLink();
+  }, [lastDeepLink?.timestamp, clearLastDeepLink, lastDeepLink]);
 
   React.useEffect(() => {
     setConsents(consentsMap);
@@ -431,6 +458,17 @@ export function ToolsMcpSettings({
     await updateToolConsent(serverId, toolName, consent);
     setConsents((prev) => ({ ...prev, [`${serverId}:${toolName}`]: consent }));
   };
+  const onDeleteServer = async (serverId: number) => {
+    try {
+      await deleteServer(serverId);
+      await refetchAll();
+      showSuccess("MCP server removed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showError(msg);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -482,12 +520,7 @@ export function ToolsMcpSettings({
           )}
           {transport === "http" && (
             <div className="col-span-2">
-              <Label>URL</Label>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="http://localhost:3000"
-              />
+              <UrlInputField value={url} onChange={setUrl} />
             </div>
           )}
           <div className="col-span-2 space-y-1.5">
@@ -553,21 +586,40 @@ export function ToolsMcpSettings({
       </div>
 
       <div className="space-y-3">
-        {servers.map((s) => (
+        {servers.map((s) => {
+          const isExpanded = expandedServerIds.has(s.id);
+          const toolCount = (toolsByServer[s.id] || []).length;
+          return (
           <div key={s.id} className="border rounded-lg p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{s.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {s.transport}
-                  {s.url ? ` · ${s.url}` : ""}
-                  {s.command ? ` · ${s.command}` : ""}
-                  {Array.isArray(s.args) && s.args.length
-                    ? ` · ${s.args.join(" ")}`
-                    : ""}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="flex items-start gap-2 min-w-0 flex-1 text-left"
+                onClick={() => toggleServerExpanded(s.id)}
+              >
+                {isExpanded ? (
+                  <ChevronsDownUp className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                ) : (
+                  <ChevronsUpDown className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                )}
+                <div className="min-w-0">
+                  <div className="font-medium">{s.name}</div>
+                  <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1">
+                    <span>{s.transport}</span>
+                    {s.transport === "http" && s.url ? (
+                      <UrlReadOnlyRow url={s.url} />
+                    ) : null}
+                    {s.command ? <span className="truncate">· {s.command}</span> : null}
+                    {Array.isArray(s.args) && s.args.length ? (
+                      <span className="truncate">· {s.args.join(" ")}</span>
+                    ) : null}
+                    {toolCount > 0 ? (
+                      <span>· {toolCount} tool{toolCount === 1 ? "" : "s"}</span>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
                   variant="outline"
                   size="sm"
@@ -581,11 +633,18 @@ export function ToolsMcpSettings({
                   checked={!!s.enabled}
                   onCheckedChange={() => toggleServerEnabled(s.id, !!s.enabled)}
                 />
-                <Button variant="outline" size="sm" onClick={() => deleteServer(s.id)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isDeleting}
+                  onClick={() => void onDeleteServer(s.id)}
+                >
                   Delete
                 </Button>
               </div>
             </div>
+            {isExpanded ? (
+              <>
             {s.transport === "stdio" && (
               <div className="mt-3">
                 <div className="text-sm font-medium mb-2">
@@ -605,7 +664,9 @@ export function ToolsMcpSettings({
                 />
               </div>
             )}
-            <div className="mt-3 space-y-2">
+            <div className="mt-3">
+              <ScrollArea className="max-h-[280px] pr-2">
+                <div className="space-y-2">
               {(toolsByServer[s.id] || []).map((t) => (
                 <div key={t.name} className="border rounded p-2">
                   <div className="flex items-center gap-4">
@@ -640,9 +701,14 @@ export function ToolsMcpSettings({
                   No tools discovered.
                 </div>
               )}
+                </div>
+              </ScrollArea>
             </div>
+              </>
+            ) : null}
           </div>
-        ))}
+          );
+        })}
         {servers.length === 0 && (
           <div className="text-sm text-muted-foreground">
             No servers configured yet.

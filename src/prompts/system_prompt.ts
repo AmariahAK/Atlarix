@@ -15,6 +15,13 @@ import {
   loadInstructionLayers,
   buildInstructionsFromLayers,
 } from "../lib/project-instructions";
+import {
+  buildWorkstationIdentityBlock,
+  resolveActiveModelIdentity,
+} from "../lib/model-identity-prompt";
+import type { LargeLanguageModel } from "../lib/schemas";
+import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
+import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
 
 const logger = log.scope("system_prompt");
 
@@ -368,6 +375,11 @@ export interface ConstructSystemPromptParams {
     enableTurboEditsV2?: boolean;
     /** @deprecated Legacy flag; clarifying `<questions>` blocks are no longer used. */
     hasAnsweredQuestions?: boolean;
+    /** Resolved model for this turn (after Auto routing). Drives workstation identity block. */
+    activeModel?: LargeLanguageModel;
+    modelDisplayName?: string;
+    providerBrand?: string;
+    labelWithProvider?: string;
 }
 
 /**
@@ -461,6 +473,10 @@ export const constructSystemPromptParts = ({
     contextSize = 32000,
     optionalProjectInstructions,
     hasAnsweredQuestions = false,
+    activeModel,
+    modelDisplayName,
+    providerBrand,
+    labelWithProvider,
 }: ConstructSystemPromptParams): SystemPromptParts => {
     const base = optionalProjectInstructions ?? getAgentsMdForContextSize(contextSize);
 
@@ -472,6 +488,12 @@ If a tool is in your tool list, call it; do not claim it is missing.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
 </tool_contract>`;
 
+    const sessionTitleRule = `<session_title>
+On the **first turn** of a **new workspace chat session**, end your reply with exactly one tag:
+<atlarix-chat-summary>three to six word title</atlarix-chat-summary>
+Use 3–6 words, no punctuation. Emit this tag once per session (omit on follow-up turns unless the user asks to rename the session topic).
+</session_title>`;
+
     const webResearchRules = `**Web research tools — pick exactly one per topic per turn**
 
 You have \`web_search\` and \`deep_research\`. **RULE:** For any single research topic or question in one assistant turn, use **one** of these two only. **Never** call both for the same subject or overlapping topic in the same turn.
@@ -481,43 +503,44 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 - **read_url**: when the user gives a specific URL to open—use \`read_url\`, not a blanket web_search on top of deep_research.
 
 If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.`;
+    const visualArtifactsGuide = loadVisualArtifactsGuide();
+    const inlineVizRules = `**Inline visualizations (Visual Artifacts skill)**
 
-    const inlineVizRules = `**Inline visualizations (chat)**
+Before emitting any **table**, **chart**, **mermaid**, or **markmap**, follow the Visual Artifacts skill below. Diagrams and charts render inline as collapsible artifact cards (no side panel). When a visual clearly helps, **include it in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary visual per answer unless the user asked for multiple views.
 
-Diagrams render in the conversation (no side panel). When a visual clearly helps, **include the fence in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary viz per answer unless the user asked for multiple views.
+You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_skills({ filter: "artifact" })\` for the same guidance.
 
-| Situation | Use |
-|-----------|-----|
-| Repo/folder tree, module outline, doc hierarchy, brainstorm branches | \`\`\`markmap\`\`\` |
-| Request/response flow, sequence, state machine, class/ER, dependencies, \`get_diagram\` output | \`\`\`mermaid\`\`\` |
-| After \`explore_folder\` / \`get_repo_overview\` summarizing structure | Prefer **one** markmap unless they asked for a flow |
-| After tracing a bug or API call chain | Prefer **one** mermaid sequence or flowchart |
-
-- \`\`\`mermaid\`\`\`: flowcharts, sequence diagrams, class diagrams, ER, architecture graphs.
-- \`\`\`markmap\`\`\`: hierarchical mind-maps (markdown headings and bullet lists).
-- \`get_diagram\` → always echo \`mermaid_code\` in a \`\`\`mermaid\`\`\` fence.
-
-Example markmap:
-
-\`\`\`markmap
-# My App
-## API
-- routes
-## UI
-- components
-\`\`\``;
+${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`;
 
     const modeBlock = renderModeSystemBlock(effectiveWorkMode);
     const modeSpecific = buildModeSpecificInstruction(chatMode);
     const appVersion = getElectronAppVersion();
-    const runtimeIdentity = `# Atlarix runtime identity
-You run inside the **Atlarix** desktop app by **NorahLabs** (norahlabs.com). Product: atlarix.dev.
+    const identity =
+        activeModel != null
+            ? resolveActiveModelIdentity(activeModel)
+            : null;
+    const runtimeIdentity =
+        activeModel != null || modelDisplayName
+            ? buildWorkstationIdentityBlock({
+                  modelDisplayName:
+                      modelDisplayName ??
+                      identity?.modelDisplayName ??
+                      "the configured model",
+                  providerBrand:
+                      providerBrand ?? identity?.providerBrand ?? "your provider",
+                  labelWithProvider:
+                      labelWithProvider ?? identity?.labelWithProvider,
+                  appVersion,
+              })
+            : `# Atlarix runtime identity
+You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent workstation built by **NorahLabs** ([norahlabs.com](https://norahlabs.com/)).
 - **App version:** \`${appVersion}\`
-- If asked who made Atlarix, what you are, what version you or the app are, or similar: you are the **Atlarix** in-app assistant; **NorahLabs** builds Atlarix; state the app version exactly as **${appVersion}**. Do not say you have no version, or that you were created by an unnamed "development team."`;
+- If asked who built Atlarix, say **NorahLabs** ([norahlabs.com](https://norahlabs.com/)). State the app version exactly as **${appVersion}**. Do not say you have no version or that you were created by an unnamed "development team."`;
 
     const stableHeader = [
         base.trim(),
         toolContract,
+        sessionTitleRule,
         inlineVizRules,
         modeBlock,
         webResearchRules,
@@ -573,8 +596,12 @@ export async function buildSystemPromptWithProjectInstructions(params: {
     userPrompt?: string | null;
     /** v3.9: When true, omit the <questions> instruction. */
     hasAnsweredQuestions?: boolean;
+    activeModel?: LargeLanguageModel;
+    modelDisplayName?: string;
+    providerBrand?: string;
+    labelWithProvider?: string;
 }): Promise<string> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions } = params;
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider } = params;
     const bundleContent = getAgentsMdForContextSize(contextSize);
     const layers = await loadInstructionLayers({
         workspacePath,
@@ -589,6 +616,10 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         userPrompt,
         optionalProjectInstructions,
         hasAnsweredQuestions,
+        activeModel,
+        modelDisplayName,
+        providerBrand,
+        labelWithProvider,
     });
 }
 
@@ -604,8 +635,12 @@ export async function buildSystemPromptPartsWithProjectInstructions(params: {
     effectiveWorkMode?: ModeSystemKey;
     userPrompt?: string | null;
     hasAnsweredQuestions?: boolean;
+    activeModel?: LargeLanguageModel;
+    modelDisplayName?: string;
+    providerBrand?: string;
+    labelWithProvider?: string;
 }): Promise<SystemPromptParts> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions } = params;
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider } = params;
     const bundleContent = getAgentsMdForContextSize(contextSize);
     const layers = await loadInstructionLayers({
         workspacePath,
@@ -620,6 +655,10 @@ export async function buildSystemPromptPartsWithProjectInstructions(params: {
         userPrompt,
         optionalProjectInstructions,
         hasAnsweredQuestions,
+        activeModel,
+        modelDisplayName,
+        providerBrand,
+        labelWithProvider,
     });
 }
 

@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Folder, Globe, Sparkles } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/tabs";
 import { ToolsMcpSettings } from "./ToolsMcpSettings";
 import { McpMarketplaceTab } from "./McpMarketplaceTab";
+import { OrphanedMcpSection } from "./OrphanedMcpSection";
 import { IpcClient } from "@/ipc/ipc_client";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -59,6 +61,7 @@ function WorkspaceMcpCard({
 
 export function McpSettingsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [workspaces, setWorkspaces] = useState<WorkspaceWithStatus[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">("active");
@@ -160,12 +163,17 @@ export function McpSettingsPage() {
                 </p>
               </div>
             </div>
+
+            <OrphanedMcpSection />
           </TabsContent>
 
           <TabsContent value="marketplace" className="mt-4">
             <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
               <McpMarketplaceTab
                 workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+                onChanged={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["mcp"] });
+                }}
               />
             </div>
           </TabsContent>

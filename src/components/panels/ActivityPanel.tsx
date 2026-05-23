@@ -73,26 +73,32 @@ function iconForItem(item: ActivityStreamItem): LucideIcon {
   return Wrench;
 }
 
-function statusSuffix(item: ActivityStreamItem): string {
-  if (item.status === "running" || item.status === "active") {
-    return "output streaming...";
-  }
-  if (item.status === "error") {
-    return "failed";
-  }
+function inlineStatusLabel(item: ActivityStreamItem): string | null {
+  if (item.status === "running" || item.status === "active") return "Running…";
+  if (item.status === "error") return "Failed";
   if (item.status === "done") {
     if (item.duration != null) {
-      return `completed (${(item.duration / 1000).toFixed(0)}s)`;
+      return `Done (${(item.duration / 1000).toFixed(1)}s)`;
     }
-    return "completed";
+    return "Done";
   }
-  return "";
+  return null;
+}
+
+/** Hide redundant detail echoed in the label (e.g. "Running…" on tool rows). */
+function displayDetail(item: ActivityStreamItem): string | undefined {
+  const d = item.detail?.trim();
+  if (!d) return undefined;
+  if (/^running\.{0,3}$/i.test(d)) return undefined;
+  if (d === item.label?.trim()) return undefined;
+  return d.length > 120 ? `${d.slice(0, 117)}…` : d;
 }
 
 function ActivityRow({ item }: { item: ActivityStreamItem }) {
   const Icon = iconForItem(item);
-  const suffix = statusSuffix(item);
   const isRunning = item.status === "running" || item.status === "active";
+  const statusLabel = inlineStatusLabel(item);
+  const detail = displayDetail(item);
 
   return (
     <div className="flex gap-2 py-1.5 text-xs font-mono border-b border-border/40 last:border-0">
@@ -111,20 +117,23 @@ function ActivityRow({ item }: { item: ActivityStreamItem }) {
         )}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-foreground">
-          <span className="text-muted-foreground">{item.label}</span>
-          {item.detail ? (
-            <span className={cn("ml-1", isRunning && "text-blue-400/90")}>
-              {item.detail.length > 120
-                ? `${item.detail.slice(0, 117)}...`
-                : item.detail}
+        <div className="flex items-baseline gap-2 flex-wrap text-foreground">
+          <span className="min-w-0">{item.label}</span>
+          {statusLabel ? (
+            <span
+              className={cn(
+                "shrink-0 text-[10px] uppercase tracking-wide",
+                isRunning && "text-blue-400/90",
+                item.status === "error" && "text-red-400/90",
+                item.status === "done" && "text-emerald-400/80",
+              )}
+            >
+              {statusLabel}
             </span>
           ) : null}
         </div>
-        {suffix ? (
-          <div className="text-muted-foreground mt-0.5">
-            {isRunning ? `↳ ${suffix}` : suffix}
-          </div>
+        {detail ? (
+          <div className="text-muted-foreground mt-0.5 line-clamp-2">{detail}</div>
         ) : null}
       </div>
     </div>

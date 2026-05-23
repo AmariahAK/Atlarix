@@ -87,22 +87,32 @@ export function rteResultToBlueprint(result: RTEParseResult, projectRoot?: strin
       description: n.description ?? n.path ?? n.file,
       simpleDescription: n.simpleDescription,
       descriptionSource: n.descriptionSource,
+      file: n.file ? (projectRoot ? path.join(projectRoot, n.file) : n.file) : undefined,
     }));
+    const intraRoomFlow = edges
+      .filter((e) => nodeToRoomId.get(e.from) === roomId && nodeToRoomId.get(e.to) === roomId)
+      .map((e) => mapRteEdge(e));
+    const outboundFlow = edges
+      .filter((e) => nodeToRoomId.get(e.from) === roomId && nodeToRoomId.get(e.to) !== roomId)
+      .map((e) => mapRteEdge(e));
+    const flowEdges = [...intraRoomFlow, ...outboundFlow];
     rooms.push({
       id: roomId,
       label: key.charAt(0).toUpperCase() + key.slice(1),
       path: key,
       functions,
-      flowEdges: edges
-        .filter((e) => nodeToRoomId.get(e.from) === roomId && nodeToRoomId.get(e.to) === roomId)
-        .map((e) => ({
-          from: e.from,
-          to: e.to,
-          label: e.label,
-          type: e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call",
-          weight: undefined,
-        })),
+      flowEdges,
     });
+  }
+
+  function mapRteEdge(e: RTEBlueprintEdge) {
+    return {
+      from: e.from,
+      to: e.to,
+      label: e.label,
+      type: (e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call") as "import" | "call" | "api",
+      weight: undefined,
+    };
   }
 
   const roomEdges: BlueprintEdge[] = [];

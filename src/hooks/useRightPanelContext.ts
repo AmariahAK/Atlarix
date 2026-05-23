@@ -52,6 +52,7 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
     'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
+    'plan': ['plan'],
     'empty': [],
 };
 
@@ -338,6 +339,12 @@ function getDataForType(
                 appId: state.appId,
                 ...state.diagramState,
                 ...state.aiContext
+            };
+        case 'plan':
+            return {
+                workspacePath: state.workspacePath,
+                appId: state.appId,
+                chatId: state.aiContext?.chatId,
             };
         default:
             return state.aiContext || null;

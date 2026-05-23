@@ -1,4 +1,5 @@
 import { Progress } from "@/components/ui/progress";
+import { ATLARIX_CORE_CATEGORY_LABEL } from "@/shared/compass_product_copy";
 
 export function CompassUsageStrip({
   subscriptionTierLabel,
@@ -24,7 +25,7 @@ export function CompassUsageStrip({
       <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <div className="flex justify-between gap-2">
           <span className="truncate" title="Tier from your Atlarix account (Supabase)">
-            Compass · {subscriptionTierLabel}
+            {ATLARIX_CORE_CATEGORY_LABEL} · {subscriptionTierLabel}
           </span>
           <span className="tabular-nums shrink-0">
             {remaining.toLocaleString()} / {limit.toLocaleString()} tokens left

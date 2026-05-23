@@ -184,6 +184,7 @@ export class PermissionInterceptor extends EventEmitter {
 
         switch (request.operation) {
             case "write_file":
+            case "edit_file":
             case "replace_code":
             case "insert_code":
             case "delete_lines":
@@ -653,6 +654,7 @@ export class PermissionInterceptor extends EventEmitter {
                     await this.executeRunCommand(operationId, request);
                     break;
                 // Surgical edit tools - they all produce preview.content with full file
+                case "edit_file":
                 case "replace_code":
                 case "insert_code":
                 case "delete_lines":

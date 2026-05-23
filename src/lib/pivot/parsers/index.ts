@@ -1,6 +1,6 @@
 /**
  * PIVOT parsers — unified parseProject(workspacePath) using workspace-analyzer + structure extractor.
- * Workspace analysis uses structural heuristics; TS/JS structure scans use oxc-parser when available.
+ * Workspace analysis uses structural heuristics; file structure scans use ctags symbols when available.
  */
 
 import { analyzeWorkspace } from "@/lib/analysis";

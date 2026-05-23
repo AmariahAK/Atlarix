@@ -4,6 +4,10 @@
  */
 
 import type { LanguageModel } from "../ipc_types";
+import {
+  formatModelApiNameForDisplay,
+  formatModelWithProvider,
+} from "@/lib/format-openrouter-model-label";
 import { COMPASS_TIER_ROWS } from "../../shared/compass_product_copy";
 
 export type CompassPlan = "free" | "pro" | "workforce";
@@ -20,10 +24,22 @@ export const COMPASS_TIER_ORDER = [
   COMPASS_TIER_THINKING,
 ] as const;
 
+/** Main-process only; renderer has no `process.env`. */
+function readCompassEnv(name: string): string | undefined {
+  if (typeof process === "undefined" || !process.env) return undefined;
+  const v = process.env[name];
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
 export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
-  (row) => ({
+  (row) => {
+    const openRouterModelId = getOpenRouterModelIdForCompassTier(row.id)?.trim() ?? "";
+    const modelDisplayName = openRouterModelId
+      ? formatModelApiNameForDisplay(openRouterModelId)
+      : row.id;
+    return {
     apiName: row.id,
-    displayName: row.title,
+    displayName: formatModelWithProvider(modelDisplayName, "openrouter"),
     description: row.description,
     type: "cloud" as const,
     dollarSigns: 0,
@@ -33,24 +49,23 @@ export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
     // `getContextWindowDetailed` so any catalog-only consumer (autorouter,
     // proposal handler) reads the same conservative ceiling the stream uses.
     contextWindow: 200_000,
-  }),
+  };
+  },
 );
 
 export function getCompassMasterApiKey(): string | undefined {
-  const k = process.env.COMPASS_OPENROUTER_API_KEY;
-  return typeof k === "string" && k.trim() ? k.trim() : undefined;
+  return readCompassEnv("COMPASS_OPENROUTER_API_KEY");
 }
 
 export function getOpenRouterModelIdForCompassTier(
   internalTierId: string,
 ): string | undefined {
   const envMap: Record<string, string | undefined> = {
-    [COMPASS_TIER_FAST]: process.env.COMPASS_MODEL_FAST,
-    [COMPASS_TIER_BALANCED]: process.env.COMPASS_MODEL_BALANCED,
-    [COMPASS_TIER_THINKING]: process.env.COMPASS_MODEL_THINKING,
+    [COMPASS_TIER_FAST]: readCompassEnv("COMPASS_MODEL_FAST"),
+    [COMPASS_TIER_BALANCED]: readCompassEnv("COMPASS_MODEL_BALANCED"),
+    [COMPASS_TIER_THINKING]: readCompassEnv("COMPASS_MODEL_THINKING"),
   };
-  const v = envMap[internalTierId];
-  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+  return envMap[internalTierId];
 }
 
 /** True when the packaged app has Compass credentials (counts as "configured" in Settings). */
@@ -92,15 +107,15 @@ export function compassFallbackChain(
 }
 
 export const COMPASS_REACHABILITY_ERROR =
-  "We're currently having trouble reaching Compass. Please retry or switch to another provider in Settings.";
+  "We're currently having trouble reaching Atlarix Core. Please retry or switch to another provider in Settings.";
 
 export function compassExhaustedUserMessage(tier: string): string {
   const t = (tier || "free").toLowerCase();
   if (t === "free") {
-    return "Your Compass usage for this month is over. Upgrade to Pro or Workforce for more, or add your own API keys in Settings.";
+    return "Your Atlarix Core usage for this month is over. Upgrade to Pro or Workforce for more, or add your own API keys in Settings.";
   }
   if (t === "pro") {
-    return "Your Compass usage for this month is over. Upgrade to Workforce for more, or add your own API keys in Settings.";
+    return "Your Atlarix Core usage for this month is over. Upgrade to Workforce for more, or add your own API keys in Settings.";
   }
-  return "Your Compass usage for this month is over. Contact support@atlarix.dev for Pay-as-You-Go options, or add your own API keys in Settings.";
+  return "Your Atlarix Core usage for this month is over. Contact support@atlarix.dev for Pay-as-You-Go options, or add your own API keys in Settings.";
 }

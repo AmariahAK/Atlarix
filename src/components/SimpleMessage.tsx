@@ -14,6 +14,8 @@ import {
 import { motion } from "framer-motion";
 import { Copy, Check, Bot, Edit2 } from "lucide-react";
 import { useState } from "react";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
+import { showSuccess } from "@/lib/toast";
 import { useAtomValue } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
 import { MessageSources } from "./MessageSources";
@@ -21,6 +23,10 @@ import { AttachmentChip } from "./chat/AttachmentChip";
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import type { WorkMode } from "@/lib/schemas";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
+import { displayLabelForCompassTier } from "@/lib/atlarix-core-catalog";
+import { isCompassTierId } from "@/shared/compass_product_copy";
+import { formatModelApiNameForDisplay } from "@/lib/format-openrouter-model-label";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
 import {
     Select,
@@ -54,7 +60,9 @@ export function SimpleMessage({
     onEditUserMessage,
 }: SimpleMessageProps) {
     const [copied, setCopied] = useState(false);
+    const { copyMessageContent, copied: assistantCopied } = useCopyToClipboard();
     const { settings, updateSettings } = useSettings();
+    const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
     const appId = useAtomValue(selectedAppIdAtom);
     const currentApp = useAtomValue(currentAppAtom);
     const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
@@ -90,13 +98,18 @@ export function SimpleMessage({
         }
     };
 
+    const handleAssistantCopy = async () => {
+        const ok = await copyMessageContent(message.content);
+        if (ok) showSuccess("Copied to clipboard");
+    };
+
     const isUser = message.role === "user";
     const isAssistant = message.role === "assistant";
 
     // Get display name for the model (supports object { provider, name } or legacy string)
     const getModelDisplayName = () => {
         const model = settings?.selectedModel as { provider?: string; name?: string } | string | undefined;
-        if (!model) return 'Atlarix AI';
+        if (!model) return "Model";
 
         if (typeof model === 'string') {
             const parts = model.split('/');
@@ -107,14 +120,18 @@ export function SimpleMessage({
         if (model.provider === 'auto') {
             const ids = settings?.autoModelIds;
             if (Array.isArray(ids) && ids.length === 3 && ids.every(Boolean)) {
-                const [fast, medium, thinking] = ids;
-                const short = (s: string) => s.split('/').pop()?.replace(/-/g, ' ') ?? s;
-                return `Auto (${short(fast)} / ${short(medium)} / ${short(thinking)})`;
+                const labels = ids.map((id) =>
+                    displayLabelForCompassTier(id, coreCatalog),
+                );
+                return `Auto (${labels.join(" / ")})`;
             }
-            return 'Auto (Fast / Medium / Thinking)';
+            return "Auto";
         }
 
         const name = model.name ?? '';
+        if (model.provider === "compass" || isCompassTierId(name)) {
+            return displayLabelForCompassTier(name, coreCatalog);
+        }
         const parts = name.split('/');
         const modelName = parts[parts.length - 1] || name;
         return formatModelName(modelName);
@@ -135,7 +152,7 @@ export function SimpleMessage({
 
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}>
+            <div className={`group max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}>
                 {/* Model name header for assistant messages */}
                 {isAssistant && (
                     <div className="flex items-center gap-2 flex-wrap mb-1.5 text-xs text-muted-foreground">
@@ -241,6 +258,27 @@ export function SimpleMessage({
                 )}
 
                 {/* Actions under messages — Copy / Edit / Mode / Save / Cancel */}
+                {isAssistant && message.content && !isStreaming && (
+                    <div className="flex mt-1 justify-start opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                            type="button"
+                            onClick={handleAssistantCopy}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                        >
+                            {assistantCopied ? (
+                                <>
+                                    <Check className="h-3 w-3 text-green-500" />
+                                    Copied
+                                </>
+                            ) : (
+                                <>
+                                    <Copy className="h-3 w-3" />
+                                    Copy
+                                </>
+                            )}
+                        </button>
+                    </div>
+                )}
                 {isUser && (message.content || isEditing) && !isStreaming && (
                     <div className="flex mt-1 justify-end">
                         <div className="flex flex-wrap items-center gap-1">

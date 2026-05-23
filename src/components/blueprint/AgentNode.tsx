@@ -5,7 +5,12 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Bot, Layout, Wrench, Shield, Search, Bug } from "lucide-react";
-import { useAgentAnimStore, type AgentId, type AgentAnimState } from "@/lib/agents/animation-state";
+import { useAtomValue } from "jotai";
+import {
+  agentAnimStatesAtom,
+  type AgentId,
+  type AgentAnimState,
+} from "@/atoms/agentAnimAtoms";
 import { cn } from "@/lib/utils";
 
 const AGENT_ICONS: Record<AgentId, React.ReactNode> = {
@@ -61,7 +66,8 @@ interface AgentNodeProps {
 }
 
 export function AgentNode({ agentId, label, className }: AgentNodeProps) {
-  const state = useAgentAnimStore((s) => s.agentStates[agentId] ?? "idle");
+  const agentStates = useAtomValue(agentAnimStatesAtom);
+  const state = agentStates[agentId] ?? "idle";
   const styles = STATE_STYLES[state];
   const isThinking = state === "thinking";
   const isDelegating = state === "delegating";

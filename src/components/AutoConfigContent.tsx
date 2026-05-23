@@ -1,10 +1,11 @@
 /**
- * Config panel for Auto mode: pick one provider (with API key) and 3 models (Fast / Medium / Thinking).
+ * Config panel for Auto mode: pick one provider (with API key) and 3 models for routing.
  */
 
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useLanguageModelsForProvider } from "@/hooks/useLanguageModelsForProvider";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import {
   Select,
   SelectContent,
@@ -13,12 +14,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { buildAutoSettingsForProvider } from "@/lib/routing/auto-settings-defaults-ui";
+import type { AtlarixCoreTierSlot } from "@/lib/atlarix-core-catalog";
+import { findCatalogEntryBySlot } from "@/lib/atlarix-core-catalog";
 
-const TIER_LABELS = ["Fast", "Medium", "Thinking"] as const;
+const AUTO_SLOTS: AtlarixCoreTierSlot[] = ["fast", "balanced", "thinking"];
+
+function tierSlotLabel(
+  index: 0 | 1 | 2,
+  autoProviderId: string | null,
+  catalog: ReturnType<typeof useAtlarixCoreCatalog>["data"],
+): string {
+  if (autoProviderId === "compass") {
+    const entry = catalog
+      ? findCatalogEntryBySlot(catalog, AUTO_SLOTS[index])
+      : undefined;
+    return entry?.labelWithProvider ?? `Model ${index + 1}`;
+  }
+  return `Model ${index + 1}`;
+}
 
 export function AutoConfigContent() {
   const { settings, updateSettings } = useSettings();
   const { data: providers = [], isProviderSetup } = useLanguageModelProviders();
+  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const autoProviderId = settings?.autoProviderId ?? null;
   const autoModelIds: [string, string, string] = settings?.autoModelIds ?? [
     "",
@@ -26,15 +45,18 @@ export function AutoConfigContent() {
     "",
   ];
   const { data: models = [] } = useLanguageModelsForProvider(
-    autoProviderId ?? undefined
+    autoProviderId ?? undefined,
   );
 
   const providersWithKey = providers.filter((p) => isProviderSetup(p.id));
 
   const setAutoProviderId = (id: string | null) => {
+    if (!settings) return;
+    const patch = buildAutoSettingsForProvider(id, settings);
     updateSettings({
-      autoProviderId: id ?? null,
-      autoModelIds: undefined,
+      autoModelRouting: true,
+      autoProviderId: patch.autoProviderId,
+      autoModelIds: patch.autoModelIds,
     });
   };
 
@@ -53,7 +75,8 @@ export function AutoConfigContent() {
       <div>
         <h3 className="font-medium">Auto (provider + 3 models)</h3>
         <p className="text-sm text-muted-foreground">
-          One provider and Fast / Medium / Thinking models for routing.
+          One provider and three models for complexity routing (Atlarix Core uses
+          included OpenRouter models).
         </p>
       </div>
 
@@ -78,26 +101,29 @@ export function AutoConfigContent() {
 
       {autoProviderId && (
         <div className="space-y-3">
-          {([0, 1, 2] as const).map((i) => (
-            <div key={i} className="space-y-1">
-              <Label className="text-xs">{TIER_LABELS[i]}</Label>
-              <Select
-                value={autoModelIds[i] ?? ""}
-                onValueChange={(v) => setAutoModelAt(i, v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={`Select ${TIER_LABELS[i]}`} />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((m) => (
-                    <SelectItem key={m.apiName} value={m.apiName}>
-                      {m.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
+          {([0, 1, 2] as const).map((i) => {
+            const label = tierSlotLabel(i, autoProviderId, coreCatalog);
+            return (
+              <div key={i} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <Select
+                  value={autoModelIds[i] ?? ""}
+                  onValueChange={(v) => setAutoModelAt(i, v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={`Select ${label}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((m) => (
+                      <SelectItem key={m.apiName} value={m.apiName}>
+                        {m.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
         </div>
       )}
 

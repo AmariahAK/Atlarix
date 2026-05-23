@@ -1,7 +1,28 @@
 # Atlarix TODO
 
-**Current Version:** v8.5.0
-**Last Updated:** 2026-05-20
+**Current Version:** v8.6.0
+**Last Updated:** 2026-05-22
+
+---
+
+## Shipped in v8.6.0+
+
+| Area | Notes |
+|------|--------|
+| **ast-grep + ctags stack** | `generateBlueprint()` via Universal Ctags symbols + `@ast-grep/napi` import/call edges |
+| **Lazy blueprint wire** | `inferBlueprint` calls `generateBlueprint` on cache miss; `mergeInferredEdges` gated for `ast-grep+ctags` |
+| **BM25 on symbols** | `search({ mode: "semantic-graph" })` and auto mode when `.atlarix/symbols.json` is warm |
+| **Structural BFS** | `search({ mode: "structural" })` BFS over blueprint `flowEdges` |
+| **ast-grep worker pool** | `astgrep_worker.js` + `worker-pool.ts`; built via `npm run build:astgrep-worker` (postinstall + prestart) |
+| **Route edges** | Express/Fastify/Next HTTP handlers → `api_call` edges in structural scan |
+| **Bundled ctags** | `npm run fetch-ctags` (postinstall); CI step before release builds |
+| **oxc / tree-sitter removed** | `getStructureScan` uses ctags; deprecated RTE parsers deleted |
+| **Incremental ctags + cache merge** | `updateSymbolIndexForFile`, `updateBlueprintCacheForFile`; file watcher uses 500ms debounce |
+| **Python/Go ast-grep** | dynamic lang registration via `register-dynamic-langs.ts` + import/call/route rules |
+| **Blast radius** | BFS on flow edges; permission + `diagnose_issue` wiring; skipped in autonomous auto-approve |
+| **`edit_file` permission fix** | schema + interceptor `executeOperation` |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.6.0]`.
 
 ---
 
@@ -55,12 +76,12 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.3.0]`.
 
 ---
 
-## Shipped in v8.2.0
+## Shipped in v8.2.0 — **Removed in v8.6**
 
-- **oxc packaging:** Platform `@oxc-parser/binding-*` restored after Forge prune (`forge.config.ts`).
-- **Parser worker pool:** `parser_worker.js`, `parser-pool.ts`, shutdown on quit.
-- **WASM RTE:** `wasm-extract.ts` for Python/Go/Rust; wired in language parsers; grammars in `extraResources`.
-- **CI:** `npm test` + `bench-parsers.ts` before release builds.
+- ~~**oxc packaging**~~ Removed with oxc-parser deletion.
+- ~~**Parser worker pool**~~ Replaced by `astgrep_worker.js` worker pool.
+- ~~**WASM RTE**~~ Superseded by Universal Ctags for symbols; ast-grep for TS/JS edges.
+- **CI:** `npm test` + `bench-blueprint-index.ts` before release builds.
 
 See [CHANGELOG.md](CHANGELOG.md) `[8.2.0]`.
 
@@ -292,9 +313,9 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.0.
 - [ ] **Windows code signing** (when revenue covers it) — EV/OV Authenticode for SmartScreen-friendly builds
 - [ ] **AgentSonar:** Pure JS or WASM SDK when upstream ships it — until then HTTP sidecar remains optional/dev
 - [ ] **Counsel:** Richer **partial-timeout UI** (surface incomplete roster inline beyond activity payload)
-- [ ] Blast radius analysis using Blueprint edges before agent acts
+- [x] Blast radius analysis using Blueprint edges before agent acts
 - [ ] Skills marketplace — community skill files from atlarix.dev
-- [ ] Additional tree-sitter languages: Go, Rust, Java, C#
+- [x] ~~Additional tree-sitter languages~~ **Superseded by Universal Ctags** (Go, Rust, Java, C#, etc. via ctags kinds)
 - [ ] Mobile companion (iOS/Android) for reviewing and approving agent changes remotely
 
 ---

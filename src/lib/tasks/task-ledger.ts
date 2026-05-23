@@ -15,6 +15,7 @@ import { ArchitectPlanPayloadSchema } from "../agents/agent-handoff-schemas";
 const LEDGER_COMPLETION_TOOLS = new Set([
   "write_file",
   "write_multiple_files",
+  "edit_file",
   "replace_code",
   "insert_code",
   "delete_lines",

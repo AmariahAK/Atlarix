@@ -4,9 +4,8 @@
  * New integrated chat with AI and tools
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ChatHandler } from '@/lib/chat-handler';
-import { useAtlarixStore } from '@/lib/store';
 import type { Message } from '@/types';
 import { TitleBar } from '@/components/TitleBar';
 import { Sidebar, HelpPanel, WebPanel } from '@/components/Sidebar';
@@ -20,27 +19,6 @@ export default function AtlarixChat() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isThinking, setIsThinking] = useState(false);
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('help');
-    const { setAvailableModels, setCurrentModel } = useAtlarixStore();
-
-    // Initialize providers
-    useEffect(() => {
-        const initProviders = async () => {
-            const providers = chatHandler.getProviders();
-            const models = providers.map((p: any) => ({
-                id: p.id,
-                name: p.name,
-                provider: p.type as any,
-                status: 'connected' as const,
-            }));
-
-            setAvailableModels(models);
-            if (models.length > 0) {
-                setCurrentModel(models[0]);
-            }
-        };
-
-        initProviders();
-    }, []);
 
     const handleSendMessage = async (message: string, attachments?: File[]) => {
         setIsThinking(true);

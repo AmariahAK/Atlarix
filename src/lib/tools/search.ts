@@ -4,11 +4,11 @@
  * Routes a single tool to engines:
  *   - text (ripgrep)
  *   - semantic-lite (line relevance scan, no blueprint)
- *   - semantic-graph (BM25 over blueprint beacons, then line-scan fallback)
- *   - structural (Blueprint graph via lazy parse)
+ *   - semantic-graph (BM25 over ctags symbols, then line-scan fallback)
+ *   - structural (ast-grep / blueprint graph via lazy parse)
  *
  * Legacy `mode: "semantic"` is treated as `semantic-graph`.
- * `mode: "auto"` never selects semantic-graph (BM25); use explicit semantic-graph when needed.
+ * `mode: "auto"` selects BM25 (semantic-graph) when `.atlarix/symbols.json` is warm; otherwise semantic-lite for concept queries.
  *
  * Absorbs: search-intelligence-tools + _search-helpers (inlined as
  * file-private helpers; no external consumers).
@@ -30,7 +30,7 @@ import {
   resolveWorkspaceIdFromRoot,
   searchBlueprintBm25,
 } from "@/lib/search/bm25_semantic_index";
-import { ensureBlueprintParsed } from "@/lib/blueprint/lazy-parse";
+import { isSymbolIndexWarm } from "@/lib/index/ctags-index";
 import {
   type SearchModeInput,
   type SearchResolvedMode,
@@ -38,6 +38,7 @@ import {
   resolveSearchMode,
   searchEngineLabel,
 } from "@/lib/search/search-mode-routing";
+import { queryStructuralGraph } from "@/lib/search/structural-graph-query";
 
 const execAsync = promisify(exec);
 
@@ -270,10 +271,6 @@ function formatGrepGroupsForDisplay(
 // BLUEPRINT QUERIES + SEMANTIC ENGINES
 // ═══════════════════════════════════════════════════════════
 
-function normalizePath(p: string): string {
-  return String(p || "").trim().replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, "");
-}
-
 function pathToRipgrepGlob(scopePath: string | undefined): string | undefined {
   if (!scopePath) return undefined;
   const p = scopePath.replace(/^\//, "").replace(/\\/g, "/");
@@ -282,77 +279,13 @@ function pathToRipgrepGlob(scopePath: string | undefined): string | undefined {
   return `**/${p}/**`;
 }
 
-function roomMatchesScope(
-  room: { id: string; path?: string; functions?: Array<{ file?: string }> },
-  scopePath: string | undefined,
-): boolean {
-  if (!scopePath) return true;
-  const t = normalizePath(scopePath).toLowerCase();
-  const rp = normalizePath(room.path ?? "").toLowerCase();
-  const fnFile = (room.functions ?? []).some(
-    (fn) => normalizePath(fn.file ?? "").toLowerCase() === t,
-  );
-  return rp === t || rp.startsWith(`${t}/`) || fnFile;
-}
-
 async function queryBlueprintByNaturalLanguage(args: {
   query: string;
   workspaceId: number;
   scopePath?: string;
   maxResults: number;
 }): Promise<{ summary: string; nodes: unknown[]; edges: unknown[] }> {
-  const blueprint = await ensureBlueprintParsed(args.workspaceId);
-  const q = args.query.toLowerCase();
-  const max = Math.max(1, Math.min(200, args.maxResults));
-
-  const matchedRooms = blueprint.rooms.filter((r) => {
-    if (!roomMatchesScope(r, args.scopePath)) return false;
-    const hay = `${r.label} ${r.intent ?? ""} ${r.path ?? ""}`.toLowerCase();
-    return hay.includes(q) || (r.functions ?? []).some((fn) => fn.name.toLowerCase().includes(q));
-  });
-
-  const keepIds = new Set(matchedRooms.map((r) => r.id));
-  for (const e of blueprint.edges ?? []) {
-    if (keepIds.has(e.from) || keepIds.has(e.to)) {
-      keepIds.add(e.from);
-      keepIds.add(e.to);
-    }
-  }
-
-  const nodes = blueprint.rooms
-    .filter((r) => keepIds.has(r.id))
-    .slice(0, max)
-    .map((r) => ({
-      id: r.id,
-      label: r.label,
-      type: r.type,
-      path: r.path,
-      intent: r.intent,
-      functions: (r.functions ?? []).slice(0, 20).map((fn) => ({
-        id: fn.id,
-        name: fn.name,
-        kind: fn.kind,
-        file: fn.file,
-      })),
-    }));
-
-  const edges = (blueprint.edges ?? [])
-    .filter((e) => keepIds.has(e.from) && keepIds.has(e.to))
-    .slice(0, max * 2)
-    .map((e) => ({
-      from: e.from,
-      to: e.to,
-      label: e.label,
-      type: e.type,
-      inferred: e.inferred,
-    }));
-
-  const summary =
-    nodes.length === 0
-      ? `No Blueprint rooms matched "${args.query}"${args.scopePath ? ` under ${args.scopePath}` : ""}. Try a broader query or call get_blueprint with scope=file/folder.`
-      : `Structural search matched ${nodes.length} room(s) and ${edges.length} edge(s) for "${args.query}".`;
-
-  return { summary, nodes, edges };
+  return queryStructuralGraph(args);
 }
 
 function formatSemanticHitsAsText(
@@ -468,11 +401,11 @@ ToolRegistry.register({
   category: ToolCategory.SEARCH_INTELLIGENCE,
   description:
     `Unified codebase search. Prefer an explicit mode when possible:
-- mode "auto" (default): text (ripgrep), semantic-lite (file relevance scan), or structural — never BM25/blueprint index unless you choose semantic-graph or structural.
+- mode "auto" (default): text (ripgrep), semantic-lite (file scan), structural, or BM25 when ctags symbol index is warm.
 - mode "text": ripgrep-style matches
-- mode "semantic-lite": concept-style scan over source files only (no blueprint parse)
-- mode "semantic-graph": BM25 over blueprint-derived beacons, then semantic-lite fallback (may parse blueprint on first use)
-- mode "structural": Blueprint graph relationships (lazy-parse on demand)
+- mode "semantic-lite": concept-style scan over source files only (no symbol index)
+- mode "semantic-graph": BM25 over ctags symbols, then semantic-lite fallback (may build symbol index on first use)
+- mode "structural": ast-grep / blueprint graph relationships (lazy-parse on demand)
 - Legacy mode "semantic" is treated as semantic-graph.
 
 Examples:
@@ -531,9 +464,20 @@ Parameters:
     workspace?: string;
     _onSearchRouting?: (detail: string) => void;
   }) => {
+    const maxResults = Math.min(200, Math.max(1, params.max_results ?? 30));
+    const contextLines = Math.min(10, Math.max(0, Number(params.context_lines) || 2));
+    const maxBytes = Math.min(500_000, Math.max(4096, Number(params.max_bytes) || 120_000));
+    const workspacePath = params.workspace || process.cwd();
+
     const rawMode = (params.mode ?? "auto") as SearchModeInput;
     const requestedCanonical = normalizeRequestedSearchMode(rawMode);
-    const resolvedMode: SearchResolvedMode = resolveSearchMode(requestedCanonical, params.query);
+    const symbolIndexWarm =
+      requestedCanonical === "auto" ? await isSymbolIndexWarm(workspacePath) : false;
+    const resolvedMode: SearchResolvedMode = resolveSearchMode(
+      requestedCanonical,
+      params.query,
+      { symbolIndexWarm },
+    );
     const engine = searchEngineLabel(resolvedMode);
     const emitRoute = () => {
       try {
@@ -544,11 +488,6 @@ Parameters:
         /* ignore activity failures */
       }
     };
-
-    const maxResults = Math.min(200, Math.max(1, params.max_results ?? 30));
-    const contextLines = Math.min(10, Math.max(0, Number(params.context_lines) || 2));
-    const maxBytes = Math.min(500_000, Math.max(4096, Number(params.max_bytes) || 120_000));
-    const workspacePath = params.workspace || process.cwd();
 
     emitRoute();
 

@@ -22,7 +22,7 @@ const logger = log.scope("diagram-refresh");
 
 export interface ApprovedOperation {
     type: 'write_file' | 'run_command' | 'delete_file' | 'move_file' |
-    'replace_code' | 'insert_code' | 'delete_lines';
+    'edit_file' | 'replace_code' | 'insert_code' | 'delete_lines';
     path?: string;
     command?: string;
     isNewFile?: boolean;
@@ -265,7 +265,7 @@ export function analyzeOperations(operations: ApprovedOperation[]): OperationAna
         }
 
         // Track surgical tool usage
-        if (op.type === 'replace_code' || op.type === 'insert_code' || op.type === 'delete_lines') {
+        if (op.type === 'edit_file' || op.type === 'replace_code' || op.type === 'insert_code' || op.type === 'delete_lines') {
             usedSurgicalTools = true;
             if (op.path) {
                 affectedPaths.add(op.path);

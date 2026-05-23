@@ -60,6 +60,7 @@ import {
   formatAutoTierLabel,
   useLastAutoRoutedTier,
 } from "@/hooks/useLastAutoRoutedTier";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showInfo } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -264,11 +265,17 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         ? "Working"
         : "Thinking";
   const modelDisplayName = useModelDisplayName();
+  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const lastAutoRoutedTier = useLastAutoRoutedTier(currentChatId);
   const autoRoutingOn = settings?.autoModelRouting === true;
+  const autoTierLine = formatAutoTierLabel(
+    lastAutoRoutedTier,
+    coreCatalog,
+    settings?.autoProviderId,
+  );
   const streamingModelBadge =
-    autoRoutingOn && lastAutoRoutedTier
-      ? `Auto · ${formatAutoTierLabel(lastAutoRoutedTier)} tier`
+    autoRoutingOn && lastAutoRoutedTier && autoTierLine
+      ? `Auto · ${autoTierLine}`
       : modelDisplayName;
   const showNoActionsThisTurn =
     isLastMessage &&
@@ -627,6 +634,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                 >
                   <AtlarixMarkdownParser
                     content={message.content}
+                    assistantMessageId={message.id}
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
                     suppressInlineThoughts={
                       liftInlineThoughtsAboveStreamChrome || !isLastMessage
@@ -698,6 +706,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   ) : null}
                   <AtlarixMarkdownParser
                     content={message.content}
+                    assistantMessageId={message.id}
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
                     suppressInlineThoughts={
                       liftInlineThoughtsAboveCompletedChrome || !isLastMessage

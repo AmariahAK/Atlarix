@@ -66,7 +66,7 @@ export const CLOUD_PROVIDERS: Record<
   }
 > = {
   compass: {
-    displayName: "Compass",
+    displayName: "Atlarix Core",
     hasFreeTier: false,
     gatewayPrefix: "",
   },

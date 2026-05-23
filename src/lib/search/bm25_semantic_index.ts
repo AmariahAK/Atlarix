@@ -1,6 +1,6 @@
 /**
- * Blueprint-backed BM25 index for semantic_search (beacon nodes + code snippets).
- * Cache is invalidated when blueprint JSON changes (see blueprint_handlers).
+ * Blueprint-backed BM25 index for semantic search (ctags symbols + snippets).
+ * Cache is invalidated when symbol index or blueprint changes.
  */
 
 import * as fs from "node:fs/promises";
@@ -9,9 +9,10 @@ import createBm25Engine from "wink-bm25-text-search";
 import log from "electron-log";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
-import { blueprintToRagGraph, getCodeSnippetForBuildNode } from "@/lib/blueprint/blueprint-rag";
 import { resolveAppPath } from "@/paths/paths";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
+import { ensureSymbolIndex } from "@/lib/index/ctags-index";
+import { blueprintToRagGraph, getCodeSnippetForBuildNode } from "@/lib/blueprint/blueprint-rag";
 
 const logger = log.scope("bm25-semantic-index");
 
@@ -40,9 +41,16 @@ type CachedIndex = {
 };
 
 const indexByWorkspaceId = new Map<number, CachedIndex>();
+const bm25DirtyByWorkspaceId = new Set<number>();
+
+/** Mark BM25 stale without dropping the in-memory index until the next search. */
+export function markBm25Dirty(workspaceId: number): void {
+  bm25DirtyByWorkspaceId.add(workspaceId);
+}
 
 export function invalidateBm25Index(workspaceId: number): void {
   indexByWorkspaceId.delete(workspaceId);
+  bm25DirtyByWorkspaceId.add(workspaceId);
 }
 
 function normalizeFs(p: string): string {
@@ -97,41 +105,106 @@ async function buildIndex(
   workspaceRootAbs: string,
 ): Promise<CachedIndex | null> {
   const t0 = Date.now();
-  const { getBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
-  const blueprint = await getBlueprintForWorkspace(workspaceId);
-  const graph = blueprintToRagGraph(blueprint, workspaceRootAbs);
-  if (graph.nodes.length === 0) return null;
+
+  let symbolDocs: Array<{
+    name: string;
+    kind: string;
+    scope: string;
+    path: string;
+    signature: string;
+    snippet: string;
+    absFile: string;
+    line: number;
+  }> = [];
+
+  try {
+    const symbolIndex = await ensureSymbolIndex(workspaceRootAbs);
+    for (const s of symbolIndex.symbols) {
+      const absFile = path.join(workspaceRootAbs, s.path);
+      let snippet = s.signature ?? "";
+      try {
+        const raw = await fs.readFile(absFile, "utf-8");
+        const lines = raw.split("\n");
+        const idx = Math.max(0, s.line - 1);
+        if (lines[idx]) snippet = lines[idx].trim().slice(0, 4000);
+      } catch {
+        /* ignore read errors */
+      }
+      symbolDocs.push({
+        name: s.name,
+        kind: s.kind,
+        scope: s.scope ?? "",
+        path: s.path,
+        signature: s.signature ?? "",
+        snippet,
+        absFile,
+        line: s.line,
+      });
+    }
+  } catch (e) {
+    logger.warn("BM25: ctags index unavailable, falling back to blueprint beacons", e);
+  }
 
   const engine = createBm25Engine();
   engine.defineConfig({
-    fldWeights: { name: 3, description: 2, path: 1, snippet: 2 },
+    fldWeights: { name: 4, signature: 2, path: 1, snippet: 2, kind: 1, scope: 1 },
   });
   engine.definePrepTasks([tokenizeForBm25]);
 
   const meta: NodeMeta[] = [];
-  const emptyRanges = new Map();
   let docId = 0;
   const filesSeen = new Set<string>();
 
-  for (const node of graph.nodes) {
-    if (!node.file?.trim()) continue;
-    const sn = await getCodeSnippetForBuildNode(graph, node.id, workspaceRootAbs, emptyRanges);
-    const relFile = sn?.path ?? node.file;
-    const absFile = path.isAbsolute(relFile)
-      ? relFile
-      : path.join(workspaceRootAbs, relFile);
-    const snippet = (sn?.content ?? node.description ?? "").slice(0, 4000);
-    const line = sn?.line ?? 1;
-    const doc = {
-      name: node.name ?? "",
-      description: (node.description ?? "").slice(0, 2000),
-      path: [node.path, node.file].filter(Boolean).join(" "),
-      snippet,
-    };
-    engine.addDoc(doc, docId);
-    meta.push({ absFile, line });
-    filesSeen.add(absFile);
-    docId += 1;
+  if (symbolDocs.length > 0) {
+    for (const s of symbolDocs) {
+      engine.addDoc(
+        {
+          name: s.name,
+          kind: s.kind,
+          scope: s.scope,
+          path: s.path,
+          signature: s.signature,
+          snippet: s.snippet,
+        },
+        docId,
+      );
+      meta.push({ absFile: s.absFile, line: s.line });
+      filesSeen.add(s.absFile);
+      docId += 1;
+    }
+  } else {
+    const { getBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
+    const blueprint = await getBlueprintForWorkspace(workspaceId);
+    const graph = blueprintToRagGraph(blueprint, workspaceRootAbs);
+    if (graph.nodes.length === 0) return null;
+
+    engine.defineConfig({
+      fldWeights: { name: 3, description: 2, path: 1, snippet: 2 },
+    });
+
+    const emptyRanges = new Map();
+    for (const node of graph.nodes) {
+      if (!node.file?.trim()) continue;
+      const sn = await getCodeSnippetForBuildNode(graph, node.id, workspaceRootAbs, emptyRanges);
+      const relFile = sn?.path ?? node.file;
+      const absFile = path.isAbsolute(relFile)
+        ? relFile
+        : path.join(workspaceRootAbs, relFile);
+      const snippet = (sn?.content ?? node.description ?? "").slice(0, 4000);
+      const line = sn?.line ?? 1;
+      engine.addDoc(
+        {
+          name: node.name ?? "",
+          description: (node.description ?? "").slice(0, 2000),
+          path: [node.path, node.file].filter(Boolean).join(" "),
+          snippet,
+        },
+        docId,
+      );
+      meta.push({ absFile, line });
+      filesSeen.add(absFile);
+      docId += 1;
+    }
   }
 
   if (docId === 0) return null;
@@ -148,7 +221,7 @@ async function buildIndex(
     elapsedMs,
     docs: docId,
     filesIndexed: filesSeen.size,
-    graphNodes: graph.nodes.length,
+    graphNodes: symbolDocs.length || docId,
     commitHash: commitHash ?? "none",
   });
   void import("@sentry/electron/main")
@@ -176,7 +249,8 @@ export async function searchBlueprintBm25(
   query: string,
   maxResults: number,
 ): Promise<Bm25SearchResult | null> {
-  let cached: CachedIndex | undefined = indexByWorkspaceId.get(workspaceId);
+  const dirty = bm25DirtyByWorkspaceId.has(workspaceId);
+  let cached: CachedIndex | undefined = dirty ? undefined : indexByWorkspaceId.get(workspaceId);
   if (cached) {
     let head: string | null = null;
     try {
@@ -200,6 +274,7 @@ export async function searchBlueprintBm25(
     if (!built) return null;
     cached = built;
     indexByWorkspaceId.set(workspaceId, cached);
+    bm25DirtyByWorkspaceId.delete(workspaceId);
   }
 
   const scanLimit = Math.max(maxResults, 200);

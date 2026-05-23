@@ -972,12 +972,12 @@ app.on("before-quit", (e) => {
       logger.warn("abortAllStreams on quit:", abortErr);
     }
     try {
-      const { shutdownParserPool } = await import(
-        "./lib/blueprint/rte/parsers/parser-pool"
+      const { shutdownAstGrepPool } = await import(
+        "./lib/blueprint/rte/ast-grep/worker-pool"
       );
-      await shutdownParserPool();
+      await shutdownAstGrepPool();
     } catch (poolErr) {
-      logger.warn("shutdownParserPool on quit:", poolErr);
+      logger.warn("shutdownAstGrepPool on quit:", poolErr);
     }
     app.quit();
   })();

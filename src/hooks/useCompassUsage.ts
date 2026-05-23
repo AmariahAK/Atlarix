@@ -102,7 +102,7 @@ export function useCompassUsage(): CompassUsageState {
           !milestoneToastedRef.current.has(key)
         ) {
           milestoneToastedRef.current.add(key);
-          toast.message(`Compass: about ${threshold}% of your monthly tokens remaining`, {
+          toast.message(`Atlarix Core: about ${threshold}% of your monthly tokens remaining`, {
             duration: 6000,
           });
         }
@@ -125,7 +125,7 @@ export function useCompassUsage(): CompassUsageState {
       ) {
         milestoneInlineRef.current.add(key);
         setMilestoneBanner(
-          `Compass: you've used about ${threshold}% of your monthly token quota. Add API keys in Settings or upgrade if you need more.`,
+          `Atlarix Core: you've used about ${threshold}% of your monthly token quota. Add API keys in Settings or upgrade if you need more.`,
         );
       }
     }

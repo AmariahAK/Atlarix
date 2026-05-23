@@ -9,9 +9,11 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { Copy, Check } from "lucide-react";
 import { MermaidRenderer } from "@/components/MermaidRenderer";
 import { MarkmapRenderer } from "@/components/chat/MarkmapRenderer";
+import { ChartArtifactCard } from "@/components/chat/ChartArtifactCard";
+import { VisualArtifactCard } from "@/components/chat/VisualArtifactCard";
+import { inferArtifactTitle } from "@/lib/visual-artifacts/infer-title";
 import github from "@shikijs/themes/github-light-default";
 import githubDark from "@shikijs/themes/github-dark-default";
-// common languages
 import astro from "@shikijs/langs/astro";
 import css from "@shikijs/langs/css";
 import graphql from "@shikijs/langs/graphql";
@@ -33,7 +35,6 @@ import vue from "@shikijs/langs/vue";
 
 type HighlighterCore = Awaited<ReturnType<typeof createHighlighterCore>>;
 
-// Create a singleton highlighter instance
 let highlighterPromise: Promise<HighlighterCore> | null = null;
 
 function getHighlighter(): Promise<HighlighterCore> {
@@ -87,29 +88,42 @@ export const CodeHighlight = memo(
     const code = String(children).trim();
     const language = className?.match(/language-(\w+)/)?.[1];
     const isInline = node ? isInlineCode(node) : false;
-    //handle copying code to clipboard with transition effect
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
       navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000); // revert after 2s
+      setTimeout(() => setCopied(false), 2000);
     };
 
     const { isDarkMode } = useTheme();
     const highlighter = useHighlighter();
 
-    if (!isInline && language === "mermaid") {
+    if (!isInline && (language === "chart" || language === "json-chart")) {
       return (
         <div className="not-prose my-2 w-full">
-          <MermaidRenderer code={code} className="min-h-[280px] max-h-[480px]" />
+          <ChartArtifactCard code={code} />
+        </div>
+      );
+    }
+
+    if (!isInline && language === "mermaid") {
+      const title = inferArtifactTitle("mermaid", code) ?? "Diagram";
+      return (
+        <div className="not-prose my-2 w-full">
+          <VisualArtifactCard title={title} layout="canvas">
+            <MermaidRenderer code={code} embedded className="h-full min-h-0" />
+          </VisualArtifactCard>
         </div>
       );
     }
 
     if (!isInline && language === "markmap") {
+      const title = inferArtifactTitle("markmap", code) ?? "Mind map";
       return (
         <div className="not-prose my-2 w-full">
-          <MarkmapRenderer content={code} />
+          <VisualArtifactCard title={title} layout="canvas">
+            <MarkmapRenderer content={code} embedded className="h-full min-h-0" />
+          </VisualArtifactCard>
         </div>
       );
     }
@@ -119,7 +133,6 @@ export const CodeHighlight = memo(
         className="shiki not-prose relative [&_pre]:overflow-auto 
       [&_pre]:rounded-lg [&_pre]:px-6 [&_pre]:py-7"
       >
-        {/* Always show header with copy button for code blocks */}
         <div className="absolute top-2 left-2 right-2 text-xs flex justify-between items-center z-10">
           {language ? (
             <span className="tracking-tighter text-muted-foreground/85">

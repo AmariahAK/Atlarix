@@ -26,10 +26,6 @@ const shims = (name: string) => path.resolve(__dirname, `./src/shims/${name}`);
 
 // https://vite.dev/config/
 export default defineConfig({
-  /** RTE pulls oxc-parse transitively; without this, resolve uses oxc's "browser" → wasm (fails in UI bundle). */
-  optimizeDeps: {
-    exclude: ["oxc-parser"],
-  },
   plugins: [rendererMainOnlyShimsPlugin(), react(), tailwindcss()],
   /** Modern Chromium (Electron): less downlevel work for esbuild during large renderer bundles. */
   esbuild: {
@@ -72,7 +68,6 @@ export default defineConfig({
       /** Do not alias `@/db` — it prefix-matches `@/db/schema`. DB stub is via resolve plugin (db/index only). */
       { find: "@/main/settings", replacement: shims("main-settings-renderer-stub.ts") },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
-      { find: "oxc-parser", replacement: shims("oxc-parser-renderer-stub.ts") },
       {
         find: "@sentry/electron/main",
         replacement: shims("sentry-electron-main-stub.ts"),

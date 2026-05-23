@@ -60,6 +60,11 @@ import {
   waitForBusReply,
   drainAgentCorrections,
 } from "../agents/agent-bus";
+import {
+  formatSmallRepoInventory,
+  getWorkspaceRelFilePaths,
+  SMALL_REPO_FILE_THRESHOLD,
+} from "./workspace-file-hints";
 
 const logger = log.scope("agent-tools");
 
@@ -202,7 +207,17 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
       };
     }
     const manifest = getToolManifest(skillName);
-    const delegationSystem = trimmedSkill;
+    let delegationSystem = trimmedSkill;
+    if (workspace?.trim()) {
+      try {
+        const { paths, count } = await getWorkspaceRelFilePaths(workspace);
+        if (count > 0 && count <= SMALL_REPO_FILE_THRESHOLD) {
+          delegationSystem += `\n\n## Workspace file inventory (authoritative)\n${formatSmallRepoInventory(paths)}`;
+        }
+      } catch (invErr) {
+        logger.debug("[Delegation] workspace file inventory skipped:", invErr);
+      }
+    }
 
     const allTools = ToolRegistry.getAll();
     const allowAll = manifest.allowed.includes("*");
@@ -228,6 +243,8 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
               workspace: workspace || undefined,
               workspaceId,
               chatMode: delegationChatMode,
+              agentMode,
+              _chatSessionId: args.chatId,
             },
           );
 

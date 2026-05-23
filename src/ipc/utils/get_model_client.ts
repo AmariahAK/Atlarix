@@ -308,7 +308,7 @@ export async function getModelClient(
       const compassProvider = allProviders.find((p) => p.id === "compass");
       if (!compassProvider || !getCompassMasterApiKey()) {
         throw new Error(
-          "Compass is not available. Configure release credentials or add API keys in Settings.",
+          "Atlarix Core is not available. Configure release credentials or add API keys in Settings.",
         );
       }
       const { modelClient } = await getRegularModelClient(
@@ -605,7 +605,7 @@ async function getRegularModelClient(
       const masterKey = getCompassMasterApiKey();
       if (!masterKey) {
         throw new Error(
-          "Compass is not configured for this build. Add your own API keys in Settings or use a release build.",
+          "Atlarix Core is not configured for this build. Add your own API keys in Settings or use a release build.",
         );
       }
       const eff = SubscriptionManager.getEffectiveTier();
@@ -625,7 +625,7 @@ async function getRegularModelClient(
       }
       if (models.length === 0) {
         throw new Error(
-          "Compass model configuration is incomplete. Set COMPASS_MODEL_FAST (and Balanced/Thinking for Pro) in the build environment.",
+          "Atlarix Core model configuration is incomplete. Set COMPASS_MODEL_FAST (and BALANCED/THINKING for Pro) in the build environment.",
         );
       }
       return {

@@ -165,6 +165,7 @@ const validInvokeChannels = [
   "portal:migrate-create",
   // MCP
   "mcp:list-servers",
+  "mcp:list-orphaned-servers",
   "mcp:create-server",
   "mcp:update-server",
   "mcp:delete-server",
@@ -179,6 +180,7 @@ const validInvokeChannels = [
   "skills:install",
   "skills:uninstall",
   "skills:list",
+  "skills:list-orphaned",
   "skills:get-active-for-session",
   "skills:list-repo-skills",
   // MCP consent response from renderer to main
@@ -227,6 +229,7 @@ const validInvokeChannels = [
   "workspace-snapshot:list",
   "workspace-snapshot:restore",
   "workspace-snapshot:get-metadata",
+  "plan:read-workspace-file",
   // Dialog
   "dialog:openDirectory",
   // SearxNG
@@ -300,13 +303,9 @@ const validInvokeChannels = [
   "blueprint:simplify-description",
   "blueprint:simplify-room",
   "blueprint:simplify-architecture",
-  "blueprint:cluster",
   "blueprint:commit-snapshot",
   "blueprint:snapshot-exists",
   "pivot:run-analysis",
-  "pivot:get-nodes-edges",
-  "pivot:get-snapshots",
-  "pivot:restore-snapshot",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
@@ -416,6 +415,7 @@ const validReceiveChannels = [
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
   "chat:plan-update",
+  "plan:file-updated",
   "counsel:participant-update",
   "counsel:complete",
   "autonomous:session-complete",

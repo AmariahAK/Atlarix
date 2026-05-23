@@ -25,7 +25,8 @@ import {
     getCachedWorkspaceDiscovery,
     clearWorkspaceDiscoverySessionCache,
 } from "./workspace-discovery";
-import { parseFileStructure } from "@/lib/workspace/oxc-structure";
+import { ensureSymbolIndex, getSymbolsForFile } from "@/lib/index/ctags-index";
+import { structureFromSymbols } from "@/lib/index/structure-from-symbols";
 
 const execAsync = promisify(exec);
 const logger = log.scope("project-files");
@@ -445,19 +446,24 @@ export async function getStructureScan(
 
     const results: Record<string, StructureResult> = {};
 
+    let symbolIndex: Awaited<ReturnType<typeof ensureSymbolIndex>> | null = null;
+    try {
+        symbolIndex = await ensureSymbolIndex(workspacePath);
+    } catch (err) {
+        logger.warn("[structure-scan] ctags index unavailable:", err);
+    }
+
     for (const filePath of entryPointFiles.slice(0, 20)) {
-        // Normalize to absolute: if already relative, join with workspacePath
         const absPath = path.isAbsolute(filePath)
             ? filePath
             : path.join(workspacePath, filePath);
-        const relPath = path.relative(workspacePath, absPath);
-        const result = await parseFileStructure(absPath, ["exports", "classes", "functions"], {
-            workspacePath,
-            relativePath: relPath,
-        });
-        if (result) {
-            // Key by relative path so all callers get consistent relative keys
-            results[relPath] = result;
+        const relPath = path.relative(workspacePath, absPath).replace(/\\/g, "/");
+        if (symbolIndex) {
+            const symbols = getSymbolsForFile(symbolIndex, relPath);
+            if (symbols.length > 0) {
+                results[relPath] = structureFromSymbols(symbols);
+                continue;
+            }
         }
     }
 

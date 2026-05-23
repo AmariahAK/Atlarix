@@ -147,8 +147,11 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERT_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
 
-      - name: Test and parser benchmarks
-        run: npm test && npx tsx scripts/bench-parsers.ts
+      - name: Fetch Universal Ctags
+        run: npm run fetch-ctags
+
+      - name: Test and blueprint index benchmarks
+        run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for macOS (${{ matrix.arch }})
         run: npm run make -- --arch=${{ matrix.arch }}
@@ -316,8 +319,11 @@ jobs:
           echo "npm ci failed after 5 attempts"
           exit 1
 
-      - name: Test and parser benchmarks
-        run: npm test && npx tsx scripts/bench-parsers.ts
+      - name: Fetch Universal Ctags
+        run: npm run fetch-ctags
+
+      - name: Test and blueprint index benchmarks
+        run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Linux
         run: npm run make
@@ -430,9 +436,13 @@ jobs:
           exit 1
 
 
-      - name: Test and parser benchmarks
+      - name: Fetch Universal Ctags
         shell: pwsh
-        run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-parsers.ts
+        run: npm run fetch-ctags
+
+      - name: Test and blueprint index benchmarks
+        shell: pwsh
+        run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Windows
         shell: pwsh
@@ -512,6 +522,70 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"draft":false}' \
             "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
+
+  announce-release:
+    needs: [create-draft, build-macos, build-linux, build-windows, publish-release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract changelog
+        run: |
+          chmod +x scripts/ci/extract-changelog.sh
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./scripts/ci/extract-changelog.sh "$VERSION" 80 > release-notes.md || true
+          if [ -z "$(tr -d '[:space:]' < release-notes.md)" ]; then
+            echo "::warning::No section found in docs/CHANGELOG.md for v${VERSION}. Expected ## [${VERSION}] or ## v${VERSION}."
+            echo "See full changelog: https://github.com/AmariahAK/atlarix-releases/releases/tag/v${VERSION}" > release-notes.md
+          fi
+          {
+            echo "Release notes (technical):"
+            echo ""
+            ./scripts/ci/extract-changelog.sh "$VERSION" 40 || true
+          } > discord-body.txt
+          if [ -z "$(tail -n +3 discord-body.txt | tr -d '[:space:]')" ]; then
+            echo "See https://github.com/AmariahAK/atlarix-releases/releases/tag/${GITHUB_REF_NAME}" >> discord-body.txt
+          fi
+
+      - name: Update GitHub release notes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if ! gh release edit "${GITHUB_REF_NAME}" \
+            --repo AmariahAK/atlarix-releases \
+            --notes-file release-notes.md; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo AmariahAK/atlarix-releases \
+              --notes-file release-notes.md \
+              --title "Atlarix ${GITHUB_REF_NAME}"
+          fi
+
+      - name: Post Discord announcement
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not set; skipping Discord notification."
+            exit 0
+          fi
+          export GITHUB_REF_NAME
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          desc = Path("discord-body.txt").read_text(encoding="utf-8")[:3800]
+          payload = {
+              "embeds": [{
+                  "title": f"Atlarix v{version} released",
+                  "description": desc,
+                  "url": f"https://github.com/AmariahAK/atlarix-releases/releases/tag/{os.environ['GITHUB_REF_NAME']}",
+              }]
+          }
+          Path("payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+          PY
+          curl -fsS -X POST -H "Content-Type: application/json" -d @payload.json "$DISCORD_WEBHOOK_URL"
 
   # virustotal:
   #   needs: build-macos

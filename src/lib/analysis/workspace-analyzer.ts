@@ -2,7 +2,7 @@
  * Workspace Analyzer
  * ==================
  * Analyzes workspace structure, detects language/framework, extracts imports/exports
- * Uses structural heuristics for workspace analysis; TS/JS file scans use oxc-parser when available
+ * Uses structural heuristics for workspace analysis; file structure scans use ctags symbols when available
  * Inspired by StackSense's diagram_builder.py
  */
 import * as fs from 'fs/promises';
@@ -367,7 +367,7 @@ async function analyzeFile(filePath: string, workspacePath: string): Promise<Ana
         const language = LANGUAGE_MAP[ext] || 'unknown';
         const relativePath = path.relative(workspacePath, filePath);
 
-        // NOTE: TS/JS structure uses oxc-parser in Blueprint RTE (on demand via get_blueprint).
+        // NOTE: TS/JS structure uses ctags + ast-grep in Blueprint RTE (on demand via get_blueprint).
         // Workspace analyzer uses regex/heuristics only.
         // This function uses regex-based extraction for workspace analysis.
         const imports = extractImports(content, language);

@@ -300,19 +300,54 @@ export class ToolRegistry {
             args,
             parametersSchema: tool.parameters,
             runner: async () => {
-                const result = await tool.handler(args);
+                let raw: unknown;
+                try {
+                    raw = await tool.handler(args);
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    return {
+                        success: false,
+                        cost: tool.cost,
+                        error: "TOOL_ERROR",
+                        tool: name,
+                        message: `Tool execution failed: ${message}`,
+                        partial: null,
+                        suggestion:
+                            "Check parameters and workspace path. Use explore_folder or list_files to locate files.",
+                    };
+                }
 
                 // If this is a permission request, return it directly (unwrapped)
                 // so the interceptor can detect __permission_required flag.
-                if (result && typeof result === 'object' && (result as any).__permission_required) {
-                    return result;
+                if (raw && typeof raw === "object" && (raw as { __permission_required?: boolean }).__permission_required) {
+                    return raw;
                 }
 
-                // Pass 7: replace 10 KB output cache with 50 KB disk-truncation layer.
-                // Outputs above the threshold are written to tmpdir; the AI receives a
-                // small preview envelope instead of stalling the stream with a large
-                // payload.
-                const truncation = await maybeTruncateToDisk(name, result);
+                if (
+                    raw &&
+                    typeof raw === "object" &&
+                    !Array.isArray(raw) &&
+                    (raw as { success?: boolean }).success === false
+                ) {
+                    const fail = raw as {
+                        error?: string;
+                        message?: string;
+                        suggestion?: string;
+                        partial?: unknown;
+                    };
+                    return {
+                        success: false,
+                        cost: tool.cost,
+                        tool: name,
+                        error: fail.error ?? "TOOL_ERROR",
+                        message: fail.message ?? fail.error ?? "Tool returned an error",
+                        suggestion: fail.suggestion,
+                        partial: fail.partial ?? null,
+                        ...fail,
+                    };
+                }
+
+                const truncation = await maybeTruncateToDisk(name, raw);
 
                 return {
                     success: true,

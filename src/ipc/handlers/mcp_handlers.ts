@@ -1,8 +1,8 @@
 import { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import { db } from "../../db";
-import { mcpServers, mcpToolConsents } from "../../db/schema";
-import { eq, and } from "drizzle-orm";
+import { apps, mcpServers, mcpToolConsents } from "../../db/schema";
+import { eq, and, or, isNull, notInArray } from "drizzle-orm";
 import { createLoggedHandler } from "./safe_handle";
 
 import { resolveConsent } from "../utils/mcp_consent";
@@ -90,6 +90,31 @@ export function registerMcpHandlers() {
       return [];
     }
   );
+
+  handle("mcp:list-orphaned-servers", async () => {
+    const appRows = await db.select({ id: apps.id }).from(apps);
+    const appIds = appRows
+      .map((r) => r.id)
+      .filter((id): id is number => typeof id === "number");
+    if (appIds.length === 0) {
+      return await db
+        .select()
+        .from(mcpServers)
+        .where(eq(mcpServers.scope, "workspace"));
+    }
+    return await db
+      .select()
+      .from(mcpServers)
+      .where(
+        and(
+          eq(mcpServers.scope, "workspace"),
+          or(
+            isNull(mcpServers.appId),
+            notInArray(mcpServers.appId, appIds),
+          ),
+        ),
+      );
+  });
 
   handle(
     "mcp:create-server",
@@ -201,10 +226,27 @@ export function registerMcpHandlers() {
   handle(
     "mcp:delete-server",
     async (_event: IpcMainInvokeEvent, id: number) => {
+      const serverId = Number(id);
+      if (!Number.isFinite(serverId) || serverId <= 0) {
+        throw new Error("Invalid MCP server id");
+      }
       try {
-        mcpManager.dispose(id);
+        mcpManager.dispose(serverId);
       } catch {}
-      await db.delete(mcpServers).where(eq(mcpServers.id, id));
+      const sqlite = db.$client;
+      const deleted = sqlite.transaction(() => {
+        db.delete(mcpToolConsents)
+          .where(eq(mcpToolConsents.serverId, serverId))
+          .run();
+        return db
+          .delete(mcpServers)
+          .where(eq(mcpServers.id, serverId))
+          .returning()
+          .all();
+      });
+      if (!deleted.length) {
+        throw new Error("MCP server not found");
+      }
       return { success: true };
     },
   );

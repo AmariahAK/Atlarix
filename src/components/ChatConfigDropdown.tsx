@@ -15,10 +15,9 @@ import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useEffect, useState } from "react";
 import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-} from "@/ipc/shared/compass_constants";
+  buildAutoSettingsForProvider,
+  getDefaultAutoSettingsPatchSync,
+} from "@/lib/routing/auto-settings-defaults-ui";
 import {
   Select,
   SelectContent,
@@ -54,6 +53,9 @@ import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import { cn } from "@/lib/utils";
 import { formatAutoTierLabel, useLastAutoRoutedTier } from "@/hooks/useLastAutoRoutedTier";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
+import { displayLabelForCompassTier } from "@/lib/atlarix-core-catalog";
+import { ATLARIX_CORE_CATEGORY_LABEL, isCompassTierId } from "@/shared/compass_product_copy";
 import {
   Tooltip,
   TooltipContent,
@@ -81,7 +83,7 @@ function showDeepThinkNextToggle(settings: UserSettings | undefined | null): boo
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  compass: "Compass",
+  compass: ATLARIX_CORE_CATEGORY_LABEL,
   openrouter: "OpenRouter",
   ollama: "Ollama",
   lmstudio: "LM Studio",
@@ -96,6 +98,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 
 export function useModelDisplayName(): string {
   const { settings } = useSettings();
+  const { data: catalog = [] } = useAtlarixCoreCatalog();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   const { models: ollamaModels = [] } = useLocalModels();
   const { models: lmStudioModels = [] } = useLocalLMSModels();
@@ -114,10 +117,15 @@ export function useModelDisplayName(): string {
   }
   if (!selectedModel) return "—";
   if (selectedModel.provider === "auto") return "Auto";
-  if (selectedModel.provider === "compass") {
-    const list = modelsByProviders?.compass;
-    const found = list?.find((m) => m.apiName === selectedModel.name);
-    return found?.displayName ?? selectedModel.name;
+  if (selectedModel.provider === "compass" || isCompassTierId(selectedModel.name)) {
+    const found = modelsByProviders?.compass?.find(
+      (m) => m.apiName === selectedModel.name,
+    );
+    return displayLabelForCompassTier(
+      selectedModel.name,
+      catalog,
+      found?.displayName,
+    );
   }
   if (selectedModel.provider === "ollama") {
     const found = ollamaModels.find((m) => m.modelName === selectedModel.name);
@@ -154,8 +162,13 @@ export function ChatConfigDropdown({
 }) {
   const { settings, updateSettings } = useSettings();
   const modelDisplayName = useModelDisplayName();
+  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const lastAutoTier = useLastAutoRoutedTier(null);
-  const autoTierLabel = formatAutoTierLabel(lastAutoTier);
+  const autoTierLabel = formatAutoTierLabel(
+    lastAutoTier,
+    coreCatalog,
+    settings?.autoProviderId,
+  );
 
   const agentMode = (settings?.agentMode ?? "guided") as AgentMode;
   const autoOn = settings?.autoModelRouting === true;
@@ -163,11 +176,16 @@ export function ChatConfigDropdown({
   const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
 
   const [compassBuildOk, setCompassBuildOk] = useState(false);
+  const [configuredProviderIds, setConfiguredProviderIds] = useState<string[]>([]);
   useEffect(() => {
     void IpcClient.getInstance()
       .isCompassBuildConfigured()
       .then(setCompassBuildOk)
       .catch(() => setCompassBuildOk(false));
+    void IpcClient.getInstance()
+      .getConfiguredProviders()
+      .then(setConfiguredProviderIds)
+      .catch(() => setConfiguredProviderIds([]));
   }, []);
 
   const { isProviderSetup } = useLanguageModelProviders();
@@ -181,7 +199,7 @@ export function ChatConfigDropdown({
   const deepThinkVisible = showDeepThinkNextToggle(settings ?? null);
 
   const providersForAuto = [
-    compassBuildOk && { id: "compass", name: "Compass" },
+    compassBuildOk && { id: "compass", name: ATLARIX_CORE_CATEGORY_LABEL },
     isProviderSetup("openrouter") && { id: "openrouter", name: "OpenRouter" },
     ollamaFavs.length >= 1 && { id: "ollama", name: "Ollama" },
     lmStudioFavs.length >= 1 && { id: "lmstudio", name: "LM Studio" },
@@ -196,41 +214,6 @@ export function ChatConfigDropdown({
   ].filter(Boolean) as { id: string; name: string }[];
 
   const hasEnoughFavoritesForAuto = providersForAuto.some((p) => p.id === autoProviderId);
-
-  function tripleFromFavorites(ids: string[]): [string, string, string] | undefined {
-    if (ids.length < 1) return undefined;
-    const a = ids[0];
-    const b = ids[1] ?? a;
-    const c = ids[2] ?? b;
-    return [a, b, c];
-  }
-
-  function buildAutoSettingsForProvider(providerId: string | null): {
-    autoProviderId: string | null;
-    autoModelIds?: [string, string, string];
-  } {
-    if (!providerId) {
-      return { autoProviderId: null, autoModelIds: undefined };
-    }
-    if (providerId === "compass") {
-      return {
-        autoProviderId: providerId,
-        autoModelIds: [
-          COMPASS_TIER_FAST,
-          COMPASS_TIER_BALANCED,
-          COMPASS_TIER_THINKING,
-        ],
-      };
-    }
-    if (providerId === "ollama") {
-      const t = tripleFromFavorites(ollamaFavs);
-      if (t) return { autoProviderId: providerId, autoModelIds: t };
-    } else if (providerId === "lmstudio") {
-      const t = tripleFromFavorites(lmStudioFavs);
-      if (t) return { autoProviderId: providerId, autoModelIds: t };
-    }
-    return { autoProviderId: providerId, autoModelIds: undefined };
-  }
 
   return (
     <DropdownMenu>
@@ -355,24 +338,19 @@ export function ChatConfigDropdown({
                   updateSettings({ autoModelRouting: false });
                   return;
                 }
-                const pid = settings?.autoProviderId ?? null;
-                const hasTierModels =
-                  Array.isArray(settings?.autoModelIds) &&
-                  settings.autoModelIds.some((s) => s && String(s).trim());
-                if (pid && !hasTierModels) {
-                  updateSettings({
-                    autoModelRouting: true,
-                    ...buildAutoSettingsForProvider(pid),
-                  });
-                  return;
-                }
-                updateSettings({ autoModelRouting: true });
+                if (!settings) return;
+                const patch = getDefaultAutoSettingsPatchSync(settings, {
+                  compassAvailable: compassBuildOk,
+                  configuredProviderIds,
+                });
+                if (!patch) return;
+                updateSettings({ autoModelRouting: true, ...patch });
               }}
               onClick={(e) => e.stopPropagation()}
             />
           </div>
           <p className="px-2 pb-2 text-xs text-muted-foreground">
-            Route by complexity (Fast/Medium/Thinking) when ON.
+            Route by complexity across your three Auto models when ON.
           </p>
           {autoOn && onOpenAutoConfig && (
             <DropdownMenuItem

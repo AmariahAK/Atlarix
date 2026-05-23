@@ -19,7 +19,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google",
-  compass: "Compass",
+  compass: "Atlarix Core",
   openrouter: "OpenRouter",
   groq: "Groq",
   togetherai: "Together AI",

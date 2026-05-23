@@ -1,5 +1,40 @@
 # Atlarix Changelog
 
+## [8.6.0] (2026-05-22) — ctags + ast-grep Blueprint stack
+
+### Features
+
+- **Blueprint lazy-load:** `get_blueprint` / `inferBlueprint` now runs `generateBlueprint()` (Universal Ctags + ast-grep) on cache miss instead of file-tree-only seeding.
+- **Route edges:** ast-grep scans Express/Fastify `app.get/post/…` and Next.js `export async function GET` handlers → `api_call` edges on the Blueprint graph.
+- **Structural search BFS:** `search({ mode: "structural" })` walks blueprint `flowEdges` with configurable depth.
+- **Auto search → BM25:** When `.atlarix/symbols.json` is warm, `mode: "auto"` upgrades concept queries to `semantic-graph` (BM25 over ctags).
+- **ast-grep worker pool:** Structural scans run in dedicated workers (`astgrep_worker.js`); built on `npm install` / `npm start`; pool shuts down on app quit.
+- **Bundled Universal Ctags:** `npm run fetch-ctags` for macOS/Linux/Windows (nightly download or Homebrew); CI fetches before release builds.
+- **Incremental blueprint refresh:** `updateBlueprintCacheForFile()` + [`blueprint-file-watcher.ts`](../src/lib/blueprint/blueprint-file-watcher.ts) (500ms debounce) re-runs per-file ctags + ast-grep instead of a full-project rebuild.
+- **Python/Go structural edges:** `@ast-grep/lang-python`, `@ast-grep/lang-go` registered via [`register-dynamic-langs.ts`](../src/lib/blueprint/rte/ast-grep/register-dynamic-langs.ts); import/call/route rules in worker pool.
+- **Blast radius:** [`blast-radius.ts`](../src/lib/blueprint/blast-radius.ts) BFS over blueprint `flowEdges`; wired to `diagnose_issue` (`change_impact`) and permission metadata for `write_file` / `edit_file` via [`enrich-blast-radius.ts`](../src/lib/tools/permissions/enrich-blast-radius.ts).
+- **Autonomous mode:** blast-radius enrichment skipped when auto-approve is active (`shouldAutoApprovePermissions`).
+
+### Fixes
+
+- **`edit_file` permissions:** added to permission schema + interceptor `executeOperation` (was `Unknown operation: edit_file`).
+- **Dev/build:** repaired corrupted [`ToolsMcpSettings.tsx`](../src/components/settings/ToolsMcpSettings.tsx) and [`MarkmapRenderer.tsx`](../src/components/chat/MarkmapRenderer.tsx) merge damage.
+- **Blueprint refresh:** removed erroneous `markSymbolIndexDirty()` after full refresh in [`blueprint_handlers.ts`](../src/ipc/handlers/blueprint_handlers.ts).
+
+### Removed
+
+- **oxc-parser** and per-language RTE parsers (TypeScript, Python, Go, Rust, …).
+- **tree-sitter WASM** extraction path and parser worker pool.
+- **`getStructureScan`** now uses ctags symbols via `structure-from-symbols.ts`.
+
+### Tests / CI
+
+- New tests: `blueprint-generate`, `ctags-index`, `bm25-ctags`, `structural-graph-query`, `ast-grep-import-edge`.
+- Additional coverage: incremental ctags, blast-radius BFS, Python/Go ast-grep pattern tests (583 tests passing).
+- Release CI runs `bench-blueprint-index.ts` instead of `bench-parsers.ts`.
+
+---
+
 ## [8.5.2] (2026-05-21) — Agentic stream completion
 
 ### Fixes

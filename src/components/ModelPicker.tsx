@@ -37,8 +37,12 @@ import {
   COMPASS_TIER_THINKING,
   COMPASS_TIER_ORDER,
 } from "@/ipc/shared/compass_constants";
+import { getDefaultAutoSettingsPatchSync } from "@/lib/routing/auto-settings-defaults-ui";
+import { IpcClient } from "@/ipc/ipc_client";
 
-const LOCAL_COMPASS_TIER_LABELS = ["Fast", "Balanced", "Thinking"] as const;
+import { ATLARIX_CORE_CATEGORY_LABEL } from "@/shared/compass_product_copy";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
+import { displayLabelForCompassTier } from "@/lib/atlarix-core-catalog";
 
 const MODELS_PAGE_SIZE = 20;
 
@@ -68,6 +72,7 @@ function filterLocalModels(models: LocalModel[], query: string): LocalModel[] {
 
 export function ModelPicker() {
   const { settings, updateSettings } = useSettings();
+  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const { status } = useAuth();
   const queryClient = useQueryClient();
   const onModelSelect = (model: LargeLanguageModel) => {
@@ -78,6 +83,18 @@ export function ModelPicker() {
   };
 
   const [open, setOpen] = useState(false);
+  const [compassBuildOk, setCompassBuildOk] = useState(false);
+  const [configuredProviderIds, setConfiguredProviderIds] = useState<string[]>([]);
+  useEffect(() => {
+    void IpcClient.getInstance()
+      .isCompassBuildConfigured()
+      .then(setCompassBuildOk)
+      .catch(() => setCompassBuildOk(false));
+    void IpcClient.getInstance()
+      .getConfiguredProviders()
+      .then(setConfiguredProviderIds)
+      .catch(() => setConfiguredProviderIds([]));
+  }, []);
   const [providersPage, setProvidersPage] = useState(0);
   const [cloudModelSearch, setCloudModelSearch] = useState<Record<string, string>>({});
   const [cloudModelPage, setCloudModelPage] = useState<Record<string, number>>({});
@@ -147,7 +164,11 @@ export function ModelPicker() {
       const cm = modelsByProviders?.compass?.find(
         (m) => m.apiName === selectedModel.name,
       );
-      return cm?.displayName ?? selectedModel.name;
+      return displayLabelForCompassTier(
+        selectedModel.name,
+        coreCatalog,
+        cm?.displayName,
+      );
     }
     if (selectedModel.provider === "ollama") {
       return (
@@ -290,14 +311,21 @@ export function ModelPicker() {
                 }
                 onClick={() => {
                   const firstAuto = autoModels[0];
-                  // Pro: use turbo/smart routing; non-Pro: use first auto model or "free" for OpenRouter free tier
                   const modelName =
                     firstAuto?.apiName ??
                     (isAtlarixProEnabled(settings) ? "turbo" : "free");
-                  onModelSelect({
-                    name: modelName,
-                    provider: "auto",
+                  const autoPatch = settings
+                    ? getDefaultAutoSettingsPatchSync(settings, {
+                        compassAvailable: compassBuildOk,
+                        configuredProviderIds,
+                      })
+                    : null;
+                  updateSettings({
+                    selectedModel: { name: modelName, provider: "auto" },
+                    autoModelRouting: true,
+                    ...(autoPatch ?? {}),
                   });
+                  queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
                   setOpen(false);
                 }}
               >
@@ -405,34 +433,27 @@ export function ModelPicker() {
                     compassSafePage * MODELS_PAGE_SIZE,
                     (compassSafePage + 1) * MODELS_PAGE_SIZE,
                   );
-                  const tierLabel = (apiName: string) =>
-                    apiName === COMPASS_TIER_FAST
-                      ? "Fast"
-                      : apiName === COMPASS_TIER_BALANCED
-                        ? "Balanced"
-                        : "Thinking";
                   return (
                     <DropdownMenuSub key="compass">
                       <DropdownMenuSubTrigger className="w-full font-normal">
                         <div className="flex flex-col items-start w-full">
-                          <span>Compass</span>
+                          <span>{ATLARIX_CORE_CATEGORY_LABEL}</span>
                           <span className="text-xs text-muted-foreground">
-                            Built-in · no API key
+                            OpenRouter · no API key
                           </span>
                         </div>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="w-72 max-h-[min(72vh,420px)] flex flex-col p-0 overflow-hidden">
                         <div className="px-2 pt-2">
-                          <DropdownMenuLabel className="px-0">Compass</DropdownMenuLabel>
+                          <DropdownMenuLabel className="px-0">
+                            {ATLARIX_CORE_CATEGORY_LABEL}
+                          </DropdownMenuLabel>
                         </div>
                         {compassModels.length > 1 ? (
                           <div
                             className="px-2 pb-2 border-b border-border"
                             onPointerDown={(e) => e.stopPropagation()}
                           >
-                            <p className="text-[10px] font-medium text-muted-foreground mb-1">
-                              Fast · Balanced · Thinking
-                            </p>
                             <table className="w-full text-xs">
                               <tbody>
                                 {COMPASS_TIER_ORDER.filter((tierId) =>
@@ -451,9 +472,6 @@ export function ModelPicker() {
                                         isSel && "bg-secondary/70 rounded-sm",
                                       )}
                                     >
-                                      <td className="py-1 pr-1 font-medium text-muted-foreground align-middle w-16">
-                                        {tierLabel(tierId)}
-                                      </td>
                                       <td className="py-1 pr-1 align-middle min-w-0">
                                         <button
                                           type="button"
@@ -1104,11 +1122,11 @@ export function ModelPicker() {
                             onPointerDown={(e) => e.stopPropagation()}
                           >
                             <DropdownMenuLabel className="px-0">
-                              Ollama — Fast / Balanced / Thinking
+                              Ollama — routing slots
                             </DropdownMenuLabel>
                             <table className="w-full text-xs mt-1">
                               <tbody>
-                                {LOCAL_COMPASS_TIER_LABELS.map((label, idx) => {
+                                {(["Slot 1", "Slot 2", "Slot 3"] as const).map((label, idx) => {
                                   const id = ollamaFavorites[idx];
                                   const m = id
                                     ? ollamaModels.find(
@@ -1360,11 +1378,11 @@ export function ModelPicker() {
                             onPointerDown={(e) => e.stopPropagation()}
                           >
                             <DropdownMenuLabel className="px-0">
-                              LM Studio — Fast / Balanced / Thinking
+                              LM Studio — routing slots
                             </DropdownMenuLabel>
                             <table className="w-full text-xs mt-1">
                               <tbody>
-                                {LOCAL_COMPASS_TIER_LABELS.map((label, idx) => {
+                                {(["Slot 1", "Slot 2", "Slot 3"] as const).map((label, idx) => {
                                   const id = lmStudioFavorites[idx];
                                   const m = id
                                     ? lmStudioModels.find(

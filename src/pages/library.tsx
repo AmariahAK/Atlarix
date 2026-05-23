@@ -130,15 +130,24 @@ export default function LibraryPage() {
   const handleDeleteGlobalPrompt = async () => {
     try {
       await IpcClient.getInstance().deleteGlobalPrompt();
-      setGlobalPrompt("");
-      setOriginalGlobalPrompt("");
-      setGlobalPromptId(null);
+      const prompt = await IpcClient.getInstance().getGlobalPrompt();
+      if (prompt) {
+        setGlobalPrompt(prompt.content);
+        setOriginalGlobalPrompt(prompt.content);
+        setGlobalPromptId(prompt.id);
+      } else {
+        setGlobalPrompt("");
+        setOriginalGlobalPrompt("");
+        setGlobalPromptId(null);
+      }
       showSuccess("Global prompt deleted");
     } catch (error) {
       showError("Failed to delete global prompt");
       console.error(error);
     }
   };
+
+  const hasSavedGlobalPrompt = globalPromptId != null;
 
   // Open workspace prompt dialog
   const openWorkspaceDialog = (workspace: WorkspaceWithStatus) => {
@@ -230,7 +239,7 @@ export default function LibraryPage() {
                 </span>
 
                 <div className="flex gap-2">
-                  {globalPromptId && (
+                  {hasSavedGlobalPrompt && (
                     <Button
                       variant="destructive"
                       size="sm"

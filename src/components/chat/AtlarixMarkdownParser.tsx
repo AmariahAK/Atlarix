@@ -12,8 +12,18 @@ import { AtlarixSearchReplace } from "./AtlarixSearchReplace";
 import { AtlarixCodebaseContext } from "./AtlarixCodebaseContext";
 import { AtlarixThink } from "./AtlarixThink";
 import { CodeHighlight } from "./CodeHighlight";
+import { VisualArtifactCard } from "./VisualArtifactCard";
 import { useAtomValue } from "jotai";
-import { activeChatIdAtom, isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  activeChatIdAtom,
+  completedTurnThinkingByAssistantMessageIdAtom,
+  isStreamingByIdAtom,
+  selectedChatIdAtom,
+} from "@/atoms/chatAtoms";
+import {
+  hasThinkingSnapshotContent,
+  type CompletedTurnThinkingSnapshot,
+} from "@/lib/thinking/extract-thinking-from-content";
 import { activityStreamItemsAtom, agentBusRingByChatIdAtom } from "@/atoms/sourceAtoms";
 import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
@@ -51,6 +61,8 @@ interface AtlarixMarkdownParserProps {
   onPlanSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
   /** When true, InlineThoughtsBlock is not rendered here (parent places it above activity / plan). */
   suppressInlineThoughts?: boolean;
+  /** Assistant message id for frozen thinking snapshot after stream ends. */
+  assistantMessageId?: number;
 }
 
 type CustomTagInfo = {
@@ -109,6 +121,25 @@ function renderTextWithPathMentions(children: React.ReactNode) {
   return parts;
 }
 
+const markdownTableComponents = {
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <VisualArtifactCard title="Table" layout="content">
+      <table className="w-full min-w-full text-sm border-collapse table-auto">
+        {children}
+      </table>
+    </VisualArtifactCard>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="bg-muted/50">{children}</thead>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-border px-2 py-1 text-left font-medium">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-border px-2 py-1">{children}</td>
+  ),
+};
+
 export const VanillaMarkdownParser = ({ content }: { content: string }) => {
   return (
     <ReactMarkdown
@@ -116,6 +147,7 @@ export const VanillaMarkdownParser = ({ content }: { content: string }) => {
       components={{
         code: CodeHighlight,
         a: customLink,
+        ...markdownTableComponents,
       }}
     >
       {content}
@@ -139,6 +171,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   content,
   onPlanSwitchToBuild,
   suppressInlineThoughts = false,
+  assistantMessageId,
 }) => {
   const { settings } = useSettings();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
@@ -146,6 +179,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const chatId = activeChatId ?? selectedChatId;
   const streamingById = useAtomValue(isStreamingByIdAtom);
   const isStreaming = chatId != null ? (streamingById.get(chatId) ?? false) : false;
+
   const activityStreamItems = useAtomValue(activityStreamItemsAtom);
   const agentMode = settings?.agentMode ?? "guided";
   const agentAnimMode = agentMode === "guided" || agentMode === "autonomous";
@@ -165,6 +199,13 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const agentBusRingByChatId = useAtomValue(agentBusRingByChatIdAtom);
   const busExchanges =
     chatId != null ? (agentBusRingByChatId[chatId] ?? []) : [];
+  const frozenThinkingByMessageId = useAtomValue(
+    completedTurnThinkingByAssistantMessageIdAtom,
+  );
+  const frozenThinking: CompletedTurnThinkingSnapshot | undefined =
+    assistantMessageId != null
+      ? frozenThinkingByMessageId[assistantMessageId]
+      : undefined;
   const displayContent = useMemo(() => {
     let s = stripTaskCompleteTags(stripAssistantPlanForDisplay(content));
     if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
@@ -392,29 +433,49 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     [reasoningTagParts],
   );
 
-  const hasThinkingContent =
+  const liveHasThinking =
     thoughts.length > 0 ||
     reasoningTagParts.length > 0 ||
     modelReasoningParts.length > 0 ||
     toolCalls.length > 0 ||
     busExchanges.length > 0;
 
+  const frozenHasThinking =
+    frozenThinking != null && hasThinkingSnapshotContent(frozenThinking);
+
+  const displayThinking = frozenHasThinking
+    ? {
+        thoughts: frozenThinking!.thoughts,
+        reasoningFromTags: frozenThinking!.reasoningFromTags,
+        modelReasoning: frozenThinking!.modelReasoning,
+        toolCalls: frozenThinking!.toolCalls,
+        busExchanges: frozenThinking!.busExchanges,
+      }
+    : {
+        thoughts,
+        reasoningFromTags: reasoningFromTags || "",
+        modelReasoning: modelReasoningText || "",
+        toolCalls,
+        busExchanges,
+      };
+
+  const hasThinkingContent = frozenHasThinking || liveHasThinking;
+
   useEffect(() => {
+    if (frozenHasThinking) {
+      setShowThinking(true);
+      return;
+    }
     if (hasThinkingContent) {
-      // Show immediately when content appears
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);
         hideTimeoutRef.current = null;
       }
       setShowThinking(true);
     } else if (showThinking && !isStreaming) {
-      // Only hide when not streaming and after a delay
       hideTimeoutRef.current = setTimeout(() => {
         setShowThinking(false);
-      }, 300); // Small delay to prevent flicker
-    } else if (showThinking && isStreaming) {
-      // During streaming, keep showing but don't hide yet
-      // (content may briefly become empty between chunks)
+      }, 300);
     }
 
     return () => {
@@ -422,18 +483,19 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
         clearTimeout(hideTimeoutRef.current);
       }
     };
-  }, [hasThinkingContent, isStreaming, showThinking]);
+  }, [hasThinkingContent, isStreaming, showThinking, frozenHasThinking]);
 
   const thinkingCardEl =
     showThinking ? (
       <ThinkingCard
-        thoughts={thoughts}
-        reasoningFromTags={reasoningFromTags || undefined}
-        modelReasoning={modelReasoningText || undefined}
-        toolCalls={toolCalls}
+        thoughts={displayThinking.thoughts}
+        reasoningFromTags={displayThinking.reasoningFromTags || undefined}
+        modelReasoning={displayThinking.modelReasoning || undefined}
+        toolCalls={displayThinking.toolCalls}
         compactTools={compactTools}
-        busExchanges={busExchanges}
+        busExchanges={displayThinking.busExchanges}
         size={isStreaming ? "compact" : "default"}
+        initialExpanded={isStreaming}
       />
     ) : null;
 
@@ -459,6 +521,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
                   code: CodeHighlight,
                   a: customLink,
                   text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
+                  ...markdownTableComponents,
                 }}
               >
                 {piece.content}

@@ -330,6 +330,13 @@
       "when": 1778550000000,
       "tag": "0046_mcp_api_key",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1778650000000,
+      "tag": "0047_drop_blueprints_table",
+      "breakpoints": true
     }
   ]
 }

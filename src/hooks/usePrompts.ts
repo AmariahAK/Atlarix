@@ -58,10 +58,7 @@ export function usePrompts() {
       return out;
     },
     meta: { showErrorToast: true },
-    staleTime: Infinity,
-    gcTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchOnMount: true,
   });
 
   const createMutation = useMutation({
@@ -102,7 +99,19 @@ export function usePrompts() {
   const deleteMutation = useMutation({
     mutationFn: async (id: number): Promise<void> => {
       const ipc = IpcClient.getInstance();
-      return ipc.deletePrompt(id);
+      const globalRow = await ipc.getGlobalPrompt();
+      if (globalRow?.id === id) {
+        await ipc.deleteGlobalPrompt();
+        return;
+      }
+      if (selectedAppId != null) {
+        const workspaceRow = await ipc.getWorkspacePrompt(selectedAppId);
+        if (workspaceRow?.id === id) {
+          await ipc.deleteWorkspacePrompt(selectedAppId);
+          return;
+        }
+      }
+      await ipc.deletePrompt(id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prompts"] });

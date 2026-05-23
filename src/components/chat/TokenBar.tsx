@@ -21,6 +21,7 @@ import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCompassUsage } from "@/hooks/useCompassUsage";
 import { CompassUsageStrip } from "./CompassUsageStrip";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 
 interface TokenBarProps {
   chatId?: number;
@@ -98,7 +99,11 @@ export function TokenBar({
       )}
       {compassQuotaReady && includeCompassMonthlyStrip ? (
         <CompassUsageStrip
-          subscriptionTierLabel={compassUsage.tier ?? "Compass"}
+          subscriptionTierLabel={
+            compassUsage.tier
+              ? formatCompassSubscriptionTier(compassUsage.tier)
+              : "—"
+          }
           tokensUsedThisMonth={compassUsage.tokensUsedThisMonth}
           monthlyLimit={compassUsage.monthlyLimit}
           percentRemaining={compassUsage.percentRemaining}

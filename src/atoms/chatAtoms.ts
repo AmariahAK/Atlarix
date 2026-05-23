@@ -7,6 +7,7 @@ import type {
 import { atom } from "jotai";
 import type { ChatSummary } from "@/lib/schemas";
 import type { ActivityStreamItem, AgentBusExchange } from "@/atoms/sourceAtoms";
+import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import type { CounselTrigger } from "@/lib/counsel/counsel-session";
 
 // Per-chat atoms implemented with maps keyed by chatId
@@ -138,6 +139,11 @@ export type CompletedTurnArtifacts = {
 
 export const completedTurnArtifactsByAssistantMessageIdAtom = atom<
   Record<number, CompletedTurnArtifacts>
+>({});
+
+/** Frozen thinking card per completed assistant message (DB strips think blocks). */
+export const completedTurnThinkingByAssistantMessageIdAtom = atom<
+  Record<number, CompletedTurnThinkingSnapshot>
 >({});
 
 /** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */

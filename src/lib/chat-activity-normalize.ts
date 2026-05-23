@@ -3,6 +3,21 @@ import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 
 export const MAX_ACTIVITY_STREAM_ITEMS = 200;
 
+/** Replace an item with the same `id`, or append if new. Caps list length. */
+export function upsertActivityStreamItem(
+  prev: ActivityStreamItem[],
+  item: ActivityStreamItem,
+): ActivityStreamItem[] {
+  const idx = prev.findIndex((p) => p.id === item.id);
+  const next =
+    idx >= 0
+      ? prev.map((p, i) => (i === idx ? { ...p, ...item } : p))
+      : [...prev, item];
+  return next.length > MAX_ACTIVITY_STREAM_ITEMS
+    ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
+    : next;
+}
+
 const VALID_TYPES = new Set<string>([
   "model_selection",
   "delegation",

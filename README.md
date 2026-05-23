@@ -11,7 +11,7 @@ You have control.
 
 ## How it works
 
-**Map** — Atlarix parses your repo into a live graph. The agent navigates architecture, not raw text.
+**Map** — Atlarix parses your repo into a live **Blueprint** graph (Universal Ctags symbols + ast-grep import/call/route edges). The agent navigates architecture, not raw text.
 
 **Connect** — Wire in any LLM: local Ollama, OpenAI, Anthropic, or the managed model bridge.
 
@@ -21,11 +21,25 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.5.2**
+**Current release:** **v8.6.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.6.0 — Blueprint / RTE stack (ctags + ast-grep)
+
+- **Live Code Map pipeline:** `get_blueprint` lazy-loads via **Universal Ctags** (symbol index) + **@ast-grep/napi** (import, call, and **HTTP route** edges for Express/Fastify/Next).
+- **Incremental updates:** file watcher refreshes per-file ctags + ast-grep edges on save (500ms debounce) instead of full-project rescans.
+- **Python + Go:** dynamic ast-grep grammars for import/call/route edges alongside TS/JS/TSX.
+- **Search:** `search(auto)` upgrades to BM25 over ctags when `.atlarix/symbols.json` is warm; `search(structural)` BFS over blueprint `flowEdges`.
+- **Blast radius:** guided/build approval flow shows edit impact (callers/importers) before `write_file` / `edit_file`; skipped in autonomous auto-approve.
+- **Bundled tooling:** `npm install` runs **`fetch-ctags`** (macOS/Linux/Windows nightly or Homebrew) and builds **`astgrep_worker.js`** for isolated structural scans.
+- **Removed:** oxc-parser / tree-sitter WASM RTE path — see [docs/architecture.md](docs/architecture.md).
+
+Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -58,7 +72,7 @@ Full technical notes: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 ## v8.3.0 — Agent Workstation reframe
 
 - **Positioning:** Agent Workstation across README, website, and in-app copy (editor stays yours; agent gets its own workspace).
-- **Language:** Solo / Studio / Team tiers; Explore / Fix mode labels; Model Bridge tiers Speed / Standard / Deep; Approval Queue, Agent Memory, Checkpoints, Multi-Model Review, Agent Teams.
+- **Language:** Solo / Studio / Team tiers; Explore / Fix mode labels; **Atlarix Core** included OpenRouter models (e.g. DeepSeek V4 Flash / Pro, Kimi K2.6); Approval Queue, Agent Memory, Checkpoints, Multi-Model Review, Agent Teams.
 - **Tools:** Git inspection tools removed from the agent registry — use the terminal for `git` CLI.
 - **Fix:** Raw `<task_complete>` tags no longer appear in chat UI.
 - **Docs:** Live Code Map / parser deep-dive moved to [docs/architecture.md](docs/architecture.md).
@@ -251,7 +265,7 @@ On-demand graph via `get_blueprint` and structural `search`—not whole-repo inj
 - **Work modes:** Explore (read-only), Plan, Build, Fix, Review — plus **Auto** routing (Speed / Standard / Deep via Groq classifier when uncertain).
 - **Built-in specialists:** Research, Architect, Builder, Reviewer, Debugger.
 - **Agent Teams:** Guided (flat) or Autonomous (nested sub-agents, depth-limited).
-- **Model Bridge:** Managed cloud models (no API key). Speed tier on Solo; all three on Studio and Team.
+- **Atlarix Core:** Managed OpenRouter models (no API key). One included model on Solo; all three routing slots on Studio and Team.
 
 ### Workspace Tools & Extensions
 
@@ -287,14 +301,15 @@ Releases are built and published from **this repository** ([`AmariahAK/Atlarix`]
 
 ### Cut a release (Atlarix repo only)
 
-1. Land your changes on the branch you release from (usually `main`) and bump **`package.json` `version`** (and changelog/README as needed) so it matches the tag you will push.
-2. Commit the version bump.
-3. Create and push a tag whose name matches the app version with a **`v` prefix**, e.g. **`v7.0.2`**:
+1. Land your changes on the branch you release from (usually `main`) and bump **`package.json` `version`** so it matches the tag you will push.
+2. Add a **technical** release section at the top of [`docs/CHANGELOG.md`](docs/CHANGELOG.md), e.g. `## [8.5.2] (2026-05-21) — Title` (or legacy `## v8.5.2 — Title`). The **`announce-release`** job copies this section to the GitHub release on `atlarix-releases` and to Discord (same technical text).
+3. Commit the version bump and changelog section.
+4. Create and push a tag whose name matches the app version with a **`v` prefix**, e.g. **`v7.0.2`**:
    ```bash
    git tag v7.0.2
    git push origin v7.0.2
    ```
-4. In GitHub: **Actions** → **Release** should show a run for that tag. When **macOS** and **Linux** jobs succeed, the workflow **publishes** the draft release on **`AmariahAK/atlarix-releases`** (see workflow `publish-release`).
+5. In GitHub: **Actions** → **Release** should show a run for that tag. When builds succeed, **`publish-release`** makes the release public; **`announce-release`** (tag pushes only) updates release notes from `docs/CHANGELOG.md` and optionally posts to Discord.
 
 **Manual run (`workflow_dispatch`):** You can trigger **Actions → Release → Run workflow** for a test build; set the **version** input when prompted. **Publishing** the release to users still follows the **tag push** path in [`.github/workflows/release.yml`](.github/workflows/release.yml) (`publish-release` is gated on `refs/tags/v*`).
 
@@ -309,7 +324,8 @@ Releases are built and published from **this repository** ([`AmariahAK/Atlarix`]
   `GROQ_CLASSIFIER_API_KEY`, `GROQ_CLASSIFIER_MODEL`,  
   `TEMPLATE_TOKEN` (optional — higher GitHub API rate limits for the in-app template catalog),  
   `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,  
-  `RELEASES_TOKEN` (PAT with `repo` scope for publishing to `atlarix-releases`).
+  `RELEASES_TOKEN` (PAT with `repo` scope for `atlarix-releases` — draft create, asset upload, publish, changelog body via `announce-release`).  
+  `DISCORD_WEBHOOK_URL` (optional — webhook for the **atlarix-releases** Discord channel; add it on this repo’s Actions secrets when you want tag pushes to post there).
 
 ---
 
@@ -330,7 +346,13 @@ cp .env.example .env
 npm start
 ```
 
-After `npm install`, root **`postinstall`** runs **`electron/install.js`** so the Electron binary is present even when `dist/` was incomplete (avoids **`spawn …/Electron ENOENT`** on **`npm start`**). See [docs/CHANGELOG.md](docs/CHANGELOG.md) **[8.0.4]**.
+After `npm install`, root **`postinstall`** runs:
+
+1. **`electron/install.js`** — Electron binary (avoids **`spawn …/Electron ENOENT`** on **`npm start`**). See [docs/CHANGELOG.md](docs/CHANGELOG.md) **[8.0.4]**.
+2. **`fetch-ctags`** — downloads or copies **Universal Ctags** into `assets/ctags/{platform}/` (gitignored; required for symbol index + Blueprint). Fallback: `brew install universal-ctags` then `npm run fetch-ctags`.
+3. **`build:astgrep-worker`** — compiles `.vite/build/astgrep_worker.js` so ast-grep structural scans run off the main process in dev (`npm start` also runs this via **`prestart`**).
+
+Blueprint / RTE deep-dive: [docs/architecture.md](docs/architecture.md).
 
 **Schema changes:** Any update that modifies the database schema must include a Drizzle migration under [`drizzle/`](drizzle/) and regenerate [`bundled.generated.ts`](src/db/migrations/bundled.generated.ts) via `npm run db:generate` (which runs `db:bundle-sql` via `postdb:generate`). Every new migration also needs a matching `isJournalMigrationApplied` case in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts) (e.g. `0035_unified_snapshots_revert` checks `diagram_versions.chat_turn_id`, `diagrams.last_snapshot_hashes`, and `messages.is_reverted`).
 

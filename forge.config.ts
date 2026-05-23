@@ -1,9 +1,7 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { getOxcBindingPackageName } from "./src/lib/blueprint/rte/parsers/oxc-binding-package";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
@@ -36,12 +34,6 @@ function runNpmInstall(cwd: string, args: string[]): Promise<void> {
 
 function npmTargetPlatformArgs(platform: string, arch: string): string[] {
   return [`--os=${platform}`, `--cpu=${arch}`];
-}
-
-function readOxcParserVersion(): string {
-  const oxcPkgPath = path.join(process.cwd(), "node_modules", "oxc-parser", "package.json");
-  const oxcPkg = JSON.parse(readFileSync(oxcPkgPath, "utf-8")) as { version: string };
-  return oxcPkg.version;
 }
 
 /** Rollup `external` may use subpaths (`tiktoken/lite`, `pdfjs-dist/build/foo`); `npm install` needs the package root. */
@@ -103,10 +95,7 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/keytar")) {
     return false;
   }
-  if (file.startsWith("/node_modules/oxc-parser")) {
-    return false;
-  }
-  if (file.startsWith("/node_modules/@oxc-parser")) {
+  if (file.startsWith("/node_modules/@ast-grep")) {
     return false;
   }
   if (file.startsWith("/node_modules/web-tree-sitter")) {
@@ -117,6 +106,9 @@ const ignore = (file: string) => {
   }
   // tiktoken ships tiktoken_bg.wasm next to lite/*.cjs — must stay unpackaged from Rollup with real __dirname (see vite.main.config external).
   if (file.startsWith("/node_modules/tiktoken")) {
+    return false;
+  }
+  if (file.startsWith("/node_modules/unpdf")) {
     return false;
   }
   if (file.startsWith("/node_modules/@anthropic-ai/tokenizer")) {
@@ -178,10 +170,13 @@ const config: ForgeConfig = {
     extraResource: [
       "node_modules/dugite/git",
       path.join(__dirname, "src/skills"),
-      // Packager expects string paths only (not { from, to }); basename must match wasm-extract.ts resourcesPath lookup.
-      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm"),
-      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm"),
-      path.join(__dirname, "node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm"),
+      path.join(__dirname, "assets/ctags", process.platform === "darwin"
+        ? (process.arch === "arm64" ? "darwin-arm64" : "darwin-x64")
+        : process.platform === "win32"
+          ? "win32-x64"
+          : process.arch === "arm64"
+            ? "linux-arm64"
+            : "linux-x64"),
     ],
     // ignore: [/node_modules\/(?!(better-sqlite3|bindings|file-uri-to-path)\/)/],
   },
@@ -190,6 +185,7 @@ const config: ForgeConfig = {
       "better-sqlite3",
       "keytar",
       "@lydell/node-pty",
+      "@ast-grep/napi",
     ],
     force: true,
   },
@@ -286,10 +282,6 @@ const config: ForgeConfig = {
           ? pkg.split("/").slice(0, 2).join("/")
           : pkg.split("/")[0];
         if (RENDERER_ONLY_PACKAGES.has(root)) return false;
-        // oxc-parser lists many platform bindings as optional deps, including wasm32-wasi.
-        // Installing any @oxc-parser/* package from generic externals can fail on native
-        // build hosts; install only the resolved platform binding in the dedicated step below.
-        if (pkg === "oxc-parser" || pkg.startsWith("@oxc-parser/")) return false;
         // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
         if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
           return false;
@@ -309,37 +301,6 @@ const config: ForgeConfig = {
           ...toInstall,
         ];
         await runNpmInstall(buildPath, commands);
-      }
-
-      // oxc-parser native bindings are optionalDependencies — stripped by --omit=optional above.
-      // Re-install oxc-parser with target --os/--cpu flags so npm picks the matching binding
-      // via optional deps without tripping EBADPLATFORM on cross-arch (e.g. arm64 host -> darwin/x64).
-      // We MUST allow optional deps here so npm can install the correct @oxc-parser/binding-* package.
-      // Requesting the binding by name directly bypasses --os/--cpu (those flags only affect optional
-      // dep resolution, not directly-requested packages) and would still throw EBADPLATFORM.
-      const bindingPkg = getOxcBindingPackageName(
-        platform as NodeJS.Platform,
-        arch,
-        platform === "linux" ? undefined : false,
-      );
-      if (bindingPkg) {
-        const oxcVersion = readOxcParserVersion();
-        console.log(
-          `[forge] Installing oxc-parser@${oxcVersion} (target ${platform}/${arch}) — npm will pick ${bindingPkg}`,
-        );
-        await runNpmInstall(buildPath, [
-          "install",
-          "--omit=dev",
-          "--omit=peer",
-          "--no-save",
-          "--no-package-lock",
-          "--no-audit",
-          "--no-fund",
-          ...npmTargetPlatformArgs(platform, arch),
-          `oxc-parser@${oxcVersion}`,
-        ]);
-      } else {
-        console.warn(`[forge] No oxc binding package for ${platform}/${arch}`);
       }
 
       // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
@@ -401,8 +362,8 @@ const config: ForgeConfig = {
           target: "main",
         },
         {
-          entry: "workers/blueprint/parser_worker.ts",
-          config: "vite.parser-worker.config.mts",
+          entry: "workers/blueprint/astgrep_worker.ts",
+          config: "vite.astgrep-worker.config.mts",
           target: "main",
         },
       ],

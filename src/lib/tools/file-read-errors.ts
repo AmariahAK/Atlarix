@@ -92,6 +92,18 @@ export function readFileStructuredError(
   return null;
 }
 
+export function enrichReadFileStructuredError(
+  base: ReadFileStructuredError,
+  inventoryHint: string,
+): ReadFileStructuredError {
+  const hint = inventoryHint.trim();
+  if (!hint) return base;
+  return {
+    ...base,
+    message: `${base.message} ${hint}`.trim(),
+  };
+}
+
 export function logReadFileError(structured: ReadFileStructuredError): void {
   logger.debug(structured.message, { error: structured.error, path: structured.path });
 }

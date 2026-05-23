@@ -21,6 +21,7 @@ import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
 import { formatAutoTierLabel, useLastAutoRoutedTier } from "@/hooks/useLastAutoRoutedTier";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode } from "@/lib/work-mode";
 import { TokenCircle } from "./chat/TokenCircle";
@@ -89,8 +90,13 @@ export function ChatInputControls({
 
   const isAutoMode =
     settings?.autoModelRouting === true || settings?.selectedModel?.provider === "auto";
+  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const lastAutoTier = useLastAutoRoutedTier(chatId ?? selectedChatId ?? null);
-  const autoTierSuffix = formatAutoTierLabel(lastAutoTier);
+  const autoTierSuffix = formatAutoTierLabel(
+    lastAutoTier,
+    coreCatalog,
+    settings?.autoProviderId,
+  );
   const usesCompassQuotaRow = selectionUsesCompass(
     settings?.selectedModel,
     settings?.autoProviderId ?? undefined,

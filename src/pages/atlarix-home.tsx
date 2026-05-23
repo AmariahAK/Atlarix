@@ -349,7 +349,7 @@ export default function AtlarixHome() {
                 {onboardingStep === 2 && (
                     <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <span>
-                            <strong>Compass</strong> is ready — no API key needed. Start a chat below, then add your own keys in Settings if you want other models.
+                            <strong>Atlarix Core</strong> is ready — no API key needed. Start a chat below, then add your own keys in Settings if you want other models.
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
                             <Button size="sm" variant="outline" onClick={() => { setOnboardingStep(3); persistOnboardingStep(3); navigate({ to: '/settings' }); }}>

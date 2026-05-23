@@ -22,6 +22,7 @@ import {
     numberParam,
 } from "./registry";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
+import { analyzeBlastRadius } from "@/lib/blueprint/blast-radius";
 import { isDangerousCommand, getDangerExplanation } from "../dangerous-commands";
 import {
     openStream,
@@ -775,27 +776,27 @@ async function runHealthCheck(workspace: string) {
 
 async function runChangeImpact(params: { filepath: string; workspace: string }) {
     assertReadablePath(params.filepath, params.workspace);
-    const fileName = path.basename(params.filepath, path.extname(params.filepath));
-    const { stdout } = await execAsync(
-        `rg "import.*${fileName}" "${params.workspace}" -l --type js --type ts`,
-        { maxBuffer: 10 * 1024 * 1024 }
-    ).catch(() => ({ stdout: "" }));
-
-    const dependents = stdout
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .filter((file) => file !== params.filepath);
-
+    const blast = await analyzeBlastRadius({
+        projectPath: params.workspace,
+        filepath: params.filepath,
+    });
     const analysis = await analyzeContextForFile(params.filepath, params.workspace);
 
     return {
         success: true,
         analysis_type: "change_impact",
         filepath: params.filepath,
-        dependent_files: dependents,
-        dependency_count: dependents.length,
-        impact_level: calculateImpactLevel(dependents.length),
+        dependent_files: blast.affectedFiles.filter((f) => f !== blast.filepath),
+        dependency_count: blast.callerCount + blast.importerCount,
+        impact_level: blast.impactLevel,
+        blast_radius: {
+            summary: blast.summary,
+            caller_count: blast.callerCount,
+            importer_count: blast.importerCount,
+            callee_count: blast.calleeCount,
+            affected_symbols: blast.affectedSymbols.slice(0, 30),
+            edges: blast.edges.slice(0, 50),
+        },
         file_analysis: analysis.success ? analysis : { success: false, error: analysis.error },
     };
 }

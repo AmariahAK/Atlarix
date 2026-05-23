@@ -486,8 +486,10 @@ async function readPdfFile(
         typeof text === "string"
             ? text
             : Array.isArray(text)
-              ? text.join("\n\n")
-              : "";
+              ? (text as string[]).join("\n\n")
+              : text != null
+                ? String(text)
+                : "";
     const trimmed = merged.trim();
     return {
         text: trimmed,
@@ -634,14 +636,20 @@ function extractStructuredData(attachment: AttachmentData): any {
                             : "Full PDF content extracted. Raw base64 also available for OCR if needed.",
                     };
                 } else {
+                    const errMsg =
+                        result.text.startsWith("[PDF")
+                            ? result.text
+                            : "PDF text extraction failed. The PDF may be password-protected/encrypted or scanned/images-only.";
                     return {
+                        success: false,
                         type: "document",
                         filename: attachment.filename,
                         size: attachment.size,
                         mimeType: mimeTypes[ext] || "application/octet-stream",
                         content: null,
-                        error:
-                            "PDF text extraction failed. The PDF may be password-protected/encrypted or scanned/images-only.",
+                        error: errMsg,
+                        suggestion:
+                            "If the PDF is scanned, use OCR on rawBase64. If password-protected, re-attach an unencrypted copy. Otherwise use list_attachments and try another file.",
                         rawBase64: attachment.data,
                         note:
                             "If this PDF is password-protected, export an unencrypted copy and re-attach. If it is scanned, base64 is provided for OCR.",
@@ -751,60 +759,115 @@ ToolRegistry.register({
             attachmentId: stringParam(
                 "The attachment ID to read. This is a unique identifier assigned when the file was uploaded."
             ),
+            attachmentIds: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                    "Optional batch of attachment IDs. Returns per-file results; one failure does not abort the rest.",
+            },
         },
-        ["attachmentId"]
+        []
     ),
-    handler: async ({ attachmentId }: { attachmentId: string }) => {
-        logger.log(`read_attachment called with id: ${attachmentId}`);
+    handler: async ({
+        attachmentId,
+        attachmentIds,
+    }: {
+        attachmentId?: string;
+        attachmentIds?: string[];
+    }) => {
+        const ids = [
+            ...(Array.isArray(attachmentIds) ? attachmentIds.filter((id) => typeof id === "string") : []),
+            ...(typeof attachmentId === "string" && attachmentId ? [attachmentId] : []),
+        ];
+        const uniqueIds = [...new Set(ids)];
 
-        if (!attachmentId || typeof attachmentId !== "string") {
+        if (uniqueIds.length === 0) {
             return {
                 success: false,
-                error: "attachmentId is required and must be a string",
+                error: "Provide attachmentId or attachmentIds",
+                suggestion: "Use list_attachments to see available attachment IDs.",
+                partial: null,
             };
         }
 
-        const attachment = AttachmentStore.get(attachmentId);
-
-        if (!attachment) {
-            logger.warn(`Attachment not found: ${attachmentId}`);
-            return {
-                success: false,
-                error: `Attachment not found: ${attachmentId}. The attachment may have expired or been cleared.`,
-                availableAttachments: AttachmentStore.getAll().map((a) => ({
-                    id: a.id,
-                    filename: a.filename,
-                    size: a.size,
-                })),
-            };
-        }
-
-        if (isBlockedSecretBasename(attachment.filename)) {
-            return { success: false, error: ENV_SECRET_BLOCK_MESSAGE };
-        }
-
-        try {
-            let structuredData = extractStructuredData(attachment);
-
-            if (structuredData && typeof structuredData.then === "function") {
-                structuredData = await structuredData;
+        const readOne = async (id: string) => {
+            const attachment = AttachmentStore.get(id);
+            if (!attachment) {
+                return {
+                    name: id,
+                    success: false as const,
+                    error: `Attachment not found: ${id}. It may have expired.`,
+                    suggestion: "Use list_attachments to see current IDs.",
+                };
             }
+            if (isBlockedSecretBasename(attachment.filename)) {
+                return {
+                    name: attachment.filename,
+                    success: false as const,
+                    error: ENV_SECRET_BLOCK_MESSAGE,
+                    suggestion: "Do not read secret or env files from attachments.",
+                };
+            }
+            try {
+                let structuredData = extractStructuredData(attachment);
+                if (structuredData && typeof structuredData.then === "function") {
+                    structuredData = await structuredData;
+                }
+                const ok =
+                    structuredData &&
+                    typeof structuredData === "object" &&
+                    (structuredData as { success?: boolean }).success !== false;
+                return {
+                    name: attachment.filename,
+                    success: ok,
+                    ...(ok ? structuredData : structuredData),
+                };
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                return {
+                    name: attachment.filename,
+                    success: false as const,
+                    error: `Failed to process attachment: ${msg}`,
+                    suggestion: "Try list_attachments or re-upload the file.",
+                    rawBase64: attachment.data,
+                };
+            }
+        };
 
-            logger.log(`Successfully extracted data from ${attachment.filename}`);
-
-            return {
-                success: true,
-                ...structuredData,
-            };
-        } catch (err) {
-            logger.error(`Failed to extract data from ${attachment.filename}:`, err);
-            return {
-                success: false,
-                error: `Failed to process attachment: ${err}`,
-                filename: attachment.filename,
-                rawBase64: attachment.data,
-            };
+        if (uniqueIds.length === 1) {
+            logger.log(`read_attachment called with id: ${uniqueIds[0]}`);
+            const one = await readOne(uniqueIds[0]);
+            if (!one.success) {
+                return {
+                    success: false,
+                    error: one.error,
+                    suggestion: one.suggestion,
+                    partial: null,
+                    filename: one.name,
+                    availableAttachments:
+                        "error" in one && one.error?.includes("not found")
+                            ? AttachmentStore.getAll().map((a) => ({
+                                  id: a.id,
+                                  filename: a.filename,
+                                  size: a.size,
+                              }))
+                            : undefined,
+                    ...(one as Record<string, unknown>),
+                };
+            }
+            return { success: true, ...one };
         }
+
+        const results = await Promise.all(uniqueIds.map((id) => readOne(id)));
+        const allOk = results.every((r) => r.success);
+        return {
+            success: allOk,
+            partial: allOk ? null : results.filter((r) => !r.success),
+            results,
+            suggestion: allOk
+                ? undefined
+                : "Some attachments failed; read successful entries from results and retry failed IDs individually.",
+        };
     },
 });
 

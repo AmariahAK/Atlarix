@@ -9,6 +9,8 @@ const transformer = new Transformer();
 interface MarkmapRendererProps {
   content: string;
   className?: string;
+  /** When true, fill parent artifact card instead of enforcing standalone min-height */
+  embedded?: boolean;
 }
 
 function hslVar(name: string, fallback: string): string {
@@ -84,7 +86,7 @@ function markmapThemeCss(theme: "light" | "dark", palette: ReturnType<typeof mar
   `;
 }
 
-export function MarkmapRenderer({ content, className = "" }: MarkmapRendererProps) {
+export function MarkmapRenderer({ content, className = "", embedded = false }: MarkmapRendererProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const markmapRef = useRef<Markmap | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,8 +158,8 @@ export function MarkmapRenderer({ content, className = "" }: MarkmapRendererProp
 
   return (
     <div
-      className={`markmap-root ${themeClass} not-prose relative w-full overflow-hidden rounded-lg border border-border/50 ${bgClass} ${className}`}
-      style={{ minHeight: 280 }}
+      className={`markmap-root ${themeClass} not-prose relative w-full overflow-hidden ${embedded ? "h-full min-h-0 border-0 rounded-none" : "rounded-lg border border-border/50"} ${bgClass} ${className}`}
+      style={embedded ? undefined : { minHeight: 280 }}
     >
       <style>{markmapThemeCss(theme, palette)}</style>
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 rounded-lg border border-border bg-background/80 p-1 shadow-sm backdrop-blur-sm">
@@ -186,7 +188,7 @@ export function MarkmapRenderer({ content, className = "" }: MarkmapRendererProp
           <Maximize2 className="h-4 w-4" />
         </button>
       </div>
-      <svg ref={svgRef} className="markmap h-full w-full" style={{ minHeight: 280 }} />
+      <svg ref={svgRef} className="markmap h-full w-full" style={embedded ? undefined : { minHeight: 280 }} />
     </div>
   );
 }

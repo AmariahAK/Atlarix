@@ -8,9 +8,9 @@ export function CompassExhaustedBanner({ tier }: { tier: string }) {
 
   return (
     <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground space-y-2">
-      <p className="font-medium">Compass monthly limit reached</p>
+      <p className="font-medium">Atlarix Core monthly limit reached</p>
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Add your own API keys in Settings to keep chatting, or upgrade for a higher Compass allowance.
+        Add your own API keys in Settings to keep chatting, or upgrade for a higher Atlarix Core allowance.
       </p>
       <div className="flex flex-wrap gap-2">
         {t === "free" || t === "pro" ? (

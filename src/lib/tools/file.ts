@@ -21,6 +21,7 @@ import {
     numberParam,
 } from "./registry";
 import { type FileOperationPreview } from "./permissions/schema";
+import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import {
     resolvePathUnderWorkspace,
     safeRelativePathUnderWorkspace,
@@ -499,7 +500,7 @@ ToolRegistry.register({
         },
         ["path", "content", "description"]
     ),
-    handler: async ({ path: filePath, content, description, workspace, chatMode }) => {
+    handler: async ({ path: filePath, content, description, workspace, chatMode, agentMode, _chatSessionId, workspaceId }) => {
         if (!chatMode) {
             console.error('[write_file] chatMode is undefined - using default "build"');
         }
@@ -542,6 +543,14 @@ ToolRegistry.register({
             }
         }
 
+        const metadata = workspace
+            ? await enrichPermissionWithBlastRadius(workspace, normalizedPath, {
+                agentMode,
+                chatSessionId: _chatSessionId,
+                workspaceId,
+            })
+            : undefined;
+
         return {
             __permission_required: true,
             operation: "write_file",
@@ -554,6 +563,7 @@ ToolRegistry.register({
                 lines: content.split("\n").length,
             },
             reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description}`,
+            ...(metadata ? { metadata } : {}),
         };
     },
 });
@@ -863,6 +873,78 @@ ToolRegistry.register({
 
             assertReadablePath(normalizedPath, workspace);
             const fullPath = resolvePathUnderWorkspace(workspace, normalizedPath);
+
+            try {
+                const { ensureSymbolIndex, getSymbolsForFile } = await import("@/lib/index/ctags-index");
+                const index = await ensureSymbolIndex(workspace);
+                const syms = getSymbolsForFile(index, normalizedPath);
+                if (syms.length > 0) {
+                    const isKind = (s: { kind: string }, ...letters: string[]) =>
+                        letters.some((l) => s.kind.toLowerCase() === l.toLowerCase());
+
+                    const imports = syms.filter((s) => isKind(s, "i", "I", "p", "import"));
+                    const classes = syms.filter((s) => isKind(s, "c", "class"));
+                    const interfaces = syms.filter((s) => isKind(s, "i", "interface"));
+                    const types = syms.filter((s) => isKind(s, "t", "type", "T"));
+                    const functions = syms.filter((s) =>
+                        isKind(s, "f", "function", "m", "method", "F"),
+                    );
+
+                    let lineCount = 0;
+                    try {
+                        const raw = await fs.promises.readFile(fullPath, "utf-8");
+                        lineCount = raw.split("\n").length;
+                    } catch {
+                        lineCount = syms[syms.length - 1]?.line ?? 0;
+                    }
+
+                    let output = `📄 **File Outline: ${normalizedPath}** (ctags)\n`;
+                    output += `**Total lines:** ${lineCount}\n\n`;
+
+                    if (include_stats) {
+                        output += `**Counts:** symbols ${syms.length}, classes ${classes.length}, interfaces ${interfaces.length}, types ${types.length}, functions ${functions.length}\n\n`;
+                    }
+
+                    if (classes.length > 0) {
+                        output += `**🏛️ Classes (${classes.length}):**\n`;
+                        classes.forEach((c) => {
+                            output += `  - \`${c.name}\` (line ${c.line})${c.signature ? `: ${c.signature.slice(0, 60)}` : ""}\n`;
+                        });
+                        output += "\n";
+                    }
+
+                    if (interfaces.length > 0) {
+                        output += `**📋 Interfaces (${interfaces.length}):**\n`;
+                        interfaces.forEach((i) => {
+                            output += `  - \`${i.name}\` (line ${i.line})\n`;
+                        });
+                        output += "\n";
+                    }
+
+                    if (types.length > 0) {
+                        output += `**🔷 Types (${types.length}):**\n`;
+                        types.forEach((t) => {
+                            output += `  - \`${t.name}\` (line ${t.line})\n`;
+                        });
+                        output += "\n";
+                    }
+
+                    if (functions.length > 0) {
+                        output += `**⚡ Functions (${functions.length}):**\n`;
+                        functions.forEach((f) => {
+                            output += `  - \`${f.name}\` (line ${f.line})${f.signature ? `: ${f.signature.slice(0, 60)}` : ""}\n`;
+                        });
+                        output += "\n";
+                    }
+
+                    const tipLine = functions[0]?.line ?? classes[0]?.line ?? 1;
+                    output += `\n💡 **Tip:** Use \`read_file\` with \`start_line\`/\`end_line\` (e.g. start at line ${tipLine}) to read a specific symbol's body.`;
+                    return output;
+                }
+            } catch {
+                /* fall through to regex outline */
+            }
+
             const content = await fs.promises.readFile(fullPath, "utf-8");
             const lines = content.split('\n');
             const patterns = getPatternsForFile(fullPath);

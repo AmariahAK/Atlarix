@@ -41,15 +41,13 @@ export const mainRollupExternals: readonly string[] = [
   "@anthropic-ai/tokenizer",
   "tiktoken/lite",
   "tiktoken",
+  "unpdf",
   "@vscode/sudo-prompt",
   "better-sqlite3",
   "keytar",
   "mysql2",
   "@lydell/node-pty",
-  "oxc-parser",
-  "@oxc-parser/binding-wasm32-wasi",
-  "web-tree-sitter",
-  "tree-sitter-wasms",
+  "@ast-grep/napi",
   "ai",
   "@ai-sdk/provider",
   "@ai-sdk/openai",
@@ -78,10 +76,8 @@ export default defineConfig({
     external: [...mainRollupExternals],
   },
   resolve: {
-    // oxc-parser sets "browser" -> wasm/WASI; Vite would bundle wasm.js and fail on @oxc-parser/binding-wasm32-wasi.
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "oxc-parser": path.resolve(__dirname, "node_modules/oxc-parser/src-js/index.js"),
     },
   },
   define: Object.fromEntries(

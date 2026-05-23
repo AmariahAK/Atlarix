@@ -1,4 +1,7 @@
-# Outreach email send log (one-off script)
+# Bundled Universal Ctags binaries (fetch via npm run fetch-ctags)
+assets/ctags/**/*
+!assets/ctags/.gitkeep
+
 scripts/.outreach-sent.log.json
 scripts/.feedback-outreach-v85-sent.jsonl
 

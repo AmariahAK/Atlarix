@@ -41,7 +41,10 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, hasAutoRoutingModelConfig, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
+import { ensureAutoRoutingConfigAsync } from "@/lib/routing/auto-settings-defaults";
+import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
+import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -1924,15 +1927,13 @@ ${componentSnippet}
         insertedUserMessageId = inserted?.[0]?.id ?? null;
       }
       const settingsBase = readSettings();
-      const settings =
+      let settings =
         req.streamChatModeOverride != null
           ? { ...settingsBase, selectedChatMode: req.streamChatModeOverride }
           : settingsBase;
-      // Only Atlarix Pro requests have request ids.
-      if (settings.enableAtlarixPro) {
-        // Generate requestId early so it can be saved with the message
-        engineRequestId = uuidv4();
-      }
+      settings = await ensureAutoRoutingConfigAsync(settings);
+      // Generate requestId early so it can be saved with the message
+      engineRequestId = uuidv4();
 
       // Add a placeholder assistant message immediately
       // For ephemeral chats, we'll use a placeholder ID
@@ -2258,9 +2259,9 @@ ${componentSnippet}
         const tierSource: "user_setting" | "auto" | "override" | "force_thinking" =
           req.forceThinkingTier === true && forceThinkingNativeSupported
             ? "force_thinking"
-            : req.modelOverride
+              : settings.autoModelRouting && hasAutoRoutingModelConfig(settings)
               ? "override"
-              : settings.autoModelRouting && getEffectiveModel(settings).provider === "auto"
+            : req.modelOverride
                 ? "auto"
                 : "user_setting";
         logger.log(
@@ -2594,6 +2595,18 @@ ${componentSnippet}
               ? (effectiveWorkMode as ModeSystemKey)
               : undefined;
 
+          const modelIdentity = resolveActiveModelIdentity(
+            effectiveModel,
+            settings,
+            buildAtlarixCoreTierCatalog(),
+          );
+          const promptIdentityOpts = {
+            activeModel: effectiveModel,
+            modelDisplayName: modelIdentity.modelDisplayName,
+            providerBrand: modelIdentity.providerBrand,
+            labelWithProvider: modelIdentity.labelWithProvider,
+          };
+
           let baseSystemPrompt: string;
           if (hasWorkspace && appPath && effectiveAppId != null) {
             const workspacePromptRow = await db.query.prompts.findFirst({
@@ -2610,6 +2623,7 @@ ${componentSnippet}
               effectiveWorkMode: modeBlockKey,
               userPrompt: userPrompt,
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
+              ...promptIdentityOpts,
             });
           } else {
             baseSystemPrompt = constructSystemPrompt({
@@ -2619,6 +2633,7 @@ ${componentSnippet}
               userPrompt,
               enableTurboEditsV2: isTurboEditsV2Enabled(settings),
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
+              ...promptIdentityOpts,
             });
           }
           let contextSections: ContextSection[] = [];
@@ -4691,6 +4706,7 @@ This conversation includes one or more image attachments. When the user uploads 
               const agentParts = constructSystemPromptParts({
                 chatMode: "build",
                 effectiveWorkMode: "build",
+                ...promptIdentityOpts,
                 contextSize: await getContextWindow(effectiveModel, req.chatId),
                 enableTurboEditsV2: false,
               });
@@ -4718,11 +4734,11 @@ This conversation includes one or more image attachments. When the user uploads 
                     });
                   },
                   onFirstTextDelta: logTtftOnce,
+                      id: `reasoning-${req.chatId}`,
+                      type: "reasoning_started",
                   onFirstReasoningDelta: () => {
                     safeSend(event.sender, "chat:activity", {
                       id: `reasoning-started-${req.chatId}-${Date.now()}`,
-                      type: "reasoning_started",
-                      label: "Thinking deeply...",
                       status: "running",
                       timestamp: Date.now(),
                       chatId: req.chatId,
@@ -4730,7 +4746,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   },
                   onFirstTextAfterReasoning: () => {
                     safeSend(event.sender, "chat:activity", {
-                      id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                      id: `reasoning-${req.chatId}`,
                       type: "reasoning_complete",
                       label: "Done thinking, writing response...",
                       status: "done",
@@ -5031,12 +5047,23 @@ This conversation includes one or more image attachments. When the user uploads 
                     );
                   }
                   const askIsStream = tool.name === "stream_terminal_output";
+                  const toolActivityId = `tool-${tool.name}-${Date.now()}`;
+                  let askActivityStatus: "done" | "error" = "done";
                   // Fix: Finding 4
                   if (!askIsStream) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
                       toolId: tool.name,
                       toolName: getToolActivityLabel(tool.name),
+                    });
+                    safeSend(event.sender, "chat:activity", {
+                      id: toolActivityId,
+                      type: "tool_use",
+                      label: getToolActivityLabel(tool.name),
+                      status: "running",
+                      timestamp: Date.now(),
+                      chatId: req.chatId,
+                      toolName: tool.name,
                     });
                   }
                   try {
@@ -5143,6 +5170,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       ...args,
                       workspace: appPath,
                       workspaceId: effectiveAppId ?? undefined,
+                      agentMode: settings.agentMode ?? "guided",
                       chatMode:
                         liveWorkMode === "plan"
                           ? "plan"
@@ -5385,10 +5413,20 @@ This conversation includes one or more image attachments. When the user uploads 
 
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (error) {
+                    askActivityStatus = "error";
                     return JSON.stringify({ success: false, error: String(error) });
                   } finally {
                     if (!askIsStream) {
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                      safeSend(event.sender, "chat:activity", {
+                        id: toolActivityId,
+                        type: "tool_use",
+                        label: getToolActivityLabel(tool.name),
+                        status: askActivityStatus,
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                        toolName: tool.name,
+                      });
                     }
                   }
                 },
@@ -5463,6 +5501,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 effectiveWorkMode: modeBlockKey,
                 contextSize: await getContextWindow(effectiveModel, req.chatId),
                 enableTurboEditsV2: false,
+                ...promptIdentityOpts,
               });
               const askStableHeader =
                 askParts.stableHeader +
@@ -5498,7 +5537,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 onFirstTextDelta: logTtftOnce,
                 onFirstReasoningDelta: () => {
                   safeSend(event.sender, "chat:activity", {
-                    id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                    id: `reasoning-${req.chatId}`,
                     type: "reasoning_started",
                     label: "Thinking deeply...",
                     status: "running",
@@ -5508,7 +5547,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 },
                 onFirstTextAfterReasoning: () => {
                   safeSend(event.sender, "chat:activity", {
-                    id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                    id: `reasoning-${req.chatId}`,
                     type: "reasoning_complete",
                     label: "Done thinking, writing response...",
                     status: "done",
@@ -5875,6 +5914,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       ...args,
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
+                      agentMode: settings.agentMode ?? "guided",
                       chatMode: "build",
                       _chatSessionId: req.chatId,
                     };
@@ -6473,7 +6513,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     },
                     onFirstTextAfterReasoning: () => {
                       safeSend(event.sender, "chat:activity", {
-                        id: `reasoning-done-${req.chatId}-${Date.now()}`,
+                        id: `reasoning-${req.chatId}`,
                         type: "reasoning_complete",
                         label: "Done thinking, writing response...",
                         status: "done",

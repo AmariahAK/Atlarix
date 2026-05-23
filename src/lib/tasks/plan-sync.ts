@@ -77,6 +77,15 @@ export async function syncPlanFile(workspacePath: string, ledger: TaskLedger): P
     const dir = path.join(workspacePath, ".atlarix");
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(workspacePath, PLAN_REL), lines.join("\n"), "utf8");
+    let mtime: number | null = null;
+    try {
+      const st = await fs.stat(path.join(workspacePath, PLAN_REL));
+      mtime = st.mtimeMs;
+    } catch {
+      /* ignore */
+    }
+    const { emitPlanFileUpdated } = await import("@/ipc/utils/emit_plan_file_updated");
+    emitPlanFileUpdated(workspacePath, mtime);
   } catch (e) {
     logger.warn("syncPlanFile failed:", e);
   }

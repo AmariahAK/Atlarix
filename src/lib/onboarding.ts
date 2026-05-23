@@ -43,7 +43,7 @@ export const ONBOARDING_STEPS = [
   {
     id: "compass-chat",
     title: "Start with Compass",
-    body: "Compass works immediately — no API key. Type in the chat to get started.",
+    body: "Atlarix Core works immediately — no API key. Type in the chat to get started.",
     target: "[data-onboarding=home-chat-input]",
   },
   {

@@ -8,11 +8,6 @@ import {
   SESSION_LOAD_MESSAGE_LIMIT,
   SESSION_STORE_MESSAGE_MAX,
 } from "@/constants/session_constants";
-import {
-  generateAIChatName,
-  generateSimpleChatName,
-} from "@/utils/chat_naming";
-
 const logger = log.scope("workspace_session_handlers");
 const handle = createLoggedHandler(logger);
 
@@ -70,7 +65,7 @@ export function registerWorkspaceSessionHandlers(): void {
       .values({
         id,
         workspaceId,
-        title: "New session",
+        title: "Untitled",
         createdAt: now,
         updatedAt: now,
       })
@@ -178,44 +173,12 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
+  /** Deprecated: titles come from <atlarix-chat-summary> in the assistant reply. */
   handle("sessions:generate-title", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({
       where: eq(chatSessions.id, sessionId),
     });
     if (!session) throw new Error("Session not found");
-
-    const rows = await db
-      .select()
-      .from(sessionMessages)
-      .where(eq(sessionMessages.sessionId, sessionId))
-      .orderBy(asc(sessionMessages.createdAt));
-
-    const conversation = rows
-      .filter((r) => r.role === "user" || r.role === "assistant")
-      .map((r) => ({ role: r.role, content: r.content }));
-
-    if (conversation.length < 2) {
-      return { title: session.title };
-    }
-
-    const firstUser = conversation.find((m) => m.role === "user");
-    const fallback = firstUser
-      ? generateSimpleChatName(firstUser.content)
-      : session.title;
-
-    const aiTitle = await generateAIChatName(conversation, fallback);
-    const trimmed = aiTitle.trim().slice(0, 80);
-    if (!trimmed || trimmed === session.title) {
-      return { title: session.title };
-    }
-
-    const [row] = await db
-      .update(chatSessions)
-      .set({ title: trimmed, updatedAt: new Date() })
-      .where(eq(chatSessions.id, sessionId))
-      .returning();
-
-    logger.info(`AI session title for ${sessionId}: "${trimmed}"`);
-    return { title: row ? mapSession(row).title : trimmed };
+    return { title: session.title };
   });
 }

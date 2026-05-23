@@ -1,11 +1,15 @@
 import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { chatMessagesByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  findCatalogEntryBySlot,
+  type AtlarixCoreTierPresentation,
+} from "@/lib/atlarix-core-catalog";
 
 export type AutoRoutedTierLabel = "fast" | "balanced" | "thinking";
 
 /**
- * Last assistant message `autoRoutedTier` for the chat (for Auto · {tier} UI).
+ * Last assistant message `autoRoutedTier` for the chat (for Auto · {model} UI).
  */
 export function useLastAutoRoutedTier(chatId: number | null | undefined): AutoRoutedTierLabel | null {
   const messagesById = useAtomValue(chatMessagesByIdAtom);
@@ -26,9 +30,20 @@ export function useLastAutoRoutedTier(chatId: number | null | undefined): AutoRo
   }, [messagesById, id]);
 }
 
-export function formatAutoTierLabel(tier: AutoRoutedTierLabel | null): string {
+export function formatAutoTierLabel(
+  tier: AutoRoutedTierLabel | null,
+  catalog: AtlarixCoreTierPresentation[] | undefined,
+  autoProviderId?: string | null,
+): string {
   if (!tier) return "";
-  if (tier === "fast") return "Fast";
-  if (tier === "balanced") return "Balanced";
-  return "Thinking";
+  if (autoProviderId && autoProviderId !== "compass") {
+    const slotNames: Record<AutoRoutedTierLabel, string> = {
+      fast: "speed slot",
+      balanced: "standard slot",
+      thinking: "deep slot",
+    };
+    return slotNames[tier];
+  }
+  const entry = catalog ? findCatalogEntryBySlot(catalog, tier) : undefined;
+  return entry?.labelWithProvider ?? tier;
 }

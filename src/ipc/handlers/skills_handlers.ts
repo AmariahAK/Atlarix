@@ -151,6 +151,25 @@ export function registerSkillsHandlers() {
     },
   );
 
+  handle("skills:list-orphaned", async () => {
+    requirePaidSkills();
+    const appRows = await db.select({ path: apps.path }).from(apps);
+    const paths = new Set(appRows.map((r) => r.path).filter((p) => !!p?.trim()));
+    const workspaceRows = await db
+      .select()
+      .from(installedSkills)
+      .where(eq(installedSkills.scope, "workspace"));
+    const orphans = workspaceRows.filter(
+      (r) => !r.workspacePath?.trim() || !paths.has(r.workspacePath),
+    );
+    return orphans.map((r) => ({
+      ...r,
+      tags: safeParseJsonArray(r.tags),
+      compatibleModes: safeParseJsonArray(r.compatibleModes),
+      cachedFiles: safeParseJson(r.cachedFiles, [] as Array<{ name: string; localPath: string }>),
+    }));
+  });
+
   handle("skills:install", async (_event: IpcMainInvokeEvent, params: InstallSkillParams) => {
     requirePaidSkills();
     assertValidInstallParams(params);

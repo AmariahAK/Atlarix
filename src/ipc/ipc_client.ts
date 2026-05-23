@@ -259,6 +259,9 @@ export class IpcClient {
   > = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
+  private planFileUpdatedHandlers = new Set<
+    (payload: { workspacePath: string; mtime: number | null }) => void
+  >();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
     this.chatStreams = new Map();
@@ -533,6 +536,18 @@ export class IpcClient {
       });
     });
 
+    this.ipcRenderer.on("plan:file-updated", (_e, payload: unknown) => {
+      if (!payload || typeof payload !== "object" || !("workspacePath" in payload)) return;
+      const p = payload as { workspacePath: string; mtime: number | null };
+      this.planFileUpdatedHandlers.forEach((h) => {
+        try {
+          h(p);
+        } catch {
+          /* noop */
+        }
+      });
+    });
+
     this.ipcRenderer.on("chat:activity", (payload: any) => {
       if (payload && typeof payload === "object") {
         this.chatActivityHandlers.forEach((h) => h(payload));
@@ -736,6 +751,21 @@ export class IpcClient {
       s.delete(handler);
       if (s.size === 0) this.planUpdateHandlers.delete(chatId);
     };
+  }
+
+  public async readPlanWorkspaceFile(workspacePath: string): Promise<{
+    content: string | null;
+    path: string;
+    mtime: number | null;
+  }> {
+    return this.ipcRenderer.invoke("plan:read-workspace-file", { workspacePath });
+  }
+
+  public onPlanFileUpdated(
+    handler: (payload: { workspacePath: string; mtime: number | null }) => void,
+  ): () => void {
+    this.planFileUpdatedHandlers.add(handler);
+    return () => this.planFileUpdatedHandlers.delete(handler);
   }
 
   /** v3.5: Register for chat activity (e.g. summarization). Returns unsubscribe. */
@@ -1477,6 +1507,10 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);
   }
 
+  public async listOrphanedMcpServers() {
+    return this.ipcRenderer.invoke("mcp:list-orphaned-servers");
+  }
+
   public async createMcpServer(params: CreateMcpServer) {
     return this.ipcRenderer.invoke("mcp:create-server", params);
   }
@@ -1560,6 +1594,10 @@ export class IpcClient {
     workspacePath?: string;
   }): Promise<InstalledSkillRow[]> {
     return this.ipcRenderer.invoke("skills:list", params);
+  }
+
+  public async skillsListOrphaned(): Promise<InstalledSkillRow[]> {
+    return this.ipcRenderer.invoke("skills:list-orphaned");
   }
 
   public async skillsGetActiveForSession(params?: { workspacePath?: string }): Promise<ActiveSkillContent[]> {
@@ -2621,6 +2659,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("compass:is-build-configured");
   }
 
+  public async getAtlarixCoreTierCatalog(): Promise<
+    import("@/lib/atlarix-core-catalog").AtlarixCoreTierPresentation[]
+  > {
+    return this.ipcRenderer.invoke("compass:get-tier-catalog");
+  }
+
   public async getCompassUsage(): Promise<CompassUsageIpcResult> {
     return this.ipcRenderer.invoke("compass:get-usage");
   }
@@ -2966,34 +3010,6 @@ export class IpcClient {
   }
 
   // PASS6: PIVOT analysis + Blueprint snapshot/codegen/listener methods restored.
-  /** Get PIVOT nodes and edges for workspace (for Live vs Blueprint comparison). */
-  public async getPivotNodesEdges(params: { workspaceId: number }): Promise<{
-    success: boolean;
-    nodes?: Array<{ id: string; type: string; label: string; filePath: string }>;
-    edges?: Array<{ fromId: string; toId: string; type: string }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("pivot:get-nodes-edges", params);
-  }
-
-  /** Get blueprint snapshots for workspace (history). */
-  public async getBlueprintSnapshots(params: { workspaceId: number; limit?: number }): Promise<{
-    success: boolean;
-    snapshots?: Array<{ id: number; snapshotAt: Date; source: string }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("pivot:get-snapshots", params);
-  }
-
-  /** Restore blueprint from a snapshot. */
-  public async restoreBlueprintSnapshot(params: { workspaceId: number; snapshotId: number }): Promise<{
-    success: boolean;
-    blueprint?: import("@/shared/blueprint-types").Blueprint;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("pivot:restore-snapshot", params);
-  }
-
   /** Run PIVOT analysis (SonarQube, Semgrep, SCIP) for workspace. */
   public async runPivotAnalysis(params: {
     workspaceId: number;
@@ -3008,15 +3024,6 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("pivot:run-analysis", params);
-  }
-
-  /** Regenerate blueprint via AI clustering (5–8 containers from parsed nodes). */
-  public async clusterBlueprint(params: { workspaceId: number }): Promise<{
-    success: boolean;
-    blueprint?: import("@/shared/blueprint-types").Blueprint;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:cluster", params);
   }
 
   /** Workforce Feature 2: commit Blueprint snapshot to `.atlarix/blueprint.json`. */

@@ -85,7 +85,7 @@ export function HomeChatInput({
     }
     if (compassExhausted) {
       import("@/lib/toast").then(({ showError }) => {
-        showError("Compass monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.");
+        showError("Atlarix Core monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.");
       });
       return;
     }

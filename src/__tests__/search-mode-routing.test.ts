@@ -40,14 +40,23 @@ describe("search-mode-routing", () => {
   });
 
   describe("resolveSearchMode", () => {
-    it("auto never returns semantic-graph", () => {
+    it("auto upgrades semantic-lite to semantic-graph when symbol index warm", () => {
+      expect(
+        resolveSearchMode("auto", "error handling patterns", { symbolIndexWarm: true }),
+      ).toBe("semantic-graph");
+    });
+    it("auto keeps semantic-lite when symbol index cold", () => {
+      expect(
+        resolveSearchMode("auto", "error handling patterns", { symbolIndexWarm: false }),
+      ).toBe("semantic-lite");
+    });
+    it("auto never returns semantic-graph for non-semantic-lite queries", () => {
       for (const q of [
         "what calls x",
-        "pattern in code",
         "grep me",
         "related things",
       ]) {
-        const r = resolveSearchMode("auto", q);
+        const r = resolveSearchMode("auto", q, { symbolIndexWarm: true });
         expect(r).not.toBe("semantic-graph");
       }
     });
@@ -63,8 +72,8 @@ describe("search-mode-routing", () => {
     it("labels engines", () => {
       expect(searchEngineLabel("text")).toBe("ripgrep");
       expect(searchEngineLabel("semantic-lite")).toBe("file_scan");
-      expect(searchEngineLabel("semantic-graph")).toBe("bm25_blueprint");
-      expect(searchEngineLabel("structural")).toBe("blueprint_graph");
+      expect(searchEngineLabel("semantic-graph")).toBe("bm25_ctags");
+      expect(searchEngineLabel("structural")).toBe("ast_grep_graph");
     });
   });
 });

@@ -317,6 +317,7 @@ export function SkillsSettingsPage() {
   const [installedWorkspaceByPath, setInstalledWorkspaceByPath] = useState<
     Record<string, InstalledSkillRow[]>
   >({});
+  const [orphanedSkills, setOrphanedSkills] = useState<InstalledSkillRow[]>([]);
 
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("");
@@ -352,6 +353,12 @@ export function SkillsSettingsPage() {
       setInstalledWorkspaceByPath(Object.fromEntries(results));
     } else {
       setInstalledWorkspaceByPath({});
+    }
+    try {
+      const orphans = (await ipc.skillsListOrphaned()) as InstalledSkillRow[];
+      setOrphanedSkills(orphans ?? []);
+    } catch {
+      setOrphanedSkills([]);
     }
   }, [ipc, workspaces]);
 
@@ -907,6 +914,35 @@ export function SkillsSettingsPage() {
             </Accordion>
           </TabsContent>
         </Tabs>
+
+        {orphanedSkills.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Unlinked workspace skills</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Installed for a workspace path that no longer exists. Remove them to free skill slots.
+              </p>
+            </div>
+            <div className="space-y-2">
+              {orphanedSkills.map((row) => (
+                <div
+                  key={`${row.id}:${row.workspacePath ?? ""}`}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/50 p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{row.name}</div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {row.workspacePath ?? "unknown path"}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => void remove(row)}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         </>
         )}
       </div>

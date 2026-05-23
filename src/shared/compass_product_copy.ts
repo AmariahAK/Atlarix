@@ -1,4 +1,6 @@
-/** User-facing Model Bridge tier copy (renderer-safe; no IPC / env). */
+/** User-facing Atlarix Core copy (renderer-safe; model names from IPC catalog). */
+
+export const ATLARIX_CORE_CATEGORY_LABEL = "Atlarix Core";
 
 /**
  * Label for the subscription tier returned by Supabase (`get_compass_usage_state` / `users.plan`·`effective_tier`).
@@ -13,20 +15,21 @@ export function formatCompassSubscriptionTier(
   return "Solo";
 }
 
+export function isCompassTierId(tierId: string): boolean {
+  return COMPASS_TIER_ROWS.some((r) => r.id === tierId);
+}
+
 export const COMPASS_TIER_ROWS = [
   {
     id: "compass-fast",
-    title: "Speed",
     description: "Quick responses for simple tasks and Explore mode",
   },
   {
     id: "compass-balanced",
-    title: "Standard",
     description: "Strong all-rounder for planning and building",
   },
   {
     id: "compass-thinking",
-    title: "Deep",
     description: "Deep reasoning for complex debugging and architecture work",
   },
 ] as const;

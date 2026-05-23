@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { showError, showSuccess } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +84,7 @@ export function McpMarketplaceTab({
   const [installed, setInstalled] = useState<Map<string, InstalledIndexEntry[]>>(new Map());
   const [installDialog, setInstallDialog] = useState<InstallDialogState | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [globalCount, setGlobalCount] = useState(0);
 
   const refreshInstalled = useCallback(async () => {
@@ -203,6 +205,25 @@ export function McpMarketplaceTab({
       setInstalling(false);
     }
   }, [installDialog, ipc, refreshInstalled, onChanged]);
+
+  const onDisconnect = useCallback(
+    async (entryId: string, installList: InstalledIndexEntry[]) => {
+      setDisconnectingId(entryId);
+      try {
+        for (const inst of installList) {
+          await ipc.deleteMcpServer(inst.serverId);
+        }
+        showSuccess("MCP disconnected");
+        await refreshInstalled();
+        onChanged?.();
+      } catch (e) {
+        showError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDisconnectingId(null);
+      }
+    },
+    [ipc, refreshInstalled, onChanged],
+  );
 
   if (!isPaid) {
     return (
@@ -330,8 +351,16 @@ export function McpMarketplaceTab({
                 </div>
                 <div className="mt-1">
                   {isInstalled ? (
-                    <Button size="sm" variant="outline" disabled className="w-full">
-                      Installed ({installList.length} place{installList.length === 1 ? "" : "s"})
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      disabled={disconnectingId === entry.id}
+                      onClick={() => void onDisconnect(entry.id, installList)}
+                    >
+                      {disconnectingId === entry.id
+                        ? "Disconnecting…"
+                        : `Disconnect (${installList.length} place${installList.length === 1 ? "" : "s"})`}
                     </Button>
                   ) : (
                     <Button

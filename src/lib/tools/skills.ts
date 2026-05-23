@@ -14,6 +14,7 @@ import { db } from "../../db";
 import { installedSkills } from "../../db/schema";
 import { and, eq, or } from "drizzle-orm";
 import { loadInstalledSkillsForSession } from "../skills/installed-skills";
+import { loadBuiltinGuides } from "../skills/builtin-guides";
 
 function safeParseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -34,18 +35,27 @@ ToolRegistry.register({
   isReadOnly: true,
   allowInAskMode: true,
   description:
-    "Get the SKILL.md content for skills installed in this session (workspace skills first, then global). Call this when you need guidance on language patterns, framework conventions, or workflow automation for the current project. Optional `filter` matches against skill name or tags.",
+    "Get the SKILL.md content for skills installed in this session (workspace skills first, then global), plus built-in guides when filtered. Call this when you need guidance on language patterns, framework conventions, workflow automation, or **inline visuals** (tables, charts, mermaid, markmap). Use filter `visual` or `artifact` for the Visual Artifacts built-in guide.",
   parameters: {
     type: "object",
     properties: {
       filter: {
         type: "string",
-        description: "Optional substring to filter by skill name or tag (e.g. 'react', 'python', 'rails').",
+        description: "Optional substring to filter by skill name or tag (e.g. 'react', 'visual', 'artifact', 'mermaid').",
       },
     },
   },
   handler: async (args: { filter?: string; workspace?: string }) => {
     try {
+      const filter = args.filter?.trim();
+      const builtinGuides = filter ? loadBuiltinGuides(filter) : [];
+      const builtinSkills = builtinGuides.map((g) => ({
+        id: `builtin:${g.id}`,
+        name: g.name,
+        scope: "builtin" as const,
+        content: g.content,
+      }));
+
       const all = await loadInstalledSkillsForSession({
         workspacePath: args.workspace ?? undefined,
         maxTotalSkills: 10,
@@ -54,22 +64,24 @@ ToolRegistry.register({
       });
 
       let filtered = all;
-      if (args.filter) {
-        const f = args.filter.toLowerCase();
+      if (filter) {
+        const f = filter.toLowerCase();
         filtered = all.filter((s) => s.name.toLowerCase().includes(f) || s.id.toLowerCase().includes(f));
       }
 
-      if (filtered.length === 0) {
+      const merged = [...builtinSkills, ...filtered];
+
+      if (merged.length === 0) {
         return {
           skills: [],
-          message: args.filter
-            ? `No installed skills matched filter "${args.filter}". Use list_installed_skills to see what is available.`
+          message: filter
+            ? `No installed or built-in skills matched filter "${filter}". Use list_installed_skills to see what is available.`
             : "No skills installed. Browse and install from Settings → Skills.",
         };
       }
 
       return {
-        skills: filtered.map((s) => ({
+        skills: merged.map((s) => ({
           id: s.id,
           name: s.name,
           scope: s.scope,

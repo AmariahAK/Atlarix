@@ -30,6 +30,8 @@ interface ThinkingCardProps {
     busExchanges?: AgentBusExchange[];
     /** Smaller chrome while the assistant message is still streaming. */
     size?: "default" | "compact";
+    /** When set, controls initial expand state (e.g. collapsed after turn completes). */
+    initialExpanded?: boolean;
 }
 
 export function ThinkingCard({
@@ -40,8 +42,9 @@ export function ThinkingCard({
     compactTools = false,
     busExchanges = [],
     size = "default",
+    initialExpanded = false,
 }: ThinkingCardProps) {
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(initialExpanded);
     const [modelReasoningOpen, setModelReasoningOpen] = useState(false);
     const reasoningTagPresent = Boolean(reasoningFromTags?.trim());
 

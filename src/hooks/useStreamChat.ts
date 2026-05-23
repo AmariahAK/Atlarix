@@ -7,7 +7,7 @@ import type {
 import { useAtom, useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   normalizeChatActivityPayload,
-  MAX_ACTIVITY_STREAM_ITEMS,
+  upsertActivityStreamItem,
 } from "@/lib/chat-activity-normalize";
 import {
   chatErrorByIdAtom,
@@ -27,9 +27,14 @@ import {
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
   completedTurnArtifactsByAssistantMessageIdAtom,
+  completedTurnThinkingByAssistantMessageIdAtom,
   emptyToolIndicatorState,
   type CompletedTurnArtifacts,
 } from "@/atoms/chatAtoms";
+import {
+  extractThinkingFromContent,
+  hasThinkingSnapshotContent,
+} from "@/lib/thinking/extract-thinking-from-content";
 import {
   sourceListAtom,
   rightPanelVisibleAtom,
@@ -37,6 +42,8 @@ import {
   pendingProposalsAtom,
   diagramStateAtom,
   previewTabAtom,
+  workspacePlanPanelAtom,
+  aiPanelIntentAtom,
   terminalOutputsAtom,
   activityStreamItemsAtom,
   agentBusRingByChatIdAtom,
@@ -61,8 +68,7 @@ import { useLoadApp } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import {
-  generateWorkspaceSessionTitleWithAI,
-  titleWorkspaceSessionFromUserMessage,
+  applyWorkspaceSessionTitleFromSummary,
 } from "@/lib/workspace-session-title";
 import { workspaceSessionsRefreshAtom } from "@/atoms/sessionAtoms";
 import { useVersions } from "./useVersions";
@@ -77,7 +83,6 @@ import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
-import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
@@ -197,6 +202,20 @@ function buildTurnArtifactsSnapshot(
   return { counsel, agentBus };
 }
 
+function captureThinkingSnapshotForChat(chatId: number, messages: Message[]): void {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant?.content) return;
+  const ring = getDefaultStore().get(agentBusRingByChatIdAtom);
+  const snap = extractThinkingFromContent(lastAssistant.content, {
+    busExchanges: [...(ring[chatId] ?? [])].slice(-5),
+  });
+  if (!hasThinkingSnapshotContent(snap)) return;
+  getDefaultStore().set(completedTurnThinkingByAssistantMessageIdAtom, (prev) => ({
+    ...prev,
+    [lastAssistant.id]: snap,
+  }));
+}
+
 export function useStreamChat({
   hasChatId = true,
 }: { hasChatId?: boolean } = {}) {
@@ -253,7 +272,8 @@ export function useStreamChat({
   const messageStreamThrottleRef = useRef<{
     timer: ReturnType<typeof setInterval> | null;
     pending: Map<number, Message[]>;
-  }>({ timer: null, pending: new Map() });
+    lastAssistantRawByChatId: Map<number, string>;
+  }>({ timer: null, pending: new Map(), lastAssistantRawByChatId: new Map() });
 
   useEffect(() => {
     return () => {
@@ -611,6 +631,17 @@ export function useStreamChat({
             n.set(payload.assistantMessageId, payload);
             return n;
           });
+          getDefaultStore().set(workspacePlanPanelAtom, (prev) => ({
+            ...prev,
+            ledger: payload,
+          }));
+          getDefaultStore().set(aiPanelIntentAtom, {
+            intent: "show-plan",
+            timestamp: Date.now(),
+            source: "system",
+          });
+          maybeAutoOpenRightPanel();
+          setPreviewTab("plan");
         });
 
         const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
@@ -630,12 +661,19 @@ export function useStreamChat({
 
           const item = normalizeChatActivityPayload(payload);
           if (item) {
-            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
-              const next = [...prev, item];
-              return next.length > MAX_ACTIVITY_STREAM_ITEMS
-                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
-                : next;
+            getDefaultStore().set(activityStreamItemsAtom, (prev) =>
+              upsertActivityStreamItem(prev, item),
+            );
+          }
+
+          if (p.type === "plan_created") {
+            getDefaultStore().set(aiPanelIntentAtom, {
+              intent: "show-plan",
+              timestamp: Date.now(),
+              source: "system",
             });
+            maybeAutoOpenRightPanel();
+            setPreviewTab("plan");
           }
 
           if (p.type === "agent_message") {
@@ -667,23 +705,6 @@ export function useStreamChat({
               count: prev.count + 1,
               activeChatId: chatId,
             }));
-            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
-              const next = [
-                ...prev,
-                {
-                  id: `tool-start-${start.chatId}-${start.toolName}-${Date.now()}`,
-                  type: "tool_use" as const,
-                  label: getToolActivityLabel(start.toolName),
-                  status: "running" as const,
-                  timestamp: Date.now(),
-                  chatId,
-                  detail: "Running...",
-                },
-              ];
-              return next.length > MAX_ACTIVITY_STREAM_ITEMS
-                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
-                : next;
-            });
           },
           (end) => {
             if (end.chatId !== chatId) return;
@@ -695,23 +716,6 @@ export function useStreamChat({
                 count: newCount,
                 phaseLabel: newCount === 0 ? null : prev.phaseLabel,
               };
-            });
-            getDefaultStore().set(activityStreamItemsAtom, (prev) => {
-              const next = [
-                ...prev,
-                {
-                  id: `tool-end-${end.chatId}-${Date.now()}`,
-                  type: "tool_use" as const,
-                  label: `✓ Done`,
-                  status: "done" as const,
-                  timestamp: Date.now(),
-                  chatId,
-                  detail: undefined,
-                },
-              ];
-              return next.length > MAX_ACTIVITY_STREAM_ITEMS
-                ? next.slice(-MAX_ACTIVITY_STREAM_ITEMS)
-                : next;
             });
           },
         );
@@ -755,10 +759,6 @@ export function useStreamChat({
               await IpcClient.getInstance().addSessionMessage(
                 workspaceSessionId,
                 "user",
-                prompt.trim(),
-              );
-              await titleWorkspaceSessionFromUserMessage(
-                workspaceSessionId,
                 prompt.trim(),
               );
             } catch (e) {
@@ -855,6 +855,10 @@ export function useStreamChat({
             }
 
             const th = messageStreamThrottleRef.current;
+            const lastAsst = [...messagesForUi].reverse().find((m) => m.role === "assistant");
+            if (lastAsst?.content) {
+              th.lastAssistantRawByChatId.set(chatId, lastAsst.content);
+            }
             th.pending.set(chatId, messagesForUi);
             if (th.timer == null) {
               th.timer = setInterval(() => {
@@ -970,6 +974,30 @@ export function useStreamChat({
 
             const msgs =
               getDefaultStore().get(chatMessagesByIdAtom).get(response.chatId) ?? [];
+            const rawFromRef =
+              messageStreamThrottleRef.current.lastAssistantRawByChatId.get(
+                response.chatId,
+              );
+            if (rawFromRef) {
+              const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+              if (lastAssistant) {
+                const ring = getDefaultStore().get(agentBusRingByChatIdAtom);
+                const snap = extractThinkingFromContent(rawFromRef, {
+                  busExchanges: [...(ring[response.chatId] ?? [])].slice(-5),
+                });
+                if (hasThinkingSnapshotContent(snap)) {
+                  getDefaultStore().set(
+                    completedTurnThinkingByAssistantMessageIdAtom,
+                    (prev) => ({ ...prev, [lastAssistant.id]: snap }),
+                  );
+                }
+              }
+            } else {
+              captureThinkingSnapshotForChat(response.chatId, msgs);
+            }
+            messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(
+              response.chatId,
+            );
             const appIdForPersist = getDefaultStore().get(selectedAppIdAtom);
             void (async () => {
               const sessionIdForPersist =
@@ -991,7 +1019,10 @@ export function useStreamChat({
                   "assistant",
                   assistantContent,
                 );
-                await generateWorkspaceSessionTitleWithAI(sessionIdForPersist);
+                await applyWorkspaceSessionTitleFromSummary(
+                  sessionIdForPersist,
+                  assistantContent,
+                );
               } catch (e) {
                 console.error("Failed to persist assistant session message:", e);
               }
@@ -1108,6 +1139,26 @@ export function useStreamChat({
             });
             const msgsErr =
               getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];
+            const rawErr =
+              messageStreamThrottleRef.current.lastAssistantRawByChatId.get(chatId);
+            if (rawErr) {
+              const lastAssistant = [...msgsErr].reverse().find((m) => m.role === "assistant");
+              if (lastAssistant) {
+                const ring = getDefaultStore().get(agentBusRingByChatIdAtom);
+                const snap = extractThinkingFromContent(rawErr, {
+                  busExchanges: [...(ring[chatId] ?? [])].slice(-5),
+                });
+                if (hasThinkingSnapshotContent(snap)) {
+                  getDefaultStore().set(
+                    completedTurnThinkingByAssistantMessageIdAtom,
+                    (prev) => ({ ...prev, [lastAssistant.id]: snap }),
+                  );
+                }
+              }
+            } else {
+              captureThinkingSnapshotForChat(chatId, msgsErr);
+            }
+            messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(chatId);
             const activityErr = getDefaultStore().get(activityStreamItemsAtom);
             const ringErr = getDefaultStore().get(agentBusRingByChatIdAtom);
             const artifactsErr = buildTurnArtifactsSnapshot(

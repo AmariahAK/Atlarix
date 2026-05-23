@@ -33,7 +33,7 @@ const STRUCTURAL_PHRASES: readonly string[] = [
   "what depends on",
 ];
 
-/** Auto mode: only text, semantic-lite (file scan), or structural — never semantic-graph / BM25. */
+/** Auto mode: only text, semantic-lite (file scan), or structural — never semantic-graph / BM25 unless symbols index is warm. */
 const SEMANTIC_LITE_PHRASES: readonly string[] = [
   "pattern",
   "logic",
@@ -82,16 +82,21 @@ export function normalizeRequestedSearchMode(mode: SearchModeInput | undefined):
 
 /**
  * Final resolved mode (what we actually run).
- * - auto → detectAutoSearchMode (never semantic-graph)
+ * - auto → detectAutoSearchMode; semantic-lite upgrades to semantic-graph when symbol index is warm
  * - explicit semantic-graph / structural / text / semantic-lite pass through
  */
 export function resolveSearchMode(
   requested: SearchModeInput,
   query: string,
+  opts?: { symbolIndexWarm?: boolean },
 ): SearchResolvedMode {
   const r = normalizeRequestedSearchMode(requested);
   if (r === "auto") {
-    return detectAutoSearchMode(query);
+    const detected = detectAutoSearchMode(query);
+    if (detected === "semantic-lite" && opts?.symbolIndexWarm) {
+      return "semantic-graph";
+    }
+    return detected;
   }
   if (r === "text") return "text";
   if (r === "structural") return "structural";
@@ -107,9 +112,9 @@ export function searchEngineLabel(resolved: SearchResolvedMode): string {
     case "semantic-lite":
       return "file_scan";
     case "semantic-graph":
-      return "bm25_blueprint";
+      return "bm25_ctags";
     case "structural":
-      return "blueprint_graph";
+      return "ast_grep_graph";
     default:
       return "unknown";
   }

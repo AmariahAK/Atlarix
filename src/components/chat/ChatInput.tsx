@@ -337,7 +337,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     if (compassExhausted) {
       const { showError } = await import("@/lib/toast");
       showError(
-        "Compass monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.",
+        "Atlarix Core monthly limit reached. Upgrade, add API keys in Settings, or pick another provider.",
       );
       return;
     }

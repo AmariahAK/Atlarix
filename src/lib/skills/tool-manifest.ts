@@ -71,7 +71,16 @@ const DEBUGGER: ToolManifest = {
 };
 
 const RESEARCHER: ToolManifest = {
-  allowed: ["read_file", "web_search", "deep_research", "read_url", "search"],
+  allowed: [
+    "read_file",
+    "explore_folder",
+    "list_files",
+    "get_repo_overview",
+    "search",
+    "web_search",
+    "deep_research",
+    "read_url",
+  ],
   readOnly: true,
 };
 
