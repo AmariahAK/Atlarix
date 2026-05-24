@@ -40,7 +40,7 @@ let registered = false;
 const registeredLangKeys = new Set<string>();
 
 function parserFileName(): string {
-  return process.platform === "win32" ? "parser.dll" : "parser.so";
+  return "parser.so";
 }
 
 function prebuildParserPath(pkgDir: string): string | null {

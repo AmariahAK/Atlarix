@@ -20,6 +20,7 @@
 ### Blueprint
 
 - Routine blueprint / ast-grep **info** logs → **debug** (`lazy-parse.ts`, `run-structural-scan.ts`, `blueprint_handlers.ts`).
+- **Windows packaging:** Stage grammars as `parser.so` (not `parser.dll`) to match `@ast-grep/lang-*` prebuild layout.
 
 ---
 

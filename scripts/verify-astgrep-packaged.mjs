@@ -55,7 +55,7 @@ if (!prebuildDir) {
 }
 
 const resources = path.join(app, "Contents", "Resources");
-const parserName = process.platform === "win32" ? "parser.dll" : "parser.so";
+const parserName = "parser.so";
 const unpackedNm = path.join(resources, "app.asar.unpacked", "node_modules");
 
 let failed = false;

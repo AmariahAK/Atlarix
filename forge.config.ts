@@ -58,8 +58,34 @@ function astGrepPrebuildDir(platform: string, arch: string): string {
   return `prebuild-${os}-${a}`;
 }
 
-function astGrepParserFileName(platform: string): string {
-  return platform === "win32" ? "parser.dll" : "parser.so";
+/** @ast-grep/lang-* prebuilds use `parser.so` on every OS (see @ast-grep/setup-lang). */
+const AST_GREP_PARSER_FILE = "parser.so";
+
+async function resolveAstGrepParserSource(
+  buildPath: string,
+  pkg: string,
+  platform: string,
+  arch: string,
+): Promise<string> {
+  const fs = await import("node:fs/promises");
+  const prebuild = astGrepPrebuildDir(platform, arch);
+  const pkgRoot = path.join(buildPath, "node_modules", pkg);
+  const primary = path.join(pkgRoot, "prebuilds", prebuild, AST_GREP_PARSER_FILE);
+  try {
+    await fs.access(primary);
+    return primary;
+  } catch {
+    const prebuildsDir = path.join(pkgRoot, "prebuilds");
+    let listing = "";
+    try {
+      listing = (await fs.readdir(prebuildsDir)).join(", ");
+    } catch {
+      listing = "(prebuilds missing)";
+    }
+    throw new Error(
+      `Missing ${AST_GREP_PARSER_FILE} for ${pkg} at ${primary}. prebuilds: ${listing}`,
+    );
+  }
 }
 
 async function stageAstGrepGrammarsForExtraResource(
@@ -68,8 +94,6 @@ async function stageAstGrepGrammarsForExtraResource(
   arch: string,
 ): Promise<void> {
   const fs = await import("node:fs/promises");
-  const prebuild = astGrepPrebuildDir(platform, arch);
-  const parserName = astGrepParserFileName(platform);
   await fs.rm(AST_GREP_GRAMMARS_STAGING, { recursive: true, force: true });
   await fs.mkdir(AST_GREP_GRAMMARS_STAGING, { recursive: true });
 
@@ -79,8 +103,8 @@ async function stageAstGrepGrammarsForExtraResource(
   ];
 
   for (const { key, pkg } of langs) {
-    const src = path.join(buildPath, "node_modules", pkg, "prebuilds", prebuild, parserName);
-    const dest = path.join(AST_GREP_GRAMMARS_STAGING, key, parserName);
+    const src = await resolveAstGrepParserSource(buildPath, pkg, platform, arch);
+    const dest = path.join(AST_GREP_GRAMMARS_STAGING, key, AST_GREP_PARSER_FILE);
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.copyFile(src, dest);
   }
