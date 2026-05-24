@@ -180,6 +180,14 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const streamingById = useAtomValue(isStreamingByIdAtom);
   const isStreaming = chatId != null ? (streamingById.get(chatId) ?? false) : false;
 
+  const markdownCodeComponent = useMemo(
+    () =>
+      function MarkdownCode(props: React.ComponentProps<typeof CodeHighlight>) {
+        return <CodeHighlight {...props} isStreaming={isStreaming} />;
+      },
+    [isStreaming],
+  );
+
   const activityStreamItems = useAtomValue(activityStreamItemsAtom);
   const agentMode = settings?.agentMode ?? "guided";
   const agentAnimMode = agentMode === "guided" || agentMode === "autonomous";
@@ -518,7 +526,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  code: CodeHighlight,
+                  code: markdownCodeComponent,
                   a: customLink,
                   text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
                   ...markdownTableComponents,

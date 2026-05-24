@@ -21,11 +21,21 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.7.0**
+**Current release:** **v8.7.5**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.7.5 — Polish & UX
+
+- **IPC / packaging:** Renderer IPC bridges (no MaxListeners on chat/apps channels); packaged SVG logos; workspace-delete cleanup; quieter blueprint logs.
+- **Diagrams:** Inline Mermaid in chat is primary; no auto-load of saved diagrams on workspace open; `get_diagram` generates on demand from the codebase.
+- **Sessions:** Sidebar titles from your first message immediately; AI summary tag can refine the name.
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) `[8.7.5]`.
 
 ---
 

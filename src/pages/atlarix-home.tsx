@@ -20,6 +20,7 @@ import { usePostHog } from 'posthog-js/react';
 import { PrivacyBanner } from '@/components/TelemetryBanner';
 import { Template } from '@/shared/templates';
 import { useTheme } from '@/contexts/ThemeContext';
+import atlarixLogo from '../../assets/logo.svg?url';
 import { showError } from '@/lib/toast';
 import { invalidateAppQuery } from '@/hooks/useLoadApp';
 import { useQueryClient } from '@tanstack/react-query';
@@ -390,7 +391,7 @@ export default function AtlarixHome() {
                         <div className="relative">
                             <div className="absolute inset-0 bg-gradient-to-r from-[#10B981] to-[#059669] blur-xl opacity-30 rounded-full" />
                             <img
-                                src={isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png'}
+                                src={atlarixLogo}
                                 alt="Atlarix Logo"
                                 className="relative w-16 h-16 object-contain dark:opacity-100 dark:contrast-100 opacity-100 contrast-125"
                                 onError={(e) => {

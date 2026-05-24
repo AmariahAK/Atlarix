@@ -264,7 +264,7 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
       });
       const blueprint = rteResultToBlueprint(rteResult, scanRoot);
       if (blueprint.rooms.length > 0) {
-        logger.info("inferBlueprint: generateBlueprint complete", {
+        logger.debug("inferBlueprint: generateBlueprint complete", {
           workspaceId,
           focusPath: fp,
           scanRoot,

@@ -1,4 +1,5 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -42,6 +43,49 @@ const AST_GREP_RUNTIME_PACKAGES = [
   "@ast-grep/lang-python",
   "@ast-grep/lang-go",
 ] as const;
+
+/** Copied to Resources/ast-grep-grammars via extraResource (real FS path for parser.so). */
+const AST_GREP_GRAMMARS_STAGING = path.join(__dirname, "ast-grep-grammars");
+if (!fs.existsSync(AST_GREP_GRAMMARS_STAGING)) {
+  fs.mkdirSync(AST_GREP_GRAMMARS_STAGING, { recursive: true });
+}
+
+function astGrepPrebuildDir(platform: string, arch: string): string {
+  const os =
+    platform === "darwin" ? "macOS" : platform === "win32" ? "Windows" : platform === "linux" ? "Linux" : null;
+  const a = arch === "x64" ? "X64" : arch === "arm64" ? "ARM64" : null;
+  if (!os || !a) return `prebuild-${platform}-${arch}`;
+  return `prebuild-${os}-${a}`;
+}
+
+function astGrepParserFileName(platform: string): string {
+  return platform === "win32" ? "parser.dll" : "parser.so";
+}
+
+async function stageAstGrepGrammarsForExtraResource(
+  buildPath: string,
+  platform: string,
+  arch: string,
+): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const prebuild = astGrepPrebuildDir(platform, arch);
+  const parserName = astGrepParserFileName(platform);
+  await fs.rm(AST_GREP_GRAMMARS_STAGING, { recursive: true, force: true });
+  await fs.mkdir(AST_GREP_GRAMMARS_STAGING, { recursive: true });
+
+  const langs: Array<{ key: string; pkg: string }> = [
+    { key: "python", pkg: "@ast-grep/lang-python" },
+    { key: "go", pkg: "@ast-grep/lang-go" },
+  ];
+
+  for (const { key, pkg } of langs) {
+    const src = path.join(buildPath, "node_modules", pkg, "prebuilds", prebuild, parserName);
+    const dest = path.join(AST_GREP_GRAMMARS_STAGING, key, parserName);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.copyFile(src, dest);
+  }
+  console.log(`[packageAfterPrune] staged ast-grep grammars at ${AST_GREP_GRAMMARS_STAGING}`);
+}
 
 function astGrepNativeBindingPackage(platform: string, arch: string): string | null {
   if (platform === "darwin") {
@@ -134,6 +178,22 @@ const RENDERER_ONLY_PACKAGES = new Set([
   "mermaid",
 ]);
 
+const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
+
+/** Dev/test packages that must never ship in production asar. */
+const RELEASE_DENY_PACKAGES = [
+  "playwright",
+  "playwright-core",
+  "electron-playwright-helpers",
+  "typescript",
+  "eslint",
+  "vitest",
+  "happy-dom",
+  "drizzle-kit",
+  "esbuild",
+  "vite",
+] as const;
+
 // Based on https://github.com/electron/forge/blob/6b2d547a7216c30fde1e1fddd1118eee5d872945/packages/plugin/vite/src/VitePlugin.ts#L124
 const ignore = (file: string) => {
   if (!file) return false;
@@ -147,7 +207,10 @@ const ignore = (file: string) => {
     return true;
   }
   if (file.startsWith("/scaffold")) {
-    return false;
+    return !isEndToEndTestBuild;
+  }
+  if (file.endsWith(".map")) {
+    return true;
   }
 
   if (file.startsWith("/worker") && !file.startsWith("/workers")) {
@@ -197,6 +260,14 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/core-js")) return true;
   if (file.startsWith("/node_modules/@tanstack")) return true;
   if (file.startsWith("/node_modules/mermaid")) return true;
+  if (file.startsWith("/node_modules/dugite")) return true;
+  for (const deny of RELEASE_DENY_PACKAGES) {
+    if (file === `/node_modules/${deny}` || file.startsWith(`/node_modules/${deny}/`)) {
+      return true;
+    }
+  }
+  if (file.startsWith("/node_modules/@playwright/")) return true;
+  if (file.startsWith("/node_modules/@vitest/")) return true;
   if (file.startsWith("/node_modules/bindings")) {
     return false;
   }
@@ -210,7 +281,48 @@ const ignore = (file: string) => {
   return true;
 };
 
-const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
+async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
+  const fs = await import("node:fs/promises");
+  let removed = 0;
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+      } else if (e.isFile() && e.name.endsWith(".map")) {
+        await fs.rm(full, { force: true });
+        removed++;
+      }
+    }
+  }
+  await walk(path.join(buildPath, ".vite"));
+  await walk(path.join(buildPath, "node_modules"));
+  if (removed > 0) {
+    console.log(`[packageAfterPrune] removed ${removed} .map file(s)`);
+  }
+  return removed;
+}
+
+async function logTopNodeModules(buildPath: string, limit = 20): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const { execSync } = await import("node:child_process");
+  const nm = path.join(buildPath, "node_modules");
+  try {
+    const out = execSync(`du -sh "${nm}"/* 2>/dev/null | sort -hr | head -${limit}`, {
+      encoding: "utf8",
+    });
+    console.log(`[packageAfterPrune] top node_modules:\n${out}`);
+  } catch {
+    /* optional */
+  }
+  void fs;
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -239,9 +351,20 @@ const config: ForgeConfig = {
         },
     osxNotarize: undefined,
     asar: true,
+    asarUnpack: [
+      "**/@ast-grep/napi-darwin-*/**",
+      "**/@ast-grep/napi-linux-*/**",
+      "**/@ast-grep/napi-win32-*/**",
+      "**/@ast-grep/lang-python/**",
+      "**/@ast-grep/lang-go/**",
+      "**/.vite/build/astgrep_worker.js",
+    ],
     ignore,
     extraResource: [
-      "node_modules/dugite/git",
+      ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1"
+        ? ["node_modules/dugite/git"]
+        : []),
+      AST_GREP_GRAMMARS_STAGING,
       path.join(__dirname, "src/skills"),
       path.join(__dirname, "assets/ctags", process.platform === "darwin"
         ? (process.arch === "arm64" ? "darwin-arm64" : "darwin-x64")
@@ -362,6 +485,8 @@ const config: ForgeConfig = {
           return false;
         return true;
       });
+      const fs = await import("node:fs/promises");
+
       if (toInstall.length > 0) {
         // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
         const commands = [
@@ -379,27 +504,6 @@ const config: ForgeConfig = {
         await runNpmInstall(buildPath, commands);
       }
 
-      // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) must be installed separately.
-      await installAstGrepRuntimePackages(buildPath, platform, arch);
-
-      // Rebuild native modules (e.g. better-sqlite3) for Electron's Node ABI after
-      // npm install, which otherwise builds them for the host Node (NODE_MODULE_VERSION mismatch).
-      await rebuild({
-        buildPath,
-        electronVersion,
-        platform: platform as NodeJS.Platform,
-        arch,
-        force: true,
-        extraModules: [
-          "better-sqlite3",
-          "keytar",
-          "@lydell/node-pty",
-        ],
-      });
-
-      // After rebuild: remove renderer-only trees from pruned node_modules before asar is produced.
-      // Never delete runtime externals (see vite.main.config `mainRollupExternals`) — e.g. drizzle-orm.
-      const fs = await import("node:fs/promises");
       const RENDERER_ONLY_DIRS = [
         "lucide-react",
         "date-fns",
@@ -409,13 +513,56 @@ const config: ForgeConfig = {
         "shiki",
         "core-js",
         "mermaid",
+        "markmap-lib",
+        "markmap-view",
+        "markmap-common",
+        "d3",
         "@shikijs",
         "@tanstack",
+        ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1" ? [] : ["dugite"]),
       ];
       for (const pkg of RENDERER_ONLY_DIRS) {
         const pkgPath = path.join(buildPath, "node_modules", pkg);
         await fs.rm(pkgPath, { recursive: true, force: true });
       }
+
+      for (const pkg of RELEASE_DENY_PACKAGES) {
+        const pkgPath = path.join(buildPath, "node_modules", pkg);
+        await fs.rm(pkgPath, { recursive: true, force: true });
+      }
+      await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
+        recursive: true,
+        force: true,
+      });
+      await fs.rm(path.join(buildPath, "node_modules", "@vitest"), {
+        recursive: true,
+        force: true,
+      });
+
+      // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) — never run npm prune after this.
+      await installAstGrepRuntimePackages(buildPath, platform, arch);
+      await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
+
+      const bindingPkg = astGrepNativeBindingPackage(platform, arch);
+      const rebuildModules = [
+        "better-sqlite3",
+        "keytar",
+        "@lydell/node-pty",
+        "@ast-grep/napi",
+      ];
+      if (bindingPkg) rebuildModules.push(bindingPkg);
+
+      await rebuild({
+        buildPath,
+        electronVersion,
+        platform: platform as NodeJS.Platform,
+        arch,
+        force: true,
+        extraModules: rebuildModules,
+      });
+
+      await stripSourceMapsFromBuild(buildPath);
+      await logTopNodeModules(buildPath);
     },
   },
   plugins: [

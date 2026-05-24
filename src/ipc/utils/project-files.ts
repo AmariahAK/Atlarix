@@ -217,7 +217,7 @@ export async function getProjectFiles(
     options?: {
         timeout?: number;
         extensions?: string[];
-        /** Workspace-relative folder (e.g. spacinsider-cli). Omit when workspacePath is already the scan root. */
+        /** Workspace-relative folder (e.g. packages/api). Omit when workspacePath is already the scan root. */
         scopePath?: string;
     }
 ): Promise<ProjectFilesResult> {

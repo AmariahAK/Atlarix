@@ -31,6 +31,8 @@ import { Button } from "@/components/ui/button";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
 import { AppSearchDialog } from "./AppSearchDialog";
 import { WorkspaceSelector } from "@/components/workspace/WorkspaceSelector";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +62,7 @@ export function AppList({ show }: { show?: boolean }) {
   const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
+  const queryClient = useQueryClient();
   // Auth hook for checking plan/workspace limits
   const { status, isAuthenticated } = useAuth();
 
@@ -305,6 +308,7 @@ export function AppList({ show }: { show?: boolean }) {
                 onClick={async () => {
                   if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
                     for (const app of apps) {
+                      clearDeletedWorkspaceClientState(app.id, queryClient);
                       try {
                         await IpcClient.getInstance().deleteApp(app.id);
                       } catch {
@@ -314,6 +318,8 @@ export function AppList({ show }: { show?: boolean }) {
                     refreshApps?.();
                     setSelectedAppId(null);
                     setSelectedWorkspaceInfo(null);
+                    setActiveChatId(null);
+                    setSelectedChatId(null);
                     navigate({ to: "/" });
                     try {
                       const ipc = window.electron?.ipcRenderer;
@@ -390,10 +396,9 @@ export function AppList({ show }: { show?: boolean }) {
                 {workspaces.map((ws) => {
                   const isMissing = ws.workspaceStatus === "missing";
                   const runDeleteWorkspace = async () => {
+                    clearDeletedWorkspaceClientState(ws.id, queryClient);
                     setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
                     if (selectedAppId === ws.id) {
-                      setSelectedAppId(null);
-                      setSelectedWorkspaceInfo(null);
                       navigate({ to: "/" });
                     }
                     try {

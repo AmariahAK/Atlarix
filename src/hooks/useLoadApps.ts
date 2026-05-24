@@ -2,11 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAtom } from "jotai";
 import { appBasePathAtom, appsListAtom } from "@/atoms/appAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
-import type { App } from "@/ipc/ipc_types";
-
-type AppPathStatusPayload = {
-  statuses: Array<{ id: number; pathExists: boolean; status: App["status"] }>;
-};
+import { subscribeAppsStatusChanged } from "@/lib/renderer-ipc-bridge";
 
 export function useLoadApps() {
   const [apps, setApps] = useAtom(appsListAtom);
@@ -35,11 +31,8 @@ export function useLoadApps() {
   }, [refreshApps]);
 
   useEffect(() => {
-    const ipc = window.electron?.ipcRenderer;
-    if (!ipc?.on) return;
-    const handler = (...args: unknown[]) => {
-      const payload = args[0] as AppPathStatusPayload | undefined;
-      const statuses = payload?.statuses;
+    return subscribeAppsStatusChanged((payload) => {
+      const statuses = payload.statuses;
       if (!Array.isArray(statuses) || statuses.length === 0) return;
       const byId = new Map(statuses.map((s) => [s.id, s]));
       setApps((prev) =>
@@ -49,11 +42,7 @@ export function useLoadApps() {
           return { ...app, pathExists: s.pathExists, status: s.status };
         }),
       );
-    };
-    ipc.on("apps:status-changed", handler);
-    return () => {
-      ipc.removeListener("apps:status-changed", handler);
-    };
+    });
   }, [setApps]);
 
   return { apps, loading, error, refreshApps };

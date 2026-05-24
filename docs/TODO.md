@@ -1,7 +1,22 @@
 # Atlarix TODO
 
-**Current Version:** v8.7.0
+**Current Version:** v8.7.5
 **Last Updated:** 2026-05-24
+
+---
+
+## Shipped in v8.7.5
+
+| Area | Notes |
+|------|--------|
+| **IPC polish** | `renderer-ipc-bridge.ts`; auth plan dedupe; workspace delete cleanup |
+| **Packaged logos** | `assetsInlineLimit: 0` in renderer Vite config |
+| **Diagram UX** | No saved-diagram auto-load; `get_diagram` local-only; Mermaid stream spinner |
+| **Session titles** | Instant title from first user message + `<atlarix-chat-summary>` upgrade |
+| **Blueprint logs** | Routine parse/scan success at `debug` |
+| **Docs** | RTE reference §19.5 packaged grammars; architecture + skill guide updates |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.7.5]`.
 
 ---
 

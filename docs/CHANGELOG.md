@@ -1,5 +1,83 @@
 # Atlarix Changelog
 
+## [8.7.5] (2026-05-24) — Polish & UX
+
+### Packaging / IPC
+
+- **Renderer IPC bridge:** Single listeners for `chat:auto-self-correct` and `apps:status-changed` ([`renderer-ipc-bridge.ts`](src/lib/renderer-ipc-bridge.ts)); stable `streamMessage` ref in layout.
+- **Packaged logos:** `build.assetsInlineLimit: 0` so `?url` SVG imports emit real asset files in production.
+- **Workspace delete:** Central client cleanup ([`workspace-delete-cleanup.ts`](src/lib/workspace-delete-cleanup.ts)); graceful `useLoadApp` when app is missing.
+- **Auth:** Dedupe `plan-changed` fan-out in [`auth-ipc-bridge.ts`](src/lib/auth/auth-ipc-bridge.ts).
+- **PDF:** Filter harmless pdf.js `TT: undefined function` warnings during extract.
+
+### UX
+
+- **Diagrams:** Removed saved-diagram auto-load on workspace open ([`useLoadApp.ts`](src/hooks/useLoadApp.ts)).
+- **`get_diagram`:** Local on-demand generation only; no stale DB snapshot return ([`diagram.ts`](src/lib/tools/diagram.ts)).
+- **Mermaid:** Spinner during stream; defer error overlay until stream completes ([`MermaidRenderer.tsx`](src/components/MermaidRenderer.tsx)).
+- **Sessions:** Instant title from first user message; `<atlarix-chat-summary>` still upgrades when present ([`workspace-session-title.ts`](src/lib/workspace-session-title.ts)).
+
+### Blueprint
+
+- Routine blueprint / ast-grep **info** logs → **debug** (`lazy-parse.ts`, `run-structural-scan.ts`, `blueprint_handlers.ts`).
+
+---
+
+## [8.7.4] (2026-05-24) — Packaged ast-grep native binding hotfix
+
+### Packaging
+
+- **ast-grep natives:** Removed post-install `npm prune --omit=optional` that stripped `@ast-grep/napi-darwin-arm64` (and other platform bindings), restoring `app.asar.unpacked` native modules.
+- **Grammars:** Stage Python/Go `parser.so` into `Resources/ast-grep-grammars` via `extraResource`; [`register-dynamic-langs.ts`](src/lib/blueprint/rte/ast-grep/register-dynamic-langs.ts) resolves extraResource first, then unpacked asar paths.
+- **asarUnpack:** Broadened globs for `@ast-grep/napi-*`, `lang-python` / `lang-go`, and `astgrep_worker.js`; rebuild includes `@ast-grep/napi` and platform binding package.
+- **Scripts:** `verify-astgrep-packaged` checks napi `.node` and grammar paths; `measure-package-size` streams asar list to avoid ENOBUFS; `npm run package:verify` runs package + verify + size report.
+
+---
+
+## [8.7.3] (2026-05-24) — Packaged Blueprint crash fix & smaller asar
+
+### Blueprint — packaged ast-grep fix
+
+- **Crash fix:** Unpack `@ast-grep/lang-python` / `lang-go` tree-sitter `parser.so` files to `app.asar.unpacked` so structural scans no longer panic with `GetLibPath: Not a directory` in production builds.
+- **Dynamic langs:** Resolve grammar paths to real filesystem locations in [`register-dynamic-langs.ts`](src/lib/blueprint/rte/ast-grep/register-dynamic-langs.ts); skip Python/Go registration when parsers are missing (ctags-only fallback).
+- **Worker pool:** Packaged `astgrep_worker.js` path resolution and safer worker error handling.
+
+### Packaging
+
+- **Source maps:** Disabled in production worker builds; strip `**/*.map` in `packageAfterPrune`.
+- **Dev deps:** Denylist Playwright, TypeScript, ESLint, Vitest, etc. from release `node_modules`; `electron-playwright-helpers` moved to devDependencies.
+- **Scripts:** `npm run verify-astgrep-packaged`; `measure-package-size` prints asar audit counts.
+
+### UI
+
+- **Logo:** Home and sign-in use bundled `assets/logo.svg` (fixes `file:///logo/...` load failures in packaged app).
+
+---
+
+## [8.7.2] (2026-05-24) — Stability & package size
+
+### Blueprint — enforce section scope
+
+- **`get_blueprint`:** Rejects workspace-root `focus_path` (`.` / `..`); returns section suggestions instead of parsing the entire repo.
+- **Lazy parse:** `allowWorkspaceRoot` is opt-in only (UI refresh); agent tools cannot trigger full-workspace walks via `.`.
+- **Timeout:** Shuts down the ast-grep worker pool when a section parse times out.
+
+### Crash diagnostics
+
+- **Main process:** Logs and Sentry breadcrumbs for `render-process-gone`, `child-process-gone` (GPU), and unresponsive windows.
+
+### Renderer safety
+
+- **Markmap:** Node cap and debounced render to avoid huge mind-map graphs in chat.
+- **Mermaid:** Lazy-loaded in code blocks so the renderer bundle pays for it only when needed.
+
+### Packaging
+
+- **Smaller installs:** Omit bundled dugite git when system `git` is available (`ATLARIX_BUNDLE_GIT=1` or E2E to force bundle); exclude `scaffold/` and `*.map` from production asar; prune duplicate markmap/mermaid trees from packaged `node_modules`.
+- **Scripts:** `npm run measure-package-size`, `npm run verify-renderer-bundle`.
+
+---
+
 ## [8.7.0] (2026-05-24) — Section-scoped Blueprint
 
 ### Blueprint — section-first tool

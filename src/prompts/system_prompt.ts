@@ -490,9 +490,9 @@ Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tun
 </tool_contract>`;
 
     const sessionTitleRule = `<session_title>
-On the **first turn** of a **new workspace chat session**, end your reply with exactly one tag:
+On the **first turn** of a **new workspace chat session**, **start** your reply with exactly one line:
 <atlarix-chat-summary>three to six word title</atlarix-chat-summary>
-Use 3–6 words, no punctuation. Emit this tag once per session (omit on follow-up turns unless the user asks to rename the session topic).
+Then a blank line, then your answer. Use 3–6 words, no punctuation. Emit this tag once per session (omit on follow-up turns unless the user asks to rename the session topic).
 </session_title>`;
 
     const webResearchRules = `**Web research tools — pick exactly one per topic per turn**

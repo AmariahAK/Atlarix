@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo, type ReactNode } from "react";
+import React, { Suspense, useState, useEffect, memo, type ReactNode } from "react";
 import ShikiHighlighter, {
   isInlineCode,
   createHighlighterCore,
@@ -7,8 +7,11 @@ import ShikiHighlighter, {
 import type { Element as HastElement } from "hast";
 import { useTheme } from "../../contexts/ThemeContext";
 import { Copy, Check } from "lucide-react";
-import { MermaidRenderer } from "@/components/MermaidRenderer";
 import { MarkmapRenderer } from "@/components/chat/MarkmapRenderer";
+
+const LazyMermaidRenderer = React.lazy(() =>
+  import("@/components/MermaidRenderer").then((m) => ({ default: m.MermaidRenderer })),
+);
 import { ChartArtifactCard } from "@/components/chat/ChartArtifactCard";
 import { VisualArtifactCard } from "@/components/chat/VisualArtifactCard";
 import { inferArtifactTitle } from "@/lib/visual-artifacts/infer-title";
@@ -81,10 +84,11 @@ interface CodeHighlightProps {
   className?: string | undefined;
   children?: ReactNode | undefined;
   node?: HastElement | undefined;
+  isStreaming?: boolean;
 }
 
 export const CodeHighlight = memo(
-  ({ className, children, node, ...props }: CodeHighlightProps) => {
+  ({ className, children, node, isStreaming = false, ...props }: CodeHighlightProps) => {
     const code = String(children).trim();
     const language = className?.match(/language-(\w+)/)?.[1];
     const isInline = node ? isInlineCode(node) : false;
@@ -111,7 +115,20 @@ export const CodeHighlight = memo(
       return (
         <div className="not-prose my-2 w-full">
           <VisualArtifactCard title={title} layout="canvas">
-            <MermaidRenderer code={code} embedded className="h-full min-h-0" />
+            <Suspense
+              fallback={
+                <div className="flex h-full min-h-[120px] items-center justify-center text-xs text-muted-foreground">
+                  Loading diagram…
+                </div>
+              }
+            >
+              <LazyMermaidRenderer
+                code={code}
+                embedded
+                className="h-full min-h-0"
+                isStreaming={isStreaming}
+              />
+            </Suspense>
           </VisualArtifactCard>
         </div>
       );

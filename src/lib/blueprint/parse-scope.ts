@@ -32,6 +32,31 @@ export function normalizeBlueprintFocusPath(p: string): string {
     .replace(/^\/+|\/+$/g, "");
 }
 
+/** Tool-driven parses must not scan the whole workspace (use a top-level section folder). */
+export function isWorkspaceRootFocusPath(focusPath: string): boolean {
+  const fp = normalizeBlueprintFocusPath(focusPath);
+  return !fp || fp === "." || fp === "..";
+}
+
+export function blueprintWorkspaceRootFocusPathError(suggestions: string[]) {
+  return {
+    success: false as const,
+    error:
+      'get_blueprint does not accept workspace root ("."). Pick one top-level folder as focus_path.',
+    hint:
+      "Call get_repo_overview or explore_folder on '.' first, then get_blueprint({ focus_path: 'your-section' }).",
+    suggestions,
+    sequential_workflow: true,
+    do_not_retry_full_workspace_blueprint: true,
+    fallback_tools: [...BLUEPRINT_FALLBACK_TOOLS],
+    recommended_workflow: [
+      "1. get_repo_overview or explore_folder to list top-level folders",
+      "2. get_blueprint({ focus_path: 'one-folder' }) for that section only",
+      "3. explore_folder / search within that section",
+    ],
+  };
+}
+
 export function blueprintCacheKey(workspaceId: number, focusPath: string): string {
   const fp = normalizeBlueprintFocusPath(focusPath);
   return `${workspaceId}:${fp || "."}`;

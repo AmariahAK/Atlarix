@@ -5,6 +5,18 @@ import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const transformer = new Transformer();
+const MAX_MARKMAP_NODES = 400;
+const MARKMAP_DEBOUNCE_MS = 300;
+
+type MarkmapRoot = { children?: MarkmapRoot[] };
+
+function countMarkmapNodes(node: MarkmapRoot): number {
+  let n = 1;
+  for (const child of node.children ?? []) {
+    n += countMarkmapNodes(child);
+  }
+  return n;
+}
 
 interface MarkmapRendererProps {
   content: string;
@@ -106,30 +118,40 @@ export function MarkmapRenderer({ content, className = "", embedded = false }: M
 
     setError(null);
     const palette = markmapPalette(theme);
-    try {
-      destroyMarkmap();
-      const { root } = transformer.transform(content);
-      markmapRef.current = Markmap.create(svg, {
-        zoom: true,
-        pan: true,
-        color: (node: { state?: { depth?: number } }) => {
-          const depth = node.state?.depth ?? 0;
-          if (depth === 0) return palette.primary;
-          if (depth === 1) return palette.fg;
-          return palette.muted;
-        },
-      });
-      markmapRef.current.setData(root);
-      requestAnimationFrame(() => {
-        void markmapRef.current?.fit();
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to render mind map";
-      setError(msg);
-      destroyMarkmap();
-    }
+    const timer = setTimeout(() => {
+      try {
+        destroyMarkmap();
+        const { root } = transformer.transform(content);
+        const nodeCount = countMarkmapNodes(root as MarkmapRoot);
+        if (nodeCount > MAX_MARKMAP_NODES) {
+          setError(
+            `Mind map too large (${nodeCount} nodes; max ${MAX_MARKMAP_NODES}). Split into smaller sections.`,
+          );
+          return;
+        }
+        markmapRef.current = Markmap.create(svg, {
+          zoom: true,
+          pan: true,
+          color: (node: { state?: { depth?: number } }) => {
+            const depth = node.state?.depth ?? 0;
+            if (depth === 0) return palette.primary;
+            if (depth === 1) return palette.fg;
+            return palette.muted;
+          },
+        });
+        markmapRef.current.setData(root);
+        requestAnimationFrame(() => {
+          void markmapRef.current?.fit();
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to render mind map";
+        setError(msg);
+        destroyMarkmap();
+      }
+    }, MARKMAP_DEBOUNCE_MS);
 
     return () => {
+      clearTimeout(timer);
       destroyMarkmap();
     };
   }, [content, theme, destroyMarkmap]);

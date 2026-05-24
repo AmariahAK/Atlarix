@@ -37,6 +37,8 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
     reportCompressedSize: false,
+    /** Keep `?url` SVG imports as files — inline data URLs break in packaged Electron. */
+    assetsInlineLimit: 0,
     rollupOptions: {
       external: [],
       output: {

@@ -93,7 +93,7 @@ async function maybeTruncateToDisk(
                 totalChars: resultStr.length,
                 preview,
                 diskPath,
-                message: `Full output written to ${diskPath}. Use read_file to access if needed.`,
+                message: `Full output written to ${diskPath}. Use read_file with this exact absolute path to read the spill file.`,
             },
             truncated: true,
             totalChars: resultStr.length,

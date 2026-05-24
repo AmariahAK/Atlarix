@@ -5,7 +5,11 @@
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import { distance } from "fastest-levenshtein";
-import { normalizeBlueprintFocusPath, resolveScanRoot } from "@/lib/blueprint/parse-scope";
+import {
+  isWorkspaceRootFocusPath,
+  normalizeBlueprintFocusPath,
+  resolveScanRoot,
+} from "@/lib/blueprint/parse-scope";
 
 const SKIP_DIR_NAMES = new Set([
   ".git",
@@ -70,9 +74,22 @@ async function isDirectory(p: string): Promise<boolean> {
 export async function validateBlueprintFocusPath(
   workspacePath: string,
   focusPath: string,
+  options?: { allowWorkspaceRoot?: boolean },
 ): Promise<BlueprintFocusPathValidation> {
   const fp = normalizeBlueprintFocusPath(focusPath);
   const scanRoot = resolveScanRoot(workspacePath, fp);
+
+  if (!options?.allowWorkspaceRoot && isWorkspaceRootFocusPath(fp)) {
+    const candidates = await listWorkspaceSectionCandidates(workspacePath);
+    return {
+      valid: false,
+      scanRoot,
+      focusPath: fp || ".",
+      error:
+        'focus_path must be a section folder (e.g. "packages/api"), not "." or workspace root.',
+      suggestions: candidates.slice(0, 8),
+    };
+  }
 
   if (await isDirectory(scanRoot)) {
     return { valid: true, scanRoot, focusPath: fp };

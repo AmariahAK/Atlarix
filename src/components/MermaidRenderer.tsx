@@ -13,6 +13,16 @@ import mermaid from "mermaid";
 import { useTheme } from "@/contexts/ThemeContext";
 import { sanitizeMermaid, repairBracketMermaidLabels } from "@/lib/sanitizeMermaid";
 
+const MERMAID_DEBOUNCE_MS = 500;
+
+/** Skip parse attempts on tiny/partial streamed fragments (avoids console spam). */
+function looksRenderableMermaidSource(source: string): boolean {
+    const t = source.trim();
+    if (t.length < 12) return false;
+    const lines = t.split("\n").filter((l) => l.trim().length > 0);
+    return lines.length >= 2;
+}
+
 const MERMAID_USER_ERROR_TITLE = "Diagram couldn't render";
 const MERMAID_USER_ERROR_BODY =
     "The AI generated a syntax issue. Click Retry to try again, or use 'View Raw Code' to inspect the output.";
@@ -24,6 +34,8 @@ interface MermaidRendererProps {
     className?: string;
     /** When true, fill parent artifact card instead of enforcing standalone min-height */
     embedded?: boolean;
+    /** While the assistant is still streaming, show spinner and defer error overlay */
+    isStreaming?: boolean;
     onRender?: (svg: string) => void;
     onError?: (error: string) => void;
 }
@@ -134,12 +146,16 @@ export function MermaidRenderer({
     code,
     className = "",
     embedded = false,
+    isStreaming = false,
     onRender,
     onError,
 }: MermaidRendererProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [error, setError] = useState<string | null>(null);
     const [isRendering, setIsRendering] = useState(false);
+    const renderGenerationRef = useRef(0);
+    const isStreamingRef = useRef(isStreaming);
+    isStreamingRef.current = isStreaming;
     const { theme } = useTheme();
 
     // Initialize mermaid with theme
@@ -183,7 +199,11 @@ export function MermaidRenderer({
         if (!code?.trim()) {
             return;
         }
+        if (!looksRenderableMermaidSource(code)) {
+            return;
+        }
 
+        const generation = ++renderGenerationRef.current;
         let el = containerRef.current;
         for (let i = 0; i < 12 && !el; i++) {
             await new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -245,6 +265,17 @@ export function MermaidRenderer({
                 onRender?.(svg);
             }
         } catch (err) {
+            if (generation !== renderGenerationRef.current) {
+                return;
+            }
+            if (!looksRenderableMermaidSource(code)) {
+                setError(null);
+                return;
+            }
+            if (isStreamingRef.current) {
+                setError(null);
+                return;
+            }
             let errorMessage = "Failed to render diagram";
             if (err instanceof Error) {
                 errorMessage = err.message || errorMessage;
@@ -277,19 +308,36 @@ export function MermaidRenderer({
             setError(errorMessage);
             onError?.(MERMAID_USER_ERROR_TITLE);
         } finally {
-            setIsRendering(false);
+            if (generation === renderGenerationRef.current) {
+                setIsRendering(isStreamingRef.current);
+            }
         }
     }, [code, onRender, onError]);
 
-    // Render on code change
     useEffect(() => {
-        renderDiagram();
+        const timer = window.setTimeout(() => {
+            void renderDiagram();
+        }, MERMAID_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
     }, [renderDiagram, theme]);
+
+    useEffect(() => {
+        if (!isStreaming) {
+            const timer = window.setTimeout(() => {
+                void renderDiagram();
+            }, MERMAID_DEBOUNCE_MS);
+            return () => window.clearTimeout(timer);
+        }
+    }, [isStreaming, renderDiagram]);
+
+    const showLoading =
+        isRendering ||
+        (isStreaming && looksRenderableMermaidSource(code ?? "") && !error);
 
     return (
         <div className={`relative w-full h-full ${embedded ? "min-h-0" : "min-h-[500px]"} ${className}`}>
             {/* Error Message - Full overlay with raw code view */}
-            {error && (
+            {error && !isStreaming && (
                 <ErrorOverlay
                     errorRaw={error}
                     code={code}
@@ -298,7 +346,7 @@ export function MermaidRenderer({
             )}
 
             {/* Loading Spinner - Overlay */}
-            {isRendering && (
+            {showLoading && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/50 backdrop-blur-[1px]">
                     <div className="flex flex-col items-center gap-2">
                         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />

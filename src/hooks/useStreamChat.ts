@@ -69,7 +69,9 @@ import { useLoadApp } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import {
+  applyInstantWorkspaceSessionTitle,
   applyWorkspaceSessionTitleFromSummary,
+  extractAtlarixChatSummary,
 } from "@/lib/workspace-session-title";
 import { workspaceSessionsRefreshAtom } from "@/atoms/sessionAtoms";
 import { useVersions } from "./useVersions";
@@ -270,6 +272,8 @@ export function useStreamChat({
   const setAskUserStreamFreezeBaselineByChatId = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
 
   // PASS6: throttle setMessagesById during streaming (max ~20/s) to avoid renderer OOM.
+  const sessionTitleEarlyAppliedRef = useRef(new Set<number>());
+
   const messageStreamThrottleRef = useRef<{
     timer: ReturnType<typeof setInterval> | null;
     pending: Map<number, Message[]>;
@@ -776,6 +780,10 @@ export function useStreamChat({
                 "user",
                 prompt.trim(),
               );
+              await applyInstantWorkspaceSessionTitle(
+                workspaceSessionId,
+                prompt.trim(),
+              );
             } catch (e) {
               console.error("Failed to persist user session message:", e);
             }
@@ -873,6 +881,22 @@ export function useStreamChat({
             const lastAsst = [...messagesForUi].reverse().find((m) => m.role === "assistant");
             if (lastAsst?.content) {
               th.lastAssistantRawByChatId.set(chatId, lastAsst.content);
+              if (!sessionTitleEarlyAppliedRef.current.has(chatId)) {
+                const earlyTitle = extractAtlarixChatSummary(lastAsst.content);
+                if (earlyTitle) {
+                  sessionTitleEarlyAppliedRef.current.add(chatId);
+                  void (async () => {
+                    const appId = getDefaultStore().get(selectedAppIdAtom);
+                    if (appId == null) return;
+                    const sessionId = await ensureWorkspaceSessionForChat(appId, chatId);
+                    if (!sessionId) return;
+                    await applyWorkspaceSessionTitleFromSummary(
+                      sessionId,
+                      lastAsst.content,
+                    );
+                  })();
+                }
+              }
             }
             th.pending.set(chatId, messagesForUi);
             if (th.timer == null) {

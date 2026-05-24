@@ -36,11 +36,18 @@ const pending = new Map<number, PendingTask>();
 const queue: Array<AstGrepScanBatch & { resolve: (edges: RTEBlueprintEdge[]) => void }> = [];
 
 function workerScriptPath(): string {
-  const candidates = [
+  const candidates: string[] = [];
+  if (process.resourcesPath) {
+    candidates.push(
+      path.join(process.resourcesPath, "app.asar.unpacked", ".vite", "build", "astgrep_worker.js"),
+      path.join(process.resourcesPath, "app.asar", ".vite", "build", "astgrep_worker.js"),
+    );
+  }
+  candidates.push(
     path.join(__dirname, "astgrep_worker.js"),
     path.resolve(process.cwd(), ".vite/build/astgrep_worker.js"),
     path.resolve(__dirname, "..", "..", "..", "astgrep_worker.js"),
-  ];
+  );
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -90,15 +97,19 @@ function ensurePool(): void {
     pool = [];
     return;
   }
+  const script = workerScriptPath();
   pool = [];
   for (let i = 0; i < poolSize(); i++) {
-    const worker = new Worker(workerScriptPath());
+    const worker = new Worker(script);
     const slot: PoolWorker = { worker, busy: false };
     worker.on("message", (msg: { id: number; edges: RTEBlueprintEdge[]; error?: string }) => {
       const p = pending.get(msg.id);
       if (p) {
         clearTimeout(p.timer);
         pending.delete(msg.id);
+        if (msg.error) {
+          logger.warn("[ast-grep-pool] batch error", { error: msg.error });
+        }
         p.resolve(msg.edges ?? []);
       }
       slot.busy = false;
@@ -109,9 +120,15 @@ function ensurePool(): void {
       slot.busy = false;
       dispatchQueue();
     });
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        logger.error("[ast-grep-pool] worker exited", { code });
+      }
+      slot.busy = false;
+    });
     pool.push(slot);
   }
-  logger.info(`[ast-grep-pool] initialized ${pool.length} workers`);
+  logger.info(`[ast-grep-pool] initialized ${pool.length} workers`, { script });
 }
 
 export function scanBatchInWorker(batch: AstGrepScanBatch): Promise<RTEBlueprintEdge[]> {

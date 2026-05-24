@@ -46,7 +46,7 @@ ToolRegistry.register({
     category: ToolCategory.DIAGRAM,
     // PASS8 B1: description trimmed to ≤ 2 sentences.
     description:
-        "Return the workspace Mermaid diagram (saved or generated on demand). " +
+        "Generate a Mermaid diagram from the workspace codebase on demand (not loaded from saved DB). " +
         "Types: architecture, class, sequence, flowchart. Pass focus_path to scope into a sub-repo.",
     cost: 10,
     requiresWorkspace: true,
@@ -124,98 +124,7 @@ ToolRegistry.register({
                 "architecture";
             const title = params.title || `${path.basename(workspace)} ${diagramType} diagram`;
 
-            // If workspaceId provided, try to get AI-generated diagram first
-            if (params.workspaceId) {
-                try {
-                    const { DiagramManager } = await import("../DiagramManager");
-                    const { db } = await import("../../db");
-                    const { diagrams } = await import("../../db/schema");
-                    const { eq } = await import("drizzle-orm");
-
-                    // Check for existing diagram
-                    let existingDiagram = await db.query.diagrams.findFirst({
-                        where: eq(diagrams.workspaceId, params.workspaceId),
-                    });
-
-                    // If no diagram exists, check if one is being generated (cold start)
-                    if (!existingDiagram) {
-                        if (DiagramManager.isGenerating(params.workspaceId)) {
-                            // Wait for in-progress generation (up to 30s)
-                            console.log(`[get_diagram] Waiting for in-progress generation for workspace ${params.workspaceId}`);
-                            const generatedDiagram = await DiagramManager.waitForGeneration(params.workspaceId, 30000);
-
-                            if (generatedDiagram) {
-                                return {
-                                    success: true,
-                                    workspace,
-                                    workspace_id: params.workspaceId,
-                                    diagram_type: diagramType,
-                                    title: generatedDiagram.title,
-                                    mermaid_code: generatedDiagram.content,
-                                    role: params.role === "reference" ? "reference" : "main",
-                                    saved: "Retrieved from AI-generated diagram (waited for generation)",
-                                    source: "waited-for-generation",
-                                    // PASS8 I: short natural-language summary; mermaid lives in `mermaid_code`.
-                                    context_for_ai: buildDiagramContextSummary({
-                                        title: generatedDiagram.title,
-                                        diagramType,
-                                        mermaidCode: generatedDiagram.content,
-                                        focusPath: params.focus_path,
-                                    }),
-                                };
-                            }
-                        }
-
-                        // No generation in progress, start one now
-                        console.log(`[get_diagram] No diagram found, generating on-demand for workspace ${params.workspaceId}`);
-                        const newDiagram = await DiagramManager.generateInitialDiagram(params.workspaceId, workspace);
-
-                        return {
-                            success: true,
-                            workspace,
-                            workspace_id: params.workspaceId,
-                            diagram_type: diagramType,
-                            title: newDiagram.title,
-                            mermaid_code: newDiagram.content,
-                            role: params.role === "reference" ? "reference" : "main",
-                            saved: "Generated and saved to workspace",
-                            source: "on-demand-generation",
-                            // PASS8 I: short natural-language summary; mermaid lives in `mermaid_code`.
-                            context_for_ai: buildDiagramContextSummary({
-                                title: newDiagram.title,
-                                diagramType,
-                                mermaidCode: newDiagram.content,
-                                focusPath: params.focus_path,
-                            }),
-                        };
-                    }
-
-                    // Existing diagram found - return it
-                    return {
-                        success: true,
-                        workspace,
-                        workspace_id: params.workspaceId,
-                        diagram_type: existingDiagram.diagramType,
-                        title: existingDiagram.title,
-                        mermaid_code: existingDiagram.content,
-                        role: params.role === "reference" ? "reference" : "main",
-                        saved: "Retrieved from saved diagram",
-                        source: "database",
-                        // PASS8 I: short natural-language summary; mermaid lives in `mermaid_code`.
-                        context_for_ai: buildDiagramContextSummary({
-                            title: existingDiagram.title,
-                            diagramType: existingDiagram.diagramType ?? diagramType,
-                            mermaidCode: existingDiagram.content,
-                            focusPath: params.focus_path,
-                        }),
-                    };
-                } catch (dbError) {
-                    console.error("[get_diagram] Failed to fetch from database, falling back to local generation:", dbError);
-                    // Fall through to local generation below
-                }
-            }
-
-            // Fallback: Generate locally without saving (for when no workspaceId)
+            // Generate from codebase structure (inline chat fences are the primary visual path).
             let mermaidCode = "";
             let root = workspace;
             // PASS8 I: focus_path clamps the root before scope-based subscoping.
@@ -254,7 +163,9 @@ ToolRegistry.register({
                 title,
                 mermaid_code: mermaidCode,
                 role,
-                saved: "Not saved (no workspaceId provided)",
+                saved: params.workspaceId
+                    ? "Generated on demand (not loaded from saved diagram)"
+                    : "Not saved (no workspaceId provided)",
                 source: "local-generation",
                 // PASS8 I: short natural-language summary; mermaid lives in `mermaid_code`.
                 context_for_ai: buildDiagramContextSummary({

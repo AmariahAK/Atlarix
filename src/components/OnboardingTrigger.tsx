@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { subscribeOAuthSuccess } from "@/lib/auth/auth-ipc-bridge";
 import { useSetAtom } from "jotai";
 import { onboardingStepAtom } from "@/atoms/viewAtoms";
 import { persistOnboardingStep, readPersistedOnboardingStep } from "@/lib/onboarding";
@@ -43,7 +44,7 @@ export function OnboardingTrigger() {
       checkAndStartOnboarding();
     };
 
-    ipc.on?.("oauth-callback-success", handleOAuthSuccess as any);
+    const unsub = subscribeOAuthSuccess(handleOAuthSuccess);
 
     // On mount: if already logged in and we haven't checked this session, check onboarding
     if (!checkedRef.current) {
@@ -52,7 +53,7 @@ export function OnboardingTrigger() {
     }
 
     return () => {
-      ipc.removeListener?.("oauth-callback-success", handleOAuthSuccess as any);
+      unsub();
     };
   }, [setStep]);
 

@@ -84,6 +84,7 @@ export default defineConfig({
     MAIN_KEYS.map((k) => [`process.env.${k}`, JSON.stringify(process.env[k] ?? "")])
   ),
   build: {
+    sourcemap: false,
     // elkjs remains bundled (lazy import). OpenTelemetry is bundled for packaged resolution.
     rollupOptions: {
       external: [...mainRollupExternals],

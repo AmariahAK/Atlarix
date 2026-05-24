@@ -35,6 +35,7 @@ import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import fs from "fs";
+import { execSync } from "node:child_process";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
@@ -120,21 +121,48 @@ if (started) {
   app.quit();
 }
 
-// Decide the git directory depending on environment
-function resolveLocalGitDirectory() {
+/** Prefer system git in production; dugite bundle is optional (E2E / ATLARIX_BUNDLE_GIT=1). */
+function configureGitEnvironment(): void {
   if (!app.isPackaged) {
-    // Dev: app.getAppPath() is the project root
-    return path.join(app.getAppPath(), "node_modules/dugite/git");
+    const devGit = path.join(app.getAppPath(), "node_modules/dugite/git");
+    if (fs.existsSync(devGit)) {
+      process.env.LOCAL_GIT_DIRECTORY = devGit;
+      logger.info("[git] Using dev dugite bundle");
+    }
+    return;
   }
-
-  // Packaged app: git is bundled via extraResource
-  return path.join(process.resourcesPath, "git");
+  try {
+    execSync("git --version", { stdio: "ignore" });
+    logger.info("[git] Using system git from PATH");
+    return;
+  } catch {
+    const bundled = path.join(process.resourcesPath, "git");
+    if (fs.existsSync(bundled)) {
+      process.env.LOCAL_GIT_DIRECTORY = bundled;
+      logger.info("[git] Using bundled git from resources");
+    } else {
+      logger.warn(
+        "[git] No system git and no bundled git — install Git or Xcode Command Line Tools",
+      );
+    }
+  }
 }
 
-const gitDir = resolveLocalGitDirectory();
-if (fs.existsSync(gitDir)) {
-  process.env.LOCAL_GIT_DIRECTORY = gitDir;
-}
+configureGitEnvironment();
+
+app.on("child-process-gone", (_event, details) => {
+  logger.error("[crash] child-process-gone", details);
+  if (SENTRY_DSN) {
+    Sentry.captureMessage(`child-process-gone:${details.type}`, {
+      level: details.type === "GPU" ? "fatal" : "error",
+      tags: {
+        processType: details.type,
+        reason: details.reason,
+        exitCode: String(details.exitCode),
+      },
+    });
+  }
+});
 
 // https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app#main-process-mainjs
 // Register atlarix:// protocol for OAuth and deep links
@@ -695,6 +723,34 @@ const createWindow = () => {
   };
   mainWindow.on("enter-full-screen", broadcastFullscreen);
   mainWindow.on("leave-full-screen", broadcastFullscreen);
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logger.error("[crash] render-process-gone", details);
+    if (SENTRY_DSN) {
+      Sentry.captureMessage("render-process-gone", {
+        level: "fatal",
+        tags: {
+          reason: details.reason,
+          exitCode: String(details.exitCode),
+        },
+      });
+    }
+  });
+
+  mainWindow.on("unresponsive", () => {
+    logger.warn("[crash] main window unresponsive");
+    if (SENTRY_DSN) {
+      Sentry.addBreadcrumb({
+        category: "window",
+        message: "unresponsive",
+        level: "warning",
+      });
+    }
+  });
+
+  mainWindow.on("responsive", () => {
+    logger.info("[crash] main window responsive again");
+  });
 };
 
 function broadcastSystemTheme(): void {

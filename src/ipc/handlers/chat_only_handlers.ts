@@ -29,6 +29,8 @@ import {
   type GetModelClientOptions,
 } from "../utils/get_model_client";
 import { safeSend } from "../utils/safe_sender";
+import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { stripThinkBlocks } from "../utils/thinking_tags";
 import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
@@ -155,14 +157,15 @@ async function processAttachments(attachments: ChatStreamParams["attachments"]):
 
     const mimeType = mimeTypes[fileExtension] || "application/octet-stream";
 
-    AttachmentStore.add({
-      id: hash,
-      filename: attachment.name,
-      mimeType,
-      data: base64Data,
-      size: fileSize,
-      addedAt: Date.now(),
-    });
+    AttachmentStore.add(
+      await buildAttachmentRecord({
+        id: hash,
+        filename: attachment.name,
+        mimeType,
+        base64Data,
+        size: fileSize,
+      }),
+    );
 
     attachmentIds.push(hash);
     attachmentInfos.push({
@@ -1306,18 +1309,13 @@ export async function handleChatOnlyStream(
                 emptyOutAttempt <= CHAT_ONLY_EMPTY_OUTPUT_MAX_ATTEMPTS;
                 emptyOutAttempt++
             ) {
-                // PASS8 A5: Prepend dynamic tail as a system-role message.
-                const chatOnlyMessages: ModelMessage[] =
-                    chatOnlyDynamicTail && chatOnlyDynamicTail.trim().length > 0
-                        ? [
-                            { role: "system" as const, content: chatOnlyDynamicTail },
-                            ...chatOnlyStreamMessages,
-                        ]
-                        : chatOnlyStreamMessages;
                 const result = streamText({
                     model: modelClient.model,
-                    system: chatOnlyParts.stableHeader,
-                    messages: chatOnlyMessages,
+                    system: mergeSystemPromptParts(
+                        chatOnlyParts.stableHeader,
+                        chatOnlyDynamicTail,
+                    ),
+                    messages: chatOnlyStreamMessages,
                     tools,
                     temperature: 0.7,
                     providerOptions: chatOnlyProviderOptions as Parameters<

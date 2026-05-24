@@ -4,7 +4,7 @@ import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
-import { useEffect, useCallback, type ReactNode } from "react";
+import { useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useRunApp } from "@/hooks/useRunApp";
 import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
 import {
@@ -48,6 +48,7 @@ import { useLoadApp } from "@/hooks/useLoadApp";
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
+import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds } from "@/lib/sounds";
 import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
 import { OnboardingTrigger } from "@/components/OnboardingTrigger";
@@ -220,6 +221,8 @@ const DEFAULT_ZOOM_LEVEL: ZoomLevel = "100";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const { streamMessage } = useStreamChat({ hasChatId: false });
+  const streamMessageRef = useRef(streamMessage);
+  streamMessageRef.current = streamMessage;
   // Listen for AI-controlled panel updates from main process
   useAIPanelListener();
   const { refreshAppIframe } = useRunApp();
@@ -386,17 +389,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onAutoSelfCorrect(({ chatId }) => {
-      if (chatId == null) return;
-      void streamMessage({
+    return subscribeAutoSelfCorrect(({ chatId }) => {
+      void streamMessageRef.current({
         prompt: "",
         chatId,
         continueAfterQuestions: true,
         attachments: [],
       });
     });
-    return () => unsub();
-  }, [streamMessage]);
+  }, []);
 
   useEffect(() => {
     const unsub = IpcClient.getInstance().onModeChanged(({ settings }) => {

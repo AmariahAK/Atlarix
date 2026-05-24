@@ -23,6 +23,7 @@ import { promisify } from "util";
 import path from "path";
 import os from "node:os";
 import { existsSync } from "node:fs";
+import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
 import fs from "fs/promises";
 import { SubscriptionManager } from "../SubscriptionManager";
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -466,53 +467,6 @@ function isDocumentFile(ext: string): boolean {
     return SUPPORTED_DOCUMENT_EXTENSIONS.includes(ext);
 }
 
-const PDF_EXTRACT_TIMEOUT_MS = 30_000;
-
-function pdfExtractTimeoutResult(): { text: string; pages: number; success: boolean } {
-    return {
-        text: "[PDF extraction timed out after 30s]",
-        pages: 0,
-        success: false,
-    };
-}
-
-async function readPdfFile(
-    buffer: Buffer,
-): Promise<{ text: string; pages: number; success: boolean }> {
-    const { extractText, getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(new Uint8Array(buffer));
-    const { totalPages, text } = await extractText(pdf, { mergePages: true });
-    const merged =
-        typeof text === "string"
-            ? text
-            : Array.isArray(text)
-              ? (text as string[]).join("\n\n")
-              : text != null
-                ? String(text)
-                : "";
-    const trimmed = merged.trim();
-    return {
-        text: trimmed,
-        pages: totalPages ?? 0,
-        success: Boolean(trimmed),
-    };
-}
-
-/**
- * PDF text extraction via unpdf — completes within PDF_EXTRACT_TIMEOUT_MS.
- */
-async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pages: number; success: boolean }> {
-    const timeout = new Promise<{ text: string; pages: number; success: boolean }>((resolve) => {
-        setTimeout(() => resolve(pdfExtractTimeoutResult()), PDF_EXTRACT_TIMEOUT_MS);
-    });
-
-    return Promise.race([readPdfFile(buffer), timeout]).catch((err) => ({
-        text: `[PDF extraction failed: ${err instanceof Error ? err.message : String(err)}]`,
-        pages: 0,
-        success: false,
-    }));
-}
-
 async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; paragraphs: number; success: boolean }> {
     try {
         const mammoth = await import("mammoth");
@@ -616,8 +570,27 @@ function extractStructuredData(attachment: AttachmentData): any {
         };
 
         if (ext === ".pdf") {
+            if (attachment.pdfExtract) {
+                logger.info(`read_attachment PDF cache hit: ${attachment.filename}`);
+                const result = attachment.pdfExtract;
+                const clipped = result.text.length > 200_000;
+                const clippedText = clipped ? result.text.slice(0, 200_000) : result.text;
+                return {
+                    type: "document",
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    mimeType: mimeTypes[ext] || "application/octet-stream",
+                    format: "pdf",
+                    pages: result.pages,
+                    content: clippedText,
+                    charCount: clippedText.length,
+                    clipped,
+                    cached: true,
+                    success: result.success,
+                };
+            }
             const buffer = Buffer.from(attachment.data, "base64");
-            return extractTextFromPdf(buffer).then((result) => {
+            return extractTextFromPdfBuffer(buffer).then((result) => {
                 if (result.success) {
                     const MAX_CHARS = 200_000;
                     const clipped = result.text.length > MAX_CHARS;

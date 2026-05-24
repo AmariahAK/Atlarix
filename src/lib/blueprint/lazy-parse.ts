@@ -29,7 +29,7 @@ function startProgressTimer(key: string, workspaceId: number, focusPath: string)
   clearProgressTimer(key);
   const started = Date.now();
   const timer = setInterval(() => {
-    logger.info("ensureBlueprintParsed: still parsing", {
+    logger.debug("ensureBlueprintParsed: still parsing", {
       workspaceId,
       focusPath,
       elapsedMs: Date.now() - started,
@@ -63,7 +63,7 @@ export async function ensureBlueprintParsed(
 
     const parsePromise = getBlueprintForWorkspace(workspaceId, {
       focusPath: fp,
-      allowWorkspaceRoot: options.allowWorkspaceRoot ?? fp === ".",
+      allowWorkspaceRoot: options.allowWorkspaceRoot === true,
     });
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -80,7 +80,7 @@ export async function ensureBlueprintParsed(
     try {
       const blueprint = await Promise.race([parsePromise, timeoutPromise]);
       const elapsedMs = Date.now() - t0;
-      logger.info("ensureBlueprintParsed: complete", {
+      logger.debug("ensureBlueprintParsed: complete", {
         workspaceId,
         focusPath: fp,
         elapsedMs,
@@ -98,6 +98,14 @@ export async function ensureBlueprintParsed(
         })
         .catch(() => {});
       return blueprint;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("timed out")) {
+        void import("@/lib/blueprint/rte/ast-grep/worker-pool")
+          .then((m) => m.shutdownAstGrepPool())
+          .catch(() => {});
+      }
+      throw err;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       clearProgressTimer(key);

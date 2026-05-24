@@ -6,8 +6,10 @@
  */
 
 import log from "electron-log";
+import { isMainProcessNode } from "@/lib/runtime/is-main-node";
+import type { PdfExtractResult } from "@/lib/attachment-pdf-extract";
 
-const logger = log.scope("attachment-store");
+const logger = isMainProcessNode() ? log.scope("attachment-store") : null;
 
 export interface AttachmentData {
     id: string;
@@ -16,6 +18,8 @@ export interface AttachmentData {
     data: string; // base64 encoded
     size: number;
     addedAt: number;
+    /** Set when PDF text is pre-extracted on upload. */
+    pdfExtract?: PdfExtractResult;
 }
 
 class AttachmentStoreImpl {
@@ -23,7 +27,9 @@ class AttachmentStoreImpl {
 
     add(attachment: AttachmentData): string {
         this.attachments.set(attachment.id, attachment);
-        logger.log(`Stored attachment: ${attachment.id} (${attachment.filename}, ${attachment.size} bytes)`);
+        logger?.log(
+            `Stored attachment: ${attachment.id} (${attachment.filename}, ${attachment.size} bytes)`,
+        );
         return attachment.id;
     }
 
@@ -34,14 +40,14 @@ class AttachmentStoreImpl {
     remove(id: string): boolean {
         const deleted = this.attachments.delete(id);
         if (deleted) {
-            logger.log(`Removed attachment: ${id}`);
+            logger?.log(`Removed attachment: ${id}`);
         }
         return deleted;
     }
 
     clear(): void {
         this.attachments.clear();
-        logger.log("Cleared all attachments");
+        logger?.log("Cleared all attachments");
     }
 
     has(id: string): boolean {

@@ -11,7 +11,7 @@ export default defineConfig({
   build: {
     // Node worker bundle — avoid Vite stubbing `node:*` as browser externals.
     ssr: true,
-    sourcemap: true,
+    sourcemap: process.env.E2E_TEST_BUILD === "true",
     // target: "node16",
     lib: {
       entry: path.resolve(__dirname, "workers/tsc/tsc_worker.ts"),

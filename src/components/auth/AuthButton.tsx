@@ -51,29 +51,8 @@ export function AuthButton() {
     const [user, setUser] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(false);
 
-    // Listen for OAuth callback success
     useEffect(() => {
-        const handleCallback = (_event: unknown, data: { user: UserSession }) => {
-            if (data?.user) {
-                setUser(data.user);
-            }
-        };
-
-        // Use correct IPC pattern
-        const ipcRenderer = window.electron?.ipcRenderer;
-        const listener = (...args: unknown[]) => handleCallback(args[0] as unknown, args[1] as { user: UserSession });
-        if (ipcRenderer?.on) {
-            ipcRenderer.on("oauth-callback-success", listener);
-        }
-
-        // Check for existing session on mount
         checkSession();
-
-        return () => {
-            if (ipcRenderer?.removeListener) {
-                ipcRenderer.removeListener("oauth-callback-success", listener);
-            }
-        };
     }, []);
 
     const checkSession = async () => {

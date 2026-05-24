@@ -38,5 +38,5 @@ Your task is to analyze the conversation and provide:
 
 **Reminder:**
 
-YOU MUST ALWAYS INCLUDE EXACTLY ONE <atlarix-chat-summary> TAG AT THE END.
+YOU MUST ALWAYS INCLUDE EXACTLY ONE <atlarix-chat-summary> TAG AT THE START (before the summary body).
 `;

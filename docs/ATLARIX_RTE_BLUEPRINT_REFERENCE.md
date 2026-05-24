@@ -1,6 +1,6 @@
 # Atlarix RTE, Blueprint, and Search Stack — Technical Reference
 
-**Version:** Atlarix v8.7.0  
+**Version:** Atlarix v8.7.5  
 **Last updated:** 2026-05-24  
 **Audience:** Engineers reverse-engineering or extending Atlarix’s Live Code Map (Blueprint), Reverse-Tooling Engine (RTE), and unified `search` tool.
 
@@ -44,7 +44,7 @@ Atlarix gives AI agents **structural awareness** of a codebase without injecting
 | `get_blueprint` | Section-scoped architecture slice (`focus_path` required); Markdown tool-mode + optional raw/graph |
 | `search` | Unified search: text (ripgrep), concept (BM25 / file scan), structural (graph BFS) |
 | `get_file_outline` | Per-file symbol TOC (ctags-backed) |
-| `get_diagram` | Mermaid architecture views on demand |
+| `get_diagram` | Mermaid from on-demand codebase scan (no stale DB snapshot); **inline ` ```mermaid ` fences in chat** are the primary diagram UX |
 
 **Index stack (v8.6+):**
 
@@ -90,7 +90,11 @@ File discovery (`getProjectFiles`) is similarly lazy — only when a tool or han
 
 Concurrent callers to `ensureBlueprintParsed(workspaceId)` share one in-flight promise (`inflight` map in `lazy-parse.ts`). Same pattern for `ensureSymbolIndex(projectPath)` in `ctags-index.ts`.
 
-### 2.4 `.atlarixignore`
+### 2.4 Production logging (v8.7.5+)
+
+Routine Blueprint / ast-grep success paths log at **`debug`** (not `info`): `ensureBlueprintParsed` complete/still-parsing, `runStructuralScan` start/complete, `inferBlueprint: generateBlueprint complete`. **`warn`** and **`error`** are unchanged for real failures (missing scan root, parse timeout, native binding errors).
+
+### 2.5 `.atlarixignore`
 
 Gitignore-syntax exclusions apply to:
 
@@ -628,7 +632,7 @@ interface BlueprintMarkdownOptions {
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| **`focus_path`** | **required** | Workspace-relative folder to parse and slice (e.g. `spacinsider-cli`, `packages/api`) |
+| **`focus_path`** | **required** | Workspace-relative folder to parse and slice (e.g. `packages/api`, `backend`) |
 | `scope` | `full` | `file` \| `folder` \| `full` — within the focused section |
 | `path` | — | Room-relative path for `file` / `folder` scope |
 | `topic` | — | Optional keyword filter on room labels / exports |
@@ -1012,6 +1016,22 @@ Platform binaries cached under app resources; resolved at runtime via `resolveCt
 ### 19.4 CI
 
 Release workflow (`.github/workflows/release.yml`) triggers on tag `v*`. CI runs `fetch-ctags` before builds and `bench-blueprint-index.ts` (replaces old parser bench).
+
+### 19.5 Packaged desktop (Electron)
+
+Production builds must ship ast-grep natives and grammars outside the main asar slice:
+
+| Asset | Packaging |
+|-------|-----------|
+| Python / Go `parser.so` | Forge **`extraResource`** → `Resources/ast-grep-grammars/{python,go}/parser.so` |
+| `@ast-grep/napi-*` platform binding | **`asarUnpack`** globs + `rebuild` `extraModules` |
+| Worker | `astgrep_worker.js` unpacked beside natives |
+
+**Runtime resolution** ([`register-dynamic-langs.ts`](../src/lib/blueprint/rte/ast-grep/register-dynamic-langs.ts)): `extraResource` grammars → `app.asar.unpacked` → dev `node_modules`.
+
+**Do not** run post-install `npm prune --omit=optional` after ast-grep install — it strips optional platform `@ast-grep/napi-*` packages and causes `Cannot find native binding` in packaged apps.
+
+**Verify after package:** `npm run package:verify` (runs `verify-astgrep-packaged.mjs` for napi `.node` and grammar paths).
 
 ---
 

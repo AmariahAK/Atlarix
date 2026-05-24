@@ -34,46 +34,46 @@ describe("isSectionRootPath", () => {
     expect(isSectionRootPath(undefined)).toBe(true);
     expect(isSectionRootPath(".")).toBe(true);
     expect(isSectionRootPath("./")).toBe(true);
-    expect(isSectionRootPath("spacinsider-cli", "spacinsider-cli")).toBe(true);
+    expect(isSectionRootPath("packages/api", "packages/api")).toBe(true);
   });
 
   it("does not treat subfolders as section root", () => {
     expect(isSectionRootPath("src")).toBe(false);
-    expect(isSectionRootPath("spacinsider-cli/src", "spacinsider-cli")).toBe(false);
+    expect(isSectionRootPath("packages/api/src", "packages/api")).toBe(false);
   });
 });
 
 describe("stripFocusPathPrefix", () => {
   it("strips focus_path prefix from workspace-relative paths", () => {
-    expect(stripFocusPathPrefix("spacinsider-cli/src", "spacinsider-cli")).toBe("src");
-    expect(stripFocusPathPrefix("spacinsider-cli", "spacinsider-cli")).toBe("");
+    expect(stripFocusPathPrefix("packages/api/src", "packages/api")).toBe("src");
+    expect(stripFocusPathPrefix("packages/api", "packages/api")).toBe("");
   });
 });
 
 describe("resolveSliceParams", () => {
   it("widens folder + . to full section", () => {
-    expect(resolveSliceParams("folder", ".", "spacinsider-cli")).toEqual({
+    expect(resolveSliceParams("folder", ".", "packages/api")).toEqual({
       scope: "full",
       path: undefined,
     });
   });
 
   it("widens folder without path to full section", () => {
-    expect(resolveSliceParams("folder", undefined, "spacinsider-cli")).toEqual({
+    expect(resolveSliceParams("folder", undefined, "packages/api")).toEqual({
       scope: "full",
       path: undefined,
     });
   });
 
   it("keeps folder drill-down for section-relative path", () => {
-    expect(resolveSliceParams("folder", "src", "spacinsider-cli")).toEqual({
+    expect(resolveSliceParams("folder", "src", "packages/api")).toEqual({
       scope: "folder",
       path: "src",
     });
   });
 
   it("strips focus_path from path before folder match", () => {
-    expect(resolveSliceParams("folder", "spacinsider-cli/src", "spacinsider-cli")).toEqual({
+    expect(resolveSliceParams("folder", "packages/api/src", "packages/api")).toEqual({
       scope: "folder",
       path: "src",
     });
@@ -93,7 +93,7 @@ describe("buildSlice", () => {
   });
 
   it("matches RTE-style room path for folder scope path . via resolve", () => {
-    const { slice } = buildSliceWithResolve(bp, "folder", ".", "spacinsider-cli", 0);
+    const { slice } = buildSliceWithResolve(bp, "folder", ".", "packages/api", 0);
     expect(slice.nodes.length).toBe(3);
   });
 
@@ -104,7 +104,7 @@ describe("buildSlice", () => {
   });
 
   it("matches file-tree absolute room path for folder src", () => {
-    const abs = "/Users/me/repo/spacinsider-cli/src";
+    const abs = "/Users/me/repo/packages/api/src";
     const treeBp = mockBlueprint([room("r1", abs, `${abs}/index.ts`)]);
     const slice = buildSlice(treeBp, "folder", "src", 0);
     expect(slice.nodes.length).toBe(1);
@@ -118,7 +118,7 @@ describe("buildSliceWithResolve auto-widen", () => {
       bp,
       "folder",
       "nonexistent",
-      "spacinsider-cli",
+      "packages/api",
       0,
     );
     expect(sliceWidened).toBe(true);
@@ -147,7 +147,7 @@ describe("blueprintToMarkdown emptyReason", () => {
 
 describe("roomMatchesScope file scope", () => {
   it("matches by function file basename", () => {
-    const r = room("r1", "src", "/proj/spacinsider-cli/src/index.ts");
+    const r = room("r1", "src", "/proj/packages/api/src/index.ts");
     expect(roomMatchesScope(r, "file", "index.ts")).toBe(true);
   });
 });

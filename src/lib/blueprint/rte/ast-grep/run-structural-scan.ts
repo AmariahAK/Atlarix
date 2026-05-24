@@ -9,6 +9,16 @@ import { ctagsKindToNodeType } from "@/lib/index/ctags-parse";
 import type { SymbolRecord } from "@/lib/index/symbol-types";
 import { buildSymbolLookup, scanFileStructuralEdges } from "./scan-file-edges";
 import {
+  LANG_GO,
+  LANG_PYTHON,
+  langForExtension,
+  isDynamicAstGrepLang,
+} from "./lang-map";
+import {
+  ensureAstGrepDynamicLangs,
+  isAstGrepDynamicLangRegistered,
+} from "./register-dynamic-langs";
+import {
   isAstGrepWorkerPoolAvailable,
   scanBatchInWorker,
 } from "./worker-pool";
@@ -68,9 +78,30 @@ export async function runStructuralScan(
   const nodes = symbolsToNodes(symbols);
   const byFile = buildSymbolLookup(symbols);
 
+  ensureAstGrepDynamicLangs();
+
   const scanFiles = relFiles
-    .filter(isAstGrepSupportedPath)
+    .filter((f) => {
+      if (!isAstGrepSupportedPath(f)) return false;
+      const ext = f.slice(f.lastIndexOf(".")).toLowerCase();
+      const lang = langForExtension(ext);
+      if (lang && isDynamicAstGrepLang(lang)) {
+        const key =
+          lang === LANG_PYTHON ? "python" : lang === LANG_GO ? "go" : null;
+        if (key && !isAstGrepDynamicLangRegistered(key)) {
+          return false;
+        }
+      }
+      return true;
+    })
     .slice(0, MAX_FILES_PER_SCAN);
+
+  logger.debug("runStructuralScan: starting", {
+    projectRoot,
+    totalRelFiles: relFiles.length,
+    scanFiles: scanFiles.length,
+    symbols: symbols.length,
+  });
 
   let edges: RTEBlueprintEdge[] = [];
 
@@ -99,7 +130,7 @@ export async function runStructuralScan(
   }
 
   const deduped = [...edgeMap.values()];
-  logger.info("runStructuralScan: complete", {
+  logger.debug("runStructuralScan: complete", {
     projectRoot,
     files: scanFiles.length,
     nodes: nodes.length,

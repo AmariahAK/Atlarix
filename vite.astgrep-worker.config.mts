@@ -14,7 +14,7 @@ export default defineConfig({
     outDir: MAIN_OUT_DIR,
     emptyOutDir: false,
     ssr: true,
-    sourcemap: true,
+    sourcemap: process.env.E2E_TEST_BUILD === "true",
     lib: {
       entry: path.resolve(__dirname, "workers/blueprint/astgrep_worker.ts"),
       name: "astgrep_worker",

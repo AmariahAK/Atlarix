@@ -17,7 +17,7 @@ Technical reference for how Atlarix builds the **Live Code Map** (in-product **B
 
 **Fallback:** When ctags or ast-grep is unavailable, `generateBlueprint()` falls back to the file-tree bridge (directory beacons + regex import edges).
 
-**Lazy load (v8.6+):** `get_blueprint` → `inferBlueprint` tries RTE disk cache, then `generateBlueprint()` (ctags + ast-grep), then file-tree, then workspace analysis.
+**Lazy load (v8.6+):** `get_blueprint` → `inferBlueprint` tries RTE disk cache, then `generateBlueprint()` (ctags + ast-grep), then file-tree, then workspace analysis. Selecting a workspace does **not** auto-open the diagram panel from saved DB diagrams (`listDiagrams`).
 
 **Section-scoped tool (v8.7+):** The agent must pass **`focus_path`** (workspace-relative folder). `validateBlueprintFocusPath` rejects missing paths and suggests close matches. After parse, `buildSliceWithResolve` defaults to **`scope: "full"`** for that section (auto-widen if a narrow slice would be empty). Output is **tool-mode Markdown** with `parseQuality` / `parseEngine` metadata.
 
@@ -29,7 +29,8 @@ Technical reference for how Atlarix builds the **Live Code Map** (in-product **B
 
 ### Product surfaces
 
-- **Live View** — Diagram extracted from your codebase (Mermaid). Read-only architecture visualization.
+- **Live View / diagrams (v8.7.5+)** — Primary visuals are **inline Mermaid fences in chat**. `get_diagram` generates Mermaid on demand from a codebase scan (no stale DB snapshot). Opening a workspace does not auto-hydrate a saved diagram into the right panel.
+- **Live View** — Read-only architecture visualization when a diagram is in context.
 - **Blueprint Mode** — Add containers, beacons, and edges; compare desired vs actual; generate `.atlarix/ATLARIX_PLAN.md`.
 - **Incremental Updates** — File watcher runs **per-file** ctags + ast-grep refresh (not full-project rebuild).
 - **Blast radius** — Blueprint BFS over flow edges before `write_file` / `edit_file` approvals (guided/build only; skipped in autonomous auto-approve) and via `diagnose_issue` (`change_impact`).

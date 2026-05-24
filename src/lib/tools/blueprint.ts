@@ -16,9 +16,12 @@ import { ensureBlueprintParsed } from "@/lib/blueprint/lazy-parse";
 import {
   blueprintFailureEnvelope,
   blueprintRequiresFocusPathError,
+  blueprintWorkspaceRootFocusPathError,
   filterBlueprintByTopic,
+  isWorkspaceRootFocusPath,
   normalizeBlueprintFocusPath,
 } from "@/lib/blueprint/parse-scope";
+import { listWorkspaceSectionCandidates } from "@/lib/blueprint/section-path";
 import { blueprintToMarkdown, type BlueprintMarkdownEmptyReason } from "@/lib/blueprint/blueprint-markdown";
 import {
   buildSliceWithResolve,
@@ -98,7 +101,7 @@ ToolRegistry.register({
       // PASS8 B4: focus_path scopes the walk into a sub-repo (e.g. 'packages/api')
       // before slicing. Useful when the workspace is a polyrepo / monorepo root.
       focus_path: stringParam(
-        "Required workspace-relative section folder (e.g. 'packages/api'). Parse runs only under this path.",
+        "Required top-level section folder (e.g. 'packages/api' or 'backend'). Not '.' or workspace root.",
       ),
       topic: stringParam(
         "Optional filter: room/function names matching this string (use | for alternates, e.g. payment|stripe).",
@@ -158,11 +161,16 @@ ToolRegistry.register({
     }
     const workspacePath = getAtlarixAppPath(appRow.path);
 
+    if (isWorkspaceRootFocusPath(focusPath)) {
+      const suggestions = await listWorkspaceSectionCandidates(workspacePath);
+      return blueprintWorkspaceRootFocusPathError(suggestions);
+    }
+
     const pathValidation = await validateBlueprintFocusPath(workspacePath, focusPath);
     if (!pathValidation.valid) {
       return {
         success: false,
-        error: `Section not found: "${focusPath}"`,
+        error: pathValidation.error ?? `Section not found: "${focusPath}"`,
         hint:
           "Use explore_folder or get_repo_overview to pick an exact workspace-relative folder name.",
         suggestions: pathValidation.suggestions,

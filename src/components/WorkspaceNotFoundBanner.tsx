@@ -4,6 +4,8 @@
  */
 
 import { useAtomValue, useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
 import {
   currentAppAtom,
   selectedAppIdAtom,
@@ -21,6 +23,7 @@ export function WorkspaceNotFoundBanner() {
   const setCurrentApp = useSetAtom(currentAppAtom);
   const setAppsList = useSetAtom(appsListAtom);
   const setAppBasePath = useSetAtom(appBasePathAtom);
+  const queryClient = useQueryClient();
 
   if (
     !selectedAppId ||
@@ -34,7 +37,9 @@ export function WorkspaceNotFoundBanner() {
   const handleRemove = async () => {
     try {
       const ipc = IpcClient.getInstance();
-      await ipc.deleteApp(selectedAppId);
+      const id = selectedAppId;
+      clearDeletedWorkspaceClientState(id, queryClient);
+      await ipc.deleteApp(id);
       setSelectedAppId(null);
       setCurrentApp(null);
       const list = await ipc.listApps();

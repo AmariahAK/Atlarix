@@ -9,8 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useTheme } from '@/contexts/ThemeContext';
 import { LoadingBar } from '@/components/ui/LoadingBar';
+import atlarixLogo from '../../assets/logo.svg?url';
 
 export function SignInPage() {
     const {
@@ -22,8 +22,7 @@ export function SignInPage() {
         oauthStatusLabel,
     } = useAuth();
     const navigate = useNavigate();
-    const { isDarkMode } = useTheme();
-    const logoSrc = isDarkMode ? '/logo/Atlarix-dark.png' : '/logo/Atlarix-light.png';
+    const logoSrc = atlarixLogo;
 
     useEffect(() => {
         // Redirect to home if already signed in

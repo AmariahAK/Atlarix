@@ -4,30 +4,35 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { currentAppAtom } from "@/atoms/appAtoms";
-import { diagramStateAtom, rightPanelVisibleAtom, previewTabAtom, diagramStalenessAtom, pinnedPanelAtom } from "@/atoms/sourceAtoms";
+import { diagramStateAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
 
 export function useLoadApp(appId: number | null) {
   const [, setApp] = useAtom(currentAppAtom);
   const setDiagramState = useSetAtom(diagramStateAtom);
   const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
-  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
-  const setPreviewTab = useSetAtom(previewTabAtom);
-  const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const loadedAppIdRef = useRef<number | null>(null);
+
+  const isAppNotFoundError = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.includes("App not found") || msg.includes("not found");
+  };
 
   const { data: appData, isLoading: loading, error, refetch: refreshApp } = useQuery({
     queryKey: ['app', appId],
     queryFn: async () => {
       if (appId === null) return null;
       try {
-        const app = await IpcClient.getInstance().getApp(appId);
-        return app;
+        return await IpcClient.getInstance().getApp(appId);
       } catch (err) {
+        if (isAppNotFoundError(err)) {
+          return null;
+        }
         console.error('Error fetching app:', err);
         throw err;
       }
     },
     enabled: appId !== null,
+    retry: false,
   });
 
   useEffect(() => {
@@ -37,10 +42,17 @@ export function useLoadApp(appId: number | null) {
       setDiagramStaleness(null);
       loadedAppIdRef.current = null;
     } else if (appData !== undefined) {
+      if (!appData) {
+        setApp(null);
+        setDiagramState(null);
+        setDiagramStaleness(null);
+        loadedAppIdRef.current = null;
+        return;
+      }
+
       if (loadedAppIdRef.current === appId) return;
       loadedAppIdRef.current = appId;
 
-      if (!appData) return;
       setApp(appData);
 
       if (appData.fileDiscoveryWarnings?.length) {
@@ -73,40 +85,9 @@ export function useLoadApp(appId: number | null) {
         }
       }
 
-      if (appData.pathExists === false) {
-        loadedAppIdRef.current = appId;
-        return;
-      }
-
-      const loadDiagram = async () => {
-        try {
-          const result = await IpcClient.getInstance().listDiagrams({ workspaceId: appId });
-          if (result.success && result.diagrams.length > 0) {
-            const latestDiagram = result.diagrams[0];
-            setDiagramState({
-              id: latestDiagram.id,
-              code: latestDiagram.content || '',
-              type: latestDiagram.type || 'mermaid',
-              title: latestDiagram.title,
-              compareMode: 'current',
-              workspaceId: appId,
-            });
-            setPinnedPanel('code-preview');
-            setRightPanelVisible(true);
-            setPreviewTab('activity');
-            console.log(`[useLoadApp] Loaded diagram for workspace ${appId}: ${latestDiagram.title}`);
-          } else {
-            console.log(`[useLoadApp] No saved diagram for workspace ${appId}. Model can generate on demand.`);
-          }
-          setDiagramStaleness(null);
-        } catch (err) {
-          console.error('[useLoadApp] Failed to load diagram:', err);
-        }
-      };
-
-      loadDiagram();
+      setDiagramStaleness(null);
     }
-  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness, setRightPanelVisible, setPreviewTab, setPinnedPanel]);
+  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness]);
 
   return { app: appData, loading, error, refreshApp };
 }

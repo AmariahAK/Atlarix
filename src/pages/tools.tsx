@@ -148,7 +148,7 @@ const FEATURES: ToolFeature[] = [
     category: "blueprint",
     steps: [
       "Open a workspace with your repo",
-      "In Build, ask the agent to map a folder (e.g. spacinsider-cli) via get_blueprint",
+      "In Build, ask the agent to map one top-level folder (e.g. packages/api) via get_blueprint",
       "Use the Blueprint canvas for Live view; chat uses the tool output, not whole-repo dumps",
     ],
     howItWorks:

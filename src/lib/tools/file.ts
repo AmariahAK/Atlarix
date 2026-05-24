@@ -33,6 +33,7 @@ import {
     normalizeRelPath,
     isRelPathIgnored,
 } from "@/lib/atlarix/atlarix-ignore";
+import { isAllowedToolOutputPath } from "@/lib/security/tool-output-paths";
 import {
     assertReadablePath,
     ENV_SECRET_BLOCK_MESSAGE,
@@ -245,12 +246,19 @@ ToolRegistry.register({
                 throw normErr;
             }
 
-            const fullPath = workspace
-                ? resolvePathUnderWorkspace(workspace, filePath)
-                : path.resolve(stripToolPathPrefixes(filePath));
+            const strippedPath = stripToolPathPrefixes(filePath);
+            const toolOutputSpill =
+                path.isAbsolute(strippedPath) && isAllowedToolOutputPath(strippedPath);
+            const fullPath = toolOutputSpill
+                ? path.normalize(strippedPath)
+                : workspace
+                  ? resolvePathUnderWorkspace(workspace, filePath)
+                  : path.resolve(strippedPath);
 
             try {
-                if (workspace) {
+                if (toolOutputSpill) {
+                    // Spill files from maybeTruncateToDisk — absolute tmp path is intentional.
+                } else if (workspace) {
                     assertReadablePath(String(filePath), workspace);
                 } else if (isBlockedSecretBasename(path.basename(fullPath))) {
                     throw new Error(ENV_SECRET_BLOCK_MESSAGE);

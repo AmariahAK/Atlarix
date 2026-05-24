@@ -23,6 +23,8 @@ import {
   buildSystemPromptWithProjectInstructions,
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
+import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
   SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
@@ -1770,14 +1772,15 @@ export function registerChatStreamHandlers() {
           // Store in AttachmentStore for read_attachment tool
           const resolvedMimeType = mimeTypes[fileExtension] || "application/octet-stream";
           const resolvedSize = Buffer.from(base64Data, "base64").length;
-          AttachmentStore.add({
-            id: hash,
-            filename: attachment.name,
-            mimeType: resolvedMimeType,
-            data: base64Data,
-            size: resolvedSize,
-            addedAt: Date.now(),
-          });
+          AttachmentStore.add(
+            await buildAttachmentRecord({
+              id: hash,
+              filename: attachment.name,
+              mimeType: resolvedMimeType,
+              base64Data,
+              size: resolvedSize,
+            }),
+          );
 
           // Session-only: used by renderer to show chips/previews under the user message.
           attachmentInfosForMessage.push({
@@ -4111,23 +4114,14 @@ This conversation includes one or more image attachments. When the user uploads 
 
             ttftStartRef.ms = Date.now();
 
-            // PASS8 A5: Two-part system payload — stable header in `system` (cache-eligible
-            // on Anthropic / OpenAI / OpenRouter), per-turn dynamic tail prepended as a
-            // system-role message in `messages` (matches opencode pattern in llm.ts).
-            const streamMessages: ModelMessage[] = (() => {
-              const filtered = chatMessages.filter((m) => m.content);
-              const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
-                (s): s is string => typeof s === "string" && s.trim().length > 0,
-              );
-              const mergedDynamic = tailParts.length > 0 ? tailParts.join("\n\n") : "";
-              if (mergedDynamic) {
-                return [
-                  { role: "system" as const, content: mergedDynamic },
-                  ...filtered,
-                ];
-              }
-              return filtered;
-            })();
+            const streamMessages: ModelMessage[] = chatMessages.filter((m) => m.content);
+            const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
+              (s): s is string => typeof s === "string" && s.trim().length > 0,
+            );
+            const combinedSystem = mergeSystemPromptParts(
+              systemPromptOverride,
+              ...tailParts,
+            );
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -4141,7 +4135,7 @@ This conversation includes one or more image attachments. When the user uploads 
               model: modelClient.model,
               stopWhen: [() => false],
               providerOptions,
-              system: systemPromptOverride,
+              system: combinedSystem,
               tools,
               messages: streamMessages,
               onFinish: (response) => {

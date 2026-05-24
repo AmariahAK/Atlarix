@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { subscribeOAuthSuccess, subscribePlanChanged } from './auth-ipc-bridge';
 
 export interface AuthUser {
     id: string;
@@ -125,8 +126,6 @@ export function useAuth() {
             subscriptionStatus?: string | null;
             subscriptionEndsAt?: string | null;
         }) => {
-            console.log('[useAuth] Plan changed:', data);
-
             const nextPlan = (data.effectiveTier ?? data.plan) as UserStatus['plan'];
 
             // Update status with all new fields
@@ -173,21 +172,14 @@ export function useAuth() {
             }
         };
 
-        // Use correct IPC pattern for electron
-        const ipcRenderer = window.electron?.ipcRenderer;
-        if (ipcRenderer?.on) {
-            ipcRenderer.on('oauth-callback-success', handleOAuthSuccess as any);
-            ipcRenderer.on('plan-changed', handlePlanChanged as any);
-        }
+        const unsubOAuth = subscribeOAuthSuccess(handleOAuthSuccess);
+        const unsubPlan = subscribePlanChanged(handlePlanChanged);
 
         return () => {
-            // Cleanup listeners if available
-            if (ipcRenderer?.removeListener) {
-                ipcRenderer.removeListener('oauth-callback-success', handleOAuthSuccess as any);
-                ipcRenderer.removeListener('plan-changed', handlePlanChanged as any);
-            }
+            unsubOAuth();
+            unsubPlan();
         };
-    }, []); // Empty deps - only register listeners once
+    }, []);
 
     const checkSession = async () => {
         setLoading(true);
