@@ -63,7 +63,7 @@ import {
 } from "../shared/compass_constants";
 import { ToolRegistry } from "../../lib/tools";
 import { renderModeSystemBlock } from "../../prompts/system_prompt";
-import { getSessionMemory } from "../../lib/session-memory";
+import { getSessionMemory, rebuildSessionMemoryFromMessages } from "../../lib/session-memory";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import type { LargeLanguageModel } from "../../lib/schemas";
 import { getExtraProviderOptions } from "../utils/thinking_utils";
@@ -398,6 +398,30 @@ export function clearEphemeralChatMessages(chatId: number): void {
     chat.messages = [];
     ephemeralChats.set(chatId, chat);
     logger.log(`Cleared ephemeral messages for chat: ${chatId}`);
+}
+
+/** Restore model context when resuming a persisted workspace session (display + stream). */
+export function hydrateEphemeralChatMessages(
+    chatId: number,
+    messages: { role: string; content: string }[],
+): void {
+    const chat = ephemeralChats.get(chatId);
+    if (!chat) return;
+    let seq = 0;
+    chat.messages = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+            id: Date.now() + seq++,
+            chatId,
+            role: m.role,
+            content: m.content ?? "",
+            createdAt: new Date(),
+        }));
+    ephemeralChats.set(chatId, chat);
+    if (chat.appId != null) {
+        rebuildSessionMemoryFromMessages(chat.appId, messages);
+    }
+    logger.log(`Hydrated ephemeral messages for chat: ${chatId} (${chat.messages.length} msgs)`);
 }
 
 /**

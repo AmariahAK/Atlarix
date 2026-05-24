@@ -3,12 +3,17 @@
  */
 
 import type { Blueprint } from "@/shared/blueprint-types";
+import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import {
   ensureSymbolIndexForWorkspaceId,
   findSymbolsByName,
   type SymbolIndexCache,
 } from "@/lib/index/ctags-index";
 import { ensureBlueprintParsed } from "@/lib/blueprint/lazy-parse";
+import {
+  filterBlueprintByTopic,
+  normalizeBlueprintFocusPath,
+} from "@/lib/blueprint/parse-scope";
 import { bfsSymbolGraph, type SymbolEdge } from "@/lib/blueprint/rte/ast-grep/graph-bfs";
 
 const CALLER_PHRASES = ["what calls", "who calls", "callers of"];
@@ -70,11 +75,28 @@ export async function queryStructuralGraph(args: {
   query: string;
   workspaceId: number;
   scopePath?: string;
+  topic?: string;
   maxResults: number;
   depth?: number;
 }): Promise<{ summary: string; nodes: GraphNodeOut[]; edges: GraphEdgeOut[] }> {
-  const blueprint = await ensureBlueprintParsed(args.workspaceId);
-  const symbolIndex = await ensureSymbolIndexForWorkspaceId(args.workspaceId);
+  const scopeRaw = args.scopePath?.trim();
+  const hasScopedPath = Boolean(scopeRaw);
+  const scope = hasScopedPath ? normalizeBlueprintFocusPath(scopeRaw!) : "";
+
+  let blueprint: Blueprint = createEmptyBlueprint();
+  if (hasScopedPath && scope) {
+    blueprint = await ensureBlueprintParsed(args.workspaceId, {
+      focusPath: scope,
+      allowWorkspaceRoot: false,
+    });
+    if (args.topic?.trim()) {
+      blueprint = filterBlueprintByTopic(blueprint, args.topic).blueprint;
+    }
+  }
+
+  const symbolIndex = await ensureSymbolIndexForWorkspaceId(args.workspaceId, {
+    scopePath: scopeRaw,
+  });
 
   const candidate = extractSymbolCandidate(args.query);
   const symbols = symbolIndex
@@ -165,7 +187,7 @@ export async function queryStructuralGraph(args: {
       const room = blueprint.rooms.find((r) => r.functions?.some((f) => f.id === s.id));
       if (room) addRoomNode(room);
     }
-  } else {
+  } else if (blueprint.rooms.length > 0) {
     const q = args.query.toLowerCase();
     for (const room of blueprint.rooms) {
       if (args.scopePath) {
@@ -191,10 +213,17 @@ export async function queryStructuralGraph(args: {
   const nodes = [...nodesOut.values()].slice(0, args.maxResults);
   const edges = edgesOut.slice(0, args.maxResults * 2);
 
-  const summary =
+  let summary =
     nodes.length === 0
-      ? `No structural matches for "${args.query}"${args.scopePath ? ` under ${args.scopePath}` : ""}. Try search(mode:text) or get_blueprint.`
+      ? `No structural matches for "${args.query}"${args.scopePath ? ` under ${args.scopePath}` : ""}.`
       : `Structural graph: ${nodes.length} node(s), ${edges.length} edge(s) for "${args.query}".`;
+
+  if (!hasScopedPath && blueprint.rooms.length === 0) {
+    summary +=
+      " Blueprint graph not loaded (use get_blueprint with focus_path for architecture). Symbol matches shown when index is warm.";
+  } else if (nodes.length === 0) {
+    summary += " Try search(mode:text) or get_blueprint({ focus_path }).";
+  }
 
   return { summary, nodes, edges };
 }

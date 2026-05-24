@@ -315,6 +315,7 @@ export async function updateSymbolIndexForFile(
 
 export async function ensureSymbolIndexForWorkspaceId(
   workspaceId: number,
+  options?: { scopePath?: string },
 ): Promise<SymbolIndexCache | null> {
   const { db } = await import("@/db");
   const { apps } = await import("@/db/schema");
@@ -323,6 +324,10 @@ export async function ensureSymbolIndexForWorkspaceId(
 
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (!app) return null;
-  const projectPath = getAtlarixAppPath(app.path);
-  return ensureSymbolIndex(projectPath);
+  const workspacePath = getAtlarixAppPath(app.path);
+  const scope = options?.scopePath?.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (scope) {
+    return ensureSymbolIndex(path.join(workspacePath, scope));
+  }
+  return ensureSymbolIndex(workspacePath);
 }

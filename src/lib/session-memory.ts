@@ -256,4 +256,21 @@ export function clearAllSessionMemories(): void {
     logger.log('All session memories cleared');
 }
 
+/** Rebuild rolling session memory after resuming a persisted workspace session. */
+export function rebuildSessionMemoryFromMessages(
+    memoryKey: number,
+    messages: { role: string; content: string }[],
+): void {
+    clearSessionMemory(memoryKey);
+    const mem = getSessionMemory(memoryKey);
+    for (let i = 0; i < messages.length - 1; i++) {
+        const user = messages[i];
+        const assistant = messages[i + 1];
+        if (user.role === "user" && assistant.role === "assistant") {
+            mem.addExchange(user.content ?? "", assistant.content ?? "");
+            i++;
+        }
+    }
+}
+
 export default SessionMemory;

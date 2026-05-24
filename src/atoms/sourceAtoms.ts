@@ -8,8 +8,6 @@ import { atom } from 'jotai';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
 import type { PlanUpdatePayload } from '@/ipc/ipc_types';
-import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
-import type { PlanUpdatePayload } from '@/ipc/ipc_types';
 
 // ═══════════════════════════════════════════════════════════
 // PANEL TYPES
@@ -27,8 +25,6 @@ export type PanelType =
     | 'empty';          // No content
 
 export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat' | 'plan';
-
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat';
 
 export interface PanelContext {
     type: PanelType;
@@ -105,11 +101,10 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
             return 'files';
 
         case 'show-preview':
-            // Dev server preview panel
+            return 'code-preview';
+
         case 'show-plan':
             return 'plan';
-
-            return 'code-preview';
 
         case 'hide':
         case 'empty':

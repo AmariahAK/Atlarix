@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import type {
   ComponentSelection,
   Message,
@@ -451,21 +452,35 @@ export function useStreamChat({
 
               const combined = [...prev, ...newProposals];
 
-              // Play sound whenever new permission requests arrive (first batch or additional)
               if (newProposals.length > 0) {
                 if (prev.length > 0) {
                   playRemaining();
                 } else {
                   playNotify();
                 }
+                const mode = settings?.agentMode ?? "guided";
+                const tab = getDefaultStore().get(previewTabAtom);
+                if (
+                  (mode === "guided" || mode === "direct") &&
+                  tab !== "permissions"
+                ) {
+                  toast("Approval needed", {
+                    description: `${newProposals.length} pending action(s) — open Permissions to review.`,
+                    action: {
+                      label: "Review",
+                      onClick: () => setPreviewTab("permissions"),
+                    },
+                  });
+                }
               }
 
               return combined;
             });
 
-            // Show panel and force Code tab so user sees new files/commands
             setRightPanelVisible(true);
-            setPreviewTab('code');
+            if (settings?.agentMode === "autonomous") {
+              setPreviewTab("code");
+            }
           }
         );
 

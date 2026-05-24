@@ -18,14 +18,12 @@
 - **MCP:** Workspace chats use `list_available_mcps` + `mcp_call`. Chat-only mode pre-loads globals.
 - **Skills:** `get_active_skills` + `list_installed_skills`.
 
-## Blueprint (Pass 8 — lazy, model-driven)
+## Blueprint (section-scoped — `get_blueprint` only)
 
-Blueprint is a **lazy read-only architecture graph** built on demand when you call `get_blueprint`. It is **NOT** auto-generated on workspace open and **NOT** injected into the system prompt. Mind Elixir is a UI-only renderer — you never see Mind Elixir nodes.
+Blueprint is **lazy** and **section-scoped** for `get_blueprint` only — parse runs under `focus_path`, not the whole workspace in one call. See `src/skills/guides/blueprint-section-first.md`.
 
-- `get_blueprint({scope, path?, depth?, focus_path?, include_raw?, include_panel_graph?})` — returns a focused slice as Markdown. Pass `include_panel_graph: true` to also push a normalized graph to the Diagram tab mind map (UI only).
-  - `focus_path` scopes a multi-repo workspace to one sub-project (e.g. `"packages/api"`).
-  - Default response is markdown only (capped at 300 lines). Pass `include_raw: true` to also get the raw nodes/edges slice — large, opt-in only.
-  - Output is subject to the standard 50 KB disk-truncation envelope (Pass 8 emptied `NEVER_TRUNCATE`).
+- `get_blueprint({ focus_path, scope, path?, depth?, topic?, include_raw?, include_panel_graph? })` — **`focus_path` required** (e.g. `"packages/api"`). Optional `topic` filters rooms (`payment|stripe`).
+- On failure: use `fallback_tools` in the JSON (`search`, `explore_folder`, `read_file`, …). Set `do_not_retry_full_workspace_blueprint: true` after timeout.
 - `set_blueprint` / `clear_blueprint` — read-only UI tools: push or clear the AI blueprint mind-map in the Diagram tab (replaces prior panel state; does not write repo files).
 - `commit_blueprint` — Workforce only, asks before writing `.atlarix/blueprint.json`.
 
@@ -36,10 +34,10 @@ Blueprint is a **lazy read-only architecture graph** built on demand when you ca
 ## Architecture exploration flow
 
 1. `get_repo_overview` for cold-session layout (README excerpt, entry points, shallow tree) — no Blueprint parse
-2. `get_blueprint` and/or `get_diagram` when you need a structural map
-3. `explore_folder` / `list_files` / `find_file` to navigate
-4. `search` — prefer explicit `mode`: `text` (ripgrep), `semantic-lite` (file scan), `semantic-graph` (BM25 over ctags), `structural` (blueprint graph). `auto` picks text vs semantic-lite vs structural; uses BM25 when symbol index is warm. Then `get_file_outline` to pin-point
-5. `read_file` with `start_line`/`end_line` for exact ranges
+2. `get_blueprint` when you need a structural map — **always pass `focus_path`** for the section you care about
+3. `get_diagram` when you need saved Mermaid (optional `focus_path`)
+4. `explore_folder` / `list_files` / `find_file` to navigate
+5. `search` — prefer explicit `mode`: `text`, `semantic-lite`, `semantic-graph`, `structural` (optional `path` to narrow). Then `get_file_outline` / `read_file` for exact ranges
 
 ## Context layers
 

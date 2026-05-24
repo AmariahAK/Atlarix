@@ -43,6 +43,7 @@ const validInvokeChannels = [
   "create-chat",
   "create-chat-only",
   "chat:clear-ephemeral-messages",
+  "chat:hydrate-ephemeral-messages",
   "sessions:list",
   "sessions:create",
   "sessions:rename",

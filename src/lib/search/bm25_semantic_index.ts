@@ -174,7 +174,10 @@ async function buildIndex(
     }
   } else {
     const { getBlueprintForWorkspace } = await import("@/ipc/handlers/blueprint_handlers");
-    const blueprint = await getBlueprintForWorkspace(workspaceId);
+    const blueprint = await getBlueprintForWorkspace(workspaceId, {
+      focusPath: ".",
+      allowWorkspaceRoot: true,
+    });
     const graph = blueprintToRagGraph(blueprint, workspaceRootAbs);
     if (graph.nodes.length === 0) return null;
 

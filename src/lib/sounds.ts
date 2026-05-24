@@ -2,88 +2,100 @@
  * Sound Notifications
  * ===================
  * Play notification sounds for different events.
- * Files must live in public/sounds/ so they are served at /sounds/... (Vite/Electron).
+ * Assets live in public/sounds/ (dev: /sounds/...; packaged file:// uses resolved URLs).
  */
 
-const BASE = typeof import.meta !== "undefined" && (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL != null
-  ? ((import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL).replace(/\/$/, "")
-  : "";
+function resolveSoundUrl(file: string): string {
+  const base =
+    typeof import.meta !== "undefined" &&
+    (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL != null
+      ? String((import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL).replace(
+          /\/$/,
+          "",
+        )
+      : "";
+  const rel = `${base}/sounds/${file}`.replace(/^\//, "");
+  if (typeof window !== "undefined" && window.location?.href) {
+    try {
+      return new URL(rel, window.location.href).href;
+    } catch {
+      /* fall through */
+    }
+  }
+  return `/${rel}`;
+}
 
 const SOUNDS = {
-    notify: `${BASE}/sounds/notify.wav`,
-    suggest: `${BASE}/sounds/suggest.wav`,
-    remaining: `${BASE}/sounds/remaining.mp3`,  // New permissions arriving
+  notify: resolveSoundUrl("notify.wav"),
+  suggest: resolveSoundUrl("suggest.wav"),
+  remaining: resolveSoundUrl("remaining.mp3"),
 } as const;
 
 type SoundType = keyof typeof SOUNDS;
 
-// Cache audio elements for reuse
 const audioCache = new Map<SoundType, HTMLAudioElement>();
+let autoplayUnlocked = false;
 
-/**
- * Get or create an audio element for the given sound
- */
+function unlockAutoplayOnce(): void {
+  if (autoplayUnlocked || typeof document === "undefined") return;
+  autoplayUnlocked = true;
+  const silent = new Audio();
+  silent.volume = 0;
+  void silent.play().catch(() => {
+    autoplayUnlocked = false;
+  });
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", unlockAutoplayOnce, { once: true, passive: true });
+  document.addEventListener("keydown", unlockAutoplayOnce, { once: true });
+}
+
 function getAudio(type: SoundType): HTMLAudioElement {
-    let audio = audioCache.get(type);
-    if (!audio) {
-        const src = SOUNDS[type];
-        audio = new Audio(src);
-        audio.addEventListener(
-            "error",
-            () => {
-                console.debug(`Sound "${type}" failed to load from ${src} (check public/sounds/)`);
-                audioCache.delete(type);
-            },
-            { once: true }
-        );
-        audioCache.set(type, audio);
-    }
-    return audio;
+  let audio = audioCache.get(type);
+  if (!audio) {
+    const src = SOUNDS[type];
+    audio = new Audio(src);
+    audio.addEventListener(
+      "error",
+      () => {
+        console.debug(`Sound "${type}" failed to load from ${src} (check public/sounds/)`);
+        audioCache.delete(type);
+      },
+      { once: true },
+    );
+    audioCache.set(type, audio);
+  }
+  return audio;
 }
 
-/**
- * Play a notification sound
- */
 export async function playSound(type: SoundType): Promise<void> {
-    try {
-        const audio = getAudio(type);
-        audio.currentTime = 0; // Reset to start
-        await audio.play();
-    } catch (error: unknown) {
-        // NotAllowedError = autoplay policy; AbortError = user/system interrupted
-        const name = error instanceof Error ? error.name : "";
-        if (name !== "NotAllowedError" && name !== "AbortError") {
-            console.debug(`Failed to play ${type} sound:`, error);
-        }
+  try {
+    const audio = getAudio(type);
+    audio.currentTime = 0;
+    await audio.play();
+  } catch (error: unknown) {
+    const name = error instanceof Error ? error.name : "";
+    if (name !== "NotAllowedError" && name !== "AbortError") {
+      console.debug(`Failed to play ${type} sound:`, error);
     }
+  }
 }
 
-/**
- * Play notify sound - for AI response completion
- */
 export function playNotify(): Promise<void> {
-    return playSound("notify");
+  return playSound("notify");
 }
 
-/**
- * Play suggest sound - for suggestions/proposals
- */
 export function playSuggest(): Promise<void> {
-    return playSound("suggest");
+  return playSound("suggest");
 }
 
-/**
- * Play remaining sound - for new permissions arriving after initial batch
- */
 export function playRemaining(): Promise<void> {
-    return playSound("remaining");
+  return playSound("remaining");
 }
 
-/**
- * Preload sounds for faster playback
- */
 export function preloadSounds(): void {
-    Object.keys(SOUNDS).forEach((type) => {
-        getAudio(type as SoundType);
-    });
+  Object.keys(SOUNDS).forEach((type) => {
+    getAudio(type as SoundType);
+  });
 }

@@ -24,3 +24,7 @@ In Autonomous mode, `message_agent` may also be available.
 ## When you finish
 
 Return a concise summary the parent can act on: key files, symbols, and suggested next steps (still read-only).
+
+## Blueprint
+
+`get_blueprint` requires `focus_path` (one section). See `guides/blueprint-section-first.md`.

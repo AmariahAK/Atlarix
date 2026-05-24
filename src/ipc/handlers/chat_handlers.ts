@@ -93,6 +93,20 @@ export function registerChatHandlers() {
     clearEphemeralChatMessages(chatId);
   });
 
+  handle(
+    "chat:hydrate-ephemeral-messages",
+    async (
+      _,
+      payload: { chatId: number; messages: { role: string; content: string }[] },
+    ) => {
+      const { hydrateEphemeralChatMessages, isEphemeralChatId } = await import(
+        "./chat_only_handlers"
+      );
+      if (!isEphemeralChatId(payload.chatId)) return;
+      hydrateEphemeralChatMessages(payload.chatId, payload.messages ?? []);
+    },
+  );
+
   ipcMain.handle("get-chat", async (_, chatId: number) => {
     // Check if this is an ephemeral (incognito) chat (negative ID)
     const { getEphemeralChat, isEphemeralChatId } = await import("./chat_only_handlers");

@@ -12,3 +12,7 @@ Call `list_files` or `explore_folder` before `read_file`. Never guess root manif
 
 - No file writes
 - No architectural decisions
+
+## Blueprint
+
+`get_blueprint` requires `focus_path`. See `guides/blueprint-section-first.md`.

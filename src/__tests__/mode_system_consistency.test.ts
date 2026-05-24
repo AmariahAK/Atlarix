@@ -87,6 +87,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "run_command",
     "search",
     "stream_terminal_output",
+    "write_file",
   ],
   review: [
     "ask_user",
@@ -133,5 +134,10 @@ describe("mode system consistency", () => {
   it("run_command is offered in Ask-mode tool discovery (allowInAskMode)", () => {
     const askNames = ToolRegistry.getToolsForAskMode().map((t) => t.name);
     expect(askNames).toContain("run_command");
+  });
+
+  it("debug mode allowlist includes write_file", () => {
+    expect(STREAM_HANDLER_ALLOWLIST.debug).toContain("write_file");
+    expect(MODE_SYSTEM_TOOL_LISTS.debug).toContain("write_file");
   });
 });

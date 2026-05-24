@@ -79,12 +79,24 @@ export function analyzeWorkspaceDiscovery(workspacePath: string): WorkspaceDisco
   return getCachedWorkspaceDiscovery(workspacePath);
 }
 
-/** Cache key invalidates when multi-repo membership changes. */
-export function projectFilesCacheKey(workspacePath: string): string {
+function normalizeScopePathForCache(scopePath?: string): string {
+  if (!scopePath?.trim()) return "";
+  return scopePath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+/** Cache key invalidates when multi-repo membership or scope changes. */
+export function projectFilesCacheKey(workspacePath: string, scopePath?: string): string {
   const resolved = path.resolve(workspacePath);
+  const scope = normalizeScopePathForCache(scopePath);
   const d = getCachedWorkspaceDiscovery(resolved);
-  if (d.isMultiRepoWorkspace && d.nestedRepoNames?.length) {
-    return `${resolved}\0multi:${d.nestedRepoNames.join("\x1f")}`;
-  }
-  return `${resolved}\0single`;
+  const base =
+    d.isMultiRepoWorkspace && d.nestedRepoNames?.length
+      ? `${resolved}\0multi:${d.nestedRepoNames.join("\x1f")}`
+      : `${resolved}\0single`;
+  return scope ? `${base}\0scope:${scope}` : base;
+}
+
+export function normalizeProjectFilesScopePath(scopePath?: string): string | undefined {
+  const s = normalizeScopePathForCache(scopePath);
+  return s || undefined;
 }

@@ -44,10 +44,10 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 // Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
+    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault', 'plan'],
     'diagram': ['activity'],
     'terminal': ['terminal', 'activity'],
-    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
+    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault', 'plan'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],

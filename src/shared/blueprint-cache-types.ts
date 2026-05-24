@@ -16,7 +16,7 @@ export interface BlueprintManifest {
   detailLevel?: "overview" | "full";
   timestamp: number;
   /** Index engine used when cache was written. */
-  engine?: "ast-grep+ctags" | "file-tree";
+  engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
 }
 
 /** High-level rooms and connections (for fast load) */

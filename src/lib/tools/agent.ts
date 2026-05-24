@@ -113,6 +113,8 @@ export type DelegateArgs = {
   turnId?: string;
   /** Role of the delegating agent (for bus); omit for main. */
   parentAgentRole?: string;
+  /** Workspace-relative section for blueprint/search tools in this delegation. */
+  defaultFocusPath?: string;
 };
 
 /** Builtin specialist id persisted on delegate JSON for HandoffResultCard labels. */
@@ -217,6 +219,15 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
       } catch (invErr) {
         logger.debug("[Delegation] workspace file inventory skipped:", invErr);
       }
+    }
+
+    const focusSection = args.defaultFocusPath?.trim();
+    if (focusSection) {
+      delegationSystem += `\n\n<delegation_blueprint_scope>
+focus_path: ${focusSection}
+Use this focus_path for get_blueprint. Parse and architecture graphs are section-scoped only for get_blueprint.
+See guides/blueprint-section-first.md.
+</delegation_blueprint_scope>`;
     }
 
     const allTools = ToolRegistry.getAll();
@@ -721,6 +732,9 @@ ToolRegistry.register({
         type: "string",
         description: "Optional extra context (file paths, previous findings)",
       },
+      default_focus_path: stringParam(
+        "Workspace-relative section folder for blueprint/search tools in this delegation.",
+      ),
     },
     ["agent_id", "task"]
   ),

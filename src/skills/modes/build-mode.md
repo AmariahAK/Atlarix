@@ -29,3 +29,7 @@ When all tasks in the ledger are done, produce a clear summary of what changed.
 ## IDE / LSP
 
 After **edit_file** or **write_file**, call **`lsp_diagnostics`** on the touched paths when a language server is available — do not claim the change is clean while diagnostics still report errors you could have seen.
+
+## Blueprint
+
+Always pass `focus_path` to `get_blueprint` for architecture in the section you are editing. See `guides/blueprint-section-first.md`.

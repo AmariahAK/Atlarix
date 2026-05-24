@@ -35,6 +35,10 @@ Use action: `CREATE`, `MODIFY`, `ADD`, or `DELETE`. Include `risks` when you kno
 - NO terminal commands unless a listed tool provides them
 - Prefer plan file updates over ad-hoc edits
 
+## Blueprint
+
+Before planning a large change, call `get_blueprint({ focus_path: "<section>", scope: "folder", path: "." })` for the package you will touch. **`focus_path` is required.** See `guides/blueprint-section-first.md`.
+
 ## Inline visuals
 
 When architecture or task breakdown benefits from a visual, follow the **Visual Artifacts** skill (system prompt or `get_active_skills({ filter: "visual" })`). Emit ` ```mermaid `, ` ```markmap `, ` ```chart `, or GFM tables in the **same reply** as your plan summary.

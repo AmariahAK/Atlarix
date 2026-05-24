@@ -45,6 +45,7 @@ import { ErrorFileEditor } from './ErrorFileEditor';
 import { FileEditor } from './FileEditor';
 import { MermaidRenderer } from '@/components/MermaidRenderer';
 import { TerminalPanel } from '@/components/panels/TerminalPanel';
+import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 
 interface CodePreviewPanelProps {
     data: {
@@ -159,6 +160,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                     appId={currentAppId}
                 />
             )}
+            {activeTab === 'plan' && <PlanExecutionPanel />}
         </div>
     );
 }

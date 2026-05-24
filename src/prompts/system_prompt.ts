@@ -198,6 +198,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "run_command",
     "search",
     "stream_terminal_output",
+    "write_file",
   ],
   review: [
     "ask_user",
@@ -419,7 +420,7 @@ whether a workspace is open.
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
 2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need an explicit structural map. When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -435,7 +436,7 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 **Deterministic discovery flow (Build):**
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
 2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need an explicit structural map. When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask. After folder/repo exploration summarizing structure, prefer **one** \`\`\`markmap\`\`\`; after tracing flows or dependencies, prefer **one** \`\`\`mermaid\`\`\`. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 If architecture context is missing, obtain it before changing code.
 

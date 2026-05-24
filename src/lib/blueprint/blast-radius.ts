@@ -84,10 +84,19 @@ function collectSymbolEdges(blueprint: Blueprint): SymbolEdge[] {
 async function loadBlueprintForAnalysis(
   projectPath: string,
   workspaceId?: number,
+  relFile?: string,
 ): Promise<Blueprint | null> {
   if (workspaceId != null) {
     try {
-      return await ensureBlueprintParsed(workspaceId);
+      const { normalizeBlueprintFocusPath } = await import("@/lib/blueprint/parse-scope");
+      const section =
+        relFile != null
+          ? normalizeBlueprintFocusPath(path.dirname(relFile.replace(/\\/g, "/")))
+          : ".";
+      return await ensureBlueprintParsed(workspaceId, {
+        focusPath: section || ".",
+        allowWorkspaceRoot: section === "." || !section,
+      });
     } catch {
       /* fall through */
     }
@@ -126,7 +135,7 @@ export async function analyzeBlastRadius(args: {
   );
 
   const startIds = [...new Set([...fileSymbols, ...nameHits].map((s) => s.id))];
-  const blueprint = await loadBlueprintForAnalysis(projectPath, args.workspaceId);
+  const blueprint = await loadBlueprintForAnalysis(projectPath, args.workspaceId, relFile);
   const symbolEdges = blueprint ? collectSymbolEdges(blueprint) : [];
 
   const affectedSymbols: BlastRadiusAffectedSymbol[] = [];

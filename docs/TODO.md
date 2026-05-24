@@ -1,7 +1,23 @@
 # Atlarix TODO
 
-**Current Version:** v8.6.5
-**Last Updated:** 2026-05-23
+**Current Version:** v8.7.0
+**Last Updated:** 2026-05-24
+
+---
+
+## Shipped in v8.7.0
+
+| Area | Notes |
+|------|--------|
+| **Section-first `get_blueprint`** | Required `focus_path`; `validateBlueprintFocusPath` + typo suggestions |
+| **Slice layer** | `blueprint-slice.ts`; default `scope: "full"`; auto-widen; `emptyReason` |
+| **Thin-graph hybrid** | `blueprint-quality`, `blueprint-merge`, `rte-supplement`; richness-gated file-tree backfill |
+| **Tool output** | Tool-mode Markdown; `parseQuality` / `parseEngine` metadata |
+| **Empty cache policy** | Do not cache 0-room parses |
+| **Agent guide** | `src/skills/guides/blueprint-section-first.md` |
+| **Tools UI** | Removed unused Diagram filter tab |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.7.0]`.
 
 ---
 
@@ -10,7 +26,7 @@
 | Area | Notes |
 |------|--------|
 | **ast-grep + ctags stack** | `generateBlueprint()` via Universal Ctags symbols + `@ast-grep/napi` import/call edges |
-| **Lazy blueprint wire** | `inferBlueprint` calls `generateBlueprint` on cache miss; `mergeInferredEdges` gated for `ast-grep+ctags` |
+| **Lazy blueprint wire** | `inferBlueprint` on cache miss; v8.7+ richness-gated merge via `blueprint-merge.ts` |
 | **BM25 on symbols** | `search({ mode: "semantic-graph" })` and auto mode when `.atlarix/symbols.json` is warm |
 | **Structural BFS** | `search({ mode: "structural" })` BFS over blueprint `flowEdges` |
 | **ast-grep worker pool** | `astgrep_worker.js` + `worker-pool.ts`; built via `npm run build:astgrep-worker` (postinstall + prestart) |
@@ -614,7 +630,8 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 ## Later
 
-- [ ] Re-enable Windows build in CI when EV/OV code signing is ready.
+- [x] **Windows CI builds** — `build-windows` runs in release workflow (unsigned installers; SmartScreen-friendly signing still pending).
+- [ ] **Windows code signing** (EV/OV Authenticode) when revenue covers cert — builds ship unsigned until then.
 - [x] Optional: stream terminal output into tool indicator for long-running commands.
 - [ ] Optional: brief "done" phase of Atlarix animation when response completes.
 

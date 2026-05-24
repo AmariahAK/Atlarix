@@ -63,6 +63,8 @@ export interface RTEParseResult {
   framework: FrameworkInfo;
   /** `.atlarixignore` source applied during this parse (persisted with blueprint cache). */
   atlarixIgnoreSource?: string;
+  /** True when file-tree beacons were merged due to thin ctags coverage. */
+  supplemented?: boolean;
 }
 
 /**

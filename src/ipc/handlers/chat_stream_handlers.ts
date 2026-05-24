@@ -4972,6 +4972,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 "run_command",
                 "search",
                 "stream_terminal_output",
+                "write_file",
               ]),
               review: new Set([
                 "ask_user",

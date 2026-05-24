@@ -21,3 +21,7 @@ The exact set is defined by **ToolRegistry** for Ask mode (`getToolsForAskMode`)
 ## Inline visuals
 
 When a diagram, chart, table, or mind-map helps the answer, include it in the **same reply** per the **Visual Artifacts** skill in the system prompt (or `get_active_skills({ filter: "visual" })`). Use GFM tables, ` ```chart `, ` ```mermaid `, or ` ```markmap ` fences—do not ask the user to open a side panel.
+
+## Blueprint
+
+`get_blueprint` **requires** `focus_path` (one folder section). See `guides/blueprint-section-first.md`. Other tools are unchanged — use optional `path` on `search` / `explore_folder` when helpful.

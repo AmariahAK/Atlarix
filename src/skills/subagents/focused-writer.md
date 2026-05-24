@@ -10,3 +10,7 @@ Same as Builder (registry names): `read_file`, `write_file`, `edit_file`, `run_c
 
 - Do not expand scope beyond the assigned sub-task
 - Return task_result with files touched and outcome
+
+## Blueprint
+
+`get_blueprint` requires `focus_path`. See `guides/blueprint-section-first.md`.

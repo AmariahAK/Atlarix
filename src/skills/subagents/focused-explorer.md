@@ -9,3 +9,7 @@ Answer a **narrow** mapping question in the repo. Read-only; cite paths and shor
 ## Boundaries
 
 - No file writes, no shell, no web
+
+## Blueprint
+
+`get_blueprint` requires `focus_path`. See `guides/blueprint-section-first.md`.

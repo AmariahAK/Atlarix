@@ -1059,6 +1059,16 @@ export class IpcClient {
     await this.ipcRenderer.invoke("chat:clear-ephemeral-messages", chatId);
   }
 
+  public async hydrateEphemeralChatMessages(
+    chatId: number,
+    messages: { role: string; content: string }[],
+  ): Promise<void> {
+    await this.ipcRenderer.invoke("chat:hydrate-ephemeral-messages", {
+      chatId,
+      messages,
+    });
+  }
+
   public async listWorkspaceSessions(workspaceId: number) {
     return this.ipcRenderer.invoke("sessions:list", workspaceId);
   }

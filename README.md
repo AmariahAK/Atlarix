@@ -11,7 +11,7 @@ You have control.
 
 ## How it works
 
-**Map** — Atlarix parses your repo into a live **Blueprint** graph (Universal Ctags symbols + ast-grep import/call/route edges). The agent navigates architecture, not raw text.
+**Map** — Atlarix builds a live **Blueprint** per workspace section (Universal Ctags + ast-grep edges). The agent calls `get_blueprint` with a folder path—one monorepo area at a time—with validation, hybrid backfill on thin indexes, and compact Markdown slices—not whole-repo dumps.
 
 **Connect** — Wire in any LLM: local Ollama, OpenAI, Anthropic, or the managed model bridge.
 
@@ -21,11 +21,21 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.6.5**
+**Current release:** **v8.7.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.7.0 — Section-scoped Blueprint
+
+- **Section-first code map:** `get_blueprint` requires `focus_path` (workspace-relative folder); path typos return suggestions instead of empty graphs.
+- **Slices & quality:** Default full-section scope with auto-widen; `parseQuality` / hybrid file-tree supplement when ctags output is thin; tool-mode Markdown for the model.
+- **Tools page:** Removed unused Diagram filter tab; Blueprint cards updated.
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) `[8.7.0]`.
 
 ---
 

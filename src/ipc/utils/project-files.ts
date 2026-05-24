@@ -22,6 +22,7 @@ import log from "electron-log";
 import { getFilesRecursively } from "./file_utils";
 import {
     projectFilesCacheKey,
+    normalizeProjectFilesScopePath,
     getCachedWorkspaceDiscovery,
     clearWorkspaceDiscoverySessionCache,
 } from "./workspace-discovery";
@@ -114,6 +115,66 @@ interface StructureScanCacheEntry {
 const structureScanCache = new Map<string, StructureScanCacheEntry>();
 const STRUCTURE_SCAN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+function findGitRoot(start: string): string | null {
+    let dir = path.resolve(start);
+    const root = path.parse(dir).root;
+    while (true) {
+        try {
+            if (fs.existsSync(path.join(dir, ".git"))) return dir;
+        } catch {
+            /* ignore */
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir || dir === root) break;
+        dir = parent;
+    }
+    return null;
+}
+
+type GitListContext = {
+    gitCwd: string;
+    /** Pathspec for `git ls-files -- <pathspec>` when listing a subtree from repo root. */
+    pathspec?: string;
+    /** Strip this prefix from paths so results are relative to the requested scan root. */
+    stripPrefix?: string;
+};
+
+function resolveGitListContext(workspacePath: string, scopePath?: string): GitListContext {
+    const resolved = path.resolve(workspacePath);
+    const scope = normalizeProjectFilesScopePath(scopePath);
+
+    if (scope) {
+        const scopedDir = path.join(resolved, scope);
+        if (fs.existsSync(path.join(scopedDir, ".git"))) {
+            return { gitCwd: scopedDir };
+        }
+        return { gitCwd: resolved, pathspec: `${scope}/`, stripPrefix: `${scope}/` };
+    }
+
+    const gitRoot = findGitRoot(resolved);
+    if (gitRoot && path.normalize(gitRoot) !== path.normalize(resolved)) {
+        const rel = path.relative(gitRoot, resolved).replace(/\\/g, "/");
+        if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+            const prefix = rel.endsWith("/") ? rel : `${rel}/`;
+            return { gitCwd: gitRoot, pathspec: prefix, stripPrefix: prefix };
+        }
+    }
+
+    return { gitCwd: resolved };
+}
+
+function pathsRelativeToScanRoot(files: string[], ctx: GitListContext): string[] {
+    if (!ctx.stripPrefix) return files;
+    const p = ctx.stripPrefix;
+    return files
+        .map((f) => {
+            const n = f.replace(/\\/g, "/");
+            if (n.startsWith(p)) return n.slice(p.length);
+            return n;
+        })
+        .filter(Boolean);
+}
+
 const ALWAYS_EXCLUDE = [
     "node_modules",
     ".git",
@@ -148,27 +209,31 @@ const ALWAYS_EXCLUDE = [
  * Get all project files using the best available strategy.
  * Results are cached for 5 minutes per workspace.
  *
- * @param workspacePath - Absolute path to workspace root
- * @param options - Optional filter by extension
+ * @param workspacePath - Absolute path to workspace or section scan root
+ * @param options - Optional extension filter, scopePath (workspace-relative), timeout
  */
 export async function getProjectFiles(
     workspacePath: string,
     options?: {
         timeout?: number;
         extensions?: string[];
+        /** Workspace-relative folder (e.g. spacinsider-cli). Omit when workspacePath is already the scan root. */
+        scopePath?: string;
     }
 ): Promise<ProjectFilesResult> {
-    const cacheKey = projectFilesCacheKey(workspacePath);
+    const scope = normalizeProjectFilesScopePath(options?.scopePath);
+    const cacheKey = projectFilesCacheKey(workspacePath, scope);
     const cached = fileListCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < FILE_LIST_TTL_MS) {
         logger.info(
-            `[project-files] cache hit — ${cached.result.count} files via ${cached.result.strategy}`
+            `[project-files] cache hit — ${cached.result.count} files via ${cached.result.strategy}${scope ? ` scope=${scope}` : ""}`
         );
         return cached.result;
     }
 
     const timeout = options?.timeout ?? 15_000;
+    const gitCtx = resolveGitListContext(workspacePath, scope);
 
     // -----------------------------------------------
     // STRATEGY 1: git ls-files (primary)
@@ -182,22 +247,24 @@ export async function getProjectFiles(
             }
         }
 
+        if (gitCtx.pathspec) {
+            args.push("--", gitCtx.pathspec);
+        }
+
         const { stdout } = await execAsync("git " + args.join(" "), {
-            cwd: workspacePath,
+            cwd: gitCtx.gitCwd,
             timeout,
             maxBuffer: 50 * 1024 * 1024,
         });
 
-        // git ls-files returns relative paths (src/lib/foo.ts)
-        // Normalize to workspace-relative immediately so all strategies return the same format
         const files = filterDiscoveryPaths(
-            stdout
-                .split("\n")
-                .filter(Boolean)
-                .map((f) => {
-                    // f is already relative from git ls-files; just normalize separators
-                    return f.replace(/\\/g, "/");
-                }),
+            pathsRelativeToScanRoot(
+                stdout
+                    .split("\n")
+                    .filter(Boolean)
+                    .map((f) => f.replace(/\\/g, "/")),
+                gitCtx,
+            ),
         );
 
         if (files.length > 0) {
@@ -211,7 +278,7 @@ export async function getProjectFiles(
                 timestamp: Date.now(),
             });
             logger.info(
-                `[project-files] ${files.length} files via git ls-files`
+                `[project-files] ${files.length} files via git ls-files${scope ? ` scope=${scope}` : gitCtx.pathspec ? ` pathspec=${gitCtx.pathspec}` : ""}`
             );
             return result;
         }
@@ -436,8 +503,10 @@ export async function getProjectFiles(
 export function clearFileListCache(workspacePath?: string): void {
     if (workspacePath) {
         clearWorkspaceDiscoverySessionCache(workspacePath);
-        fileListCache.delete(workspacePath);
-        fileListCache.delete(projectFilesCacheKey(workspacePath));
+        const resolved = path.resolve(workspacePath);
+        for (const key of [...fileListCache.keys()]) {
+            if (key.startsWith(resolved)) fileListCache.delete(key);
+        }
     } else {
         clearWorkspaceDiscoverySessionCache();
         fileListCache.clear();

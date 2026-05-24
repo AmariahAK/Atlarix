@@ -66,6 +66,17 @@ function shimForModuleId(id: string): string | null {
     return stubPath(STUB_FILES.mainSettings);
   }
 
+  if (
+    /^@ast-grep\/napi(-darwin-arm64|-darwin-x64|-win32-x64-msvc|-win32-arm64-msvc|-linux-x64-gnu|-linux-arm64-gnu)?$/.test(
+      n,
+    ) ||
+    n.includes("@ast-grep/napi") ||
+    n.includes("@ast-grep/lang-python") ||
+    n.includes("@ast-grep/lang-go")
+  ) {
+    return path.join(SHIMS_DIR, "ast-grep-napi-renderer-stub.ts");
+  }
+
   return null;
 }
 
@@ -87,6 +98,14 @@ export function rendererMainOnlyShimsPlugin(): Plugin {
     resolveId(source, importer) {
       if (source === "@/db") {
         return stubPath(STUB_FILES.db);
+      }
+      if (
+        source === "@ast-grep/napi" ||
+        source.startsWith("@ast-grep/napi-") ||
+        source === "@ast-grep/lang-python" ||
+        source === "@ast-grep/lang-go"
+      ) {
+        return path.join(SHIMS_DIR, "ast-grep-napi-renderer-stub.ts");
       }
       for (const candidate of candidatePaths(source, importer)) {
         const shim = shimForModuleId(candidate);

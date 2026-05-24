@@ -107,11 +107,14 @@ export function WorkspaceSessionList({
           limit: SESSION_LOAD_MESSAGE_LIMIT,
         });
       const chatId = await IpcClient.getInstance().createChat(workspaceId);
-      await IpcClient.getInstance().clearEphemeralChatMessages(chatId);
       const uiMessages = sessionMessagesToUiMessages(
         session.id,
         chatId,
         messages,
+      );
+      await IpcClient.getInstance().hydrateEphemeralChatMessages(
+        chatId,
+        uiMessages.map((m) => ({ role: m.role, content: String(m.content ?? "") })),
       );
       setMessagesById((prev) => {
         const next = new Map(prev);

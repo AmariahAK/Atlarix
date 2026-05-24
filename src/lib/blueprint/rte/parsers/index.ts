@@ -16,6 +16,7 @@ import {
   filterRteEdgesByNodes,
 } from "@/lib/atlarix/atlarix-ignore";
 import { generateBlueprintFromFileTree } from "@/lib/blueprint/rte/file-tree-bridge";
+import { supplementThinRteResult } from "@/lib/blueprint/rte-supplement";
 import { getProjectFiles } from "@/ipc/utils/project-files";
 import { ensureSymbolIndex } from "@/lib/index/ctags-index";
 import { runStructuralScan } from "@/lib/blueprint/rte/ast-grep/run-structural-scan";
@@ -90,17 +91,25 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
     const kept = new Set(nodes.map((n) => n.id));
     edges = filterRteEdgesByNodes(edges, kept);
 
-    const result: RTEParseResult = {
+    let result: RTEParseResult = {
       nodes,
       edges: dedupeEdges(edges),
       framework,
       atlarixIgnoreSource: ignoreSourceForCache,
     };
 
+    const { result: supplemented, supplemented: didSupplement } = await supplementThinRteResult(
+      projectPath,
+      result,
+      files.length,
+    );
+    result = { ...supplemented, supplemented: didSupplement };
+
     logger.info("generateBlueprint: ast-grep+ctags", {
       projectPath,
       nodes: result.nodes.length,
       edges: result.edges.length,
+      supplemented: didSupplement,
     });
     return result;
   } catch (err) {
@@ -119,7 +128,11 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
 }
 
 /** Engine label persisted in blueprint cache manifest. */
-export function blueprintEngineLabel(result: RTEParseResult | null): "ast-grep+ctags" | "file-tree" {
+export function blueprintEngineLabel(
+  result: RTEParseResult | null,
+  options?: { supplemented?: boolean },
+): "ast-grep+ctags" | "file-tree" | "hybrid" {
   if (!result?.nodes?.length) return "file-tree";
+  if (options?.supplemented) return "hybrid";
   return result.edges.length > 0 ? "ast-grep+ctags" : "file-tree";
 }

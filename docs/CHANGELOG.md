@@ -1,5 +1,35 @@
 # Atlarix Changelog
 
+## [8.7.0] (2026-05-24) — Section-scoped Blueprint
+
+### Blueprint — section-first tool
+
+- **`get_blueprint`:** Requires **`focus_path`** (workspace-relative folder). Preflight **`validateBlueprintFocusPath`** with Levenshtein **did-you-mean** suggestions on typos; **`success: false`** instead of misleading empty maps.
+- **Cache:** Do not cache 0-room blueprints after parse; improved infer logging when scan root is missing or parse yields no visible rooms.
+
+### Blueprint — slice layer
+
+- **`blueprint-slice.ts`:** `resolveSliceParams` / `buildSliceWithResolve`; default **`scope: "full"`** for the section; auto-widen when a narrow slice would be empty.
+- **`blueprint-markdown.ts`:** `emptyReason` distinguishes **`unparsed`**, **`slice_empty`**, and **`topic_filter`**.
+
+### Blueprint — richness & hybrid merge
+
+- **`blueprint-quality.ts`:** `assessBlueprintRichness`, `isThinRteNodeSet` gate file-tree backfill.
+- **`blueprint-merge.ts`:** Richness-gated merge (replaces “skip merge whenever any ast-grep edge exists”).
+- **`rte-supplement.ts`:** Hybrid supplement when ctags output is thin; engine type **`hybrid`**.
+- **Tool output:** Tool-mode Markdown (`parseQuality`, `parseEngine`, compact exports per room); optional auto **`graph`** when thin.
+
+### Agent guide & tests
+
+- **Skill:** `src/skills/guides/blueprint-section-first.md` for agents.
+- **Tests:** `blueprint-slice-scope`, `blueprint-quality`, `blueprint-merge-thin`, `blueprint-section-path`, `blueprint-markdown-toolmode`.
+
+### UI
+
+- **Tools page:** Removed unused **Diagram** filter tab; updated Blueprint feature cards and subtitle.
+
+---
+
 ## [8.6.5] (2026-05-23) — Windows file-discovery path fix
 
 ### Fixes

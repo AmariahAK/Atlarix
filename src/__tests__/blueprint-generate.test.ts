@@ -63,7 +63,7 @@ describe.skipIf(!hasCtags())("generateBlueprint", () => {
     const result = await generateBlueprint(root);
     expect(result).not.toBeNull();
     expect(result!.nodes.length).toBeGreaterThan(0);
-    expect(["ast-grep+ctags", "file-tree"]).toContain(blueprintEngineLabel(result));
+    expect(["ast-grep+ctags", "file-tree", "hybrid"]).toContain(blueprintEngineLabel(result));
   });
 });
 

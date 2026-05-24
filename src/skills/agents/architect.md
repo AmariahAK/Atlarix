@@ -35,6 +35,10 @@ In Autonomous mode, `message_agent` may also be available.
 
 When structure or data flow is clearer visually, follow the **Visual Artifacts** skill. Echo `get_diagram` output in ` ```mermaid ` fences; use ` ```markmap ` for hierarchies—all in the **same reply** as your plan.
 
+## Blueprint
+
+`get_blueprint({ focus_path, scope: "folder", path: "." })` — never workspace-root parse. See `guides/blueprint-section-first.md`.
+
 ## When you finish
 
 Emit the plan changes summary for the Plan panel (one line, valid JSON):

@@ -12,6 +12,7 @@ import type {
   Blueprint,
   BlueprintRoom,
   BlueprintEdge,
+  BlueprintFunction,
 } from "@/shared/blueprint-types";
 
 const logger = log.scope("blueprint-markdown");
@@ -19,6 +20,11 @@ const logger = log.scope("blueprint-markdown");
 // ─────────────────────────────────────────────────────────────────────────────
 // Markdown tree
 // ─────────────────────────────────────────────────────────────────────────────
+
+export type BlueprintMarkdownEmptyReason =
+  | "unparsed"
+  | "slice_empty"
+  | "topic_filter";
 
 export interface BlueprintMarkdownOptions {
   /** Cap on output lines (the tail is replaced with a truncation note). */
@@ -29,6 +35,12 @@ export interface BlueprintMarkdownOptions {
   includeExports?: boolean;
   /** Workspace name used for the H1 title. */
   workspaceName?: string;
+  /** Why the blueprint has no visible rooms (tool slice / topic filter). */
+  emptyReason?: BlueprintMarkdownEmptyReason;
+  /** Rooms in the parsed section before slicing (for slice_empty message). */
+  parsedRoomCount?: number;
+  /** Richer listing for `get_blueprint` tool responses. */
+  toolMode?: boolean;
 }
 
 const DEFAULT_MAX_LINES = 500;
@@ -96,6 +108,21 @@ function labelByRoomId(rooms: BlueprintRoom[]): Map<string, string> {
   return m;
 }
 
+function fnFileLabel(fn: BlueprintFunction): string | undefined {
+  const raw = fn.file ?? fn.description;
+  if (!raw) return undefined;
+  return raw.replace(/\\/g, "/").replace(/^\//, "");
+}
+
+function countSymbols(rooms: BlueprintRoom[]): number {
+  let n = 0;
+  for (const r of rooms) {
+    if (r.hidden) continue;
+    n += r.functions?.length ?? 0;
+  }
+  return n;
+}
+
 /**
  * Convert a `Blueprint` (rooms + edges) to a top-down Markdown tree.
  * The same string is consumed by Mind Elixir's RTE pass, by
@@ -110,12 +137,17 @@ export function blueprintToMarkdown(
     includeImports = true,
     includeExports = true,
     workspaceName,
+    emptyReason = "unparsed",
+    parsedRoomCount,
+    toolMode = false,
   } = options;
 
   const rooms = (blueprint.rooms ?? []).filter((r) => !r.hidden);
   const edges = blueprint.edges ?? [];
+  const symbolCount = countSymbols(rooms);
   const idLabels = labelByRoomId(rooms);
   const edgeMaps = buildEdgeMaps(edges);
+  const exportCap = toolMode ? 12 : 5;
 
   const lines: string[] = [];
   const push = (line: string): boolean => {
@@ -126,9 +158,26 @@ export function blueprintToMarkdown(
 
   push(`# ${safeLabel(workspaceName ?? "Workspace")}`);
 
+  if (toolMode && rooms.length > 0) {
+    push(
+      `> ${rooms.length} room(s), ${symbolCount} symbol(s), ${edges.length} cross-room edge(s)`,
+    );
+  }
+
   if (rooms.length === 0) {
     push("");
-    push("> Blueprint is empty — open a workspace and let the RTE parse it.");
+    if (emptyReason === "topic_filter") {
+      push(
+        "> No rooms matched the topic filter. Try a broader topic or omit `topic`.",
+      );
+    } else if (emptyReason === "slice_empty") {
+      const n = parsedRoomCount ?? 0;
+      push(
+        `> Parse found ${n} room(s) in this section, but the requested slice matched none. Use \`scope: "full"\` or omit \`path\`.`,
+      );
+    } else {
+      push("> No blueprint data for this section yet.");
+    }
     return lines.join("\n");
   }
 
@@ -163,10 +212,24 @@ export function blueprintToMarkdown(
       }
 
       if (includeExports) {
-        const fns = (room.functions ?? []).slice(0, 5).map((f) => f.name);
-        if (fns.length > 0) {
-          const more = (room.functions?.length ?? 0) > 5 ? "…" : "";
-          if (!push(`- exports: ${fns.join(", ")}${more}`)) break;
+        const allFns = room.functions ?? [];
+        if (toolMode && allFns.length > 0) {
+          for (const fn of allFns.slice(0, exportCap)) {
+            const file = fnFileLabel(fn);
+            const line = file
+              ? `- \`${safeLabel(fn.name)}\` (file: ${safeLabel(file)})`
+              : `- \`${safeLabel(fn.name)}\``;
+            if (!push(line)) break;
+          }
+          if (allFns.length > exportCap) {
+            if (!push(`- … ${allFns.length - exportCap} more`)) break;
+          }
+        } else {
+          const fns = allFns.slice(0, exportCap).map((f) => f.name);
+          if (fns.length > 0) {
+            const more = allFns.length > exportCap ? "…" : "";
+            if (!push(`- exports: ${fns.join(", ")}${more}`)) break;
+          }
         }
       }
 

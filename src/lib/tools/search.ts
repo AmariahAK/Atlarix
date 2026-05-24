@@ -283,6 +283,7 @@ async function queryBlueprintByNaturalLanguage(args: {
   query: string;
   workspaceId: number;
   scopePath?: string;
+  topic?: string;
   maxResults: number;
 }): Promise<{ summary: string; nodes: unknown[]; edges: unknown[] }> {
   return queryStructuralGraph(args);
@@ -405,7 +406,7 @@ ToolRegistry.register({
 - mode "text": ripgrep-style matches
 - mode "semantic-lite": concept-style scan over source files only (no symbol index)
 - mode "semantic-graph": BM25 over ctags symbols, then semantic-lite fallback (may build symbol index on first use)
-- mode "structural": ast-grep / blueprint graph relationships (lazy-parse on demand)
+- mode "structural": ast-grep / blueprint graph relationships (lazy-parse on demand when path scopes a section)
 - Legacy mode "semantic" is treated as semantic-graph.
 
 Examples:
@@ -435,6 +436,9 @@ Parameters:
         ["auto", "text", "semantic", "semantic-lite", "semantic-graph", "structural"],
       ),
       path: stringParam("Optional: limit to a folder or file (workspace-relative)."),
+      topic: stringParam(
+        "Optional topic filter for structural mode when path is set (e.g. payment|stripe).",
+      ),
       max_results: numberParam("Max results (default 30, max 200).", 30, 1, 200),
       context_lines: numberParam(
         "Lines of context around each text match (default 2, max 10).",
@@ -457,6 +461,7 @@ Parameters:
     query: string;
     mode?: SearchModeInput;
     path?: string;
+    topic?: string;
     max_results?: number;
     context_lines?: number;
     max_bytes?: number;
@@ -506,6 +511,7 @@ Parameters:
           query: params.query,
           workspaceId: params.workspaceId,
           scopePath: params.path,
+          topic: params.topic,
           maxResults,
         });
         return {

@@ -25,3 +25,7 @@ Findings report:
 
 - NO file modifications
 - NO running commands outside the allowlist
+
+## Blueprint
+
+For structural context on changed code, use `get_blueprint({ focus_path: "<parent-folder-of-changes>", scope: "folder", path: "." })`. **`focus_path` is required** for blueprint. See `guides/blueprint-section-first.md`.

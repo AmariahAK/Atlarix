@@ -17,7 +17,6 @@ type Category =
   | "ai"
   | "code"
   | "blueprint"
-  | "diagram"
   | "skills"
   | "mcp"
   | "preview"
@@ -39,7 +38,6 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "ai", label: "AI & modes" },
   { id: "code", label: "Code" },
   { id: "blueprint", label: "Blueprint" },
-  { id: "diagram", label: "Diagram" },
   { id: "skills", label: "Skills" },
   { id: "mcp", label: "MCP" },
   { id: "preview", label: "Preview" },
@@ -144,13 +142,17 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "blueprint-graph",
-    title: "Blueprint graph",
+    title: "Live Code Map (Blueprint)",
     shortDescription:
-      "Lazy-load structural graph data with get_blueprint; inspect rooms, beacons, and edges without pasting the entire repo into context.",
+      "Section-scoped architecture via get_blueprint with focus_path—one folder at a time in monorepos, with path validation and compact Markdown for the model.",
     category: "blueprint",
-    steps: ["Open a workspace", "Ask the model to load Blueprint for an area", "Navigate the canvas; compare to Live view"],
+    steps: [
+      "Open a workspace with your repo",
+      "In Build, ask the agent to map a folder (e.g. spacinsider-cli) via get_blueprint",
+      "Use the Blueprint canvas for Live view; chat uses the tool output, not whole-repo dumps",
+    ],
     howItWorks:
-      "Universal Ctags builds the symbol index; ast-grep/napi extracts import and call edges. BM25 ranks symbols for semantic search; ripgrep is the text fallback.",
+      "Ctags symbols plus ast-grep import/call/route edges feed a richness gate; thin graphs get hybrid file-tree supplement. Default scope is full section; typos return did-you-mean suggestions. Agents follow the blueprint-section-first skill in-repo.",
     link: { label: "Home → Blueprint", to: "/" },
   },
   {
@@ -161,15 +163,6 @@ const FEATURES: ToolFeature[] = [
     steps: ["Upgrade to Workforce", "Finalize a Blueprint layout", "Run commit_blueprint / snapshot flow from chat when enabled"],
     howItWorks: "This keeps design artifacts versioned beside code; Pro and Free tiers can still edit locally without auto-commit.",
     link: { label: "Settings → Subscription", to: "/settings" },
-  },
-  {
-    id: "diagram",
-    title: "Mermaid diagrams",
-    shortDescription: "Generate architecture diagrams from chat via get_diagram; reference chips track multiple views.",
-    category: "diagram",
-    steps: ["Ask for a diagram of a subsystem", "View inline mermaid or markmap fences in chat", "Copy or refine Mermaid from the assistant"],
-    howItWorks:
-      "Diagrams complement Blueprint: faster visual communication in chat, while Blueprint holds rich structural data.",
   },
   {
     id: "skills-marketplace",
@@ -299,7 +292,7 @@ export default function ToolsPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Tools</h1>
           <p className="text-muted-foreground text-sm">
-            What the desktop app can do today—modes, Blueprint, Skills, MCP, previews, and team features.
+            What the desktop app can do today—modes, section-scoped Blueprint (Live Code Map), Skills, MCP, previews, and team features.
           </p>
         </div>
 
