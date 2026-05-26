@@ -59,6 +59,7 @@ const validInvokeChannels = [
   "get-chat-logs",
   "list-apps",
   "get-app",
+  "get-app-files",
   "get-app-env-vars",
   "set-app-env-vars",
   "edit-app-file",
@@ -230,7 +231,11 @@ const validInvokeChannels = [
   "workspace-snapshot:list",
   "workspace-snapshot:restore",
   "workspace-snapshot:get-metadata",
-  "plan:read-workspace-file",
+  "plans:create",
+  "plans:update",
+  "plans:get",
+  "plans:list-by-session",
+  "plans:set-status",
   // Dialog
   "dialog:openDirectory",
   // SearxNG
@@ -415,7 +420,8 @@ const validReceiveChannels = [
   "chat:iteration:timeout",     // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
-  "chat:plan-update",
+  "plan:artifact-activated",
+  "plan:artifact-updated",
   "plan:file-updated",
   "counsel:participant-update",
   "counsel:complete",
@@ -481,6 +487,13 @@ contextBridge.exposeInMainWorld("electron", {
       if (validReceiveChannels.includes(channel)) {
         ipcRenderer.removeListener(channel, listener);
       }
+    },
+    send: (channel: ValidReceiveChannel, ...args: unknown[]) => {
+      if (channel === "plan:artifact-activated") {
+        ipcRenderer.send(channel, ...args);
+        return;
+      }
+      throw new Error(`Invalid channel: ${channel}`);
     },
   },
   webFrame: {

@@ -35,6 +35,16 @@ export function useLoadApp(appId: number | null) {
     retry: false,
   });
 
+  const { data: appFilesData } = useQuery({
+    queryKey: ['app-files', appId],
+    queryFn: async () => {
+      if (appId === null) return null;
+      return IpcClient.getInstance().getAppFiles(appId);
+    },
+    enabled: appId !== null,
+    retry: false,
+  });
+
   useEffect(() => {
     if (appId === null) {
       setApp(null);
@@ -53,10 +63,13 @@ export function useLoadApp(appId: number | null) {
       if (loadedAppIdRef.current === appId) return;
       loadedAppIdRef.current = appId;
 
-      setApp(appData);
+      const files = appFilesData?.files ?? appData.files ?? [];
+      const fileDiscoveryWarnings =
+        appFilesData?.fileDiscoveryWarnings ?? appData.fileDiscoveryWarnings;
+      setApp({ ...appData, files, fileDiscoveryWarnings });
 
-      if (appData.fileDiscoveryWarnings?.length) {
-        for (const msg of appData.fileDiscoveryWarnings) {
+      if (fileDiscoveryWarnings?.length) {
+        for (const msg of fileDiscoveryWarnings) {
           toast.warning(msg, { duration: 9000 });
         }
       }
@@ -87,7 +100,7 @@ export function useLoadApp(appId: number | null) {
 
       setDiagramStaleness(null);
     }
-  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness]);
+  }, [appId, appData, appFilesData, setApp, setDiagramState, setDiagramStaleness]);
 
   return { app: appData, loading, error, refreshApp };
 }
@@ -96,5 +109,8 @@ export const invalidateAppQuery = (
   queryClient: QueryClient,
   { appId }: { appId: number | null },
 ) => {
-  return queryClient.invalidateQueries({ queryKey: ["app", appId] });
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["app", appId] }),
+    queryClient.invalidateQueries({ queryKey: ["app-files", appId] }),
+  ]);
 };

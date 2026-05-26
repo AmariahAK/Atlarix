@@ -44,15 +44,14 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 // Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault', 'plan'],
+    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'search', 'vault'],
     'diagram': ['activity'],
     'terminal': ['terminal', 'activity'],
-    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault', 'plan'],
+    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'search', 'vault', 'diff'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'permissions', 'search', 'vault'],
-    'plan': ['plan'],
+    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'search', 'vault', 'diff'],
     'empty': [],
 };
 
@@ -142,12 +141,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     // Used when AI doesn't explicitly set intent
     // ═══════════════════════════════════════════════════════════
     const heuristicType = useMemo((): PanelType => {
-        // Priority 1: Active permissions in the queue (pending, queued, or running)
-        if (hasPendingPermissions) {
-            return 'file-diff';  // PermissionQueuePanel handles all permission operations
-        }
-
-        // Priority 1b: Legacy file diff / proposals (for backwards compat)
+        // Priority 1: Legacy file diff / proposals (permissions are inline in chat)
         const pendingApproval = proposals.filter(p => !p.approved);
         if (pendingApproval.length > 0) {
             return 'file-diff';  // FileDiffPanel handles both files AND permissions
@@ -339,12 +333,6 @@ function getDataForType(
                 appId: state.appId,
                 ...state.diagramState,
                 ...state.aiContext
-            };
-        case 'plan':
-            return {
-                workspacePath: state.workspacePath,
-                appId: state.appId,
-                chatId: state.aiContext?.chatId,
             };
         default:
             return state.aiContext || null;

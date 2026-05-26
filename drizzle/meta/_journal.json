@@ -337,6 +337,20 @@
       "when": 1778650000000,
       "tag": "0047_drop_blueprints_table",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1778750000000,
+      "tag": "0048_session_plan_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1778750000000,
+      "tag": "0048_session_plan_artifacts",
+      "breakpoints": true
     }
   ]
 }

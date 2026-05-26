@@ -447,16 +447,22 @@ export const rightPanelVisibleAtom = atom<boolean>(false);
  * non-critical UI (sources, diagram tool results, terminal). Cleared when the user
  * opens the panel explicitly.
  */
-/** Right-panel Plan tab: workspace markdown, parsed changes, live ledger. */
+/** Right-panel Plan tab: active session plan artifact from DB. */
 export const workspacePlanPanelAtom = atom<{
-  markdown: string | null;
+  planId: string | null;
+  content: string | null;
+  planStatus: "plan" | "building" | "built" | null;
+  sessionId: string | null;
   changes: PlanChangesPayload | null;
-  ledger: PlanUpdatePayload | null;
 }>({
-  markdown: null,
+  planId: null,
+  content: null,
+  planStatus: null,
+  sessionId: null,
   changes: null,
-  ledger: null,
 });
+
+export const activePlanArtifactIdAtom = atom<string | null>(null);
 
 export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
 

@@ -250,6 +250,7 @@ import {
   pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
 import { summarizeOversizedToolResultsInContent } from "../../lib/context/post_turn_tool_result_summary";
+import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import {
   estimateTokens,
   getContextWindow,
@@ -258,7 +259,11 @@ import {
 } from "../utils/token_utils";
 import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
-import { labelForWorkMode, settingsPatchForWorkMode } from "../../lib/work-mode";
+import {
+  labelForWorkMode,
+  resolveEffectiveWorkMode,
+  settingsPatchForWorkMode,
+} from "../../lib/work-mode";
 import { classifyTerminalCommand } from "../../lib/terminal-command-class";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { captureSafe } from "../../main/lib/analytics";
@@ -1904,18 +1909,20 @@ ${componentSnippet}
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
       // Capture inserted user message id so we can attach session-only metadata (attachments) for renderer.
       let insertedUserMessageId: number | null = null;
-      const workModeForUserMessage: WorkMode = (() => {
-        const s = readSettings();
-        const cm: "ask" | "build" =
-          s.selectedChatMode === "agent"
-            ? "build"
-            : s.selectedChatMode === "ask" || s.selectedChatMode === "build"
-              ? s.selectedChatMode
-              : "ask";
-        const intent = s.intentMode ?? cm;
-        if (intent === "auto") return cm === "build" ? "build" : "ask";
-        return s.workModePreference ?? (cm === "build" ? "build" : "ask");
-      })();
+      const workModeForUserMessage: WorkMode =
+        req.workModeOverride ??
+        (() => {
+          const s = readSettings();
+          const cm: "ask" | "build" =
+            s.selectedChatMode === "agent"
+              ? "build"
+              : s.selectedChatMode === "ask" || s.selectedChatMode === "build"
+                ? s.selectedChatMode
+                : "ask";
+          const intent = s.intentMode ?? cm;
+          if (intent === "auto") return cm === "build" ? "build" : "ask";
+          return s.workModePreference ?? (cm === "build" ? "build" : "ask");
+        })();
       if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
         clearSelfCorrectionAttemptsForChat(req.chatId);
         const inserted = await db
@@ -1934,6 +1941,10 @@ ${componentSnippet}
         req.streamChatModeOverride != null
           ? { ...settingsBase, selectedChatMode: req.streamChatModeOverride }
           : settingsBase;
+      if (req.workModeOverride) {
+        const { settingsPatchForWorkMode } = await import("@/lib/work-mode");
+        settings = { ...settings, ...settingsPatchForWorkMode(req.workModeOverride) };
+      }
       settings = await ensureAutoRoutingConfigAsync(settings);
       // Generate requestId early so it can be saved with the message
       engineRequestId = uuidv4();
@@ -2333,13 +2344,14 @@ ${componentSnippet}
           }
         }
 
-        // Resolve effective workspace: sidebar selection (req.appId) overrides when present and different from chat's app
+        // Workspace: use chat's linked app, or req.appId only when the chat has no app
+        // (client binds appId on first stream — no mid-chat sidebar override).
         let effectiveApp = updatedChat.app;
-        if (req.appId != null && req.appId !== updatedChat.app?.id) {
-          const overrideApp = await db.query.apps.findFirst({
+        if (!effectiveApp && req.appId != null) {
+          const boundApp = await db.query.apps.findFirst({
             where: eq(apps.id, req.appId),
           });
-          if (overrideApp) effectiveApp = overrideApp;
+          if (boundApp) effectiveApp = boundApp;
         }
         const hasWorkspace = !!effectiveApp;
         let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
@@ -2582,13 +2594,14 @@ ${componentSnippet}
               ? "build"
               : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
 
-          // PASS8 A2: Compute effectiveWorkMode before constructing the system prompt
-          // so the active mode is the only one rendered in <mode_system>.
-          const intentModeForContext = settings.intentMode ?? chatMode;
-          const effectiveWorkMode: WorkMode =
-            intentModeForContext === "auto"
-              ? (chatMode === "build" ? "build" : "ask")
-              : (settings.workModePreference ?? (chatMode === "build" ? "build" : "ask"));
+          // PASS8 A2: effectiveWorkMode = UI work mode (ask|plan|build|debug|review).
+          // Manual mode picker sets workModePreference; Auto intent maps to ask|build only.
+          const effectiveWorkMode: WorkMode = resolveEffectiveWorkMode({
+            workModeOverride: req.workModeOverride,
+            intentMode: settings.intentMode,
+            workModePreference: settings.workModePreference,
+            selectedChatMode: settings.selectedChatMode ?? "ask",
+          });
           const modeBlockKey: ModeSystemKey | undefined =
             (effectiveWorkMode === "ask" ||
               effectiveWorkMode === "plan" ||
@@ -2707,11 +2720,7 @@ ${componentSnippet}
           }
 
           try {
-            const modeKey =
-              settings.selectedChatMode === "agent"
-                ? "build"
-                : (settings.selectedChatMode ?? "ask");
-            const modeSkillName = getSkillNameForMode(modeKey);
+            const modeSkillName = getSkillNameForMode(effectiveWorkMode);
             const modeSkillBody = await loadSkill(
               modeSkillName,
               hasWorkspace && appPath ? appPath : undefined,
@@ -2739,7 +2748,7 @@ ${componentSnippet}
                 if (prioritySkills.length > 0) {
                   const block = formatPrioritySkillsForPrompt(
                     prioritySkills,
-                    modeKey,
+                    effectiveWorkMode,
                   );
                   if (block.trim()) {
                     contextSections.push({
@@ -2750,7 +2759,7 @@ ${componentSnippet}
                     const priorityCount = prioritySkills.filter((s) => s.priority).length;
                     const localCount = prioritySkills.length - priorityCount;
                     logger.info(
-                      `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${modeKey}"`,
+                      `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${effectiveWorkMode}"`,
                     );
                   }
                 }
@@ -2768,11 +2777,33 @@ ${componentSnippet}
           // Pass 7: Installed skills are accessed on-demand via the
           // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
           // The legacy pre-injection block has been removed.
-          const shouldCreateTaskLedger =
-            settings.selectedChatMode === "build" ||
-            settings.selectedChatMode === "agent" ||
-            settings.agentMode === "autonomous" ||
-            effectiveWorkMode === "plan";
+          const shouldCreateTaskLedger = false;
+          if (
+            req.workspaceSessionId &&
+            hasWorkspace &&
+            !req.prompt.startsWith("Summarize from chat-id=") &&
+            !req.prompt.startsWith("/security-review")
+          ) {
+            try {
+              const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+              const activePlan =
+                (await getLatestPlanArtifact(req.workspaceSessionId, "building")) ??
+                (await getLatestPlanArtifact(req.workspaceSessionId));
+              if (activePlan?.content?.trim()) {
+                const snippet =
+                  activePlan.content.length > 3000
+                    ? `${activePlan.content.slice(0, 3000)}\n\n...(truncated)`
+                    : activePlan.content;
+                contextSections.push({
+                  name: "activePlan",
+                  priority: 0.05,
+                  content: `Active session plan (${activePlan.planStatus}):\n\n${snippet}`,
+                });
+              }
+            } catch (planCtxErr) {
+              logger.warn("[plan-artifact] context inject failed:", planCtxErr);
+            }
+          }
           if (
             shouldCreateTaskLedger &&
             !req.prompt.startsWith("Summarize from chat-id=") &&
@@ -3133,12 +3164,12 @@ ${componentSnippet}
                 contextSections.push({
                   name: "projectMemory",
                   priority: 4,
-                  content: `## Project memory (.atlarix/ATLARIX.md)\n${atlarixMd}`,
+                  content: `## Project memory (.atlarix/atlarix.md)\n${atlarixMd}`,
                 });
-                logger.info("Injected .atlarix/ATLARIX.md");
+                logger.info("Injected atlarix.md");
               }
             } catch (memErr) {
-              logger.warn("Failed to read .atlarix/ATLARIX.md:", memErr);
+              logger.warn("Failed to read atlarix.md:", memErr);
             }
           }
 
@@ -4655,7 +4686,11 @@ This conversation includes one or more image attachments. When the user uploads 
 
                     const result = await runToolExecute(
                       regName,
-                      { ...args, _chatSessionId: req.chatId },
+                      {
+                        ...args,
+                        _chatSessionId: req.chatId,
+                        workspaceSessionId: req.workspaceSessionId ?? undefined,
+                      },
                       event.sender,
                       req.chatId,
                       buildToolStreamOpts(),
@@ -4938,6 +4973,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 "read_implementation_plan",
                 "run_command",
                 "search",
+                "update_plan_status",
                 "write_file",
                 "write_implementation_plan",
               ]),
@@ -5173,6 +5209,7 @@ This conversation includes one or more image attachments. When the user uploads 
                             ? "build"
                             : "ask",
                       _chatSessionId: req.chatId,
+                      workspaceSessionId: req.workspaceSessionId ?? undefined,
                     };
                     attachSearchRoutingActivity(execArgs, event.sender, req.chatId);
                     if (tool.name === "stream_terminal_output") {
@@ -5207,49 +5244,36 @@ This conversation includes one or more image attachments. When the user uploads 
                       return askUserResolvedEarly;
                     }
 
-                    if (
-                      tool.name === "write_implementation_plan" &&
-                      askPermissionInterceptor.isPermissionRequest(result)
-                    ) {
-                      const planPerm = askPermissionInterceptor.parsePermissionRequest(result);
-                      if (planPerm) {
-                        const planOpId = askPermissionInterceptor.generateOperationId();
-                        askPermissionInterceptor.bufferOperation(planOpId, planPerm);
-                        logger.log(
-                          `[Plan tools] write_implementation_plan: executing without approval UI (${planOpId})`,
-                        );
-                        const planExec = await askPermissionInterceptor.executeOperation(planOpId);
-                        if (!planExec.approved) {
-                          return JSON.stringify({
-                            success: false,
-                            error: planExec.error ?? "Failed to write implementation plan",
+                    if (tool.name === "write_implementation_plan") {
+                      try {
+                        const parsed =
+                          typeof result === "string" ? JSON.parse(result) : result;
+                        if (parsed?.success && parsed?.planId) {
+                          const { emitPlanArtifactUpdated } = await import(
+                            "@/ipc/utils/emit_plan_artifact"
+                          );
+                          const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+                          const row = await getPlanArtifact(parsed.planId);
+                          if (row) {
+                            emitPlanArtifactUpdated(event.sender, {
+                              planId: row.id,
+                              sessionId: row.sessionId,
+                              content: row.content,
+                              planStatus: row.planStatus,
+                            });
+                          }
+                          safeSend(event.sender, "chat:activity", {
+                            id: `plan-saved-${Date.now()}`,
+                            type: "tool",
+                            label: "Plan saved",
+                            status: "done",
+                            timestamp: Date.now(),
+                            detail: parsed.planId,
+                            chatId: req.chatId,
                           });
                         }
-                        const planResult = askPermissionInterceptor.getExecutionResult(planOpId);
-                        const planPreview = planPerm.preview as { path?: string };
-                        if (planPreview.path) {
-                          filesWrittenInThisExchange.push(planPreview.path);
-                        }
-                        safeSend(event.sender, "chat:activity", {
-                          id: `plan-saved-${Date.now()}`,
-                          type: "tool",
-                          label: "Plan saved",
-                          status: "done",
-                          timestamp: Date.now(),
-                          detail: planResult.path ?? planPreview.path ?? ".atlarix/ATLARIX_PLAN.md",
-                          chatId: req.chatId,
-                        });
-                        const ledgerForPlan = getLedger(streamTurnIdForLedger);
-                        captureSafe("plan_written_ask_mode", {
-                          step_count: ledgerForPlan?.steps.length ?? 0,
-                          chat_id: req.chatId,
-                          turn_id: streamTurnIdForLedger,
-                        });
-                        return JSON.stringify({
-                          success: true,
-                          message: `Wrote ${planPreview.path ?? ".atlarix/ATLARIX_PLAN.md"}`,
-                          path: planResult.path,
-                        });
+                      } catch {
+                        /* result may not be JSON */
                       }
                     }
 
@@ -5439,12 +5463,15 @@ This conversation includes one or more image attachments. When the user uploads 
                 ? `
 
 ## Plan mode (required)
-You are in **Plan** mode (not Build). Call **get_plan_scope** when the workspace layout is ambiguous. Persist the implementation roadmap to **.atlarix/ATLARIX_PLAN.md** using **write_implementation_plan** (preferred) **or** **write_file** only for that path. Update **.atlarix/ATLARIX.md** with **write_file** when the user needs project instructions or memory updates. Read the current plan with **read_implementation_plan** before revising. Keep prose short after saving; the UI renders a structured Plan card—avoid duplicating the full plan in the visible reply. Suggest switching to **Build** only **after** the plan is done and the user wants implementation—not during mid-conversation clarification.
+You are in **Plan** mode (not Build). Persist the implementation roadmap as a **session plan artifact** using **write_implementation_plan** (not a file on disk). Update **.atlarix/atlarix.md** with **write_file** when the user needs durable project instructions. Read the current plan with **read_implementation_plan** before revising. After saving, include the returned **marker** comment in your reply so the UI shows a plan card. Keep prose short; avoid duplicating the full plan in the visible answer. Suggest switching to **Build** only after the plan is done and the user wants implementation.
 `
                 : "";
 
-            const askModePrompt = `
-IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create or update **.atlarix/ATLARIX_PLAN.md** here. For roadmaps or structured plan files, ask the user to switch to **Plan** mode in the UI. Do **not** suggest **Build** for ordinary Q&A.
+            const askModePrompt =
+              effectiveWorkMode === "ask"
+                ? `
+
+IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create session plan artifacts here (write_implementation_plan). For roadmaps, ask the user to switch to **Plan** mode. Do **not** suggest **Build** for ordinary Q&A.
 
 **Git and shell:** Use the **run_command** tool for git and read-only shell (git status, git log -1, git diff, ls, cat). Do not read .git/objects manually when run_command can answer. Mutating commands (npm install, git commit, rm, etc.) are blocked in Explore.
 
@@ -5455,7 +5482,8 @@ Available tools (Explore — read-only):
 - memory, get_active_skills, list_installed_skills, list_available_mcps, get_project_history
 - read_attachment, list_attachments, ask_user
 
-NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_tests, or mutating run_command (npm install, git commit, etc.).`;
+NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_tests, or mutating run_command (npm install, git commit, etc.).`
+                : "";
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             const askTierStreamLoopStartMs = Date.now();
@@ -5839,6 +5867,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     status: "running",
                     timestamp: Date.now(),
                     chatId: req.chatId,
+                    toolName,
                   });
                   try {
                     if (toolName === "compress_context") {
@@ -5912,6 +5941,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       agentMode: settings.agentMode ?? "guided",
                       chatMode: "build",
                       _chatSessionId: req.chatId,
+                      workspaceSessionId: req.workspaceSessionId ?? undefined,
                     };
                     attachSearchRoutingActivity(executeArgs, event.sender, req.chatId);
                     if (isStreamTool) {
@@ -6257,6 +6287,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       status: activityStatus,
                       timestamp: Date.now(),
                       chatId: req.chatId,
+                      toolName,
                     });
                   }
                 },
@@ -6684,6 +6715,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                           workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
                           _chatSessionId: req.chatId,
+                      workspaceSessionId: req.workspaceSessionId ?? undefined,
                         };
                         attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
                         try {
@@ -6750,6 +6782,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                           workspaceId: effectiveAppId ?? undefined,
                           chatMode: "build",
                           _chatSessionId: req.chatId,
+                      workspaceSessionId: req.workspaceSessionId ?? undefined,
                         };
                         attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
                         toolResult = await runToolExecute(
@@ -7326,10 +7359,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           }
           let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
           responseToStore = stripTaskCompleteTags(sanitizeAssistantOutput(responseToStore));
-          responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
-            settings: readSettings(),
-            mainOptions,
-          });
+          emitPostTurnToolSummaryActivity(event.sender, req.chatId, "running");
+          try {
+            responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
+              settings: readSettings(),
+              mainOptions,
+            });
+          } finally {
+            emitPostTurnToolSummaryActivity(event.sender, req.chatId, "done");
+          }
           // Scrape from: <atlarix-chat-summary>Renaming profile file</atlarix-chat-title>
           const chatTitle = responseToStore.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,

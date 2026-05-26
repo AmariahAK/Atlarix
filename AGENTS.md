@@ -95,7 +95,7 @@ The response returns the Mermaid block **once** in `mermaid_code`. `context_for_
 | **System instructions** | Static | `AGENTS_COMPACT.md` — always loaded |
 | **Mode system** | Static | `<mode_system>` block declares the active mode's tool surface |
 | **Blueprint / Diagram** | On demand | Fetched via `get_blueprint` / `get_diagram` — NEVER auto-injected |
-| **Project memory** | Persistent | `ATLARIX.md` in workspace root + SQLite store |
+| **Project memory** | Persistent | `.atlarix/atlarix.md` + SQLite store |
 | **Session memory** | Ephemeral | Last N exchanges — resets on New Chat / close |
 | **LSP diagnostics** | Ephemeral | Live error/warning state — only in Build/Debug |
 
@@ -114,8 +114,8 @@ The full per-mode tool surface lives in the `<mode_system>` block of the system 
 - No file writes, no command execution, LSP OFF
 
 ### Plan
-- Read-only analysis plus authoring `.atlarix/ATLARIX_PLAN.md` via `write_implementation_plan`
-- Tools: Ask tools + `get_plan_scope`, `read_implementation_plan`, `write_implementation_plan`, `write_file`, `edit_file` (plan / markdown files only)
+- Read-only analysis plus session plan artifacts via `write_implementation_plan`; durable notes in `.atlarix/atlarix.md`
+- Tools: Ask tools + `get_plan_scope`, `read_implementation_plan`, `write_implementation_plan`, `update_plan_status`, `write_file`, `edit_file` (`.atlarix/atlarix.md` only)
 - LSP OFF
 
 ### Build
@@ -175,8 +175,8 @@ Provider-agnostic context pruning based on the actual model context window. Pass
 ### Counsel Pipeline
 Completion-driven (sequential), 7-minute timeout per participant, reasoning deltas emitted every 1.5s as `counsel_thinking` activity.
 
-### Session Task Ledger
-For multi-step tasks, maintain your ledger with `update_ledger`. Plan / Completed / Pending / Files read / modified / Notes. Call `update_ledger` at the start of any task and after each significant action. Ledger persists for the session and is cleared automatically on New Chat. Call `read_ledger` to check progress.
+### Session plans
+Multi-step roadmaps are **session plan artifacts** (database rows), not files. Use `write_implementation_plan` in Plan mode; the UI shows clickable plan cards. Use `.atlarix/atlarix.md` for durable project notes.
 
 ---
 

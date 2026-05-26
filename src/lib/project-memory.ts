@@ -1,8 +1,8 @@
 /**
- * Project-level .atlarix/ instruction memory
+ * Project memory — `.atlarix/atlarix.md`
  * ==========================================
- * Canonical file: .atlarix/ATLARIX.md
- * Legacy files: .atlarix/memory.md and .atlarix/spec.md are auto-migrated.
+ * Canonical: {workspace}/.atlarix/atlarix.md
+ * Legacy: root atlarix.md, .atlarix/ATLARIX.md, memory.md, spec.md
  */
 
 import fs from "node:fs/promises";
@@ -11,24 +11,34 @@ import log from "electron-log";
 
 const logger = log.scope("project-memory");
 
-const ATLARIX_DIR = ".atlarix";
-const ATLARIX_MD_FILE = "ATLARIX.md";
+export const ATLARIX_DIR = ".atlarix";
+const CANONICAL_MD = "atlarix.md";
+const LEGACY_DOT_ATLARIX_MD = "ATLARIX.md";
 const LEGACY_MEMORY_FILE = "memory.md";
 const LEGACY_SPEC_FILE = "spec.md";
+const ROOT_LEGACY_ATLARIX_MD = "atlarix.md";
 
 /** Max chars to inject into system prompt (avoid context bloat) */
 const MAX_INJECT_CHARS = 3000;
 
-export function getAtlarixMdPath(workspacePath: string): string {
-  return path.join(workspacePath, ATLARIX_DIR, ATLARIX_MD_FILE);
+export function getAtlarixDirPath(workspacePath: string): string {
+  return path.join(workspacePath, ATLARIX_DIR);
 }
 
-/**
- * Ensure .atlarix directory exists
- */
+export function getAtlarixMdPath(workspacePath: string): string {
+  return path.join(workspacePath, ATLARIX_DIR, CANONICAL_MD);
+}
+
+function legacyDotAtlarixMdPath(workspacePath: string): string {
+  return path.join(workspacePath, ATLARIX_DIR, LEGACY_DOT_ATLARIX_MD);
+}
+
+function rootLegacyAtlarixMdPath(workspacePath: string): string {
+  return path.join(workspacePath, ROOT_LEGACY_ATLARIX_MD);
+}
+
 async function ensureAtlarixDir(workspacePath: string): Promise<void> {
-  const dir = path.join(workspacePath, ATLARIX_DIR);
-  await fs.mkdir(dir, { recursive: true });
+  await fs.mkdir(getAtlarixDirPath(workspacePath), { recursive: true });
 }
 
 function normalizeForCompare(content: string): string {
@@ -41,9 +51,10 @@ async function safeRead(filePath: string): Promise<string | null> {
     const trimmed = content.trim();
     if (!trimmed) return null;
     return trimmed;
-  } catch (err: any) {
-    if (err?.code !== "ENOENT") {
-      logger.warn(`Failed to read ${path.basename(filePath)}:`, err?.message ?? err);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") {
+      logger.warn(`Failed to read ${path.basename(filePath)}:`, err);
     }
     return null;
   }
@@ -51,11 +62,11 @@ async function safeRead(filePath: string): Promise<string | null> {
 
 async function safeRenameToOld(filePath: string): Promise<void> {
   try {
-    const oldPath = `${filePath}.old`;
-    await fs.rename(filePath, oldPath);
-  } catch (err: any) {
-    if (err?.code !== "ENOENT") {
-      logger.warn(`Failed to archive ${path.basename(filePath)}:`, err?.message ?? err);
+    await fs.rename(filePath, `${filePath}.old`);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") {
+      logger.warn(`Failed to archive ${path.basename(filePath)}:`, err);
     }
   }
 }
@@ -64,53 +75,59 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
   if (!workspacePath) return;
   await ensureAtlarixDir(workspacePath);
 
-  const atlarixMdPath = getAtlarixMdPath(workspacePath);
+  const canonicalPath = getAtlarixMdPath(workspacePath);
+  const legacyDotPath = legacyDotAtlarixMdPath(workspacePath);
+  const rootAtlarixPath = rootLegacyAtlarixMdPath(workspacePath);
   const legacyMemoryPath = path.join(workspacePath, ATLARIX_DIR, LEGACY_MEMORY_FILE);
   const legacySpecPath = path.join(workspacePath, ATLARIX_DIR, LEGACY_SPEC_FILE);
-  const rootLegacyMemoryPath = path.join(workspacePath, "MEMORY.md");
+  const rootMemoryPath = path.join(workspacePath, "MEMORY.md");
 
-  const [existingAtlarixMd, memoryMd, specMd, rootMemoryMd] = await Promise.all([
-    safeRead(atlarixMdPath),
+  const [canonical, legacyDot, rootAtlarix, memoryMd, specMd, rootMemoryMd] = await Promise.all([
+    safeRead(canonicalPath),
+    safeRead(legacyDotPath),
+    safeRead(rootAtlarixPath),
     safeRead(legacyMemoryPath),
     safeRead(legacySpecPath),
-    safeRead(rootLegacyMemoryPath),
+    safeRead(rootMemoryPath),
   ]);
 
-  let finalContent = existingAtlarixMd?.trim() || "";
+  let finalContent =
+    canonical?.trim() || legacyDot?.trim() || rootAtlarix?.trim() || "";
   if (!finalContent) {
     const memoryContent = memoryMd || rootMemoryMd;
     const specContent = specMd;
-
     if (memoryContent || specContent) {
       const parts: string[] = [];
       if (memoryContent) {
-        parts.push(`# ATLARIX Project Memory\n\n${memoryContent.trim()}`);
+        parts.push(`# Project memory\n\n${memoryContent.trim()}`);
       }
       if (
         specContent &&
         (!memoryContent || normalizeForCompare(specContent) !== normalizeForCompare(memoryContent))
       ) {
-        parts.push(`## Legacy Spec Notes\n\n${specContent.trim()}`);
+        parts.push(`## Legacy spec notes\n\n${specContent.trim()}`);
       }
       finalContent = parts.join("\n\n");
     }
   }
 
-  if (finalContent) {
-    await fs.writeFile(atlarixMdPath, finalContent.trim() + "\n", "utf8");
+  if (finalContent && !canonical) {
+    await fs.writeFile(canonicalPath, finalContent.trim() + "\n", "utf8");
+    if (legacyDot) await safeRenameToOld(legacyDotPath);
+    if (rootAtlarix) await safeRenameToOld(rootAtlarixPath);
   }
 
-  // Archive old files after successful migration/write.
   await Promise.all([
     safeRenameToOld(legacyMemoryPath),
     safeRenameToOld(legacySpecPath),
-    safeRenameToOld(rootLegacyMemoryPath),
+    safeRenameToOld(rootMemoryPath),
   ]);
 }
 
 export async function readAtlarixMd(workspacePath: string): Promise<string | null> {
   if (!workspacePath) return null;
   await migrateLegacyAtlarixFiles(workspacePath);
+
   const content = await safeRead(getAtlarixMdPath(workspacePath));
   if (!content) return null;
   if (content.length > MAX_INJECT_CHARS) {
@@ -122,22 +139,18 @@ export async function readAtlarixMd(workspacePath: string): Promise<string | nul
 export async function writeAtlarixMd(workspacePath: string, summaryText: string): Promise<void> {
   if (!workspacePath || !summaryText?.trim()) return;
   try {
-    await ensureAtlarixDir(workspacePath);
     await migrateLegacyAtlarixFiles(workspacePath);
     const filePath = getAtlarixMdPath(workspacePath);
     const existing = await safeRead(filePath);
-    const header = existing?.startsWith("# ATLARIX Project Memory")
-      ? ""
-      : `# ATLARIX Project Memory\n\n`;
+    const header = existing?.startsWith("#") ? "" : `# Project memory\n\n`;
     const merged = `${header}Last updated: ${new Date().toISOString()}\n\n${summaryText.trim()}\n`;
     await fs.writeFile(filePath, merged, "utf8");
-    logger.info(`Wrote .atlarix/ATLARIX.md for ${workspacePath}`);
-  } catch (err: any) {
-    logger.warn("Failed to write ATLARIX.md:", err?.message ?? err);
+    logger.info(`Wrote .atlarix/atlarix.md for ${workspacePath}`);
+  } catch (err: unknown) {
+    logger.warn("Failed to write .atlarix/atlarix.md:", err);
   }
 }
 
-// Backwards-compatible wrappers used by existing call-sites.
 export async function readMemoryMd(workspacePath: string): Promise<string | null> {
   return readAtlarixMd(workspacePath);
 }
@@ -148,4 +161,15 @@ export async function readSpecMd(_workspacePath: string): Promise<string | null>
 
 export async function writeMemoryMd(workspacePath: string, summaryText: string): Promise<void> {
   return writeAtlarixMd(workspacePath, summaryText);
+}
+
+/** Workspace-relative path for plan-mode write checks. */
+export function isWorkspaceAtlarixMdPath(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  return (
+    norm === `${ATLARIX_DIR}/${CANONICAL_MD}` ||
+    norm === CANONICAL_MD ||
+    norm === `${ATLARIX_DIR}/${LEGACY_DOT_ATLARIX_MD}` ||
+    norm === LEGACY_DOT_ATLARIX_MD
+  );
 }

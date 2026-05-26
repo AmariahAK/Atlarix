@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { LoadingBar } from '@/components/ui/LoadingBar';
-import atlarixLogo from '../../assets/logo.svg?url';
+import { AtlarixLogo } from '@/components/atlarix/AtlarixLogo';
 
 export function SignInPage() {
     const {
@@ -22,7 +22,6 @@ export function SignInPage() {
         oauthStatusLabel,
     } = useAuth();
     const navigate = useNavigate();
-    const logoSrc = atlarixLogo;
 
     useEffect(() => {
         // Redirect to home if already signed in
@@ -51,20 +50,8 @@ export function SignInPage() {
             <Card className="relative w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm overflow-hidden">
                 <LoadingBar isVisible={oauthPending} />
                 <CardHeader className="text-center space-y-4">
-                    {/* Atlarix logo (theme-aware) */}
                     <div className="flex justify-center">
-                        <div className="relative w-20 h-20 rounded-full border-4 border-primary/20 bg-primary/10 flex items-center justify-center overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-br from-[#10B981]/20 to-[#F59E0B]/10 blur-md" aria-hidden="true" />
-                            <img
-                                src={logoSrc}
-                                alt="Atlarix"
-                                className="relative w-12 h-12 object-contain contrast-125 dark:contrast-100"
-                                draggable={false}
-                                onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                }}
-                            />
-                        </div>
+                        <AtlarixLogo size="lg" showSpinner={oauthPending} />
                     </div>
 
                     <div>

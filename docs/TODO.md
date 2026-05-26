@@ -1,7 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v8.7.5
-**Last Updated:** 2026-05-24
+**Current Version:** v8.8.0
+**Last Updated:** 2026-05-26
+
+---
+
+## Shipped in v8.8.0
+
+| Area | Notes |
+|------|--------|
+| **Plan artifacts** | DB-backed session plans; `PlanArtifactCard`, `PlanExecutionPanel`, plan IPC |
+| **atlarix.md** | `.atlarix/atlarix.md` project memory; `.atlarix/.atlarixignore`; Plan-only writes |
+| **Session titles** | Async AI naming after first assistant reply |
+| **Folder picker** | Instant native dialog on `+`; `get-app-files` for sidebar tree |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.8.0]`.
 
 ---
 

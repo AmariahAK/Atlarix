@@ -15,6 +15,8 @@ import {
   expectedBundledMigrationCount,
   UnknownDrizzleMigrationHashError,
 } from "./migrate_atlarix";
+import { columnExists } from "./migration_seed_verification";
+import { columnExists } from "./migration_seed_verification";
 
 const logger = log.scope("db");
 
@@ -162,6 +164,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       }
       try { ensureReviewPatternsTableIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring review_patterns table (non-fatal):", error);
+      try { ensureSessionMessagePlanColumnsIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring session_messages plan columns (non-fatal):", error);
+      }
       }
 
       if (!isCoreSchemaComplete(sqlite)) {
@@ -481,6 +486,24 @@ function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
   `);
   sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
 }
+function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): void {
+  const hasSessionMessages = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_messages'")
+    .get();
+  if (!hasSessionMessages) return;
+
+  if (!columnExists(sqlite, "session_messages", "kind")) {
+    logger.log("[Schema Fix] Adding session_messages.kind (0048_session_plan_artifacts)");
+    sqlite.exec(
+      "ALTER TABLE session_messages ADD COLUMN kind text NOT NULL DEFAULT 'message'",
+    );
+  }
+  if (!columnExists(sqlite, "session_messages", "plan_status")) {
+    logger.log("[Schema Fix] Adding session_messages.plan_status (0048_session_plan_artifacts)");
+    sqlite.exec("ALTER TABLE session_messages ADD COLUMN plan_status text");
+  }
+}
+
 
 // Pass 7: ensurePivotTablesIfNeeded removed (PIVOT subsystem deleted; migration 0043 drops tables).
 

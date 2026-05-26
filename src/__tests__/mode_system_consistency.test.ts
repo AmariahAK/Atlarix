@@ -3,7 +3,10 @@
  * `src/ipc/handlers/chat_stream_handlers.ts` (see MODE_SYSTEM_TOOL_LISTS).
  */
 import { describe, expect, it } from "vitest";
-import { MODE_SYSTEM_TOOL_LISTS } from "../prompts/system_prompt";
+import {
+  MODE_SYSTEM_TOOL_LISTS,
+  constructSystemPromptParts,
+} from "../prompts/system_prompt";
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
 
@@ -60,6 +63,7 @@ const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", stri
     "read_implementation_plan",
     "run_command",
     "search",
+    "update_plan_status",
     "write_file",
     "write_implementation_plan",
   ],
@@ -139,5 +143,18 @@ describe("mode system consistency", () => {
   it("debug mode allowlist includes write_file", () => {
     expect(STREAM_HANDLER_ALLOWLIST.debug).toContain("write_file");
     expect(MODE_SYSTEM_TOOL_LISTS.debug).toContain("write_file");
+  });
+
+  it("constructSystemPromptParts(plan) omits other mode headers", () => {
+    const { stableHeader } = constructSystemPromptParts({
+      chatMode: "ask",
+      effectiveWorkMode: "plan",
+    });
+    expect(stableHeader).toContain("## Current mode: Plan");
+    expect(stableHeader).not.toContain("## Current mode: Explore");
+    expect(stableHeader).not.toContain("## Current mode: Build");
+    expect(stableHeader).not.toContain("## Current mode: Fix");
+    expect(stableHeader).not.toContain("## Current mode: Review");
+    expect(stableHeader).not.toContain("- **Modes:** Ask, Plan, Build");
   });
 });

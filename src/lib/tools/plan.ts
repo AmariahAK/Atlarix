@@ -1,117 +1,40 @@
 /**
- * Plan tools — implementation plan file management (.atlarix/ATLARIX_PLAN.md).
- *
- * Previously bundled in blueprint-tools.ts. Plan files are an independent feature
- * from Blueprint and survived the Pass 7 Blueprint removal.
+ * Plan tools — session-scoped plan artifacts (SQLite), not files.
  */
 
 import { ToolRegistry, ToolCategory, createParameters, stringParam } from "./registry";
-
-export const PLAN_FILENAME = "ATLARIX_PLAN.md";
-export const PLAN_DIR = ".atlarix";
-
-function getPlanPath(targetPath?: string): string {
-  const normalizedTarget = (targetPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
-  const base = normalizedTarget ? `${normalizedTarget}/${PLAN_DIR}` : PLAN_DIR;
-  return `${base}/${PLAN_FILENAME}`;
-}
+import {
+  createPlanArtifact,
+  getLatestPlanArtifact,
+  getPlanArtifact,
+  updatePlanArtifactContent,
+  setPlanArtifactStatus,
+  planArtifactMarker,
+} from "@/lib/plans/plan-artifacts";
+import type { PlanArtifactStatus } from "@/db/schema";
 
 ToolRegistry.register({
   name: "get_plan_scope",
   description:
-    "Determine where to put .atlarix/ATLARIX_PLAN.md. Uses git (if present) and project structure. Returns suggested targetPaths. Call before write_implementation_plan for multi-repo/polyproject.",
+    "Plans are session artifacts stored in the database (not files). Use write_implementation_plan to create/update a plan for this chat session. Use .atlarix/atlarix.md for durable project notes.",
   category: ToolCategory.TASK,
-  cost: 2,
+  cost: 1,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: true,
-  parameters: createParameters(
-    { workspace: stringParam("Workspace root path (auto-injected)") },
-    []
-  ),
-  handler: async ({ workspace }: { workspace?: string }) => {
-    if (!workspace) return { success: false, error: "Workspace path required" };
-    const pathMod = await import("path");
-    const fs = await import("fs/promises");
-
-    const structure: {
-      type: "single" | "monorepo" | "polyproject";
-      suggestedPaths: string[];
-      hasGit: boolean;
-      modules: string[];
-    } = {
-      type: "single",
-      suggestedPaths: [],
-      hasGit: false,
-      modules: [],
-    };
-
-    try {
-      try {
-        await fs.access(pathMod.join(workspace, ".git"));
-        structure.hasGit = true;
-      } catch {
-        structure.hasGit = false;
-      }
-
-      const entries = await fs.readdir(workspace, { withFileTypes: true });
-      const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name);
-      const rootHasPackageJson = await fs
-        .access(pathMod.join(workspace, "package.json"))
-        .then(() => true)
-        .catch(() => false);
-
-      const monorepoDirs = ["packages", "apps", "frontend", "backend", "web", "api", "server", "client"];
-      const found = dirs.filter((d) => monorepoDirs.includes(d));
-      const packageDirs: string[] = [];
-      for (const d of dirs) {
-        try {
-          await fs.access(pathMod.join(workspace, d, "package.json"));
-          packageDirs.push(d);
-        } catch {
-          /* not a package dir */
-        }
-      }
-
-      if (found.length >= 2) {
-        structure.type = "monorepo";
-        structure.modules = found;
-        structure.suggestedPaths = [""];
-      } else if (!rootHasPackageJson && packageDirs.length === 1) {
-        structure.type = "single";
-        structure.modules = packageDirs;
-        structure.suggestedPaths = [packageDirs[0], ""];
-      } else if (found.length === 1) {
-        structure.type = "polyproject";
-        structure.modules = found;
-        structure.suggestedPaths = ["", ...found];
-      } else {
-        structure.type = "single";
-        structure.suggestedPaths = [""];
-      }
-    } catch (err: any) {
-      return { success: false, error: err?.message ?? String(err) };
-    }
-
-    return {
-      success: true,
-      ...structure,
-      guidance:
-        structure.type === "single"
-          ? structure.modules.length === 1 && structure.suggestedPaths[0]
-            ? `Single project detected in subfolder '${structure.suggestedPaths[0]}': use targetPath='${structure.suggestedPaths[0]}' unless user wants root-level plan.`
-            : "Single project: use targetPath omitted (plan at root)."
-          : structure.type === "monorepo"
-            ? "Monorepo: one .atlarix/ATLARIX_PLAN.md at root with ## Frontend, ## Backend sections. Or one per module if user scope is narrow."
-            : "Polyproject: use targetPath for each module being updated (e.g. 'frontend', 'backend'). Only create plans in repos user asked to change.",
-    };
-  },
+  parameters: createParameters({ workspace: stringParam("Workspace root (auto-injected)") }, []),
+  handler: async () => ({
+    success: true,
+    type: "session_artifact",
+    guidance:
+      "Create plans with write_implementation_plan. They appear as cards in chat and in the Plan panel when clicked. Persist project conventions in .atlarix/atlarix.md.",
+  }),
 });
 
 ToolRegistry.register({
   name: "read_implementation_plan",
   description:
-    "Read .atlarix/ATLARIX_PLAN.md. Use at start of turn or when user says ready for next task. One exchange = one task. Optional targetPath for subprojects (e.g. 'frontend').",
+    "Read a session plan artifact by planId, or the latest plan / latest building plan in this session.",
   category: ToolCategory.TASK,
   cost: 1,
   requiresWorkspace: true,
@@ -119,98 +42,151 @@ ToolRegistry.register({
   isReadOnly: true,
   parameters: createParameters(
     {
-      workspace: stringParam("Workspace root path (auto-injected)"),
-      targetPath: {
+      workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
+      planId: {
         type: "string",
-        description:
-          "Optional. For multi-repo/polyproject: subpath (e.g. 'frontend', 'packages/api'). Omit for single project.",
+        description: "Optional plan artifact id",
+        required: false,
+      },
+      status: {
+        type: "string",
+        description: "Optional filter: plan | building | built (latest match)",
         required: false,
       },
     },
-    []
+    [],
   ),
-  handler: async ({ workspace, targetPath }: { workspace?: string; targetPath?: string }) => {
-    if (!workspace) return { success: false, error: "Workspace path required" };
-    const pathMod = await import("path");
-    const fs = await import("fs/promises");
-    const planPath = getPlanPath(targetPath);
-    const fullPath = pathMod.join(workspace, planPath);
-    const { assertReadablePath } = await import("@/lib/security/env-secret-paths");
-    assertReadablePath(planPath, workspace);
-    try {
-      const content = await fs.readFile(fullPath, "utf8");
-      return { success: true, content, path: planPath };
-    } catch (err: any) {
-      if (err?.code === "ENOENT") return { success: true, content: null, path: planPath, message: "No plan file yet." };
-      return { success: false, error: err?.message ?? String(err) };
+  handler: async ({
+    workspaceSessionId,
+    planId,
+    status,
+  }: {
+    workspaceSessionId?: string;
+    planId?: string;
+    status?: string;
+  }) => {
+    if (!workspaceSessionId) {
+      return { success: false, error: "No workspace session for this chat." };
     }
+    if (planId) {
+      const row = await getPlanArtifact(planId);
+      if (!row) return { success: true, content: null, message: "Plan not found." };
+      return {
+        success: true,
+        planId: row.id,
+        content: row.content,
+        planStatus: row.planStatus,
+        marker: planArtifactMarker(row.id),
+      };
+    }
+    const filter = status as PlanArtifactStatus | undefined;
+    const row = await getLatestPlanArtifact(workspaceSessionId, filter);
+    if (!row) return { success: true, content: null, message: "No plan in this session yet." };
+    return {
+      success: true,
+      planId: row.id,
+      content: row.content,
+      planStatus: row.planStatus,
+      marker: planArtifactMarker(row.id),
+    };
   },
 });
 
 ToolRegistry.register({
   name: "write_implementation_plan",
   description:
-    "Create/update .atlarix/ATLARIX_PLAN.md. Use after architecture exploration is complete. Be detailed, accurate, thorough. Optional targetPath for multi-repo (e.g. 'frontend'). Implement one task per exchange; after each, ask user to review/test and fix bugs. **Plan mode only** — not available in Ask mode.",
+    "Create or update a session plan artifact (markdown). Plan mode only. Returns planId and an artifact marker to embed in your reply.",
   category: ToolCategory.TASK,
   cost: 3,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
-  // Plan-mode-specific: gated above the mode allowlists in chat_stream_handlers.
   allowInAskMode: false,
   parameters: createParameters(
     {
-      workspace: stringParam("Workspace root path (auto-injected)"),
-      content: stringParam("Full markdown content of the plan (tasks, order, notes). Be detailed and thorough."),
-      description: stringParam("Brief description of what this plan does"),
-      targetPath: {
+      workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
+      content: stringParam("Full markdown plan body"),
+      planId: {
         type: "string",
-        description:
-          "Optional. For multi-repo: subpath where plan goes (e.g. 'frontend', 'packages/api'). Omit for single project.",
+        description: "Optional existing plan id to update",
+        required: false,
+      },
+      title: {
+        type: "string",
+        description: "Optional title when creating a new plan",
         required: false,
       },
     },
-    ["content"]
+    ["content"],
   ),
   handler: async ({
-    workspace,
+    workspaceSessionId,
     content,
-    description,
-    targetPath,
+    planId,
+    title,
   }: {
-    workspace?: string;
+    workspaceSessionId?: string;
     content: string;
-    description?: string;
-    targetPath?: string;
+    planId?: string;
+    title?: string;
   }) => {
-    if (!workspace) return { success: false, error: "Workspace path required" };
-    const pathMod = await import("path");
-    const fs = await import("fs/promises");
-    const planPath = getPlanPath(targetPath);
-    const fullPath = pathMod.join(workspace, planPath);
-    let fileType: "create" | "update" = "create";
-    let oldContent: string | undefined;
-    const { assertReadablePath } = await import("@/lib/security/env-secret-paths");
-    assertReadablePath(planPath, workspace);
-    try {
-      await fs.access(fullPath);
-      fileType = "update";
-      oldContent = await fs.readFile(fullPath, "utf8");
-    } catch {
-      fileType = "create";
+    if (!workspaceSessionId) {
+      return { success: false, error: "No workspace session for this chat." };
+    }
+    if (!content?.trim()) {
+      return { success: false, error: "Plan content is required." };
+    }
+    const row = planId
+      ? await updatePlanArtifactContent(planId, content)
+      : await createPlanArtifact(workspaceSessionId, content, title);
+    if (!row) {
+      return { success: false, error: planId ? "Plan not found." : "Failed to create plan." };
     }
     return {
-      __permission_required: true,
-      operation: "write_file",
-      preview: {
-        path: planPath,
-        content,
-        ...(oldContent !== undefined && { oldContent }),
-        description: description ?? "Implementation plan",
-        type: fileType,
-        lines: content.split("\n").length,
-      },
-      reasoning: `${fileType === "update" ? "Updating" : "Creating"} ${planPath}: ${description ?? "implementation plan"}`,
+      success: true,
+      planId: row.id,
+      planStatus: row.planStatus,
+      contentPreview: row.content.slice(0, 400),
+      marker: planArtifactMarker(row.id),
+      message: planId ? "Plan updated." : "Plan created.",
+    };
+  },
+});
+
+ToolRegistry.register({
+  name: "update_plan_status",
+  description: "Transition a session plan: plan → building → built.",
+  category: ToolCategory.TASK,
+  cost: 1,
+  requiresWorkspace: true,
+  isCore: false,
+  isReadOnly: false,
+  allowInAskMode: false,
+  parameters: createParameters(
+    {
+      planId: stringParam("Plan artifact id"),
+      planStatus: stringParam("One of: plan, building, built"),
+    },
+    ["planId", "planStatus"],
+  ),
+  handler: async ({
+    planId,
+    planStatus,
+  }: {
+    planId: string;
+    planStatus: string;
+  }) => {
+    const allowed: PlanArtifactStatus[] = ["plan", "building", "built"];
+    if (!allowed.includes(planStatus as PlanArtifactStatus)) {
+      return { success: false, error: "planStatus must be plan, building, or built." };
+    }
+    const row = await setPlanArtifactStatus(planId, planStatus as PlanArtifactStatus);
+    if (!row) return { success: false, error: "Plan not found." };
+    return {
+      success: true,
+      planId: row.id,
+      planStatus: row.planStatus,
+      marker: planArtifactMarker(row.id),
     };
   },
 });

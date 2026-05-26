@@ -259,6 +259,12 @@ export class IpcClient {
   > = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
+  private planArtifactHandlers = new Set<
+    (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void
+  >();
+  private planArtifactUpdatedHandlers = new Set<
+    (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void
+  >();
   private planFileUpdatedHandlers = new Set<
     (payload: { workspacePath: string; mtime: number | null }) => void
   >();
@@ -523,13 +529,20 @@ export class IpcClient {
     });
 
     // chat:activity (e.g. summarization progress)
-    this.ipcRenderer.on("chat:plan-update", (_e, payload: unknown) => {
-      if (!payload || typeof payload !== "object" || !("chatId" in payload)) return;
-      const p = payload as PlanUpdatePayload;
-      const set = this.planUpdateHandlers.get(p.chatId);
-      set?.forEach((h) => {
+    this.ipcRenderer.on("plan:artifact-activated", (payload: unknown) => {
+      this.planArtifactHandlers.forEach((h) => {
         try {
-          h(p);
+          h(payload as import("./utils/emit_plan_artifact").PlanArtifactPayload);
+        } catch {
+          /* noop */
+        }
+      });
+    });
+
+    this.ipcRenderer.on("plan:artifact-updated", (payload: unknown) => {
+      this.planArtifactUpdatedHandlers.forEach((h) => {
+        try {
+          h(payload as import("./utils/emit_plan_artifact").PlanArtifactPayload);
         } catch {
           /* noop */
         }
@@ -753,12 +766,44 @@ export class IpcClient {
     };
   }
 
-  public async readPlanWorkspaceFile(workspacePath: string): Promise<{
-    content: string | null;
-    path: string;
-    mtime: number | null;
-  }> {
-    return this.ipcRenderer.invoke("plan:read-workspace-file", { workspacePath });
+  public onPlanArtifactActivated(
+    handler: (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void,
+  ): () => void {
+    this.planArtifactHandlers.add(handler);
+    return () => this.planArtifactHandlers.delete(handler);
+  }
+
+  public onPlanArtifactUpdated(
+    handler: (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void,
+  ): () => void {
+    this.planArtifactUpdatedHandlers.add(handler);
+    return () => this.planArtifactUpdatedHandlers.delete(handler);
+  }
+
+  public activatePlanArtifact(
+    payload: import("./utils/emit_plan_artifact").PlanArtifactPayload,
+  ): void {
+    this.ipcRenderer.send("plan:artifact-activated", payload);
+  }
+
+  public async updatePlanArtifactContent(
+    planId: string,
+    content: string,
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
+    return this.ipcRenderer.invoke("plans:update", { planId, content });
+  }
+
+  public async setPlanArtifactStatus(
+    planId: string,
+    planStatus: "plan" | "building" | "built",
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
+    return this.ipcRenderer.invoke("plans:set-status", { planId, planStatus });
+  }
+
+  public async getPlanArtifact(
+    planId: string,
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload | null> {
+    return this.ipcRenderer.invoke("plans:get", planId);
   }
 
   public onPlanFileUpdated(
@@ -845,6 +890,14 @@ export class IpcClient {
 
   public async getApp(appId: number): Promise<App> {
     return this.ipcRenderer.invoke("get-app", appId);
+  }
+
+  public async getAppFiles(appId: number): Promise<{
+    files: string[];
+    fileDiscoveryWarnings?: string[];
+    pathExists: boolean;
+  }> {
+    return this.ipcRenderer.invoke("get-app-files", appId);
   }
 
   public async addAppToFavorite(
@@ -958,12 +1011,15 @@ export class IpcClient {
       onProblems?: (problems: ChatProblemsEvent) => void;
       /** v3.9: Continue after clarifying questions (no new user message; use last user message content). */
       continueAfterQuestions?: boolean;
+      workspaceSessionId?: string | null;
       prefillTaskLedger?: {
         steps: { description: string }[];
         sourcePlanMessageId?: number;
       };
       /** Auto routing: one-shot thinking tier for this message. */
       forceThinkingTier?: boolean;
+      /** Resend/edit: work mode for this turn only. */
+      workModeOverride?: import("@/lib/schemas").WorkMode;
     },
   ): void {
     const {
@@ -977,8 +1033,10 @@ export class IpcClient {
       onEnd,
       onError,
       continueAfterQuestions,
+      workspaceSessionId,
       prefillTaskLedger,
       forceThinkingTier,
+      workModeOverride,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
@@ -997,8 +1055,10 @@ export class IpcClient {
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
               continueAfterQuestions: continueAfterQuestions ?? undefined,
+              workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               forceThinkingTier: forceThinkingTier ?? undefined,
+              workModeOverride: workModeOverride ?? undefined,
             })
             .catch((err) => {
               console.error("Error streaming message:", err);
@@ -1024,8 +1084,10 @@ export class IpcClient {
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
+          workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           forceThinkingTier: forceThinkingTier ?? undefined,
+          workModeOverride: workModeOverride ?? undefined,
         })
         .catch((err) => {
           console.error("Error streaming message:", err);

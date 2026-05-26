@@ -49,9 +49,17 @@ import { useSettings } from "@/hooks/useSettings";
 import { PlanSection } from "./PlanSection";
 import {
   extractPlanFromContent,
+  splitContentByPlanMarkers,
   stripAssistantPlanForDisplay,
   type PlanCardData,
 } from "@/lib/plan-cards/plan-card-renderer";
+import {
+  extractVisibleAnswerMarkdown,
+  isOnlyToolDebris,
+  sanitizeMarkdownForDisplay,
+} from "@/lib/chat/answer-display";
+import { contentHasPlanArtifactMarker } from "@/lib/plan-cards/plan-card-renderer";
+import { InlinePlanArtifactSlot } from "./InlinePlanArtifactSlot";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
 import { stripTaskCompleteTags } from "@/ipc/utils/thinking_tags";
 
@@ -59,10 +67,19 @@ interface AtlarixMarkdownParserProps {
   content: string;
   /** Plan → Build: submit message + ledger steps */
   onPlanSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
+  onPlanArtifactBuild?: (planId: string) => void;
   /** When true, InlineThoughtsBlock is not rendered here (parent places it above activity / plan). */
   suppressInlineThoughts?: boolean;
   /** Assistant message id for frozen thinking snapshot after stream ends. */
   assistantMessageId?: number;
+  /**
+   * When false, tool tags and plan chrome use completed (non-streaming) state even if
+   * another message in this chat is currently streaming.
+   */
+  isActiveStreamMessage?: boolean;
+  planArtifactBuildDisabled?: boolean;
+  /** When true, tool calls render in MessageActivityTimeline instead of ThinkingCard. */
+  suppressToolCallsInThinking?: boolean;
 }
 
 type CustomTagInfo = {
@@ -76,6 +93,157 @@ type CustomTagInfo = {
 type ContentPiece =
   | { type: "markdown"; content: string }
   | { type: "custom-tag"; tagInfo: CustomTagInfo };
+
+function tryParseJSON(str: string): unknown {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return str ? { raw: str } : undefined;
+  }
+}
+
+type PartitionedContent = {
+  thoughts: string[];
+  reasoningTagParts: string[];
+  modelReasoningParts: string[];
+  toolCalls: Array<{
+    id: string;
+    toolName: string;
+    status: "success" | "error" | "running";
+    args?: unknown;
+    error?: string;
+  }>;
+  answerPieces: Array<{ piece: ContentPiece; index: number }>;
+};
+
+function partitionContentPieces(
+  contentPieces: ContentPiece[],
+  isStreaming: boolean,
+): PartitionedContent {
+  const thoughts: string[] = [];
+  const reasoningTagParts: string[] = [];
+  const modelReasoningParts: string[] = [];
+  const toolCalls: PartitionedContent["toolCalls"] = [];
+  const answer: Array<{ piece: ContentPiece; index: number }> = [];
+  const toolMap = new Map<
+    string,
+    {
+      id: string;
+      toolName: string;
+      status: "success" | "error" | "running";
+      args?: unknown;
+      error?: string;
+      seqIndex: number;
+    }
+  >();
+  const toolNameCounts: Record<string, number> = {};
+
+  contentPieces.forEach((piece, index) => {
+    if (piece.type === "custom-tag") {
+      const tag = piece.tagInfo.tag;
+
+      if (tag === "think" || tag === "thinking") {
+        const t = piece.tagInfo.content?.trim();
+        if (t) thoughts.push(t);
+      } else if (tag === "reasoning") {
+        const t = piece.tagInfo.content?.trim();
+        if (t) reasoningTagParts.push(t);
+      } else if (tag === "redacted_thinking") {
+        const t = piece.tagInfo.content?.trim();
+        if (t) modelReasoningParts.push(t);
+      } else if (
+        tag === "atlarix-tool-call" ||
+        tag === "atlarix-tool-result" ||
+        tag === "atlarix-mcp-tool-call" ||
+        tag === "atlarix-mcp-tool-result"
+      ) {
+        const attrs = piece.tagInfo.attributes;
+        const toolName = attrs.tool || attrs.name || attrs.server || "unknown";
+        const isInProgress = piece.tagInfo.inProgress === true;
+        let status: "success" | "error" | "running" = "success";
+        if (attrs.status === "error") {
+          status = "error";
+        } else if (attrs.status === "running" || isInProgress) {
+          status = !isStreaming && isInProgress ? "error" : "running";
+        } else if (attrs.status === "success") {
+          status = "success";
+        }
+
+        const seqNum = toolNameCounts[toolName] || 0;
+        const mapKey = `${toolName}_${seqNum}`;
+
+        if (tag.includes("tool-call") && !toolMap.has(mapKey)) {
+          toolNameCounts[toolName] = seqNum + 1;
+        }
+
+        let targetKey = mapKey;
+        if (tag.includes("tool-result")) {
+          for (let i = seqNum; i >= 0; i--) {
+            const checkKey = `${toolName}_${i}`;
+            if (toolMap.has(checkKey) && toolMap.get(checkKey)!.status === "running") {
+              targetKey = checkKey;
+              break;
+            }
+          }
+        }
+
+        const existing = toolMap.get(targetKey);
+        if (existing) {
+          if (existing.status === "running" && status !== "running") {
+            toolMap.set(targetKey, { ...existing, status, error: attrs.error });
+          }
+        } else {
+          toolMap.set(targetKey, {
+            id: targetKey,
+            toolName,
+            status,
+            args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
+            error: attrs.error,
+            seqIndex: index,
+          });
+        }
+      } else {
+        answer.push({ piece, index });
+      }
+    } else if (piece.type === "markdown") {
+      if (piece.content && piece.content.trim()) {
+        answer.push({ piece, index });
+      }
+    }
+  });
+
+  const deduplicatedTools = Array.from(toolMap.values())
+    .sort((a, b) => a.seqIndex - b.seqIndex)
+    .map(({ id, toolName, status, args, error }) => ({
+      id,
+      toolName,
+      status,
+      args,
+      error,
+    }));
+
+  const deduplicatedAnswer: Array<{ piece: ContentPiece; index: number }> = [];
+  let lastMarkdownContent = "";
+
+  for (const item of answer) {
+    if (item.piece.type === "markdown") {
+      const trimmed = item.piece.content.trim();
+      if (trimmed === lastMarkdownContent) continue;
+      lastMarkdownContent = trimmed;
+    } else {
+      lastMarkdownContent = "";
+    }
+    deduplicatedAnswer.push(item);
+  }
+
+  return {
+    thoughts,
+    reasoningTagParts,
+    modelReasoningParts,
+    toolCalls: deduplicatedTools,
+    answerPieces: deduplicatedAnswer,
+  };
+}
 
 const customLink = ({
   node: _node,
@@ -170,15 +338,26 @@ export const CHAT_MESSAGE_MARKDOWN_PROSE =
 export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   content,
   onPlanSwitchToBuild,
+  onPlanArtifactBuild,
   suppressInlineThoughts = false,
   assistantMessageId,
+  isActiveStreamMessage,
+  planArtifactBuildDisabled,
+  suppressToolCallsInThinking = false,
 }) => {
   const { settings } = useSettings();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const chatId = activeChatId ?? selectedChatId;
   const streamingById = useAtomValue(isStreamingByIdAtom);
-  const isStreaming = chatId != null ? (streamingById.get(chatId) ?? false) : false;
+  const chatIsStreaming =
+    chatId != null ? (streamingById.get(chatId) ?? false) : false;
+  const isStreaming =
+    isActiveStreamMessage === false
+      ? false
+      : isActiveStreamMessage === true
+        ? true
+        : chatIsStreaming;
 
   const markdownCodeComponent = useMemo(
     () =>
@@ -217,9 +396,13 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const displayContent = useMemo(() => {
     let s = stripTaskCompleteTags(stripAssistantPlanForDisplay(content));
     if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
-    return s;
+    return sanitizeMarkdownForDisplay(s);
   }, [content, isStreaming]);
-  const planCardData = useMemo(() => extractPlanFromContent(content), [content]);
+  const hasPlanArtifactMarker = contentHasPlanArtifactMarker(content);
+  const planCardData = useMemo(
+    () => (hasPlanArtifactMarker ? null : extractPlanFromContent(content)),
+    [content, hasPlanArtifactMarker],
+  );
   // Extract content pieces (markdown and custom tags)
   const contentPieces = useMemo(() => {
     return parseCustomTags(displayContent);
@@ -258,139 +441,59 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     };
   }, [contentPieces]);
 
-  // Separate thinking content (thoughts + tools) from answer content
-  const { thoughts, reasoningTagParts, modelReasoningParts, toolCalls, answerPieces } = useMemo(() => {
-    const thoughts: string[] = [];
-    const reasoningTagParts: string[] = [];
-    const modelReasoningParts: string[] = [];
-    const toolCalls: Array<{ id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string }> = [];
-    const answer: Array<{ piece: ContentPiece; index: number }> = [];
-    // Use Map to deduplicate tools - key is "toolName_sequenceNum" to maintain order for same tool
-    const toolMap = new Map<string, { id: string; toolName: string; status: 'success' | 'error' | 'running'; args?: any; error?: string; seqIndex: number }>();
-    const toolNameCounts: Record<string, number> = {};
+  const {
+    thoughts,
+    reasoningTagParts,
+    modelReasoningParts,
+    toolCalls,
+    answerPieces,
+  } = useMemo(
+    () => partitionContentPieces(contentPieces, isStreaming),
+    [contentPieces, isStreaming],
+  );
 
-    contentPieces.forEach((piece, index) => {
-      if (piece.type === 'custom-tag') {
-        const tag = piece.tagInfo.tag;
+  const contentSegments = useMemo(() => splitContentByPlanMarkers(content), [content]);
+  const hasInlinePlanMarkers = contentSegments.some((s) => s.type === "plan-artifact");
 
-        if (tag === "think" || tag === "thinking") {
-          const content = piece.tagInfo.content?.trim();
-          if (content) thoughts.push(content);
-        } else if (tag === "reasoning") {
-          const content = piece.tagInfo.content?.trim();
-          if (content) reasoningTagParts.push(content);
-        } else if (tag === 'redacted_thinking') {
-          const content = piece.tagInfo.content?.trim();
-          if (content) modelReasoningParts.push(content);
-        }
-        // Tools go to thinking card
-        else if (
-          tag === 'atlarix-tool-call' ||
-          tag === 'atlarix-tool-result' ||
-          tag === 'atlarix-mcp-tool-call' ||
-          tag === 'atlarix-mcp-tool-result'
-        ) {
-          const attrs = piece.tagInfo.attributes;
-          const toolName = attrs.tool || attrs.name || attrs.server || 'unknown';
-
-          // Determine status: explicit status > inProgress check > default to success
-          const isInProgress = piece.tagInfo.inProgress === true;
-          let status: 'success' | 'error' | 'running' = 'success';
-          if (attrs.status === 'error') {
-            status = 'error';
-          } else if (attrs.status === 'running' || isInProgress) {
-            // PASS5: If the stream ended and the tag was auto-closed, treat it as finalized.
-            // This prevents tool spinners from being stuck in \"running\" after stream end/abort.
-            status = !isStreaming && isInProgress ? 'error' : 'running';
-          } else if (attrs.status === 'success') {
-            status = 'success';
-          }
-
-          // Track sequence for same tool names
-          const seqNum = toolNameCounts[toolName] || 0;
-          const mapKey = `${toolName}_${seqNum}`;
-
-          // Only increment counter if this is a new tool call (not a result update)
-          if (tag.includes('tool-call') && !toolMap.has(mapKey)) {
-            toolNameCounts[toolName] = seqNum + 1;
-          }
-
-          // Get the correct key - for results, find the running tool call with same name
-          let targetKey = mapKey;
-          if (tag.includes('tool-result')) {
-            // Find the most recent running tool with this name
-            for (let i = seqNum; i >= 0; i--) {
-              const checkKey = `${toolName}_${i}`;
-              if (toolMap.has(checkKey) && toolMap.get(checkKey)!.status === 'running') {
-                targetKey = checkKey;
-                break;
-              }
-            }
-          }
-
-          // Update or add tool entry - results update running calls to success/error
-          const existing = toolMap.get(targetKey);
-          if (existing) {
-            // Only update if new status is more "final" (running < success/error)
-            if (existing.status === 'running' && status !== 'running') {
-              toolMap.set(targetKey, { ...existing, status, error: attrs.error });
-            }
-          } else {
-            toolMap.set(targetKey, {
-              // Stable id so React keys don't churn during streaming re-parses.
-              id: targetKey,
-              toolName,
-              status,
-              args: piece.tagInfo.content ? tryParseJSON(piece.tagInfo.content) : undefined,
-              error: attrs.error,
-              seqIndex: index,
-            });
-          }
-        }
-        // Other custom tags go to answer
-        else {
-          answer.push({ piece, index });
-        }
-      } else if (piece.type === 'markdown') {
-        // Only add markdown with actual content to answer
-        if (piece.content && piece.content.trim()) {
-          answer.push({ piece, index });
-        }
+  const segmentRenderItems = useMemo(() => {
+    if (!hasInlinePlanMarkers) return null;
+    return contentSegments.map((seg, si) => {
+      if (seg.type === "plan-artifact") {
+        return { kind: "plan" as const, planId: seg.planId, key: `plan-${si}` };
       }
+      let s = stripTaskCompleteTags(stripAssistantPlanForDisplay(seg.content));
+      if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
+      const pieces = parseCustomTags(s);
+      const { answerPieces: segAnswers } = partitionContentPieces(pieces, isStreaming);
+      return { kind: "answers" as const, key: `md-${si}`, answerPieces: segAnswers };
     });
+  }, [contentSegments, hasInlinePlanMarkers, isStreaming]);
 
-    // Convert Map to array, sorted by sequence index
-    const deduplicatedTools = Array.from(toolMap.values())
-      .sort((a, b) => a.seqIndex - b.seqIndex)
-      .map(({ id, toolName, status, args, error }) => ({ id, toolName, status, args, error }));
+  const answerFallback = useMemo(
+    () => extractVisibleAnswerMarkdown(content),
+    [content],
+  );
 
-    // Deduplicate consecutive identical markdown content (common model issue)
-    const deduplicatedAnswer: Array<{ piece: ContentPiece; index: number }> = [];
-    let lastMarkdownContent = '';
+  const segmentHasVisibleAnswer =
+    segmentRenderItems?.some(
+      (item) =>
+        item.kind === "answers" &&
+        item.answerPieces.some(
+          (ap) =>
+            ap.piece.type === "markdown" ||
+            (ap.piece.type === "custom-tag" && ap.piece.tagInfo.tag !== "think"),
+        ),
+    ) ?? false;
 
-    for (const item of answer) {
-      if (item.piece.type === 'markdown') {
-        const trimmed = item.piece.content.trim();
-        // Skip if this is identical to the previous markdown content
-        if (trimmed === lastMarkdownContent) {
-          continue;
-        }
-        lastMarkdownContent = trimmed;
-      } else {
-        // Reset for non-markdown pieces
-        lastMarkdownContent = '';
-      }
-      deduplicatedAnswer.push(item);
-    }
+  const sanitizedFallback = useMemo(
+    () => sanitizeMarkdownForDisplay(answerFallback),
+    [answerFallback],
+  );
 
-    return {
-      thoughts,
-      reasoningTagParts,
-      modelReasoningParts,
-      toolCalls: deduplicatedTools,
-      answerPieces: deduplicatedAnswer,
-    };
-  }, [contentPieces]);
+  const showAnswerFallback =
+    sanitizedFallback.length > 0 &&
+    !isOnlyToolDebris(sanitizedFallback) &&
+    (hasInlinePlanMarkers ? !segmentHasVisibleAnswer : answerPieces.length === 0);
 
   const modelReasoningText = useMemo(
     () => modelReasoningParts.join("\n\n").trim(),
@@ -494,7 +597,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   }, [hasThinkingContent, isStreaming, showThinking, frozenHasThinking]);
 
   const thinkingCardEl =
-    showThinking ? (
+    showThinking && !suppressToolCallsInThinking ? (
       <ThinkingCard
         thoughts={displayThinking.thoughts}
         reasoningFromTags={displayThinking.reasoningFromTags || undefined}
@@ -518,37 +621,88 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
         </>
       ) : null}
 
-      {/* Response: below process strip when streaming in agent modes; otherwise first (Claude-style). */}
-      {answerPieces.map(({ piece, index }) => (
-        <React.Fragment key={index}>
-          {piece.type === "markdown"
-            ? piece.content && (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code: markdownCodeComponent,
-                  a: customLink,
-                  text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
-                  ...markdownTableComponents,
-                }}
-              >
-                {piece.content}
-              </ReactMarkdown>
-            )
-            : renderCustomTag(piece.tagInfo, { isStreaming })}
-          {index === lastErrorIndex &&
-            errorCount > 1 &&
-            !isStreaming &&
-            chatId && (
-              <div className="mt-3 w-full flex">
-                <FixAllErrorsButton
-                  errorMessages={errorMessages}
-                  chatId={chatId}
-                />
-              </div>
-            )}
-        </React.Fragment>
-      ))}
+      {/* Response: below process strip when streaming; answer-first when complete. */}
+      {hasInlinePlanMarkers && segmentRenderItems
+        ? segmentRenderItems.map((item) =>
+            item.kind === "plan" ? (
+              <InlinePlanArtifactSlot
+                key={item.key}
+                planId={item.planId}
+                chatId={chatId}
+                onBuild={onPlanArtifactBuild}
+                buildDisabled={planArtifactBuildDisabled}
+              />
+            ) : (
+              <React.Fragment key={item.key}>
+                {item.answerPieces.map(({ piece, index }) => (
+                  <React.Fragment key={`${item.key}-${index}`}>
+                    {piece.type === "markdown"
+                      ? piece.content && (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code: markdownCodeComponent,
+                              a: customLink,
+                              text: ({ children }) => (
+                                <>{renderTextWithPathMentions(children)}</>
+                              ),
+                              ...markdownTableComponents,
+                            }}
+                          >
+                            {piece.content}
+                          </ReactMarkdown>
+                        )
+                      : renderCustomTag(piece.tagInfo, { isStreaming })}
+                  </React.Fragment>
+                ))}
+              </React.Fragment>
+            ),
+          )
+        : answerPieces.map(({ piece, index }) => (
+            <React.Fragment key={index}>
+              {piece.type === "markdown"
+                ? piece.content && (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code: markdownCodeComponent,
+                        a: customLink,
+                        text: ({ children }) => (
+                          <>{renderTextWithPathMentions(children)}</>
+                        ),
+                        ...markdownTableComponents,
+                      }}
+                    >
+                      {piece.content}
+                    </ReactMarkdown>
+                  )
+                : renderCustomTag(piece.tagInfo, { isStreaming })}
+              {index === lastErrorIndex &&
+                errorCount > 1 &&
+                !isStreaming &&
+                chatId && (
+                  <div className="mt-3 w-full flex">
+                    <FixAllErrorsButton
+                      errorMessages={errorMessages}
+                      chatId={chatId}
+                    />
+                  </div>
+                )}
+            </React.Fragment>
+          ))}
+      {showAnswerFallback ? (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code: markdownCodeComponent,
+            a: customLink,
+            text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
+            ...markdownTableComponents,
+          }}
+        >
+          {sanitizedFallback}
+        </ReactMarkdown>
+      ) : null}
 
       {!processStreamOnTop && showInlineThoughtsInParser ? <InlineThoughtsBlock /> : null}
 
@@ -566,15 +720,6 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     </>
   );
 };
-
-// Helper to parse JSON safely
-function tryParseJSON(str: string): any {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return str ? { raw: str } : undefined;
-  }
-}
 
 /**
  * Pre-process content to handle unclosed custom tags
@@ -1074,3 +1219,36 @@ function renderCustomTag(
       return null;
   }
 }
+
+const SEGMENT_EXCLUDED_TAGS = new Set([
+  "think",
+  "thinking",
+  "reasoning",
+  "redacted_thinking",
+  "atlarix-tool-call",
+  "atlarix-tool-result",
+  "atlarix-mcp-tool-call",
+  "atlarix-mcp-tool-result",
+]);
+
+/** Parse markdown segments for AssistantMessageBody (no thought/tool tags). */
+export function parseMarkdownSegmentPieces(content: string): ContentPiece[] {
+  const sanitized = sanitizeMarkdownForDisplay(
+    stripTaskCompleteTags(stripAssistantPlanForDisplay(content)),
+  );
+  return parseCustomTags(sanitized).filter(
+    (piece) =>
+      piece.type === "markdown" ||
+      !SEGMENT_EXCLUDED_TAGS.has(piece.tagInfo.tag),
+  );
+}
+
+export function renderMarkdownSegmentTag(
+  tagInfo: CustomTagInfo,
+  opts: { isStreaming: boolean },
+): React.ReactNode {
+  if (SEGMENT_EXCLUDED_TAGS.has(tagInfo.tag)) return null;
+  return renderCustomTag(tagInfo, opts);
+}
+
+export { customLink, markdownTableComponents, renderTextWithPathMentions };

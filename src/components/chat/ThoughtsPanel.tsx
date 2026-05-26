@@ -11,6 +11,7 @@ import { useAtomValue } from "jotai";
 import { activityStreamItemsAtom, type ActivityStreamItem } from "@/atoms/sourceAtoms";
 import {
   activeChatIdAtom,
+  isStreamingByIdAtom,
   lastReasoningTokensByChatIdAtom,
   selectedChatIdAtom,
 } from "@/atoms/chatAtoms";
@@ -221,10 +222,28 @@ function speakerLabelFor(item: ActivityStreamItem): { id: string; label: string;
   return { id: "main", label: "Main", side: "right" };
 }
  
-function statusFor(item: ActivityStreamItem): BubbleStatus {
+const TERMINAL_ACTIVITY_TYPES = new Set<ActivityStreamItem["type"]>([
+  "delegation_complete",
+  "delegation_error",
+  "counsel_complete",
+  "counsel_timeout",
+  "parallel_prefetch_complete",
+  "reasoning_complete",
+  "build_verification_complete",
+  "counsel_participant_complete",
+]);
+
+function statusFor(
+  item: ActivityStreamItem,
+  streamActiveForChat: boolean,
+): BubbleStatus {
   if (item.type === "orchestrator_blocker") return "error";
   if (item.status === "error" || item.type === "delegation_error") return "error";
-  if (item.status === "done" || item.type === "delegation_complete") return "done";
+  if (item.status === "done" || TERMINAL_ACTIVITY_TYPES.has(item.type)) return "done";
+  if (item.type === "tool_use" && item.status === "done") return "done";
+  if (item.type === "counsel_synthesising" && !streamActiveForChat) return "done";
+  if (item.type === "counsel_start" && !streamActiveForChat) return "done";
+  if (item.type === "delegation_start" && !streamActiveForChat) return "done";
   return "active";
 }
  
@@ -452,8 +471,11 @@ export function ThoughtsPanel({ onClose, variant = "sidebar" }: ThoughtsPanelPro
   const items = useAtomValue(activityStreamItemsAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
+  const streamingById = useAtomValue(isStreamingByIdAtom);
   const reasoningByChat = useAtomValue(lastReasoningTokensByChatIdAtom);
   const panelChatId = selectedChatId ?? activeChatId;
+  const streamActiveForChat =
+    panelChatId != null ? streamingById.get(panelChatId) === true : false;
   const reasoningTokens =
     panelChatId != null ? reasoningByChat[panelChatId] : undefined;
   const [counselExpandedById, setCounselExpandedById] = useState<Record<string, boolean>>({});
@@ -513,7 +535,7 @@ export function ThoughtsPanel({ onClose, variant = "sidebar" }: ThoughtsPanelPro
         side: speaker.side,
         speakerId,
         speakerLabel,
-        status: statusFor(it),
+        status: statusFor(it, streamActiveForChat),
         text: bubbleTextFor(it),
         timestamp: it.timestamp ?? Date.now(),
         activityType: it.type,
@@ -523,7 +545,7 @@ export function ThoughtsPanel({ onClose, variant = "sidebar" }: ThoughtsPanelPro
       });
     }
     return out;
-  }, [items, panelChatId]);
+  }, [items, panelChatId, streamActiveForChat]);
 
   const hasCounselHeavyRows = useMemo(
     () =>

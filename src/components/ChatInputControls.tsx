@@ -15,7 +15,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useAtomValue, useSetAtom } from "jotai";
-import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import {
+  pendingWorkspaceAppIdAtom,
+  selectedAppIdAtom,
+  selectedWorkspaceInfoAtom,
+} from "@/atoms/appAtoms";
+import { getChatBoundAppId, resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
+import { openWorkspaceFromDialog } from "@/lib/open-workspace";
+import { toast } from "sonner";
 import { chatMessagesByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
@@ -29,7 +36,6 @@ import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCompassUsage } from "@/hooks/useCompassUsage";
 import { useLoadApps } from "@/hooks/useLoadApps";
-import { IpcClient } from "@/ipc/ipc_client";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -43,8 +49,8 @@ export function ChatInputControls({
   chatId?: number;
 }) {
   const appId = useAtomValue(selectedAppIdAtom);
-  const setSelectedAppId = useSetAtom(selectedAppIdAtom);
-  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
+  const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
+  const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const { apps, refreshApps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const messagesByChatId = useAtomValue(chatMessagesByIdAtom);
@@ -74,10 +80,33 @@ export function ChatInputControls({
     (effectivePermission === "ask" ? "ask" : "build");
   const workLabel = labelForWorkMode(workMode);
 
+  const boundAppId =
+    threadChatId != null ? getChatBoundAppId(threadChatId) : null;
+  const activeInChatId = resolveChatWorkspaceAppId(threadChatId ?? null);
+
   let contextLine =
-    !appId
+    activeInChatId == null
       ? `${workLabel} · No workspace`
       : `${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
+
+  if (
+    pendingWorkspaceAppId != null &&
+    pendingWorkspaceAppId !== activeInChatId
+  ) {
+    const pendingName =
+      selectedWorkspaceInfo?.id === pendingWorkspaceAppId
+        ? selectedWorkspaceInfo.name
+        : apps.find((a) => a.id === pendingWorkspaceAppId)?.name ?? "Workspace";
+    contextLine = `${contextLine} · ${pendingName} ready for next chat`;
+  } else if (activeInChatId != null && boundAppId === activeInChatId) {
+    const wsName =
+      selectedWorkspaceInfo?.id === activeInChatId
+        ? selectedWorkspaceInfo.name
+        : apps.find((a) => a.id === activeInChatId)?.name;
+    if (wsName) {
+      contextLine = `${contextLine} · ${wsName}`;
+    }
+  }
 
   let tokenWarning: string | null = null;
   const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
@@ -109,50 +138,22 @@ export function ChatInputControls({
 
   const handleOpenWorkspace = useCallback(async () => {
     try {
-      const ipcRenderer = window.electron?.ipcRenderer;
-      const result = (await ipcRenderer?.invoke?.("dialog:openDirectory")) as
-        | { canceled?: boolean; filePaths?: string[] }
-        | undefined;
-      if (!result || result.canceled || !result.filePaths?.[0]) return;
-      const path = result.filePaths[0];
-
-      const existingApp = apps.find((app) => app.path === path);
-      if (existingApp) {
-        setSelectedAppId(existingApp.id);
-        setSelectedWorkspaceInfo({
-          id: existingApp.id,
-          name: existingApp.name,
-          path: existingApp.path ?? path,
-        });
-        return;
-      }
-
-      if (ipcRenderer?.invoke) {
-        const limitCheck = (await ipcRenderer.invoke("auth:check-workspace-limit")) as {
-          allowed?: boolean;
-          reason?: string;
-        };
-        if (!limitCheck.allowed) {
-          const { triggerUpgrade } = await import("@/hooks/useUpgrade");
-          void triggerUpgrade();
-          alert(
-            `Workspace limit reached. ${limitCheck.reason ?? "Upgrade to Pro for unlimited workspaces."}`,
-          );
-          return;
-        }
-      }
-
-      const appName = path.split(/[/\\]/).pop() || "Workspace";
-      const importResult = await IpcClient.getInstance().importApp({ path, appName });
-      setSelectedAppId(importResult.appId);
-      setSelectedWorkspaceInfo({ id: importResult.appId, name: appName, path });
-      await refreshApps?.();
+      await openWorkspaceFromDialog({
+        apps,
+        refreshApps,
+        activeChatId: threadChatId,
+        hasUserMessageInThread,
+      });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Unknown error";
       console.error("Open workspace failed:", error);
-      alert(`Could not add workspace: ${msg}`);
+      if (msg.includes("Workspace limit") || msg.includes("Upgrade")) {
+        alert(msg);
+      } else {
+        toast.error(`Could not add workspace: ${msg}`);
+      }
     }
-  }, [apps, refreshApps, setSelectedAppId, setSelectedWorkspaceInfo]);
+  }, [apps, refreshApps, threadChatId, hasUserMessageInThread]);
 
   return (
     <div className="flex flex-col gap-1">

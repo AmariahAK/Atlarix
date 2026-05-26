@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WorkMode } from "@/lib/schemas";
 import type { ProblemReport, Problem } from "../../shared/tsc_types";
 export type { ProblemReport, Problem };
 
@@ -49,7 +50,9 @@ export interface ChatStreamParams {
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
   continueAfterQuestions?: boolean;
   // Pass 7: Blueprint injection-mode + debug-trace fields removed with the Blueprint subsystem.
-  /** Optional task-ledger seed (e.g. Plan → Build). */
+  /** Workspace SQLite session id for plan artifacts and message persistence. */
+  workspaceSessionId?: string | null;
+  /** @deprecated Plan artifacts are session DB rows; ignored. */
   prefillTaskLedger?: {
     steps: { description: string }[];
     sourcePlanMessageId?: number;
@@ -58,6 +61,8 @@ export interface ChatStreamParams {
   streamChatModeOverride?: "ask" | "agent" | "build";
   /** When true (Auto routing): use thinking tier for this message and skip counsel injection. */
   forceThinkingTier?: boolean;
+  /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
+  workModeOverride?: WorkMode;
 }
 
 /** v3.9: Clarifying question from AI (<questions> block). */
@@ -698,6 +703,7 @@ export interface WorkspaceSessionMessage {
   sessionId: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  kind?: "message" | "plan";
   createdAt: Date;
 }
 

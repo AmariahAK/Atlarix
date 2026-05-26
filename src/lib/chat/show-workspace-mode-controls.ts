@@ -4,12 +4,14 @@
  */
 
 export function resolveWorkspaceAppId(sources: {
+  chatBoundAppId?: number | null;
   workspaceAppId?: number | null;
   selectedAppId?: number | null;
   currentAppId?: number | null;
   workspaceInfoId?: number | null;
 }): number | null {
   const candidates = [
+    sources.chatBoundAppId,
     sources.workspaceAppId,
     sources.selectedAppId,
     sources.currentAppId,

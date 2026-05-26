@@ -1,13 +1,19 @@
 /**
- * .atlarixignore — gitignore-syntax globs for Blueprint/RTE (via `ignore` package).
+ * .atlarix/.atlarixignore — gitignore-syntax globs for Blueprint/RTE (via `ignore` package).
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
 import ignore from "ignore";
 import type { Blueprint, BlueprintFunction, BlueprintRoom } from "@/shared/blueprint-types";
+import { ATLARIX_DIR, getAtlarixDirPath } from "@/lib/project-memory";
 
 export const ATLARIX_IGNORE_FILENAME = ".atlarixignore";
+
+/** Workspace-relative path to the ignore file. */
+export const ATLARIX_IGNORE_REL = `${ATLARIX_DIR}/${ATLARIX_IGNORE_FILENAME}`;
+
+const LEGACY_ROOT_IGNORE_REL = ATLARIX_IGNORE_FILENAME;
 
 /** Default patterns: dependencies, build output, locks, caches, env, large data. */
 export const DEFAULT_ATLARIXIGNORE = `# Atlarix — paths excluded from Blueprint / RTE (gitignore syntax)
@@ -118,10 +124,37 @@ export function isRelPathIgnored(ig: AtlarixIgnoreInstance, relPath: string): bo
 }
 
 export function getAtlarixIgnorePath(projectRoot: string): string {
-  return path.join(projectRoot, ATLARIX_IGNORE_FILENAME);
+  return path.join(projectRoot, ATLARIX_IGNORE_REL);
+}
+
+function legacyRootAtlarixIgnorePath(projectRoot: string): string {
+  return path.join(projectRoot, LEGACY_ROOT_IGNORE_REL);
+}
+
+async function migrateLegacyAtlarixIgnore(projectRoot: string): Promise<void> {
+  const canonical = getAtlarixIgnorePath(projectRoot);
+  const legacy = legacyRootAtlarixIgnorePath(projectRoot);
+  try {
+    await fs.access(canonical);
+    return;
+  } catch {
+    /* migrate or create */
+  }
+  await fs.mkdir(getAtlarixDirPath(projectRoot), { recursive: true });
+  const legacyContent = await fs.readFile(legacy, "utf-8").catch(() => null);
+  if (legacyContent?.trim()) {
+    await fs.writeFile(canonical, legacyContent, "utf-8");
+    try {
+      await fs.rename(legacy, `${legacy}.old`);
+    } catch {
+      /* non-fatal */
+    }
+    return;
+  }
 }
 
 export async function readAtlarixIgnoreSource(projectRoot: string): Promise<string> {
+  await migrateLegacyAtlarixIgnore(projectRoot);
   const fp = getAtlarixIgnorePath(projectRoot);
   try {
     return await fs.readFile(fp, "utf-8");
@@ -131,14 +164,16 @@ export async function readAtlarixIgnoreSource(projectRoot: string): Promise<stri
 }
 
 /**
- * Create `.atlarixignore` with defaults if missing. Call before first Blueprint parse.
+ * Create `.atlarix/.atlarixignore` with defaults if missing.
  */
 export async function ensureDefaultAtlarixIgnore(projectRoot: string): Promise<void> {
+  await migrateLegacyAtlarixIgnore(projectRoot);
   const fp = getAtlarixIgnorePath(projectRoot);
   try {
     await fs.access(fp);
   } catch {
     try {
+      await fs.mkdir(getAtlarixDirPath(projectRoot), { recursive: true });
       await fs.writeFile(fp, DEFAULT_ATLARIXIGNORE, "utf-8");
     } catch {
       /* non-fatal */
@@ -159,7 +194,6 @@ function relForFunction(f: BlueprintFunction, projectRoot: string): string {
 
 /**
  * Drop functions whose file path matches .atlarixignore; prune rooms and edges.
- * Safety net for prompt injection (disk is source of truth for patterns).
  */
 export async function filterBlueprintByAtlarixIgnore(
   blueprint: Blueprint,

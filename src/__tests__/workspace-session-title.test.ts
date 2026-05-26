@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { extractAtlarixChatSummary } from "@/lib/workspace-session-title";
-import { titleFromFirstUserMessage } from "@/lib/session-title";
+import {
+  extractAtlarixChatSummary,
+  isDefaultSessionTitle,
+} from "@/lib/workspace-session-title";
 
 describe("extractAtlarixChatSummary", () => {
   it("extracts tag at start of reply", () => {
@@ -20,20 +22,13 @@ describe("extractAtlarixChatSummary", () => {
   });
 });
 
-describe("titleFromFirstUserMessage (instant session title)", () => {
-  it("uses first line of user message", () => {
-    expect(titleFromFirstUserMessage("How does auth work?")).toBe(
-      "How does auth work?",
-    );
+describe("isDefaultSessionTitle", () => {
+  it("recognizes default titles", () => {
+    expect(isDefaultSessionTitle("Untitled")).toBe(true);
+    expect(isDefaultSessionTitle("New session")).toBe(true);
   });
 
-  it("truncates long messages", () => {
-    const long = "a".repeat(60);
-    expect(titleFromFirstUserMessage(long)).toMatch(/…$/);
-    expect(titleFromFirstUserMessage(long).length).toBeLessThanOrEqual(51);
-  });
-
-  it("returns Untitled for empty input", () => {
-    expect(titleFromFirstUserMessage("   ")).toBe("Untitled");
+  it("rejects custom titles", () => {
+    expect(isDefaultSessionTitle("Auth refactor plan")).toBe(false);
   });
 });

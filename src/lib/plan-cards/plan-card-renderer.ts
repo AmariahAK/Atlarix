@@ -34,6 +34,34 @@ export interface PlanCardData {
 const PLAN_BLOCK_RE = /<atlarix-plan[^>]*>([\s\S]*?)<\/atlarix-plan>/i;
 const JSON_PLAN_RE = /```(?:json)?\s*plan\s*([\s\S]*?)```/i;
 const PLAN_COMMENT_RE = /<!--\s*atlarix-plan:\s*([\s\S]*?)\s*-->/i;
+export const PLAN_ARTIFACT_MARKER_RE =
+  /<!--\s*atlarix-plan-artifact:([0-9a-f-]{36})\s*-->/gi;
+
+export type PlanContentSegment =
+  | { type: "markdown"; content: string }
+  | { type: "plan-artifact"; planId: string };
+
+/** Split raw assistant content into markdown and plan-artifact marker segments (order preserved). */
+export function splitContentByPlanMarkers(content: string): PlanContentSegment[] {
+  if (!content) return [];
+  const re = new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "gi");
+  const segments: PlanContentSegment[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    if (m.index > lastIndex) {
+      const chunk = content.slice(lastIndex, m.index);
+      if (chunk.trim()) segments.push({ type: "markdown", content: chunk });
+    }
+    segments.push({ type: "plan-artifact", planId: m[1] });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < content.length) {
+    const tail = content.slice(lastIndex);
+    if (tail.trim()) segments.push({ type: "markdown", content: tail });
+  }
+  return segments;
+}
 const PLAN_REPORT_RE = /##\s*Plan Report([\s\S]*?)(?:\n##\s|\n#\s|$)/i;
 
 function parseJsonPlan(raw: string): PlanCardData | null {
@@ -191,8 +219,24 @@ function parsePlanReport(content: string): PlanCardData | null {
 /**
  * Extract plan card data from assistant message content (custom tag or fenced block).
  */
+export function contentHasPlanArtifactMarker(content: string): boolean {
+  if (!content) return false;
+  return new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "i").test(content);
+}
+
+export function extractPlanIdsFromContent(content: string): string[] {
+  const ids: string[] = [];
+  const re = new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    ids.push(m[1]);
+  }
+  return [...new Set(ids)];
+}
+
 export function extractPlanFromContent(content: string): PlanCardData | null {
   if (!content || typeof content !== "string") return null;
+  if (contentHasPlanArtifactMarker(content)) return null;
   let raw: string | null = null;
   const tagMatch = content.match(PLAN_BLOCK_RE);
   if (tagMatch) raw = tagMatch[1].trim();
@@ -217,9 +261,33 @@ export function extractPlanFromContent(content: string): PlanCardData | null {
  * Remove plan payload / duplicate plan prose from the assistant message so the chat
  * body does not repeat markdown that is already shown in the Plan card.
  */
+/** Remove marker and trailing plan prose when the full plan lives in a session artifact. */
+export function stripPlanArtifactEchoFromDisplay(content: string): string {
+  if (!contentHasPlanArtifactMarker(content)) return content;
+  const re = new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "gi");
+  const match = re.exec(content);
+  if (!match || match.index == null) return content.replace(re, "").trim();
+  const before = content.slice(0, match.index).trim();
+  const after = content.slice(match.index + match[0].length).trim();
+  // Keep a short assistant note after the marker; drop duplicated long plan bodies only.
+  if (
+    after.length > 600 &&
+    (after.includes("## ") || /\|\s*#?\s*Item\s*\|/i.test(after))
+  ) {
+    const firstBlock = after.split(/\n{2,}/)[0]?.trim() ?? "";
+    const merged = [before, firstBlock].filter(Boolean).join("\n\n").trim();
+    if (merged) return merged;
+    // Entire answer may be the short intro after the marker only.
+    return firstBlock || before || after;
+  }
+  const merged = [before, after].filter(Boolean).join("\n\n").trim();
+  return merged || before || after;
+}
+
 export function stripAssistantPlanForDisplay(content: string): string {
   if (!content || typeof content !== "string") return "";
-  let out = content;
+  let out = stripPlanArtifactEchoFromDisplay(content);
+  out = out.replace(PLAN_ARTIFACT_MARKER_RE, "");
   out = out.replace(/<!--\s*atlarix-plan:\s*[\s\S]*?\s*-->/gi, "");
   out = out.replace(PLAN_BLOCK_RE, "");
   out = out.replace(JSON_PLAN_RE, "");

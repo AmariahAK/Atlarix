@@ -8,6 +8,7 @@ import { atom } from "jotai";
 import type { ChatSummary } from "@/lib/schemas";
 import type { ActivityStreamItem, AgentBusExchange } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
+import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
 import type { CounselTrigger } from "@/lib/counsel/counsel-session";
 
 // Per-chat atoms implemented with maps keyed by chatId
@@ -146,6 +147,18 @@ export const completedTurnThinkingByAssistantMessageIdAtom = atom<
   Record<number, CompletedTurnThinkingSnapshot>
 >({});
 
+/** Active assistant turn while streaming (for scoping inline tool cards). */
+export const activeTurnScopeAtom = atom<{
+  chatId: number;
+  assistantMessageId: number;
+  startedAt: number;
+} | null>(null);
+
+/** Frozen inline tool/thought timeline per completed assistant message. */
+export const inlineTimelineByMessageIdAtom = atom<
+  Record<number, InlineTimelineItem[]>
+>({});
+
 /** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
 export const streamSlowWarningByChatIdAtom = atom<Map<number, boolean>>(new Map());
@@ -154,9 +167,14 @@ export const streamSlowWarningByChatIdAtom = atom<Map<number, boolean>>(new Map(
 export const responseDoneAnimationAtom = atom<{ chatId: number; until: number } | null>(null);
 
 /** v3.5: Summarization in progress (show strip above input, left). */
-export const summarizationProgressAtom = atom<{ active: boolean; chatId: number | null }>({
+export const summarizationProgressAtom = atom<{
+  active: boolean;
+  chatId: number | null;
+  label?: string;
+}>({
   active: false,
   chatId: null,
+  label: undefined,
 });
 
 // PASS6: Blueprint per-chat injection override — restored.

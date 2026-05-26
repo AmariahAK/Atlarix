@@ -1,11 +1,10 @@
 import { useEffect, useCallback } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearch } from "@tanstack/react-router";
-import { currentAppAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { workspacePlanPanelAtom, pendingProposalsAtom } from "@/atoms/sourceAtoms";
 import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
-import type { PlanUpdatePayload } from "@/ipc/ipc_types";
+import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import {
   parsePlanChangesFromContent,
   deriveFilesFromPlanMarkdown,
@@ -48,13 +47,24 @@ function resolveChanges(
   return null;
 }
 
+function applyPayloadToPanel(
+  payload: PlanArtifactPayload,
+  setPanel: ReturnType<typeof useAtom<typeof workspacePlanPanelAtom>>[1],
+  changes: PlanChangesPayload | null,
+): void {
+  setPanel({
+    planId: payload.planId,
+    content: payload.content,
+    planStatus: payload.planStatus,
+    sessionId: payload.sessionId,
+    changes,
+  });
+}
+
 /**
- * Loads `.atlarix/ATLARIX_PLAN.md`, subscribes to ledger + file updates, and keeps `workspacePlanPanelAtom`.
+ * Subscribes to plan artifact IPC and keeps workspacePlanPanelAtom in sync.
  */
 export function useWorkspacePlanPanel(): void {
-  const currentApp = useAtomValue(currentAppAtom);
-  const selectedWorkspace = useAtomValue(selectedWorkspaceInfoAtom);
-  const workspacePath = (currentApp?.path || selectedWorkspace?.path || "").trim();
   const [, setPanel] = useAtom(workspacePlanPanelAtom);
   const proposals = useAtomValue(pendingProposalsAtom);
   const messagesByChatId = useAtomValue(chatMessagesByIdAtom);
@@ -76,50 +86,45 @@ export function useWorkspacePlanPanel(): void {
         }))
       : [];
 
-  const reloadMarkdown = useCallback(async () => {
-    if (!workspacePath) return;
-    const result = await IpcClient.getInstance().readPlanWorkspaceFile(workspacePath);
-    const markdown = result.content;
-    const changes = resolveChanges(messages, markdown, proposals);
-    setPanel((prev) => ({
-      ...prev,
-      markdown,
-      changes: changes ?? prev.changes,
-    }));
-  }, [workspacePath, messages, proposals, setPanel]);
+  const syncChanges = useCallback(
+    (content: string | null) => {
+      const changes = resolveChanges(messages, content, proposals);
+      setPanel((prev) => ({ ...prev, changes: changes ?? prev.changes }));
+    },
+    [messages, proposals, setPanel],
+  );
 
   useEffect(() => {
-    if (!workspacePath) return;
-    void reloadMarkdown();
-  }, [workspacePath, reloadMarkdown]);
-
-  useEffect(() => {
-    if (!workspacePath) return;
-    const unsubFile = IpcClient.getInstance().onPlanFileUpdated((payload) => {
-      if (payload.workspacePath !== workspacePath) return;
-      void reloadMarkdown();
-    });
-    return unsubFile;
-  }, [workspacePath, reloadMarkdown]);
-
-  useEffect(() => {
-    if (chatId == null || Number.isNaN(chatId)) return;
-    const unsub = IpcClient.getInstance().onPlanUpdate(chatId, (payload: PlanUpdatePayload) => {
+    const onActivated = (payload: PlanArtifactPayload) => {
+      const changes = resolveChanges(messages, payload.content, proposals);
+      applyPayloadToPanel(payload, setPanel, changes);
+    };
+    const onUpdated = (payload: PlanArtifactPayload) => {
       setPanel((prev) => {
-        const changes =
-          prev.changes ??
-          resolveChanges(messages, prev.markdown, proposals);
-        return { ...prev, ledger: payload, changes };
+        if (prev.planId && prev.planId !== payload.planId) return prev;
+        const changes = resolveChanges(messages, payload.content, proposals);
+        return {
+          planId: payload.planId,
+          content: payload.content,
+          planStatus: payload.planStatus,
+          sessionId: payload.sessionId,
+          changes: changes ?? prev.changes,
+        };
       });
-    });
-    return unsub;
-  }, [chatId, messages, proposals, setPanel]);
+    };
+    const unsubA = IpcClient.getInstance().onPlanArtifactActivated(onActivated);
+    const unsubU = IpcClient.getInstance().onPlanArtifactUpdated(onUpdated);
+    return () => {
+      unsubA();
+      unsubU();
+    };
+  }, [messages, proposals, setPanel]);
 
   useEffect(() => {
     setPanel((prev) => {
-      const changes = resolveChanges(messages, prev.markdown, proposals);
-      if (!changes) return prev;
-      return { ...prev, changes };
+      if (!prev.content) return prev;
+      const changes = resolveChanges(messages, prev.content, proposals);
+      return { ...prev, changes: changes ?? prev.changes };
     });
   }, [messages, proposals, setPanel]);
 }

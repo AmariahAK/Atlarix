@@ -151,6 +151,9 @@ export const chatSessions = sqliteTable("chat_sessions", {
     .default(sql`(unixepoch())`),
 });
 
+export type SessionMessageKind = "message" | "plan";
+export type PlanArtifactStatus = "plan" | "building" | "built";
+
 export const sessionMessages = sqliteTable("session_messages", {
   id: text("id").primaryKey(),
   sessionId: text("session_id")
@@ -158,6 +161,10 @@ export const sessionMessages = sqliteTable("session_messages", {
     .references(() => chatSessions.id, { onDelete: "cascade" }),
   role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
+  kind: text("kind", { enum: ["message", "plan"] })
+    .notNull()
+    .default("message"),
+  planStatus: text("plan_status", { enum: ["plan", "building", "built"] }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

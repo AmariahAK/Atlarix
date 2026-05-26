@@ -8,6 +8,9 @@ import {
   SESSION_LOAD_MESSAGE_LIMIT,
   SESSION_STORE_MESSAGE_MAX,
 } from "@/constants/session_constants";
+import { generateAIChatName } from "../../utils/chat_naming";
+
+const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
 const handle = createLoggedHandler(logger);
 
@@ -24,6 +27,7 @@ export type SessionMessageRow = {
   sessionId: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  kind: "message" | "plan";
   createdAt: Date;
 };
 
@@ -43,6 +47,7 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     sessionId: row.sessionId,
     role: row.role as SessionMessageRow["role"],
     content: row.content,
+    kind: (row.kind ?? "message") as SessionMessageRow["kind"],
     createdAt: row.createdAt,
   };
 }
@@ -117,7 +122,11 @@ export function registerWorkspaceSessionHandlers(): void {
         .orderBy(desc(sessionMessages.createdAt))
         .limit(limit);
 
-      const messages = [...recent].reverse().map(mapMessage);
+      // Plan artifacts (kind=plan) are shown via markers + Plan panel — not as chat bubbles.
+      const messages = [...recent]
+        .reverse()
+        .map(mapMessage)
+        .filter((m) => m.kind !== "plan");
       return {
         session: mapSession(session),
         messages,
@@ -173,12 +182,57 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
-  /** Deprecated: titles come from <atlarix-chat-summary> in the assistant reply. */
+  /** Generate a short title from the first user + assistant exchange (summarization model). */
   handle("sessions:generate-title", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({
       where: eq(chatSessions.id, sessionId),
     });
     if (!session) throw new Error("Session not found");
-    return { title: session.title };
+
+    const currentTitle = session.title.trim();
+    if (!DEFAULT_SESSION_TITLES.has(currentTitle)) {
+      return { title: currentTitle };
+    }
+
+    const rows = await db
+      .select()
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId))
+      .orderBy(asc(sessionMessages.createdAt));
+
+    const firstUser = rows.find((m) => m.role === "user");
+    const firstAssistant = rows.find((m) => m.role === "assistant");
+    if (!firstUser?.content?.trim() || !firstAssistant?.content?.trim()) {
+      return { title: currentTitle };
+    }
+
+    const conversationMessages = [
+      { role: "user", content: firstUser.content.trim() },
+      { role: "assistant", content: firstAssistant.content.trim().slice(0, 2000) },
+    ];
+
+    let newTitle = currentTitle;
+    try {
+      newTitle = await generateAIChatName(conversationMessages, currentTitle);
+    } catch (err) {
+      logger.warn("AI session title generation failed:", err);
+      const summaryMatch = firstAssistant.content.match(
+        /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
+      );
+      if (summaryMatch?.[1]?.trim()) {
+        newTitle = summaryMatch[1].trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 80);
+      }
+    }
+
+    const trimmed = newTitle.trim();
+    if (trimmed && DEFAULT_SESSION_TITLES.has(currentTitle) && !DEFAULT_SESSION_TITLES.has(trimmed)) {
+      await db
+        .update(chatSessions)
+        .set({ title: trimmed, updatedAt: new Date() })
+        .where(eq(chatSessions.id, sessionId));
+      return { title: trimmed };
+    }
+
+    return { title: currentTitle };
   });
 }

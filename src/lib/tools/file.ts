@@ -351,7 +351,7 @@ ToolRegistry.register({
     name: "explore_folder",
     category: ToolCategory.FILE,
     description:
-        "Explore a directory and return structured entries (files/folders) with metadata. Default 500 entries (max 2000). Set recursive=true and max_depth (1–5) for a bounded tree walk. Respects .atlarixignore when workspace is provided.",
+        "Explore a directory and return structured entries (files/folders) with metadata. Default 500 entries (max 2000). Set recursive=true and max_depth (1–5) for a bounded tree walk. Respects .atlarix/.atlarixignore when workspace is provided.",
     cost: 1,
     requiresWorkspace: true,
     isCore: true,
@@ -524,13 +524,12 @@ ToolRegistry.register({
         const normalizedPath = safeRelativePathUnderWorkspace(filePath);
 
         if (chatMode === "plan") {
-            const norm = normalizedPath.replace(/\\/g, "/");
-            const planOk = /(^|\/)\.atlarix\/ATLARIX_PLAN\.md$/.test(norm);
-            const memoryOk = /(^|\/)\.atlarix\/ATLARIX\.md$/i.test(norm);
-            if (!planOk && !memoryOk) {
+            const norm = normalizedPath.replace(/\\/g, "/").replace(/^\/+/, "");
+            const { isWorkspaceAtlarixMdPath } = await import("../project-memory");
+            if (!isWorkspaceAtlarixMdPath(norm)) {
                 return {
                     error:
-                        "Plan mode may only write .atlarix/ATLARIX_PLAN.md (prefer write_implementation_plan) or .atlarix/ATLARIX.md. Switch to Build for application code.",
+                        "Plan mode may only write .atlarix/atlarix.md (use write_implementation_plan for session plans). Switch to Build for application code.",
                     operation: "write_file",
                     denied: true,
                 };

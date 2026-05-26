@@ -1,9 +1,9 @@
 import type { Message } from "@/ipc/ipc_types";
 import {
-  AtlarixMarkdownParser,
   CHAT_MESSAGE_MARKDOWN_PROSE,
   VanillaMarkdownParser,
 } from "./AtlarixMarkdownParser";
+import { AssistantMessageBody } from "./AssistantMessageBody";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import {
   CheckCircle,
@@ -30,13 +30,12 @@ import {
 } from "@/atoms/appAtoms";
 import {
   activityStreamItemsAtom,
-  previewTabAtom,
-  rightPanelVisibleAtom,
+  workspacePlanPanelAtom,
 } from "@/atoms/sourceAtoms";
+import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
 import {
   activeChatIdAtom,
   chatMessagesByIdAtom,
-  counselPreviewByMessageIdAtom,
   lastTurnHadToolCallsByChatIdAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
@@ -64,16 +63,13 @@ import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showInfo } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
-import type { PlanCardData } from "@/lib/plan-cards/plan-card-renderer";
-import { TaskLedgerPlanCard } from "./TaskLedgerPlanCard";
-import { AgentActivityLog, buildActivityLogRows } from "./AgentActivityLog";
-import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
-import { CounselChatPreview } from "./CounselChatPreview";
-import { TurnArtifactsCards } from "./TurnArtifactsCards";
 import {
-  InlineThoughtsBlock,
-  shouldRenderInlineThoughtsPanel,
-} from "../ActivityDisplay";
+  contentHasPlanArtifactMarker,
+  type PlanCardData,
+} from "@/lib/plan-cards/plan-card-renderer";
+import { TaskLedgerPlanCard } from "./TaskLedgerPlanCard";
+import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
+import { TurnArtifactsCards } from "./TurnArtifactsCards";
 import { AttachmentChip } from "./AttachmentChip";
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
@@ -89,6 +85,7 @@ import {
   resolveWorkspaceAppId,
   showWorkspaceModeControls as shouldShowWorkspaceModeControls,
 } from "@/lib/chat/show-workspace-mode-controls";
+import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
 
 interface ChatMessageProps {
   message: Message;
@@ -104,8 +101,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-  const setCounselPreviewByMessageId = useSetAtom(counselPreviewByMessageIdAtom);
-  const counselPreviewPinned = useAtomValue(counselPreviewByMessageIdAtom)[message.id];
+  // Counsel previews now render inline in AssistantMessageBody.
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const currentChatId = activeChatId ?? selectedChatId;
   const activityItems = useAtomValue(activityStreamItemsAtom);
@@ -114,8 +110,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const completedTurnArtifactsById = useAtomValue(
     completedTurnArtifactsByAssistantMessageIdAtom,
   );
-  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
-  const setPreviewTab = useSetAtom(previewTabAtom);
   const [frozenActivity, setFrozenActivity] = useState<ActivityStreamItem[] | null>(null);
   const prevStreamingWhenLastRef = useRef(false);
 
@@ -144,19 +138,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         .get(activityStreamItemsAtom)
         .filter((i) => i.chatId == null || i.chatId === currentChatId);
       setFrozenActivity(snap);
-      const counselTypes = new Set<ActivityStreamItem["type"]>([
-        "counsel_start",
-        "counsel_participant_complete",
-        "counsel_synthesising",
-        "counsel_complete",
-      ]);
-      const counselOnly = snap.filter((i) => counselTypes.has(i.type));
-      if (counselOnly.length > 0) {
-        setCounselPreviewByMessageId((prev) => ({
-          ...prev,
-          [message.id]: counselOnly,
-        }));
-      }
     }
     prevStreamingWhenLastRef.current = false;
   }, [
@@ -165,7 +146,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     message.role,
     message.id,
     currentChatId,
-    setCounselPreviewByMessageId,
   ]);
 
   const displayActivityItems = useMemo(() => {
@@ -182,57 +162,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     filteredLiveActivity,
   ]);
 
-  const activityLogRows = useMemo(
-    () => buildActivityLogRows(displayActivityItems),
-    [displayActivityItems],
-  );
-  const hasActivityLogRows =
-    message.role === "assistant" && activityLogRows.length > 0;
-  const hasToolStreamActivity = displayActivityItems.some((i) => i.type === "tool_use");
-  const suppressActivityLogForInlineThoughts =
-    message.role === "assistant" &&
-    isLastMessage &&
-    isStreaming &&
-    shouldRenderInlineThoughtsPanel(displayActivityItems, settings?.agentMode) &&
-    !hasToolStreamActivity;
-  const liftInlineThoughtsAboveStreamChrome =
-    message.role === "assistant" &&
-    isLastMessage &&
-    isStreaming &&
-    shouldRenderInlineThoughtsPanel(displayActivityItems, settings?.agentMode);
-  const liftInlineThoughtsAboveCompletedChrome =
-    message.role === "assistant" &&
-    !isStreaming &&
-    shouldRenderInlineThoughtsPanel(displayActivityItems, settings?.agentMode);
-  const showAgentActivityLog =
-    hasActivityLogRows && !suppressActivityLogForInlineThoughts;
-
-  const counselPreviewItems = useMemo(() => {
-    if (message.role !== "assistant") return [];
-    if (counselPreviewPinned?.length) return counselPreviewPinned;
-    const pool = isLastMessage ? displayActivityItems : frozenActivity ?? [];
-    return pool.filter((i) =>
-      [
-        "counsel_start",
-        "counsel_participant_complete",
-        "counsel_synthesising",
-        "counsel_complete",
-      ].includes(i.type),
-    );
-  }, [
-    message.role,
-    counselPreviewPinned,
-    isLastMessage,
-    displayActivityItems,
-    frozenActivity,
-  ]);
-
-  const showCounselPreview = counselPreviewItems.length > 0;
-
-  const openActivityStreamPanel = () => {
-    setRightPanelVisible(true);
-    setPreviewTab("activity");
-  };
+  const showCounselPreview = false;
 
   const [isEditing, setIsEditing] = useState(false);
   const [resendMode, setResendMode] = useState<WorkMode>(
@@ -341,6 +271,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
 
   const planCardPayload = useMemo(() => {
     if (message.role !== "assistant") return null;
+    if (contentHasPlanArtifactMarker(message.content)) return null;
     const live =
       isStreaming && livePlanByAssistantMessageId.get(message.id);
     if (live && live.steps.length > 0) {
@@ -360,6 +291,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     isStreaming,
     livePlanByAssistantMessageId,
     planSnapshotsByMessageId,
+    message.content,
   ]);
 
   // Format the message timestamp
@@ -408,7 +340,12 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
         return next;
       });
       setRestartedAfterMessageId(message.id);
-      streamMessage({ prompt: "", chatId: currentChatId, continueAfterQuestions: true });
+      streamMessage({
+        prompt: "",
+        chatId: currentChatId,
+        continueAfterQuestions: true,
+        workModeOverride: resendMode,
+      });
     } catch (err) {
       showError(err);
     }
@@ -416,21 +353,48 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
 
   const WORK_MODES_RESEND: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
 
-  const handlePlanSwitchToBuild = (autoMessage: string, planData: PlanCardData) => {
+  const handlePlanSwitchToBuild = async (autoMessage: string, _planData: PlanCardData) => {
     if (currentChatId == null || isStreaming) return;
-    const steps = planData.taskGroups.flatMap((g) =>
-      g.tasks.map((t) => ({ description: `${g.title}: ${t.label}` })),
-    );
+    await updateSettings(settingsPatchForWorkMode("build"));
+    const panel = getDefaultStore().get(workspacePlanPanelAtom);
+    const planId = panel.planId;
+    if (planId) {
+      try {
+        await IpcClient.getInstance().setPlanArtifactStatus(planId, "building");
+      } catch {
+        /* ignore */
+      }
+    }
     void streamMessage({
       prompt: autoMessage,
       chatId: currentChatId,
-      prefillTaskLedger: { steps },
+      workModeOverride: "build",
+    });
+  };
+
+  const handlePlanArtifactBuild = async (planId: string) => {
+    if (currentChatId == null || isStreaming) return;
+    await updateSettings(settingsPatchForWorkMode("build"));
+    try {
+      const payload = await IpcClient.getInstance().getPlanArtifact(planId);
+      if (payload) {
+        await IpcClient.getInstance().setPlanArtifactStatus(planId, "building");
+      }
+    } catch {
+      /* ignore */
+    }
+    void streamMessage({
+      prompt:
+        "Implement the plan in the Plan panel step by step. Follow the phases and items in order.",
+      chatId: currentChatId,
+      workModeOverride: "build",
     });
   };
 
   const isEphemeralChat =
     currentChatId != null && currentChatId < 0;
   const resolvedWorkspaceAppId = resolveWorkspaceAppId({
+    chatBoundAppId: resolveChatWorkspaceAppId(currentChatId),
     selectedAppId: appId,
     currentAppId: currentApp?.id ?? null,
     workspaceInfoId: workspaceInfo?.id ?? null,
@@ -596,25 +560,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             />
           ) : message.role === "assistant" && isLastMessage && isStreaming ? (
             <>
-              {liftInlineThoughtsAboveStreamChrome ? (
-                <InlineThoughtsBlock className="mt-0 mb-2" />
-              ) : null}
-              {showAgentActivityLog ? (
-                <div className="mb-2 space-y-1">
-                  <AgentActivityLog
-                    items={displayActivityItems}
-                    isStreaming
-                    defaultCollapsed={hasToolStreamActivity}
-                  />
-                  <button
-                    type="button"
-                    onClick={openActivityStreamPanel}
-                    className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
-                  >
-                    ↗ View in Activity Stream
-                  </button>
-                </div>
-              ) : null}
               {planCardPayload ? (
                 <div className="mb-2">
                   <TaskLedgerPlanCard
@@ -626,25 +571,23 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                   />
                 </div>
               ) : null}
-              {/* Thoughts strip (when lifted) → activity → plan → answer + thinking inside parser */}
               {message.content ? (
                 <div
                   className={CHAT_MESSAGE_MARKDOWN_PROSE}
                   suppressHydrationWarning
                 >
-                  <AtlarixMarkdownParser
+                  <AssistantMessageBody
                     content={message.content}
                     assistantMessageId={message.id}
+                    chatId={message.chatId}
+                    isStreaming
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
-                    suppressInlineThoughts={
-                      liftInlineThoughtsAboveStreamChrome || !isLastMessage
-                    }
+                    onPlanArtifactBuild={(id) => void handlePlanArtifactBuild(id)}
+                    planArtifactBuildDisabled={isStreaming}
                   />
                 </div>
               ) : null}
-              {showCounselPreview ? (
-                <CounselChatPreview items={counselPreviewItems} />
-              ) : null}
+              {/* Counsel now renders inline in AssistantMessageBody */}
               <div
                 className={`${message.content ? "mt-2" : "mt-0"} flex justify-start`}
                 aria-live="polite"
@@ -674,25 +617,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             >
               {message.role === "assistant" ? (
                 <>
-                  {liftInlineThoughtsAboveCompletedChrome ? (
-                    <InlineThoughtsBlock className="mt-0 mb-2" />
-                  ) : null}
-                  {showAgentActivityLog ? (
-                    <div className="mb-2 space-y-1">
-                      <AgentActivityLog
-                        items={displayActivityItems}
-                        isStreaming={false}
-                        defaultCollapsed
-                      />
-                      <button
-                        type="button"
-                        onClick={openActivityStreamPanel}
-                        className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
-                      >
-                        ↗ View in Activity Stream
-                      </button>
-                    </div>
-                  ) : null}
                   {planCardPayload ? (
                     <div className="mb-2">
                       <TaskLedgerPlanCard
@@ -704,17 +628,16 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                       />
                     </div>
                   ) : null}
-                  <AtlarixMarkdownParser
+                  <AssistantMessageBody
                     content={message.content}
                     assistantMessageId={message.id}
+                    chatId={message.chatId}
+                    isStreaming={isLastMessage && isStreaming}
                     onPlanSwitchToBuild={handlePlanSwitchToBuild}
-                    suppressInlineThoughts={
-                      liftInlineThoughtsAboveCompletedChrome || !isLastMessage
-                    }
+                    onPlanArtifactBuild={(id) => void handlePlanArtifactBuild(id)}
+                    planArtifactBuildDisabled={isStreaming}
                   />
-                  {showCounselPreview ? (
-                    <CounselChatPreview items={counselPreviewItems} />
-                  ) : null}
+                  {/* Counsel now renders inline in AssistantMessageBody */}
                   {completedTurnArtifactsById[message.id] ? (
                     <TurnArtifactsCards artifacts={completedTurnArtifactsById[message.id]!} />
                   ) : null}

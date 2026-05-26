@@ -7,6 +7,8 @@ import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { ToolCategory, ToolRegistry } from "@/lib/tools/registry";
+import { useSettings } from "@/hooks/useSettings";
+import type { WorkMode } from "@/lib/schemas";
 
 export type ToolIndicatorProps = {
   /** When set, only show status for this chat (avoids wrong session in multi-chat UIs). */
@@ -45,6 +47,24 @@ export function classifyTool(toolIdOrName: string): ToolLabelGroup {
   return "default";
 }
 
+/** Idle strip text when no tool is active yet. */
+export function idleLabelForWorkMode(mode: WorkMode | undefined): string {
+  switch (mode) {
+    case "ask":
+      return "Exploring…";
+    case "plan":
+      return "Planning…";
+    case "build":
+      return "Building…";
+    case "debug":
+      return "Fixing…";
+    case "review":
+      return "Reviewing…";
+    default:
+      return "Thinking…";
+  }
+}
+
 export function groupToLabel(group: ToolLabelGroup, humanToolName: string): string {
   switch (group) {
     case "readonly":
@@ -81,8 +101,10 @@ function autonomousBusActiveForChat(
 export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
   const state = useAtomValue(toolIndicatorAtom);
   const setState = useSetAtom(toolIndicatorAtom);
+  const { settings } = useSettings();
   const streamingById = useAtomValue(isStreamingByIdAtom);
   const activityItems = useAtomValue(activityStreamItemsAtom);
+  const workMode = settings?.workModePreference;
   const [outputExpanded, setOutputExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<
     "error_first" | "progress_first" | "raw_capped"
@@ -97,42 +119,7 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
     [activityItems, targetChatId],
   );
 
-  useEffect(() => {
-    const unsub = IpcClient.getInstance().onToolIndicator(
-      ({ chatId, toolName, toolId }) => {
-        setState((prev) => ({
-          ...prev,
-          active: true,
-          toolName,
-          toolId: toolId ?? toolName,
-          phaseLabel: null,
-          count: prev.count + 1,
-          activeChatId: chatId,
-          liveOutputLines: [],
-          liveErrorLines: [],
-          liveProgressLines: [],
-          liveViewMode: "error_first",
-        }));
-      },
-      () => {
-        setState((prev) => {
-          const count = Math.max(0, prev.count - 1);
-          return {
-            ...prev,
-            count,
-            active: count > 0,
-            toolName: count > 0 ? prev.toolName : null,
-            toolId: count > 0 ? prev.toolId : null,
-            activeChatId: count > 0 ? prev.activeChatId : prev.activeChatId,
-            liveOutputLines: count > 0 ? prev.liveOutputLines : [],
-            liveErrorLines: count > 0 ? prev.liveErrorLines : [],
-            liveProgressLines: count > 0 ? prev.liveProgressLines : [],
-          };
-        });
-      },
-    );
-    return unsub;
-  }, [setState]);
+  // Tool start/end IPC is handled in useStreamChat only (avoids double count).
 
   useEffect(() => {
     const unsub = IpcClient.getInstance().onStreamPhase(({ chatId, phase, label }) => {
@@ -190,19 +177,28 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
 
   const showStrip =
     targetChatId != null &&
-    (state.activeChatId === targetChatId || isTargetStreaming) &&
-    (isTargetStreaming || state.count > 0 || state.counselPhaseActive);
+    isTargetStreaming &&
+    (state.activeChatId === targetChatId || state.activeChatId === null) &&
+    (state.active ||
+      state.count > 0 ||
+      state.counselPhaseActive ||
+      Boolean(state.phaseLabel?.trim()));
 
   if (!showStrip) return null;
 
-  let displayLine = state.phaseLabel?.trim() || "Thinking…";
+  const idleDefault = idleLabelForWorkMode(workMode);
+  let displayLine = state.phaseLabel?.trim() || idleDefault;
   if (autonomousOverride) {
     displayLine = "Splitting to autonomous agents…";
   } else if (state.counselPhaseActive) {
     displayLine = "Consulting multiple models…";
-  } else if (state.count > 0 && state.toolName) {
-    const key = state.toolId ?? state.toolName;
-    displayLine = groupToLabel(classifyTool(key), state.toolName);
+  } else if (state.count > 0 && state.toolName?.trim()) {
+    const specific = state.toolName.trim();
+    const key = state.toolId ?? specific;
+    displayLine =
+      specific.includes("…") || specific.includes("...")
+        ? specific
+        : groupToLabel(classifyTool(key), specific);
   }
 
   const showToolRow = state.count > 0 && Boolean(state.toolName);

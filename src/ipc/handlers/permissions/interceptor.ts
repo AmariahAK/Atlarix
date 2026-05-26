@@ -730,7 +730,12 @@ export class PermissionInterceptor extends EventEmitter {
                     ) {
                         sawPlanWrite = true;
                     }
-                    if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) {
+                    if (
+                        norm === ".atlarix/.atlarixignore" ||
+                        norm.endsWith("/.atlarix/.atlarixignore") ||
+                        norm === ".atlarixignore" ||
+                        norm.endsWith("/.atlarixignore")
+                    ) {
                         sawIgnoreWrite = true;
                     }
                 }

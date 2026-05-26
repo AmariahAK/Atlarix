@@ -25,6 +25,7 @@ import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint, getUserBlueprintMtime } from "@/lib/cache/blueprint-cache";
 import {
   ATLARIX_IGNORE_FILENAME,
+  ATLARIX_IGNORE_REL,
   createIgnorerFromSource,
   ensureDefaultAtlarixIgnore,
   filterRteEdgesByNodes,
@@ -609,7 +610,11 @@ export function registerBlueprintHandlers() {
         const workspacePath = getAtlarixAppPath(app.path);
         await ensureDefaultAtlarixIgnore(workspacePath);
         const content = await readAtlarixIgnoreSource(workspacePath);
-        return { success: true, content, filename: ATLARIX_IGNORE_FILENAME };
+        return {
+          success: true,
+          content,
+          filename: ATLARIX_IGNORE_REL,
+        };
       } catch (e) {
         logger.error("blueprint:get-atlarixignore error:", e);
         return { success: false, error: e instanceof Error ? e.message : "Unknown error" };

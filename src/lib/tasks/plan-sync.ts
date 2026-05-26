@@ -135,6 +135,7 @@ export function isAtlarixPlanRelativePath(relPosix: string): boolean {
 /** Workspace-relative POSIX paths that never require user approval (internal Atlarix metadata). */
 export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolean {
   const norm = relPosix.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (norm === ".atlarix/.atlarixignore" || norm.endsWith("/.atlarix/.atlarixignore")) return true;
   if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) return true;
   if (norm === ".atlarix" || norm.startsWith(".atlarix/")) return true;
   if (norm.includes("/.atlarix/")) return true;

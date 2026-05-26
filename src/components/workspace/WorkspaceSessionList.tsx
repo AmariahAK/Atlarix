@@ -10,6 +10,7 @@ import {
   loadedSessionResumeAtom,
   loadedSessionTruncatedAtom,
   workspaceSessionsRefreshAtom,
+  workspaceSessionTitleGeneratingAtom,
   chatIdToSessionIdAtom,
   workspaceSessionLoadingAtom,
   workspaceSessionLoadingLabelAtom,
@@ -29,6 +30,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { appsListAtom } from "@/atoms/appAtoms";
+import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
+import { showInfo } from "@/lib/toast";
 
 let displayMessageId = -10000;
 
@@ -74,6 +78,8 @@ export function WorkspaceSessionList({
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const sessionsRefreshKey = useAtomValue(workspaceSessionsRefreshAtom);
+  const titleGeneratingIds = useAtomValue(workspaceSessionTitleGeneratingAtom);
+  const appsList = useAtomValue(appsListAtom);
 
   const loadSessions = useCallback(async () => {
     setListLoading(true);
@@ -107,6 +113,14 @@ export function WorkspaceSessionList({
           limit: SESSION_LOAD_MESSAGE_LIMIT,
         });
       const chatId = await IpcClient.getInstance().createChat(workspaceId);
+      const workspaceApp = appsList.find((a) => a.id === workspaceId);
+      attachWorkspaceToChat(
+        chatId,
+        workspaceId,
+        workspaceApp
+          ? { name: workspaceApp.name, path: workspaceApp.path ?? undefined }
+          : undefined,
+      );
       const uiMessages = sessionMessagesToUiMessages(
         session.id,
         chatId,
@@ -122,8 +136,8 @@ export function WorkspaceSessionList({
         return next;
       });
       setActiveSessionId(session.id);
-      setLoadedResume(true);
       setLoadedTruncated(Boolean(truncated));
+      showInfo("Loaded previous chat session");
       setChatIdToSessionId((prev) => {
         const next = new Map(prev);
         next.set(chatId, session.id);
@@ -224,7 +238,11 @@ export function WorkspaceSessionList({
               />
             ) : (
               <>
-                <div className="text-xs truncate">{session.title}</div>
+                <div className="text-xs truncate">
+                  {titleGeneratingIds.has(session.id) && session.title === "Untitled"
+                    ? "Naming…"
+                    : session.title}
+                </div>
                 <div className="text-[10px] text-muted-foreground">
                   {formatDistanceToNow(new Date(session.updatedAt), {
                     addSuffix: true,

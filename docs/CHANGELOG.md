@@ -1,5 +1,29 @@
 # Atlarix Changelog
 
+## [8.8.0] (2026-05-26) — Plan artifacts, session titles, folder picker
+
+### Plans
+
+- **Session plan artifacts:** Plans are stored as SQLite rows (`session_messages` with `kind=plan`), not `.atlarix/ATLARIX_PLAN.md`. `write_implementation_plan` creates/updates DB rows; inline plan cards in chat; right Plan panel shows the last clicked artifact.
+- **Status lifecycle:** `plan` → `building` → `built` on the DB row (Lucide badges in chat and panel).
+- **Removed:** JSON task ledger sync to disk for plans (`task-state/**/ledger.json` creation disabled).
+
+### Project memory
+
+- **Canonical file:** [`.atlarix/atlarix.md`](src/lib/project-memory.ts) (migrated from workspace-root `atlarix.md` and `.atlarix/ATLARIX.md`). Plan mode may write this file; all modes read it.
+- **Ignore file:** `.atlarix/.atlarixignore` (migrated from root `.atlarixignore`). Workspace open runs one-time bootstrap ([`workspace-bootstrap.ts`](src/lib/atlarix/workspace-bootstrap.ts)).
+
+### Sessions
+
+- **AI session titles:** After the first assistant reply, `sessions:generate-title` uses the summarization model on the first user + assistant exchange. Sessions stay `Untitled` until then (no more truncated first-message titles).
+
+### Workspace UX
+
+- **Add workspace:** `+` opens the native folder dialog immediately; recent workspaces via a clock popover ([`WorkspaceRecentsMenu.tsx`](src/components/workspace/WorkspaceRecentsMenu.tsx)).
+- **Files tab:** `get-app` returns metadata only; file index loads via `get-app-files` when the sidebar Files tab expands.
+
+---
+
 ## [8.7.5] (2026-05-24) — Polish & UX
 
 ### Packaging / IPC

@@ -187,7 +187,7 @@ ToolRegistry.register({
           success: false,
           error: "Blueprint parse produced no rooms for this section.",
           hint:
-            "Check that the folder contains source files and is not fully ignored by .atlarixignore. For Python/Go/etc. ensure pyproject.toml, go.mod, or similar is present.",
+            "Check that the folder contains source files and is not fully ignored by .atlarix/.atlarixignore. For Python/Go/etc. ensure pyproject.toml, go.mod, or similar is present.",
           focusPath,
           scanRoot: pathValidation.scanRoot,
           parseQuality: "thin" as const,

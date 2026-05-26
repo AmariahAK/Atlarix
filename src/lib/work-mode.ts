@@ -24,6 +24,31 @@ export function settingsPatchForWorkMode(mode: WorkMode): {
   };
 }
 
+/**
+ * Resolved work mode for prompts, tool allowlists, and activity labels.
+ * - Manual UI selection (Explore / Plan / Build / Fix / Review): uses `workModePreference` (all five).
+ * - Legacy Auto intent: collapses to ask or build from `selectedChatMode` only.
+ */
+export function resolveEffectiveWorkMode(params: {
+  workModeOverride?: WorkMode;
+  intentMode?: string | null;
+  workModePreference?: WorkMode | null;
+  selectedChatMode: "ask" | "build" | "agent";
+}): WorkMode {
+  if (params.workModeOverride) return params.workModeOverride;
+
+  const chatMode: "ask" | "build" =
+    params.selectedChatMode === "agent" || params.selectedChatMode === "build"
+      ? "build"
+      : "ask";
+
+  const intent = params.intentMode ?? chatMode;
+  if (intent !== "auto") {
+    return params.workModePreference ?? (chatMode === "build" ? "build" : "ask");
+  }
+  return chatMode === "build" ? "build" : "ask";
+}
+
 export function labelForWorkMode(mode: WorkMode): string {
   switch (mode) {
     case "ask":

@@ -82,6 +82,8 @@ import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import { captureSafe } from "../../main/lib/analytics";
 import { summarizeOversizedToolResultsInContent } from "@/lib/context/post_turn_tool_result_summary";
+import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
+import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import * as path from "path";
 import { readFile } from "fs/promises";
 import { AttachmentStore } from "../../lib/attachment-store";
@@ -1702,10 +1704,15 @@ export async function handleChatOnlyStream(
         fullResponse = sanitizeAssistantOutput(fullResponse);
 
         let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
-        responseToStore = sanitizeAssistantOutput(responseToStore);
-        responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
-            settings,
-            mainOptions,
+        emitPostTurnToolSummaryActivity(event.sender, req.chatId, "running");
+        try {
+            responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
+                settings,
+                mainOptions,
+            });
+        } finally {
+            emitPostTurnToolSummaryActivity(event.sender, req.chatId, "done");
+        }
         });
         // ═══════════════════════════════════════════════════════════════
 

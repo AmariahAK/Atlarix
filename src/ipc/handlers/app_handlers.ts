@@ -21,6 +21,7 @@ import { promises as fsPromises } from "node:fs";
 import { withLock } from "../utils/lock_utils";
 import { getProjectFiles } from "../utils/project-files";
 import { analyzeWorkspaceDiscovery } from "../utils/workspace-discovery";
+import { bootstrapAtlarixWorkspaceFolder } from "@/lib/atlarix/workspace-bootstrap";
 import {
   runningApps,
   processCounter,
@@ -713,6 +714,56 @@ export function registerAppHandlers() {
     },
   );
 
+  async function loadAppFileIndex(appPath: string): Promise<{
+    files: string[];
+    fileDiscoveryWarnings?: string[];
+    strategy?: string;
+  }> {
+    try {
+      const result = await getProjectFiles(appPath);
+      const fileDiscoveryWarnings = result.accessWarnings?.length
+        ? [...new Set(result.accessWarnings as string[])]
+        : undefined;
+      return {
+        files: result.files,
+        fileDiscoveryWarnings,
+        strategy: result.strategy,
+      };
+    } catch (error) {
+      logger.error(`Error reading files for workspace ${appPath}:`, error);
+      return { files: [] };
+    }
+  }
+
+  handle(
+    "get-app-files",
+    async (
+      _,
+      appId: number,
+    ): Promise<{
+      files: string[];
+      fileDiscoveryWarnings?: string[];
+      pathExists: boolean;
+    }> => {
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, appId),
+      });
+      if (!app) throw new Error("App not found");
+      const appPath = getAtlarixAppPath(app.path);
+      const pathExists = fs.existsSync(appPath);
+      if (!pathExists) {
+        return { files: [], pathExists: false };
+      }
+      const { files, fileDiscoveryWarnings, strategy } = await loadAppFileIndex(appPath);
+      if (strategy) logger.info(`[workspace] file discovery via ${strategy}`);
+      return {
+        files,
+        fileDiscoveryWarnings,
+        pathExists: true,
+      };
+    },
+  );
+
   handle("get-app", async (_, appId: number): Promise<App> => {
     const app = await db.query.apps.findFirst({
       where: eq(apps.id, appId),
@@ -722,30 +773,14 @@ export function registerAppHandlers() {
       throw new Error("App not found");
     }
 
-    // Get app files; check path existence (v2.1 workspace sync)
     const appPath = getAtlarixAppPath(app.path);
     const pathExists = fs.existsSync(appPath);
-    let files: string[] = [];
-
-    let fileDiscoveryWarnings: string[] | undefined;
+    if (pathExists) {
+      void bootstrapAtlarixWorkspaceFolder(appPath);
+    }
     const workspaceDiscoveryHints = pathExists
       ? analyzeWorkspaceDiscovery(appPath)
       : { hasRootGit: false, isMultiRepoWorkspace: false };
-
-    if (pathExists) {
-      try {
-        const result = await getProjectFiles(appPath);
-        // getProjectFiles now returns workspace-relative paths (src/lib/foo.ts)
-        // normalizePath only converts backslashes to forward slashes — already handled
-        files = result.files;
-        if (result.accessWarnings?.length) {
-          fileDiscoveryWarnings = [...new Set(result.accessWarnings as string[])];
-        }
-        logger.info(`[workspace] file discovery via ${result.strategy}`);
-      } catch (error) {
-        logger.error(`Error reading files for app ${appId}:`, error);
-      }
-    }
 
     let supabaseProjectName: string | null = null;
     const settings = readSettings();
@@ -764,15 +799,12 @@ export function registerAppHandlers() {
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
       ...app,
-      files,
+      files: [],
       supabaseProjectName,
       vercelTeamSlug,
       pathExists,
       status,
       workspaceDiscoveryHints,
-      ...(fileDiscoveryWarnings?.length
-        ? { fileDiscoveryWarnings }
-        : {}),
     };
   });
 

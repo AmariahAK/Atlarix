@@ -80,6 +80,7 @@ const loadAgentsFile = (filename: string): string => {
 // Load at startup
 AGENTS_MD_FULL = loadAgentsFile("AGENTS.md");
 AGENTS_MD_COMPACT = loadAgentsFile("AGENTS_COMPACT.md");
+const AGENTS_MD_MODE_BASE = loadAgentsFile("AGENTS_MODE_BASE.md");
 
 // Fallback if both failed (e.g. packaged app layout): minimal prompt so app never runs with empty
 const FALLBACK_AGENTS = `# Atlarix
@@ -170,6 +171,7 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "read_implementation_plan",
     "run_command",
     "search",
+    "update_plan_status",
     "write_file",
     "write_implementation_plan",
   ],
@@ -228,9 +230,14 @@ export const MODE_SYSTEM_TOOL_LISTS = {
 
 export type ModeSystemKey = keyof typeof MODE_SYSTEM_TOOL_LISTS;
 
+/** Mode-scoped bundle — omits multi-mode summaries (active mode is in `<mode_system>` only). */
+export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
+    return AGENTS_MD_MODE_BASE || AGENTS_MD_COMPACT || AGENTS_MD_FULL || "";
+};
+
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
-  plan: "Author .atlarix/ATLARIX_PLAN.md (and other plan/markdown files) before any production code change.",
+  plan: "Author session plan artifacts (write_implementation_plan) and .atlarix/atlarix.md before production code changes.",
   build: "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
   debug: "Fix mode — investigate and fix bugs. Read tools + diagnose_issue + run_command + edit_file. After substantive edits, call **lsp_diagnostics** on touched files before claiming success.",
   review: "Read-only review. Inspect changes, surface findings; do not mutate files. Use **lsp_diagnostics** / **lsp_hover** when IDE-grade signals help.",
@@ -278,7 +285,7 @@ You are in Plan mode. This is a planning and architecture mode.
 You CAN:
 - Read files and search the codebase
 - Use **run_command** for read-only shell/git (git status, git log, git diff)
-- Create and edit plan files (.atlarix/ATLARIX_PLAN.md)
+- Create and update session plan artifacts; edit .atlarix/atlarix.md
 - Use get_blueprint and get_diagram
 - Write markdown documents, specs, and plans
 
@@ -400,12 +407,13 @@ export interface SystemPromptParts {
     dynamicTail: string;
 }
 
-const buildModeSpecificInstruction = (chatMode: "build" | "ask"): string => {
-    if (chatMode === "ask") {
+/** Per work-mode instruction block (replaces ask/build-only `buildModeSpecificInstruction`). */
+export const buildWorkModeInstruction = (workMode: ModeSystemKey): string => {
+    if (workMode === "ask") {
         return `
 ---
 
-# Mode: Ask (Read-only exploration)
+# Mode: Explore (read-only)
 
 You are in **Ask mode**: answer questions and explore the workspace with **read-only** tools only.
 
@@ -415,7 +423,7 @@ read_attachment({ "attachmentId": "<id>" }) and list_attachments({}) ARE availab
 mode and in every other mode. Use them whenever the user has attached a file, regardless of
 whether a workspace is open.
 
-**Roadmaps and plan files:** Do **not** write **.atlarix/ATLARIX_PLAN.md** or use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode in the UI. Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
+**Roadmaps and plans:** Do **not** use \`write_implementation_plan\` in Ask mode. For structured implementation plans or phased roadmaps, direct the user to **Plan** mode in the UI. Suggest **Build** only when they are done planning and want code execution—not for ordinary exploration.
 
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
@@ -424,6 +432,44 @@ whether a workspace is open.
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
+`;
+    }
+    if (workMode === "plan") {
+        return `
+---
+
+# Mode: Plan
+
+You are in **Plan** mode: read-only exploration plus session plan artifacts and \`.atlarix/atlarix.md\`.
+
+- Use \`write_implementation_plan\` / \`read_implementation_plan\` / \`update_plan_status\` for roadmaps (DB session artifacts, not files).
+- Use \`write_file\` / \`edit_file\` only for \`.atlarix/atlarix.md\`.
+- Do NOT edit application source code or run build/install commands.
+- When implementation is requested, tell the user to switch to **Build** in the UI.
+`;
+    }
+    if (workMode === "debug") {
+        return `
+---
+
+# Mode: Fix
+
+You are in **Fix** mode: targeted debugging with read/write tools and \`run_command\` for tests and repro steps.
+
+- Prefer minimal, root-cause fixes over broad refactors.
+- Use \`diagnose_issue\` when helpful.
+`;
+    }
+    if (workMode === "review") {
+        return `
+---
+
+# Mode: Review
+
+You are in **Review** mode: read-only quality and security review.
+
+- Do NOT write source files or run mutating commands.
+- Produce specific, actionable feedback.
 `;
     }
     return `
@@ -462,6 +508,10 @@ If unsure, do NOT output <task_complete>. It's better to continue than stop prem
 `;
 };
 
+/** @deprecated Use `buildWorkModeInstruction` when `effectiveWorkMode` is known. */
+const buildModeSpecificInstruction = (chatMode: "build" | "ask"): string =>
+    buildWorkModeInstruction(chatMode === "build" ? "build" : "ask");
+
 /**
  * PASS8 A5: Construct the stable + dynamic parts of the system prompt.
  * Used by stream handlers to pass `stableHeader` as `system:` and prepend
@@ -479,7 +529,11 @@ export const constructSystemPromptParts = ({
     providerBrand,
     labelWithProvider,
 }: ConstructSystemPromptParams): SystemPromptParts => {
-    const base = optionalProjectInstructions ?? getAgentsMdForContextSize(contextSize);
+    const base =
+        optionalProjectInstructions ??
+        (effectiveWorkMode
+            ? getAgentsMdForWorkMode(effectiveWorkMode)
+            : getAgentsMdForContextSize(contextSize));
 
     // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
     const toolContract = `<tool_contract>
@@ -488,12 +542,6 @@ Workspace-only tools (file read/write, search, diagram, etc.) are NOT available 
 If a tool is in your tool list, call it; do not claim it is missing.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
 </tool_contract>`;
-
-    const sessionTitleRule = `<session_title>
-On the **first turn** of a **new workspace chat session**, **start** your reply with exactly one line:
-<atlarix-chat-summary>three to six word title</atlarix-chat-summary>
-Then a blank line, then your answer. Use 3–6 words, no punctuation. Emit this tag once per session (omit on follow-up turns unless the user asks to rename the session topic).
-</session_title>`;
 
     const webResearchRules = `**Web research tools — pick exactly one per topic per turn**
 
@@ -514,7 +562,9 @@ You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_sk
 ${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`;
 
     const modeBlock = renderModeSystemBlock(effectiveWorkMode);
-    const modeSpecific = buildModeSpecificInstruction(chatMode);
+    const modeSpecific = effectiveWorkMode
+        ? buildWorkModeInstruction(effectiveWorkMode)
+        : buildModeSpecificInstruction(chatMode);
     const appVersion = getElectronAppVersion();
     const identity =
         activeModel != null
@@ -541,7 +591,6 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
     const stableHeader = [
         base.trim(),
         toolContract,
-        sessionTitleRule,
         inlineVizRules,
         modeBlock,
         webResearchRules,

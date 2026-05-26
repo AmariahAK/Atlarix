@@ -10,6 +10,10 @@ import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
 import {
   previewModeAtom,
   selectedAppIdAtom,
+  pendingWorkspaceAppIdAtom,
+  selectedWorkspaceInfoAtom,
+  pendingWorkspaceAppIdAtom,
+  appsListAtom,
   currentAppAtom,
   selectedWorkspaceInfoAtom,
   userSettingsAtom,
@@ -80,6 +84,10 @@ function PersistentChatContainer() {
   const { streamMessage } = useStreamChat({ hasChatId: false });
   const { isDarkMode } = useTheme();
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
+  const setPendingWorkspaceAppId = useSetAtom(pendingWorkspaceAppIdAtom);
+  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
+  const appsList = useAtomValue(appsListAtom);
   const mustSignIn = !authLoading && !isAuthenticated;
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
 
@@ -120,8 +128,33 @@ function PersistentChatContainer() {
     setSourceList([]);
     setSelectedSource(null);
     setSuppressAutoOpen(true);
-    setRightPanelVisible(false);
-    setDiagramState(null); // Clear stale diagram
+    if (pendingWorkspaceAppId != null) {
+      const app = appsList.find((a) => a.id === pendingWorkspaceAppId);
+      setSelectedAppId(pendingWorkspaceAppId);
+      if (app) {
+        setSelectedWorkspaceInfo({
+          id: app.id,
+          name: app.name,
+          path: app.path,
+        });
+      }
+      setPendingWorkspaceAppId(null);
+    } else {
+      setSelectedAppId(null);
+    }
+  }, [
+    setActiveChatId,
+    setSourceList,
+    setSelectedSource,
+    setSuppressAutoOpen,
+    setRightPanelVisible,
+    setDiagramState,
+    setSelectedAppId,
+    pendingWorkspaceAppId,
+    setPendingWorkspaceAppId,
+    appsList,
+    setSelectedWorkspaceInfo,
+  ]);
     setSelectedAppId(null); // v8.0.1: Don't inherit workspace for new chat
   }, [setActiveChatId, setSourceList, setSelectedSource, setSuppressAutoOpen, setRightPanelVisible, setDiagramState, setSelectedAppId]);
 

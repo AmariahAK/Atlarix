@@ -41,7 +41,7 @@ Blueprint is **lazy** and **section-scoped** for `get_blueprint` only — parse 
 
 ## Context layers
 
-System instructions → `<mode_system>` (only the active mode's tools are listed) → Diagram (on demand) → Project memory ATLARIX.md + SQLite (persistent) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
+System instructions → `<mode_system>` (runtime injects **only the active UI work mode**, not all five) → Diagram (on demand) → Project memory `.atlarix/atlarix.md` + SQLite (persistent) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
 
 ## What Atlarix CANNOT do
 

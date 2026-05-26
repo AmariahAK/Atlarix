@@ -19,3 +19,6 @@ export const loadedSessionTruncatedAtom = atom<boolean>(false);
 
 /** Bump to reload workspace session lists after create/rename. */
 export const workspaceSessionsRefreshAtom = atom(0);
+
+/** Session ids currently awaiting AI-generated titles. */
+export const workspaceSessionTitleGeneratingAtom = atom<Set<string>>(new Set());

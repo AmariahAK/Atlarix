@@ -5,8 +5,8 @@
 import { useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
 import { cn } from "@/lib/utils";
 import { MessageCircle, ListTodo, Hammer, Bug, ShieldCheck } from "lucide-react";
 import {
@@ -52,8 +52,8 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
 ];
 
 export function ChatIntentSelector() {
-  const appId = useAtomValue(selectedAppIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
   const { settings, updateSettings } = useSettings();
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -69,9 +69,8 @@ export function ChatIntentSelector() {
     settings?.workModePreference ??
     (effectivePermission === "ask" ? "ask" : "build");
 
-  /** No workspace, or ephemeral/incognito chat (negative id): read-only chrome — Ask only. */
-  const isReadOnlyChatChrome =
-    !appId || (typeof selectedChatId === "number" && selectedChatId < 0);
+  /** Chat-only (no workspace): read-only chrome — Ask only. */
+  const isReadOnlyChatChrome = workspaceAppId == null;
 
   useEffect(() => {
     if (!isReadOnlyChatChrome) return;
@@ -88,14 +87,14 @@ export function ChatIntentSelector() {
     }
   }, [
     isReadOnlyChatChrome,
-    appId,
+    workspaceAppId,
     selectedChatId,
     settings?.selectedChatMode,
     settings?.workModePreference,
     updateSettings,
   ]);
 
-  const noWorkspace = !appId;
+  const noWorkspace = workspaceAppId == null;
 
   const setWorkMode = (mode: WorkMode) => {
     if (isReadOnlyChatChrome && mode !== "ask") {
@@ -142,9 +141,7 @@ export function ChatIntentSelector() {
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                {noWorkspace
-                  ? "Open or create a workspace for Plan, Build, and other write modes."
-                  : "This incognito chat is read-only. Open a normal workspace chat for Plan, Build, and Auto."}
+                Open or add a workspace for Plan, Build, Debug, and Review.
               </TooltipContent>
             </Tooltip>
           ) : (

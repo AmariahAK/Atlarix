@@ -62,8 +62,7 @@ import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { registerCounselHandlers } from "./handlers/counsel_handlers";
-import { registerPlanPanelHandlers } from "./handlers/plan_panel_handlers";
-import { registerPlanPanelHandlers } from "./handlers/plan_panel_handlers";
+import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import { registerFsDiagramSnapshotHandlers } from "./handlers/fs_diagram_snapshot_handlers";
@@ -137,7 +136,7 @@ export function registerIpcHandlers() {
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
-  registerPlanPanelHandlers();
+  registerPlanArtifactHandlers();
   registerCounselHandlers(); // Renderer-triggered counsel + cancel (abortSignal)
   wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }

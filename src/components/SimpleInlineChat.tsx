@@ -19,7 +19,6 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
-import { ToolIndicator } from "@/components/chat/ToolIndicator";
 import { UserQuestionBar } from "@/components/chat/UserQuestionBar";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
@@ -138,10 +137,6 @@ export function SimpleInlineChat({
                     <Plus size={14} />
                     <span>New chat</span>
                 </button>
-            </div>
-
-            <div className="flex-shrink-0 px-4 pb-2">
-                <ToolIndicator forChatId={chatId} />
             </div>
 
             <LoadedSessionBanner />

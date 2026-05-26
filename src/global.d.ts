@@ -7,6 +7,7 @@ interface ElectronAPI {
   ipcRenderer: {
     invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
     on: (channel: string, listener: (...args: unknown[]) => void) => (() => void) | void;
+    send: (channel: string, ...args: unknown[]) => void;
     removeListener: (channel: string, listener: (...args: unknown[]) => void) => void;
     removeAllListeners: (channel: string) => void;
   };

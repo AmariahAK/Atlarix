@@ -174,6 +174,11 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "mcp_servers", "api_key");
     case "0047_drop_blueprints_table":
       return !tableExists(sqlite, "blueprints");
+    case "0048_session_plan_artifacts":
+      return (
+        columnExists(sqlite, "session_messages", "kind") &&
+        columnExists(sqlite, "session_messages", "plan_status")
+      );
     default:
       return false;
   }

@@ -1,11 +1,17 @@
 /**
- * v2.1: Project instruction files (ATLARIX.md)
- * Precedence (lowest to highest): Bundle AGENTS.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < .atlarix/ATLARIX.md (project)
+ * Project instruction files — aligned with `.atlarix/atlarix.md`
+ * Precedence (lowest to highest): Bundle AGENTS.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < project atlarix.md
  */
 
 import path from "node:path";
 import fs from "node:fs";
 import { getUserDataPath } from "../paths/paths";
+import {
+  getAtlarixMdPath,
+  readAtlarixMd,
+  writeAtlarixMd,
+  migrateLegacyAtlarixFiles,
+} from "./project-memory";
 import log from "electron-log";
 
 const logger = log.scope("project-instructions");
@@ -20,7 +26,7 @@ export function getGlobalAtlarixMdPath(): string {
 
 /** Path to project instruction file (inside workspace). */
 export function getProjectAtlarixMdPath(workspacePath: string): string {
-  return path.join(workspacePath, ATLARIX_DIR, ATLARIX_MD);
+  return getAtlarixMdPath(workspacePath);
 }
 
 export async function readGlobalAtlarixMd(): Promise<string> {
@@ -34,12 +40,8 @@ export async function readGlobalAtlarixMd(): Promise<string> {
 
 export async function readProjectAtlarixMd(workspacePath: string): Promise<string> {
   if (!workspacePath) return "";
-  const p = getProjectAtlarixMdPath(workspacePath);
-  try {
-    return await fs.promises.readFile(p, "utf8");
-  } catch {
-    return "";
-  }
+  const content = await readAtlarixMd(workspacePath);
+  return content ?? "";
 }
 
 export async function writeGlobalAtlarixMd(content: string): Promise<void> {
@@ -51,10 +53,9 @@ export async function writeGlobalAtlarixMd(content: string): Promise<void> {
 
 export async function writeProjectAtlarixMd(workspacePath: string, content: string): Promise<void> {
   if (!workspacePath) return;
-  const dir = path.dirname(getProjectAtlarixMdPath(workspacePath));
-  await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(getProjectAtlarixMdPath(workspacePath), content, "utf8");
-  logger.info("Wrote project ATLARIX.md at", workspacePath);
+  await migrateLegacyAtlarixFiles(workspacePath);
+  await fs.promises.writeFile(getAtlarixMdPath(workspacePath), content, "utf8");
+  logger.info("Wrote project .atlarix/atlarix.md at", workspacePath);
 }
 
 export async function existsGlobalAtlarixMd(): Promise<boolean> {
@@ -84,10 +85,6 @@ export interface InstructionLayer {
   path?: string;
 }
 
-/**
- * Load all instruction layers in precedence order (bundle first, then global, workspace, project last).
- * Caller can concatenate with "\n\n" so project has final say.
- */
 export async function loadInstructionLayers(params: {
   workspacePath: string;
   workspacePromptContent: string | null;
@@ -119,7 +116,7 @@ export async function loadInstructionLayers(params: {
     },
     {
       key: "project",
-      label: "Project (.atlarix/ATLARIX.md)",
+      label: "Project (.atlarix/atlarix.md)",
       content: projectContent,
       exists: !!projectContent,
       path: workspacePath ? getProjectAtlarixMdPath(workspacePath) : undefined,
@@ -127,10 +124,6 @@ export async function loadInstructionLayers(params: {
   ];
 }
 
-/**
- * Build combined instruction string in precedence order: bundle + global + workspace + project.
- * So project content comes last and overrides in spirit (we don't parse, we concatenate).
- */
 export function buildInstructionsFromLayers(layers: InstructionLayer[]): string {
   const parts: string[] = [];
   for (const layer of layers) {

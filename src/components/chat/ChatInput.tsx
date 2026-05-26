@@ -86,8 +86,8 @@ import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
 import { UserQuestionBar } from "./UserQuestionBar";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
-import { ToolIndicator } from "./ToolIndicator";
 import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
+import { ChatStreamNotice } from "./ChatStreamNotice";
 import { CompactionProgressStrip } from "./CompactionProgressStrip";
 import { StreamReconnectBanner } from "./StreamReconnectBanner";
 import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEditingChangesDialog";
@@ -450,7 +450,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   return (
     <>
       <SlowStreamWarningBar chatId={currentChatId} isStreaming={isStreaming} />
-      <ToolIndicator forChatId={currentChatId ?? undefined} />
       {error && showError && (
         <ChatErrorBox
           onDismiss={dismissError}
@@ -469,6 +468,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           Error loading proposal: {proposalError}
         </div>
       )}
+      <ChatStreamNotice />
       <SummarizationProgressStrip />
       {chatId != null && <CompactionProgressStrip chatId={chatId} />}
       {chatId != null && <StreamReconnectBanner chatId={chatId} />}

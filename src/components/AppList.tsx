@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff,
 import { Trash2 } from "lucide-react";
 import { getDefaultStore, useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import {
   activeWorkspaceSessionIdAtom,
   loadedSessionResumeAtom,
@@ -34,7 +35,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
 import { AppSearchDialog } from "./AppSearchDialog";
-import { WorkspaceSelector } from "@/components/workspace/WorkspaceSelector";
+import { WorkspaceRecentsMenu } from "@/components/workspace/WorkspaceRecentsMenu";
+import { loadRecentWorkspaces, pushRecentWorkspace } from "@/lib/workspace-recents";
 import { Badge } from "@/components/ui/badge";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -69,7 +71,7 @@ export function AppList({ show }: { show?: boolean }) {
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
-  const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState(() => loadRecentWorkspaces());
   const [sidebarTab, setSidebarTab] = useAtom(workspaceSidebarTabAtom);
   const setActiveWorkspaceSessionId = useSetAtom(activeWorkspaceSessionIdAtom);
   const setLoadedSessionResume = useSetAtom(loadedSessionResumeAtom);
@@ -141,8 +143,8 @@ export function AppList({ show }: { show?: boolean }) {
         )
       );
       try {
-        const appData = await IpcClient.getInstance().getApp(expanded.id);
-        const files = appData.files ?? [];
+        const fileResult = await IpcClient.getInstance().getAppFiles(expanded.id);
+        const files = fileResult.files ?? [];
         setWorkspaces((prev) =>
           prev.map((w) =>
             w.id === expanded.id ? { ...w, files, filesLoading: false } : w
@@ -189,7 +191,10 @@ export function AppList({ show }: { show?: boolean }) {
         workspaceId,
       );
       const chatId = await IpcClient.getInstance().createChat(workspaceId);
-      setSelectedAppId(workspaceId);
+      attachWorkspaceToChat(chatId, workspaceId, {
+        name: st?.name ?? "Workspace",
+        path: st?.path,
+      });
       setActiveWorkspaceSessionId(session.id);
       setLoadedSessionResume(false);
       setChatIdToSessionId((prev) => {
@@ -227,8 +232,22 @@ export function AppList({ show }: { show?: boolean }) {
     });
   };
 
+  const handleBrowseWorkspace = async () => {
+    try {
+      const result = (await window.electron?.ipcRenderer.invoke(
+        "dialog:openDirectory",
+      )) as { canceled?: boolean; filePaths?: string[] } | undefined;
+      if (result && !result.canceled && result.filePaths?.[0]) {
+        setRecentWorkspaces(pushRecentWorkspace(result.filePaths[0]));
+        await handleWorkspaceSelect(result.filePaths[0]);
+      }
+    } catch (error) {
+      console.error("Failed to open folder picker:", error);
+    }
+  };
+
   const handleWorkspaceSelect = async (path: string) => {
-    setShowWorkspacePicker(false);
+    setRecentWorkspaces(pushRecentWorkspace(path));
 
     // Check if we already have this path in our local state
     const existingApp = apps.find(app => app.path === path);
@@ -335,15 +354,21 @@ export function AppList({ show }: { show?: boolean }) {
             )}
             {/* Only show + button if user can add workspace (Pro OR Free with 0 workspaces) */}
             {canAddWorkspace && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                title="Add Workspace"
-                onClick={() => setShowWorkspacePicker(true)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  title="Add workspace (browse folder)"
+                  onClick={() => void handleBrowseWorkspace()}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <WorkspaceRecentsMenu
+                  recentWorkspaces={recentWorkspaces}
+                  onSelect={(path) => void handleWorkspaceSelect(path)}
+                />
+              </>
             )}
             {/* Show disabled + button with tooltip for Free tier users at limit */}
             {isAuthenticated && status?.plan === 'free' && apps.length >= 1 && (
@@ -634,14 +659,6 @@ export function AppList({ show }: { show?: boolean }) {
           </div>
         </SidebarGroupContent>
       </SidebarGroup>
-
-      {/* Workspace Picker Dialog */}
-      <WorkspaceSelector
-        isOpen={showWorkspacePicker}
-        onClose={() => setShowWorkspacePicker(false)}
-        onWorkspaceSelect={handleWorkspaceSelect}
-        currentWorkspace=""
-      />
 
       <AppSearchDialog
         open={isSearchDialogOpen}

@@ -51,10 +51,20 @@ const MAX_DEPTH = 10;
 function loadIgnorerSync(projectRoot: string) {
     const ig = ignore();
     try {
-        const content = fs.readFileSync(path.join(projectRoot, ".atlarixignore"), "utf-8");
+        const atlarixDir = path.join(projectRoot, ".atlarix");
+        let content = "";
+        try {
+            content = fs.readFileSync(path.join(atlarixDir, ".atlarixignore"), "utf-8");
+        } catch {
+            try {
+                content = fs.readFileSync(path.join(projectRoot, ".atlarixignore"), "utf-8");
+            } catch {
+                /* no ignore file */
+            }
+        }
         if (content.trim()) ig.add(content);
     } catch {
-        // no .atlarixignore — ignore no extra paths
+        /* non-fatal */
     }
     return ig;
 }

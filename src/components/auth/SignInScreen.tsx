@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/useAuth";
 import { LoadingBar } from "@/components/ui/LoadingBar";
+import { AtlarixLogo } from "@/components/atlarix/AtlarixLogo";
 
 export function SignInScreen() {
     const {
@@ -22,11 +23,8 @@ export function SignInScreen() {
             <Card className="relative w-full max-w-md mx-4 overflow-hidden">
                 <LoadingBar isVisible={oauthPending} />
                 <CardHeader className="text-center space-y-2">
-                    {/* Atlarix Logo */}
                     <div className="flex justify-center mb-4">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-                            <span className="text-3xl font-bold text-white">A</span>
-                        </div>
+                        <AtlarixLogo size="md" showSpinner={oauthPending} />
                     </div>
 
                     <CardTitle className="text-2xl font-bold">Welcome to Atlarix</CardTitle>
