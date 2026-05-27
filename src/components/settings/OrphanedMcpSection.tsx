@@ -4,6 +4,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import type { McpServer } from "@/ipc/ipc_types";
 import { showError, showSuccess } from "@/lib/toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 
 export function OrphanedMcpSection() {
   const queryClient = useQueryClient();
@@ -30,13 +31,25 @@ export function OrphanedMcpSection() {
 
   const onDelete = async (id: number) => {
     setDeletingId(id);
+    setOrphans((prev) => prev.filter((s) => s.id !== id));
+    removeMcpServerFromAllCaches(queryClient, id);
     try {
       await IpcClient.getInstance().deleteMcpServer(id);
       showSuccess("Unlinked MCP server removed");
+      removeMcpServerFromAllCaches(queryClient, id);
       await queryClient.invalidateQueries({ queryKey: ["mcp"] });
       await load();
     } catch (e) {
-      showError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/not found/i.test(msg)) {
+        showSuccess("Unlinked MCP server removed");
+        removeMcpServerFromAllCaches(queryClient, id);
+        await queryClient.invalidateQueries({ queryKey: ["mcp"] });
+        await load();
+        return;
+      }
+      await load();
+      showError(msg);
     } finally {
       setDeletingId(null);
     }

@@ -44,6 +44,10 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
     explanation: "This formats a storage device. All existing data on the device will be permanently erased.",
   },
   {
+    pattern: /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)*\s+init\b/i,
+    explanation: "This creates a new git repository. Atlarix blocks git init unless you enable allowGitInit in settings.",
+  },
+  {
     pattern: /\bformat\b.*\b(c:|d:)/i,
     explanation: "This may format a drive. All data on the drive will be permanently lost.",
   },

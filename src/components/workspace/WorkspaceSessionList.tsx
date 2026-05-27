@@ -128,7 +128,11 @@ export function WorkspaceSessionList({
       );
       await IpcClient.getInstance().hydrateEphemeralChatMessages(
         chatId,
-        uiMessages.map((m) => ({ role: m.role, content: String(m.content ?? "") })),
+        uiMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: String(m.content ?? ""),
+        })),
       );
       setMessagesById((prev) => {
         const next = new Map(prev);

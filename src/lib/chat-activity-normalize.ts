@@ -51,6 +51,9 @@ const VALID_TYPES = new Set<string>([
   "tier_escalation",
   "reasoning_started",
   "reasoning_complete",
+  "subagent_start",
+  "subagent_progress",
+  "subagent_complete",
 ]);
 
 function normStatus(s: unknown): ActivityStreamItem["status"] {
@@ -138,6 +141,15 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     counselTrigger: p.trigger != null ? String(p.trigger) : undefined,
     modelId: p.modelId != null ? String(p.modelId) : undefined,
     responseMs: typeof p.responseMs === "number" ? p.responseMs : undefined,
+    agentType: p.agentType != null ? String(p.agentType) : undefined,
+    scope: p.scope != null ? String(p.scope) : undefined,
+    parentToolId: p.parentToolId != null ? String(p.parentToolId) : undefined,
+    parentDelegationId:
+      p.parentDelegationId != null
+        ? String(p.parentDelegationId)
+        : undefined,
+    roundId: p.roundId != null ? String(p.roundId) : undefined,
+    structured: p.structured,
   };
 
   switch (type) {

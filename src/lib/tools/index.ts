@@ -21,6 +21,7 @@ import "./memory";
 import "./blueprint";
 import "./diagram";
 import "./agent";
+import "./spawn-task";
 import "./workspace";
 import "./plan";
 import "./mcp";

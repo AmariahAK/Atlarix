@@ -42,13 +42,10 @@ import {
   Server,
   Cpu,
   Zap,
-  MessageCircle,
-  Crosshair,
-  Bot,
   Layers,
   Brain,
 } from "lucide-react";
-import type { AgentMode, UserSettings } from "@/lib/schemas";
+import type { UserSettings } from "@/lib/schemas";
 import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import { cn } from "@/lib/utils";
@@ -170,7 +167,6 @@ export function ChatConfigDropdown({
     settings?.autoProviderId,
   );
 
-  const agentMode = (settings?.agentMode ?? "guided") as AgentMode;
   const autoOn = settings?.autoModelRouting === true;
   const isAuto = settings?.selectedModel?.provider === "auto";
   const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
@@ -231,7 +227,7 @@ export function ChatConfigDropdown({
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          Config: MCP, model, Auto, delegation, Blueprint prompt
+          Config: MCP, model, Auto
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent
@@ -385,30 +381,6 @@ export function ChatConfigDropdown({
               </p>
             </>
           ) : null}
-
-          <DropdownMenuSeparator />
-
-          {/* Delegation */}
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            Delegation
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={agentMode}
-            onValueChange={(value) => updateSettings({ agentMode: value as AgentMode })}
-          >
-            <DropdownMenuRadioItem value="direct" className="gap-2">
-              <MessageCircle className="h-3.5 w-3.5" />
-              Direct (no agents)
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="guided" className="gap-2">
-              <Crosshair className="h-3.5 w-3.5" />
-              Guided
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="autonomous" className="gap-2">
-              <Bot className="h-3.5 w-3.5" />
-              Autonomous
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
 
           {/* Pass 7: Blueprint prompt-tier selector removed with Blueprint subsystem. */}
         </div>

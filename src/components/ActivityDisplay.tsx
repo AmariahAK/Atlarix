@@ -19,10 +19,21 @@ const COUNSEL_ACTIVITY_TYPES: ActivityStreamItem["type"][] = [
 ];
 
 /** True when inline ThoughtsPanel should render (delegation, bus, counsel, or tool-heavy agent turns). */
+function hasSubagentRoundActivity(items: ActivityStreamItem[]): boolean {
+  return items.some(
+    (i) =>
+      i.type === "subagent_start" ||
+      i.type === "subagent_progress" ||
+      i.type === "subagent_complete",
+  );
+}
+
 export function shouldRenderInlineThoughtsPanel(
   items: ActivityStreamItem[],
   agentMode: string | undefined,
 ): boolean {
+  if (hasSubagentRoundActivity(items)) return false;
+
   const mode = agentMode ?? "guided";
   const hasDelegationStyle = items.some(
     (i) =>

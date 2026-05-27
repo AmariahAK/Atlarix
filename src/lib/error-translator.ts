@@ -72,7 +72,7 @@ export const ERROR_TRANSLATIONS: Record<string, { message: string; suggestion: s
     // Git errors
     'ENOREPOSITORY': {
         message: 'Not a git repository',
-        suggestion: 'Initialize git with "git init" or navigate to a git project.'
+        suggestion: 'Open a folder that already contains a git repository, or continue without version history.',
     },
 
     // Process errors

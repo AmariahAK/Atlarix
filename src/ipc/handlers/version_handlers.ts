@@ -83,10 +83,9 @@ export function registerVersionHandlers() {
 
     const appPath = getAtlarixAppPath(app.path);
 
-    // Workspace detection - git is optional, not required
-    // Projects without .git will return empty version list but remain valid workspaces
-    if (!fs.existsSync(path.join(appPath, ".git"))) {
-      return []; // Valid workspace, just no version history
+    const { findGitRepositoryRoot } = await import("../utils/git_utils");
+    if (!findGitRepositoryRoot(appPath)) {
+      return [];
     }
 
     let commits: GitCommit[];

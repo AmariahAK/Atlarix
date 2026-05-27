@@ -1,8 +1,7 @@
 /**
- * Autonomous-only parallel specialist runs (research + architect) on top of the agent bus + runDelegation.
+ * Parallel specialist runs via runDelegation (no agent bus).
  */
 
-import { publishAgentMessage, type AgentId } from "./agent-bus";
 import { runDelegation } from "../tools/agent";
 
 /** Cap concurrent delegated runs to limit peak RSS / V8 pressure during autonomous workflows. */
@@ -39,18 +38,6 @@ export async function runAgentsInParallel(
   const results: ParallelAgentResult[] = [];
   for (let i = 0; i < tasks.length; i += MAX_PARALLEL_AGENT_RUNS) {
     const slice = tasks.slice(i, i + MAX_PARALLEL_AGENT_RUNS);
-    for (const task of slice) {
-      publishAgentMessage({
-        from: "main",
-        to: task.agentId as AgentId,
-        type: "task_assign",
-        content: task.task,
-        turnId: task.turnId,
-        depth: task.depth,
-        chatId: task.chatId,
-        payload: {},
-      });
-    }
 
     const sliceResults = await Promise.all(
       slice.map(async (task) => {

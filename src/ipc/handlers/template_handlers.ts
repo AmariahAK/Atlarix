@@ -11,7 +11,6 @@ import {
   generateArchitectureDiagram,
   generateTextSummary,
 } from '../../lib/analysis';
-import { gitAdd, gitCommit, gitInit } from "../utils/git_utils";
 
 const execAsync = promisify(exec);
 const logger = log.scope("template_handlers");
@@ -65,11 +64,7 @@ export function registerTemplateHandlers() {
       sendProgress({ step: 'configuring', message: 'Configuring project...', progress: 80 });
       await configureProject(projectPath, projectName);
 
-      // Step 5: Git init
-      sendProgress({ step: 'configuring', message: 'Initializing git...', progress: 90 });
-      await initializeGit(projectPath);
-
-      // Step 6: Generate architecture diagram
+      // Step 5: Generate architecture diagram
       sendProgress({ step: 'analyzing', message: 'Generating project overview...', progress: 95 });
       let diagram: string | null = null;
       let summary: string | null = null;
@@ -163,17 +158,6 @@ async function configureProject(projectPath: string, projectName: string): Promi
       await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
     } catch { }
   }
-}
-
-async function initializeGit(projectPath: string): Promise<void> {
-  try {
-    await gitInit({ path: projectPath, ref: "main" });
-    await gitAdd({ path: projectPath, filepath: "." });
-    await gitCommit({
-      path: projectPath,
-      message: "Initial commit from Atlarix",
-    });
-  } catch { }
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

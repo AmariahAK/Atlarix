@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useRunApp } from "@/hooks/useRunApp";
+import { useSelectedDevServer } from "@/hooks/useDevServer";
 import { useShortcut } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { normalizePath } from "../../../shared/normalizePath";
@@ -278,6 +279,12 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   const { streamMessage } = useStreamChat();
   const { routes: availableRoutes } = useParseRouter(selectedAppId);
   const { restartApp } = useRunApp();
+  const {
+    start: startDevServer,
+    isStarting: devServerStarting,
+    isFrontend,
+    error: devServerError,
+  } = useSelectedDevServer();
   const { userBudget } = useUserBudgetInfo();
   const isProMode = !!userBudget;
 
@@ -1120,11 +1127,37 @@ Please analyze this error and provide a fix.`;
         />
 
         {!previewUrl ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-gray-50 dark:bg-gray-950">
-            <Loader2 className="w-8 h-8 animate-spin text-gray-400 dark:text-gray-500" />
-            <p className="text-gray-600 dark:text-gray-300">
-              Starting your app server...
-            </p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-50 dark:bg-gray-950 px-4">
+            {devServerStarting || loading ? (
+              <>
+                <Loader2 className="w-8 h-8 animate-spin text-gray-400 dark:text-gray-500" />
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Starting preview…
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-center text-gray-600 dark:text-gray-300">
+                  {isFrontend
+                    ? "Start the dev server to load live preview."
+                    : "Select a frontend workspace or run the app to preview."}
+                </p>
+                {isFrontend ? (
+                  <button
+                    type="button"
+                    onClick={() => void startDevServer()}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    Start dev server
+                  </button>
+                ) : null}
+                {devServerError ? (
+                  <p className="text-xs text-destructive text-center max-w-sm">
+                    {devServerError}
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         ) : (
           <div

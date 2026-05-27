@@ -1,5 +1,6 @@
 import { getDefaultStore } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
+import { isLowQualityGeneratedTitle } from "@/utils/chat_naming";
 import {
   workspaceSessionsRefreshAtom,
   workspaceSessionTitleGeneratingAtom,
@@ -21,7 +22,7 @@ export function extractAtlarixChatSummary(content: string): string | null {
   const match = content.match(/<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/);
   if (!match) return null;
   const raw = match[1].trim().replace(/[^\w\s-]/g, " ").replace(/\s+/g, " ").trim();
-  if (!raw) return null;
+  if (!raw || isLowQualityGeneratedTitle(raw)) return null;
   return raw.split(/\s+/).slice(0, 6).join(" ").slice(0, 80);
 }
 
@@ -43,7 +44,11 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<v
     if (!isDefaultSessionTitle(session.title)) return;
 
     const { title } = await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
-    if (title && !isDefaultSessionTitle(title)) {
+    if (
+      title &&
+      !isDefaultSessionTitle(title) &&
+      !isLowQualityGeneratedTitle(title)
+    ) {
       getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
     }
   } catch (e) {
@@ -53,19 +58,3 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<v
   }
 }
 
-/** Fallback when summarization model is unavailable: scrape summary tag from assistant reply. */
-export async function applyWorkspaceSessionTitleFromSummary(
-  sessionId: string,
-  assistantContent: string,
-): Promise<void> {
-  const title = extractAtlarixChatSummary(assistantContent);
-  if (!title) return;
-  try {
-    const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId);
-    if (!isDefaultSessionTitle(session.title)) return;
-    await IpcClient.getInstance().renameWorkspaceSession(sessionId, title);
-    getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
-  } catch (e) {
-    console.error("Failed to apply workspace session title from summary:", e);
-  }
-}

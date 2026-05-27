@@ -31,7 +31,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableProSmartFilesContextMode: true,
   selectedChatMode: "ask",
   workModePreference: "ask",
-  agentMode: "guided",
   autoModelRouting: false,
   autoProviderId: null,
   autoModelIds: undefined,

@@ -173,7 +173,7 @@ export const GuidedConfigSchema = z.object({
 });
 export type GuidedConfig = z.infer<typeof GuidedConfigSchema>;
 
-/** v2.1: Autonomous mode config (opt-in, higher token usage). */
+/** @deprecated Migrated to DelegationConfigSchema; kept for settings JSON compatibility. */
 export const AutonomousConfigSchema = z.object({
   maxDelegationDepth: z.number().min(1).max(5).default(2),
   maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
@@ -181,6 +181,15 @@ export const AutonomousConfigSchema = z.object({
   requireApprovalForNested: z.boolean().default(true),
 });
 export type AutonomousConfig = z.infer<typeof AutonomousConfigSchema>;
+
+/** Unified delegation limits (all work modes). */
+export const DelegationConfigSchema = z.object({
+  maxDelegationDepth: z.number().min(1).max(5).default(2),
+  maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
+  tokenBudgetPerTurn: z.number().optional(),
+  enableParallelPrefetch: z.boolean().optional(),
+});
+export type DelegationConfig = z.infer<typeof DelegationConfigSchema>;
 
 /** v2.1: Self-review config. */
 export const SelfReviewConfigSchema = z.object({
@@ -238,6 +247,7 @@ export type ActivityStreamConfig = z.infer<typeof ActivityStreamConfigSchema>;
 
 /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
 export const AIConfigurationSchema = z.object({
+  delegation: DelegationConfigSchema.optional(),
   guided: GuidedConfigSchema.optional(),
   autonomous: AutonomousConfigSchema.optional(),
   selfReview: SelfReviewConfigSchema.optional(),
@@ -388,7 +398,7 @@ export const UserSettingsSchema = z.object({
   selectedTemplateId: z.string(),
   enableSupabaseWriteSqlMigration: z.boolean().optional(),
   selectedChatMode: ChatModeSchema.optional(),
-  /** v2.1: Agent mode (Direct / Guided / Autonomous). Default guided. */
+  /** @deprecated Ignored — unified runtime always enables delegation. */
   agentMode: AgentModeSchema.optional(),
   /** v2.1: When true, hide model picker and route to Fast/Medium/Thinking by complexity. */
   autoModelRouting: z.boolean().optional(),
@@ -454,6 +464,8 @@ export const UserSettingsSchema = z.object({
 
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
+  /** When true, run_command may execute git init. Default false. */
+  allowGitInit: z.boolean().optional(),
   enableAutoUpdate: z.boolean(),
   releaseChannel: ReleaseChannelSchema,
   runtimeMode2: RuntimeMode2Schema.optional(),

@@ -11,6 +11,11 @@ import {
   parseToolResultEnvelope,
 } from "@/lib/chat/answer-display";
 import { inferToolNameFromEnvelopeRaw } from "@/lib/chat/infer-tool-from-envelope";
+import {
+  isDelegateToolName,
+  parseDelegateHandoffFromToolResult,
+  type DelegateHandoffMeta,
+} from "@/lib/chat/delegate-handoff";
 
 export type ToolPartStatus = "running" | "success" | "error";
 
@@ -25,6 +30,7 @@ export type AssistantMessagePart =
       args?: unknown;
       resultText?: string;
       error?: string;
+      handoff?: DelegateHandoffMeta;
     }
   | { type: "plan_artifact"; planId: string };
 
@@ -154,6 +160,13 @@ function toolStatusFromAttrs(
   isStreaming: boolean,
 ): ToolPartStatus {
   if (attrs.status === "error") return "error";
+  if (
+    attrs.status === "complete" ||
+    attrs.status === "success" ||
+    attrs.status === "done"
+  ) {
+    return "success";
+  }
   if (attrs.status === "running" || inProgress) {
     return !isStreaming && inProgress ? "error" : "running";
   }
@@ -201,7 +214,10 @@ function rawPiecesToAssistantParts(
 
     if (THOUGHT_TAGS.has(tag)) {
       const t = piece.content?.trim();
-      if (t) thoughtBuffer.push(t);
+      if (t) {
+        flushThoughts();
+        out.push({ type: "thought", content: t });
+      }
       continue;
     }
 
@@ -228,7 +244,12 @@ function rawPiecesToAssistantParts(
           type: "tool",
           id: mapKey,
           toolName,
-          status: status === "success" ? "running" : status,
+          status:
+            status === "running"
+              ? "running"
+              : status === "error"
+                ? "error"
+                : "success",
           args: piece.content ? tryParseJson(piece.content) : undefined,
         };
         openToolIndex.set(mapKey, out.length);
@@ -248,11 +269,16 @@ function rawPiecesToAssistantParts(
             if (toolName === "write_implementation_plan") {
               resultText = "Plan saved";
             }
+            const handoff =
+              isDelegateToolName(toolName) && resultText
+                ? parseDelegateHandoffFromToolResult(resultText) ?? undefined
+                : undefined;
             out[idx] = {
               ...prev,
               status,
               error: attrs.error,
               resultText: resultText || prev.resultText,
+              handoff,
             };
             if (status !== "running") openToolIndex.delete(checkKey);
           }
@@ -268,6 +294,16 @@ function rawPiecesToAssistantParts(
   }
 
   flushThoughts();
+
+  if (!isStreaming) {
+    for (let i = 0; i < out.length; i++) {
+      const p = out[i];
+      if (p.type === "tool" && p.status === "running") {
+        out[i] = { ...p, status: "success" };
+      }
+    }
+  }
+
   return out;
 }
 
@@ -297,12 +333,16 @@ function envelopeToToolPart(
   const parsed = parseToolResultEnvelope(raw);
   const success = parsed?.envelope.success !== false;
   const id = `envelope_${toolName}_${envelopeSeq++}`;
+  const handoff = isDelegateToolName(toolName)
+    ? parseDelegateHandoffFromToolResult(raw) ?? undefined
+    : undefined;
   return {
     type: "tool",
     id,
     toolName,
     status: success ? "success" : "error",
     resultText: raw,
+    handoff,
     error:
       parsed?.envelope.success === false && typeof parsed.envelope.error === "string"
         ? parsed.envelope.error
@@ -317,18 +357,32 @@ function parseSegmentContent(
 ): AssistantMessagePart[] {
   const parts: AssistantMessagePart[] = [];
   const rawPieces = parseRawPieces(segment);
+  const tagBatch: RawPiece[] = [];
+
+  const flushTagBatch = () => {
+    if (tagBatch.length === 0) return;
+    parts.push(
+      ...rawPiecesToAssistantParts(
+        tagBatch,
+        isStreaming,
+        hasPlanArtifactMarker,
+      ),
+    );
+    tagBatch.length = 0;
+  };
 
   for (const piece of rawPieces) {
     if (piece.type === "tag") {
-      parts.push(
-        ...rawPiecesToAssistantParts(
-          [piece],
-          isStreaming,
-          hasPlanArtifactMarker,
-        ),
-      );
+      tagBatch.push(piece);
       continue;
     }
+
+    // Newlines between consecutive tool tags are emitted as whitespace markdown — keep one batch.
+    if (!piece.content.trim()) {
+      continue;
+    }
+
+    flushTagBatch();
 
     const chunks = splitByToolResultEnvelopes(piece.content);
     for (const chunk of chunks) {
@@ -351,6 +405,7 @@ function parseSegmentContent(
       );
     }
   }
+  flushTagBatch();
   return parts;
 }
 

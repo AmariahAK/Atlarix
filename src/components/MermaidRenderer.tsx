@@ -11,7 +11,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { useTheme } from "@/contexts/ThemeContext";
-import { sanitizeMermaid, repairBracketMermaidLabels } from "@/lib/sanitizeMermaid";
+import {
+  sanitizeMermaid,
+  repairBracketMermaidLabels,
+  repairSequenceDiagramMessages,
+  mergeBrokenSequenceMessageLines,
+} from "@/lib/sanitizeMermaid";
 
 const MERMAID_DEBOUNCE_MS = 500;
 
@@ -228,16 +233,33 @@ export function MermaidRenderer({
             try {
                 await mermaid.parse(toRender);
             } catch (parseErr) {
-                const repaired = repairBracketMermaidLabels(sanitized);
-                if (repaired !== sanitized) {
-                    try {
-                        await mermaid.parse(repaired);
-                        toRender = repaired;
-                    } catch {
-                        throw parseErr;
-                    }
+                const candidates = [
+                    repairBracketMermaidLabels(sanitized),
+                    repairSequenceDiagramMessages(sanitized),
+                    repairSequenceDiagramMessages(
+                      mergeBrokenSequenceMessageLines(sanitized),
+                    ),
+                    repairBracketMermaidLabels(
+                      repairSequenceDiagramMessages(
+                        mergeBrokenSequenceMessageLines(sanitized),
+                      ),
+                    ),
+                ];
+                let repaired: string | null = null;
+                for (const candidate of candidates) {
+                  if (candidate === sanitized) continue;
+                  try {
+                    await mermaid.parse(candidate);
+                    repaired = candidate;
+                    break;
+                  } catch {
+                    /* try next repair */
+                  }
+                }
+                if (repaired) {
+                  toRender = repaired;
                 } else {
-                    throw parseErr;
+                  throw parseErr;
                 }
             }
 

@@ -243,48 +243,28 @@ export interface ModelClient {
   builtinProviderId?: string;
 }
 
-/** v2.5: Mode/role-aware tier selection for Auto (Fast=0, Balanced=1, Thinking=2). */
+/** Role-aware tier selection for Auto (Fast=0, Balanced=1, Thinking=2). */
 export interface GetModelClientOptions {
+  /** @deprecated Ignored — unified runtime uses role/depth only. */
   agentMode?: "direct" | "guided" | "autonomous";
-  /** Main chat request vs delegated agent vs nested subagent */
   delegationRole?: "main" | "agent" | "subagent";
-  /** For Autonomous: 0 = architect/builder, 1+ = subagent */
   delegationDepth?: number;
-  /** When true, bump agent tier (e.g. Guided agent Fast -> Balanced for heavy tasks) */
   complexityBump?: boolean;
 }
 
-/**
- * Returns the tier index (0=Fast, 1=Balanced, 2=Thinking) to use as the first model in the Auto chain.
- * v2.5: Direct/Guided main -> Balanced; Autonomous main -> Thinking (fallback to deepest if no 3rd);
- * Guided agents -> Fast; Autonomous agents (depth 0) -> Balanced; subagents -> Fast.
- */
+/** Main and depth-0 agents use Balanced; nested subagents use Fast. */
 function getAutoTierIndex(
-  settings: UserSettings,
+  _settings: UserSettings,
   options: GetModelClientOptions | undefined,
 ): number {
-  const mode = options?.agentMode ?? "guided";
   const role = options?.delegationRole ?? "main";
   const depth = options?.delegationDepth ?? 0;
-  const autoModelIds = settings.autoModelIds;
-  const thinkingSlot =
-    Array.isArray(autoModelIds) && typeof autoModelIds[2] === "string"
-      ? autoModelIds[2].trim()
-      : "";
-  const hasThinking = thinkingSlot.length > 0;
 
-  if (role === "main") {
-    if (mode === "direct" || mode === "guided") return 1; // Balanced
-    if (mode === "autonomous") return hasThinking ? 2 : 1; // Thinking, or deepest (1) if only 2 models
-    return 1;
-  }
+  if (role === "main") return 1;
   if (role === "agent") {
-    if (mode === "guided") return options?.complexityBump ? 1 : 0; // Fast, or Balanced when bumped
-    if (mode === "autonomous" && depth === 0) return 1; // Balanced
-    return 0;
+    return options?.complexityBump ? 1 : depth === 0 ? 1 : 0;
   }
-  // subagent
-  return 0; // Fast
+  return 0;
 }
 
 const logger = log.scope("getModelClient");

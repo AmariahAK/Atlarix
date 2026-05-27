@@ -8,7 +8,12 @@ import {
   SESSION_LOAD_MESSAGE_LIMIT,
   SESSION_STORE_MESSAGE_MAX,
 } from "@/constants/session_constants";
-import { generateAIChatName } from "../../utils/chat_naming";
+import {
+  generateAIChatName,
+  generateSimpleChatName,
+  isLowQualityGeneratedTitle,
+  stripContentForTitleSource,
+} from "../../utils/chat_naming";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
@@ -207,8 +212,17 @@ export function registerWorkspaceSessionHandlers(): void {
     }
 
     const conversationMessages = [
-      { role: "user", content: firstUser.content.trim() },
-      { role: "assistant", content: firstAssistant.content.trim().slice(0, 2000) },
+      {
+        role: "user",
+        content: stripContentForTitleSource(firstUser.content, "user"),
+      },
+      {
+        role: "assistant",
+        content: stripContentForTitleSource(firstAssistant.content, "assistant").slice(
+          0,
+          2000,
+        ),
+      },
     ];
 
     let newTitle = currentTitle;
@@ -225,12 +239,25 @@ export function registerWorkspaceSessionHandlers(): void {
     }
 
     const trimmed = newTitle.trim();
-    if (trimmed && DEFAULT_SESSION_TITLES.has(currentTitle) && !DEFAULT_SESSION_TITLES.has(trimmed)) {
+    if (
+      isLowQualityGeneratedTitle(trimmed) &&
+      conversationMessages[0]?.content?.trim()
+    ) {
+      newTitle = generateSimpleChatName(conversationMessages[0].content);
+    }
+
+    const finalTitle = newTitle.trim();
+    if (
+      finalTitle &&
+      DEFAULT_SESSION_TITLES.has(currentTitle) &&
+      !DEFAULT_SESSION_TITLES.has(finalTitle) &&
+      !isLowQualityGeneratedTitle(finalTitle)
+    ) {
       await db
         .update(chatSessions)
-        .set({ title: trimmed, updatedAt: new Date() })
+        .set({ title: finalTitle, updatedAt: new Date() })
         .where(eq(chatSessions.id, sessionId));
-      return { title: trimmed };
+      return { title: finalTitle };
     }
 
     return { title: currentTitle };

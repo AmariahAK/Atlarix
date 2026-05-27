@@ -50,6 +50,9 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     // Network attacks
     { pattern: /nc\s+-l\s+-p/i, reason: 'Opens network listener (potential backdoor)' },
     { pattern: /iptables\s+-F/i, reason: 'Flushes firewall rules' },
+
+    // Repository initialization (blocked by default; use settings.allowGitInit to opt in)
+    { pattern: /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)*\s+init\b/i, reason: 'Creates a new git repository (use manual git init or allowGitInit setting)' },
 ];
 
 // Safe command prefixes - these are ALLOWED without extra scrutiny

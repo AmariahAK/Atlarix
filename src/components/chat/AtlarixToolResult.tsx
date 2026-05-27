@@ -19,6 +19,8 @@ interface AtlarixToolResultProps {
 
 const HANDOFF_AGENT_ROLES: HandoffAgentRole[] = [
     "research",
+    "explore",
+    "scout",
     "architect",
     "builder",
     "reviewer",
@@ -60,41 +62,11 @@ export const AtlarixToolResult: React.FC<AtlarixToolResultProps> = ({
 
     const raw = typeof children === "string" ? children : String(children ?? "");
 
-    if (toolName === "delegate_to_agent" && !isError) {
-        try {
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            if (
-                parsed &&
-                typeof parsed === "object" &&
-                parsed.success === true
-            ) {
-                const summary =
-                    typeof parsed.summary === "string"
-                        ? parsed.summary
-                        : String(parsed.summary ?? "");
-                const validation = parsed.validation as
-                    | { status?: string }
-                    | undefined;
-                const validationStatus =
-                    validation?.status === "fallback"
-                        ? "fallback"
-                        : "success";
-                return (
-                    <HandoffResultCard
-                        agentRole={resolveHandoffAgentRole(parsed)}
-                        summary={summary}
-                        structuredPayload={
-                            parsed.structuredPayload !== undefined
-                                ? parsed.structuredPayload
-                                : undefined
-                        }
-                        validationStatus={validationStatus}
-                    />
-                );
-            }
-        } catch {
-            /* fall through to default tool result UI */
-        }
+    if (
+      (toolName === "delegate_to_agent" || toolName === "spawn_sub_agent") &&
+      !isError
+    ) {
+        return null;
     }
 
     // Format result content

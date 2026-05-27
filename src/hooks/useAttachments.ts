@@ -2,6 +2,10 @@ import React, { useRef, useState } from "react";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useAtom } from "jotai";
 import { attachmentsAtom } from "@/atoms/chatAtoms";
+import {
+  shouldCaptureAsTextPaste,
+  textPasteDisplayName,
+} from "@/lib/chat/text-paste-attachment";
 
 export function useAttachments() {
   const [attachments, setAttachments] = useAtom(attachmentsAtom);
@@ -119,49 +123,40 @@ export function useAttachments() {
     }
 
     const plainText = clipboardData.getData("text/plain");
-    if (plainText) {
-      const lineCount = (plainText.match(/\n/g) || []).length + 1;
-      if (lineCount > 500) {
-        e.preventDefault();
+    if (plainText && shouldCaptureAsTextPaste(plainText)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const displayName = textPasteDisplayName(plainText);
+      setAttachments((prev) => [
+        ...prev,
+        {
+          type: "chat-context",
+          textPaste: { content: plainText, displayName },
+        },
+      ]);
+    }
+  };
 
-        const trimmed = plainText.trim();
-        let ext = "txt";
-        if (
-          trimmed.startsWith("import ") ||
-          trimmed.startsWith("const ") ||
-          trimmed.startsWith("function ") ||
-          trimmed.startsWith("class ") ||
-          trimmed.startsWith("interface ") ||
-          trimmed.startsWith("type ") ||
-          trimmed.startsWith("export ")
-        ) {
-          ext = "ts";
-        } else if (
-          trimmed.startsWith("def ") ||
-          (trimmed.startsWith("class ") && !trimmed.includes(";"))
-        ) {
-          ext = "py";
-        } else if (trimmed.startsWith("<")) {
-          ext = "html";
-        } else if (
-          (trimmed.startsWith("{") || trimmed.startsWith("[")) &&
-          trimmed.endsWith("}")
-        ) {
-          try {
-            JSON.parse(trimmed);
-            ext = "json";
-          } catch {
-            /* leave .txt */
-          }
-        }
-
-        const timestamp = Date.now();
-        const filename = `pasted-${ext}-${timestamp}.${ext}`;
-        const blob = new Blob([plainText], { type: "text/plain" });
-        const file = new File([blob], filename, { type: "text/plain" });
-        addAttachments([file], "chat-context");
-        console.log(`Pasted ${lineCount} lines → attached as ${filename}`);
-      }
+  /** Capture-phase handler for wrappers around Lexical (paste may not bubble). */
+  const handlePasteCapture = (e: React.ClipboardEvent) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+    const hasImage = Array.from(clipboardData.items).some((item) =>
+      item.type.startsWith("image/"),
+    );
+    if (hasImage) return;
+    const plainText = clipboardData.getData("text/plain");
+    if (plainText && shouldCaptureAsTextPaste(plainText)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const displayName = textPasteDisplayName(plainText);
+      setAttachments((prev) => [
+        ...prev,
+        {
+          type: "chat-context",
+          textPaste: { content: plainText, displayName },
+        },
+      ]);
     }
   };
 
@@ -178,6 +173,7 @@ export function useAttachments() {
     handleDrop,
     clearAttachments,
     handlePaste,
+    handlePasteCapture,
     addAttachments,
   };
 }

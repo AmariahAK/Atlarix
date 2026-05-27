@@ -7,10 +7,10 @@
 
 import type { Message } from "@/ipc/ipc_types";
 import {
-    AtlarixMarkdownParser,
     CHAT_MESSAGE_MARKDOWN_PROSE,
     VanillaMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
+import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { motion } from "framer-motion";
 import { Copy, Check, Bot, Edit2 } from "lucide-react";
 import { useState } from "react";
@@ -160,16 +160,6 @@ export function SimpleMessage({
                             <Bot className="h-3.5 w-3.5 shrink-0" />
                             <span className="font-medium">{getModelDisplayName()}</span>
                         </span>
-                        {settings?.agentMode === "guided" && (
-                            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium" title="Guided: sub-agents can be used for complex tasks">
-                                Guided
-                            </span>
-                        )}
-                        {settings?.agentMode === "autonomous" && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium" title="Autonomous: agents can act with approval">
-                                Autonomous
-                            </span>
-                        )}
                     </div>
                 )}
 
@@ -238,7 +228,16 @@ export function SimpleMessage({
                                     autoFocus
                                 />
                             ) : isAssistant ? (
-                                <AtlarixMarkdownParser content={message.content} />
+                                <AssistantMessageBody
+                                    content={message.content ?? ""}
+                                    assistantMessageId={message.id}
+                                    chatId={chatId ?? message.chatId}
+                                    isStreaming={isStreaming}
+                                    contentDrivenThread={
+                                        (chatId ?? message.chatId) != null &&
+                                        (chatId ?? message.chatId)! < 0
+                                    }
+                                />
                             ) : (
                                 <VanillaMarkdownParser content={message.content} />
                             )}

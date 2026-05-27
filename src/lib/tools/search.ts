@@ -256,7 +256,7 @@ function formatGrepGroupsForDisplay(
   const total = groups.reduce((s, g) => s + g.matches.length, 0);
   let out = `Found ${total} match(es) for "${query}" across ${groups.length} file(s):\n\n`;
   for (const g of groups) {
-    out += `📄 ${g.file}\n`;
+    out += `[file] ${g.file}\n`;
     for (const m of g.matches.slice(0, perFile)) {
       out += `  ${m.line}: ${m.content}\n`;
     }
@@ -577,6 +577,12 @@ Parameters:
           perFileCap: 30,
           maxBytes,
         }),
+        ui: {
+          groups: groups.map((g) => ({
+            file: g.file,
+            matchCount: g.matches.length,
+          })),
+        },
       };
     } catch (e) {
       return {

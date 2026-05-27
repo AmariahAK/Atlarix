@@ -1,9 +1,8 @@
 /**
- * v2.1: delegate_to_agent tool for Guided/Autonomous mode.
- * Guided: flat delegation only. Autonomous: agents can call delegate_to_agent (nested) up to max depth.
+ * delegate_to_agent / spawn_sub_agent — specialist delegation (all work modes).
  */
 
-import { generateText, zodSchema, type ModelMessage } from "ai";
+import { generateText, type ModelMessage } from "ai";
 import { normalizeToolInputSchemaForAiSdk } from "../ai/normalize-tool-schema";
 import {
   buildContinuationPrompt,
@@ -40,7 +39,7 @@ import { getToolManifest } from "../skills/tool-manifest";
 import { readSettings } from "../../main/settings";
 import { getModelClient, getEffectiveModel } from "../../ipc/utils/get_model_client";
 import log from "electron-log";
-import { z, type ZodTypeAny } from "zod";
+import type { ZodTypeAny } from "zod";
 import {
   ArchitectPlanPayloadSchema,
   BuilderExecutionSummarySchema,
@@ -49,17 +48,11 @@ import {
 } from "../agents/agent-handoff-schemas";
 import { validateStructuredOutputWithSingleRetry } from "../agents/structured-output-validation";
 import { defaultAgentForWorkMode } from "../agents/work-mode-agents";
-import {
-  appendAutonomousOp,
-  autonomousOpFromPermissionExec,
-} from "../../ipc/handlers/autonomous-session-state";
+import { getDelegationConfig } from "../agents/agent-runtime";
 import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
-import {
-  publishAgentMessage,
-  toAgentId,
-  waitForBusReply,
-  drainAgentCorrections,
-} from "../agents/agent-bus";
+import { drainAgentCorrections } from "../agents/agent-corrections";
+import { buildGroupHandoffDigest } from "@/lib/chat/group-handoff-digest";
+import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import {
   formatSmallRepoInventory,
   getWorkspaceRelFilePaths,
@@ -115,7 +108,26 @@ export type DelegateArgs = {
   parentAgentRole?: string;
   /** Workspace-relative section for blueprint/search tools in this delegation. */
   defaultFocusPath?: string;
+  /** Batch up to 5 paths/repos for one sub-agent run. */
+  scopes?: string[];
+  parentDelegationId?: string;
+  roundId?: string;
+  /** Live UI: nested tool / progress rows inside the sub-agent round panel. */
+  emitSubagentActivity?: (payload: SubagentActivityEmit) => void;
 };
+
+export type SubagentActivityEmit =
+  | {
+      type: "tool_use";
+      id: string;
+      toolName: string;
+      status: "running" | "done" | "error";
+      detail?: string;
+    }
+  | {
+      type: "subagent_progress";
+      preview: string;
+    };
 
 /** Builtin specialist id persisted on delegate JSON for HandoffResultCard labels. */
 export type DelegationAgentRole =
@@ -164,12 +176,11 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
         : undefined,
     };
   }
-  const agentMode = settings.agentMode ?? "guided";
-  const maxDepth = settings.aiConfiguration?.autonomous?.maxDelegationDepth ?? 2;
+  const { maxDelegationDepth: maxDepth } = getDelegationConfig(settings);
   const depth = args.depth ?? 0;
   const delegationChatMode = args.delegationChatMode ?? "build";
 
-  if (agentMode === "autonomous" && depth >= maxDepth) {
+  if (depth >= maxDepth) {
     return {
       success: false,
       error: `Max delegation depth (${maxDepth}) reached. Cannot nest further.`,
@@ -180,15 +191,20 @@ export async function runDelegation(args: DelegateArgs): Promise<DelegationResul
 
   const workspace = args.workspace ?? "";
   const workspaceId = args.workspaceId;
-  const parentRole = toAgentId(args.parentAgentRole ?? "main");
-  const targetAgent = toAgentId(resolvedAgentId);
-  const effectiveTask = expandDelegationPreset(args.preset, args.task, args.context);
+  const targetAgent = resolvedAgentId;
+  let effectiveTask = expandDelegationPreset(args.preset, args.task, args.context);
+  const scopeList = Array.isArray(args.scopes)
+    ? args.scopes.map((s) => String(s).trim()).filter(Boolean).slice(0, 5)
+    : [];
+  if (scopeList.length > 0) {
+    effectiveTask += `\n\n## Scopes (batch)\n${scopeList.map((s) => `- ${s}`).join("\n")}`;
+  }
+  const ledgerEntries: { toolName: string; summary: string }[] = [];
 
   try {
     // v2.5: Mode/role-aware model for delegation (Guided: Fast; Autonomous depth 0: Balanced; depth > 0: Fast)
     const effectiveModel = getEffectiveModel(settings);
     const delegationOptions = {
-      agentMode: agentMode as "direct" | "guided" | "autonomous",
       delegationRole: depth > 0 ? ("subagent" as const) : ("agent" as const),
       delegationDepth: depth,
     };
@@ -237,6 +253,15 @@ See guides/blueprint-section-first.md.
       ? allTools
       : allTools.filter((t) => allowSet.has(t.name));
 
+    if (depth > 0) {
+      toolsForAgent = toolsForAgent.filter((t) => t.isReadOnly === true);
+      if (!manifest.readOnly) {
+        toolsForAgent = toolsForAgent.filter((t) =>
+          ["read_file", "search", "explore_folder", "list_files", "get_repo_overview", "get_blueprint", "get_file_outline", "get_diagram", "web_search", "read_url", "find_file"].includes(t.name),
+        );
+      }
+    }
+
     const toolSet: ToolSet = {};
     for (const t of toolsForAgent) {
       toolSet[t.name] = {
@@ -247,66 +272,49 @@ See guides/blueprint-section-first.md.
         // Always pipe through the shared normalizer.
         inputSchema: normalizeToolInputSchemaForAiSdk(t.parameters) as never,
         execute: async (toolArgs: any) => {
-          let result = await ToolRegistry.execute(
-            t.name,
-            {
-              ...toolArgs,
-              workspace: workspace || undefined,
-              workspaceId,
-              chatMode: delegationChatMode,
-              agentMode,
-              _chatSessionId: args.chatId,
-            },
-          );
+          const emit = args.emitSubagentActivity;
+          const delegationId = args.parentDelegationId?.trim();
+          const toolActivityId =
+            delegationId != null
+              ? `sub-tool-${delegationId}-${t.name}-${Date.now()}`
+              : null;
 
-          // Autonomous: run permissioned tools without user queue (all delegation depths when chatId set)
-          if (
-            agentMode === "autonomous" &&
-            args.chatId != null &&
-            result &&
-            typeof result === "object" &&
-            (result as { __permission_required?: boolean }).__permission_required === true
-          ) {
-            const { getInterceptor } = await import("../../ipc/handlers/permissions/handlers");
-            const interceptor = getInterceptor(args.chatId);
-            const perm = interceptor?.parsePermissionRequest(result) ?? null;
-            if (interceptor && perm) {
-              const operationId = interceptor.generateOperationId();
-              interceptor.bufferOperation(operationId, perm, true);
-              logger.info(
-                `[Autonomous] Tool executed without user approval: ${t.name} (${perm.operation})`,
-              );
-              const execMeta = await interceptor.executeOperation(operationId);
-              const detail = interceptor.getExecutionResult(operationId);
-              if (args.turnId != null && args.turnId !== "") {
-                appendAutonomousOp(
-                  args.chatId,
-                  args.turnId,
-                  autonomousOpFromPermissionExec(
-                    operationId,
-                    perm.operation,
-                    perm.preview,
-                    execMeta.approved,
-                  ),
-                );
-              }
-              if (execMeta.approved) {
-                result = {
-                  success: true,
-                  message: `Executed ${perm.operation} (autonomous sub-agent)`,
-                  path: detail.path,
-                  output: detail.output,
-                  exitCode: detail.exitCode,
-                };
-              } else {
-                result = {
-                  success: false,
-                  error: execMeta.error ?? detail.error ?? "Execution failed",
-                  output: detail.output,
-                  exitCode: detail.exitCode,
-                };
-              }
+          if (emit && delegationId && toolActivityId) {
+            emit({
+              type: "tool_use",
+              id: toolActivityId,
+              toolName: t.name,
+              status: "running",
+            });
+            emit({
+              type: "subagent_progress",
+              preview: `${getToolActivityLabel(t.name)}`,
+            });
+          }
+
+          let result: unknown;
+          try {
+            result = await ToolRegistry.execute(
+              t.name,
+              {
+                ...toolArgs,
+                workspace: workspace || undefined,
+                workspaceId,
+                chatMode: delegationChatMode,
+                _chatSessionId: args.chatId,
+              },
+            );
+          } catch (err) {
+            if (emit && delegationId && toolActivityId) {
+              emit({
+                type: "tool_use",
+                id: toolActivityId,
+                toolName: t.name,
+                status: "error",
+                detail: String(err).slice(0, 200),
+              });
             }
+            throw err;
           }
 
           if (args.turnId) {
@@ -326,122 +334,23 @@ See guides/blueprint-section-first.md.
               toolName: t.name,
               summary: out.slice(0, 400),
             });
+            ledgerEntries.push({ toolName: t.name, summary: out.slice(0, 400) });
           }
+
+          if (emit && delegationId && toolActivityId) {
+            emit({
+              type: "tool_use",
+              id: toolActivityId,
+              toolName: t.name,
+              status: "done",
+              detail: out.slice(0, 200),
+            });
+          }
+
           return out;
         },
       };
     }
-
-    // Autonomous: allow this agent to call delegate_to_agent (nested) if under depth limit
-    if (agentMode === "autonomous" && depth < maxDepth) {
-      const delegateMeta = ToolRegistry.get("delegate_to_agent");
-      if (delegateMeta) {
-        toolSet["delegate_to_agent"] = {
-          description: delegateMeta.description,
-          inputSchema: normalizeToolInputSchemaForAiSdk(delegateMeta.parameters) as never,
-          execute: async (toolArgs: any) => {
-            const nestedResult = await runDelegation({
-              ...toolArgs,
-              workspace,
-              workspaceId,
-              depth: depth + 1,
-              delegationChatMode,
-              chatId: args.chatId,
-              turnId: args.turnId,
-              parentAgentRole: resolvedAgentId,
-            });
-            return JSON.stringify(nestedResult);
-          },
-        };
-      }
-    }
-
-    if (agentMode === "autonomous" && args.chatId != null && args.turnId) {
-      const messageAgentSchema = z.object({
-        to: z.enum([
-          "research",
-          "explore",
-          "scout",
-          "architect",
-          "builder",
-          "reviewer",
-          "debugger",
-          "main",
-        ]),
-        type: z.enum(["question", "answer", "status", "blocker"]),
-        content: z.string(),
-      });
-      toolSet["message_agent"] = {
-        description:
-          "Send a message to another specialist agent and wait for their response. Use when you need information or a decision from a peer before continuing. Available agents: research, explore, scout, architect, builder, reviewer, debugger, main. Replies require the peer to publish an answer on the agent bus (otherwise you get no_reply after 10s).",
-        inputSchema: zodSchema(messageAgentSchema),
-        execute: async (params: z.infer<typeof messageAgentSchema>) => {
-          const { to, type, content } = params;
-          const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-          const toId = toAgentId(to);
-          const fromId = targetAgent;
-          publishAgentMessage({
-            id: messageId,
-            from: fromId,
-            to: toId,
-            type,
-            payload: { content },
-            content,
-            turnId: args.turnId,
-            depth,
-            chatId: args.chatId,
-          });
-          const reply = await waitForBusReply(messageId, {
-            expectFrom: toId,
-            expectTo: fromId,
-            timeoutMs: 10_000,
-          });
-          if (!reply) {
-            return JSON.stringify({
-              status: "no_reply",
-              message: "Agent did not respond within timeout, continuing.",
-            });
-          }
-          return JSON.stringify({
-            status: "replied",
-            from: reply.from,
-            content: reply.content ?? String(reply.payload ?? ""),
-          });
-        },
-      };
-    }
-
-    if (args.turnId) {
-      publishAgentMessage({
-        from: parentRole,
-        to: targetAgent,
-        type: "task_assign",
-        payload: { task: effectiveTask, context: args.context ?? null },
-        content: effectiveTask,
-        turnId: args.turnId,
-        depth,
-        chatId: args.chatId,
-      });
-    }
-
-    const delegationWallStart = Date.now();
-    const delegationModelId = `${effectiveModel.provider}:${effectiveModel.name}`;
-
-    const emitTaskResult = (summary: string) => {
-      if (!args.turnId) return;
-      publishAgentMessage({
-        from: targetAgent,
-        to: parentRole,
-        type: "task_result",
-        payload: { summary: summary.slice(0, 4000) },
-        content: summary.slice(0, 2000),
-        turnId: args.turnId,
-        depth,
-        chatId: args.chatId,
-        modelId: delegationModelId,
-        responseMs: Date.now() - delegationWallStart,
-      });
-    };
 
     const userContent = effectiveTask;
 
@@ -538,9 +447,9 @@ See guides/blueprint-section-first.md.
     }
     const uniqTools = [...new Set(toolNames)];
     // Fix: Workforce-4 — completion line for autonomous runs (tool visibility in returned summary)
-    const autonomousFooter =
-      agentMode === "autonomous" && uniqTools.length > 0
-        ? `\n\n— Autonomous run: tools invoked — ${uniqTools.join(", ")}`
+    const toolsFooter =
+      uniqTools.length > 0
+        ? `\n\n— Delegation tools invoked — ${uniqTools.join(", ")}`
         : "";
 
     const schemaByAgent: Record<
@@ -578,7 +487,9 @@ See guides/blueprint-section-first.md.
     };
 
     const schemaConfig = schemaByAgent[resolvedAgentId];
-    const rawSummary = (result.text?.trim() || "(No summary produced)") + autonomousFooter;
+    const proseSummary =
+      (result.text?.trim() || "(No summary produced)") + toolsFooter;
+    const rawSummary = buildGroupHandoffDigest(ledgerEntries, proseSummary);
     if (!schemaConfig) {
       const envelope = structuredDelegationEnvelope({
         agentRole: resolvedAgentId as DelegationAgentRole,
@@ -586,7 +497,6 @@ See guides/blueprint-section-first.md.
         summary: rawSummary,
         turnId: args.turnId,
       });
-      emitTaskResult(envelope);
       if (args.turnId) advanceLedgerAfterDelegation(args.turnId, envelope);
       return {
         success: true,
@@ -613,7 +523,6 @@ See guides/blueprint-section-first.md.
     });
 
     if (validated.status === "ok") {
-      emitTaskResult(validated.normalizedText);
       if (args.turnId) {
         const seeded =
           resolvedAgentId === "architect" &&
@@ -665,7 +574,6 @@ See guides/blueprint-section-first.md.
       summary: rawSummary,
       turnId: args.turnId,
     });
-    emitTaskResult(fallbackEnvelope);
     if (args.turnId) advanceLedgerAfterDelegation(args.turnId, fallbackEnvelope);
     return {
       success: true,
@@ -683,18 +591,6 @@ See guides/blueprint-section-first.md.
   } catch (err) {
     logger.error(`runDelegation failed (agent=${resolvedAgentId}):`, err);
     const errMessage = err instanceof Error ? err.message : String(err);
-    if (args.turnId) {
-      publishAgentMessage({
-        from: targetAgent,
-        to: parentRole,
-        type: "blocker",
-        content: errMessage,
-        payload: { error: errMessage },
-        turnId: args.turnId,
-        depth,
-        chatId: args.chatId,
-      });
-    }
     return {
       success: false,
       error: errMessage,
@@ -707,7 +603,7 @@ See guides/blueprint-section-first.md.
 ToolRegistry.register({
   name: "delegate_to_agent",
   description:
-    "You have this tool in Guided and Autonomous modes. Delegate to a specialist: **explore** (read-only repo map), **scout** (deps + targeted web), **research** (web/docs), **architect**, **builder**, **reviewer**, or **debugger** (errors/traces). Optional **preset**: `map_repo` (Explore) or `dependency_web_scout` (Scout) expands a minimal task into a full brief. Returns the agent's summary so you can continue. In Autonomous mode, nested delegation is allowed up to the configured depth.",
+    "Delegate to a specialist: **explore** (read-only repo map), **scout** (deps + targeted web), **research** (web/docs), **architect**, **builder**, **reviewer**, or **debugger** (errors/traces). Optional **preset**: `map_repo` (Explore) or `dependency_web_scout` (Scout) expands a minimal task into a full brief. Returns the agent's summary so you can continue. In Autonomous mode, nested delegation is allowed up to the configured depth.",
   category: ToolCategory.TASK,
   cost: 2,
   requiresWorkspace: false,
@@ -735,8 +631,58 @@ ToolRegistry.register({
       default_focus_path: stringParam(
         "Workspace-relative section folder for blueprint/search tools in this delegation.",
       ),
+      scopes: {
+        type: "array",
+        description:
+          "Optional batch of up to 5 workspace-relative paths/repos for one sub-agent run.",
+        items: { type: "string" },
+      },
     },
     ["agent_id", "task"]
+  ),
+  handler: async (args: DelegateArgs) => runDelegation({ ...args, depth: args.depth ?? 0 }),
+});
+
+ToolRegistry.register({
+  name: "spawn_sub_agent",
+  description:
+    "Alias for delegate_to_agent (Cursor/OpenCode vocabulary). Spawn an isolated specialist for one scoped task: explore, scout, research, architect, builder, reviewer, or debugger. " +
+    "Prefer one spawn per repo or focus_path (preset map_repo for Explore) instead of many parallel explore_folder calls. Returns a structured handoff summary.",
+  category: ToolCategory.TASK,
+  cost: 2,
+  requiresWorkspace: false,
+  isCore: false,
+  isReadOnly: false,
+  parameters: createParameters(
+    {
+      agent_id: {
+        type: "string",
+        description:
+          "One of: explore, scout, research, architect, builder, reviewer, debugger",
+        enum: ["explore", "scout", "research", "architect", "builder", "reviewer", "debugger"],
+      },
+      preset: {
+        type: "string",
+        description:
+          "Optional. `map_repo` → Explore brief. `dependency_web_scout` → Scout brief.",
+        enum: ["none", "map_repo", "dependency_web_scout"],
+      },
+      task: stringParam("Clear description of the task for the specialist"),
+      context: {
+        type: "string",
+        description: "Optional extra context (file paths, repo name)",
+      },
+      default_focus_path: stringParam(
+        "Workspace-relative section folder for this sub-agent.",
+      ),
+      scopes: {
+        type: "array",
+        description:
+          "Optional batch of up to 5 workspace-relative paths/repos for one sub-agent run.",
+        items: { type: "string" },
+      },
+    },
+    ["agent_id", "task"],
   ),
   handler: async (args: DelegateArgs) => runDelegation({ ...args, depth: args.depth ?? 0 }),
 });

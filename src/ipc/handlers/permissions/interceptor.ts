@@ -48,6 +48,10 @@ import {
 import { FileUploadsState } from "../../utils/file_uploads_state";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
+import {
+    isGitInitCommand,
+    runCommandGitInitGateResult,
+} from "../../../lib/git-init-command-guard";
 import { runDiagramRegenerateBackground } from "../diagram_regenerate_background";
 import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
 import {
@@ -885,8 +889,35 @@ export class PermissionInterceptor extends EventEmitter {
                 }
             }
 
-            const path = (operation.request.preview as any)?.path;
-            return { success: true, path };
+            const preview = operation.request.preview as FileOperationPreview | undefined;
+            const path = preview?.path;
+            const fileOps = new Set([
+                "write_file",
+                "write_multiple_files",
+                "edit_file",
+                "replace_code",
+                "insert_code",
+                "delete_lines",
+            ]);
+            if (path && fileOps.has(operation.request.operation)) {
+                const opType =
+                    preview.type === "create"
+                        ? "create"
+                        : preview.type === "delete"
+                          ? "delete"
+                          : "update";
+                return {
+                    success: true,
+                    path,
+                    operation: opType,
+                    oldContent: preview.oldContent ?? "",
+                    newContent: preview.content ?? "",
+                };
+            }
+            if (path) {
+                return { success: true, path };
+            }
+            return { success: true };
         }
 
         if (operation.status === 'rejected') {
@@ -1492,6 +1523,16 @@ export class PermissionInterceptor extends EventEmitter {
         if (workspaceCdStrip.test(preview.command)) {
             commandToRun = preview.command.replace(workspaceCdStrip, "").trim() || "true";
             logger.log(`[executeRunCommand] Stripped 'cd /workspace' prefix (shell already in workspace); running: ${commandToRun}`);
+        }
+
+        const gitInitBlock = runCommandGitInitGateResult(
+            commandToRun,
+            readSettings().allowGitInit,
+        );
+        if (gitInitBlock) {
+            const err = JSON.parse(gitInitBlock).error as string;
+            logger.warn(`[executeRunCommand] Blocked git init: ${commandToRun}`);
+            throw new Error(err);
         }
 
         // Dev servers get 10 seconds to start; other commands use timeout_ms from preview (default 2 min).

@@ -3,15 +3,9 @@
  */
 
 import fs from "fs/promises";
-import path from "path";
 import { apps, chats } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
-import {
-  gitAdd,
-  gitCommit,
-  gitInit,
-} from "../utils/git_utils";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -53,20 +47,6 @@ export async function importWorkspaceFromPath({
   });
   if (existingByName) {
     throw new Error("An app with this name already exists");
-  }
-
-  const isGitRepo = await fs
-    .access(path.join(sourcePath, ".git"))
-    .then(() => true)
-    .catch(() => false);
-  if (!isGitRepo) {
-    await gitInit({ path: sourcePath, ref: "main" });
-    await gitAdd({ path: sourcePath, filepath: "." });
-    await gitCommit({
-      path: sourcePath,
-      message: "Init Atlarix app",
-      allowEmpty: true,
-    });
   }
 
   const [app] = await db

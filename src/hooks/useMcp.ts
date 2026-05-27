@@ -8,6 +8,7 @@ import type {
   McpToolConsent,
   CreateMcpServer,
 } from "@/ipc/ipc_types";
+import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 
 export type Transport = "stdio" | "http";
 
@@ -100,23 +101,32 @@ export function useMcp(filter?: McpListFilter) {
       return ipc.deleteMcpServer(id);
     },
     onMutate: async (id: number) => {
-      await queryClient.cancelQueries({ queryKey: ["mcp", "servers"] });
+      await queryClient.cancelQueries({ queryKey: ["mcp"] });
       const previous = queryClient.getQueryData<McpServer[]>(serversQueryKey);
-      queryClient.setQueryData<McpServer[]>(
-        serversQueryKey,
-        (old) => (old ?? []).filter((s) => s.id !== id),
-      );
-      return { previous, serversQueryKey };
+      removeMcpServerFromAllCaches(queryClient, id);
+      return { previous, serversQueryKey, id };
     },
-    onError: (_err, _id, context) => {
+    onSuccess: (_result, id) => {
+      removeMcpServerFromAllCaches(queryClient, id);
+    },
+    onError: (err, id, context) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not found/i.test(msg)) {
+        removeMcpServerFromAllCaches(queryClient, id);
+        return;
+      }
       if (context?.previous != null) {
         queryClient.setQueryData(context.serversQueryKey, context.previous);
       }
     },
-    onSettled: async () => {
+    onSettled: async (_data, _err, id) => {
+      if (id != null) {
+        removeMcpServerFromAllCaches(queryClient, id);
+      }
       await queryClient.invalidateQueries({ queryKey: ["mcp"] });
+      await queryClient.refetchQueries({ queryKey: ["mcp", "servers"] });
     },
-    meta: { showErrorToast: true },
+    meta: { showErrorToast: false },
   });
 
   const setConsentMutation = useMutation({

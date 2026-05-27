@@ -2,55 +2,76 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
+import {
+  isToolExpandable,
+  type ToolExpandView,
+} from "@/lib/chat/tool-expand-view";
+import { ToolExpandPanel } from "./tool-expand/ToolExpandPanel";
+import {
+  streamToolCardButton,
+  streamToolCardChevron,
+  streamToolCardShell,
+  streamToolCardSummary,
+} from "./stream-item-styles";
 
 export function StreamToolCallCard({
   summary,
+  expand,
   detail,
   status,
-  defaultCollapsed = true,
+  toolName: _toolName,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
+  expand?: ToolExpandView;
+  /** @deprecated legacy plain-text expand; use expand */
   detail?: string;
+  toolName?: string;
   defaultCollapsed?: boolean;
 }) {
-  const [open, setOpen] = useState(!defaultCollapsed);
+  const isRunning = status === "running";
+  const isError = status === "error";
+  const resolvedExpand: ToolExpandView =
+    expand ??
+    (detail?.trim()
+      ? { kind: "text", body: detail.trim(), isError }
+      : { kind: "none" });
+  const expandable = !isRunning && isToolExpandable(resolvedExpand);
+  const [open, setOpen] = useState(false);
 
-  const StatusIcon =
-    status === "running"
-      ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
-      : status === "error"
-        ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-        : () => <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
+  const StatusIcon = isRunning
+    ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-500" />
+    : isError
+      ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+      : () => (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        );
 
   return (
-    <div className="my-1.5 rounded-lg border border-border/40 bg-muted/20 overflow-hidden text-xs">
+    <div className={streamToolCardShell}>
       <button
         type="button"
-        onClick={() => detail && setOpen((o) => !o)}
+        onClick={() => expandable && setOpen((o) => !o)}
         className={cn(
-          "w-full flex items-center gap-2 px-2.5 py-1.5 text-left",
-          detail && "hover:bg-muted/40 cursor-pointer",
-          !detail && "cursor-default",
+          streamToolCardButton,
+          expandable && "cursor-pointer",
+          !expandable && "cursor-default hover:bg-transparent dark:hover:bg-transparent",
         )}
+        aria-expanded={expandable ? open : undefined}
       >
-        {detail ? (
+        {expandable ? (
           open ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown className={streamToolCardChevron} />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronRight className={streamToolCardChevron} />
           )
         ) : (
-          <span className="w-3.5 shrink-0" />
+          <span className="w-3.5 shrink-0" aria-hidden />
         )}
         <StatusIcon />
-        <span className="flex-1 min-w-0 truncate text-foreground/90">{summary}</span>
+        <span className={streamToolCardSummary}>{summary}</span>
       </button>
-      {open && detail?.trim() ? (
-        <pre className="max-h-40 overflow-auto border-t border-border/30 px-2.5 py-2 text-[10px] text-muted-foreground whitespace-pre-wrap break-words font-mono">
-          {detail.trim()}
-        </pre>
-      ) : null}
+      {expandable && open ? <ToolExpandPanel view={resolvedExpand} /> : null}
     </div>
   );
 }

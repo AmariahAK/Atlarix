@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -313,6 +315,7 @@ export function ToolsMcpSettings({
       : scope === "global"
         ? { scope: "global" as const }
         : undefined;
+  const queryClient = useQueryClient();
   const {
     servers,
     toolsByServer,
@@ -333,7 +336,8 @@ export function ToolsMcpSettings({
   // Only enforce the free-tier limit when we know the user is on the free plan.
   const mcpAtFreeLimit = !authLoading && plan === "free" && servers.length >= 1;
   const atMaxServers = maxServers != null && servers.length >= maxServers;
-  const countLabel = maxServers != null ? `${servers.length}/${maxServers}` : null;
+  const countLabel =
+    maxServers != null ? `${servers.length}/${maxServers}` : null;
 
   const [consents, setConsents] = useState<Record<string, any>>({});
   const [name, setName] = useState("");
@@ -461,10 +465,23 @@ export function ToolsMcpSettings({
   const onDeleteServer = async (serverId: number) => {
     try {
       await deleteServer(serverId);
+      removeMcpServerFromAllCaches(queryClient, serverId);
+      setExpandedServerIds((prev) => {
+        if (!prev.has(serverId)) return prev;
+        const next = new Set(prev);
+        next.delete(serverId);
+        return next;
+      });
       await refetchAll();
       showSuccess("MCP server removed");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      if (/not found|already removed/i.test(msg)) {
+        removeMcpServerFromAllCaches(queryClient, serverId);
+        await refetchAll();
+        showSuccess("MCP server removed");
+        return;
+      }
       showError(msg);
     }
   };
@@ -519,8 +536,13 @@ export function ToolsMcpSettings({
             </>
           )}
           {transport === "http" && (
-            <div className="col-span-2">
-              <UrlInputField value={url} onChange={setUrl} />
+            <div className="col-span-2 space-y-1.5">
+              <Label>URL</Label>
+              <UrlInputField
+                value={url}
+                onChange={setUrl}
+                placeholder="https://example.com/mcp"
+              />
             </div>
           )}
           <div className="col-span-2 space-y-1.5">

@@ -70,6 +70,7 @@ export function HomeChatInput({
     handleDrop,
     clearAttachments,
     handlePaste,
+    handlePasteCapture,
   } = useAttachments();
 
   // Custom submit function that wraps the provided onSubmit
@@ -150,7 +151,10 @@ export function HomeChatInput({
             </div>
           ) : null}
 
-          <div className="flex items-start space-x-2 ">
+          <div
+            className="flex items-start space-x-2"
+            onPasteCapture={handlePasteCapture}
+          >
             <LexicalChatInput
               value={inputValue}
               onChange={setInputValue}

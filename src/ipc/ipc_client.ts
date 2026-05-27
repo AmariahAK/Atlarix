@@ -175,6 +175,9 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
   attachmentType: "upload-to-codebase" | "chat-context";
 }> {
   const file = attachment.file;
+  if (!file) {
+    throw new Error("Attachment is missing file data");
+  }
   let buffer: ArrayBuffer;
   try {
     buffer = await file.arrayBuffer();
@@ -356,8 +359,12 @@ export class IpcClient {
     });
     this.ipcRenderer.on("chat:tool:end", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
-        const { chatId } = payload as { chatId: number };
-        this.toolEndHandlers.forEach((h) => h({ chatId }));
+        const { chatId, toolId, status } = payload as {
+          chatId: number;
+          toolId?: string;
+          status?: "success" | "error";
+        };
+        this.toolEndHandlers.forEach((h) => h({ chatId, toolId, status }));
       }
     });
 
@@ -822,7 +829,11 @@ export class IpcClient {
   /** v3.5: Register for tool start/end events (persistent "Working…" indicator). Returns unsubscribe. */
   public onToolIndicator(
     onStart: (payload: { chatId: number; toolName: string; toolId?: string }) => void,
-    onEnd: (payload: { chatId: number }) => void,
+    onEnd: (payload: {
+      chatId: number;
+      toolId?: string;
+      status?: "success" | "error";
+    }) => void,
   ): () => void {
     this.toolStartHandlers.add(onStart);
     this.toolEndHandlers.add(onEnd);
@@ -1040,9 +1051,11 @@ export class IpcClient {
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
+    const fileAttachments = attachments?.filter((a) => a.file != null) ?? [];
+
     // Handle file attachments if provided
-    if (attachments && attachments.length > 0) {
-      Promise.all(attachments.map((a) => encodeFileAttachmentForStream(a)))
+    if (fileAttachments.length > 0) {
+      Promise.all(fileAttachments.map((a) => encodeFileAttachmentForStream(a)))
         .then((fileDataArray) => {
           // Use invoke to start the stream and pass the chatId and attachments
           this.ipcRenderer
@@ -1123,7 +1136,7 @@ export class IpcClient {
 
   public async hydrateEphemeralChatMessages(
     chatId: number,
-    messages: { role: string; content: string }[],
+    messages: { role: string; content: string; id?: number }[],
   ): Promise<void> {
     await this.ipcRenderer.invoke("chat:hydrate-ephemeral-messages", {
       chatId,

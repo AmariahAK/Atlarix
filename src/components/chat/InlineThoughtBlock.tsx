@@ -1,56 +1,56 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import {
+  thoughtBlockBody,
+  thoughtBlockButton,
+  thoughtBlockMeta,
+  thoughtBlockShell,
+  streamToolCardChevron,
+} from "./stream-item-styles";
 
 export function InlineThoughtBlock({
   content,
   isStreaming,
+  keepOpenAfterStream = false,
 }: {
   content: string;
   isStreaming: boolean;
+  /** When true (e.g. inside sub-agent cards), do not auto-collapse after stream ends. */
+  keepOpenAfterStream?: boolean;
 }) {
-  const [open, setOpen] = useState(isStreaming);
+  const [open, setOpen] = useState(isStreaming || keepOpenAfterStream);
 
   useEffect(() => {
-    if (!isStreaming) setOpen(false);
-  }, [isStreaming]);
+    if (!isStreaming && !keepOpenAfterStream) setOpen(false);
+  }, [isStreaming, keepOpenAfterStream]);
 
   if (!content.trim()) return null;
 
   const lineCount = content.split("\n").length;
 
   return (
-    <div className="my-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 overflow-hidden">
+    <div className={thoughtBlockShell}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs text-emerald-200/90 hover:bg-emerald-500/10"
+        className={thoughtBlockButton}
       >
         {open ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          <ChevronDown className={streamToolCardChevron} />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          <ChevronRight className={streamToolCardChevron} />
         )}
         <span className="font-medium">
           Thoughts
           {!open ? (
-            <span className="font-normal text-muted-foreground">
+            <span className={thoughtBlockMeta}>
               {" "}
               · {lineCount} {lineCount === 1 ? "line" : "lines"}
             </span>
           ) : null}
         </span>
       </button>
-      {open ? (
-        <div
-          className={cn(
-            "border-t border-emerald-500/20 px-2.5 py-2 text-xs text-muted-foreground",
-            "whitespace-pre-wrap break-words max-h-48 overflow-y-auto",
-          )}
-        >
-          {content}
-        </div>
-      ) : null}
+      {open ? <div className={thoughtBlockBody}>{content}</div> : null}
     </div>
   );
 }

@@ -1,92 +1,115 @@
-import { ClipboardList, Hammer, CircleCheck, Loader2, Eye } from "lucide-react";
+import { Hammer, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanArtifactStatus } from "@/db/schema";
-import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { VisualArtifactCard } from "./VisualArtifactCard";
+import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
 
-const STATUS_LABEL: Record<PlanArtifactStatus, string> = {
-  plan: "Plan",
-  building: "Building",
-  built: "Built",
+const LIFECYCLE_STEPS: { key: PlanArtifactStatus; label: string }[] = [
+  { key: "plan", label: "TBD" },
+  { key: "building", label: "Building" },
+  { key: "built", label: "Completed" },
+];
+
+const STEP_INDEX: Record<PlanArtifactStatus, number> = {
+  plan: 0,
+  building: 1,
+  built: 2,
 };
 
-function StatusIcon({ status }: { status: PlanArtifactStatus }) {
-  if (status === "building") {
-    return <Hammer className="h-3.5 w-3.5 shrink-0" aria-hidden />;
-  }
-  if (status === "built") {
-    return <CircleCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />;
-  }
-  return <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden />;
+function PlanStatusStrip({ planStatus }: { planStatus: PlanArtifactStatus }) {
+  const currentIdx = STEP_INDEX[planStatus];
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/40 bg-muted/30 px-2.5 py-2 text-[11px]"
+      role="status"
+      aria-label={`Plan status: ${LIFECYCLE_STEPS[currentIdx]?.label ?? planStatus}`}
+    >
+      {LIFECYCLE_STEPS.map((step, idx) => {
+        const isCurrent = idx === currentIdx;
+        const isPast = idx < currentIdx;
+        const isFuture = idx > currentIdx;
+        return (
+          <span key={step.key} className="inline-flex items-center gap-1.5">
+            {idx > 0 ? (
+              <span className="text-muted-foreground/50" aria-hidden>
+                →
+              </span>
+            ) : null}
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium",
+                isCurrent &&
+                  "border border-primary/40 bg-primary/10 text-foreground",
+                isPast && "text-muted-foreground",
+                isFuture && "text-muted-foreground/50",
+              )}
+            >
+              {isCurrent && planStatus === "building" ? (
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
+              ) : null}
+              {step.label}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+export function planArtifactTitleFromContent(content: string): string {
+  const first = content.split("\n").find((l) => l.trim().length > 0) ?? "";
+  return first.replace(/^#+\s*/, "").trim() || "Implementation plan";
 }
 
 export function PlanArtifactCard({
   planId,
   title,
-  preview,
+  content,
   planStatus,
   onBuild,
   buildDisabled,
+  defaultExpanded = false,
 }: {
   planId: string;
   title?: string;
-  preview?: string;
+  content: string;
   planStatus: PlanArtifactStatus;
   onBuild?: (planId: string) => void;
   buildDisabled?: boolean;
+  defaultExpanded?: boolean;
 }) {
-  const canPreview = Boolean(preview?.trim());
-
+  const displayTitle = title?.trim() || planArtifactTitleFromContent(content);
   const canBuild = planStatus !== "built" && onBuild != null;
 
   return (
     <VisualArtifactCard
-      title={title?.trim() || "Implementation plan"}
-      defaultExpanded={false}
+      title={displayTitle}
+      defaultExpanded={defaultExpanded}
       layout="content"
-      className="bg-card/40"
+      className="bg-card/40 not-prose"
     >
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <StatusIcon status={planStatus} />
-          <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-            {planStatus === "building" ? (
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            ) : null}
-            {STATUS_LABEL[planStatus]}
-          </span>
-        </div>
-        {preview?.trim() ? (
-          <p className="text-xs text-muted-foreground whitespace-pre-wrap">
-            {preview.trim()}
-          </p>
+      <div className="space-y-3">
+        <PlanStatusStrip planStatus={planStatus} />
+        {content.trim() ? (
+          <AtlarixMarkdownSegment content={content} isStreaming={false} />
         ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Preview is inline via VisualArtifactCard expand; no right panel jump. */}
-          {canPreview ? (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/20 px-2 py-1 text-[10px] text-muted-foreground">
-              <Eye className="h-3 w-3" aria-hidden />
-              Preview inline
-            </span>
-          ) : null}
-          {canBuild ? (
+        {canBuild ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/30">
             <Button
               type="button"
               size="sm"
               variant="default"
               className="h-7 text-xs gap-1"
               disabled={buildDisabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                onBuild(planId);
-              }}
+              onClick={() => onBuild(planId)}
             >
               <Hammer className="h-3 w-3" aria-hidden />
               Build
             </Button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </VisualArtifactCard>
   );

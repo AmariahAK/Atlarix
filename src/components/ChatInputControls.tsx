@@ -70,7 +70,6 @@ export function ChatInputControls({
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const compassUsage = useCompassUsage();
 
-  const agentMode = settings?.agentMode ?? "guided";
   const effectivePermission =
     settings?.selectedChatMode === "agent"
       ? "build"
@@ -85,9 +84,7 @@ export function ChatInputControls({
   const activeInChatId = resolveChatWorkspaceAppId(threadChatId ?? null);
 
   let contextLine =
-    activeInChatId == null
-      ? `${workLabel} · No workspace`
-      : `${workLabel} · ${agentMode === "direct" ? "Direct" : agentMode === "guided" ? "Guided" : "Autonomous"}`;
+    activeInChatId == null ? `${workLabel} · No workspace` : workLabel;
 
   if (
     pendingWorkspaceAppId != null &&
@@ -112,7 +109,10 @@ export function ChatInputControls({
   const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
   const budgetTokens = tokenResult?.effectiveBudget ?? tokenResult?.contextWindow ?? 0;
   const contextPercent = budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
-  if (agentMode === "autonomous" && chatId && tokenResult && budgetTokens > 0) {
+  const delegationBudget =
+    settings?.aiConfiguration?.delegation?.tokenBudgetPerTurn ??
+    settings?.aiConfiguration?.autonomous?.tokenBudgetPerTurn;
+  if (delegationBudget && chatId && tokenResult && budgetTokens > 0) {
     if (contextPercent >= 100) tokenWarning = "Token limit reached";
     else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
   }

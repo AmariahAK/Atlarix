@@ -199,7 +199,11 @@ const STRIP_TAG_NAMES = [
   "atlarix-mcp-tool-result",
 ] as const;
 
-function stripTagBlocks(content: string, tagName: string): string {
+function stripTagBlocks(
+  content: string,
+  tagName: string,
+  unclosed: "drop-open-only" | "drop-through-eof" = "drop-open-only",
+): string {
   const open = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "gi");
   const close = new RegExp(`</${tagName}>`, "gi");
   let out = content;
@@ -211,6 +215,10 @@ function stripTagBlocks(content: string, tagName: string): string {
     close.lastIndex = m.index + m[0].length;
     const end = close.exec(out);
     if (!end || end.index == null) {
+      if (unclosed === "drop-through-eof") {
+        out = out.slice(0, m.index);
+        break;
+      }
       out = out.slice(0, m.index) + out.slice(m.index + m[0].length);
       continue;
     }
@@ -230,7 +238,7 @@ export function extractVisibleAnswerMarkdown(raw: string): string {
     .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
     .replace(/<\/thinking>/gi, "</think>");
   for (const tag of STRIP_TAG_NAMES) {
-    out = stripTagBlocks(out, tag);
+    out = stripTagBlocks(out, tag, "drop-through-eof");
   }
   out = stripOrphanToolTagFragments(out);
   return out.replace(/\n{3,}/g, "\n\n").trim();

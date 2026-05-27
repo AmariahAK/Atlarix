@@ -25,7 +25,6 @@ import { ToolsMcpSettings } from "./ToolsMcpSettings";
 import { McpMarketplaceTab } from "./McpMarketplaceTab";
 import { OrphanedMcpSection } from "./OrphanedMcpSection";
 import { IpcClient } from "@/ipc/ipc_client";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 const MAX_GLOBAL_MCP = 5;
 const MAX_WORKSPACE_MCP = 5;
@@ -83,7 +82,7 @@ export function McpSettingsPage() {
   }, [loadWorkspaces]);
 
   return (
-    <div className="flex-1 bg-background overflow-auto">
+    <div className="flex-1 min-h-0 bg-background overflow-y-auto">
       <div className="max-w-4xl mx-auto px-8 py-6 pb-20 space-y-6">
         <Button
           onClick={() => router.navigate({ to: "/settings" })}
@@ -149,13 +148,13 @@ export function McpSettingsPage() {
                     No workspaces yet. Add a workspace from the Apps page; it will appear here.
                   </p>
                 ) : (
-                  <ScrollArea className="max-h-[520px]">
+                  <div className="max-h-[min(70vh,720px)] overflow-y-auto overscroll-y-contain pr-1 -mr-1">
                     <div className="space-y-6">
                       {workspaces.map((ws) => (
                         <WorkspaceMcpCard key={ws.id} workspace={ws} maxServers={MAX_WORKSPACE_MCP} />
                       ))}
                     </div>
-                  </ScrollArea>
+                  </div>
                 )}
                 <p className="text-xs text-muted-foreground mt-3">
                   Add or remove MCP servers per workspace above. Use @mcp name in chat when that

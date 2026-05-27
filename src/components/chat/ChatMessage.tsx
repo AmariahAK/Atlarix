@@ -15,7 +15,6 @@ import {
   Info,
   Edit2,
   Undo2,
-  Compass,
   FileText,
   Download,
   X,
@@ -29,8 +28,8 @@ import {
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
 import {
-  activityStreamItemsAtom,
   workspacePlanPanelAtom,
+  rightPanelVisibleAtom,
 } from "@/atoms/sourceAtoms";
 import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
 import {
@@ -42,7 +41,6 @@ import {
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   selectedChatIdAtom,
-  completedTurnArtifactsByAssistantMessageIdAtom,
 } from "@/atoms/chatAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -54,22 +52,14 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import AtlarixAnimation from "../atlarix/AtlarixAnimation";
-import { useModelDisplayName } from "../ChatConfigDropdown";
-import {
-  formatAutoTierLabel,
-  useLastAutoRoutedTier,
-} from "@/hooks/useLastAutoRoutedTier";
-import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showInfo } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
-  contentHasPlanArtifactMarker,
+  extractPlanIdsFromContent,
   type PlanCardData,
 } from "@/lib/plan-cards/plan-card-renderer";
 import { TaskLedgerPlanCard } from "./TaskLedgerPlanCard";
-import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
-import { TurnArtifactsCards } from "./TurnArtifactsCards";
 import { AttachmentChip } from "./AttachmentChip";
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
@@ -101,68 +91,10 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-  // Counsel previews now render inline in AssistantMessageBody.
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const currentChatId = activeChatId ?? selectedChatId;
-  const activityItems = useAtomValue(activityStreamItemsAtom);
   const livePlanByAssistantMessageId = useAtomValue(livePlanUpdateByAssistantMessageIdAtom);
   const planSnapshotsByMessageId = useAtomValue(planSnapshotByAssistantMessageIdAtom);
-  const completedTurnArtifactsById = useAtomValue(
-    completedTurnArtifactsByAssistantMessageIdAtom,
-  );
-  const [frozenActivity, setFrozenActivity] = useState<ActivityStreamItem[] | null>(null);
-  const prevStreamingWhenLastRef = useRef(false);
-
-  const filteredLiveActivity = useMemo(
-    () =>
-      currentChatId == null
-        ? []
-        : activityItems.filter(
-            (i) => i.chatId == null || i.chatId === currentChatId,
-          ),
-    [activityItems, currentChatId],
-  );
-
-  useEffect(() => {
-    if (message.role !== "assistant" || currentChatId == null) return;
-    if (!isLastMessage) return;
-
-    if (isStreaming) {
-      setFrozenActivity(null);
-      prevStreamingWhenLastRef.current = true;
-      return;
-    }
-
-    if (prevStreamingWhenLastRef.current) {
-      const snap = getDefaultStore()
-        .get(activityStreamItemsAtom)
-        .filter((i) => i.chatId == null || i.chatId === currentChatId);
-      setFrozenActivity(snap);
-    }
-    prevStreamingWhenLastRef.current = false;
-  }, [
-    isStreaming,
-    isLastMessage,
-    message.role,
-    message.id,
-    currentChatId,
-  ]);
-
-  const displayActivityItems = useMemo(() => {
-    if (message.role !== "assistant" || currentChatId == null) return [];
-    if (!isLastMessage) return frozenActivity ?? [];
-    if (isStreaming) return filteredLiveActivity;
-    return frozenActivity ?? filteredLiveActivity;
-  }, [
-    message.role,
-    currentChatId,
-    isLastMessage,
-    isStreaming,
-    frozenActivity,
-    filteredLiveActivity,
-  ]);
-
-  const showCounselPreview = false;
 
   const [isEditing, setIsEditing] = useState(false);
   const [resendMode, setResendMode] = useState<WorkMode>(
@@ -175,38 +107,7 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
   const lastTurnHadToolCallsByChatId = useAtomValue(lastTurnHadToolCallsByChatIdAtom);
   const doneAnimationState = useAtomValue(responseDoneAnimationAtom);
   const setDoneAnimation = useSetAtom(responseDoneAnimationAtom);
-  const agentMode = settings?.agentMode ?? "guided";
-  const isAgentAnimationMode = agentMode === "guided" || agentMode === "autonomous";
-  const hasCounselStreamActivity = useMemo(() => {
-    if (message.role !== "assistant" || !isLastMessage || !isStreaming) return false;
-    return displayActivityItems.some((i) =>
-      [
-        "counsel_start",
-        "counsel_participant_complete",
-        "counsel_synthesising",
-        "counsel_complete",
-      ].includes(i.type),
-    );
-  }, [message.role, isLastMessage, isStreaming, displayActivityItems]);
-  const streamingChipSecondary =
-    showCounselPreview || hasCounselStreamActivity
-      ? "Counsel"
-      : isAgentAnimationMode
-        ? "Working"
-        : "Thinking";
-  const modelDisplayName = useModelDisplayName();
-  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
-  const lastAutoRoutedTier = useLastAutoRoutedTier(currentChatId);
-  const autoRoutingOn = settings?.autoModelRouting === true;
-  const autoTierLine = formatAutoTierLabel(
-    lastAutoRoutedTier,
-    coreCatalog,
-    settings?.autoProviderId,
-  );
-  const streamingModelBadge =
-    autoRoutingOn && lastAutoRoutedTier && autoTierLine
-      ? `Auto · ${autoTierLine}`
-      : modelDisplayName;
+  const isAgentAnimationMode = true;
   const showNoActionsThisTurn =
     isLastMessage &&
     !isStreaming &&
@@ -269,9 +170,13 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
     return () => clearTimeout(t);
   }, [showDoneBeneath, doneAnimationState, setDoneAnimation]);
 
-  const planCardPayload = useMemo(() => {
+  /** Task-ledger step card — only when there is no session plan artifact marker in content. */
+  const ledgerPlanCardPayload = useMemo(() => {
     if (message.role !== "assistant") return null;
-    if (contentHasPlanArtifactMarker(message.content)) return null;
+    const content = message.content ?? "";
+    if (extractPlanIdsFromContent(content).length > 0) {
+      return null;
+    }
     const live =
       isStreaming && livePlanByAssistantMessageId.get(message.id);
     if (live && live.steps.length > 0) {
@@ -558,58 +463,6 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
               className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-sm resize-y"
               autoFocus
             />
-          ) : message.role === "assistant" && isLastMessage && isStreaming ? (
-            <>
-              {planCardPayload ? (
-                <div className="mb-2">
-                  <TaskLedgerPlanCard
-                    task={planCardPayload.data.task}
-                    steps={planCardPayload.data.steps}
-                    status={planCardPayload.data.status}
-                    isLive={planCardPayload.isLive}
-                    collapsed={planCardPayload.collapsed}
-                  />
-                </div>
-              ) : null}
-              {message.content ? (
-                <div
-                  className={CHAT_MESSAGE_MARKDOWN_PROSE}
-                  suppressHydrationWarning
-                >
-                  <AssistantMessageBody
-                    content={message.content}
-                    assistantMessageId={message.id}
-                    chatId={message.chatId}
-                    isStreaming
-                    onPlanSwitchToBuild={handlePlanSwitchToBuild}
-                    onPlanArtifactBuild={(id) => void handlePlanArtifactBuild(id)}
-                    planArtifactBuildDisabled={isStreaming}
-                  />
-                </div>
-              ) : null}
-              {/* Counsel now renders inline in AssistantMessageBody */}
-              <div
-                className={`${message.content ? "mt-2" : "mt-0"} flex justify-start`}
-                aria-live="polite"
-              >
-                <div className="inline-flex items-center gap-2 max-w-full rounded-md border border-border/40 bg-muted/25 px-2 py-1 text-[11px] text-muted-foreground">
-                  <Compass
-                    className="h-3 w-3 shrink-0 text-primary/85 animate-spin-slow"
-                    aria-hidden
-                  />
-                  <span className="font-medium text-foreground/85 truncate min-w-0">
-                    {streamingModelBadge}
-                  </span>
-                  <span className="text-[10px] opacity-70 shrink-0">·</span>
-                  <span className="text-[10px] shrink-0">{streamingChipSecondary}</span>
-                  <span className="flex items-center gap-0.5 pl-0.5" aria-hidden>
-                    <span className="inline-block h-1 w-1 rounded-full bg-primary/75 animate-pulse" />
-                    <span className="inline-block h-1 w-1 rounded-full bg-primary/75 animate-pulse [animation-delay:150ms]" />
-                    <span className="inline-block h-1 w-1 rounded-full bg-primary/75 animate-pulse [animation-delay:300ms]" />
-                  </span>
-                </div>
-              </div>
-            </>
           ) : (
             <div
               className={CHAT_MESSAGE_MARKDOWN_PROSE}
@@ -617,19 +470,19 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
             >
               {message.role === "assistant" ? (
                 <>
-                  {planCardPayload ? (
+                  {ledgerPlanCardPayload ? (
                     <div className="mb-2">
                       <TaskLedgerPlanCard
-                        task={planCardPayload.data.task}
-                        steps={planCardPayload.data.steps}
-                        status={planCardPayload.data.status}
-                        isLive={planCardPayload.isLive}
-                        collapsed={planCardPayload.collapsed}
+                        task={ledgerPlanCardPayload.data.task}
+                        steps={ledgerPlanCardPayload.data.steps}
+                        status={ledgerPlanCardPayload.data.status}
+                        isLive={ledgerPlanCardPayload.isLive}
+                        collapsed={ledgerPlanCardPayload.collapsed}
                       />
                     </div>
                   ) : null}
                   <AssistantMessageBody
-                    content={message.content}
+                    content={message.content ?? ""}
                     assistantMessageId={message.id}
                     chatId={message.chatId}
                     isStreaming={isLastMessage && isStreaming}
@@ -637,13 +490,9 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                     onPlanArtifactBuild={(id) => void handlePlanArtifactBuild(id)}
                     planArtifactBuildDisabled={isStreaming}
                   />
-                  {/* Counsel now renders inline in AssistantMessageBody */}
-                  {completedTurnArtifactsById[message.id] ? (
-                    <TurnArtifactsCards artifacts={completedTurnArtifactsById[message.id]!} />
-                  ) : null}
-                  {showNoActionsThisTurn && (
+                  {showNoActionsThisTurn ? (
                     <div className="mt-2 text-xs text-muted-foreground">No actions this turn.</div>
-                  )}
+                  ) : null}
                 </>
               ) : (
                 <>

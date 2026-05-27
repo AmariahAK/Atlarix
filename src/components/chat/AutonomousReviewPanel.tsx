@@ -93,11 +93,11 @@ export function AutonomousReviewPanel({ chatId }: AutonomousReviewPanelProps) {
       )}
     >
       <h3 className="font-medium text-foreground mb-1">
-        Autonomous session complete — review changes before continuing
+        Session complete — review changes before continuing
       </h3>
       <p className="text-muted-foreground text-xs mb-3">
-        Operations ran without per-step approval. Revert individual files from this turn&apos;s
-        workspace snapshot if needed.
+        Approved operations from this turn are listed below. Revert individual files from this
+        turn&apos;s workspace snapshot if needed.
       </p>
 
       <div className="space-y-2 mb-3">

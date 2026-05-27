@@ -86,7 +86,6 @@ import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
 import { UserQuestionBar } from "./UserQuestionBar";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
-import { SummarizationProgressStrip } from "./SummarizationProgressStrip";
 import { ChatStreamNotice } from "./ChatStreamNotice";
 import { CompactionProgressStrip } from "./CompactionProgressStrip";
 import { StreamReconnectBanner } from "./StreamReconnectBanner";
@@ -233,6 +232,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     handleDrop,
     clearAttachments,
     handlePaste,
+    handlePasteCapture,
   } = useAttachments();
 
   // Use the hook to fetch the proposal
@@ -469,7 +469,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
         </div>
       )}
       <ChatStreamNotice />
-      <SummarizationProgressStrip />
       {chatId != null && <CompactionProgressStrip chatId={chatId} />}
       {chatId != null && <StreamReconnectBanner chatId={chatId} />}
       <div className="p-4 flex-shrink-0" data-testid="chat-input-container">
@@ -578,7 +577,10 @@ export function ChatInput({ chatId }: { chatId?: number }) {
             </div>
           ) : null}
 
-          <div className="flex items-start space-x-2 ">
+          <div
+            className="flex items-start space-x-2"
+            onPasteCapture={handlePasteCapture}
+          >
             <div className="relative flex-1 min-w-0">
               {(() => {
                 const t = inputValue.trimStart();

@@ -12,7 +12,6 @@ import { promises as fsPromises } from "node:fs";
 import pathModule from "node:path";
 import { readSettings } from "../../main/settings";
 import log from "electron-log";
-const logger = log.scope("git_utils");
 import type {
   GitBaseParams,
   GitFileParams,
@@ -28,6 +27,41 @@ import type {
   GitPushParams,
   GitCommit,
 } from "../git_types";
+
+const logger = log.scope("git_utils");
+
+/** Thrown when git operations are requested outside any repository. */
+export class NoGitRepositoryError extends Error {
+  constructor(workspacePath: string) {
+    super(`No git repository at or above: ${workspacePath}`);
+    this.name = "NoGitRepositoryError";
+  }
+}
+
+/** Walk parents for a `.git` directory (workspace may be a subfolder of the repo). */
+export function findGitRepositoryRoot(workspacePath: string): string | null {
+  let dir = pathModule.resolve(workspacePath);
+  const root = pathModule.parse(dir).root;
+  while (true) {
+    try {
+      if (fs.existsSync(pathModule.join(dir, ".git"))) return dir;
+    } catch {
+      /* ignore */
+    }
+    const parent = pathModule.dirname(dir);
+    if (parent === dir || dir === root) break;
+    dir = parent;
+  }
+  return null;
+}
+
+export async function hasGitRepository(workspacePath: string): Promise<boolean> {
+  return findGitRepositoryRoot(workspacePath) != null;
+}
+
+function resolveGitDir(workspacePath: string): string | null {
+  return findGitRepositoryRoot(workspacePath);
+}
 
 /**
  * Helper function that wraps exec and throws an error if the exit code is non-zero
@@ -51,9 +85,11 @@ export async function getCurrentCommitHash({
   path,
   ref = "HEAD",
 }: GitInitParams): Promise<string> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return "";
   const settings = readSettings();
   if (settings.enableNativeGit) {
-    const result = await exec(["rev-parse", ref], path);
+    const result = await exec(["rev-parse", ref], gitDir);
     if (result.exitCode !== 0) {
       throw new Error(
         `Failed to resolve ref '${ref}': ${result.stderr.trim() || result.stdout.trim()}`,
@@ -63,7 +99,7 @@ export async function getCurrentCommitHash({
   } else {
     return await git.resolveRef({
       fs,
-      dir: path,
+      dir: gitDir,
       ref,
     });
   }
@@ -74,9 +110,11 @@ export async function isGitStatusClean({
 }: {
   path: string;
 }): Promise<boolean> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return true;
   const settings = readSettings();
   if (settings.enableNativeGit) {
-    const result = await exec(["status", "--porcelain"], path);
+    const result = await exec(["status", "--porcelain"], gitDir);
 
     if (result.exitCode !== 0) {
       throw new Error(`Failed to get status: ${result.stderr}`);
@@ -86,7 +124,7 @@ export async function isGitStatusClean({
     const isClean = result.stdout.trim().length === 0;
     return isClean;
   } else {
-    const statusMatrix = await git.statusMatrix({ fs, dir: path });
+    const statusMatrix = await git.statusMatrix({ fs, dir: gitDir });
     return statusMatrix.every(
       (row) => row[1] === 1 && row[2] === 1 && row[3] === 1,
     );
@@ -105,6 +143,8 @@ export async function gitCommit({
   amend,
   allowEmpty,
 }: GitCommitParams): Promise<string> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return "";
   const settings = readSettings();
   const coAuthorTrailer = getCoAuthorTrailerForCommit();
   const finalMessage =
@@ -129,9 +169,9 @@ export async function gitCommit({
     if (allowEmpty) {
       args.push("--allow-empty");
     }
-    await execOrThrow(args, path, "Failed to create commit");
+    await execOrThrow(args, gitDir, "Failed to create commit");
     // Get the new commit hash
-    const result = await exec(["rev-parse", "HEAD"], path);
+    const result = await exec(["rev-parse", "HEAD"], gitDir);
     if (result.exitCode !== 0) {
       throw new Error(
         `Failed to get commit hash: ${result.stderr.trim() || result.stdout.trim()}`,
@@ -139,10 +179,9 @@ export async function gitCommit({
     }
     return result.stdout.trim();
   } else {
-    // isomorphic-git has no allowEmpty; empty-folder import relies on native git (--allow-empty)
     return git.commit({
       fs: fs,
-      dir: path,
+      dir: gitDir,
       message: finalMessage,
       author: await getGitAuthor(),
       amend: amend,
@@ -154,16 +193,18 @@ export async function gitCheckout({
   path,
   ref,
 }: GitCheckoutParams): Promise<void> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return;
   const settings = readSettings();
   if (settings.enableNativeGit) {
     await execOrThrow(
       ["checkout", ref],
-      path,
+      gitDir,
       `Failed to checkout ref '${ref}'`,
     );
     return;
   } else {
-    return git.checkout({ fs, dir: path, ref });
+    return git.checkout({ fs, dir: gitDir, ref });
   }
 }
 
@@ -171,10 +212,12 @@ export async function gitStageToRevert({
   path,
   targetOid,
 }: GitStageToRevertParams): Promise<void> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return;
   const settings = readSettings();
   if (settings.enableNativeGit) {
     // Get the current HEAD commit hash
-    const currentHeadResult = await exec(["rev-parse", "HEAD"], path);
+    const currentHeadResult = await exec(["rev-parse", "HEAD"], gitDir);
     if (currentHeadResult.exitCode !== 0) {
       throw new Error(
         `Failed to get current commit: ${currentHeadResult.stderr.trim() || currentHeadResult.stdout.trim()}`,
@@ -189,7 +232,7 @@ export async function gitStageToRevert({
     }
 
     // Safety: refuse to run if the work-tree isn't clean.
-    const statusResult = await exec(["status", "--porcelain"], path);
+    const statusResult = await exec(["status", "--porcelain"], gitDir);
     if (statusResult.exitCode !== 0) {
       throw new Error(
         `Failed to get status: ${statusResult.stderr.trim() || statusResult.stdout.trim()}`,
@@ -203,7 +246,7 @@ export async function gitStageToRevert({
     // This effectively undoes all changes since the target commit
     await execOrThrow(
       ["reset", "--hard", targetOid],
-      path,
+      gitDir,
       `Failed to reset to target commit '${targetOid}'`,
     );
 
@@ -211,7 +254,7 @@ export async function gitStageToRevert({
     // This stages all the changes needed to revert to the target state
     await execOrThrow(
       ["reset", "--soft", currentCommit],
-      path,
+      gitDir,
       "Failed to reset back to original HEAD",
     );
   } else {
@@ -265,32 +308,37 @@ export async function gitStageToRevert({
 }
 
 export async function gitAddAll({ path }: GitBaseParams): Promise<void> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return;
   const settings = readSettings();
   if (settings.enableNativeGit) {
-    await execOrThrow(["add", "."], path, "Failed to stage all files");
+    await execOrThrow(["add", "."], gitDir, "Failed to stage all files");
     return;
   } else {
-    return git.add({ fs, dir: path, filepath: "." });
+    return git.add({ fs, dir: gitDir, filepath: "." });
   }
 }
 
 export async function gitAdd({ path, filepath }: GitFileParams): Promise<void> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return;
   const settings = readSettings();
   if (settings.enableNativeGit) {
     await execOrThrow(
       ["add", "--", filepath],
-      path,
+      gitDir,
       `Failed to stage file '${filepath}'`,
     );
   } else {
     await git.add({
       fs,
-      dir: path,
+      dir: gitDir,
       filepath,
     });
   }
 }
 
+/** @deprecated Product code must not initialize git; kept for tests and manual tooling. */
 export async function gitInit({
   path,
   ref = "main",
@@ -315,17 +363,19 @@ export async function gitRemove({
   path,
   filepath,
 }: GitFileParams): Promise<void> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return;
   const settings = readSettings();
   if (settings.enableNativeGit) {
     await execOrThrow(
       ["rm", "-f", "--", filepath],
-      path,
+      gitDir,
       `Failed to remove file '${filepath}'`,
     );
   } else {
     await git.remove({
       fs,
-      dir: path,
+      dir: gitDir,
       filepath,
     });
   }
@@ -334,9 +384,11 @@ export async function gitRemove({
 export async function getGitUncommittedFiles({
   path,
 }: GitBaseParams): Promise<string[]> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return [];
   const settings = readSettings();
   if (settings.enableNativeGit) {
-    const result = await exec(["status", "--porcelain"], path);
+    const result = await exec(["status", "--porcelain"], gitDir);
     if (result.exitCode !== 0) {
       throw new Error(
         `Failed to get uncommitted files: ${result.stderr.trim() || result.stdout.trim()}`,
@@ -581,10 +633,11 @@ export async function gitPush({
 export async function gitCurrentBranch({
   path,
 }: GitBaseParams): Promise<string | null> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return null;
   const settings = readSettings();
   if (settings.enableNativeGit) {
-    // Dugite version
-    const result = await exec(["branch", "--show-current"], path);
+    const result = await exec(["branch", "--show-current"], gitDir);
     if (result.exitCode !== 0) {
       throw new Error(
         `Failed to get current branch: ${result.stderr.trim() || result.stdout.trim()}`,
@@ -596,7 +649,7 @@ export async function gitCurrentBranch({
     // isomorphic-git version returns string | undefined
     const branch = await git.currentBranch({
       fs,
-      dir: path,
+      dir: gitDir,
       fullname: false,
     });
     return branch ?? null;
@@ -607,15 +660,16 @@ export async function gitLog({
   path,
   depth = 100_000,
 }: GitLogParams): Promise<GitCommit[]> {
+  const gitDir = resolveGitDir(path);
+  if (!gitDir) return [];
   const settings = readSettings();
 
   if (settings.enableNativeGit) {
-    return await gitLogNative(path, depth);
+    return await gitLogNative(gitDir, depth);
   } else {
-    // isomorphic-git fallback: this already returns the same structure
     return await git.log({
       fs,
-      dir: path,
+      dir: gitDir,
       depth,
     });
   }

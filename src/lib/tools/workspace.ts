@@ -33,12 +33,6 @@ import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { normalizeAskUserPayload } from "./ask_user_options";
-import {
-    ATLARIX_GIT_AUTHOR_EMAIL,
-    ATLARIX_GIT_AUTHOR_NAME,
-} from "@/ipc/utils/git_author";
-import { gitAdd, gitCommit } from "@/ipc/utils/git_utils";
-
 const execAsync = promisify(exec);
 const logger = log.scope("workspace-tools");
 
@@ -125,28 +119,12 @@ Would you like to upgrade or delete the existing workspace?`,
 
             await fs.mkdir(projectPath, { recursive: true });
 
-            await execAsync("git init", { cwd: projectPath });
-            await execAsync(
-                `git config user.email '${ATLARIX_GIT_AUTHOR_EMAIL}'`,
-                { cwd: projectPath },
-            );
-            await execAsync(
-                `git config user.name '${ATLARIX_GIT_AUTHOR_NAME}'`,
-                { cwd: projectPath },
-            );
-
             const readmeContent = `# ${projectName}\n\n${params.description || "Created with Atlarix AI"}\n`;
             await fs.writeFile(
                 path.join(projectPath, "README.md"),
                 readmeContent,
                 "utf-8"
             );
-
-            await gitAdd({ path: projectPath, filepath: "." });
-            await gitCommit({
-                path: projectPath,
-                message: "Init Atlarix app",
-            });
 
             if (params.chatId) {
                 await db

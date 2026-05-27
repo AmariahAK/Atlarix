@@ -97,7 +97,10 @@ export function registerChatHandlers() {
     "chat:hydrate-ephemeral-messages",
     async (
       _,
-      payload: { chatId: number; messages: { role: string; content: string }[] },
+      payload: {
+        chatId: number;
+        messages: { role: string; content: string; id?: number }[];
+      },
     ) => {
       const { hydrateEphemeralChatMessages, isEphemeralChatId } = await import(
         "./chat_only_handlers"

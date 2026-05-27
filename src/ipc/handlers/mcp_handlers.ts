@@ -233,19 +233,26 @@ export function registerMcpHandlers() {
       try {
         mcpManager.dispose(serverId);
       } catch {}
-      const sqlite = db.$client;
-      const deleted = sqlite.transaction(() => {
-        db.delete(mcpToolConsents)
-          .where(eq(mcpToolConsents.serverId, serverId))
-          .run();
-        return db
-          .delete(mcpServers)
-          .where(eq(mcpServers.id, serverId))
-          .returning()
-          .all();
-      });
-      if (!deleted.length) {
-        throw new Error("MCP server not found");
+
+      const existing = await db
+        .select({ id: mcpServers.id })
+        .from(mcpServers)
+        .where(eq(mcpServers.id, serverId))
+        .limit(1);
+      if (existing.length === 0) {
+        return { success: true, alreadyRemoved: true as const };
+      }
+
+      db.delete(mcpToolConsents)
+        .where(eq(mcpToolConsents.serverId, serverId))
+        .run();
+      const removed = db
+        .delete(mcpServers)
+        .where(eq(mcpServers.id, serverId))
+        .returning({ id: mcpServers.id })
+        .all();
+      if (removed.length === 0) {
+        throw new Error("Failed to delete MCP server");
       }
       return { success: true };
     },

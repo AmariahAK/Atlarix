@@ -208,7 +208,10 @@ export interface ActivityStreamItem {
     | 'tier_escalation'
     | 'counsel_thinking'
     | 'reasoning_started'
-    | 'reasoning_complete';
+    | 'reasoning_complete'
+    | 'subagent_start'
+    | 'subagent_progress'
+    | 'subagent_complete';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
   tokens?: number;
@@ -253,6 +256,18 @@ export interface ActivityStreamItem {
   modelId?: string;
   /** Agent bus: response duration in ms (optional). */
   responseMs?: number;
+  /** Sub-agent card: specialist id (explore, architect, …). */
+  agentType?: string;
+  /** Workspace scope label (focus path, preset, repo snippet). */
+  scope?: string;
+  /** Tool call id that spawned this sub-agent. */
+  parentToolId?: string;
+  /** Delegation id for nesting tool/thought rows under a sub-agent card. */
+  parentDelegationId?: string;
+  /** Turn-scoped sub-agent round id (groups cards in one panel). */
+  roundId?: string;
+  /** Parsed handoff JSON for reload / expand. */
+  structured?: unknown;
 }
 
 /** Last N agent-bus lines for the Thinking card (keyed by chat id). */

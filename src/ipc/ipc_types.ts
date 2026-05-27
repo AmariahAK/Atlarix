@@ -614,10 +614,15 @@ export interface UpdatePromptParamsDto extends CreatePromptParamsDto {
 }
 
 export interface FileAttachment {
-  file: File;
+  file?: File;
   type: "upload-to-codebase" | "chat-context";
   /** Stable id so renderer + main share an attachment ID. */
   id?: string;
+  /** Long paste lifted from the composer — UI chip only; injected into prompt on send. */
+  textPaste?: {
+    content: string;
+    displayName: string;
+  };
 }
 
 // --- Neon Types ---

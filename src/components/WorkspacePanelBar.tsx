@@ -12,6 +12,7 @@ import {
   devServerUrlAtom,
 } from "@/atoms/sourceAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { useSelectedDevServer } from "@/hooks/useDevServer";
 import { Eye, Code2, ListTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -30,11 +31,15 @@ export function WorkspacePanelBar() {
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const devServerUrl = useAtomValue(devServerUrlAtom);
+  const { start: startDevServer, isFrontend } = useSelectedDevServer();
 
   if (!selectedAppId) return null;
 
   // Always use toolbar right panel (code-preview) so user sees all 7 tabs; just switch active tab
-  const handleQuickTab = (tab: QuickTab) => {
+  const handleQuickTab = async (tab: QuickTab) => {
+    if (tab === "preview" && !devServerUrl && isFrontend) {
+      await startDevServer();
+    }
     setPinnedPanel("code-preview");
     setSuppressRightAutoOpen(false);
     setRightPanelVisible(true);
@@ -63,11 +68,12 @@ export function WorkspacePanelBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => handleQuickTab("preview")}
-                disabled={!hasPreview}
+                onClick={() => void handleQuickTab("preview")}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  hasPreview ? "text-muted-foreground hover:text-foreground" : "text-muted-foreground/50 cursor-not-allowed"
+                  hasPreview || isFrontend
+                    ? "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground/50 cursor-not-allowed",
                 )}
               >
                 <Eye className="h-3.5 w-3.5" />
@@ -75,7 +81,11 @@ export function WorkspacePanelBar() {
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              {hasPreview ? "Live app preview" : "Start dev server to see preview"}
+              {hasPreview
+                ? "Live app preview"
+                : isFrontend
+                  ? "Start dev server for preview"
+                  : "Preview unavailable for this workspace"}
             </TooltipContent>
           </Tooltip>
 

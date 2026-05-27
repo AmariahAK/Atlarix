@@ -2,6 +2,12 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
+import {
+  streamToolCardButton,
+  streamToolCardChevron,
+  streamToolCardShell,
+  streamToolCardSummary,
+} from "./stream-item-styles";
 
 export function CollapsedScrollSection({
   summary,
@@ -21,38 +27,40 @@ export function CollapsedScrollSection({
 
   const StatusIcon =
     status === "running"
-      ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
+      ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-500" />
       : status === "error"
         ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-        : () => <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
+        : () => (
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+          );
 
   return (
-    <div className="my-1.5 rounded-lg border border-border/40 bg-muted/20 overflow-hidden text-xs">
+    <div className={streamToolCardShell}>
       <button
         type="button"
         onClick={() => hasBody && setOpen((o) => !o)}
         className={cn(
-          "w-full flex items-center gap-2 px-2.5 py-1.5 text-left",
-          hasBody && "hover:bg-muted/40 cursor-pointer",
-          !hasBody && "cursor-default",
+          streamToolCardButton,
+          hasBody && "cursor-pointer",
+          !hasBody && "cursor-default hover:bg-transparent dark:hover:bg-transparent",
         )}
       >
         {hasBody ? (
           open ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown className={streamToolCardChevron} />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronRight className={streamToolCardChevron} />
           )
         ) : (
           <span className="w-3.5 shrink-0" />
         )}
         <StatusIcon />
-        <span className="flex-1 min-w-0 truncate text-foreground/90">{summary}</span>
+        <span className={streamToolCardSummary}>{summary}</span>
       </button>
       {open && hasBody ? (
         <div
           className={cn(
-            "border-t border-border/30 overflow-auto overscroll-contain px-2.5 py-2",
+            "border-t border-border overflow-auto overscroll-contain px-2.5 py-2 text-foreground/85 dark:text-muted-foreground",
             maxBodyHeightClass,
           )}
         >

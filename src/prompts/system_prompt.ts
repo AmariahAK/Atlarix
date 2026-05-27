@@ -21,7 +21,6 @@ import {
 } from "../lib/model-identity-prompt";
 import type { LargeLanguageModel } from "../lib/schemas";
 import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
-import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
 
 const logger = log.scope("system_prompt");
 
@@ -427,8 +426,9 @@ whether a workspace is open.
 
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
-2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+2. **Multi-repo / monorepo (Explore & Review only):** Use at most **5** \`spawn_sub_agent\` calls per turn. Batch paths via \`scopes\` when one agent can cover several repos. Prefer **explore** + preset **map_repo** (or **reviewer** in Review) instead of many bare parallel explore tools. No sub-agents in Plan, Build, or Debug.
+3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
+4. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -481,8 +481,9 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 
 **Deterministic discovery flow (Build):**
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
-2. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-3. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+2. **Multi-repo / monorepo (Explore & Review):** At most **5** sub-agents per turn; use \`scopes\` to batch paths. Prefer one \`spawn_sub_agent\` per focus area with grouped findings, not per-tool replay in the parent reply.
+3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
+4. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 If architecture context is missing, obtain it before changing code.
 
@@ -543,6 +544,10 @@ If a tool is in your tool list, call it; do not claim it is missing.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
 </tool_contract>`;
 
+    const outputStyleRule = `<output_style>
+In user-visible text, tool summaries, and markdown replies, prefer short ASCII markers or labels (e.g. [ok], [file], (check)) over emoji. The UI renders icons separately—do not rely on emoji for structure or status.
+</output_style>`;
+
     const webResearchRules = `**Web research tools — pick exactly one per topic per turn**
 
 You have \`web_search\` and \`deep_research\`. **RULE:** For any single research topic or question in one assistant turn, use **one** of these two only. **Never** call both for the same subject or overlapping topic in the same turn.
@@ -591,6 +596,7 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
     const stableHeader = [
         base.trim(),
         toolContract,
+        outputStyleRule,
         inlineVizRules,
         modeBlock,
         webResearchRules,

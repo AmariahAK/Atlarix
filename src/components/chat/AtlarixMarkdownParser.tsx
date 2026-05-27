@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -16,15 +16,9 @@ import { VisualArtifactCard } from "./VisualArtifactCard";
 import { useAtomValue } from "jotai";
 import {
   activeChatIdAtom,
-  completedTurnThinkingByAssistantMessageIdAtom,
   isStreamingByIdAtom,
   selectedChatIdAtom,
 } from "@/atoms/chatAtoms";
-import {
-  hasThinkingSnapshotContent,
-  type CompletedTurnThinkingSnapshot,
-} from "@/lib/thinking/extract-thinking-from-content";
-import { activityStreamItemsAtom, agentBusRingByChatIdAtom } from "@/atoms/sourceAtoms";
 import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
 import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
@@ -43,10 +37,8 @@ import { ToolSummary, ToolCall as ToolSummaryCall } from "../ToolSummary";
 import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
-import { ThinkingCard } from "./ThinkingSection";
-import { InlineThoughtsBlock, inlineThoughtsPanelVisible } from "../ActivityDisplay";
-import { useSettings } from "@/hooks/useSettings";
 import { PlanSection } from "./PlanSection";
+import { InlineWebCitation } from "./InlineWebCitation";
 import {
   extractPlanFromContent,
   splitContentByPlanMarkers,
@@ -68,18 +60,12 @@ interface AtlarixMarkdownParserProps {
   /** Plan → Build: submit message + ledger steps */
   onPlanSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
   onPlanArtifactBuild?: (planId: string) => void;
-  /** When true, InlineThoughtsBlock is not rendered here (parent places it above activity / plan). */
-  suppressInlineThoughts?: boolean;
-  /** Assistant message id for frozen thinking snapshot after stream ends. */
-  assistantMessageId?: number;
   /**
    * When false, tool tags and plan chrome use completed (non-streaming) state even if
    * another message in this chat is currently streaming.
    */
   isActiveStreamMessage?: boolean;
   planArtifactBuildDisabled?: boolean;
-  /** When true, tool calls render in MessageActivityTimeline instead of ThinkingCard. */
-  suppressToolCallsInThinking?: boolean;
 }
 
 type CustomTagInfo = {
@@ -339,13 +325,9 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   content,
   onPlanSwitchToBuild,
   onPlanArtifactBuild,
-  suppressInlineThoughts = false,
-  assistantMessageId,
   isActiveStreamMessage,
   planArtifactBuildDisabled,
-  suppressToolCallsInThinking = false,
 }) => {
-  const { settings } = useSettings();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const chatId = activeChatId ?? selectedChatId;
@@ -367,32 +349,6 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     [isStreaming],
   );
 
-  const activityStreamItems = useAtomValue(activityStreamItemsAtom);
-  const agentMode = settings?.agentMode ?? "guided";
-  const agentAnimMode = agentMode === "guided" || agentMode === "autonomous";
-  const activityForPanel = useMemo(() => {
-    if (chatId == null) return activityStreamItems;
-    return activityStreamItems.filter(
-      (i) => i.chatId == null || i.chatId === chatId,
-    );
-  }, [activityStreamItems, chatId]);
-  const showInlineThoughtsPanel = useMemo(
-    () => inlineThoughtsPanelVisible(activityForPanel, chatId, agentMode),
-    [activityForPanel, chatId, agentMode],
-  );
-  const showInlineThoughtsInParser = showInlineThoughtsPanel && !suppressInlineThoughts;
-  const processStreamOnTop =
-    isStreaming && (agentAnimMode || suppressInlineThoughts);
-  const agentBusRingByChatId = useAtomValue(agentBusRingByChatIdAtom);
-  const busExchanges =
-    chatId != null ? (agentBusRingByChatId[chatId] ?? []) : [];
-  const frozenThinkingByMessageId = useAtomValue(
-    completedTurnThinkingByAssistantMessageIdAtom,
-  );
-  const frozenThinking: CompletedTurnThinkingSnapshot | undefined =
-    assistantMessageId != null
-      ? frozenThinkingByMessageId[assistantMessageId]
-      : undefined;
   const displayContent = useMemo(() => {
     let s = stripTaskCompleteTags(stripAssistantPlanForDisplay(content));
     if (isStreaming) s = stripPartialQuestionsBlockForDisplay(s);
@@ -407,11 +363,6 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
   const contentPieces = useMemo(() => {
     return parseCustomTags(displayContent);
   }, [displayContent]);
-
-  // Stability guard: Don't hide ThinkingCard immediately when it becomes empty
-  // This prevents flashing during streaming when content briefly parses to empty
-  const [showThinking, setShowThinking] = useState(false);
-  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Extract error messages and track positions
   const { errorMessages, lastErrorIndex, errorCount } = useMemo(() => {
@@ -441,13 +392,7 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     };
   }, [contentPieces]);
 
-  const {
-    thoughts,
-    reasoningTagParts,
-    modelReasoningParts,
-    toolCalls,
-    answerPieces,
-  } = useMemo(
+  const { answerPieces } = useMemo(
     () => partitionContentPieces(contentPieces, isStreaming),
     [contentPieces, isStreaming],
   );
@@ -495,133 +440,8 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
     !isOnlyToolDebris(sanitizedFallback) &&
     (hasInlinePlanMarkers ? !segmentHasVisibleAnswer : answerPieces.length === 0);
 
-  const modelReasoningText = useMemo(
-    () => modelReasoningParts.join("\n\n").trim(),
-    [modelReasoningParts],
-  );
-
-  const multiAgentFromActivity = useMemo(() => {
-    const agents = new Set<string>();
-    for (const i of activityForPanel) {
-      if (
-        (i.type === "delegation_start" ||
-          i.type === "delegation_complete" ||
-          i.type === "delegation_error") &&
-        i.agent
-      ) {
-        agents.add(String(i.agent).toLowerCase());
-      }
-      if (i.type === "agent_message" && i.fromAgent) {
-        agents.add(String(i.fromAgent).toLowerCase());
-      }
-    }
-    return agents.size >= 2;
-  }, [activityForPanel]);
-
-  const compactTools = useMemo(() => {
-    if (isStreaming && multiAgentFromActivity) return true;
-    return (
-      toolCalls.length >= 2 &&
-      (thoughts.length >= 2 ||
-        modelReasoningParts.length >= 1 ||
-        reasoningTagParts.length >= 1)
-    );
-  }, [
-    isStreaming,
-    multiAgentFromActivity,
-    toolCalls.length,
-    thoughts.length,
-    modelReasoningParts.length,
-    reasoningTagParts.length,
-  ]);
-
-  // Import ThinkingCard - moved to static import to prevent lazy-loading flicker
-  // const ThinkingCard = React.lazy(() => import('./ThinkingSection'));
-
-  // Stability guard: Delay hiding to prevent flicker during streaming
-  const reasoningFromTags = useMemo(
-    () => reasoningTagParts.join("\n\n").trim(),
-    [reasoningTagParts],
-  );
-
-  const liveHasThinking =
-    thoughts.length > 0 ||
-    reasoningTagParts.length > 0 ||
-    modelReasoningParts.length > 0 ||
-    toolCalls.length > 0 ||
-    busExchanges.length > 0;
-
-  const frozenHasThinking =
-    frozenThinking != null && hasThinkingSnapshotContent(frozenThinking);
-
-  const displayThinking = frozenHasThinking
-    ? {
-        thoughts: frozenThinking!.thoughts,
-        reasoningFromTags: frozenThinking!.reasoningFromTags,
-        modelReasoning: frozenThinking!.modelReasoning,
-        toolCalls: frozenThinking!.toolCalls,
-        busExchanges: frozenThinking!.busExchanges,
-      }
-    : {
-        thoughts,
-        reasoningFromTags: reasoningFromTags || "",
-        modelReasoning: modelReasoningText || "",
-        toolCalls,
-        busExchanges,
-      };
-
-  const hasThinkingContent = frozenHasThinking || liveHasThinking;
-
-  useEffect(() => {
-    if (frozenHasThinking) {
-      setShowThinking(true);
-      return;
-    }
-    if (hasThinkingContent) {
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-        hideTimeoutRef.current = null;
-      }
-      setShowThinking(true);
-    } else if (showThinking && !isStreaming) {
-      hideTimeoutRef.current = setTimeout(() => {
-        setShowThinking(false);
-      }, 300);
-    }
-
-    return () => {
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-      }
-    };
-  }, [hasThinkingContent, isStreaming, showThinking, frozenHasThinking]);
-
-  const thinkingCardEl =
-    showThinking && !suppressToolCallsInThinking ? (
-      <ThinkingCard
-        thoughts={displayThinking.thoughts}
-        reasoningFromTags={displayThinking.reasoningFromTags || undefined}
-        modelReasoning={displayThinking.modelReasoning || undefined}
-        toolCalls={displayThinking.toolCalls}
-        compactTools={compactTools}
-        busExchanges={displayThinking.busExchanges}
-        size={isStreaming ? "compact" : "default"}
-        initialExpanded={isStreaming}
-      />
-    ) : null;
-
   return (
     <>
-      {processStreamOnTop ? (
-        <>
-          {showInlineThoughtsInParser ? (
-            <InlineThoughtsBlock className="mt-0 mb-2" />
-          ) : null}
-          {thinkingCardEl}
-        </>
-      ) : null}
-
-      {/* Response: below process strip when streaming; answer-first when complete. */}
       {hasInlinePlanMarkers && segmentRenderItems
         ? segmentRenderItems.map((item) =>
             item.kind === "plan" ? (
@@ -703,10 +523,6 @@ export const AtlarixMarkdownParser: React.FC<AtlarixMarkdownParserProps> = ({
           {sanitizedFallback}
         </ReactMarkdown>
       ) : null}
-
-      {!processStreamOnTop && showInlineThoughtsInParser ? <InlineThoughtsBlock /> : null}
-
-      {!processStreamOnTop && showThinking ? thinkingCardEl : null}
 
       {/* v3.6: Plan card when content matches structured / phased plan (visible while streaming once parseable) */}
       {planCardData ? (
@@ -1205,6 +1021,12 @@ function renderCustomTag(
           {content}
         </AtlarixToolResult>
       );
+
+    case "atlarix-citation": {
+      const idx = Number(attributes.index ?? attributes.n ?? "0");
+      if (!Number.isFinite(idx) || idx < 1) return null;
+      return <InlineWebCitation index={idx} />;
+    }
 
     case "atlarix-text-attachment": {
       const filename = attributes.filename || "attachment";

@@ -104,3 +104,21 @@ export async function getLatestPlanArtifact(
 export function planArtifactMarker(planId: string): string {
   return `<!-- atlarix-plan-artifact:${planId} -->`;
 }
+
+/** Ensure inline plan cards render even when the model omits the marker comment. */
+export function ensurePlanMarkersInAssistantContent(content: string): string {
+  let out = content;
+  const re = /"planId"\s*:\s*"([0-9a-f-]{36})"/gi;
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const planId = m[1]!;
+    if (seen.has(planId)) continue;
+    seen.add(planId);
+    const marker = planArtifactMarker(planId);
+    if (!out.includes(marker)) {
+      out = `${out.trimEnd()}\n\n${marker}\n`;
+    }
+  }
+  return out;
+}

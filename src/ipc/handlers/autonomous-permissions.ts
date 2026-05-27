@@ -1,10 +1,5 @@
 /**
- * Whether permissioned tool execution should run without blocking on the user queue.
- * Autonomous mode + valid chat session only; does not change which tools exist (Ask/Build gates unchanged).
+ * @deprecated Import from `@/lib/agents/agent-runtime` instead.
+ * Permissions always require manual approval.
  */
-export function shouldAutoApprovePermissions(
-  agentMode: string | undefined,
-  chatId: number | null | undefined,
-): boolean {
-  return agentMode === "autonomous" && chatId != null && Number.isFinite(chatId);
-}
+export { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";

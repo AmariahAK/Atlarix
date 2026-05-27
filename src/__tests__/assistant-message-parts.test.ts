@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import { groupAssistantDisplayParts } from "@/lib/chat/display-parts-group";
 import { splitContentByPlanMarkers } from "@/lib/plan-cards/plan-card-renderer";
+import { proseAlreadyRendered } from "@/lib/chat/stream-thread";
+import { extractVisibleAnswerMarkdown } from "@/lib/chat/answer-display";
 
 describe("parseAssistantMessageParts", () => {
   it("orders tool before plan marker before answer markdown", () => {
@@ -81,6 +83,110 @@ describe("parseAssistantMessageParts", () => {
     expect(grouped.some((g) => g.kind === "context_group")).toBe(true);
     const group = grouped.find((g) => g.kind === "context_group");
     expect(group && group.kind === "context_group" ? group.tools.length : 0).toBe(3);
+  });
+
+  it("suppresses trailing answer when markdown parts exist", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{}</atlarix-tool-call>',
+      "Answer in parts.",
+    ].join("\n");
+    const parts = parseAssistantMessageParts(content, false);
+    const hasMarkdown = parts.some((p) => p.type === "markdown");
+    expect(hasMarkdown).toBe(true);
+    const trailing = extractVisibleAnswerMarkdown(content);
+    expect(
+      proseAlreadyRendered(trailing, parts) || hasMarkdown,
+    ).toBe(true);
+  });
+
+  it("detects when trailing prose is not yet in markdown parts", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">ok</atlarix-tool-result>',
+    ].join("\n");
+    const parts = parseAssistantMessageParts(content, false);
+    const trailing = extractVisibleAnswerMarkdown(
+      `${content}\n\nFinal answer for the user.`,
+    );
+    expect(parts.every((p) => p.type !== "markdown")).toBe(true);
+    expect(trailing).toContain("Final answer");
+    expect(proseAlreadyRendered(trailing, parts)).toBe(false);
+  });
+
+  it("marks tool success during stream when tool-result is in content", () => {
+    const content = [
+      '<atlarix-tool-call tool="explore_folder" status="running">{}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="explore_folder" status="complete">done</atlarix-tool-result>',
+    ].join("\n");
+    const parts = parseAssistantMessageParts(content, true);
+    const tools = parts.filter((p) => p.type === "tool");
+    expect(tools).toHaveLength(1);
+    expect(tools[0] && tools[0].type === "tool" ? tools[0].status : "").toBe(
+      "success",
+    );
+  });
+
+  it("marks tools success after stream ends (not stuck running)", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{"path":"src/a.ts"}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">file contents</atlarix-tool-result>',
+      '<atlarix-tool-call tool="search" status="running">{"query":"foo"}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="search" status="success">matches</atlarix-tool-result>',
+    ].join("\n");
+    const parts = parseAssistantMessageParts(content, false);
+    const tools = parts.filter((p) => p.type === "tool");
+    expect(tools).toHaveLength(2);
+    expect(tools.every((t) => t.type === "tool" && t.status === "success")).toBe(
+      true,
+    );
+  });
+
+  it("parses chat-only tagged content with thought, tool, and trailing answer", () => {
+    const content = [
+      "<think>Planning a web search.</think>",
+      '<atlarix-tool-call tool="web_search" status="running">{"query":"weather"}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="web_search" status="complete">{"hits":2}</atlarix-tool-result>',
+      "Here is the forecast for today.",
+    ].join("\n");
+
+    const parts = parseAssistantMessageParts(content, false);
+    const types = parts.map((p) => p.type);
+    expect(types).toContain("thought");
+    expect(types).toContain("tool");
+    expect(types.indexOf("thought")).toBeLessThan(types.indexOf("tool"));
+    const tools = parts.filter((p) => p.type === "tool");
+    expect(tools).toHaveLength(1);
+    expect(tools[0] && tools[0].type === "tool" ? tools[0].status : "").toBe(
+      "success",
+    );
+    const trailing = extractVisibleAnswerMarkdown(content);
+    expect(trailing).toContain("forecast");
+    const md = parts.find((p) => p.type === "markdown");
+    const inMarkdown =
+      md && md.type === "markdown"
+        ? md.content.includes("forecast")
+        : false;
+    expect(inMarkdown || trailing.includes("forecast")).toBe(true);
+  });
+
+  it("emits separate thought parts in stream order (thought, markdown, thought, tool)", () => {
+    const content = [
+      "<think>First thought block.</think>",
+      "First answer paragraph.",
+      "<think>Second thought after response.</think>",
+      '<atlarix-tool-call tool="read_file" status="running">{"path":"src/a.ts"}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">ok</atlarix-tool-result>',
+      "Second answer paragraph.",
+    ].join("\n");
+
+    const parts = parseAssistantMessageParts(content, false);
+    const types = parts.map((p) => p.type);
+
+    expect(types.filter((t) => t === "thought")).toHaveLength(2);
+    expect(types.indexOf("thought")).toBe(0);
+    expect(types.indexOf("markdown")).toBeGreaterThan(0);
+    expect(types.lastIndexOf("thought")).toBeLessThan(types.indexOf("tool"));
+    expect(types.indexOf("tool")).toBeGreaterThan(types.lastIndexOf("thought"));
   });
 
   it("suppresses write_implementation_plan tool when artifact marker present", () => {

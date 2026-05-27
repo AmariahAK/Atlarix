@@ -78,11 +78,10 @@ import {
 import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import type { ModelTier } from "@/lib/routing/capability-registry";
-import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
+import { processStreamChunks } from "../utils/stream_chunk_tags";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import { captureSafe } from "../../main/lib/analytics";
 import { summarizeOversizedToolResultsInContent } from "@/lib/context/post_turn_tool_result_summary";
-import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import * as path from "path";
 import { readFile } from "fs/promises";
@@ -408,7 +407,7 @@ export function clearEphemeralChatMessages(chatId: number): void {
 /** Restore model context when resuming a persisted workspace session (display + stream). */
 export function hydrateEphemeralChatMessages(
     chatId: number,
-    messages: { role: string; content: string }[],
+    messages: { role: string; content: string; id?: number }[],
 ): void {
     const chat = ephemeralChats.get(chatId);
     if (!chat) return;
@@ -416,7 +415,10 @@ export function hydrateEphemeralChatMessages(
     chat.messages = messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
-            id: Date.now() + seq++,
+            id:
+                typeof m.id === "number" && Number.isFinite(m.id)
+                    ? m.id
+                    : Date.now() + seq++,
             chatId,
             role: m.role,
             content: m.content ?? "",
@@ -835,40 +837,6 @@ export async function handleChatOnlyStream(
             thinkingTier &&
             !(req.forceThinkingTier === true && !forceThinkingNativeSupported);
 
-        let deepThinkCounselPromptBlock: string | null = null;
-        if (
-            req.forceThinkingTier === true &&
-            !forceThinkingNativeSupported &&
-            settings.counsel?.enabled !== false
-        ) {
-            try {
-                const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
-                const cleanQ = gatedPrompt.slice(0, 12000);
-                deepThinkCounselPromptBlock = await runCounselPipeline({
-                    chatId: req.chatId,
-                    turnId: `chat-only-${req.chatId}-${Date.now()}`,
-                    trigger: "deep_think_fallback",
-                    mode: "general",
-                    question: cleanQ,
-                    settings,
-                    sendActivity: (payload) => {
-                        safeSend(event.sender, "chat:activity", payload);
-                    },
-                    toolActivity: { webContents: event.sender, chatId: req.chatId },
-                    onCounselStreamLifecycle: (phase) => {
-                        safeSend(event.sender, "chat:stream:phase", {
-                            chatId: req.chatId,
-                            phase,
-                            label: phase === "counsel_start" ? "Consulting the counsel..." : "",
-                        });
-                    },
-                });
-            } catch (deepCounselErr) {
-                logger.warn("[chat-only][counsel] Deep-think substitute failed:", deepCounselErr);
-                deepThinkCounselPromptBlock = null;
-            }
-        }
-
         // No workspace = read-only only (no write/run/delegation) + global MCP tools when provided
         const availableTools = ToolRegistry.getToolsForNoWorkspace();
         logger.log(`Chat-only mode (read-only): ${availableTools.length} built-in tools available`);
@@ -1088,65 +1056,6 @@ export async function handleChatOnlyStream(
             `[chat-only] ToolSet keys: ${toolKeys.length}, unique names: ${new Set(toolKeys).size} (Record keys cannot duplicate)`,
         );
 
-        const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
-        if (
-            settings.counsel?.enabled !== false &&
-            req.forceThinkingTier !== true &&
-            !gatedPrompt.startsWith("Summarize from chat-id=") &&
-            !gatedPrompt.startsWith("/security-review")
-        ) {
-            try {
-                const { detectCounselTrigger, stripCounselCommand } = await import(
-                    "@/lib/counsel/counsel-trigger",
-                );
-                const trigger = detectCounselTrigger(gatedPrompt, resolvedTierForCounsel, {
-                    autoTriggerOnThinking: settings.counsel?.autoTriggerOnThinking !== false,
-                    selectedChatMode: settings.selectedChatMode ?? "ask",
-                });
-                if (trigger) {
-                    const cleanQ = stripCounselCommand(gatedPrompt).slice(0, 12000);
-                    captureSafe("counsel_triggered", {
-                        trigger_type: trigger,
-                        chat_mode: settings.selectedChatMode ?? "unknown",
-                        has_workspace: false,
-                    });
-                    const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
-                    const { storeCounselSynthesisForNextTurn } = await import(
-                        "@/lib/counsel/counsel-next-turn-cache",
-                    );
-                    void runCounselPipeline({
-                        chatId: req.chatId,
-                        turnId: `chat-only-counsel-${req.chatId}-${Date.now()}`,
-                        trigger,
-                        mode: "general",
-                        question: cleanQ,
-                        settings,
-                        sendActivity: (payload) => {
-                            safeSend(event.sender, "chat:activity", payload);
-                        },
-                        toolActivity: { webContents: event.sender, chatId: req.chatId },
-                        onCounselStreamLifecycle: (phase) => {
-                            safeSend(event.sender, "chat:stream:phase", {
-                                chatId: req.chatId,
-                                phase,
-                                label: phase === "counsel_start" ? "Consulting the counsel..." : "",
-                            });
-                        },
-                    })
-                        .then((synthesis) => {
-                            if (req.chatId > 0 && synthesis.trim()) {
-                                storeCounselSynthesisForNextTurn(req.chatId, synthesis);
-                            }
-                        })
-                        .catch((counselErr) => {
-                            logger.warn("[chat-only][counsel] Pipeline failed:", counselErr);
-                        });
-                }
-            } catch (counselErr) {
-                logger.warn("[chat-only][counsel] Trigger detection failed:", counselErr);
-            }
-        }
-
         // Prepare message history
         let messageHistory = chat.messages.map((msg) => ({
             role: msg.role as "user" | "assistant" | "system",
@@ -1187,15 +1096,12 @@ export async function handleChatOnlyStream(
         const sessionContext = sessionMemory.getContextForPrompt();
         // PASS8 A5: Two-part system payload. Static identity / mode / capability block
         // goes into `system` (cache-eligible); date/time + session memory + per-turn
-        // counsel injection go into the dynamic tail prepended to messages.
+        // dynamic tail prepended to messages.
         const chatOnlyParts = getChatOnlySystemPromptParts(app.getVersion());
         let chatOnlyDynamicTail = chatOnlyParts.dynamicTail;
         if (sessionContext) {
             chatOnlyDynamicTail += `\n\n${sessionContext}`;
             logger.log(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
-        }
-        if (deepThinkCounselPromptBlock?.trim()) {
-            chatOnlyDynamicTail += `\n\n${deepThinkCounselPromptBlock.trim()}`;
         }
         // Backwards-compat single string for any callers still reading `systemPrompt`.
         let systemPrompt = `${chatOnlyParts.stableHeader}\n\n${chatOnlyDynamicTail}\n`;
@@ -1380,90 +1286,47 @@ export async function handleChatOnlyStream(
 
                 try {
                     let firstVisibleChunk = true;
-                    let inThinkingBlock = false;
-                    for await (const part of result.fullStream) {
-                        if (abortController.signal.aborted) {
-                            logger.log("Ephemeral chat-only stream aborted");
-                            break;
-                        }
-
-                        let chunk = "";
-                        if (
-                            inThinkingBlock &&
-                            !["reasoning-delta", "reasoning-start", "reasoning-end"].includes(
-                                part.type,
-                            )
-                        ) {
-                            chunk = "</think>";
-                            inThinkingBlock = false;
-                        }
-
-                        if (part.type === "text-delta") {
-                            let t = part.text ?? "";
-                            t = t.replace(
+                    const emitRespondingPhase = () => {
+                        if (!firstVisibleChunk) return;
+                        firstVisibleChunk = false;
+                        safeSend(event.sender, "chat:stream:phase", {
+                            chatId: req.chatId,
+                            phase: "responding",
+                            label: "",
+                        });
+                    };
+                    const chunkResult = await processStreamChunks({
+                        fullStream: result.fullStream,
+                        fullResponse,
+                        abortController,
+                        chatId: req.chatId,
+                        sanitizeTextDelta: (t) =>
+                            t.replace(
                                 /<\/?(?:function|toolcall|tool|parameter)[^>]*>/gi,
                                 "",
-                            );
-                            chunk += t;
-                        } else if (part.type === "reasoning-delta") {
-                            const rtext = part.text ?? "";
-                            if (rtext) {
-                                if (!inThinkingBlock) {
-                                    chunk = "<think>";
-                                    inThinkingBlock = true;
-                                }
-                                chunk += escapeAtlarixTags(rtext);
-                            }
-                        }
-
-                        if (!chunk) {
-                            continue;
-                        }
-
-                        if (firstVisibleChunk && chunk.trim().length > 0) {
-                            firstVisibleChunk = false;
-                            safeSend(event.sender, "chat:stream:phase", {
+                            ),
+                        onFirstModelActivity: emitRespondingPhase,
+                        onFirstReasoningDelta: emitRespondingPhase,
+                        processResponseChunkUpdate: async ({ fullResponse: next }) => {
+                            fullResponse = next;
+                            syncChatOnlyStreamingDraft(req.chatId, fullResponse);
+                            safeSend(event.sender, "chat:response:chunk", {
                                 chatId: req.chatId,
-                                phase: "responding",
-                                label: "",
+                                messages: [
+                                    ...chat.messages,
+                                    {
+                                        id: -1,
+                                        chatId: req.chatId,
+                                        role: "assistant",
+                                        content: fullResponse,
+                                        createdAt: new Date(),
+                                    },
+                                ],
                             });
-                        }
-
-                        fullResponse += chunk;
-                        syncChatOnlyStreamingDraft(req.chatId, fullResponse);
-
-                        safeSend(event.sender, "chat:response:chunk", {
-                            chatId: req.chatId,
-                            messages: [
-                                ...chat.messages,
-                                {
-                                    id: -1,
-                                    chatId: req.chatId,
-                                    role: "assistant",
-                                    content: fullResponse,
-                                    createdAt: new Date(),
-                                },
-                            ],
-                        });
-                    }
-                    if (inThinkingBlock) {
-                        fullResponse += "</think>";
-                        inThinkingBlock = false;
-                        syncChatOnlyStreamingDraft(req.chatId, fullResponse);
-                        safeSend(event.sender, "chat:response:chunk", {
-                            chatId: req.chatId,
-                            messages: [
-                                ...chat.messages,
-                                {
-                                    id: -1,
-                                    chatId: req.chatId,
-                                    role: "assistant",
-                                    content: fullResponse,
-                                    createdAt: new Date(),
-                                },
-                            ],
-                        });
-                    }
+                            return fullResponse;
+                        },
+                    });
+                    fullResponse = chunkResult.fullResponse;
 
                     try {
                         const tc = await result.toolCalls;
@@ -1699,8 +1562,6 @@ export async function handleChatOnlyStream(
             });
         }
 
-        const { stripToolCallXML } = await import("../utils/text_tool_parser");
-        fullResponse = stripToolCallXML(fullResponse);
         fullResponse = sanitizeAssistantOutput(fullResponse);
 
         let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
@@ -1713,8 +1574,10 @@ export async function handleChatOnlyStream(
         } finally {
             emitPostTurnToolSummaryActivity(event.sender, req.chatId, "done");
         }
-        });
-        // ═══════════════════════════════════════════════════════════════
+        const { ensurePlanMarkersInAssistantContent } = await import(
+            "@/lib/plans/plan-artifacts"
+        );
+        responseToStore = ensurePlanMarkersInAssistantContent(responseToStore);
 
         // Create assistant message (in-memory only) WITH SOURCES
         const rawSourceCount = collectedSources.length;
@@ -1726,14 +1589,13 @@ export async function handleChatOnlyStream(
             logger.log("📚 Sources:", uniqueCollectedSources.map((s) => s.title).join(", "));
         }
 
+        const { stripTaskCompleteTags } = await import("../utils/thinking_tags");
         const assistantMessage: Message = {
             id: Date.now() + 1,
             chatId: req.chatId,
             role: "assistant",
-            // Chat-only sessions are in-memory only, but the same model
-            // sees this on subsequent turns (chat.messages -> messageHistory).
-            // Strip <think> for parity with workspace DB persistence.
-            content: stripThinkBlocks(responseToStore),
+            // Keep <think> and atlarix-tool tags for inline cards; session memory below is stripped.
+            content: stripTaskCompleteTags(responseToStore),
             sources: uniqueCollectedSources.length > 0 ? uniqueCollectedSources : undefined,
             createdAt: new Date(),
             ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),

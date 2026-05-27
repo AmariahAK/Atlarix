@@ -1,17 +1,12 @@
 /**
  * useDevServer Hook
  * =================
- * Auto-manages dev server for live preview (Lovable-style)
- * 
+ * Manual dev server control for live preview.
+ *
  * Usage:
  *   const { url, isRunning, isFrontend, start, stop } = useDevServer(workspaceId);
- * 
- * Features:
- * - Auto-detects frontend projects
- * - Auto-starts when workspace is selected
- * - Provides live preview URL
- * - Stops server on workspace switch
- * - Syncs URL to devServerUrlAtom for right panel
+ *
+ * Does not auto-start on workspace select — call `start()` from preview UI or tools.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -47,12 +42,10 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
 
     const previousWorkspaceId = useRef<number | null>(null);
 
-    // Sync to global atoms for right panel access
     const setDevServerUrl = useSetAtom(devServerUrlAtom);
     const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
     const setPreviewTab = useSetAtom(previewTabAtom);
 
-    // Check if frontend and get status on mount/workspace change
     useEffect(() => {
         if (!workspaceId) {
             setState({
@@ -64,20 +57,30 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                 error: null,
             });
             setDevServerUrl(null);
+            previousWorkspaceId.current = null;
             return;
         }
 
-        const checkAndStart = async () => {
+        let cancelled = false;
+
+        const syncStatusOnly = async () => {
             try {
-                // Stop previous server if workspace changed
-                if (previousWorkspaceId.current && previousWorkspaceId.current !== workspaceId) {
-                    console.log(`🛑 Stopping dev server for previous workspace ${previousWorkspaceId.current}`);
-                    await IpcClient.getInstance().stopDevServer(previousWorkspaceId.current);
+                if (
+                    previousWorkspaceId.current &&
+                    previousWorkspaceId.current !== workspaceId
+                ) {
+                    await IpcClient.getInstance()
+                        .stopDevServer(previousWorkspaceId.current)
+                        .catch(() => {});
+                    if (!cancelled) {
+                        setDevServerUrl(null);
+                    }
                 }
                 previousWorkspaceId.current = workspaceId;
 
-                // Check if frontend
-                const frontendCheck = await IpcClient.getInstance().isFrontendProject(workspaceId);
+                const frontendCheck =
+                    await IpcClient.getInstance().isFrontendProject(workspaceId);
+                if (cancelled) return;
 
                 if (!frontendCheck.isFrontend) {
                     setState({
@@ -92,8 +95,9 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                     return;
                 }
 
-                // Check current status
-                const status = await IpcClient.getInstance().getDevServerStatus(workspaceId);
+                const status =
+                    await IpcClient.getInstance().getDevServerStatus(workspaceId);
+                if (cancelled) return;
 
                 if (status.isRunning && status.url) {
                     setState({
@@ -104,88 +108,77 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
                         framework: frontendCheck.framework || null,
                         error: null,
                     });
-                    // Sync to global atom and show preview
                     setDevServerUrl(status.url);
-                    setRightPanelVisible(true);
-                    setPreviewTab('preview');
-                    console.log(`🌐 Dev server running at ${status.url}`);
                 } else {
-                    // Auto-start the dev server
-                    console.log(`🚀 Auto-starting dev server for workspace ${workspaceId}`);
-                    setState(s => ({ ...s, isFrontend: true, framework: frontendCheck.framework || null, isStarting: true }));
-
-                    const result = await IpcClient.getInstance().startDevServer(workspaceId);
-
-                    if (result.success) {
-                        setState({
-                            url: result.url || null,
-                            isRunning: true,
-                            isStarting: false,
-                            isFrontend: true,
-                            framework: frontendCheck.framework || null,
-                            error: null,
-                        });
-                        // Sync to global atom and show preview
-                        if (result.url) {
-                            setDevServerUrl(result.url);
-                            setRightPanelVisible(true);
-                            setPreviewTab('preview');
-                            console.log(`🌐 Dev server started at ${result.url}`);
-                        }
-                    } else {
-                        setState(s => ({
-                            ...s,
-                            isStarting: false,
-                            error: result.error || 'Failed to start dev server',
-                        }));
-                        setDevServerUrl(null);
-                    }
+                    setState({
+                        url: null,
+                        isRunning: false,
+                        isStarting: false,
+                        isFrontend: true,
+                        framework: frontendCheck.framework || null,
+                        error: null,
+                    });
+                    setDevServerUrl(null);
                 }
-            } catch (error) {
-                console.error('Dev server hook error:', error);
-                setState(s => ({
-                    ...s,
-                    error: String(error),
-                    isStarting: false,
-                }));
-                setDevServerUrl(null);
+            } catch {
+                if (!cancelled) {
+                    setDevServerUrl(null);
+                }
             }
         };
 
-        checkAndStart();
-    }, [workspaceId, setDevServerUrl, setRightPanelVisible, setPreviewTab]);
+        void syncStatusOnly();
 
-    // Manual start
+        return () => {
+            cancelled = true;
+        };
+    }, [workspaceId, setDevServerUrl]);
+
     const start = useCallback(async () => {
         if (!workspaceId) return;
 
-        setState(s => ({ ...s, isStarting: true, error: null }));
+        setState((s) => ({ ...s, isStarting: true, error: null }));
 
         try {
+            const frontendCheck =
+                await IpcClient.getInstance().isFrontendProject(workspaceId);
+            if (!frontendCheck.isFrontend) {
+                setState((s) => ({
+                    ...s,
+                    isStarting: false,
+                    isFrontend: false,
+                    error: 'Not a frontend project',
+                }));
+                return;
+            }
+
             const result = await IpcClient.getInstance().startDevServer(workspaceId);
             if (result.success) {
-                setState(s => ({
-                    ...s,
+                setState({
                     url: result.url || null,
                     isRunning: true,
                     isStarting: false,
-                }));
-                // Sync to global atom
+                    isFrontend: true,
+                    framework: frontendCheck.framework || null,
+                    error: null,
+                });
                 if (result.url) {
                     setDevServerUrl(result.url);
                     setRightPanelVisible(true);
                     setPreviewTab('preview');
                 }
             } else {
-                setState(s => ({
+                setState((s) => ({
                     ...s,
                     isStarting: false,
+                    isFrontend: true,
+                    framework: frontendCheck.framework || null,
                     error: result.error || 'Failed to start',
                 }));
                 setDevServerUrl(null);
             }
         } catch (error) {
-            setState(s => ({
+            setState((s) => ({
                 ...s,
                 isStarting: false,
                 error: String(error),
@@ -194,39 +187,40 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
         }
     }, [workspaceId, setDevServerUrl, setRightPanelVisible, setPreviewTab]);
 
-    // Manual stop
     const stop = useCallback(async () => {
         if (!workspaceId) return;
 
         try {
             await IpcClient.getInstance().stopDevServer(workspaceId);
-            setState(s => ({
+            setState((s) => ({
                 ...s,
                 url: null,
                 isRunning: false,
             }));
-            // Clear global atom
             setDevServerUrl(null);
         } catch (error) {
             console.error('Failed to stop dev server:', error);
         }
     }, [workspaceId, setDevServerUrl]);
 
-    // Refresh status
     const refresh = useCallback(async () => {
         if (!workspaceId) return;
 
         try {
-            const status = await IpcClient.getInstance().getDevServerStatus(workspaceId);
-            setState(s => ({
+            const status =
+                await IpcClient.getInstance().getDevServerStatus(workspaceId);
+            setState((s) => ({
                 ...s,
                 url: status.url,
                 isRunning: status.isRunning,
             }));
+            if (status.isRunning && status.url) {
+                setDevServerUrl(status.url);
+            }
         } catch (error) {
             console.error('Failed to refresh dev server status:', error);
         }
-    }, [workspaceId]);
+    }, [workspaceId, setDevServerUrl]);
 
     return {
         ...state,
@@ -236,9 +230,6 @@ export function useDevServer(workspaceId: number | null): UseDevServerReturn {
     };
 }
 
-/**
- * Convenience hook that uses the selected app ID
- */
 export function useSelectedDevServer(): UseDevServerReturn {
     const workspaceId = useAtomValue(selectedAppIdAtom);
     return useDevServer(workspaceId);

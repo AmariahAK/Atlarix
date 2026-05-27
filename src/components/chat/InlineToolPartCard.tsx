@@ -1,65 +1,42 @@
-import { StreamToolCallCard } from "./StreamToolCallCard";
-import { InlineFileChangeCard } from "./InlineFileChangeCard";
-import { InlineTerminalToolCard } from "./InlineTerminalToolCard";
-import { CollapsedScrollSection } from "./CollapsedScrollSection";
-import { FormattedToolResultBody } from "./FormattedToolResultBody";
 import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
-import { summarizeInlineTool } from "@/lib/chat/inline-tool-summary";
-import { formatToolResultDisplay } from "@/lib/chat/format-tool-result";
+import { isDelegateToolName } from "@/lib/chat/delegate-handoff";
+import { persistedToolPartToStreamCard } from "@/lib/chat/persisted-tool-card";
+import { SubAgentCard } from "./subagent/SubAgentCard";
+import { StreamToolCallCard } from "./StreamToolCallCard";
 
-const FILE_TOOLS = new Set([
-  "write_file",
-  "edit_file",
-  "search_replace",
-  "write_multiple_files",
-  "delete_file",
-  "rename_file",
-]);
-
-const TERMINAL_TOOLS = new Set(["run_command", "execute_command", "stream_terminal_output"]);
-
+/** Persisted / post-stream tool row — same UX as live stream cards. */
 export function InlineToolPartCard({
   part,
-  defaultCollapsed = true,
+  suppressDelegateTools = false,
 }: {
   part: Extract<AssistantMessagePart, { type: "tool" }>;
+  /** @deprecated collapse is status-driven */
   defaultCollapsed?: boolean;
+  /** When true, delegate/spawn rows are shown only in SubAgentsRoundPanel. */
+  suppressDelegateTools?: boolean;
 }) {
-  const formatted = formatToolResultDisplay(part);
+  if (suppressDelegateTools && isDelegateToolName(part.toolName)) {
+    return null;
+  }
 
-  if (FILE_TOOLS.has(part.toolName)) {
+  if (part.handoff && isDelegateToolName(part.toolName)) {
     return (
-      <InlineFileChangeCard
-        toolName={part.toolName}
-        summary={formatted.summary}
-        status={part.status}
-        args={part.args}
-        resultText={formatted.body}
-        defaultCollapsed={defaultCollapsed}
+      <SubAgentCard
+        agentType={part.handoff.agentRole}
+        scope={part.handoff.scope}
+        summary={part.handoff.summary}
+        status={part.status === "error" ? "error" : "done"}
       />
     );
   }
 
-  if (TERMINAL_TOOLS.has(part.toolName)) {
-    return (
-      <InlineTerminalToolCard
-        summary={formatted.summary}
-        status={part.status}
-        resultText={formatted.body}
-        defaultCollapsed={defaultCollapsed}
-      />
-    );
-  }
-
-  // Default: a collapsible section with markdown-aware body rendering.
+  const card = persistedToolPartToStreamCard(part);
   return (
-    <CollapsedScrollSection
-      summary={formatted.summary}
-      status={part.status === "success" ? "done" : part.status}
-      defaultCollapsed={defaultCollapsed}
-      maxBodyHeightClass="max-h-48"
-    >
-      <FormattedToolResultBody formatted={formatted} />
-    </CollapsedScrollSection>
+    <StreamToolCallCard
+      summary={card.summary}
+      expand={card.expand}
+      status={card.status}
+      toolName={card.toolName}
+    />
   );
 }

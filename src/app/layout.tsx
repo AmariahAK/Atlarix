@@ -12,10 +12,8 @@ import {
   selectedAppIdAtom,
   pendingWorkspaceAppIdAtom,
   selectedWorkspaceInfoAtom,
-  pendingWorkspaceAppIdAtom,
   appsListAtom,
   currentAppAtom,
-  selectedWorkspaceInfoAtom,
   userSettingsAtom,
 } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
@@ -155,8 +153,6 @@ function PersistentChatContainer() {
     appsList,
     setSelectedWorkspaceInfo,
   ]);
-    setSelectedAppId(null); // v8.0.1: Don't inherit workspace for new chat
-  }, [setActiveChatId, setSourceList, setSelectedSource, setSuppressAutoOpen, setRightPanelVisible, setDiagramState, setSelectedAppId]);
 
   // Don't render anything if no active chat
   if (!activeChatId) {

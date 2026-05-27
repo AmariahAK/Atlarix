@@ -35,8 +35,6 @@ interface LspClient {
 
 export type { LspClient };
 
-import { publishAgentMessage, type AgentId } from "@/lib/agents/agent-bus";
-
 export const LspEvent = {
   Diagnostics: "lsp.client.diagnostics",
 } as const;
@@ -189,13 +187,6 @@ async function createClient(
     }
 
     client.pushDiagnostics.set(filePath, params.diagnostics);
-    publishAgentMessage({
-      from: "main" as AgentId,
-      to: "main" as AgentId,
-      type: "status",
-      payload: { serverID: config.id, path: filePath, diagnostics: params.diagnostics },
-      content: `LSP diagnostics: ${params.diagnostics.length} for ${filePath}`,
-    });
   });
 
   connection.onNotification("window/logMessage", (params) => {

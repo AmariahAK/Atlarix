@@ -9,7 +9,8 @@ import type { ChatSummary } from "@/lib/schemas";
 import type { ActivityStreamItem, AgentBusExchange } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
-import type { CounselTrigger } from "@/lib/counsel/counsel-session";
+import type { SourceItem } from "@/atoms/sourceAtoms";
+import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 
 // Per-chat atoms implemented with maps keyed by chatId
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
@@ -128,7 +129,7 @@ export const toolIndicatorAtom = atom<ToolIndicatorState>(emptyToolIndicatorStat
 
 /** Frozen counsel + agent-bus cards for a completed assistant turn (collapsed by default in ChatMessage). */
 export type CompletedTurnCounselSnapshot = {
-  trigger: CounselTrigger | string;
+  trigger: string;
   participantPreviews: { role: string; preview?: string }[];
   synthesisSnippet: string;
 };
@@ -157,6 +158,21 @@ export const activeTurnScopeAtom = atom<{
 /** Frozen inline tool/thought timeline per completed assistant message. */
 export const inlineTimelineByMessageIdAtom = atom<
   Record<number, InlineTimelineItem[]>
+>({});
+
+/** Live per-event thread cards while a chat is streaming (cleared on stream end). */
+export const streamThreadByChatIdAtom = atom<Map<number, StreamThreadItem[]>>(
+  new Map(),
+);
+
+/** Frozen stream-thread cards per completed assistant message (chat-only / IPC tools). */
+export const completedStreamThreadByAssistantMessageIdAtom = atom<
+  Record<number, StreamThreadItem[]>
+>({});
+
+/** Web search sources scoped to an assistant message (inline citations + reload). */
+export const sourcesByAssistantMessageIdAtom = atom<
+  Record<number, SourceItem[]>
 >({});
 
 /** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */

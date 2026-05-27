@@ -1,5 +1,25 @@
 # Atlarix Changelog
 
+## [Unreleased] — Sub-agents UX & runtime cleanup
+
+### Agents
+
+- **Sub-agents (Explore & Review only):** Up to **5** readonly sub-agents per turn; batch paths via `scopes`. Plan, Build, and Debug no longer expose delegation tools.
+- **Sub-agent UI:** Single **Sub-agents** round panel with per-scope cards (exploring / reviewing / …), nested thoughts and grouped tools; no duplicate “Research completed” handoff rows.
+- **Grouped tool summaries:** Main and sub-agent streams batch tools by category (terminal, search, read/explore, web); handoffs use compact group digests.
+- **Removed counsel & agent bus:** Multi-model counsel, agent bus, orchestrator, and parallel prefetch removed; sub-agent delegation replaces that workflow.
+- **Tool permissions:** Always manual approval.
+
+### Preview
+
+- **Dev server:** No auto-start on workspace select; use **Start dev server** in preview or the workspace Preview tab.
+
+### Attachments
+
+- **Pasted text:** Compact file-style chip (click to open full preview dialog).
+
+---
+
 ## [8.8.0] (2026-05-26) — Plan artifacts, session titles, folder picker
 
 ### Plans

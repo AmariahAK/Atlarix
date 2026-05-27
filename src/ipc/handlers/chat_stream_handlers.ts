@@ -149,6 +149,7 @@ import {
 } from "@/lib/routing/reasoning-detector";
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
+import { processStreamChunks } from "../utils/stream_chunk_tags";
 import { getRecentAssistantRoutingTiers } from "@/lib/routing/auto-router-context";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
@@ -233,7 +234,6 @@ import * as Sentry from "@sentry/electron/main";
 import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
-import { shouldAutoApprovePermissions } from "./autonomous-permissions";
 import {
   appendAutonomousOp,
   autonomousOpFromPermissionExec,
@@ -265,7 +265,15 @@ import {
   settingsPatchForWorkMode,
 } from "../../lib/work-mode";
 import { classifyTerminalCommand } from "../../lib/terminal-command-class";
+import { runCommandGitInitGateResult } from "../../lib/git-init-command-guard";
+import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
+import { isDelegationAllowedForWorkMode } from "../../lib/agents/agent-runtime";
+import {
+  getDelegationConfig,
+  shouldAutoApprovePermissions,
+} from "../../lib/agents/agent-runtime";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
+import { summarizeToolResultForActivityDetail } from "@/lib/chat/stream-tool-display";
 import { captureSafe } from "../../main/lib/analytics";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
@@ -282,6 +290,15 @@ function runCommandModeGateResult(
     success: false,
     error: `This command (${command}) makes changes to the environment and is only available in Build mode. You are currently in ${labelForWorkMode(workMode)} mode. Ask the user to switch to Build mode in the UI, or use a read-only command.`,
   });
+}
+
+function runCommandGateResult(command: string, workMode: WorkMode): string | null {
+  const gitInitBlock = runCommandGitInitGateResult(
+    command,
+    readSettings().allowGitInit,
+  );
+  if (gitInitBlock) return gitInitBlock;
+  return runCommandModeGateResult(command, workMode);
 }
 
 function sentryAddBreadcrumbSafe(
@@ -416,8 +433,7 @@ async function maybeAppendAutoMemoryAfterStream(params: {
     if (isEphemeralWorkspace || chatId < 0 || !appPath) return;
     if (settings.autoMemory?.enabled === false) return;
     if (settings.autoMemory?.writeToFile === false) return;
-    const agentOk = settings.agentMode === "autonomous" || isBuildModeTurn;
-    if (!agentOk) return;
+    if (!isBuildModeTurn) return;
     const ledger = getLedger(streamTurnIdForLedger);
     const files = [
       ...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? []),
@@ -486,13 +502,7 @@ async function runAutonomousBuildVerificationAfterTaskComplete(params: {
     isEphemeralWorkspace,
     settings,
   } = params;
-  if (
-    !streamStopWasTaskComplete ||
-    agentMode !== "autonomous" ||
-    !appPath ||
-    chatId < 0 ||
-    isEphemeralWorkspace
-  ) {
+  if (!streamStopWasTaskComplete || !appPath || chatId < 0 || isEphemeralWorkspace) {
     return;
   }
   if (settings.buildVerification?.enabled === false) return;
@@ -918,23 +928,6 @@ function escapeXml(unsafe: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// Safely parse an MCP tool key that combines server and tool names.
-// We split on the LAST occurrence of "__" to avoid ambiguity if either
-// side contains "__" as part of its sanitized name.
-function parseMcpToolKey(toolKey: string): {
-  serverName: string;
-  toolName: string;
-} {
-  const separator = "__";
-  const lastIndex = toolKey.lastIndexOf(separator);
-  if (lastIndex === -1) {
-    return { serverName: "", toolName: toolKey };
-  }
-  const serverName = toolKey.slice(0, lastIndex);
-  const toolName = toolKey.slice(lastIndex + separator.length);
-  return { serverName, toolName };
-}
-
 // Ensure the temp directory exists
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -988,185 +981,6 @@ function tierDetailForActivity(args: {
   })();
   const base = `${args.providerId}/${args.modelName} · source: ${friendlySource}`;
   return args.reason ? `${base} · ${args.reason}` : base;
-}
-
-// Helper function to process stream chunks
-async function processStreamChunks({
-  fullStream,
-  fullResponse,
-  abortController,
-  chatId,
-  processResponseChunkUpdate,
-  onFirstModelActivity,
-  onFirstTextDelta,
-  onFirstReasoningDelta,
-  onFirstTextAfterReasoning,
-  onStreamStall,
-}: {
-  fullStream: AsyncIterableStream<TextStreamPart<ToolSet>>;
-  fullResponse: string;
-  abortController: AbortController;
-  chatId: number;
-  processResponseChunkUpdate: (params: {
-    fullResponse: string;
-  }) => Promise<string>;
-  /** Fix: Finding 4 — clear "Thinking…" once the model emits text or tool activity */
-  onFirstModelActivity?: () => void;
-  onFirstTextDelta?: () => void;
-  onFirstReasoningDelta?: () => void;
-  onFirstTextAfterReasoning?: () => void;
-  /** @deprecated Stall watchdog removed — long tool runs are not time-aborted. */
-  onStreamStall?: () => void;
-}): Promise<{ fullResponse: string; incrementalResponse: string }> {
-  let incrementalResponse = "";
-  let inThinkingBlock = false;
-  let firstModelActivitySent = false;
-  let firstTextDeltaSent = false;
-  let firstReasoningActivitySent = false;
-  let reasoningStreamActive = false;
-  const markFirstModelActivity = () => {
-    if (firstModelActivitySent || !onFirstModelActivity) return;
-    firstModelActivitySent = true;
-    onFirstModelActivity();
-  };
-
-  const applyEmptyFallback = async () => {
-    const fb = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
-    fullResponse += fb;
-    incrementalResponse += fb;
-    fullResponse = cleanFullResponse(fullResponse);
-    fullResponse = await processResponseChunkUpdate({
-      fullResponse,
-    });
-  };
-
-  let pendingToolCallDepth = 0;
-  /** Most recent tool-call `toolName` while depth &gt; 0 (for stall diagnostics). */
-  let lastPendingToolName: string | undefined;
-  let loggedFirstStreamPart = false;
-  let loggedReasoningDelta = false;
-
-  try {
-    for await (const part of fullStream) {
-    if (!loggedFirstStreamPart) {
-      loggedFirstStreamPart = true;
-    }
-    let chunk = "";
-    if (
-      inThinkingBlock &&
-      !["reasoning-delta", "reasoning-start", "reasoning-end"].includes(part.type)
-    ) {
-      chunk = "</think>";
-      inThinkingBlock = false;
-    }
-    if (part.type === "text-delta") {
-      if (part.text) {
-        if (reasoningStreamActive && onFirstTextAfterReasoning) {
-          onFirstTextAfterReasoning();
-          reasoningStreamActive = false;
-        }
-        if (!firstTextDeltaSent && onFirstTextDelta) {
-          firstTextDeltaSent = true;
-          onFirstTextDelta();
-        }
-        markFirstModelActivity();
-      }
-      chunk += part.text;
-    } else if (part.type === "reasoning-delta") {
-      const rtext = typeof part.text === "string" ? part.text : "";
-      if (!loggedReasoningDelta && rtext) {
-        loggedReasoningDelta = true;
-      }
-      if (rtext && !firstReasoningActivitySent && onFirstReasoningDelta) {
-        firstReasoningActivitySent = true;
-        onFirstReasoningDelta();
-        reasoningStreamActive = true;
-      }
-      if (!inThinkingBlock) {
-        chunk = "<think>";
-        inThinkingBlock = true;
-      }
-
-      chunk += escapeAtlarixTags(rtext);
-    } else if (part.type === "tool-call") {
-      pendingToolCallDepth += 1;
-      lastPendingToolName =
-        typeof part.toolName === "string" ? part.toolName : undefined;
-      markFirstModelActivity();
-      const { serverName, toolName } = parseMcpToolKey(part.toolName);
-      const content = escapeAtlarixTags(JSON.stringify(part.input));
-      // Use native tags for non-MCP tools (serverName is empty or matches toolName)
-      if (!serverName || serverName === toolName) {
-        // Native tool (from ToolRegistry - Ask mode)
-        chunk = `<atlarix-tool-call tool="${toolName}" status="running">\n${content}\n</atlarix-tool-call>\n`;
-      } else {
-        // MCP tool (from external MCP server)
-        chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
-      }
-    } else if (part.type === "tool-result") {
-      pendingToolCallDepth = Math.max(0, pendingToolCallDepth - 1);
-      if (pendingToolCallDepth === 0) lastPendingToolName = undefined;
-      markFirstModelActivity();
-      const { serverName, toolName } = parseMcpToolKey(part.toolName);
-      const content = escapeAtlarixTags(part.output);
-      // Use native tags for non-MCP tools
-      if (!serverName || serverName === toolName) {
-        // Native tool result
-        chunk = `<atlarix-tool-result tool="${toolName}" status="complete">\n${content}\n</atlarix-tool-result>\n`;
-      } else {
-        // MCP tool result
-        chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
-      }
-    }
-
-    if (!chunk) {
-      continue;
-    }
-
-    fullResponse += chunk;
-    incrementalResponse += chunk;
-    fullResponse = cleanFullResponse(fullResponse);
-    fullResponse = await processResponseChunkUpdate({
-      fullResponse,
-    });
-
-    // If the stream was aborted, exit early
-    if (abortController.signal.aborted) {
-      logger.log(`Stream for chat ${chatId} was aborted`);
-      break;
-    }
-    }
-  } catch (err) {
-    const isNoUsableOutput = isNoUsableModelOutputError(err);
-    if (isNoUsableOutput && !abortController.signal.aborted) {
-      logger.warn(
-        `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
-        err,
-      );
-      if (!fullResponse.trim()) {
-        await applyEmptyFallback();
-      }
-    } else {
-      throw err;
-    }
-  }
-
-  if (inThinkingBlock) {
-    const flushChunk = "</think>";
-    fullResponse += flushChunk;
-    incrementalResponse += flushChunk;
-    inThinkingBlock = false;
-    fullResponse = cleanFullResponse(fullResponse);
-    fullResponse = await processResponseChunkUpdate({
-      fullResponse,
-    });
-  }
-
-  if (!abortController.signal.aborted && !fullResponse.trim()) {
-    await applyEmptyFallback();
-  }
-
-  return { fullResponse, incrementalResponse };
 }
 
 async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier[]> {
@@ -2366,41 +2180,6 @@ ${componentSnippet}
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
 
-        if (
-          req.forceThinkingTier === true &&
-          !forceThinkingNativeSupported &&
-          settings.counsel?.enabled !== false
-        ) {
-          try {
-            const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
-            const cleanQ = (userPrompt || req.prompt).slice(0, 12000);
-            deepThinkCounselPromptBlock = await runCounselPipeline({
-              chatId: req.chatId,
-              turnId: streamTurnIdForLedger,
-              trigger: "deep_think_fallback",
-              mode: hasWorkspace && appPath ? "workspace" : "general",
-              question: cleanQ,
-              settings,
-              sendActivity: (payload) => {
-                safeSend(event.sender, "chat:activity", payload);
-              },
-              workspacePath: hasWorkspace && appPath ? appPath : undefined,
-              workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
-              toolActivity: { webContents: event.sender, chatId: req.chatId },
-              onCounselStreamLifecycle: (phase) => {
-                safeSend(event.sender, "chat:stream:phase", {
-                  chatId: req.chatId,
-                  phase,
-                  label: phase === "counsel_start" ? "Consulting multiple models..." : "",
-                });
-              },
-            });
-          } catch (deepCounselErr) {
-            logger.warn("[counsel] Deep-think substitute counsel failed:", deepCounselErr);
-            deepThinkCounselPromptBlock = null;
-          }
-        }
-
         let codebaseInfo = "";
         let files: any[] = [];
         let chatContext: any = { contextPaths: [], smartContextAutoIncludes: [] };
@@ -2654,71 +2433,6 @@ ${componentSnippet}
           }
           let contextSections: ContextSection[] = [];
 
-          const resolvedTierForCounsel = autoRoutedTierForTurn ?? contextBudgetTier;
-          if (
-            settings.counsel?.enabled !== false &&
-            req.forceThinkingTier !== true &&
-            !req.prompt.startsWith("Summarize from chat-id=") &&
-            !req.prompt.startsWith("/security-review")
-          ) {
-            try {
-              const { detectCounselTrigger, stripCounselCommand } = await import(
-                "@/lib/counsel/counsel-trigger",
-              );
-              const trigger = detectCounselTrigger(req.prompt, resolvedTierForCounsel, {
-                autoTriggerOnThinking: settings.counsel?.autoTriggerOnThinking !== false,
-                selectedChatMode: settings.selectedChatMode ?? "ask",
-              });
-              if (trigger) {
-                const cleanQ = stripCounselCommand(userPrompt || req.prompt).slice(0, 12000);
-                captureSafe("counsel_triggered", {
-                  trigger_type: trigger,
-                  chat_mode: settings.selectedChatMode ?? "unknown",
-                  has_workspace: Boolean(hasWorkspace && appPath),
-                });
-                const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
-                const { storeCounselSynthesisForNextTurn } = await import(
-                  "@/lib/counsel/counsel-next-turn-cache",
-                );
-                /** Non-blocking: stream does not wait; synthesis available for the following turn (real chats only). Wall-clock cap inside counsel-runner (COUNSEL_TIMEOUT_MS). */
-                void runCounselPipeline({
-                  chatId: req.chatId,
-                  turnId: streamTurnIdForLedger,
-                  trigger,
-                  mode: hasWorkspace && appPath ? "workspace" : "general",
-                  question: cleanQ,
-                  settings,
-                  sendActivity: (payload) => {
-                    safeSend(event.sender, "chat:activity", payload);
-                  },
-                  workspacePath: hasWorkspace && appPath ? appPath : undefined,
-                  workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
-                  toolActivity: { webContents: event.sender, chatId: req.chatId },
-                  onCounselStreamLifecycle: (phase) => {
-                    safeSend(event.sender, "chat:stream:phase", {
-                      chatId: req.chatId,
-                      phase,
-                      label: phase === "counsel_start" ? "Consulting multiple models..." : "",
-                    });
-                  },
-                })
-                  .then((synthesis) => {
-                    if (req.chatId > 0 && synthesis.trim()) {
-                      storeCounselSynthesisForNextTurn(req.chatId, synthesis);
-                    }
-                  })
-                  .catch((counselErr) => {
-                    logger.warn("[counsel] Pipeline failed:", counselErr);
-                    sentryCaptureExceptionSafe(counselErr, {
-                      tags: { feature: "counsel" },
-                    });
-                  });
-              }
-            } catch (counselErr) {
-              logger.warn("[counsel] Trigger detection failed:", counselErr);
-            }
-          }
-
           try {
             const modeSkillName = getSkillNameForMode(effectiveWorkMode);
             const modeSkillBody = await loadSkill(
@@ -2951,126 +2665,11 @@ ${componentSnippet}
             }
           }
 
-          // PASS5: Parallel prefetch only meaningful in autonomous orchestration mode.
-          // PASS5: Task ledger only relevant during active build/autonomous tasks.
+          const delegationRuntime = getDelegationConfig(settings);
           const shouldInjectTaskProgress =
             settings.selectedChatMode === "build" ||
             settings.selectedChatMode === "agent" ||
-            settings.agentMode === "autonomous";
-
-          if (settings.agentMode === "autonomous") {
-            let parallelPrefetchContext = "";
-            if (
-              hasWorkspace &&
-              appPath &&
-              shouldCreateTaskLedger &&
-              !req.prompt.startsWith("Summarize from chat-id=") &&
-              !req.prompt.startsWith("/security-review")
-            ) {
-              try {
-                const { tryReadPlan } = await import("@/lib/tasks/atlarix-plan-steps");
-                const planBody = await tryReadPlan(appPath);
-                const hasExistingPlan = !!(planBody && planBody.trim().length > 0);
-                const {
-                  classifyOrchestration,
-                  runAgentsInParallel,
-                  buildParallelContext,
-                } = await import("@/lib/agents/parallel-runner");
-                const pattern = classifyOrchestration(userPrompt || req.prompt, hasExistingPlan);
-                if (pattern === "research_then_build") {
-                  safeSend(event.sender, "chat:activity", {
-                    id: `parallel-${Date.now()}`,
-                    type: "parallel_prefetch_start",
-                    label: "Research + planning (parallel)",
-                    status: "running",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                    detail: "Running in background — stream is not waiting",
-                  });
-                  const taskText = (userPrompt || req.prompt).slice(0, 8000);
-                  const common = {
-                    turnId: streamTurnIdForLedger,
-                    depth: 0 as const,
-                    chatId: req.chatId,
-                    workspacePath: appPath,
-                    workspaceId: effectiveAppId ?? undefined,
-                    recordOnParentLedger: false as const,
-                  };
-                  const prefetchSender = event.sender;
-                  const prefetchChatId = req.chatId;
-                  parallelPrefetchContext = [
-                    "[Orchestration: research_then_build_inflight]",
-                    "Research and architect specialists were started in parallel in the background.",
-                    "Their combined markdown will be injected on your **next** message in this chat when ready (consume-once cache).",
-                    "This turn: answer from the current user request and normal context; do not assume specialist prefetch output is available yet.",
-                  ].join("\n");
-                  void import("@/lib/agents/parallel-prefetch-next-turn-cache")
-                    .then(({ storeParallelPrefetchForNextTurn }) =>
-                      runAgentsInParallel(
-                        [
-                          {
-                            agentId: "research",
-                            task: `Research context for: ${taskText}`,
-                            ...common,
-                          },
-                          {
-                            agentId: "architect",
-                            task: `Plan implementation for: ${taskText}`,
-                            ...common,
-                          },
-                        ],
-                        120_000,
-                      ).then((results) => {
-                        const raCtx = buildParallelContext(results);
-                        if (prefetchChatId > 0) {
-                          storeParallelPrefetchForNextTurn(prefetchChatId, raCtx);
-                        }
-                        safeSend(prefetchSender, "chat:activity", {
-                          id: `parallel-done-${Date.now()}`,
-                          type: "parallel_prefetch_complete",
-                          label: "Research + planning complete",
-                          status: "done",
-                          timestamp: Date.now(),
-                          chatId: prefetchChatId,
-                          detail: `${results.length} specialist runs finished`,
-                          stepCount: results.length,
-                        });
-                      }),
-                    )
-                    .catch((parallelBgErr) => {
-                      logger.warn(
-                        "[parallel] Background research+architect prefetch failed:",
-                        parallelBgErr,
-                      );
-                    });
-                } else if (pattern === "build_then_verify") {
-                  parallelPrefetchContext = [
-                    "[Orchestration: build_then_verify]",
-                    "A plan exists. Execute it step by step.",
-                    "Reviewer and Debugger will verify automatically when complete.",
-                  ].join("\n");
-                }
-              } catch (parallelErr) {
-                logger.warn("[parallel] Autonomous prefetch failed:", parallelErr);
-              }
-            }
-            if (parallelPrefetchContext.trim()) {
-              const prefetchTail = parallelPrefetchContext.includes(
-                "[Orchestration: build_then_verify]",
-              )
-                ? "\n\nExecute the existing plan step by step. Reviewer and Debugger will run automatically after the task completes."
-                : parallelPrefetchContext.includes(
-                      "[Orchestration: research_then_build_inflight]",
-                    )
-                  ? "\n\nParallel research + architect are running in the background; their combined output will be injected on your **next** message in this chat when ready. This turn: proceed from the current user request without assuming that output is already available."
-                  : "\n\nThe above steps already ran. Continue from the current user request without redoing the same research, planning, or implementation unless something failed or the user changed scope.";
-              contextSections.push({
-                name: "parallelPrefetch",
-                priority: 0.25,
-                content: parallelPrefetchContext + prefetchTail,
-              });
-            }
-          }
+            effectiveWorkMode === "build";
 
           const ledgerRow = getLedger(streamTurnIdForLedger);
           if (shouldInjectTaskProgress && ledgerRow) {
@@ -3203,54 +2802,6 @@ ${componentSnippet}
             }
           } catch (error) {
             logger.warn("Failed to inject session memory:", error);
-          }
-
-          // PASS5: Parallel prefetch only meaningful in autonomous orchestration mode.
-          if (req.chatId > 0 && settings.agentMode === "autonomous") {
-            const { consumeCounselSynthesisForNextTurn } = await import(
-              "@/lib/counsel/counsel-next-turn-cache",
-            );
-            const priorCounsel = consumeCounselSynthesisForNextTurn(req.chatId);
-            if (priorCounsel?.trim()) {
-              contextSections.push({
-                name: "counsel",
-                priority: -0.75,
-                content: [
-                  "## Counsel (prior turn)",
-                  "The following multi-perspective synthesis was produced after your previous message finished. Use it as grounding; the **current** user message is the source of truth.",
-                  "",
-                  priorCounsel.trim(),
-                ].join("\n"),
-              });
-            }
-            const { consumeParallelPrefetchForNextTurn } = await import(
-              "@/lib/agents/parallel-prefetch-next-turn-cache",
-            );
-            const priorPrefetch = consumeParallelPrefetchForNextTurn(req.chatId);
-            if (priorPrefetch?.trim()) {
-              contextSections.push({
-                name: "parallelPrefetch",
-                priority: -0.7,
-                content: [
-                  "## Parallel prefetch (prior turn)",
-                  "Research + architect ran in parallel after your previous message; the combined output below is for grounding only — the **current** user message is the source of truth.",
-                  "",
-                  priorPrefetch.trim(),
-                ].join("\n"),
-              });
-            }
-          }
-
-          // PASS5: Deep-think substitute adds bulk on every turn where native thinking
-          // is unavailable. Removed — counsel prior-turn synthesis is sufficient.
-          if (false) {
-            if (deepThinkCounselPromptBlock?.trim()) {
-              contextSections.push({
-                name: "counselDeepThinkSubstitute",
-                priority: -0.8,
-                content: String(deepThinkCounselPromptBlock ?? "").trim(),
-              });
-            }
           }
 
           const isSummarizeIntent = req.prompt.startsWith(
@@ -4930,6 +4481,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 "ask_user",
                 "compress_context",
                 "deep_research",
+                "delegate_to_agent",
+                "spawn_sub_agent",
+                "task",
                 "explore_folder",
                 "find_file",
                 "get_active_skills",
@@ -5006,6 +4560,9 @@ This conversation includes one or more image attachments. When the user uploads 
               ]),
               review: new Set([
                 "ask_user",
+                "delegate_to_agent",
+                "spawn_sub_agent",
+                "task",
                 "diagnose_issue",
                 "explore_folder",
                 "find_file",
@@ -5080,6 +4637,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   const askIsStream = tool.name === "stream_terminal_output";
                   const toolActivityId = `tool-${tool.name}-${Date.now()}`;
                   let askActivityStatus: "done" | "error" = "done";
+                  let toolResultForActivity: unknown;
                   // Fix: Finding 4
                   if (!askIsStream) {
                     safeSend(event.sender, "chat:tool:start", {
@@ -5108,10 +4666,11 @@ This conversation includes one or more image attachments. When the user uploads 
                       meta?.isReadOnly === true ||
                       meta?.allowInAskMode === true;
                     if (!askAllowed) {
-                      return JSON.stringify({
+                      toolResultForActivity = {
                         success: false,
                         error: `${tool.name} is not available in ${liveWorkMode} mode. Ask the user to switch modes in the UI.`,
-                      });
+                      };
+                      return JSON.stringify(toolResultForActivity);
                     }
                     if (tool.name === "compress_context") {
                       const reason =
@@ -5252,7 +4811,14 @@ This conversation includes one or more image attachments. When the user uploads 
                           const { emitPlanArtifactUpdated } = await import(
                             "@/ipc/utils/emit_plan_artifact"
                           );
-                          const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+                          const {
+                            getPlanArtifact,
+                            planArtifactMarker,
+                          } = await import("@/lib/plans/plan-artifacts");
+                          const marker = planArtifactMarker(parsed.planId);
+                          if (!fullResponse.includes(marker)) {
+                            fullResponse = `${fullResponse.trimEnd()}\n\n${marker}\n`;
+                          }
                           const row = await getPlanArtifact(parsed.planId);
                           if (row) {
                             emitPlanArtifactUpdated(event.sender, {
@@ -5283,7 +4849,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         if (permRequest.operation === "run_command") {
                           const cmd =
                             (permRequest.preview as { command?: string }).command ?? "";
-                          const gate = runCommandModeGateResult(cmd, liveWorkMode);
+                          const gate = runCommandGateResult(cmd, liveWorkMode);
                           if (gate) return gate;
                         }
                         const operationId = askPermissionInterceptor.generateOperationId();
@@ -5304,12 +4870,12 @@ This conversation includes one or more image attachments. When the user uploads 
                           });
 
                           logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
-                        } else if (settings.agentMode === "autonomous") {
-                          logger.log(`[Ask Mode] Autonomous auto-exec: ${operationId}`);
-                        } else {
+                        } else if (askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest)) {
                           logger.log(
                             `[Ask Mode] Auto-approved .atlarix internal write: ${operationId}`,
                           );
+                        } else {
+                          logger.log(`[Ask Mode] Auto-exec: ${operationId}`);
                         }
 
                         try {
@@ -5430,12 +4996,19 @@ This conversation includes one or more image attachments. When the user uploads 
                       }
                     }
 
+                    toolResultForActivity = result;
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (error) {
                     askActivityStatus = "error";
+                    toolResultForActivity = error;
                     return JSON.stringify({ success: false, error: String(error) });
                   } finally {
                     if (!askIsStream) {
+                      const activityDetail = summarizeToolResultForActivityDetail(
+                        tool.name,
+                        toolResultForActivity,
+                        askActivityStatus === "error" ? "error" : "done",
+                      );
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                       safeSend(event.sender, "chat:activity", {
                         id: toolActivityId,
@@ -5445,11 +5018,27 @@ This conversation includes one or more image attachments. When the user uploads 
                         timestamp: Date.now(),
                         chatId: req.chatId,
                         toolName: tool.name,
+                        ...(activityDetail ? { detail: activityDetail } : {}),
                       });
                     }
                   }
                 },
               };
+            }
+
+            if (isDelegationAllowedForWorkMode(effectiveWorkMode)) {
+              attachDelegationToolsToSet(askTools, {
+                sender: event.sender,
+                chatId: req.chatId,
+                effectiveWorkMode,
+                workspacePath: appPath,
+                workspaceId: effectiveAppId ?? undefined,
+                turnId: streamTurnIdForLedger,
+                safeSend,
+                recordToolUseForTurn,
+                onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
+                getDelegationCount: () => delegatedAgentsThisTurn.length,
+              });
             }
 
             // Pass 7: MCP tools are no longer pre-merged for workspace Ask chats.
@@ -5477,6 +5066,8 @@ IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions
 
 Available tools (Explore — read-only):
 - read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline, get_diagram
+- spawn_sub_agent / delegate_to_agent (explore + preset map_repo per repo/focus_path for multi-repo work)
+- task (background sub-agent runs; use task_id to resume)
 - **run_command** (read-only git/shell only)
 - web_search, deep_research, read_url
 - memory, get_active_skills, list_installed_skills, list_available_mcps, get_project_history
@@ -5738,48 +5329,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
 
             const autonomousTurnId = String(placeholderAssistantMessage.id);
 
-            if (shouldAutoApprovePermissions(settings.agentMode, req.chatId)) {
-              const { startOrchestratorForTurn } = await import("../../lib/agents/orchestrator");
-              const { subscribeAgentBus } = await import("../../lib/agents/agent-bus");
-              /** Sync only: bus subscription + correction map — no LLM / no await; must stay cheap. */
-              const orchTurn = startOrchestratorForTurn({
-                chatId: req.chatId,
-                turnId: autonomousTurnId,
-                emitBlockerActivity: (label, detail) => {
-                  safeSend(event.sender, "chat:activity", {
-                    id: `orch-${Date.now()}`,
-                    type: "orchestrator_blocker",
-                    label,
-                    status: "done",
-                    timestamp: Date.now(),
-                    detail,
-                    chatId: req.chatId,
-                  });
-                },
-              });
-              const stopCap = subscribeAgentBus((msg) => {
-                if (msg.turnId !== autonomousTurnId) return;
-                if (msg.chatId != null && msg.chatId !== req.chatId) return;
-                appendAgentActivitySnapshot(req.chatId, autonomousTurnId, {
-                  id: msg.id,
-                  from: msg.from,
-                  to: msg.to,
-                  type: msg.type,
-                  timestamp: msg.timestamp,
-                  content: msg.content,
-                  turnId: msg.turnId,
-                  depth: msg.depth,
-                  parentMessageId: msg.parentMessageId,
-                  chatId: msg.chatId,
-                  payload: msg.payload,
-                });
-              });
-              stopAgentOrchestrator = () => {
-                orchTurn.stop();
-                stopCap();
-              };
-            }
-
             // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
             permissionInterceptor.on('terminal-output', (payload: any) => {
               feedTerminalOutput(req.chatId, payload.output ?? "");
@@ -5796,15 +5345,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
             });
 
-            const pendingMidTaskCounselInject = { value: null as string | null };
             let autonomousBuildToolStepCount = 0;
-            let midTaskCounselCooldownUntil = 0;
-            const MID_TASK_WRITE_GUARD_TOOLS = new Set([
-              "write_file",
-              "write_multiple_files",
-              "run_command",
-              "edit_file",
-            ]);
             const recentCompletedBuildToolNames: string[] = [];
 
             const agenticRepetition = createAgenticRepetitionState();
@@ -5850,6 +5391,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   buildLoader.onToolCall(toolName);
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
                   let activityStatus: "done" | "error" = "done";
+                  let toolResultForActivity: unknown;
                   const isStreamTool = toolName === "stream_terminal_output";
                   // Fix: Finding 4 — status line (stream tools use inner _sendToolActivity only)
                   const uiToolLabel = getToolActivityLabel(toolName);
@@ -5998,7 +5540,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     if (permRequest) {
                       if (permRequest.operation === "run_command") {
                         const cmdPreview = permRequest.preview as { command?: string };
-                        const gate = runCommandModeGateResult(
+                        const gate = runCommandGateResult(
                           cmdPreview.command ?? "",
                           readSettings().workModePreference ?? effectiveWorkMode,
                         );
@@ -6179,116 +5721,44 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   }
 
                     // Not a permission request - return result directly
-                    if (
-                      !isStreamTool &&
-                      settings.agentMode === "autonomous" &&
-                      settings.counsel?.enabled !== false
-                    ) {
+                    if (!isStreamTool) {
                       autonomousBuildToolStepCount++;
-                      const nowMs = Date.now();
-                      if (
-                        autonomousBuildToolStepCount > 3 &&
-                        nowMs > midTaskCounselCooldownUntil &&
-                        activityStatus === "done"
-                      ) {
-                        const resultStr =
-                          typeof result === "string"
-                            ? result
-                            : result == null
-                              ? ""
-                              : JSON.stringify(result);
-                        const lower = resultStr.toLowerCase();
-                        const ambiguous =
-                          resultStr.trim().length < 20 ||
-                          lower.includes("not found") ||
-                          lower.includes("unclear") ||
-                          lower.includes("ambiguous") ||
-                          /"success"\s*:\s*false/.test(resultStr);
-                        if (ambiguous) {
-                          const recentWriteGuardHit = [...recentCompletedBuildToolNames]
-                            .slice(-3)
-                            .some((n) => MID_TASK_WRITE_GUARD_TOOLS.has(n));
-                          if (!recentWriteGuardHit) {
-                            midTaskCounselCooldownUntil = nowMs + 90_000;
-                            captureSafe("counsel_triggered", {
-                              trigger_type: "agent_blocker",
-                              chat_mode: settings.selectedChatMode ?? "unknown",
-                              has_workspace: Boolean(hasWorkspace && appPath),
-                            });
-                            const { runCounselPipeline } = await import("@/lib/counsel/counsel-runner");
-                            const counselQ = [
-                              "Mid-task decision needed: tool result looked ambiguous, empty, or weak.",
-                              `Tool: ${toolName}`,
-                              `Task prompt (excerpt): ${(userPrompt || req.prompt).slice(0, 4000)}`,
-                              `Last tool result (excerpt): ${resultStr.slice(0, 3500)}`,
-                            ].join("\n\n");
-                            void runCounselPipeline({
-                              chatId: req.chatId,
-                              turnId: `${streamTurnIdForLedger}-mid-${nowMs}`,
-                              trigger: "agent_blocker",
-                              mode: hasWorkspace && appPath ? "workspace" : "general",
-                              question: counselQ,
-                              settings,
-                              sendActivity: (payload) => {
-                                safeSend(event.sender, "chat:activity", payload);
-                              },
-                              workspacePath: hasWorkspace && appPath ? appPath : undefined,
-                              workspaceId: hasWorkspace ? (effectiveAppId ?? undefined) : undefined,
-                              toolActivity: { webContents: event.sender, chatId: req.chatId },
-                              onCounselStreamLifecycle: (phase) => {
-                                safeSend(event.sender, "chat:stream:phase", {
-                                  chatId: req.chatId,
-                                  phase,
-                                  label: phase === "counsel_start" ? "Consulting multiple models..." : "",
-                                });
-                              },
-                            })
-                              .then((block) => {
-                                if (block.trim()) {
-                                  pendingMidTaskCounselInject.value = block;
-                                }
-                              })
-                              .catch((midCounselErr) => {
-                                logger.warn("[counsel] Mid-task pipeline failed:", midCounselErr);
-                                sentryCaptureExceptionSafe(midCounselErr, {
-                                  tags: { feature: "counsel" },
-                                });
-                              });
-                          }
-                        }
-                      }
                     }
                     if (agenticRepetition.isEnabled()) {
                       handleAgenticRepetitionOutcome(agenticRepetition.record(toolName, args));
                     }
                     recordBuildToolLedger(toolName, result);
+                    toolResultForActivity = result;
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (err) {
                     activityStatus = "error";
+                    toolResultForActivity = err;
                     throw err;
                   } finally {
-                    if (
-                      !isStreamTool &&
-                      settings.agentMode === "autonomous" &&
-                      settings.counsel?.enabled !== false
-                    ) {
+                    if (!isStreamTool) {
                       recentCompletedBuildToolNames.push(toolName);
                       while (recentCompletedBuildToolNames.length > 3) {
                         recentCompletedBuildToolNames.shift();
                       }
                     }
                     if (!isStreamTool) {
+                      const activityDetail = summarizeToolResultForActivityDetail(
+                        toolName,
+                        toolResultForActivity,
+                        activityStatus === "error" ? "error" : "done",
+                      );
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                      safeSend(event.sender, "chat:activity", {
+                        id: toolActivityId,
+                        type: "tool_use",
+                        label: getToolActivityLabel(toolName),
+                        status: activityStatus,
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                        toolName,
+                        ...(activityDetail ? { detail: activityDetail } : {}),
+                      });
                     }
-                    safeSend(event.sender, "chat:activity", {
-                      id: toolActivityId,
-                      type: "tool_use",
-                      label: getToolActivityLabel(toolName),
-                      status: activityStatus,
-                      timestamp: Date.now(),
-                      chatId: req.chatId,
-                      toolName,
-                    });
                   }
                 },
               };
@@ -6297,105 +5767,19 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             // Pass 7: MCP tools are no longer pre-merged for workspace Build chats.
             // The model calls list_available_mcps + mcp_call from the registry on demand.
 
-            // v2.1: Add delegate_to_agent when in Guided or Autonomous mode
-            const agentMode = settings.agentMode ?? "guided";
-            if (agentMode === "guided" || agentMode === "autonomous") {
-              const delegateTool = ToolRegistry.get("delegate_to_agent");
-              if (delegateTool) {
-                tools["delegate_to_agent"] = {
-                  description: delegateTool.description,
-                  inputSchema: normalizeToolInputSchemaForAiSdk(
-                    delegateTool.parameters ?? {},
-                  ) as never,
-                  execute: async (args: any) => {
-                    // Fix: Finding 4
-                    safeSend(event.sender, "chat:tool:start", {
-                      chatId: req.chatId,
-                      toolId: "delegate_to_agent",
-                      toolName: getToolActivityLabel("delegate_to_agent"),
-                    });
-                    try {
-                      const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
-                      const agentId = String(args.agent_id ?? "agent");
-                      const task = String(args.task ?? "");
-                      const startTime = Date.now();
-                      const shortAgent =
-                        agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
-                      let delegationLabel = `Agent team: ${shortAgent.replace(/^./, (c) => c.toUpperCase())} assigned`;
-                      if (delegationLabel.length > 60) {
-                        delegationLabel = `${delegationLabel.slice(0, 57)}…`;
-                      }
-                      safeSend(event.sender, "chat:activity", {
-                        type: "delegation_start",
-                        id,
-                        parentId: undefined,
-                        depth: 0,
-                        agent: agentId,
-                        task,
-                        status: "active",
-                        timestamp: startTime,
-                        label: delegationLabel,
-                        chatId: req.chatId,
-                      });
-                      const delegationChatMode =
-                        effectiveWorkMode === "plan"
-                          ? ("plan" as const)
-                          : effectiveWorkMode === "build"
-                            ? ("build" as const)
-                            : ("ask" as const);
-                      const result = await ToolRegistry.execute(
-                        "delegate_to_agent",
-                        {
-                          ...args,
-                          workspace: workspacePath || undefined,
-                          workspaceId: effectiveAppId ?? undefined,
-                          // Fix: Finding 3 — sub-agent tools respect parent work mode
-                          delegationChatMode,
-                          chatId: req.chatId,
-                          depth: 0,
-                          turnId: autonomousTurnId,
-                          parentAgentRole: "main",
-                        },
-                      );
-                      recordToolUseForTurn(streamTurnIdForLedger, "delegate_to_agent");
-                      if (result?.success !== false) {
-                        delegatedAgentsThisTurn.push(agentId);
-                      }
-                      const duration = Date.now() - startTime;
-                      const isError = result?.success === false;
-                      const validationInfo =
-                        result && typeof result === "object" ? (result as any).validation : undefined;
-                      safeSend(event.sender, "chat:activity", {
-                        type: isError ? "delegation_error" : "delegation_complete",
-                        id,
-                        status: isError ? "error" : "done",
-                        result: typeof result === "object" && result ? (result as any).summary : undefined,
-                        duration,
-                        timestamp: Date.now(),
-                        label: delegationLabel,
-                        detail: typeof result === "object" && (result as any).summary ? String((result as any).summary).slice(0, 200) : undefined,
-                        chatId: req.chatId,
-                      });
-                      if (validationInfo?.status === "fallback" || validationInfo?.warning) {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `structured-validation-${Date.now()}`,
-                          type: "background",
-                          label: `Structured output validation (${agentId})`,
-                          status: validationInfo?.status === "fallback" ? "error" : "done",
-                          timestamp: Date.now(),
-                          detail:
-                            validationInfo?.warning ||
-                            `Schema ${validationInfo?.schema ?? "unknown"} validated in ${validationInfo?.attempts ?? 1} attempt(s).`,
-                          chatId: req.chatId,
-                        });
-                      }
-                      return typeof result === "string" ? result : JSON.stringify(result);
-                    } finally {
-                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
-                    }
-                  },
-                };
-              }
+            if (isDelegationAllowedForWorkMode(effectiveWorkMode)) {
+              attachDelegationToolsToSet(tools, {
+                sender: event.sender,
+                chatId: req.chatId,
+                effectiveWorkMode,
+                workspacePath: workspacePath || undefined,
+                workspaceId: effectiveAppId ?? undefined,
+                turnId: autonomousTurnId,
+                safeSend,
+                recordToolUseForTurn,
+                onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
+                getDelegationCount: () => delegatedAgentsThisTurn.length,
+              });
             }
 
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
@@ -6823,7 +6207,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       if (permRequest) {
                         if (permRequest.operation === "run_command") {
                           const cmdPreview = permRequest.preview as { command?: string };
-                          const gate = runCommandModeGateResult(
+                          const gate = runCommandGateResult(
                             cmdPreview.command ?? "",
                             readSettings().workModePreference ?? effectiveWorkMode,
                           );
@@ -6997,14 +6381,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 totalToolExecutions += iterationResults.length; // Track total executions
 
                 // Format tool results to feed back to AI
-                const counselBlock = pendingMidTaskCounselInject.value;
-                pendingMidTaskCounselInject.value = null;
-                const counselMid =
-                  counselBlock != null && counselBlock.trim()
-                    ? `\n\n## Counsel (mid-task perspectives)\n${counselBlock.trim()}\n`
-                    : "";
                 const toolResultsMessage =
-                  counselMid +
                   iterationResults
                     .map(
                       (r) => `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`,
@@ -7359,6 +6736,10 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           }
           let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
           responseToStore = stripTaskCompleteTags(sanitizeAssistantOutput(responseToStore));
+          const { ensurePlanMarkersInAssistantContent } = await import(
+            "@/lib/plans/plan-artifacts"
+          );
+          responseToStore = ensurePlanMarkersInAssistantContent(responseToStore);
           emitPostTurnToolSummaryActivity(event.sender, req.chatId, "running");
           try {
             responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
@@ -7481,7 +6862,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             atlarixProcessedFileWrites = status.updatedFiles ?? false;
 
             const newReviewSystemActive =
-              settings.agentMode === "autonomous" ||
               streamStopWasTaskComplete ||
               delegatedAgentsThisTurn.includes("reviewer");
 
@@ -7556,7 +6936,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             }
 
             if (
-              settings.agentMode === "autonomous" &&
               isBuildModeTurn &&
               (!abortController.signal.aborted || streamStopWasTaskComplete)
             ) {
@@ -7637,7 +7016,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             });
           } else {
             const newReviewSystemActiveElse =
-              settings.agentMode === "autonomous" ||
               streamStopWasTaskComplete ||
               delegatedAgentsThisTurn.includes("reviewer");
 
@@ -7695,7 +7073,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               );
             }
             if (
-              settings.agentMode === "autonomous" &&
               isBuildModeTurn &&
               (!abortController.signal.aborted || streamStopWasTaskComplete)
             ) {

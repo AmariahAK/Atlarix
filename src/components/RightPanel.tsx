@@ -44,6 +44,8 @@ import {
 } from '@/components/ui/tooltip';
 import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
 import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
+import { workspacePlanPanelAtom } from '@/atoms/sourceAtoms';
+import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
@@ -85,6 +87,7 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
 
 export function RightPanel() {
     useWorkspacePlanPanel();
+    const planPanel = useAtomValue(workspacePlanPanelAtom);
     const { context, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
@@ -335,8 +338,12 @@ Please fix these errors in priority order (structural/build errors first, then r
 
 
             {/* Panel Content - scrollable */}
-            <div className="flex-1 overflow-auto">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
+            <div className="flex-1 overflow-auto min-h-0">
+                {planPanel.planId ? (
+                    <PlanExecutionPanel />
+                ) : (
+                    <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
+                )}
             </div>
         </div>
     );

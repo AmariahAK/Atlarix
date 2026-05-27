@@ -47,7 +47,6 @@ import { createFromTemplate } from "./createFromTemplate";
 import {
   gitCommit,
   gitAdd,
-  gitInit,
   gitListBranches,
   gitRenameBranch,
 } from "../utils/git_utils";
@@ -609,26 +608,18 @@ export function registerAppHandlers() {
         fullAppPath,
       });
 
-      // Initialize git repo and create first commit
-
-      await gitInit({ path: fullAppPath, ref: "main" });
-
-      // Stage all files
-      await gitAdd({ path: fullAppPath, filepath: "." });
-
-      // Create initial commit
       const commitHash = await gitCommit({
         path: fullAppPath,
         message: "Init Atlarix app",
       });
-
-      // Update chat with initial commit hash
-      await db
-        .update(chats)
-        .set({
-          initialCommitHash: commitHash,
-        })
-        .where(eq(chats.id, chat.id));
+      if (commitHash) {
+        await db
+          .update(chats)
+          .set({
+            initialCommitHash: commitHash,
+          })
+          .where(eq(chats.id, chat.id));
+      }
 
       return { app, chatId: chat.id };
     },
@@ -680,13 +671,6 @@ export function registerAppHandlers() {
       }
 
       if (!withHistory) {
-        // Initialize git repo and create first commit
-        await gitInit({ path: newAppPath, ref: "main" });
-
-        // Stage all files
-        await gitAdd({ path: newAppPath, filepath: "." });
-
-        // Create initial commit
         await gitCommit({
           path: newAppPath,
           message: "Init Atlarix app",
@@ -1124,9 +1108,9 @@ export function registerAppHandlers() {
         await fsPromises.writeFile(fullPath, content, "utf-8");
 
         // Check if git repository exists and commit the change
-        if (fs.existsSync(path.join(appPath, ".git"))) {
+        const { findGitRepositoryRoot } = await import("../utils/git_utils");
+        if (findGitRepositoryRoot(appPath)) {
           await gitAdd({ path: appPath, filepath: filePath });
-
           await gitCommit({
             path: appPath,
             message: `Updated ${filePath}`,

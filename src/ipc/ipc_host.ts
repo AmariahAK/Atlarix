@@ -61,9 +61,7 @@ import { registerTeamHandlers } from "./handlers/team_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
-import { registerCounselHandlers } from "./handlers/counsel_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
-import { wireAgentBusToIpc } from "../lib/agents/agent-bus-ipc";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import { registerFsDiagramSnapshotHandlers } from "./handlers/fs_diagram_snapshot_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
@@ -137,6 +135,4 @@ export function registerIpcHandlers() {
   registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
   registerPlanArtifactHandlers();
-  registerCounselHandlers(); // Renderer-triggered counsel + cancel (abortSignal)
-  wireAgentBusToIpc(); // v3.6 Agent mesh: forward agent messages to Activity Stream
 }
