@@ -23,6 +23,7 @@ import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { LanguageModel, LocalModel } from "@/ipc/ipc_types";
+import { useConfiguredProviders } from "@/hooks/useConfiguredProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
 import { PriceBadge } from "@/components/PriceBadge";
@@ -83,17 +84,13 @@ export function ModelPicker() {
   };
 
   const [open, setOpen] = useState(false);
+  const { data: configuredProviderIds = [] } = useConfiguredProviders();
   const [compassBuildOk, setCompassBuildOk] = useState(false);
-  const [configuredProviderIds, setConfiguredProviderIds] = useState<string[]>([]);
   useEffect(() => {
     void IpcClient.getInstance()
       .isCompassBuildConfigured()
       .then(setCompassBuildOk)
       .catch(() => setCompassBuildOk(false));
-    void IpcClient.getInstance()
-      .getConfiguredProviders()
-      .then(setConfiguredProviderIds)
-      .catch(() => setConfiguredProviderIds([]));
   }, []);
   const [providersPage, setProvidersPage] = useState(0);
   const [cloudModelSearch, setCloudModelSearch] = useState<Record<string, string>>({});

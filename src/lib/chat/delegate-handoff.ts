@@ -70,15 +70,28 @@ export function parseDelegateHandoffFromToolResult(
   }
 }
 
+/** Human-facing scope for sub-agent cards (never the preset name alone). */
 export function delegateScopeFromArgs(args: {
   context?: string;
   default_focus_path?: string;
   preset?: string;
+  scopes?: string[];
+  task?: string;
 }): string | undefined {
   const focus = args.default_focus_path?.trim();
   if (focus) return focus;
+
+  const scopes = Array.isArray(args.scopes)
+    ? args.scopes.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  if (scopes.length === 1) return scopes[0]!;
+  if (scopes.length > 1) return `${scopes.length} repos`;
+
   const ctx = args.context?.trim();
   if (ctx && ctx.length <= 120) return ctx;
-  if (args.preset && args.preset !== "none") return args.preset;
+
+  const taskLine = args.task?.trim().split(/\r?\n/)[0]?.trim();
+  if (taskLine && taskLine.length <= 80) return taskLine;
+
   return undefined;
 }

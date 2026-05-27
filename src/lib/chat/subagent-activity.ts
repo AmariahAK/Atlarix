@@ -1,11 +1,4 @@
-import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { delegateScopeFromArgs } from "@/lib/chat/delegate-handoff";
-
-export const SUBAGENT_ACTIVITY_TYPES = new Set([
-  "subagent_start",
-  "subagent_progress",
-  "subagent_complete",
-]);
 
 export function subagentLabel(agentId: string): string {
   const short =
@@ -86,12 +79,18 @@ export function scopeFromDelegateArgs(args: Record<string, unknown>): string | u
       typeof args.default_focus_path === "string"
         ? args.default_focus_path
         : undefined,
-    preset: typeof args.preset === "string" ? args.preset : undefined,
+    scopes: Array.isArray(args.scopes) ? (args.scopes as string[]) : undefined,
+    task: typeof args.task === "string" ? args.task : undefined,
   });
 }
 
-export function isSubagentActivityType(
-  type: ActivityStreamItem["type"],
-): boolean {
-  return SUBAGENT_ACTIVITY_TYPES.has(type);
+export function initialSubagentProgressPreview(
+  scope: string | undefined,
+  task: string,
+): string {
+  const scoped = scope?.trim();
+  if (scoped) return `Mapping: ${scoped}`;
+  const line = task.trim().split(/\r?\n/)[0]?.trim();
+  if (line) return line.length > 100 ? `${line.slice(0, 97)}…` : line;
+  return "Starting…";
 }

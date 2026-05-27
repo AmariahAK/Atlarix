@@ -139,6 +139,10 @@ export function WorkspaceSessionList({
         next.set(chatId, uiMessages);
         return next;
       });
+      const { applyStreamDisplayHydration } = await import(
+        "@/lib/chat/apply-stream-display-hydration"
+      );
+      applyStreamDisplayHydration(uiMessages);
       setActiveSessionId(session.id);
       setLoadedTruncated(Boolean(truncated));
       showInfo("Loaded previous chat session");

@@ -7,6 +7,7 @@
 
 import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
+import { useConfiguredProviders } from "@/hooks/useConfiguredProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { forceDeepThinkNextAtom } from "@/atoms/chatAtoms";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -171,17 +172,13 @@ export function ChatConfigDropdown({
   const isAuto = settings?.selectedModel?.provider === "auto";
   const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
 
+  const { data: configuredProviderIds = [] } = useConfiguredProviders();
   const [compassBuildOk, setCompassBuildOk] = useState(false);
-  const [configuredProviderIds, setConfiguredProviderIds] = useState<string[]>([]);
   useEffect(() => {
     void IpcClient.getInstance()
       .isCompassBuildConfigured()
       .then(setCompassBuildOk)
       .catch(() => setCompassBuildOk(false));
-    void IpcClient.getInstance()
-      .getConfiguredProviders()
-      .then(setConfiguredProviderIds)
-      .catch(() => setConfiguredProviderIds([]));
   }, []);
 
   const { isProviderSetup } = useLanguageModelProviders();

@@ -10,6 +10,7 @@ export const MAX_SUBAGENTS_PER_TURN = 5;
 export type DelegationConfig = {
   maxDelegationDepth: number;
   maxDelegationsPerTurn: number;
+  maxConcurrentDelegations: number;
   tokenBudgetPerTurn?: number;
   enableParallelPrefetch: boolean;
 };
@@ -32,6 +33,8 @@ export function getDelegationConfig(settings: UserSettings): DelegationConfig {
       legacyAuto?.maxDelegationsPerTurn ??
       legacyGuided?.maxDelegationsPerTurn ??
       MAX_SUBAGENTS_PER_TURN,
+    maxConcurrentDelegations:
+      delegation?.maxConcurrentDelegations ?? MAX_SUBAGENTS_PER_TURN,
     tokenBudgetPerTurn:
       delegation?.tokenBudgetPerTurn ?? legacyAuto?.tokenBudgetPerTurn,
     enableParallelPrefetch:

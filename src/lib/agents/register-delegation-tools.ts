@@ -10,12 +10,17 @@ import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import {
   buildSubagentCompletePayload,
   buildSubagentStartPayload,
+  initialSubagentProgressPreview,
   scopeFromDelegateArgs,
 } from "@/lib/chat/subagent-activity";
 import {
   delegationChatModeFromWorkMode,
   MAX_SUBAGENTS_PER_TURN,
 } from "@/lib/agents/agent-runtime";
+import {
+  acquireDelegationSlot,
+  releaseDelegationSlot,
+} from "@/lib/agents/delegation-limiter";
 import type { WorkMode } from "@/lib/schemas";
 import type { SubagentActivityEmit } from "@/lib/tools/agent";
 
@@ -29,14 +34,29 @@ export type DelegationStreamContext = {
   safeSend: (sender: WebContents, channel: string, payload: unknown) => void;
   recordToolUseForTurn: (turnId: string, toolName: string) => void;
   onDelegated?: (agentId: string) => void;
+  /** Count of delegations started this turn (in-flight + completed). */
   getDelegationCount?: () => number;
+  onDelegationStart?: () => void;
+  tryAcquireDedupeKey?: (key: string) => boolean;
+  releaseDedupeKey?: (key: string) => void;
+  maxConcurrentDelegations?: number;
 };
 
-function delegationLabel(agentId: string): string {
-  const short = agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
-  let label = `Agent team: ${short.replace(/^./, (c) => c.toUpperCase())} assigned`;
-  if (label.length > 60) label = `${label.slice(0, 57)}…`;
-  return label;
+function newDelegationId(agentId: string): string {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : String(Math.random()).slice(2, 10);
+  return `delegation-${Date.now()}-${agentId}-${suffix}`;
+}
+
+function delegationDedupeKey(
+  agentId: string,
+  args: Record<string, unknown>,
+  scope: string | undefined,
+): string {
+  const preset = String(args.preset ?? "");
+  return `${agentId}|${preset}|${scope ?? ""}`;
 }
 
 export function attachDelegationToolsToSet(
@@ -63,19 +83,62 @@ export function attachDelegationToolsToSet(
           });
         }
 
+        const agentId = String(args.agent_id ?? "agent");
+        const task = String(args.task ?? "");
+        const scope = scopeFromDelegateArgs(args);
+        const dedupeKey = delegationDedupeKey(agentId, args, scope);
+        if (ctx.tryAcquireDedupeKey && !ctx.tryAcquireDedupeKey(dedupeKey)) {
+          return JSON.stringify({
+            success: false,
+            error:
+              "A sub-agent with the same agent, preset, and scope is already running. Batch paths into scopes[] on one spawn_sub_agent call instead of duplicate spawns.",
+          });
+        }
+
+        ctx.onDelegationStart?.();
+
         ctx.safeSend(ctx.sender, "chat:tool:start", {
           chatId: ctx.chatId,
           toolId: delegateToolName,
           toolName: getToolActivityLabel(delegateToolName),
         });
-        try {
-          const id = `delegation-${Date.now()}-${args.agent_id ?? "agent"}`;
-          const agentId = String(args.agent_id ?? "agent");
-          const task = String(args.task ?? "");
-          const scope = scopeFromDelegateArgs(args);
-          const startTime = Date.now();
-          const label = delegationLabel(agentId);
+        const maxConcurrent =
+          ctx.maxConcurrentDelegations ?? MAX_SUBAGENTS_PER_TURN;
+        const id = newDelegationId(agentId);
+        const startTime = Date.now();
+        const startPayload = buildSubagentStartPayload({
+          id,
+          chatId: ctx.chatId,
+          agentId,
+          task,
+          scope,
+          parentToolId: delegateToolName,
+          roundId: ctx.turnId,
+          timestamp: startTime,
+        });
+        const displayLabel =
+          typeof startPayload.label === "string"
+            ? startPayload.label
+            : agentId;
 
+        await acquireDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent, () => {
+          ctx.safeSend(ctx.sender, "chat:activity", {
+            type: "subagent_progress",
+            id,
+            chatId: ctx.chatId,
+            agent: agentId,
+            agentType: agentId,
+            scope,
+            parentDelegationId: id,
+            roundId: ctx.turnId,
+            status: "running",
+            timestamp: Date.now(),
+            preview: "Queued — waiting for a delegation slot…",
+            label: "Queued",
+          });
+        });
+
+        try {
           ctx.safeSend(ctx.sender, "chat:activity", {
             type: "delegation_start",
             id,
@@ -85,23 +148,25 @@ export function attachDelegationToolsToSet(
             task,
             status: "active",
             timestamp: startTime,
-            label,
+            label: displayLabel,
             chatId: ctx.chatId,
           });
-          ctx.safeSend(
-            ctx.sender,
-            "chat:activity",
-            buildSubagentStartPayload({
-              id,
-              chatId: ctx.chatId,
-              agentId,
-              task,
-              scope,
-              parentToolId: delegateToolName,
-              roundId: ctx.turnId,
-              timestamp: startTime,
-            }),
-          );
+          ctx.safeSend(ctx.sender, "chat:activity", startPayload);
+          const startPreview = initialSubagentProgressPreview(scope, task);
+          ctx.safeSend(ctx.sender, "chat:activity", {
+            type: "subagent_progress",
+            id,
+            chatId: ctx.chatId,
+            agent: agentId,
+            agentType: agentId,
+            scope,
+            parentDelegationId: id,
+            roundId: ctx.turnId,
+            status: "running",
+            timestamp: Date.now(),
+            preview: startPreview,
+            label: startPreview,
+          });
 
           const registryName =
             delegateToolName === "spawn_sub_agent"
@@ -131,7 +196,8 @@ export function attachDelegationToolsToSet(
               id: payload.id,
               chatId: ctx.chatId,
               toolName: payload.toolName,
-              label: getToolActivityLabel(payload.toolName),
+              label:
+                payload.label?.trim() || getToolActivityLabel(payload.toolName),
               status: payload.status === "running" ? "running" : payload.status,
               timestamp: ts,
               detail: payload.detail,
@@ -176,7 +242,7 @@ export function attachDelegationToolsToSet(
             result: summaryText,
             duration,
             timestamp: Date.now(),
-            label,
+            label: displayLabel,
             detail: summaryText
               ? String(summaryText).slice(0, 200)
               : undefined,
@@ -222,6 +288,8 @@ export function attachDelegationToolsToSet(
 
           return typeof result === "string" ? result : JSON.stringify(result);
         } finally {
+          ctx.releaseDedupeKey?.(dedupeKey);
+          releaseDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent);
           ctx.safeSend(ctx.sender, "chat:tool:end", { chatId: ctx.chatId });
         }
       },

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
+import { useConfiguredProviders } from "./useConfiguredProviders";
 import { useSettings } from "./useSettings";
 import {
   cloudProviders,
@@ -13,8 +14,7 @@ export function useLanguageModelProviders() {
   const ipcClient = IpcClient.getInstance();
   const { settings, envVars } = useSettings();
 
-  // State for database-configured providers
-  const [dbConfiguredProviders, setDbConfiguredProviders] = useState<string[]>([]);
+  const { data: dbConfiguredProviders = [] } = useConfiguredProviders();
   const [compassBuildOk, setCompassBuildOk] = useState(false);
 
   const queryResult = useQuery<LanguageModelProvider[], Error>({
@@ -23,19 +23,6 @@ export function useLanguageModelProviders() {
       return ipcClient.getLanguageModelProviders();
     },
   });
-
-  // Fetch configured providers from database
-  useEffect(() => {
-    const fetchConfiguredProviders = async () => {
-      try {
-        const providers = await ipcClient.getConfiguredProviders();
-        setDbConfiguredProviders(providers);
-      } catch (error) {
-        console.error("Failed to fetch configured providers:", error);
-      }
-    };
-    fetchConfiguredProviders();
-  }, []);
 
   useEffect(() => {
     const run = async () => {

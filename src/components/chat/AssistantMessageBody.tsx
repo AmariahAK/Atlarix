@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import {
   activeChatIdAtom,
@@ -10,7 +10,10 @@ import {
   streamThreadByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { extractSourcesFromMessageParts } from "@/lib/chat/citation-sources";
-import type { SourceItem } from "@/atoms/sourceAtoms";
+import {
+  activityStreamItemsAtom,
+  type SourceItem,
+} from "@/atoms/sourceAtoms";
 import { frozenThoughtContentForTurn } from "@/lib/chat/frozen-turn-display";
 import {
   extractVisibleAnswerMarkdown,
@@ -31,10 +34,18 @@ import { InlinePermissionPrompts } from "./InlinePermissionPrompts";
 import { StreamToolCallCard } from "./StreamToolCallCard";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
 import {
+  consolidateSubagentRoundsInThread,
+  hasActiveSubagentActivity,
+  hasDelegateToolParts,
   hasSubagentRoundPanel,
+  mergeSubAgentRunEntries,
   proseAlreadyRendered,
+  resolveLiveSubagentRound,
+  splitInterleavedAroundDelegates,
   synthesizeSubagentRoundFromParts,
   type StreamThreadItem,
+  type StreamThreadToolStatus,
+  type SubAgentRunEntry,
 } from "@/lib/chat/stream-thread";
 import { CollapsedScrollSection } from "./CollapsedScrollSection";
 import { SubAgentCard } from "./subagent/SubAgentCard";
@@ -72,6 +83,7 @@ export function AssistantMessageBody({
     completedTurnThinkingByAssistantMessageIdAtom,
   );
   const sourcesByMessage = useAtomValue(sourcesByAssistantMessageIdAtom);
+  const activityItems = useAtomValue(activityStreamItemsAtom);
 
   const parts = useMemo(
     () => parseAssistantMessageParts(content, isStreaming),
@@ -90,11 +102,6 @@ export function AssistantMessageBody({
     [parts],
   );
 
-  const showTrailingAnswer =
-    trailingAnswer.length > 0 &&
-    !hasMarkdownPart &&
-    !proseAlreadyRendered(trailingAnswer, parts);
-
   const isStructured = useMemo(
     () =>
       /<think>|<atlarix-(?:mcp-)?tool-(?:call|result)/i.test(content),
@@ -103,7 +110,11 @@ export function AssistantMessageBody({
 
   const liveThread = useMemo(() => {
     if (!isStreaming || chatId == null) return [];
-    return flattenToolGroupsInThread(streamThreadByChatId.get(chatId) ?? []);
+    return flattenToolGroupsInThread(
+      consolidateSubagentRoundsInThread(
+        streamThreadByChatId.get(chatId) ?? [],
+      ),
+    );
   }, [isStreaming, chatId, streamThreadByChatId]);
 
   const completedThreadRaw = useMemo(() => {
@@ -116,7 +127,10 @@ export function AssistantMessageBody({
   ]);
 
   const completedThread = useMemo(
-    () => flattenToolGroupsInThread(completedThreadRaw),
+    () =>
+      flattenToolGroupsInThread(
+        consolidateSubagentRoundsInThread(completedThreadRaw),
+      ),
     [completedThreadRaw],
   );
 
@@ -136,15 +150,102 @@ export function AssistantMessageBody({
     return completedThread;
   }, [completedThread, synthesizedSubagentRound]);
 
+  const liveSubagentRound = useMemo(() => {
+    if (chatId == null) return null;
+    const threadSource = isStreaming ? liveThread : displayCompletedThread;
+    return resolveLiveSubagentRound({
+      liveThread: threadSource,
+      activityItems,
+      chatId,
+    });
+  }, [
+    chatId,
+    isStreaming,
+    liveThread,
+    displayCompletedThread,
+    activityItems,
+  ]);
+
   const suppressDelegateTools = useMemo(
     () =>
       hasSubagentRoundPanel(liveThread) ||
       hasSubagentRoundPanel(displayCompletedThread) ||
-      Boolean(synthesizedSubagentRound),
-    [liveThread, displayCompletedThread, synthesizedSubagentRound],
+      Boolean(synthesizedSubagentRound) ||
+      Boolean(liveSubagentRound) ||
+      (chatId != null && hasActiveSubagentActivity(activityItems, chatId)) ||
+      (isStreaming && hasDelegateToolParts(parts)),
+    [
+      liveThread,
+      displayCompletedThread,
+      synthesizedSubagentRound,
+      liveSubagentRound,
+      chatId,
+      activityItems,
+      isStreaming,
+      parts,
+    ],
   );
 
+  const { before: partsBeforeDelegate, after: partsAfterDelegate } = useMemo(
+    () => splitInterleavedAroundDelegates(parts),
+    [parts],
+  );
+
+  const interleavedBefore = useMemo(
+    () => filterDelegateToolParts(partsBeforeDelegate, suppressDelegateTools),
+    [partsBeforeDelegate, suppressDelegateTools],
+  );
+
+  const interleavedAfter = useMemo(
+    () => filterDelegateToolParts(partsAfterDelegate, suppressDelegateTools),
+    [partsAfterDelegate, suppressDelegateTools],
+  );
+
+  const [stickyAgents, setStickyAgents] = useState<SubAgentRunEntry[]>([]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setStickyAgents([]);
+      return;
+    }
+    if (!liveSubagentRound?.agents.length) return;
+    setStickyAgents((prev) =>
+      mergeSubAgentRunEntries(prev, liveSubagentRound.agents),
+    );
+  }, [liveSubagentRound, isStreaming]);
+
+  const inlineSubagentRound = useMemo(() => {
+    if (isStreaming && stickyAgents.length > 0) {
+      const status: StreamThreadToolStatus = stickyAgents.some(
+        (a) => a.status === "running",
+      )
+        ? "running"
+        : stickyAgents.some((a) => a.status === "error")
+          ? "error"
+          : "done";
+      return {
+        kind: "subagent_round" as const,
+        id: liveSubagentRound?.id ?? "subagent-round-sticky",
+        agents: stickyAgents,
+        status,
+        ts: liveSubagentRound?.ts ?? Date.now(),
+      };
+    }
+    if (liveSubagentRound) return liveSubagentRound;
+    if (!isStreaming && synthesizedSubagentRound) return synthesizedSubagentRound;
+    return null;
+  }, [liveSubagentRound, isStreaming, synthesizedSubagentRound, stickyAgents]);
+
   const useInterleavedTimeline = contentDrivenThread || isStructured;
+
+  const useHydratedCompletedDisplay =
+    !isStreaming && displayCompletedThread.length > 0;
+
+  const showTrailingAnswer =
+    trailingAnswer.length > 0 &&
+    !hasMarkdownPart &&
+    !proseAlreadyRendered(trailingAnswer, parts) &&
+    !(useHydratedCompletedDisplay && useInterleavedTimeline);
 
   const citationSources = useMemo(() => {
     if (assistantMessageId != null) {
@@ -157,6 +258,14 @@ export function AssistantMessageBody({
   const interleavedParts = useMemo(
     () => filterDelegateToolParts(parts, suppressDelegateTools),
     [parts, suppressDelegateTools],
+  );
+
+  const hydratedMarkdownParts = useMemo(
+    () =>
+      interleavedParts.filter(
+        (p) => p.type === "markdown" || p.type === "plan_artifact",
+      ),
+    [interleavedParts],
   );
 
   const hasThoughtInInterleavedParts = useMemo(
@@ -182,17 +291,26 @@ export function AssistantMessageBody({
 
   const ipcTailWhileStreaming = useMemo(() => {
     if (!isStreaming) return [];
-    return ipcTimelineTailItems(liveThread, interleavedParts);
-  }, [isStreaming, liveThread, interleavedParts]);
+    return ipcTimelineTailItems(
+      liveThread,
+      interleavedParts,
+      Boolean(inlineSubagentRound),
+    );
+  }, [isStreaming, liveThread, interleavedParts, inlineSubagentRound]);
 
   const postStreamSubagentItems = useMemo(() => {
-    if (isStreaming) return [];
+    if (isStreaming || inlineSubagentRound) return [];
     const fromThread = displayCompletedThread.filter(
       (i) => i.kind === "subagent_round",
     );
     if (fromThread.length > 0) return fromThread;
     return synthesizedSubagentRound ? [synthesizedSubagentRound] : [];
-  }, [isStreaming, displayCompletedThread, synthesizedSubagentRound]);
+  }, [
+    isStreaming,
+    inlineSubagentRound,
+    displayCompletedThread,
+    synthesizedSubagentRound,
+  ]);
 
   const displayParts = useMemo(
     () => filterDelegateToolParts(parts, suppressDelegateTools),
@@ -232,6 +350,48 @@ export function AssistantMessageBody({
   ]);
 
   if (useInterleavedTimeline) {
+    if (useHydratedCompletedDisplay) {
+      return (
+        <div className={isStreaming ? "min-h-[4rem] w-full" : "w-full"}>
+          {frozenThoughtContent ? (
+            <InlineThoughtBlock
+              content={frozenThoughtContent}
+              isStreaming={false}
+            />
+          ) : null}
+          {displayCompletedThread.map((item) => (
+            <StreamThreadItemView
+              key={`hydrated-${threadItemKey(item)}`}
+              item={item}
+              isStreaming={false}
+              chatId={chatId}
+              onPlanArtifactBuild={onPlanArtifactBuild}
+              planArtifactBuildDisabled={planArtifactBuildDisabled}
+            />
+          ))}
+          {hydratedMarkdownParts.map((part, index) => (
+            <AssistantMessagePartView
+              key={partKey(part, index)}
+              part={part}
+              isStreaming={false}
+              chatId={chatId}
+              citationSources={citationSources}
+              suppressDelegateTools={suppressDelegateTools}
+              onPlanArtifactBuild={onPlanArtifactBuild}
+              planArtifactBuildDisabled={planArtifactBuildDisabled}
+            />
+          ))}
+          {showTrailingAnswer ? (
+            <AtlarixMarkdownSegment
+              content={trailingAnswer}
+              isStreaming={false}
+              citationSources={citationSources}
+            />
+          ) : null}
+        </div>
+      );
+    }
+
     return (
       <div className={isStreaming ? "min-h-[4rem] w-full" : "w-full"}>
         {frozenThoughtContent ? (
@@ -240,7 +400,26 @@ export function AssistantMessageBody({
             isStreaming={false}
           />
         ) : null}
-        {interleavedParts.map((part, index) => (
+        {interleavedBefore.map((part, index) => (
+          <AssistantMessagePartView
+            key={partKey(part, index)}
+            part={part}
+            isStreaming={isStreaming}
+            chatId={chatId}
+            citationSources={citationSources}
+            suppressDelegateTools={suppressDelegateTools}
+            onPlanArtifactBuild={onPlanArtifactBuild}
+            planArtifactBuildDisabled={planArtifactBuildDisabled}
+          />
+        ))}
+        {inlineSubagentRound ? (
+          <SubAgentsRoundPanel
+            agents={inlineSubagentRound.agents}
+            status={inlineSubagentRound.status}
+            isStreaming={isStreaming}
+          />
+        ) : null}
+        {interleavedAfter.map((part, index) => (
           <AssistantMessagePartView
             key={partKey(part, index)}
             part={part}
@@ -363,10 +542,11 @@ function toolNamesInParts(parts: AssistantMessagePart[]): Set<string> {
 function ipcTimelineTailItems(
   thread: StreamThreadItem[],
   parts: AssistantMessagePart[],
+  excludeSubagentRound = false,
 ): StreamThreadItem[] {
   const inParts = toolNamesInParts(parts);
   return thread.filter((item) => {
-    if (item.kind === "subagent_round") return true;
+    if (item.kind === "subagent_round") return !excludeSubagentRound;
     if (item.kind === "background" || item.kind === "plan") return true;
     if (item.kind === "tool") {
       if (item.status === "running" && !inParts.has(item.toolName)) {

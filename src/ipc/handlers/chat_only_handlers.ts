@@ -57,7 +57,7 @@ import {
   totalTokensFromAiUsage,
 } from "../../lib/auth/compass_usage";
 import { estimateTokens } from "../utils/token_utils";
-import { runMidLoopCompaction, pruneToolOutputsInModelMessages } from "@/lib/context/mid_loop_compaction";
+import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import { guardToolCall } from "@/lib/tools/guard";
 import {
     compassExhaustedUserMessage,
@@ -81,8 +81,6 @@ import type { ModelTier } from "@/lib/routing/capability-registry";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import { captureSafe } from "../../main/lib/analytics";
-import { summarizeOversizedToolResultsInContent } from "@/lib/context/post_turn_tool_result_summary";
-import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import * as path from "path";
 import { readFile } from "fs/promises";
 import { AttachmentStore } from "../../lib/attachment-store";
@@ -1466,8 +1464,6 @@ export async function handleChatOnlyStream(
                 // THEN prune, THEN compaction. Compaction never runs before the
                 // current round's tool results land in chatOnlyStreamMessages.
                 // PASS8 D1: Prune large tool outputs between rounds before compaction.
-                chatOnlyStreamMessages = pruneToolOutputsInModelMessages(chatOnlyStreamMessages) as typeof chatOnlyStreamMessages;
-
                 // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
                 {
                     const chatOnlyCompactionMid = await runMidLoopCompaction({
@@ -1522,8 +1518,6 @@ export async function handleChatOnlyStream(
             // entries), THEN prune, THEN compaction. Compaction never runs
             // before the current round's tool results land.
             // PASS8 D1: Prune large tool outputs between rounds before compaction.
-            chatOnlyStreamMessages = pruneToolOutputsInModelMessages(chatOnlyStreamMessages) as typeof chatOnlyStreamMessages;
-
             // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
             {
                 const chatOnlyCompactionTail = await runMidLoopCompaction({
@@ -1565,15 +1559,6 @@ export async function handleChatOnlyStream(
         fullResponse = sanitizeAssistantOutput(fullResponse);
 
         let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
-        emitPostTurnToolSummaryActivity(event.sender, req.chatId, "running");
-        try {
-            responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
-                settings,
-                mainOptions,
-            });
-        } finally {
-            emitPostTurnToolSummaryActivity(event.sender, req.chatId, "done");
-        }
         const { ensurePlanMarkersInAssistantContent } = await import(
             "@/lib/plans/plan-artifacts"
         );

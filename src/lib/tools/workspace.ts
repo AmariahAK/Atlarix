@@ -266,7 +266,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "ask_user",
     description:
-        "Ask the user a question and wait for their response. For multiple choice, pass `options` as a string array (same as `choices`). You may also put one choice per line after the question. The app shows a scrollable list of buttons plus a text field.",
+        "Ask the user a question and wait for their response. For multiple choice, pass `options` (or `choices`) as up to 4 strings; the UI shows those as numbered choices plus a free-text field for a custom answer.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: false,

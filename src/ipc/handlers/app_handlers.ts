@@ -698,11 +698,15 @@ export function registerAppHandlers() {
     },
   );
 
-  async function loadAppFileIndex(appPath: string): Promise<{
+  type AppFileIndexResult = {
     files: string[];
     fileDiscoveryWarnings?: string[];
     strategy?: string;
-  }> {
+  };
+
+  const appFileIndexInflight = new Map<number, Promise<AppFileIndexResult>>();
+
+  async function loadAppFileIndex(appPath: string): Promise<AppFileIndexResult> {
     try {
       const result = await getProjectFiles(appPath);
       const fileDiscoveryWarnings = result.accessWarnings?.length
@@ -717,6 +721,19 @@ export function registerAppHandlers() {
       logger.error(`Error reading files for workspace ${appPath}:`, error);
       return { files: [] };
     }
+  }
+
+  async function loadAppFileIndexSingleflight(
+    appId: number,
+    appPath: string,
+  ): Promise<AppFileIndexResult> {
+    const inflight = appFileIndexInflight.get(appId);
+    if (inflight) return inflight;
+    const promise = loadAppFileIndex(appPath).finally(() => {
+      appFileIndexInflight.delete(appId);
+    });
+    appFileIndexInflight.set(appId, promise);
+    return promise;
   }
 
   handle(
@@ -738,7 +755,8 @@ export function registerAppHandlers() {
       if (!pathExists) {
         return { files: [], pathExists: false };
       }
-      const { files, fileDiscoveryWarnings, strategy } = await loadAppFileIndex(appPath);
+      const { files, fileDiscoveryWarnings, strategy } =
+        await loadAppFileIndexSingleflight(appId, appPath);
       if (strategy) logger.info(`[workspace] file discovery via ${strategy}`);
       return {
         files,

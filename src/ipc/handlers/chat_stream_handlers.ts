@@ -208,7 +208,7 @@ import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
-import { runMidLoopCompaction, pruneToolOutputsInModelMessages } from "@/lib/context/mid_loop_compaction";
+import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import { maybeEscalateTier } from "../../lib/routing/heuristic-classifier";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
@@ -247,10 +247,7 @@ import {
   getContextSummary,
   schedulePostTurnCompaction,
   notifyCompactionLedgerSettled,
-  pruneToolOutputsInMessages,
 } from "../../lib/context-compaction";
-import { summarizeOversizedToolResultsInContent } from "../../lib/context/post_turn_tool_result_summary";
-import { emitPostTurnToolSummaryActivity } from "../utils/emit_post_turn_summary_activity";
 import {
   estimateTokens,
   getContextWindow,
@@ -1913,6 +1910,8 @@ ${componentSnippet}
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
       let streamStopWasTaskComplete = false;
       const delegatedAgentsThisTurn: string[] = [];
+      let delegationsStartedThisTurn = 0;
+      const inFlightDelegationKeys = new Set<string>();
       const buildToolStreamOpts = () => ({
         turnId: streamTurnIdForLedger,
         abortController,
@@ -2995,8 +2994,6 @@ This conversation includes one or more image attachments. When the user uploads 
             otherCodebasePrefix,
           } = promptBundle;
 
-          limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
-
           const modelContextResolved = await resolveModelContextLimit(
             effectiveModel,
             settings,
@@ -3336,7 +3333,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 codebasePrefix,
                 otherCodebasePrefix,
               } = promptBundle);
-              limitedMessageHistory = pruneToolOutputsInMessages(limitedMessageHistory);
               const tierBudgetedR = await enforceTierContextBudget({
                 resolvedTier: contextBudgetTier,
                 settings,
@@ -4367,8 +4363,6 @@ This conversation includes one or more image attachments. When the user uploads 
               // prune, THEN compaction. Compaction never runs before the
               // current round's tool results land in the message accumulator.
               // PASS8 D1: Prune large tool outputs between rounds before compaction.
-              agentStreamMessages = pruneToolOutputsInModelMessages(agentStreamMessages);
-
               // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
               {
                 const agentCompaction = await runMidLoopCompaction({
@@ -5037,7 +5031,19 @@ This conversation includes one or more image attachments. When the user uploads 
                 safeSend,
                 recordToolUseForTurn,
                 onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
-                getDelegationCount: () => delegatedAgentsThisTurn.length,
+                getDelegationCount: () => delegationsStartedThisTurn,
+                onDelegationStart: () => {
+                  delegationsStartedThisTurn += 1;
+                },
+                tryAcquireDedupeKey: (key) => {
+                  if (inFlightDelegationKeys.has(key)) return false;
+                  inFlightDelegationKeys.add(key);
+                  return true;
+                },
+                releaseDedupeKey: (key) => {
+                  inFlightDelegationKeys.delete(key);
+                },
+                maxConcurrentDelegations: delegationRuntime.maxConcurrentDelegations,
               });
             }
 
@@ -5066,7 +5072,7 @@ IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions
 
 Available tools (Explore — read-only):
 - read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline, get_diagram
-- spawn_sub_agent / delegate_to_agent (explore + preset map_repo per repo/focus_path for multi-repo work)
+- spawn_sub_agent / delegate_to_agent: for multi-repo work use **one** spawn with **scopes: [repo paths]** or **default_focus_path** per repo (preset map_repo); up to **5** concurrent sub-agents per turn — batch scopes when possible
 - task (background sub-agent runs; use task_id to resume)
 - **run_command** (read-only git/shell only)
 - web_search, deep_research, read_url
@@ -5229,7 +5235,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               // compaction. Compaction never runs before the current round's
               // tool results land in the message accumulator.
               // PASS8 D1: Prune large tool outputs between rounds before compaction.
-              askStreamMessages = pruneToolOutputsInModelMessages(askStreamMessages);
 
               // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
               {
@@ -5778,7 +5783,19 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 safeSend,
                 recordToolUseForTurn,
                 onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
-                getDelegationCount: () => delegatedAgentsThisTurn.length,
+                getDelegationCount: () => delegationsStartedThisTurn,
+                onDelegationStart: () => {
+                  delegationsStartedThisTurn += 1;
+                },
+                tryAcquireDedupeKey: (key) => {
+                  if (inFlightDelegationKeys.has(key)) return false;
+                  inFlightDelegationKeys.add(key);
+                  return true;
+                },
+                releaseDedupeKey: (key) => {
+                  inFlightDelegationKeys.delete(key);
+                },
+                maxConcurrentDelegations: delegationRuntime.maxConcurrentDelegations,
               });
             }
 
@@ -6740,15 +6757,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             "@/lib/plans/plan-artifacts"
           );
           responseToStore = ensurePlanMarkersInAssistantContent(responseToStore);
-          emitPostTurnToolSummaryActivity(event.sender, req.chatId, "running");
-          try {
-            responseToStore = await summarizeOversizedToolResultsInContent(responseToStore, {
-              settings: readSettings(),
-              mainOptions,
-            });
-          } finally {
-            emitPostTurnToolSummaryActivity(event.sender, req.chatId, "done");
-          }
           // Scrape from: <atlarix-chat-summary>Renaming profile file</atlarix-chat-title>
           const chatTitle = responseToStore.match(
             /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,

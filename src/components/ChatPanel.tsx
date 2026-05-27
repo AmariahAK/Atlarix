@@ -196,6 +196,10 @@ export function ChatPanel({
       next.set(chatId, chat.messages);
       return next;
     });
+    const { applyStreamDisplayHydration } = await import(
+      "@/lib/chat/apply-stream-display-hydration"
+    );
+    applyStreamDisplayHydration(chat.messages);
   }, [chatId, setMessagesById]);
 
   useEffect(() => {

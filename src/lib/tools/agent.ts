@@ -8,7 +8,7 @@ import {
   buildContinuationPrompt,
   shouldContinue,
 } from "../streaming/continuation-handler";
-import { runMidLoopCompaction, pruneToolOutputsInModelMessages } from "@/lib/context/mid_loop_compaction";
+import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
@@ -53,6 +53,30 @@ import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
 import { drainAgentCorrections } from "../agents/agent-corrections";
 import { buildGroupHandoffDigest } from "@/lib/chat/group-handoff-digest";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
+import {
+  formatToolResultPreview,
+  formatToolStartPreview,
+} from "@/lib/chat/stream-tool-display";
+
+const SUBAGENT_NESTED_EXPAND_TOOLS = new Set([
+  "explore_folder",
+  "list_files",
+  "get_repo_overview",
+  "read_file",
+  "read_url",
+  "search",
+  "search_code",
+  "grep",
+  "grep_search",
+  "semantic_search",
+  "structural_search",
+  "find_file",
+]);
+
+function subagentNestedToolDetail(toolName: string, out: string): string {
+  const max = SUBAGENT_NESTED_EXPAND_TOOLS.has(toolName) ? 12_000 : 2_000;
+  return out.length > max ? out.slice(0, max) : out;
+}
 import {
   formatSmallRepoInventory,
   getWorkspaceRelFilePaths,
@@ -123,6 +147,7 @@ export type SubagentActivityEmit =
       toolName: string;
       status: "running" | "done" | "error";
       detail?: string;
+      label?: string;
     }
   | {
       type: "subagent_progress";
@@ -280,15 +305,20 @@ See guides/blueprint-section-first.md.
               : null;
 
           if (emit && delegationId && toolActivityId) {
+            const startPreview = formatToolStartPreview(
+              t.name,
+              toolArgs as Record<string, unknown>,
+            );
             emit({
               type: "tool_use",
               id: toolActivityId,
               toolName: t.name,
               status: "running",
+              label: startPreview,
             });
             emit({
               type: "subagent_progress",
-              preview: `${getToolActivityLabel(t.name)}`,
+              preview: startPreview,
             });
           }
 
@@ -306,12 +336,25 @@ See guides/blueprint-section-first.md.
             );
           } catch (err) {
             if (emit && delegationId && toolActivityId) {
+              const errMsg = String(err).slice(0, 200);
+              const startPreview = formatToolStartPreview(
+                t.name,
+                toolArgs as Record<string, unknown>,
+              );
               emit({
                 type: "tool_use",
                 id: toolActivityId,
                 toolName: t.name,
                 status: "error",
-                detail: String(err).slice(0, 200),
+                detail: errMsg,
+                label: startPreview,
+              });
+              emit({
+                type: "subagent_progress",
+                preview: `${startPreview.replace(/…$/, "")} — ${errMsg}`.slice(
+                  0,
+                  200,
+                ),
               });
             }
             throw err;
@@ -338,13 +381,37 @@ See guides/blueprint-section-first.md.
           }
 
           if (emit && delegationId && toolActivityId) {
+            let toolStatus: "done" | "error" = "done";
+            try {
+              const parsed = JSON.parse(out) as {
+                success?: boolean;
+                error?: string;
+              };
+              if (parsed?.error || parsed?.success === false) {
+                toolStatus = "error";
+              }
+            } catch {
+              /* plain text result */
+            }
+            const donePreview = formatToolResultPreview(
+              t.name,
+              out,
+              toolStatus,
+            );
             emit({
               type: "tool_use",
               id: toolActivityId,
               toolName: t.name,
-              status: "done",
-              detail: out.slice(0, 200),
+              status: toolStatus,
+              detail: subagentNestedToolDetail(t.name, out),
+              label: donePreview ?? formatToolStartPreview(t.name, toolArgs as Record<string, unknown>),
             });
+            if (donePreview?.trim()) {
+              emit({
+                type: "subagent_progress",
+                preview: donePreview.trim(),
+              });
+            }
           }
 
           return out;
@@ -401,9 +468,6 @@ See guides/blueprint-section-first.md.
       // `result.response.messages` includes any tool-result entries), THEN
       // prune, THEN compaction. Compaction never runs before the current
       // round's tool results land in delegMsgs.
-      // PASS8 D1: Prune large tool outputs between rounds before compaction.
-      delegMsgs = pruneToolOutputsInModelMessages(delegMsgs);
-
       // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
       // Honors settings.enableContextAutoSummarize. No UI activity from this
       // context (delegation runs inside a tool execute callback with no sender).
@@ -603,7 +667,7 @@ See guides/blueprint-section-first.md.
 ToolRegistry.register({
   name: "delegate_to_agent",
   description:
-    "Delegate to a specialist: **explore** (read-only repo map), **scout** (deps + targeted web), **research** (web/docs), **architect**, **builder**, **reviewer**, or **debugger** (errors/traces). Optional **preset**: `map_repo` (Explore) or `dependency_web_scout` (Scout) expands a minimal task into a full brief. Returns the agent's summary so you can continue. In Autonomous mode, nested delegation is allowed up to the configured depth.",
+    "Delegate to a specialist: **explore** (read-only repo map), **scout** (deps + targeted web), **research** (web/docs), **architect**, **builder**, **reviewer**, or **debugger** (errors/traces). Optional **preset**: `map_repo` (Explore) or `dependency_web_scout` (Scout) expands a minimal task into a full brief. For multi-repo workspaces, prefer **one** call with **scopes: [path, …]** (up to 5) instead of many parallel spawns; up to **5** sub-agents may run concurrently per turn. Set **default_focus_path** per repo so the UI shows which repo is mapped. Returns the agent's summary so you can continue. In Autonomous mode, nested delegation is allowed up to the configured depth.",
   category: ToolCategory.TASK,
   cost: 2,
   requiresWorkspace: false,
@@ -647,7 +711,7 @@ ToolRegistry.register({
   name: "spawn_sub_agent",
   description:
     "Alias for delegate_to_agent (Cursor/OpenCode vocabulary). Spawn an isolated specialist for one scoped task: explore, scout, research, architect, builder, reviewer, or debugger. " +
-    "Prefer one spawn per repo or focus_path (preset map_repo for Explore) instead of many parallel explore_folder calls. Returns a structured handoff summary.",
+    "Prefer one spawn per repo with **default_focus_path** or batch repos via **scopes[]** (preset map_repo for Explore) instead of many parallel spawns without distinct focus paths. Up to **5** concurrent sub-agents per turn. Returns a structured handoff summary.",
   category: ToolCategory.TASK,
   cost: 2,
   requiresWorkspace: false,

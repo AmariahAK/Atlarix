@@ -42,4 +42,10 @@ describe("agent-runtime", () => {
       MAX_SUBAGENTS_PER_TURN,
     );
   });
+
+  it("defaults max concurrent delegations to 5", () => {
+    expect(getDelegationConfig({} as never).maxConcurrentDelegations).toBe(
+      MAX_SUBAGENTS_PER_TURN,
+    );
+  });
 });

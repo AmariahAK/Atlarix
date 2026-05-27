@@ -347,6 +347,39 @@ export function getToolRunningSummary(registryName: string): string {
   return getToolActivityLabel(registryName);
 }
 
+/** Live sub-agent / stream line while a tool is running (includes path/query when known). */
+export function formatToolStartPreview(
+  registryName: string,
+  toolArgs: Record<string, unknown> | undefined,
+): string {
+  if (!toolArgs || typeof toolArgs !== "object") {
+    return getToolActivityLabel(registryName);
+  }
+  const path =
+    (typeof toolArgs.path === "string" && toolArgs.path.trim()) ||
+    (typeof toolArgs.file_path === "string" && toolArgs.file_path.trim()) ||
+    (typeof toolArgs.focus_path === "string" && toolArgs.focus_path.trim()) ||
+    undefined;
+  const query =
+    typeof toolArgs.query === "string" ? toolArgs.query.trim() : undefined;
+  const command =
+    typeof toolArgs.command === "string" ? toolArgs.command.trim() : undefined;
+  const base = getToolActivityLabel(registryName).replace(/…$/, "");
+  if (path) {
+    const short = path.length > 72 ? `${path.slice(0, 69)}…` : path;
+    return `${base} (${short})…`;
+  }
+  if (query) {
+    const q = query.length > 56 ? `${query.slice(0, 53)}…` : query;
+    return `${base}: ${q}…`;
+  }
+  if (command) {
+    const c = command.length > 56 ? `${command.slice(0, 53)}…` : command;
+    return `${base}: ${c}…`;
+  }
+  return getToolActivityLabel(registryName);
+}
+
 export function getToolCompletedSummary(registryName: string): string {
   return getToolDoneLabel(registryName);
 }

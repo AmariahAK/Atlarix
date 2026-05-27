@@ -1,3 +1,6 @@
+/** Maximum preset choices shown in the ask_user UI (custom text is always available). */
+export const ASK_USER_MAX_OPTIONS = 4;
+
 /**
  * Normalize ask_user tool arguments so the UI always receives a proper `options`
  * list when the model intended multiple choice (arrays, string lists, inline
@@ -78,6 +81,10 @@ function extractCommaChoicesAfterCue(question: string): { headline: string; opti
   return { headline: headline || question.trim(), options: opts };
 }
 
+function capAskUserOptions(options: string[]): string[] {
+  return options.slice(0, ASK_USER_MAX_OPTIONS);
+}
+
 export function normalizeAskUserPayload(args: Record<string, unknown>): {
   question: string;
   options?: string[];
@@ -86,17 +93,23 @@ export function normalizeAskUserPayload(args: Record<string, unknown>): {
   const fromParams =
     coerceStringArray(args.options) ?? coerceStringArray(args.choices);
   if (fromParams && fromParams.length > 0) {
-    return { question: rawQuestion, options: fromParams };
+    return { question: rawQuestion, options: capAskUserOptions(fromParams) };
   }
 
   const multiline = extractChoiceLinesFromQuestion(rawQuestion);
   if (multiline && multiline.options.length >= 2) {
-    return { question: multiline.headline, options: multiline.options };
+    return {
+      question: multiline.headline,
+      options: capAskUserOptions(multiline.options),
+    };
   }
 
   const comma = extractCommaChoicesAfterCue(rawQuestion);
   if (comma && comma.options.length >= 2) {
-    return { question: comma.headline, options: comma.options };
+    return {
+      question: comma.headline,
+      options: capAskUserOptions(comma.options),
+    };
   }
 
   return { question: rawQuestion, options: undefined };

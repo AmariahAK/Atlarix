@@ -4,9 +4,13 @@ import {
   isDelegateToolName,
   type DelegateHandoffMeta,
 } from "@/lib/chat/delegate-handoff";
-import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
+import {
+  parseAssistantMessageParts,
+  type AssistantMessagePart,
+} from "@/lib/chat/assistant-message-parts";
 import { summarizeToolActivityItem } from "@/lib/chat/inline-timeline";
 import {
+  formatToolResultPreview,
   getToolCompletedSummary,
   getToolRunningSummary,
   looksLikeToolArgsJson,
@@ -192,6 +196,27 @@ export function upsertStreamThreadItem(
     }
   }
 
+  return [...items, item];
+}
+
+/** Upsert nested sub-agent tools by id only (no toolName running-slot merge). */
+export function upsertNestedStreamThreadItem(
+  items: StreamThreadItem[],
+  item: StreamThreadItem,
+): StreamThreadItem[] {
+  const key = threadItemKey(item);
+  const idx = items.findIndex((i) => threadItemKey(i) === key);
+  if (idx >= 0) {
+    const prev = items[idx]!;
+    if (prev.kind === "tool" && item.kind === "tool") {
+      const next = [...items];
+      next[idx] = mergeToolItems(prev, item);
+      return next;
+    }
+    const next = [...items];
+    next[idx] = item;
+    return next;
+  }
   return [...items, item];
 }
 
@@ -396,7 +421,9 @@ export function streamThreadItemFromActivity(
 
   if (item.type === "tool_use" || item.type === "tool") {
     const registryName = (item.toolName ?? "").trim() || "tool";
-    const stableId = registryName;
+    const activityId = (item.id ?? "").trim();
+    const stableId =
+      item.parentDelegationId && activityId ? activityId : registryName;
     const isRunning =
       item.status === "running" || item.status === "active";
     const status: StreamThreadToolStatus = isRunning
@@ -415,12 +442,15 @@ export function streamThreadItemFromActivity(
         ? buildToolExpandView(registryName, undefined, rawDetail, status)
         : undefined;
 
+    const runningSummary =
+      item.label?.trim() || getToolRunningSummary(registryName);
+
     return {
       kind: "tool",
       id: stableId,
       toolName: registryName,
       summary: isRunning
-        ? getToolRunningSummary(registryName)
+        ? runningSummary
         : summarizeToolActivityItem(item) ||
           getToolCompletedSummary(registryName),
       detail: rawDetail,
@@ -567,6 +597,48 @@ function roundStatus(agents: SubAgentRunEntry[]): StreamThreadToolStatus {
   return "done";
 }
 
+const SUBAGENT_PROGRESS_THOUGHT_PREFIX = "sub-progress-";
+const MAX_SUBAGENT_PROGRESS_LINES = 32;
+
+/** Append progress lines in the sub-agent dropdown (keeps prior tool + status history). */
+function appendSubagentProgressThought(
+  nested: StreamThreadItem[],
+  snippet: string,
+  ts: number,
+): StreamThreadItem[] {
+  const trimmed = snippet.trim();
+  if (!trimmed) return nested;
+
+  const lastProgress = [...nested]
+    .reverse()
+    .find(
+      (i): i is Extract<StreamThreadItem, { kind: "thought" }> =>
+        i.kind === "thought" &&
+        i.id.startsWith(SUBAGENT_PROGRESS_THOUGHT_PREFIX),
+    );
+  if (lastProgress?.content === trimmed) return nested;
+
+  const progressLines = nested.filter(
+    (i) =>
+      i.kind === "thought" && i.id.startsWith(SUBAGENT_PROGRESS_THOUGHT_PREFIX),
+  );
+  const other = nested.filter(
+    (i) =>
+      !(i.kind === "thought" && i.id.startsWith(SUBAGENT_PROGRESS_THOUGHT_PREFIX)),
+  );
+  const nextProgress = [
+    ...progressLines,
+    {
+      kind: "thought" as const,
+      id: `${SUBAGENT_PROGRESS_THOUGHT_PREFIX}${ts}`,
+      content: trimmed,
+      ts,
+    },
+  ].slice(-MAX_SUBAGENT_PROGRESS_LINES);
+
+  return [...other, ...nextProgress];
+}
+
 function upsertSubagentRound(
   items: StreamThreadItem[],
   roundId: string,
@@ -631,7 +703,7 @@ export function mergeSubagentActivityIntoThread(
   const existingAgent = existingRound?.agents.find((a) => a.id === subId);
 
   if (item.type === "subagent_start") {
-    return upsertAgent({
+    const next = upsertAgent({
       id: subId,
       agentType,
       label: item.label ?? `${agentType}`,
@@ -639,19 +711,28 @@ export function mergeSubagentActivityIntoThread(
       status: "running",
       nestedItems: existingAgent?.nestedItems ?? [],
     });
+    return consolidateSubagentRoundsInThread(next);
   }
 
   if (item.type === "subagent_progress") {
     const snippet = item.preview?.trim() || item.detail?.trim();
-    return upsertAgent({
+    const nestedItems = snippet
+      ? appendSubagentProgressThought(
+          existingAgent?.nestedItems ?? [],
+          snippet,
+          ts,
+        )
+      : (existingAgent?.nestedItems ?? []);
+    const next = upsertAgent({
       id: subId,
       agentType,
       label: existingAgent?.label ?? item.label ?? agentType,
       scope: item.scope ?? existingAgent?.scope,
       summary: snippet ?? existingAgent?.summary,
       status: "running",
-      nestedItems: existingAgent?.nestedItems ?? [],
+      nestedItems,
     });
+    return consolidateSubagentRoundsInThread(next);
   }
 
   if (item.type === "subagent_complete") {
@@ -660,7 +741,7 @@ export function mergeSubagentActivityIntoThread(
       item.preview?.trim() ||
       item.detail?.trim() ||
       existingAgent?.summary;
-    return upsertAgent({
+    const next = upsertAgent({
       id: subId,
       agentType,
       label: existingAgent?.label ?? item.label ?? agentType,
@@ -669,9 +750,208 @@ export function mergeSubagentActivityIntoThread(
       status: item.status === "error" ? "error" : "done",
       nestedItems: existingAgent?.nestedItems ?? [],
     });
+    return consolidateSubagentRoundsInThread(next);
   }
 
   return items;
+}
+
+function mergeNestedItemLists(
+  primary: StreamThreadItem[],
+  secondary: StreamThreadItem[],
+): StreamThreadItem[] {
+  let next = [...primary];
+  for (const item of secondary) {
+    next = upsertNestedStreamThreadItem(next, item);
+  }
+  return next;
+}
+
+/** Prefer scoped sub-agent titles over generic delegation stubs. */
+export function pickSubagentDisplayLabel(
+  a?: string,
+  b?: string,
+): string {
+  const score = (label: string | undefined): number => {
+    if (!label?.trim()) return -1;
+    const t = label.trim();
+    if (t.startsWith("Agent team:")) return 0;
+    if (t.includes("·")) return 3;
+    if (t.startsWith("Sub-agent:")) return 1;
+    return 2;
+  };
+  const sa = score(a);
+  const sb = score(b);
+  if (sa > sb) return a!.trim();
+  if (sb > sa) return b!.trim();
+  return a?.trim() || b?.trim() || "agent";
+}
+
+/** Union sub-agent rows by id; thread nestedItems win over empty activity stubs. */
+export function mergeSubAgentRunEntries(
+  primary: SubAgentRunEntry[],
+  secondary: SubAgentRunEntry[],
+): SubAgentRunEntry[] {
+  const map = new Map<string, SubAgentRunEntry>();
+  for (const entry of [...primary, ...secondary]) {
+    const prev = map.get(entry.id);
+    if (!prev) {
+      map.set(entry.id, {
+        ...entry,
+        nestedItems: [...entry.nestedItems],
+      });
+      continue;
+    }
+    const status: StreamThreadToolStatus =
+      entry.status === "running"
+        ? "running"
+        : entry.status === "error"
+          ? "error"
+          : entry.status === "done"
+            ? "done"
+            : prev.status;
+    map.set(entry.id, {
+      ...prev,
+      ...entry,
+      label: pickSubagentDisplayLabel(prev.label, entry.label),
+      scope: entry.scope ?? prev.scope,
+      summary: entry.summary ?? prev.summary,
+      status,
+      nestedItems: mergeNestedItemLists(prev.nestedItems, entry.nestedItems),
+    });
+  }
+  return [...map.values()];
+}
+
+function collectAgentsFromSubagentRounds(
+  liveThread: StreamThreadItem[],
+): { agents: SubAgentRunEntry[]; roundId: string; ts: number } | null {
+  const rounds = liveThread.filter(
+    (i): i is Extract<StreamThreadItem, { kind: "subagent_round" }> =>
+      i.kind === "subagent_round",
+  );
+  if (!rounds.length) return null;
+  let agents: SubAgentRunEntry[] = [];
+  for (const round of rounds) {
+    agents = mergeSubAgentRunEntries(agents, round.agents);
+  }
+  return {
+    agents,
+    roundId: rounds[0]!.id,
+    ts: Math.min(...rounds.map((r) => r.ts)),
+  };
+}
+
+function buildSubagentAgentsFromActivity(
+  scoped: ActivityStreamItem[],
+): SubAgentRunEntry[] {
+  const sorted = [...scoped].sort(
+    (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0),
+  );
+  const byId = new Map<string, SubAgentRunEntry>();
+
+  const ensureAgent = (
+    id: string,
+    init: () => SubAgentRunEntry,
+  ): SubAgentRunEntry => {
+    const existing = byId.get(id);
+    if (existing) return existing;
+    const created = init();
+    byId.set(id, created);
+    return created;
+  };
+
+  for (const item of sorted) {
+    if (item.type === "subagent_start") {
+      const id = item.id?.trim() || `sub-${item.timestamp ?? Date.now()}`;
+      const agent = ensureAgent(id, () => ({
+        id,
+        agentType: String(item.agentType ?? item.agent ?? "agent"),
+        label: item.label ?? String(item.agent ?? "agent"),
+        scope: item.scope,
+        status: "running",
+        nestedItems: [],
+      }));
+      agent.label = pickSubagentDisplayLabel(agent.label, item.label);
+      agent.scope = item.scope ?? agent.scope;
+      continue;
+    }
+
+    if (item.type === "subagent_progress") {
+      const id = item.id?.trim();
+      if (!id) continue;
+      const agent = ensureAgent(id, () => ({
+        id,
+        agentType: String(item.agentType ?? item.agent ?? "agent"),
+        label: item.label ?? String(item.agent ?? "agent"),
+        scope: item.scope,
+        status: "running",
+        nestedItems: [],
+      }));
+      const snippet = item.preview?.trim() || item.detail?.trim();
+      if (snippet) {
+        agent.summary = snippet;
+        agent.nestedItems = appendSubagentProgressThought(
+          agent.nestedItems,
+          snippet,
+          item.timestamp ?? Date.now(),
+        );
+      }
+      agent.label = pickSubagentDisplayLabel(agent.label, item.label);
+      agent.scope = item.scope ?? agent.scope;
+      continue;
+    }
+
+    if (
+      (item.type === "tool_use" || item.type === "tool") &&
+      item.parentDelegationId?.trim()
+    ) {
+      const parentId = item.parentDelegationId.trim();
+      const nested = streamThreadItemFromActivity(item);
+      if (!nested) continue;
+      const agent = ensureAgent(parentId, () => ({
+        id: parentId,
+        agentType: String(item.agent ?? "agent"),
+        label: parentId,
+        status: "running",
+        nestedItems: [],
+      }));
+      agent.nestedItems = upsertNestedStreamThreadItem(
+        agent.nestedItems,
+        nested,
+      );
+      if (nested.kind === "tool" && nested.summary.trim()) {
+        agent.summary = nested.summary.trim();
+      } else if (item.label?.trim()) {
+        agent.summary = item.label.trim();
+      }
+      continue;
+    }
+
+    if (item.type === "subagent_complete") {
+      const id = item.id?.trim();
+      if (!id) continue;
+      const status: StreamThreadToolStatus =
+        item.status === "error" ? "error" : "done";
+      const summary =
+        item.result?.trim() || item.preview?.trim() || item.detail?.trim();
+      const agent = ensureAgent(id, () => ({
+        id,
+        agentType: String(item.agentType ?? item.agent ?? "agent"),
+        label: item.label ?? String(item.agent ?? "agent"),
+        scope: item.scope,
+        status,
+        summary,
+        nestedItems: [],
+      }));
+      agent.status = status;
+      agent.summary = summary ?? agent.summary;
+      agent.label = pickSubagentDisplayLabel(agent.label, item.label);
+      agent.scope = item.scope ?? agent.scope;
+    }
+  }
+
+  return [...byId.values()];
 }
 
 /** Nest a tool/thought activity under a sub-agent card inside the active round. */
@@ -679,18 +959,53 @@ export function mergeNestedActivityIntoSubagentRound(
   items: StreamThreadItem[],
   parentDelegationId: string,
   nested: StreamThreadItem,
+  roundId?: string,
 ): StreamThreadItem[] {
-  return items.map((item) => {
-    if (item.kind !== "subagent_round") return item;
-    const agents = item.agents.map((agent) => {
-      if (agent.id !== parentDelegationId) return agent;
-      return {
-        ...agent,
-        nestedItems: upsertStreamThreadItem(agent.nestedItems, nested),
+  const resolvedRoundId =
+    roundId?.trim() ||
+    items.find((i) => i.kind === "subagent_round")?.id ||
+    "subagent-round";
+  const next = upsertSubagentRound(items, resolvedRoundId, (agents) => {
+    const idx = agents.findIndex((a) => a.id === parentDelegationId);
+    if (idx >= 0) {
+      const copy = [...agents];
+      copy[idx] = {
+        ...copy[idx]!,
+        nestedItems: upsertNestedStreamThreadItem(
+          copy[idx]!.nestedItems,
+          nested,
+        ),
       };
-    });
-    return { ...item, agents };
+      return copy;
+    }
+    return [
+      ...agents,
+      {
+        id: parentDelegationId,
+        agentType: "agent",
+        label: parentDelegationId,
+        status: "running" as const,
+        nestedItems: [nested],
+      },
+    ];
   });
+  return consolidateSubagentRoundsInThread(next);
+}
+
+/** Route sub-agent tool IPC into nested cards only (creates stub agent if needed). */
+export function mergeNestedToolActivityIntoSubagentRound(
+  items: StreamThreadItem[],
+  parentDelegationId: string,
+  activity: ActivityStreamItem,
+): StreamThreadItem[] {
+  const nested = streamThreadItemFromActivity(activity);
+  if (!nested) return items;
+  return mergeNestedActivityIntoSubagentRound(
+    items,
+    parentDelegationId,
+    nested,
+    activity.roundId,
+  );
 }
 
 /** Pin live stream-thread cards to an assistant message before clearing the chat map. */
@@ -778,6 +1093,182 @@ export function synthesizeSubagentRoundFromParts(
     status,
     ts: Date.now(),
   };
+}
+
+export function hasDelegateToolParts(parts: AssistantMessagePart[]): boolean {
+  return parts.some(
+    (p) => p.type === "tool" && isDelegateToolName(p.toolName),
+  );
+}
+
+export function hasActiveSubagentActivity(
+  items: ActivityStreamItem[],
+  chatId: number | null | undefined,
+): boolean {
+  if (chatId == null) return false;
+  const scoped = items.filter((i) => i.chatId == null || i.chatId === chatId);
+  return scoped.some(
+    (i) =>
+      i.type === "subagent_start" ||
+      i.type === "subagent_progress" ||
+      i.type === "subagent_complete" ||
+      i.type === "delegation_complete" ||
+      i.type === "delegation_error" ||
+      (i.type === "delegation_start" &&
+        (i.status === "active" || i.status === "running")),
+  );
+}
+
+/** Merge duplicate subagent_round rows (e.g. default id vs turnId) into one panel. */
+export function consolidateSubagentRoundsInThread(
+  items: StreamThreadItem[],
+): StreamThreadItem[] {
+  const rounds = items.filter(
+    (i): i is Extract<StreamThreadItem, { kind: "subagent_round" }> =>
+      i.kind === "subagent_round",
+  );
+  if (rounds.length <= 1) return items;
+
+  let agents: SubAgentRunEntry[] = [];
+  for (const round of rounds) {
+    agents = mergeSubAgentRunEntries(agents, round.agents);
+  }
+  const roundId =
+    rounds.find((r) => r.agents.some((a) => a.status === "running"))?.id ??
+    rounds[rounds.length - 1]!.id;
+
+  const merged: Extract<StreamThreadItem, { kind: "subagent_round" }> = {
+    kind: "subagent_round",
+    id: roundId,
+    agents,
+    status: roundStatus(agents),
+    ts: Math.min(...rounds.map((r) => r.ts)),
+  };
+
+  return [...items.filter((i) => i.kind !== "subagent_round"), merged];
+}
+
+/** Split message parts so the sub-agent round panel can render at the first delegate tool. */
+export function splitInterleavedAroundDelegates(
+  parts: AssistantMessagePart[],
+): { before: AssistantMessagePart[]; after: AssistantMessagePart[] } {
+  const idx = parts.findIndex(
+    (p) => p.type === "tool" && isDelegateToolName(p.toolName),
+  );
+  if (idx < 0) {
+    return { before: parts, after: [] };
+  }
+  const before = parts.slice(0, idx);
+  const after = parts
+    .slice(idx + 1)
+    .filter(
+      (p) => !(p.type === "tool" && isDelegateToolName(p.toolName)),
+    );
+  return { before, after };
+}
+
+/** Prefer merged IPC round; union with activity so completed agents are never dropped. */
+export function resolveLiveSubagentRound(args: {
+  liveThread: StreamThreadItem[];
+  activityItems: ActivityStreamItem[];
+  chatId: number;
+}): Extract<StreamThreadItem, { kind: "subagent_round" }> | null {
+  const fromThread = collectAgentsFromSubagentRounds(
+    consolidateSubagentRoundsInThread(args.liveThread),
+  );
+  const scoped = args.activityItems.filter(
+    (i) => i.chatId == null || i.chatId === args.chatId,
+  );
+  const fromActivity = buildSubagentAgentsFromActivity(scoped);
+  const agents = mergeSubAgentRunEntries(
+    fromThread?.agents ?? [],
+    fromActivity,
+  );
+  if (agents.length === 0) return null;
+
+  const roundId =
+    fromThread?.roundId ||
+    scoped.find((i) => i.roundId)?.roundId?.trim() ||
+    "subagent-round-provisional";
+
+  return {
+    kind: "subagent_round",
+    id: roundId,
+    agents,
+    status: roundStatus(agents),
+    ts: fromThread?.ts ?? Date.now(),
+  };
+}
+
+function assistantPartToStreamItem(
+  part: AssistantMessagePart,
+  ts: number,
+): StreamThreadItem | null {
+  if (part.type === "thought") {
+    return {
+      kind: "thought",
+      id: `thought-${ts}`,
+      content: part.content,
+      ts,
+    };
+  }
+  if (part.type === "plan_artifact") {
+    return { kind: "plan", planId: part.planId, ts };
+  }
+  if (part.type !== "tool") return null;
+
+  const status: StreamThreadToolStatus =
+    part.status === "running"
+      ? "running"
+      : part.status === "error"
+        ? "error"
+        : "done";
+  const registryName = part.toolName;
+  const rawDetail = part.resultText?.trim();
+  const expand =
+    rawDetail && status !== "running"
+      ? buildToolExpandView(registryName, undefined, rawDetail, status)
+      : undefined;
+  const preview =
+    rawDetail && status === "done"
+      ? formatToolResultPreview(registryName, rawDetail, "done")
+      : undefined;
+  const summary =
+    preview?.trim() ||
+    (status === "running"
+      ? getToolRunningSummary(registryName)
+      : getToolCompletedSummary(registryName));
+
+  return {
+    kind: "tool",
+    id: part.id || registryName,
+    toolName: registryName,
+    summary,
+    detail: rawDetail,
+    expand,
+    status,
+    ts,
+  };
+}
+
+/** Rebuild frozen stream-thread cards from persisted assistant message tags. */
+export function buildCompletedStreamThreadFromAssistantContent(
+  content: string,
+): StreamThreadItem[] {
+  if (!content.trim()) return [];
+  const parts = parseAssistantMessageParts(content, false);
+  const items: StreamThreadItem[] = [];
+  let ts = 0;
+  for (const part of parts) {
+    if (part.type === "markdown") continue;
+    const item = assistantPartToStreamItem(part, ts++);
+    if (item) items.push(item);
+  }
+  if (!items.some((i) => i.kind === "subagent_round")) {
+    const round = synthesizeSubagentRoundFromParts(parts);
+    if (round) items.push(round);
+  }
+  return flattenToolGroupsInThread(consolidateSubagentRoundsInThread(items));
 }
 
 export function normalizeProseKey(text: string): string {

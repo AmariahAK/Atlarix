@@ -17,6 +17,8 @@ export function useLoadApp(appId: number | null) {
     return msg.includes("App not found") || msg.includes("not found");
   };
 
+  const fileListStaleMs = 5 * 60 * 1000;
+
   const { data: appData, isLoading: loading, error, refetch: refreshApp } = useQuery({
     queryKey: ['app', appId],
     queryFn: async () => {
@@ -33,6 +35,8 @@ export function useLoadApp(appId: number | null) {
     },
     enabled: appId !== null,
     retry: false,
+    staleTime: fileListStaleMs,
+    gcTime: fileListStaleMs,
   });
 
   const { data: appFilesData } = useQuery({
@@ -43,6 +47,9 @@ export function useLoadApp(appId: number | null) {
     },
     enabled: appId !== null,
     retry: false,
+    staleTime: fileListStaleMs,
+    gcTime: fileListStaleMs,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {

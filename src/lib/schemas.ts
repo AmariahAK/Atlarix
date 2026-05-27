@@ -186,6 +186,8 @@ export type AutonomousConfig = z.infer<typeof AutonomousConfigSchema>;
 export const DelegationConfigSchema = z.object({
   maxDelegationDepth: z.number().min(1).max(5).default(2),
   maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
+  /** Max specialist runs in flight at once for a single parent turn. */
+  maxConcurrentDelegations: z.number().min(1).max(5).default(5),
   tokenBudgetPerTurn: z.number().optional(),
   enableParallelPrefetch: z.boolean().optional(),
 });

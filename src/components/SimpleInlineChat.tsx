@@ -87,6 +87,10 @@ export function SimpleInlineChat({
                 next.set(chatId, chat.messages);
                 return next;
             });
+            const { applyStreamDisplayHydration } = await import(
+                "@/lib/chat/apply-stream-display-hydration"
+            );
+            applyStreamDisplayHydration(chat.messages);
         } catch (error) {
             console.error("Failed to fetch messages:", error);
         }
@@ -116,6 +120,10 @@ export function SimpleInlineChat({
                 next.set(chatId, chat.messages);
                 return next;
             });
+            const { applyStreamDisplayHydration } = await import(
+                "@/lib/chat/apply-stream-display-hydration"
+            );
+            applyStreamDisplayHydration(chat.messages);
             // Re-stream continuing from the edited message (chat-only mode uses continueAfterQuestions to avoid inserting a new user row).
             streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
         },

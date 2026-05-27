@@ -22,9 +22,10 @@ export function useCountTokens(chatId: number | null, input: string = "") {
       return;
     }
 
+    const debounceMs = chatId < 0 ? 2_500 : 1_000;
     const handle = setTimeout(() => {
       setDebouncedInput(input);
-    }, 1_000);
+    }, debounceMs);
 
     return () => clearTimeout(handle);
   }, [chatId, input]);
@@ -45,6 +46,8 @@ export function useCountTokens(chatId: number | null, input: string = "") {
     },
     placeholderData: keepPreviousData,
     enabled: chatId !== null,
+    refetchOnWindowFocus: false,
+    staleTime: chatId != null && chatId < 0 ? 5_000 : 0,
   });
 
   // For imperative invalidation (e.g., after streaming completes)

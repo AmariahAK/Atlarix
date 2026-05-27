@@ -97,6 +97,8 @@ interface FileListCacheEntry {
 
 const fileListCache = new Map<string, FileListCacheEntry>();
 const FILE_LIST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/** Coalesce concurrent discovery for the same workspace before the result is cached. */
+const inFlightPromises = new Map<string, Promise<ProjectFilesResult>>();
 
 export interface StructureResult {
     imports: string[];
@@ -232,6 +234,27 @@ export async function getProjectFiles(
         return cached.result;
     }
 
+    let inflight = inFlightPromises.get(cacheKey);
+    if (!inflight) {
+        inflight = discoverProjectFiles(workspacePath, options);
+        inFlightPromises.set(cacheKey, inflight);
+        void inflight.finally(() => {
+            inFlightPromises.delete(cacheKey);
+        });
+    }
+    return inflight;
+}
+
+async function discoverProjectFiles(
+    workspacePath: string,
+    options?: {
+        timeout?: number;
+        extensions?: string[];
+        scopePath?: string;
+    }
+): Promise<ProjectFilesResult> {
+    const scope = normalizeProjectFilesScopePath(options?.scopePath);
+    const cacheKey = projectFilesCacheKey(workspacePath, scope);
     const timeout = options?.timeout ?? 15_000;
     const gitCtx = resolveGitListContext(workspacePath, scope);
 

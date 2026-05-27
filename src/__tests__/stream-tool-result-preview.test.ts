@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatStreamToolResultPreview,
   formatToolResultPreview,
+  formatToolStartPreview,
   summarizeToolResultForActivityDetail,
 } from "@/lib/chat/stream-tool-display";
 
@@ -81,6 +82,16 @@ describe("formatToolResultPreview", () => {
       result: { total: 2, items: [{ path: "a.ts", type: "file" }] },
     });
     expect(formatStreamToolResultPreview("explore_folder", raw, "done")).toMatch(/2 items/);
+  });
+});
+
+describe("formatToolStartPreview", () => {
+  it("includes path in running preview", () => {
+    const preview = formatToolStartPreview("explore_folder", {
+      path: "spacinsider-api",
+    });
+    expect(preview).toContain("spacinsider-api");
+    expect(preview).toMatch(/…$/);
   });
 });
 

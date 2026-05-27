@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SubAgentRunEntry, StreamThreadToolStatus } from "@/lib/chat/stream-thread";
@@ -19,6 +19,14 @@ export function SubAgentsRoundPanel({
   status: StreamThreadToolStatus;
   isStreaming: boolean;
 }) {
+  const sortedAgents = useMemo(() => {
+    const rank = (s: SubAgentRunEntry["status"]) =>
+      s === "running" ? 0 : s === "done" ? 1 : 2;
+    return [...agents].sort(
+      (a, b) => rank(a.status) - rank(b.status) || a.id.localeCompare(b.id),
+    );
+  }, [agents]);
+
   const running = agents.filter((a) => a.status === "running").length;
   const [open, setOpen] = useState(true);
   const summary =
@@ -48,7 +56,7 @@ export function SubAgentsRoundPanel({
       </button>
       {open ? (
         <div className="flex flex-col gap-1.5 px-2 pb-2">
-          {agents.map((agent) => (
+          {sortedAgents.map((agent) => (
             <SubAgentRunCard
               key={agent.id}
               agent={agent}

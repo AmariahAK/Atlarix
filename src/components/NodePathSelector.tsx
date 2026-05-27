@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/useSettings";
+import { useNodejsStatus } from "@/hooks/useNodejsStatus";
 import { showError, showSuccess } from "@/lib/toast";
 import { IpcClient } from "@/ipc/ipc_client";
 import { FolderOpen, RotateCcw, CheckCircle, AlertCircle } from "lucide-react";
@@ -9,20 +10,16 @@ import { FolderOpen, RotateCcw, CheckCircle, AlertCircle } from "lucide-react";
 export function NodePathSelector() {
   const { settings, updateSettings } = useSettings();
   const [isSelectingPath, setIsSelectingPath] = useState(false);
-  const [nodeStatus, setNodeStatus] = useState<{
-    version: string | null;
-    isValid: boolean;
-  }>({
-    version: null,
-    isValid: false,
-  });
-  const [isCheckingNode, setIsCheckingNode] = useState(false);
+  const {
+    data: nodeSystemInfo,
+    isFetching: isCheckingNode,
+    refetch: refetchNodeStatus,
+  } = useNodejsStatus();
+  const nodeStatus = {
+    version: nodeSystemInfo?.nodeVersion ?? null,
+    isValid: Boolean(nodeSystemInfo?.nodeVersion),
+  };
   const [systemPath, setSystemPath] = useState<string>("Loading...");
-
-  // Check Node.js status when component mounts or path changes
-  useEffect(() => {
-    checkNodeStatus();
-  }, [settings?.customNodePath]);
 
   const fetchSystemPath = async () => {
     try {
@@ -35,26 +32,15 @@ export function NodePathSelector() {
   };
 
   useEffect(() => {
-    // Fetch system path on mount
     fetchSystemPath();
   }, []);
 
-  const checkNodeStatus = async () => {
-    if (!settings) return;
-    setIsCheckingNode(true);
-    try {
-      const status = await IpcClient.getInstance().getNodejsStatus();
-      setNodeStatus({
-        version: status.nodeVersion,
-        isValid: !!status.nodeVersion,
-      });
-    } catch (error) {
-      console.error("Failed to check Node.js status:", error);
-      setNodeStatus({ version: null, isValid: false });
-    } finally {
-      setIsCheckingNode(false);
+  useEffect(() => {
+    if (settings?.customNodePath != null) {
+      void refetchNodeStatus();
     }
-  };
+  }, [settings?.customNodePath, refetchNodeStatus]);
+
   const handleSelectNodePath = async () => {
     setIsSelectingPath(true);
     try {
@@ -66,7 +52,7 @@ export function NodePathSelector() {
         // Update the environment PATH
         await IpcClient.getInstance().reloadEnvPath();
         // Recheck Node.js status
-        await checkNodeStatus();
+        await refetchNodeStatus();
         showSuccess("Node.js path updated successfully");
       } else if (result.path === null && result.canceled === false) {
         showError(
@@ -87,7 +73,7 @@ export function NodePathSelector() {
       await IpcClient.getInstance().reloadEnvPath();
       // Recheck Node.js status
       await fetchSystemPath();
-      await checkNodeStatus();
+      await refetchNodeStatus();
       showSuccess("Reset to system Node.js path");
     } catch (error: any) {
       showError(`Failed to reset Node.js path: ${error.message}`);

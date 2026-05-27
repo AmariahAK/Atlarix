@@ -14,8 +14,9 @@ import { providerSettingsRoute } from "@/routes/settings/providers/$provider";
 
 import SetupProviderCard from "@/components/SetupProviderCard";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useNodejsStatus } from "@/hooks/useNodejsStatus";
 import {
   Accordion,
   AccordionContent,
@@ -24,7 +25,6 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { NodeSystemInfo } from "@/ipc/ipc_types";
 import { usePostHog } from "posthog-js/react";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useScrollAndNavigateTo } from "@/hooks/useScrollAndNavigateTo";
@@ -48,23 +48,13 @@ export function SetupBanner() {
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(true);
   const { isAnyProviderSetup, isLoading: loading } =
     useLanguageModelProviders();
-  const [nodeSystemInfo, setNodeSystemInfo] = useState<NodeSystemInfo | null>(
-    null,
-  );
-  const [nodeCheckError, setNodeCheckError] = useState<boolean>(false);
+  const {
+    data: nodeSystemInfo = null,
+    isError: nodeCheckError,
+    refetch: refetchNodeStatus,
+  } = useNodejsStatus();
   const [nodeInstallStep, setNodeInstallStep] =
     useState<NodeInstallStep>("install");
-  const checkNode = useCallback(async () => {
-    try {
-      setNodeCheckError(false);
-      const status = await IpcClient.getInstance().getNodejsStatus();
-      setNodeSystemInfo(status);
-    } catch (error) {
-      console.error("Failed to check Node.js status:", error);
-      setNodeSystemInfo(null);
-      setNodeCheckError(true);
-    }
-  }, [setNodeSystemInfo, setNodeCheckError]);
   const [showManualConfig, setShowManualConfig] = useState(false);
   const [isSelectingPath, setIsSelectingPath] = useState(false);
   const { updateSettings } = useSettings();
@@ -77,7 +67,7 @@ export function SetupBanner() {
       if (result.path) {
         await updateSettings({ customNodePath: result.path });
         await IpcClient.getInstance().reloadEnvPath();
-        await checkNode();
+        await refetchNodeStatus();
         setNodeInstallStep("finished-checking");
         setShowManualConfig(false);
       } else if (result.path === null && result.canceled === false) {
@@ -90,11 +80,7 @@ export function SetupBanner() {
     } finally {
       setIsSelectingPath(false);
     }
-  }, [checkNode]);
-
-  useEffect(() => {
-    checkNode();
-  }, [checkNode]);
+  }, [refetchNodeStatus]);
 
   const settingsScrollAndNavigateTo = useScrollAndNavigateTo("/settings", {
     behavior: "smooth",
@@ -152,9 +138,9 @@ export function SetupBanner() {
     posthog.capture("setup-flow:continue-node-install-click");
     setNodeInstallStep("continue-processing");
     await IpcClient.getInstance().reloadEnvPath();
-    await checkNode();
+    await refetchNodeStatus();
     setNodeInstallStep("finished-checking");
-  }, [checkNode, setNodeInstallStep]);
+  }, [refetchNodeStatus, setNodeInstallStep]);
 
   // We only check for node version because pnpm is not required for the app to run.
   const isNodeSetupComplete = Boolean(nodeSystemInfo?.nodeVersion);
