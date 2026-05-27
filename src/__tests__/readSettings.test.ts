@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { safeStorage } from "electron";
-import { readSettings, getSettingsFilePath } from "@/main/settings";
+import {
+  readSettings,
+  getSettingsFilePath,
+  __injectSafeStorageForTests,
+} from "@/main/settings";
 import { getUserDataPath } from "@/paths/paths";
 import { UserSettings } from "@/lib/schemas";
 
@@ -27,9 +31,11 @@ describe("readSettings", () => {
     mockGetUserDataPath.mockReturnValue(mockUserDataPath);
     mockPath.join.mockReturnValue(mockSettingsPath);
     mockSafeStorage.isEncryptionAvailable.mockReturnValue(true);
+    __injectSafeStorageForTests(mockSafeStorage);
   });
 
   afterEach(() => {
+    __injectSafeStorageForTests(undefined);
     vi.restoreAllMocks();
   });
 

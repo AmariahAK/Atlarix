@@ -446,6 +446,10 @@ jobs:
         shell: pwsh
         run: npm run fetch-ctags
 
+      - name: Ensure Electron binary (Windows)
+        shell: pwsh
+        run: node node_modules/electron/install.js
+
       - name: Install ripgrep
         shell: pwsh
         run: |

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { getUserDataPath } from "../paths/paths";
 import {
   UserSettingsSchema,
@@ -7,13 +8,46 @@ import {
   Secret,
   VertexProviderSetting,
 } from "../lib/schemas";
-import { safeStorage } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import log from "electron-log";
 import { DEFAULT_TEMPLATE_ID } from "@/shared/templates";
 import { IS_TEST_BUILD } from "@/ipc/utils/test_utils";
 
 const logger = log.scope("settings");
+
+type SafeStorageApi = {
+  isEncryptionAvailable(): boolean;
+  encryptString(plainText: string): Buffer;
+  decryptString(encrypted: Buffer): string;
+};
+
+let safeStorageCache: SafeStorageApi | null | undefined;
+let safeStorageTestOverride: SafeStorageApi | null | undefined;
+
+const requireElectron = createRequire(
+  typeof import.meta.url === "string"
+    ? import.meta.url
+    : path.join(__dirname, "settings.js"),
+);
+
+/** @internal Vitest — wire the same mocked `electron.safeStorage` as `import { safeStorage } from "electron"`. */
+export function __injectSafeStorageForTests(api: SafeStorageApi | null | undefined): void {
+  safeStorageTestOverride = api;
+  safeStorageCache = undefined;
+}
+
+/** Lazy-load Electron safeStorage so headless CI (tsx benchmarks) can import readSettings. */
+function getSafeStorage(): SafeStorageApi | null {
+  if (safeStorageTestOverride !== undefined) return safeStorageTestOverride;
+  if (safeStorageCache !== undefined) return safeStorageCache;
+  try {
+    const electron = requireElectron("electron") as typeof import("electron");
+    safeStorageCache = electron.safeStorage ?? null;
+  } catch {
+    safeStorageCache = null;
+  }
+  return safeStorageCache;
+}
 
 // IF YOU NEED TO UPDATE THIS, YOU'RE PROBABLY DOING SOMETHING WRONG!
 // Need to maintain backwards compatibility!
@@ -319,7 +353,8 @@ export function writeSettings(settings: Partial<UserSettings>): void {
 }
 
 export function encrypt(data: string): Secret {
-  if (safeStorage.isEncryptionAvailable() && !IS_TEST_BUILD) {
+  const safeStorage = getSafeStorage();
+  if (safeStorage?.isEncryptionAvailable() && !IS_TEST_BUILD) {
     return {
       value: safeStorage.encryptString(data).toString("base64"),
       encryptionType: "electron-safe-storage",
@@ -333,6 +368,10 @@ export function encrypt(data: string): Secret {
 
 export function decrypt(data: Secret): string {
   if (data.encryptionType === "electron-safe-storage") {
+    const safeStorage = getSafeStorage();
+    if (!safeStorage) {
+      throw new Error("Electron safeStorage is unavailable");
+    }
     return safeStorage.decryptString(Buffer.from(data.value, "base64"));
   }
   return data.value;
