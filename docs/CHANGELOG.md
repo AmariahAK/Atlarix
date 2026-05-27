@@ -6,6 +6,15 @@ _(Nothing yet.)_
 
 ---
 
+## [9.0.0] (2026-05-28) — Welcome launcher hotfix
+
+### Fixed
+
+- **Welcome → Open folder:** `openWorkspaceFolder` no longer imports `node:path` in renderer code (fixes Vite externalized-module error when picking a directory).
+- **Welcome UI:** Right-panel toggle and panel chrome hidden until a workspace is selected (`selectedAppId` set).
+
+---
+
 ## [8.9.0] (2026-05-27) — Workspace-first product & release polish
 
 ### Breaking

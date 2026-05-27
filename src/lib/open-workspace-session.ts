@@ -2,8 +2,8 @@
  * Unified workspace open → session → ephemeral chat → IDE navigation.
  */
 
-import path from "node:path";
 import { getDefaultStore } from "jotai";
+import { basenameFromPath } from "@/lib/path-basename";
 import type { NavigateOptions } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
@@ -183,7 +183,7 @@ export async function openWorkspaceFolder(
     options.appName ??
     (isRemote
       ? folderPath.split("/").filter(Boolean).pop() || "Remote workspace"
-      : path.basename(folderPath) || "Workspace");
+      : basenameFromPath(folderPath) || "Workspace");
 
   try {
     const imported = await IpcClient.getInstance().importApp({

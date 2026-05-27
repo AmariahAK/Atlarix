@@ -475,7 +475,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             >
               {showWorkspaceChrome && leftPanelVisible ? <LeftPanel /> : null}
               {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
-              {isOnChatPage && (
+              {isOnChatPage && showWorkspaceChrome && (
                 <button
                   type="button"
                   onClick={toggleRightPanel}
@@ -505,7 +505,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 </div>
               </div>
               {/* Right panel: on chat page whenever visible (works for workspace and web-only chats) */}
-              {rightPanelVisible && isOnChatPage && <RightPanel />}
+              {rightPanelVisible && isOnChatPage && showWorkspaceChrome && (
+                <RightPanel />
+              )}
             </div>
             <Toaster richColors />
           </SidebarProvider>
