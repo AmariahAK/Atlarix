@@ -621,6 +621,7 @@ function StreamThreadItemView({
           agents={item.agents}
           status={item.status}
           isStreaming={isStreaming}
+          isHistorical={!isStreaming}
         />
       );
     case "tool_group":

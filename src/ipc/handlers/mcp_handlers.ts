@@ -33,62 +33,34 @@ export function logMcpError(context: string, e: unknown): void {
 }
 
 const MCP_FREE_TIER_LIMIT = 1;
-const MCP_GLOBAL_MAX = 5;
-const MCP_WORKSPACE_MAX = 5;
+export const MCP_WORKSPACE_MAX = 10;
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
 export function registerMcpHandlers() {
-  // List MCP servers (optional filter by scope / appId)
-  // scope: global = only global; workspace + appId = only that workspace; globalAndWorkspace + appId = global + workspace for app
+  // List MCP servers (workspace-scoped; optional appId filter)
   handle(
     "mcp:list-servers",
     async (
       _event: IpcMainInvokeEvent,
-      filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }
+      filter?: { scope?: "workspace"; appId?: number },
     ) => {
-      if (!filter?.scope) {
-        return await db.select().from(mcpServers);
-      }
-      if (filter.scope === "global") {
-        return await db
-          .select()
-          .from(mcpServers)
-          .where(eq(mcpServers.scope, "global"));
-      }
-      if (filter.scope === "workspace" && filter.appId != null) {
+      if (filter?.appId != null) {
         return await db
           .select()
           .from(mcpServers)
           .where(
             and(
               eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, filter.appId)
-            )
+              eq(mcpServers.appId, filter.appId),
+            ),
           );
       }
-      if (filter.scope === "globalAndWorkspace" && filter.appId != null) {
-        const [globalList, workspaceList] = await Promise.all([
-          db.select().from(mcpServers).where(eq(mcpServers.scope, "global")),
-          db
-            .select()
-            .from(mcpServers)
-            .where(
-              and(
-                eq(mcpServers.scope, "workspace"),
-                eq(mcpServers.appId, filter.appId)
-              )
-            ),
-        ]);
-        const seen = new Set<number>();
-        return [...globalList, ...workspaceList].filter((s) => {
-          if (seen.has(s.id)) return false;
-          seen.add(s.id);
-          return true;
-        });
-      }
-      return [];
-    }
+      return await db
+        .select()
+        .from(mcpServers)
+        .where(eq(mcpServers.scope, "workspace"));
+    },
   );
 
   handle("mcp:list-orphaned-servers", async () => {
@@ -119,42 +91,32 @@ export function registerMcpHandlers() {
   handle(
     "mcp:create-server",
     async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => {
-      const scope = params.scope ?? "global";
+      const scope = "workspace";
       const appId = params.appId ?? null;
+      if (appId == null) {
+        throw new Error("Select a workspace before adding an MCP server.");
+      }
 
-      // Use subscription tier (Pro or Workforce) instead of credits-based budget.
       const isPro = SubscriptionManager.isPro();
 
-      if (scope === "global") {
-        const globalCount = await db
-          .select()
-          .from(mcpServers)
-          .where(eq(mcpServers.scope, "global"));
-        if (globalCount.length >= MCP_GLOBAL_MAX) {
-          throw new Error(
-            `Maximum ${MCP_GLOBAL_MAX} global MCP servers. Remove one to add another.`
-          );
-        }
-        if (!isPro && globalCount.length >= MCP_FREE_TIER_LIMIT) {
-          throw new Error(
-            "Free tier is limited to 1 MCP server. Upgrade to Pro for more."
-          );
-        }
-      } else if (scope === "workspace" && appId != null) {
-        const workspaceCount = await db
-          .select()
-          .from(mcpServers)
-          .where(
-            and(
-              eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, appId)
-            )
-          );
-        if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
-          throw new Error(
-            `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`
-          );
-        }
+      const workspaceCount = await db
+        .select()
+        .from(mcpServers)
+        .where(
+          and(
+            eq(mcpServers.scope, "workspace"),
+            eq(mcpServers.appId, appId),
+          ),
+        );
+      if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+        throw new Error(
+          `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+        );
+      }
+      if (!isPro && workspaceCount.length >= MCP_FREE_TIER_LIMIT) {
+        throw new Error(
+          "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
+        );
       }
 
       const { name, transport, command, args, envJson, url, apiKey, enabled } =
@@ -400,43 +362,33 @@ export function registerMcpHandlers() {
       },
     ): Promise<{ success: boolean; serverId?: number; error?: string }> => {
       try {
-        const { entry, env, scope = "global", appId = null } = params;
+        const { entry, env, appId = null } = params;
+        const scope = "workspace" as const;
+        if (appId == null) {
+          return { success: false, error: "Select a workspace before installing an MCP." };
+        }
 
-        // Re-use the same tier / capacity gates as `mcp:create-server`.
         const isPro = SubscriptionManager.isPro();
-        if (scope === "global") {
-          const globalCount = await db
-            .select()
-            .from(mcpServers)
-            .where(eq(mcpServers.scope, "global"));
-          if (globalCount.length >= MCP_GLOBAL_MAX) {
-            return {
-              success: false,
-              error: `Maximum ${MCP_GLOBAL_MAX} global MCP servers. Remove one to add another.`,
-            };
-          }
-          if (!isPro && globalCount.length >= MCP_FREE_TIER_LIMIT) {
-            return {
-              success: false,
-              error: "Free tier is limited to 1 MCP server. Upgrade to Pro for more.",
-            };
-          }
-        } else if (scope === "workspace" && appId != null) {
-          const workspaceCount = await db
-            .select()
-            .from(mcpServers)
-            .where(
-              and(
-                eq(mcpServers.scope, "workspace"),
-                eq(mcpServers.appId, appId),
-              ),
-            );
-          if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
-            return {
-              success: false,
-              error: `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
-            };
-          }
+        const workspaceCount = await db
+          .select()
+          .from(mcpServers)
+          .where(
+            and(
+              eq(mcpServers.scope, "workspace"),
+              eq(mcpServers.appId, appId),
+            ),
+          );
+        if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+          return {
+            success: false,
+            error: `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+          };
+        }
+        if (!isPro && workspaceCount.length >= MCP_FREE_TIER_LIMIT) {
+          return {
+            success: false,
+            error: "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
+          };
         }
 
         // Validate that every required env var was provided. We do not
@@ -468,7 +420,7 @@ export function registerMcpHandlers() {
             url: null,
             enabled: true,
             scope,
-            appId: scope === "workspace" ? appId : null,
+            appId,
             fromRegistry: true,
             registryId: entry.id,
           })

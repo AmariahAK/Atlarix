@@ -6,6 +6,7 @@ import fs from "fs/promises";
 import { apps, chats } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
+import { parseRemoteUri } from "@/lib/workspace-fs";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -18,7 +19,11 @@ export async function importWorkspaceFromPath({
   installCommand?: string | null;
   startCommand?: string | null;
 }): Promise<{ appId: number; chatId: number }> {
-  await fs.access(sourcePath);
+  const remote = parseRemoteUri(sourcePath);
+  const workspaceKind = remote ? "remote-ssh" : "local";
+  if (!remote) {
+    await fs.access(sourcePath);
+  }
 
   const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
   const limitCheck = await SubscriptionManager.canCreateWorkspace();
@@ -32,6 +37,10 @@ export async function importWorkspaceFromPath({
     where: eq(apps.path, sourcePath),
   });
   if (existingByPath) {
+    await db
+      .update(apps)
+      .set({ lastOpenedAt: new Date(), updatedAt: new Date() })
+      .where(eq(apps.id, existingByPath.id));
     const existingChat = await db.query.chats.findFirst({
       where: eq(chats.appId, existingByPath.id),
     });
@@ -49,6 +58,7 @@ export async function importWorkspaceFromPath({
     throw new Error("An app with this name already exists");
   }
 
+  const now = new Date();
   const [app] = await db
     .insert(apps)
     .values({
@@ -56,6 +66,14 @@ export async function importWorkspaceFromPath({
       path: sourcePath,
       installCommand: installCommand ?? null,
       startCommand: startCommand ?? null,
+      workspaceKind,
+      remoteConnection: remote
+        ? JSON.stringify({
+            hostAlias: remote.hostAlias,
+            remotePath: remote.remotePath,
+          })
+        : null,
+      lastOpenedAt: now,
     })
     .returning();
 

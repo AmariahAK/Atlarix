@@ -58,6 +58,7 @@ import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
+import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 
 /**
  * PersistentChatContainer
@@ -67,6 +68,7 @@ import type { FileAttachment } from "@/ipc/ipc_types";
  */
 function PersistentChatContainer() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
   const { visible: rightPanelVisible, toggle: toggleRightPanel, show: showRightPanel } =
@@ -84,10 +86,10 @@ function PersistentChatContainer() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const setPendingWorkspaceAppId = useSetAtom(pendingWorkspaceAppIdAtom);
-  const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const appsList = useAtomValue(appsListAtom);
   const mustSignIn = !authLoading && !isAuthenticated;
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
 
   // Determine if we're on the home page
   const isHomePage = location.pathname === '/';
@@ -120,42 +122,44 @@ function PersistentChatContainer() {
     }
   }, [activeChatId, streamMessage, mustSignIn]);
 
-  // Handle new chat - reset to home state
   const handleNewChat = useCallback(() => {
+    const workspaceId = selectedAppId ?? pendingWorkspaceAppId;
+    if (workspaceId != null) {
+      const app = appsList.find((a) => a.id === workspaceId);
+      void startNewWorkspaceConversation({
+        workspaceId,
+        workspaceName: app?.name,
+        workspacePath: app?.path,
+        navigate: (opts) => navigate(opts),
+      }).then((chatId) => {
+        if (chatId != null) {
+          setSourceList([]);
+          setSelectedSource(null);
+          setSuppressAutoOpen(true);
+          setPendingWorkspaceAppId(null);
+        }
+      });
+      return;
+    }
     setActiveChatId(null);
     setSourceList([]);
     setSelectedSource(null);
     setSuppressAutoOpen(true);
-    if (pendingWorkspaceAppId != null) {
-      const app = appsList.find((a) => a.id === pendingWorkspaceAppId);
-      setSelectedAppId(pendingWorkspaceAppId);
-      if (app) {
-        setSelectedWorkspaceInfo({
-          id: app.id,
-          name: app.name,
-          path: app.path,
-        });
-      }
-      setPendingWorkspaceAppId(null);
-    } else {
-      setSelectedAppId(null);
-    }
+    setSelectedAppId(null);
   }, [
+    selectedAppId,
+    pendingWorkspaceAppId,
+    appsList,
+    navigate,
     setActiveChatId,
     setSourceList,
     setSelectedSource,
     setSuppressAutoOpen,
-    setRightPanelVisible,
-    setDiagramState,
     setSelectedAppId,
-    pendingWorkspaceAppId,
     setPendingWorkspaceAppId,
-    appsList,
-    setSelectedWorkspaceInfo,
   ]);
 
-  // Don't render anything if no active chat
-  if (!activeChatId) {
+  if (!activeChatId || selectedAppId == null) {
     return null;
   }
 
@@ -295,6 +299,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   }, [activeExtensionIds.length, leftPanelVisible, setLeftPanelVisible]);
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
+  const showWorkspaceChrome = selectedAppId != null;
   const showWorkspacePanel = currentApp?.pathExists !== false;
 
   // Load diagram when workspace is selected (even before first prompt)
@@ -449,9 +454,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <OnboardingProgressBar />
           {showOnboardingHighlight && (
             <style>{`
-              [data-onboarding-step="2"] [data-onboarding="home-chat-input"],
+              [data-onboarding-step="2"] [data-onboarding="welcome-open-folder"],
               [data-onboarding-step="3"] [data-onboarding="settings-link"],
-              [data-onboarding-step="4"] [data-onboarding="chat-continuity"],
+              [data-onboarding-step="4"] [data-onboarding="workspace-sessions"],
               [data-onboarding-step="5"] [data-onboarding="panel-resize-grip"] {
                 outline: 2px solid hsl(var(--primary));
                 outline-offset: 2px;
@@ -463,12 +468,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <div {...(showOnboardingHighlight ? { "data-onboarding-step": String(onboardingStep) } : {})}>
           <SidebarProvider>
             <TitleBar />
-            <AppSidebar />
+            {showWorkspaceChrome ? <AppSidebar /> : null}
             <div
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
-              {leftPanelVisible && <LeftPanel />}
+              {showWorkspaceChrome && leftPanelVisible ? <LeftPanel /> : null}
               {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
               {isOnChatPage && (
                 <button

@@ -14,7 +14,6 @@ import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import { useChats } from "@/hooks/useChats";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-
 export default function ChatPage() {
   let { id: chatId } = useSearch({ from: "/chat" });
   const navigate = useNavigate();
@@ -26,13 +25,16 @@ export default function ChatPage() {
   const { chats, loading } = useChats(selectedAppId);
 
   useEffect(() => {
-    if (!chatId && chats.length && !loading) {
-      // Not a real navigation, just a redirect, when the user navigates to /chat
-      // without a chatId, we redirect to the first chat
-      setSelectedAppId(chats[0].appId);
-      navigate({ to: "/chat", search: { id: chats[0].id }, replace: true });
+    if (!selectedAppId && !loading) {
+      navigate({ to: "/", replace: true });
+      return;
     }
-  }, [chatId, chats, loading, navigate]);
+    if (!chatId && chats.length && !loading && selectedAppId) {
+      const wsChat = chats.find((c) => c.appId === selectedAppId) ?? chats[0];
+      if (wsChat.appId) setSelectedAppId(wsChat.appId);
+      navigate({ to: "/chat", search: { id: wsChat.id }, replace: true });
+    }
+  }, [chatId, chats, loading, navigate, selectedAppId, setSelectedAppId]);
 
   useEffect(() => {
     if (isPreviewOpen) {

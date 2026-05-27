@@ -5,8 +5,11 @@
  */
 
 import { useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import {
   rightPanelVisibleAtom,
   rightPanelSuppressAutoOpenAtom,
@@ -22,7 +25,9 @@ import { showError } from "@/lib/toast";
 import type { FileAttachment } from "@/ipc/ipc_types";
 
 export function EmbeddedChatTab() {
+  const navigate = useNavigate();
   const activeChatId = useAtomValue(activeChatIdAtom);
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
@@ -58,6 +63,20 @@ export function EmbeddedChatTab() {
   );
 
   const handleNewChat = useCallback(() => {
+    if (selectedAppId != null) {
+      void startNewWorkspaceConversation({
+        workspaceId: selectedAppId,
+        navigate: (opts) => navigate(opts),
+      }).then((chatId) => {
+        if (chatId != null) {
+          setSourceList([]);
+          setSelectedSource(null);
+          setSuppressRightAutoOpen(true);
+          setDiagramState(null);
+        }
+      });
+      return;
+    }
     setActiveChatId(null);
     setSourceList([]);
     setSelectedSource(null);
@@ -65,6 +84,8 @@ export function EmbeddedChatTab() {
     setRightPanelVisible(false);
     setDiagramState(null);
   }, [
+    selectedAppId,
+    navigate,
     setActiveChatId,
     setSourceList,
     setSelectedSource,

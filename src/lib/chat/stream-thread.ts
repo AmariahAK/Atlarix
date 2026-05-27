@@ -1,6 +1,7 @@
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
 import {
+  delegateDisplayMetaFromToolPart,
   isDelegateToolName,
   type DelegateHandoffMeta,
 } from "@/lib/chat/delegate-handoff";
@@ -767,6 +768,12 @@ function mergeNestedItemLists(
   return next;
 }
 
+/** True when the label is a raw delegation id (not a human title). */
+export function isDelegationIdLabel(label: string | undefined): boolean {
+  if (!label?.trim()) return false;
+  return /^delegation-\d+/i.test(label.trim());
+}
+
 /** Prefer scoped sub-agent titles over generic delegation stubs. */
 export function pickSubagentDisplayLabel(
   a?: string,
@@ -775,6 +782,8 @@ export function pickSubagentDisplayLabel(
   const score = (label: string | undefined): number => {
     if (!label?.trim()) return -1;
     const t = label.trim();
+    if (isDelegationIdLabel(t)) return -10;
+    if (t.startsWith("Mapping:")) return 4;
     if (t.startsWith("Agent team:")) return 0;
     if (t.includes("·")) return 3;
     if (t.startsWith("Sub-agent:")) return 1;
@@ -785,6 +794,33 @@ export function pickSubagentDisplayLabel(
   if (sa > sb) return a!.trim();
   if (sb > sa) return b!.trim();
   return a?.trim() || b?.trim() || "agent";
+}
+
+/** Resolve card title when activity only has delegation ids. */
+export function resolveSubagentCardLabel(
+  entry: Pick<SubAgentRunEntry, "label" | "scope" | "agentType">,
+): string {
+  const candidates = [entry.label, entry.scope].filter(Boolean) as string[];
+  for (const c of candidates) {
+    const t = c.trim();
+    if (!isDelegationIdLabel(t)) return t;
+  }
+  const scope = entry.scope?.trim();
+  if (scope) {
+    return scope.startsWith("Mapping:") ? scope : `Mapping: ${scope}`;
+  }
+  const type = entry.agentType?.trim() || "agent";
+  if (type.includes("·")) return type;
+  const humanType = type.charAt(0).toUpperCase() + type.slice(1);
+  return `Sub-agent: ${humanType}`;
+}
+
+function finalizeSubagentEntry(entry: SubAgentRunEntry): SubAgentRunEntry {
+  const merged = pickSubagentDisplayLabel(entry.label, entry.scope);
+  const label = isDelegationIdLabel(merged)
+    ? resolveSubagentCardLabel(entry)
+    : merged;
+  return { ...entry, label };
 }
 
 /** Union sub-agent rows by id; thread nestedItems win over empty activity stubs. */
@@ -820,7 +856,7 @@ export function mergeSubAgentRunEntries(
       nestedItems: mergeNestedItemLists(prev.nestedItems, entry.nestedItems),
     });
   }
-  return [...map.values()];
+  return [...map.values()].map(finalizeSubagentEntry);
 }
 
 function collectAgentsFromSubagentRounds(
@@ -909,13 +945,26 @@ function buildSubagentAgentsFromActivity(
       const parentId = item.parentDelegationId.trim();
       const nested = streamThreadItemFromActivity(item);
       if (!nested) continue;
+      const agentType = String(item.agentType ?? item.agent ?? "agent");
+      const scope = item.scope;
       const agent = ensureAgent(parentId, () => ({
         id: parentId,
-        agentType: String(item.agent ?? "agent"),
-        label: parentId,
+        agentType,
+        label: scope
+          ? scope.startsWith("Mapping:")
+            ? scope
+            : `Mapping: ${scope}`
+          : pickSubagentDisplayLabel(item.label, undefined),
+        scope,
         status: "running",
         nestedItems: [],
       }));
+      agent.agentType = agentType;
+      agent.scope = scope ?? agent.scope;
+      agent.label = pickSubagentDisplayLabel(
+        agent.label,
+        item.label ?? (scope ? `Mapping: ${scope}` : undefined),
+      );
       agent.nestedItems = upsertNestedStreamThreadItem(
         agent.nestedItems,
         nested,
@@ -951,7 +1000,7 @@ function buildSubagentAgentsFromActivity(
     }
   }
 
-  return [...byId.values()];
+  return [...byId.values()].map(finalizeSubagentEntry);
 }
 
 /** Nest a tool/thought activity under a sub-agent card inside the active round. */
@@ -1052,25 +1101,29 @@ export function synthesizeSubagentRoundFromParts(
   roundId = "subagent-round-fallback",
 ): Extract<StreamThreadItem, { kind: "subagent_round" }> | null {
   const delegates = parts.filter(
-    (
-      p,
-    ): p is Extract<AssistantMessagePart, { type: "tool" }> & {
-      handoff: DelegateHandoffMeta;
-    } =>
-      p.type === "tool" &&
-      isDelegateToolName(p.toolName) &&
-      Boolean(p.handoff?.summary?.trim()),
+    (p): p is Extract<AssistantMessagePart, { type: "tool" }> =>
+      p.type === "tool" && isDelegateToolName(p.toolName),
   );
-  if (!delegates.length) return null;
+  const withMeta = delegates
+    .map((p) => ({ part: p, handoff: delegateDisplayMetaFromToolPart(p) }))
+    .filter(
+      (
+        row,
+      ): row is {
+        part: Extract<AssistantMessagePart, { type: "tool" }>;
+        handoff: DelegateHandoffMeta;
+      } => row.handoff != null && Boolean(row.handoff.summary?.trim()),
+    );
+  if (!withMeta.length) return null;
 
-  const agents: SubAgentRunEntry[] = delegates.map((p, index) => ({
+  const agents: SubAgentRunEntry[] = withMeta.map(({ part: p, handoff }, index) => ({
     id: `handoff-${p.id}-${index}`,
-    agentType: p.handoff.agentRole,
-    label: p.handoff.scope
-      ? `${p.handoff.agentRole} · ${p.handoff.scope}`
-      : p.handoff.agentRole,
-    scope: p.handoff.scope,
-    summary: p.handoff.summary,
+    agentType: handoff.agentRole,
+    label: handoff.scope
+      ? `${handoff.agentRole} · ${handoff.scope}`
+      : handoff.agentRole,
+    scope: handoff.scope,
+    summary: handoff.summary,
     status:
       p.status === "error"
         ? "error"

@@ -1,8 +1,35 @@
 # Atlarix Changelog
 
-## [Unreleased] — Sub-agents UX & runtime cleanup
+## [Unreleased]
 
-### Agents
+_(Nothing yet.)_
+
+---
+
+## [8.9.0] (2026-05-27) — Workspace-first product & release polish
+
+### Breaking
+
+- **No global chat:** Incognito / chat-without-folder removed. Open a workspace from the welcome screen to stream.
+- **No global MCP/skills:** Deleted `scope=global` rows on upgrade (migration `0049`). Limits are **10 MCP** and **10 skills** per workspace only.
+- **Prompt Library removed:** Custom workspace/global prompts and `@prompt` mentions removed. Use `.atlarix/atlarix.md` for project instructions (`0050_drop_prompts_table`).
+
+### Welcome & open
+
+- **Welcome launcher:** Hello + tier badge; **Open folder** and **Clone repo**; recent workspaces by last opened. (Remote SSH UI hidden until wired; backend stubs remain.)
+- **Settings → MCP / Skills:** Scoped to the **active workspace** only (no cross-workspace list).
+- **`openWorkspaceFolder`:** Unified import → session → ephemeral chat → IDE (`src/lib/open-workspace-session.ts`). CLI and sidebar use the same path.
+
+### Sessions & windows
+
+- **Background sessions:** `sessionIdToChatId` reuses chat transport when switching sessions; row spinner when a background session is streaming.
+- **Multi-window (local):** `workspace-window-manager` focuses an existing window for the same folder path.
+
+### Remote SSH (initial)
+
+- Main-process `remote-ssh/` (config parse, connect stubs, IPC). `packages/atlarix-remote-server` health stub. Remote FS facade (`workspace-fs`) — full RPC in follow-up.
+
+### Agents (prior unreleased)
 
 - **Sub-agents (Explore & Review only):** Up to **5** readonly sub-agents per turn; batch paths via `scopes`. Plan, Build, and Debug no longer expose delegation tools.
 - **Sub-agent UI:** Single **Sub-agents** round panel with per-scope cards (exploring / reviewing / …), nested thoughts and grouped tools; no duplicate “Research completed” handoff rows.
@@ -17,6 +44,15 @@
 ### Attachments
 
 - **Pasted text:** Compact file-style chip (click to open full preview dialog).
+
+### Release polish (8.9.0)
+
+- **Sub-agent labels:** Cards show scoped titles (e.g. `Mapping: repo`) instead of raw `delegation-*` ids; duplicate subtitle leak fixed in collapsed cards.
+- **Code tab:** File tree loads via `getAppFiles` whenever a workspace is selected (no sidebar expand required).
+- **Monaco:** Bundled `monaco-editor` + workers in the renderer for syntax highlighting in packaged Electron builds.
+- **Vault UI removed:** Per-workspace Vault tab dropped; `.env.local` helpers remain for codegen/templates.
+- **Onboarding & tour:** Updated for welcome launcher, workspace sessions, and right-panel tabs.
+- **Tools page:** Workspace-first catalog; Explore & Review sub-agents; removed legacy delegation / vault copy.
 
 ---
 

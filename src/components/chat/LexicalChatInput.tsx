@@ -21,7 +21,6 @@ import {
 } from "lexical-beautiful-mentions";
 import { KEY_ENTER_COMMAND, COMMAND_PRIORITY_HIGH } from "lexical";
 import { useLoadApps } from "@/hooks/useLoadApps";
-import { usePrompts } from "@/hooks/usePrompts";
 import { forwardRef } from "react";
 import { useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
@@ -41,10 +40,9 @@ const CustomMenuItem = forwardRef<
   BeautifulMentionsMenuItemProps
 >(({ selected, item, itemValue: _itemValue, label: _label, ...props }, ref) => {
   const type = (item as any)?.data?.type ?? (item as any)?.type;
-  const isPrompt = type === "prompt";
   const isApp = type === "app";
   const isMcp = type === "mcp";
-  const label = isPrompt ? "Prompt" : isApp ? "App" : isMcp ? "MCP" : "File";
+  const label = isApp ? "App" : isMcp ? "MCP" : "File";
   const value = (item as any)?.value;
   return (
     <li
@@ -159,24 +157,13 @@ function ClearEditorPlugin({
 }
 
 // Plugin to sync external value prop into the editor
-function ExternalValueSyncPlugin({
-  value,
-  promptsById,
-}: {
-  value: string;
-  promptsById: Record<number, string>;
-}) {
+function ExternalValueSyncPlugin({ value }: { value: string }) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
     // Derive the display text that should appear in the editor (@Name) from the
-    // internal value representation (@app:Name, @prompt:id, @mcp:Name)
+    // internal value representation (@app:Name, @file:path, @mcp:Name)
     let displayText = (value || "").replace(MENTION_REGEX, "@$1");
-    displayText = displayText.replace(/@prompt:(\d+)/g, (_m, idStr) => {
-      const id = Number(idStr);
-      const title = promptsById[id];
-      return title ? `@${title}` : _m;
-    });
     displayText = displayText.replace(/@mcp:([^\s]+)/g, "@$1");
 
     const currentText = editor.getEditorState().read(() => {
@@ -194,10 +181,10 @@ function ExternalValueSyncPlugin({
 
       const paragraph = $createParagraphNode();
 
-      // Build nodes from internal value: @app:Name, @prompt:<id>, @file:path, @mcp:Name
+      // Build nodes from internal value: @app:Name, @file:path, @mcp:Name
       let lastIndex = 0;
       let match: RegExpExecArray | null;
-      const combined = /@app:([a-zA-Z0-9_-]+)|@prompt:(\d+)|@file:([^\s]+)|@mcp:([^\s]+)/g;
+      const combined = /@app:([a-zA-Z0-9_-]+)|@file:([^\s]+)|@mcp:([^\s]+)/g;
       while ((match = combined.exec(value)) !== null) {
         const start = match.index;
         const full = match[0];
@@ -209,14 +196,10 @@ function ExternalValueSyncPlugin({
           const appName = match[1];
           paragraph.append($createBeautifulMentionNode("@", appName));
         } else if (match[2]) {
-          const id = Number(match[2]);
-          const title = promptsById[id] || `prompt:${id}`;
-          paragraph.append($createBeautifulMentionNode("@", title));
-        } else if (match[3]) {
-          const filePath = match[3];
+          const filePath = match[2];
           paragraph.append($createBeautifulMentionNode("@", filePath));
-        } else if (match[4]) {
-          const mcpName = match[4];
+        } else if (match[3]) {
+          const mcpName = match[3];
           paragraph.append($createBeautifulMentionNode("@", mcpName));
         }
         lastIndex = start + full.length;
@@ -233,7 +216,7 @@ function ExternalValueSyncPlugin({
       root.append(paragraph);
       paragraph.selectEnd();
     });
-  }, [editor, value, promptsById]);
+  }, [editor, value]);
 
   return null;
 }
@@ -264,7 +247,6 @@ export function LexicalChatInput({
   disableSendButton,
 }: LexicalChatInputProps) {
   const { apps } = useLoadApps();
-  const { prompts } = usePrompts();
   const { servers: mcpServers = [] } = useMcp();
   const [shouldClear, setShouldClear] = useState(false);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
@@ -303,12 +285,6 @@ export function LexicalChatInput({
       type: "app",
     }));
 
-    const promptItems = (prompts || []).map((p) => ({
-      value: p.title,
-      type: "prompt",
-      id: p.id,
-    }));
-
     const fileItems = (appFiles || []).map((item) => ({
       value: item,
       type: "file",
@@ -322,9 +298,9 @@ export function LexicalChatInput({
     }));
 
     return {
-      "@": [...appMentions, ...promptItems, ...fileItems, ...mcpItems],
+      "@": [...appMentions, ...fileItems, ...mcpItems],
     };
-  }, [apps, selectedAppId, value, excludeCurrentApp, prompts, appFiles, mcpServers]);
+  }, [apps, selectedAppId, value, excludeCurrentApp, appFiles, mcpServers]);
 
   const initialConfig = {
     namespace: "ChatInput",
@@ -360,14 +336,6 @@ export function LexicalChatInput({
             );
             textContent = textContent.replace(mentionRegex, "@app:$1");
           }
-          // Convert @PromptTitle to @prompt:<id>
-          const map = new Map((prompts || []).map((p) => [p.title, p.id]));
-          for (const [title, id] of map.entries()) {
-            const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const regex = new RegExp(`@(${escapedTitle})(?![\\w-])`, "g");
-            textContent = textContent.replace(regex, `@prompt:${id}`);
-          }
-
           for (const fullPath of appFiles || []) {
             const escapedDisplay = fullPath.replace(
               /[.*+?^${}()|[\]\\]/g,
@@ -386,7 +354,7 @@ export function LexicalChatInput({
         onChange(textContent);
       });
     },
-    [onChange, apps, prompts, appFiles, mcpServers],
+    [onChange, apps, appFiles, mcpServers],
   );
 
   const handleSubmit = useCallback(() => {
@@ -437,12 +405,7 @@ export function LexicalChatInput({
           onSubmit={handleSubmit}
           disableSendButton={disableSendButton}
         />
-        <ExternalValueSyncPlugin
-          value={value}
-          promptsById={Object.fromEntries(
-            (prompts || []).map((p) => [p.id, p.title]),
-          )}
-        />
+        <ExternalValueSyncPlugin value={value} />
         <ClearEditorPlugin
           shouldClear={shouldClear}
           onCleared={handleCleared}

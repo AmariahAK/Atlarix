@@ -1,12 +1,18 @@
 /**
- * Open a folder as workspace from CLI / OS file association (atlarix .).
+ * Open a folder as workspace from CLI / OS file association (`atlarix .` / `atlarix /path`).
+ * Uses importWorkspaceFromPath: opens existing app by path, or registers a new workspace + chat.
  */
 
 import path from "node:path";
 import fs from "node:fs";
-import { BrowserWindow } from "electron";
 import log from "electron-log";
 import { importWorkspaceFromPath } from "../ipc/handlers/import_workspace_core";
+import { createAppBrowserWindow, deliverToWindow } from "./create-app-browser-window";
+import {
+  focusOrOpenWorkspaceWindow,
+  getPrimaryWindow,
+  sendToWorkspaceWindow,
+} from "./workspace-window-manager";
 
 const logger = log.scope("open-workspace-cli");
 
@@ -30,7 +36,10 @@ export function parseDirectoryArgFromArgv(
   return null;
 }
 
-export async function openWorkspaceFromCliPath(dirPath: string): Promise<void> {
+export async function openWorkspaceFromCliPath(
+  dirPath: string,
+  options?: { forceNewWindow?: boolean },
+): Promise<void> {
   const resolved = path.resolve(dirPath);
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     logger.warn(`[openWorkspaceFromCliPath] Not a directory: ${resolved}`);
@@ -45,13 +54,29 @@ export async function openWorkspaceFromCliPath(dirPath: string): Promise<void> {
     });
     logger.log(`[openWorkspaceFromCliPath] Opened ${resolved} appId=${appId} chatId=${chatId}`);
 
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send("workspace:opened-from-cli", {
-        appId,
-        chatId,
-        path: resolved,
-        name: appName,
-      });
+    const payload = {
+      appId,
+      chatId,
+      path: resolved,
+      name: appName,
+    };
+
+    if (options?.forceNewWindow) {
+      const win = focusOrOpenWorkspaceWindow(resolved, () => createAppBrowserWindow());
+      deliverToWindow(win, "workspace:opened-from-cli", payload);
+      return;
+    }
+
+    const sent = sendToWorkspaceWindow(
+      resolved,
+      "workspace:opened-from-cli",
+      payload,
+    );
+    if (!sent) {
+      const win = getPrimaryWindow();
+      if (win) {
+        deliverToWindow(win, "workspace:opened-from-cli", payload);
+      }
     }
   } catch (err) {
     logger.error("[openWorkspaceFromCliPath] failed:", err);

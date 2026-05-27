@@ -1,17 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen, AppWindow } from "lucide-react";
 import { Trash2 } from "lucide-react";
-import { getDefaultStore, useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
-import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
+import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import {
   activeWorkspaceSessionIdAtom,
-  loadedSessionResumeAtom,
   workspaceSidebarTabAtom,
-  chatIdToSessionIdAtom,
-  workspaceSessionsRefreshAtom,
 } from "@/atoms/sessionAtoms";
-import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
 import { cn } from "@/lib/utils";
 import {
@@ -29,14 +25,15 @@ import {
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
 import { AppSearchDialog } from "./AppSearchDialog";
-import { WorkspaceRecentsMenu } from "@/components/workspace/WorkspaceRecentsMenu";
-import { loadRecentWorkspaces, pushRecentWorkspace } from "@/lib/workspace-recents";
+import { LocalDateTimeClock } from "@/components/LocalDateTimeClock";
+import { pushRecentWorkspace } from "@/lib/workspace-recents";
+import { openWorkspaceFolder } from "@/lib/open-workspace-session";
 import { Badge } from "@/components/ui/badge";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -56,6 +53,7 @@ interface WorkspaceWithChats {
 export function AppList({ show }: { show?: boolean }) {
   const navigate = useNavigate();
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
+  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
@@ -71,11 +69,7 @@ export function AppList({ show }: { show?: boolean }) {
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
-  const [recentWorkspaces, setRecentWorkspaces] = useState(() => loadRecentWorkspaces());
   const [sidebarTab, setSidebarTab] = useAtom(workspaceSidebarTabAtom);
-  const setActiveWorkspaceSessionId = useSetAtom(activeWorkspaceSessionIdAtom);
-  const setLoadedSessionResume = useSetAtom(loadedSessionResumeAtom);
-  const setChatIdToSessionId = useSetAtom(chatIdToSessionIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
@@ -173,6 +167,27 @@ export function AppList({ show }: { show?: boolean }) {
     [apps],
   );
 
+  /** When a workspace is open, show only that folder in the sidebar (switch via recents / +). */
+  const visibleWorkspaces = useMemo(() => {
+    if (selectedAppId == null) return workspaces;
+    return workspaces
+      .filter((w) => w.id === selectedAppId)
+      .map((w) => ({ ...w, isExpanded: true }));
+  }, [workspaces, selectedAppId]);
+
+  const activeWorkspaceLabel = useMemo(() => {
+    if (selectedAppId == null) return "Workspaces";
+    const ws = workspaces.find((w) => w.id === selectedAppId);
+    return ws?.name ?? "Workspace";
+  }, [selectedAppId, workspaces]);
+
+  const activeWorkspacePath = useMemo(() => {
+    if (selectedAppId == null) return null;
+    const ws = workspaces.find((w) => w.id === selectedAppId);
+    const path = ws?.path?.trim() || workspaceInfo?.path?.trim();
+    return path || null;
+  }, [selectedAppId, workspaces, workspaceInfo?.path]);
+
   if (!show) {
     return null;
   }
@@ -186,30 +201,13 @@ export function AppList({ show }: { show?: boolean }) {
   const handleNewConversationInWorkspace = async (workspaceId: number) => {
     const st = apps.find((a) => a.id === workspaceId);
     if (st?.status === "missing" || st?.pathExists === false) return;
-    try {
-      const session = await IpcClient.getInstance().createWorkspaceSession(
-        workspaceId,
-      );
-      const chatId = await IpcClient.getInstance().createChat(workspaceId);
-      attachWorkspaceToChat(chatId, workspaceId, {
-        name: st?.name ?? "Workspace",
-        path: st?.path,
-      });
-      setActiveWorkspaceSessionId(session.id);
-      setLoadedSessionResume(false);
-      setChatIdToSessionId((prev) => {
-        const next = new Map(prev);
-        next.set(chatId, session.id);
-        return next;
-      });
-      setActiveChatId(chatId);
-      setSelectedChatId(chatId);
-      getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
-      navigate({ to: "/" });
-      refreshApps?.();
-    } catch (error) {
-      console.error("Failed to create conversation:", error);
-    }
+    await startNewWorkspaceConversation({
+      workspaceId,
+      workspaceName: st?.name,
+      workspacePath: st?.path,
+      navigate: (opts) => navigate(opts),
+      refreshApps,
+    });
   };
 
   const handleNewChatInWorkspace = handleNewConversationInWorkspace;
@@ -238,7 +236,7 @@ export function AppList({ show }: { show?: boolean }) {
         "dialog:openDirectory",
       )) as { canceled?: boolean; filePaths?: string[] } | undefined;
       if (result && !result.canceled && result.filePaths?.[0]) {
-        setRecentWorkspaces(pushRecentWorkspace(result.filePaths[0]));
+        pushRecentWorkspace(result.filePaths[0]);
         await handleWorkspaceSelect(result.filePaths[0]);
       }
     } catch (error) {
@@ -246,66 +244,22 @@ export function AppList({ show }: { show?: boolean }) {
     }
   };
 
-  const handleWorkspaceSelect = async (path: string) => {
-    setRecentWorkspaces(pushRecentWorkspace(path));
-
-    // Check if we already have this path in our local state
-    const existingApp = apps.find(app => app.path === path);
-
-    if (existingApp) {
-      // Already in our list - just select it
-      setSelectedAppId(existingApp.id);
-      setSelectedWorkspaceInfo({ id: existingApp.id, name: existingApp.name });
-      setWorkspaces(prev => prev.map(w =>
-        w.id === existingApp.id ? { ...w, isExpanded: true } : w
-      ));
-      return;
-    }
-
-    // Check workspace limit before importing (Free tier = 1 workspace max)
-    try {
-      const ipcRenderer = window.electron?.ipcRenderer;
-      if (ipcRenderer?.invoke) {
-        const limitCheck = await ipcRenderer.invoke('auth:check-workspace-limit') as { allowed?: boolean; reason?: string };
-        if (!limitCheck.allowed) {
-          // Show upgrade prompt instead of importing
-          import("@/hooks/useUpgrade").then(({ triggerUpgrade }) => {
-            triggerUpgrade();
-          });
-          alert(`Workspace limit reached. ${limitCheck.reason ?? 'Upgrade to Pro for unlimited workspaces.'}`);
-          return;
-        }
-      }
-    } catch (error) {
-      console.warn('Could not check workspace limit:', error);
-      // Continue anyway if check fails (fail open)
-    }
-
-    // Try to import/register the workspace
-    try {
-      const appName = path.split('/').pop() || 'Workspace';
-      const result = await IpcClient.getInstance().importApp({ path, appName });
-      setSelectedAppId(result.appId);
-      setSelectedWorkspaceInfo({ id: result.appId, name: appName });
-      // Refresh to get the new/existing workspace in the list
-      refreshApps?.();
-      // Expand the workspace
-      setWorkspaces(prev => prev.map(w =>
-        w.id === result.appId ? { ...w, isExpanded: true } : w
-      ));
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Failed to create workspace:', error);
-      // Show user-friendly error
-      alert(`Could not add workspace: ${errorMessage}`);
-    }
+  const handleWorkspaceSelect = async (folderPath: string) => {
+    pushRecentWorkspace(folderPath);
+    await openWorkspaceFolder({
+      folderPath,
+      navigate: (opts) => navigate(opts),
+      refreshApps,
+    });
   };
 
-  const handleIncognitoMode = async () => {
-    setSelectedAppId(null);
-    setSelectedWorkspaceInfo(null);
-    setSelectedChatId(null);
-    navigate({ to: "/" });
+  const handleOpenInNewWindow = async () => {
+    if (!activeWorkspacePath) return;
+    try {
+      await IpcClient.getInstance().openWorkspaceInNewWindow(activeWorkspacePath);
+    } catch (error) {
+      console.error("Failed to open workspace in new window:", error);
+    }
   };
 
   return (
@@ -315,10 +269,24 @@ export function AppList({ show }: { show?: boolean }) {
         data-testid="app-list-container"
       >
         <SidebarGroupLabel className="flex items-center justify-between group/header">
-          <span>Workspaces</span>
-          <div className="flex items-center gap-1">
-            {/* Only show delete button if user is authenticated */}
-            {isAuthenticated && (
+          <span className="truncate pr-1" title={activeWorkspaceLabel}>
+            {activeWorkspaceLabel}
+          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <LocalDateTimeClock variant="compact" tickMs={1000} />
+            {selectedAppId != null && activeWorkspacePath ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Open this workspace in a new window"
+                onClick={() => void handleOpenInNewWindow()}
+              >
+                <AppWindow className="h-4 w-4" />
+              </Button>
+            ) : null}
+            {/* Only when browsing all workspaces (no folder open) */}
+            {isAuthenticated && selectedAppId == null && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -352,26 +320,23 @@ export function AppList({ show }: { show?: boolean }) {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             )}
-            {/* Only show + button if user can add workspace (Pro OR Free with 0 workspaces) */}
-            {canAddWorkspace && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  title="Add workspace (browse folder)"
-                  onClick={() => void handleBrowseWorkspace()}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-                <WorkspaceRecentsMenu
-                  recentWorkspaces={recentWorkspaces}
-                  onSelect={(path) => void handleWorkspaceSelect(path)}
-                />
-              </>
+            {/* Add workspace only when browsing the list (not while a folder is open) */}
+            {selectedAppId == null && canAddWorkspace && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Add workspace (browse folder)"
+                onClick={() => void handleBrowseWorkspace()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
             )}
             {/* Show disabled + button with tooltip for Free tier users at limit */}
-            {isAuthenticated && status?.plan === 'free' && apps.length >= 1 && (
+            {selectedAppId == null &&
+              isAuthenticated &&
+              status?.plan === "free" &&
+              apps.length >= 1 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -412,13 +377,13 @@ export function AppList({ show }: { show?: boolean }) {
               <div className="py-2 px-4 text-sm text-destructive">
                 Error loading apps
               </div>
-            ) : workspaces.length === 0 ? (
+            ) : visibleWorkspaces.length === 0 ? (
               <div className="py-2 px-4 text-sm text-muted-foreground">
-                No workspaces
+                {selectedAppId != null ? "Loading workspace…" : "No workspaces"}
               </div>
             ) : (
               <SidebarMenu className="space-y-0.5" data-testid="app-list">
-                {workspaces.map((ws) => {
+                {visibleWorkspaces.map((ws) => {
                   const isMissing = ws.workspaceStatus === "missing";
                   const runDeleteWorkspace = async () => {
                     clearDeletedWorkspaceClientState(ws.id, queryClient);
@@ -613,14 +578,16 @@ export function AppList({ show }: { show?: boolean }) {
                             </div>
                           )
                         ) : (
-                          <WorkspaceSessionList
-                            workspaceId={ws.id}
-                            activeSessionId={
-                              selectedAppId === ws.id
-                                ? activeWorkspaceSessionId
-                                : null
-                            }
-                          />
+                          <div data-onboarding="workspace-sessions">
+                            <WorkspaceSessionList
+                              workspaceId={ws.id}
+                              activeSessionId={
+                                selectedAppId === ws.id
+                                  ? activeWorkspaceSessionId
+                                  : null
+                              }
+                            />
+                          </div>
                         )}
                         <Button
                           type="button"
@@ -643,19 +610,6 @@ export function AppList({ show }: { show?: boolean }) {
               </SidebarMenu>
             )}
 
-            {/* Incognito Mode */}
-            <div className="p-2 border-t mt-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`w-full justify-start text-xs ${selectedAppId === null ? 'bg-accent' : ''
-                  }`}
-                onClick={handleIncognitoMode}
-              >
-                <EyeOff className="h-3.5 w-3.5 mr-2" />
-                Chat Only (Incognito)
-              </Button>
-            </div>
           </div>
         </SidebarGroupContent>
       </SidebarGroup>

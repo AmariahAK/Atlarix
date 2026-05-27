@@ -6,7 +6,8 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth/useAuth';
-import { LogIn, LogOut, User, Github, Chrome } from 'lucide-react';
+import { LogIn, LogOut, User } from 'lucide-react';
+import { AtlarixSignInHero } from '@/components/atlarix/AtlarixSignInHero';
 
 type SidebarTab = 'help' | 'web';
 
@@ -16,7 +17,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
-    const { user, isAuthenticated, signInWithGoogle, signInWithGitHub, signOut, status } = useAuth();
+    const { user, isAuthenticated, signInWithGoogle, signOut, status } = useAuth();
     const [showAuthMenu, setShowAuthMenu] = useState(false);
 
     const tabs: Array<{ id: SidebarTab; label: string; symbol: string }> = [
@@ -139,8 +140,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                         </div>
                     </div>
                 ) : (
-                    // Logged out state - show login buttons
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
                         <div style={{
                             fontSize: '12px',
                             color: 'var(--secondary-text)',
@@ -152,62 +152,10 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                             <LogIn size={14} />
                             <span>Sign in to sync</span>
                         </div>
-                        <button
-                            onClick={signInWithGoogle}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                border: '1px solid var(--graphite-border)',
-                                background: 'var(--graphite-hover)',
-                                color: 'var(--primary-text)',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                                fontWeight: 500,
-                                transition: 'all 0.2s ease',
-                            }}
-                            onMouseEnter={e => {
-                                e.currentTarget.style.borderColor = 'var(--teal-glow)';
-                                e.currentTarget.style.background = 'var(--slate-charcoal)';
-                            }}
-                            onMouseLeave={e => {
-                                e.currentTarget.style.borderColor = 'var(--graphite-border)';
-                                e.currentTarget.style.background = 'var(--graphite-hover)';
-                            }}
-                        >
-                            <Chrome size={16} />
-                            <span>Google</span>
-                        </button>
-                        <button
-                            onClick={signInWithGitHub}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                border: '1px solid var(--graphite-border)',
-                                background: 'var(--graphite-hover)',
-                                color: 'var(--primary-text)',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                                fontWeight: 500,
-                                transition: 'all 0.2s ease',
-                            }}
-                            onMouseEnter={e => {
-                                e.currentTarget.style.borderColor = 'var(--aurora-purple)';
-                                e.currentTarget.style.background = 'var(--slate-charcoal)';
-                            }}
-                            onMouseLeave={e => {
-                                e.currentTarget.style.borderColor = 'var(--graphite-border)';
-                                e.currentTarget.style.background = 'var(--graphite-hover)';
-                            }}
-                        >
-                            <Github size={16} />
-                            <span>GitHub</span>
-                        </button>
+                        <AtlarixSignInHero
+                            size="xs"
+                            onSignIn={() => void signInWithGoogle()}
+                        />
                     </div>
                 )}
 

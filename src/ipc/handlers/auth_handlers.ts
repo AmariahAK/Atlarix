@@ -55,23 +55,18 @@ export function registerAuthHandlers() {
 
                 // Manually delete dependent records to avoid FK constraints issues
                 // (Prompts specifically might not have cascade set up correctly in all DBs)
-                const { prompts, chats, diagrams } = await import("@/db/schema");
-                const { eq, inArray } = await import("drizzle-orm");
+                const { chats, diagrams } = await import("@/db/schema");
+                const { inArray } = await import("drizzle-orm");
 
                 if (allWorkspaces.length > 0) {
                     const workspaceIds = allWorkspaces.map(a => a.id);
                     logger.log(`[AuthHandlers] Cleaning up dependent records for workspaces: ${workspaceIds.join(',')}`);
 
-                    // 1. Delete prompts (often missing FK cascade)
-                    try { db.delete(prompts).where(inArray(prompts.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting prompts:', e); }
-
-                    // 2. Delete diagrams (and versions via cascade hopefully, or leave them as strict orphans)
                     try { db.delete(diagrams).where(inArray(diagrams.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting diagrams:', e); }
 
-                    // 3. Delete chats 
                     try { db.delete(chats).where(inArray(chats.appId, workspaceIds)).run(); } catch (e) { console.error('Error deleting chats:', e); }
 
-                    // 4. Finally delete apps
+                    // Finally delete apps
                     db.delete(apps).run();
                 }
             } catch (dbError) {

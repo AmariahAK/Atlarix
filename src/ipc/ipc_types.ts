@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import type { WorkMode } from "@/lib/schemas";
 import type { ProblemReport, Problem } from "../../shared/tsc_types";
 export type { ProblemReport, Problem };
@@ -276,6 +277,8 @@ export interface Message {
   workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   /** File attachments for this message (shown as chips in UI). */
   attachments?: AttachmentInfo[] | null;
+  /** Frozen tool / sub-agent UI (DisplaySnapshotV1). */
+  displaySnapshot?: DisplaySnapshotV1 | null;
 }
 
 export interface Chat {
@@ -318,6 +321,9 @@ export interface App {
   workspaceDiscoveryHints?: WorkspaceDiscoveryHints;
   /** Derived from pathExists: active = folder present, missing = folder absent */
   status?: "active" | "missing";
+  lastOpenedAt?: Date | null;
+  workspaceKind?: "local" | "remote-ssh";
+  remoteConnection?: Record<string, unknown> | null;
 }
 
 export interface WorkspaceDiscoveryHints {

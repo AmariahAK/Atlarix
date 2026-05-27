@@ -77,15 +77,49 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
-    id: "delegation",
-    title: "Agent delegation",
+    id: "workspace-open",
+    title: "Open a workspace",
     shortDescription:
-      "Hand off to Research, Architect, Builder, Reviewer, or Debugger with Guided (flat) or Autonomous (nested) delegation.",
+      "Start from the welcome screen with Open folder or Clone repo — no global chat without a project folder.",
     category: "ai",
-    steps: ["Enable Guided or Autonomous in chat settings", "Ask for research, design, implementation, or review", "Watch activity and tool traces in the stream"],
+    steps: [
+      "Sign in and land on the welcome launcher",
+      "Open folder or pick a recent workspace",
+      "Chat, sessions, and MCP/skills are scoped to that workspace",
+    ],
     howItWorks:
-      "Delegation reuses your workspace tools under stricter depth and ledger rules so long autonomous runs stay bounded.",
-    link: { label: "Home → Chat", to: "/" },
+      "Every conversation runs inside a workspace folder. Project memory lives under `.atlarix/` in that repo.",
+    link: { label: "Welcome → Open folder", to: "/" },
+  },
+  {
+    id: "sessions",
+    title: "Workspace sessions & new chat",
+    shortDescription:
+      "Saved sessions in the sidebar; + starts a fresh ephemeral chat without leaving the workspace.",
+    category: "ai",
+    steps: [
+      "Expand your workspace in the left sidebar",
+      "Switch sessions — background streams keep running",
+      "Use + or New chat in the header for a blank thread",
+    ],
+    howItWorks:
+      "Sessions are stored per workspace. Ephemeral chats are not listed until you send a message.",
+    link: { label: "Open workspace", to: "/" },
+  },
+  {
+    id: "subagents",
+    title: "Explore & Review sub-agents",
+    shortDescription:
+      "Up to five readonly sub-agents per turn, scoped to paths you choose — shown in the Sub-agents panel.",
+    category: "ai",
+    steps: [
+      "In Build, ask to explore or review specific folders",
+      "Watch scoped cards (e.g. Mapping: api) in the chat stream",
+      "Expand a card for nested tools and progress",
+    ],
+    howItWorks:
+      "Explore and Review sub-agents map repos in parallel with grouped tool summaries; Plan/Build/Debug do not expose delegation tools.",
+    link: { label: "Workspace chat", to: "/" },
   },
   {
     id: "tool-manifest",
@@ -214,7 +248,7 @@ const FEATURES: ToolFeature[] = [
     category: "mcp",
     steps: ["Work inside a workspace chat", "Let the model list servers when needed", "Approve individual MCP tool calls"],
     howItWorks: "Workspace sessions no longer auto-merge every MCP definition into the initial tool bundle.",
-    link: { label: "Home → Chat", to: "/" },
+    link: { label: "Workspace chat", to: "/" },
   },
   {
     id: "preview",

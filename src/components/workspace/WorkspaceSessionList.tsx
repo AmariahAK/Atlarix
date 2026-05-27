@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { MessageSquare, MoreHorizontal } from "lucide-react";
+import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -12,6 +12,7 @@ import {
   workspaceSessionsRefreshAtom,
   workspaceSessionTitleGeneratingAtom,
   chatIdToSessionIdAtom,
+  sessionIdToChatIdAtom,
   workspaceSessionLoadingAtom,
   workspaceSessionLoadingLabelAtom,
 } from "@/atoms/sessionAtoms";
@@ -19,6 +20,7 @@ import { SESSION_LOAD_MESSAGE_LIMIT, SESSION_LOAD_OVERLAY_DELAY_MS } from "@/con
 import {
   activeChatIdAtom,
   chatMessagesByIdAtom,
+  isStreamingByIdAtom,
   selectedChatIdAtom,
 } from "@/atoms/chatAtoms";
 import {
@@ -33,13 +35,21 @@ import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import { showInfo } from "@/lib/toast";
+import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
+import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
 
 let displayMessageId = -10000;
 
 function sessionMessagesToUiMessages(
   sessionId: string,
   chatId: number,
-  messages: { id: string; role: string; content: string; createdAt: Date }[],
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    createdAt: Date;
+    displaySnapshot?: DisplaySnapshotV1 | null;
+  }[],
 ): Message[] {
   return messages
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -49,6 +59,7 @@ function sessionMessagesToUiMessages(
       content: m.content,
       chatId,
       createdAt: m.createdAt,
+      ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
     }));
 }
 
@@ -74,6 +85,9 @@ export function WorkspaceSessionList({
   const setWorkspaceSessionLoading = useSetAtom(workspaceSessionLoadingAtom);
   const setWorkspaceSessionLoadingLabel = useSetAtom(workspaceSessionLoadingLabelAtom);
   const setChatIdToSessionId = useSetAtom(chatIdToSessionIdAtom);
+  const sessionIdToChatId = useAtomValue(sessionIdToChatIdAtom);
+  const setSessionIdToChatId = useSetAtom(sessionIdToChatIdAtom);
+  const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
@@ -100,6 +114,39 @@ export function WorkspaceSessionList({
 
   const handleSelectSession = async (sessionId: string) => {
     if (sessionSwitchBusy) return;
+
+    const mappedChatId = sessionIdToChatId.get(sessionId);
+    if (shouldUseStreamingSessionFastPath(mappedChatId, isStreamingById)) {
+      setSessionSwitchBusy(true);
+      try {
+        const chatId = mappedChatId!;
+        const workspaceApp = appsList.find((a) => a.id === workspaceId);
+        attachWorkspaceToChat(
+          chatId,
+          workspaceId,
+          workspaceApp
+            ? { name: workspaceApp.name, path: workspaceApp.path ?? undefined }
+            : undefined,
+        );
+        setActiveSessionId(sessionId);
+        setLoadedTruncated(false);
+        setChatIdToSessionId((prev) => {
+          const next = new Map(prev);
+          next.set(chatId, sessionId);
+          return next;
+        });
+        setActiveChatId(chatId);
+        setSelectedChatId(chatId);
+        navigate({ to: "/" });
+        onSessionsChange?.();
+      } catch (e) {
+        console.error("Failed to switch to streaming session:", e);
+      } finally {
+        setSessionSwitchBusy(false);
+      }
+      return;
+    }
+
     setSessionSwitchBusy(true);
     setWorkspaceSessionLoadingLabel("Loading session…");
     if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
@@ -112,7 +159,15 @@ export function WorkspaceSessionList({
         await IpcClient.getInstance().getWorkspaceSession(sessionId, {
           limit: SESSION_LOAD_MESSAGE_LIMIT,
         });
-      const chatId = await IpcClient.getInstance().createChat(workspaceId);
+      let chatId = sessionIdToChatId.get(sessionId);
+      if (chatId == null) {
+        chatId = await IpcClient.getInstance().createChat(workspaceId);
+        setSessionIdToChatId((prev) => {
+          const next = new Map(prev);
+          next.set(sessionId, chatId!);
+          return next;
+        });
+      }
       const workspaceApp = appsList.find((a) => a.id === workspaceId);
       attachWorkspaceToChat(
         chatId,
@@ -132,6 +187,7 @@ export function WorkspaceSessionList({
           id: m.id,
           role: m.role,
           content: String(m.content ?? ""),
+          displaySnapshot: m.displaySnapshot ?? undefined,
         })),
       );
       setMessagesById((prev) => {
@@ -139,10 +195,10 @@ export function WorkspaceSessionList({
         next.set(chatId, uiMessages);
         return next;
       });
-      const { applyStreamDisplayHydration } = await import(
+      const { replaceDisplayHydrationForChat } = await import(
         "@/lib/chat/apply-stream-display-hydration"
       );
-      applyStreamDisplayHydration(uiMessages);
+      replaceDisplayHydrationForChat(chatId, uiMessages);
       setActiveSessionId(session.id);
       setLoadedTruncated(Boolean(truncated));
       showInfo("Loaded previous chat session");
@@ -229,7 +285,18 @@ export function WorkspaceSessionList({
             void handleSelectSession(session.id);
           }}
         >
-          <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+          {(() => {
+            const mappedChat = sessionIdToChatId.get(session.id);
+            const bgStream =
+              mappedChat != null &&
+              activeSessionId !== session.id &&
+              (isStreamingById.get(mappedChat) ?? false);
+            return bgStream ? (
+              <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
+            ) : (
+              <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+            );
+          })()}
           <div className="flex-1 min-w-0">
             {renamingId === session.id ? (
               <Input

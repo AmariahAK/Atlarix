@@ -2,14 +2,12 @@ import {
   Home,
   Settings,
   HelpCircle,
-  BookOpen,
   Wrench,
   LogIn,
   LogOut,
   User,
-  Github,
-  Chrome,
 } from "lucide-react";
+import { AtlarixSignInHero } from "@/components/atlarix/AtlarixSignInHero";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -56,11 +54,6 @@ const items = [
     to: "/settings",
     icon: Settings,
   },
-  {
-    title: "Library",
-    to: "/library",
-    icon: BookOpen,
-  },
 ];
 
 // Hover state types
@@ -69,7 +62,6 @@ type HoverState =
   | "start-hover:chat"
   | "start-hover:tools"
   | "start-hover:settings"
-  | "start-hover:library"
   | "clear-hover"
   | "no-hover";
 
@@ -87,7 +79,6 @@ export function AppSidebar() {
     user,
     isAuthenticated,
     signInWithGoogle,
-    signInWithGitHub,
     signOut,
     status,
     refreshStatus,
@@ -137,8 +128,6 @@ export function AppSidebar() {
     selectedItem = "Tools";
   } else if (hoverState === "start-hover:settings") {
     selectedItem = "Settings";
-  } else if (hoverState === "start-hover:library") {
-    selectedItem = "Library";
   } else if (state === "expanded") {
     if (isAppRoute) {
       selectedItem = "Apps";
@@ -329,24 +318,11 @@ export function AppSidebar() {
 
                 {/* Dropdown menu for login options */}
                 {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
-                    <div className="text-xs text-muted-foreground mb-2 px-2">
-                      Sign in to sync
-                    </div>
-                    <button
-                      onClick={() => handleSignIn(signInWithGoogle)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
-                    >
-                      <Chrome className="h-4 w-4" />
-                      Google
-                    </button>
-                    <button
-                      onClick={() => handleSignIn(signInWithGitHub)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded transition-colors"
-                    >
-                      <Github className="h-4 w-4" />
-                      GitHub
-                    </button>
+                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-popover border border-border rounded-lg shadow-lg p-3 z-50">
+                    <AtlarixSignInHero
+                      size="xs"
+                      onSignIn={() => handleSignIn(signInWithGoogle)}
+                    />
                   </div>
                 )}
               </div>
@@ -410,7 +386,7 @@ function AppIcons({
                 >
                   <Link
                     to={item.to}
-                    data-onboarding={item.title === "Apps" ? "workspace-selector" : item.title === "Settings" ? "settings-link" : undefined}
+                    data-onboarding={item.title === "Settings" ? "settings-link" : undefined}
                     data-tour={item.title === "Settings" ? "tour-extensions" : undefined}
                     className={`flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
                       }`}
@@ -423,8 +399,6 @@ function AppIcons({
                         onHoverChange("start-hover:tools");
                       } else if (item.title === "Settings") {
                         onHoverChange("start-hover:settings");
-                      } else if (item.title === "Library") {
-                        onHoverChange("start-hover:library");
                       }
                     }}
                   >

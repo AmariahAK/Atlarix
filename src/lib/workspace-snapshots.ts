@@ -7,7 +7,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { db } from "../db";
-import { workspaceSnapshots, prompts, diagrams } from "../db/schema";
+import { workspaceSnapshots, diagrams } from "../db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { resolveAppPath } from "../paths/paths";
 import { glob } from "glob";
@@ -67,12 +67,6 @@ export async function createSnapshot(
     }
   }
 
-  const [prompt] = await db
-    .select()
-    .from(prompts)
-    .where(and(eq(prompts.type, "workspace"), eq(prompts.workspaceId, workspaceId)));
-  const promptContent = prompt?.content ?? null;
-
   const [latestDiagram] = await db
     .select()
     .from(diagrams)
@@ -87,7 +81,7 @@ export async function createSnapshot(
       appId,
       name,
       filesJson: files,
-      promptContent,
+      promptContent: null,
       diagramContent,
       chatMessagesJson: chatMessages ?? null,
     })

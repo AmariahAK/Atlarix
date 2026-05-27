@@ -302,19 +302,17 @@ function EnvVarsEditor({
 
 export function ToolsMcpSettings({
   maxServers,
-  scope = "global",
+  scope = "workspace",
   appId,
 }: {
   maxServers?: number;
-  scope?: "global" | "workspace";
+  scope?: "workspace";
   appId?: number | null;
 } = {}) {
   const filter =
     scope === "workspace" && appId != null
       ? { scope: "workspace" as const, appId }
-      : scope === "global"
-        ? { scope: "global" as const }
-        : undefined;
+      : undefined;
   const queryClient = useQueryClient();
   const {
     servers,
@@ -417,8 +415,8 @@ export function ToolsMcpSettings({
         url: url || null,
         apiKey: apiKey.trim() || null,
         enabled,
-        scope: scope ?? "global",
-        appId: scope === "workspace" ? appId ?? null : null,
+        scope: "workspace",
+        appId: appId ?? null,
       });
       setName("");
       setCommand("");

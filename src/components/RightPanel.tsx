@@ -21,7 +21,6 @@ import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
-import { VaultPanel } from './preview_panel/VaultPanel';
 import { TimelineView } from './DiagramTimeline';
 import { PermissionQueuePanel } from './PermissionQueuePanel';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
@@ -29,7 +28,7 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Code, Workflow, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, KeyRound, MessageSquare, ListTree,
+    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree,
 } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
@@ -64,7 +63,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     permission: { icon: Shield, label: 'Permission' },
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
-    vault: { icon: KeyRound, label: 'Vault' },
     activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
 };
@@ -400,9 +398,6 @@ function PanelContent({
             case 'search':
             case 'sources':
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
-            case 'vault':
-                // Per-workspace credential vault (.env style) for MCP / local secrets — not a hosted OAuth broker.
-                return <VaultPanel appId={context.data?.appId ?? null} />;
             default:
                 // Default to permission queue
                 return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
@@ -414,9 +409,6 @@ function PanelContent({
             return <SourcePreviewPanel data={context.data} activeTab={context.activeTab} />;
 
         case 'code-preview':
-            if (context.activeTab === 'vault') {
-                return <VaultPanel appId={context.data?.appId ?? null} />;
-            }
             if (context.activeTab === 'terminal') {
                 return <TerminalPanel />;
             }

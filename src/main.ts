@@ -52,6 +52,7 @@ import {
   openWorkspaceFromCliPath,
   parseDirectoryArgFromArgv,
 } from "./main/open_workspace_from_cli";
+import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -112,6 +113,7 @@ process.stderr.on("error", (err: NodeJS.ErrnoException) => {
 
 // Register IPC handlers before app is ready
 registerIpcHandlers();
+registerWorkspaceWindowIpc();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {

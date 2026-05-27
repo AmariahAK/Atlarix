@@ -12,7 +12,7 @@ import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 
 export type Transport = "stdio" | "http";
 
-export type McpListFilter = { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number };
+export type McpListFilter = { scope?: "workspace"; appId?: number };
 
 export function useMcp(filter?: McpListFilter) {
   const queryClient = useQueryClient();

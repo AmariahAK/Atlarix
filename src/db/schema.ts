@@ -2,40 +2,6 @@ import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
-/**
- * Prompts Table - Global + Workspace Prompts
- * ==========================================
- * - Global (1 max): Used in incognito chats
- * - Workspace (1 per workspace): Used when chatting with workspace
- * 
- * 750 character limit enforced in app logic.
- */
-export const prompts = sqliteTable("prompts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-
-  // Type discriminator: 'global' or 'workspace'
-  type: text("type", {
-    enum: ["global", "workspace"]
-  }).notNull(),
-
-  // FK to apps (workspace) - only for workspace prompts
-  // Cascade delete: prompt deleted when workspace deleted
-  workspaceId: integer("workspace_id"),
-
-  // Content: 750 char limit (enforced in handlers)
-  content: text("content").notNull(),
-
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-}, (table) => [
-  // Unique: only 1 prompt per workspace (null workspaceId = global)
-  unique("prompts_workspace_unique").on(table.workspaceId),
-]);
-
 export const apps = sqliteTable("apps", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
@@ -72,6 +38,13 @@ export const apps = sqliteTable("apps", {
   preferredDiagramType: text("preferred_diagram_type", {
     enum: ["architecture", "dependencies", "flows"],
   }).default("architecture"),
+  lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
+  workspaceKind: text("workspace_kind", {
+    enum: ["local", "remote-ssh"],
+  })
+    .notNull()
+    .default("local"),
+  remoteConnection: text("remote_connection", { mode: "json" }),
 });
 
 export const chats = sqliteTable("chats", {
@@ -131,6 +104,8 @@ export const messages = sqliteTable("messages", {
   workMode: text("work_mode", {
     enum: ["ask", "plan", "build", "debug", "review"],
   }),
+  /** Frozen sub-agent / tool UI for chat resume (JSON DisplaySnapshotV1). */
+  displaySnapshot: text("display_snapshot"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -165,6 +140,8 @@ export const sessionMessages = sqliteTable("session_messages", {
     .notNull()
     .default("message"),
   planStatus: text("plan_status", { enum: ["plan", "building", "built"] }),
+  /** Frozen sub-agent / tool UI for session resume (JSON DisplaySnapshotV1). */
+  displaySnapshot: text("display_snapshot"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

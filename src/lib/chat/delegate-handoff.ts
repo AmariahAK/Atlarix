@@ -40,7 +40,30 @@ export function parseDelegateHandoffFromToolResult(
   if (!resultText?.trim()) return null;
   try {
     const parsed = JSON.parse(resultText) as Record<string, unknown>;
-    if (!parsed || parsed.success !== true) return null;
+    if (!parsed) return null;
+    if (parsed.success === false) {
+      const errMsg =
+        typeof parsed.error === "string"
+          ? parsed.error
+          : typeof parsed.message === "string"
+            ? parsed.message
+            : "Sub-agent failed";
+      const roleRaw = parsed.agentRole;
+      const agentRole = (
+        typeof roleRaw === "string" &&
+        (HANDOFF_AGENT_ROLES as readonly string[]).includes(roleRaw)
+          ? roleRaw
+          : "explore"
+      ) as HandoffAgentRole;
+      return {
+        agentRole,
+        summary: errMsg,
+        validationStatus: "fallback",
+        scope:
+          typeof parsed.scope === "string" ? parsed.scope : undefined,
+      };
+    }
+    if (parsed.success !== true) return null;
     const summary =
       typeof parsed.summary === "string"
         ? parsed.summary
@@ -68,6 +91,39 @@ export function parseDelegateHandoffFromToolResult(
   } catch {
     return null;
   }
+}
+
+/** Meta for sub-agent round synthesis from a persisted tool part (success or error). */
+export function delegateDisplayMetaFromToolPart(
+  part: Extract<AssistantMessagePart, { type: "tool" }>,
+): DelegateHandoffMeta | null {
+  if (!isDelegateToolName(part.toolName)) return null;
+  if (part.handoff?.summary?.trim()) return part.handoff;
+  const fromJson = parseDelegateHandoffFromToolResult(part.resultText);
+  if (fromJson) return fromJson;
+
+  const text =
+    part.resultText?.trim() ||
+    (typeof part.error === "string" ? part.error.trim() : "");
+  if (!text) return null;
+
+  const args =
+    part.args && typeof part.args === "object"
+      ? (part.args as {
+          context?: string;
+          default_focus_path?: string;
+          preset?: string;
+          scopes?: string[];
+          task?: string;
+        })
+      : undefined;
+
+  return {
+    agentRole: "explore",
+    summary: text,
+    validationStatus: "fallback",
+    scope: args ? delegateScopeFromArgs(args) : undefined,
+  };
 }
 
 /** Human-facing scope for sub-agent cards (never the preset name alone). */

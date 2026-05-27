@@ -188,6 +188,10 @@ export function ChatPanel({
     }
     const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
     if (existing && existing.length > 0) {
+      const { replaceDisplayHydrationForChat } = await import(
+        "@/lib/chat/apply-stream-display-hydration"
+      );
+      replaceDisplayHydrationForChat(chatId, existing);
       return;
     }
     const chat = await IpcClient.getInstance().getChat(chatId);

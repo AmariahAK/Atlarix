@@ -14,6 +14,10 @@ import {
   isLowQualityGeneratedTitle,
   stripContentForTitleSource,
 } from "../../utils/chat_naming";
+import {
+  parseDisplaySnapshot,
+  type DisplaySnapshotV1,
+} from "@/lib/chat/display-snapshot";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
@@ -34,6 +38,7 @@ export type SessionMessageRow = {
   content: string;
   kind: "message" | "plan";
   createdAt: Date;
+  displaySnapshot?: DisplaySnapshotV1 | null;
 };
 
 function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
@@ -54,6 +59,7 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     content: row.content,
     kind: (row.kind ?? "message") as SessionMessageRow["kind"],
     createdAt: row.createdAt,
+    displaySnapshot: parseDisplaySnapshot(row.displaySnapshot),
   };
 }
 
@@ -148,9 +154,13 @@ export function registerWorkspaceSessionHandlers(): void {
       sessionId: string,
       role: "user" | "assistant" | "tool",
       content: string,
+      displaySnapshot?: string,
     ) => {
       if (!["user", "assistant", "tool"].includes(role)) {
         throw new Error(`Invalid message role: ${role}`);
+      }
+      if (displaySnapshot != null && !parseDisplaySnapshot(displaySnapshot)) {
+        throw new Error("Invalid display snapshot payload");
       }
       const now = new Date();
       const id = randomUUID();
@@ -161,6 +171,7 @@ export function registerWorkspaceSessionHandlers(): void {
           sessionId,
           role,
           content,
+          displaySnapshot: displaySnapshot ?? null,
           createdAt: now,
         })
         .returning();

@@ -32,11 +32,20 @@ function compassSettle(t: number) {
 
 function travelLerp(t: number) { return easeOut5(t); }
 
+const INTRO_HOLD_LT = 0.78;
+/** Wall-clock duration for playOnce (A forms near the end of this window). */
+const INTRO_PLAY_SECONDS = 5.5;
+
 export interface AtlarixAnimationProps {
   /** Size of the animation container (not full screen by default). */
   size?: "xs" | "sm" | "md" | "lg" | "full";
   /** When "thinking", show compass/needle phase; when "done", show formed A. */
   phase?: "thinking" | "done";
+  /** Run the intro once and hold on the formed A (ignores looping). */
+  playOnce?: boolean;
+  /** Hide corner version labels (welcome / sign-in). */
+  minimalChrome?: boolean;
+  className?: string;
 }
 
 const SIZE_MAP = {
@@ -47,12 +56,22 @@ const SIZE_MAP = {
   full: { width: "100vw", height: "100vh" },
 } as const;
 
-export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimationProps) {
+export default function AtlarixAnimation({
+  size = "md",
+  phase,
+  playOnce = false,
+  minimalChrome = false,
+  className,
+}: AtlarixAnimationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number | null>(null);
   const sRef      = useRef<{ ready: boolean; W?: number; H?: number; cx?: number; cy?: number; R?: number; aR?: number }>({ ready: false });
   const phaseRef  = useRef(phase);
+  const playOnceRef = useRef(playOnce);
+  const playOnceStartRef = useRef<number | null>(null);
+  const frozenLtRef = useRef<number | null>(null);
   phaseRef.current = phase;
+  playOnceRef.current = playOnce;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -389,10 +408,22 @@ export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimatio
       const {W,H,cx,cy,R,aR}=s;
       const p = phaseRef.current;
       let lt: number;
-      if (p === "thinking") {
+      if (playOnceRef.current) {
+        if (frozenLtRef.current != null) {
+          lt = frozenLtRef.current;
+        } else {
+          if (playOnceStartRef.current == null) playOnceStartRef.current = ts;
+          const elapsed = (ts - playOnceStartRef.current) / 1000;
+          lt = Math.min(elapsed / INTRO_PLAY_SECONDS, INTRO_HOLD_LT);
+          if (lt >= INTRO_HOLD_LT) {
+            frozenLtRef.current = INTRO_HOLD_LT;
+            lt = INTRO_HOLD_LT;
+          }
+        }
+      } else if (p === "thinking") {
         lt = ((t % 4) / 4) * 0.5;
       } else if (p === "done") {
-        lt = 0.8;
+        lt = INTRO_HOLD_LT;
       } else {
         lt = (t % LOOP) / LOOP;
       }
@@ -463,7 +494,7 @@ export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimatio
     window.addEventListener("resize",resize);
     rafRef.current=requestAnimationFrame(frame);
     return ()=>{ window.removeEventListener("resize",resize); if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [phase]);
+  }, [phase, playOnce]);
 
   const dims = SIZE_MAP[size];
   const isFull = size === "full";
@@ -477,8 +508,8 @@ export default function AtlarixAnimation({ size = "md", phase }: AtlarixAnimatio
   };
 
   return (
-    <div style={containerStyle}>
-      {!isFull && (
+    <div style={containerStyle} className={className}>
+      {!isFull && !minimalChrome && (
         <>
           <div style={{position:"absolute",top:8,left:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>Workspace Intelligence</div>
           <div style={{position:"absolute",top:8,right:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>v2.9.0 · AXIS</div>

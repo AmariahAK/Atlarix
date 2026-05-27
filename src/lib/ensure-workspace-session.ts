@@ -1,9 +1,11 @@
 import { getDefaultStore } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
+import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import {
   activeWorkspaceSessionIdAtom,
   chatIdToSessionIdAtom,
   loadedSessionResumeAtom,
+  sessionIdToChatIdAtom,
   workspaceSessionsRefreshAtom,
 } from "@/atoms/sessionAtoms";
 
@@ -23,13 +25,20 @@ export async function ensureWorkspaceSessionForChat(
   }
 
   const session = await IpcClient.getInstance().createWorkspaceSession(workspaceAppId);
-  store.set(activeWorkspaceSessionIdAtom, session.id);
   store.set(chatIdToSessionIdAtom, (prev) => {
     const next = new Map(prev);
     next.set(chatId, session.id);
     return next;
   });
-  store.set(loadedSessionResumeAtom, false);
+  store.set(sessionIdToChatIdAtom, (prev) => {
+    const next = new Map(prev);
+    next.set(session.id, chatId);
+    return next;
+  });
+  if (store.get(activeChatIdAtom) === chatId) {
+    store.set(activeWorkspaceSessionIdAtom, session.id);
+    store.set(loadedSessionResumeAtom, false);
+  }
   store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
   return session.id;
 }

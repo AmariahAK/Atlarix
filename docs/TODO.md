@@ -1,7 +1,24 @@
 # Atlarix TODO
 
-**Current Version:** v8.8.0
-**Last Updated:** 2026-05-26
+**Current Version:** v8.9.0
+**Last Updated:** 2026-05-27
+
+---
+
+## Shipped in v8.9.0
+
+| Area | Notes |
+|------|--------|
+| **Workspace-only** | Welcome launcher; no global chat; MCP/skills per workspace (migrations `0049`–`0051`) |
+| **Sessions** | Background streaming; New chat in workspace; display snapshots for sub-agents |
+| **Sub-agents UI** | Scoped labels; Sub-agents round panel; grouped tool summaries |
+| **Code tab** | `getAppFiles` tree in right panel; bundled Monaco workers |
+| **Vault** | UI removed; env utils kept for codegen |
+| **Docs / onboarding** | Tools page, Shepherd tour, onboarding targets updated |
+
+See [CHANGELOG.md](CHANGELOG.md) `[8.9.0]`.
+
+**Follow-ups:** Remote SSH full FS RPC; Windows code signing; packaged Monaco smoke on CI.
 
 ---
 

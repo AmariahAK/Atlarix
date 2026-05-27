@@ -11,6 +11,8 @@ import {
   mergeSubagentActivityIntoThread,
   mergeSubAgentRunEntries,
   pickSubagentDisplayLabel,
+  resolveSubagentCardLabel,
+  isDelegationIdLabel,
   proseAlreadyRendered,
   resolveLiveSubagentRound,
   splitInterleavedAroundDelegates,
@@ -565,6 +567,43 @@ describe("stream-thread", () => {
     ).toBe("explore · api");
   });
 
+  it("pickSubagentDisplayLabel deprioritizes delegation-* ids", () => {
+    expect(
+      pickSubagentDisplayLabel(
+        "delegation-1779123456789-abc",
+        "Mapping: spacinsider-api",
+      ),
+    ).toBe("Mapping: spacinsider-api");
+    expect(isDelegationIdLabel("delegation-1")).toBe(true);
+    expect(isDelegationIdLabel("explore · api")).toBe(false);
+  });
+
+  it("resolveLiveSubagentRound uses scope label when nested tools only have delegation id", () => {
+    const round = resolveLiveSubagentRound({
+      liveThread: [],
+      chatId: 1,
+      activityItems: [
+        {
+          id: "delegation-1779",
+          type: "tool_use",
+          toolName: "read_file",
+          status: "done",
+          label: "Read README",
+          parentDelegationId: "delegation-1779",
+          agent: "explore",
+          agentType: "explore",
+          scope: "spacinsider-api",
+          timestamp: 1,
+          chatId: 1,
+          roundId: "turn-1",
+        },
+      ],
+    });
+    const agent = round?.agents.find((a) => a.id === "delegation-1779");
+    expect(agent?.label).toBe("Mapping: spacinsider-api");
+    expect(resolveSubagentCardLabel(agent!)).toBe("Mapping: spacinsider-api");
+  });
+
   it("mergeNestedToolActivityIntoSubagentRound stubs agent before subagent_start", () => {
     const tool: ActivityStreamItem = {
       id: "sub-tool-del-1-explore_folder-100",
@@ -800,6 +839,24 @@ describe("stream-thread", () => {
     expect(after.some((p) => p.type === "tool" && p.toolName === "spawn_sub_agent")).toBe(
       false,
     );
+  });
+
+  it("synthesizeSubagentRoundFromParts includes failed spawn_sub_agent results", () => {
+    const round = synthesizeSubagentRoundFromParts([
+      {
+        type: "tool",
+        id: "spawn-1",
+        toolName: "spawn_sub_agent",
+        status: "error",
+        resultText:
+          "A sub-agent with the same agent, preset, and scope is already running.",
+        args: { default_focus_path: "/repo/a" },
+      },
+    ]);
+    expect(round?.kind).toBe("subagent_round");
+    expect(round?.agents).toHaveLength(1);
+    expect(round?.agents[0]?.status).toBe("error");
+    expect(round?.agents[0]?.summary).toContain("already running");
   });
 
   it("filterDelegateToolParts removes spawn/delegate tool rows when suppressed", () => {

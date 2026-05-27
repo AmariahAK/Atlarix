@@ -17,6 +17,10 @@ import { getCurrentCommitHash } from "../utils/git_utils";
 import { clearAllSessionMemories } from "../../lib/session-memory";
 import { clearInMemoryTaskLedgers } from "../../lib/tasks/task-ledger";
 import { clearCompassContextWindow } from "../utils/token_utils";
+import {
+  parseDisplaySnapshot,
+  type DisplaySnapshotV1,
+} from "@/lib/chat/display-snapshot";
 
 const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
@@ -68,23 +72,6 @@ export function registerChatHandlers() {
     return chatId;
   });
 
-  handle("create-chat-only", async (): Promise<number> => {
-    try {
-      await requireAuthSession();
-    } catch (e) {
-      if (e instanceof AuthRequiredError) {
-        throw new Error(formatAuthRequiredIpcError());
-      }
-      throw e;
-    }
-    clearAllSessionMemories();
-    clearInMemoryTaskLedgers();
-    const { createEphemeralChat } = await import("./chat_only_handlers");
-    const chatId = createEphemeralChat();
-    logger.info("Created ephemeral (incognito) chat-only session:", chatId);
-    return chatId;
-  });
-
   handle("chat:clear-ephemeral-messages", async (_, chatId: number) => {
     const { clearEphemeralChatMessages, isEphemeralChatId } = await import(
       "./chat_only_handlers"
@@ -99,7 +86,12 @@ export function registerChatHandlers() {
       _,
       payload: {
         chatId: number;
-        messages: { role: string; content: string; id?: number }[];
+        messages: {
+          role: string;
+          content: string;
+          id?: number;
+          displaySnapshot?: DisplaySnapshotV1 | null;
+        }[];
       },
     ) => {
       const { hydrateEphemeralChatMessages, isEphemeralChatId } = await import(
@@ -145,7 +137,13 @@ export function registerChatHandlers() {
       throw new Error("Chat not found");
     }
 
-    return chat;
+    return {
+      ...chat,
+      messages: chat.messages.map((m) => ({
+        ...m,
+        displaySnapshot: parseDisplaySnapshot(m.displaySnapshot),
+      })),
+    };
   });
 
   handle("get-chats", async (_, appId?: number): Promise<ChatSummary[]> => {

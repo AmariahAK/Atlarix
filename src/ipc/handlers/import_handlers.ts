@@ -52,10 +52,13 @@ export function registerImportHandlers() {
         startCommand,
       }: ImportAppParams,
     ): Promise<ImportAppResult> => {
-      try {
-        await fs.access(sourcePath);
-      } catch {
-        throw new Error("Source folder does not exist");
+      const isRemoteUri = sourcePath.startsWith("atlarix-remote://");
+      if (!isRemoteUri) {
+        try {
+          await fs.access(sourcePath);
+        } catch {
+          throw new Error("Source folder does not exist");
+        }
       }
       return importWorkspaceFromPath({
         path: sourcePath,

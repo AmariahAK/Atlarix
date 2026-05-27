@@ -11,6 +11,9 @@ export const loadedSessionResumeAtom = atom<boolean>(false);
 
 export const chatIdToSessionIdAtom = atom<Map<number, string>>(new Map());
 
+/** Inverse map for reusing chat transport when switching sessions. */
+export const sessionIdToChatIdAtom = atom<Map<string, number>>(new Map());
+
 export const workspaceSessionLoadingAtom = atom<boolean>(false);
 
 export const workspaceSessionLoadingLabelAtom = atom<string>("Loading session…");

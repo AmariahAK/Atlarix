@@ -38,33 +38,26 @@ import {
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
 
-interface WorkspaceOption {
-  id: number;
-  name: string;
-}
-
 interface InstalledIndexEntry {
   serverId: number;
-  scope: "global" | "workspace";
   workspaceId: number | null;
 }
 
 interface InstallDialogState {
   entry: McpRegistryEntry;
-  scope: "global" | "workspace";
-  workspaceId: number | null;
   env: Record<string, string>;
 }
 
-const MAX_GLOBAL_MCP = 5;
-const MAX_WORKSPACE_MCP = 5;
+const MAX_WORKSPACE_MCP = 10;
 const PAGE_SIZE = 6;
 
 export function McpMarketplaceTab({
-  workspaces,
+  workspaceId,
+  workspaceName,
   onChanged,
 }: {
-  workspaces: WorkspaceOption[];
+  workspaceId: number;
+  workspaceName: string;
   onChanged?: () => void;
 }) {
   const ipc = IpcClient.getInstance();
@@ -85,31 +78,31 @@ export function McpMarketplaceTab({
   const [installDialog, setInstallDialog] = useState<InstallDialogState | null>(null);
   const [installing, setInstalling] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
-  const [globalCount, setGlobalCount] = useState(0);
+  const [workspaceCount, setWorkspaceCount] = useState(0);
 
   const refreshInstalled = useCallback(async () => {
     try {
-      const globals = (await ipc.listMcpServers({ scope: "global" })) as Array<{
+      const servers = (await ipc.listMcpServers({
+        scope: "workspace",
+        appId: workspaceId,
+      })) as Array<{
         id: number;
         registryId: string | null;
-        scope: "global" | "workspace";
         appId: number | null;
       }>;
       const map = new Map<string, InstalledIndexEntry[]>();
-      let countGlobal = 0;
-      for (const s of globals) {
-        countGlobal += 1;
+      for (const s of servers) {
         if (!s.registryId) continue;
         const list = map.get(s.registryId) ?? [];
-        list.push({ serverId: s.id, scope: s.scope, workspaceId: s.appId });
+        list.push({ serverId: s.id, workspaceId: s.appId });
         map.set(s.registryId, list);
       }
       setInstalled(map);
-      setGlobalCount(countGlobal);
+      setWorkspaceCount(servers.length);
     } catch (e) {
       console.warn("[McpMarketplace] Failed to load installed MCPs:", e);
     }
-  }, [ipc]);
+  }, [ipc, workspaceId]);
 
   const fetchRegistry = useCallback(async () => {
     setFetching(true);
@@ -169,30 +162,22 @@ export function McpMarketplaceTab({
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page, totalPages]);
 
-  const onConnect = useCallback(
-    (entry: McpRegistryEntry) => {
-      const initialEnv: Record<string, string> = {};
-      for (const v of entry.envVars ?? []) initialEnv[v.key] = "";
-      setInstallDialog({
-        entry,
-        scope: "global",
-        workspaceId: workspaces[0]?.id ?? null,
-        env: initialEnv,
-      });
-    },
-    [workspaces],
-  );
+  const onConnect = useCallback((entry: McpRegistryEntry) => {
+    const initialEnv: Record<string, string> = {};
+    for (const v of entry.envVars ?? []) initialEnv[v.key] = "";
+    setInstallDialog({ entry, env: initialEnv });
+  }, []);
 
   const onSubmitInstall = useCallback(async () => {
     if (!installDialog) return;
     setInstalling(true);
     try {
-      const { entry, scope, workspaceId, env } = installDialog;
+      const { entry, env } = installDialog;
       const res = await ipc.installMcpFromRegistry({
         entry,
         env,
-        scope,
-        appId: scope === "workspace" ? workspaceId : null,
+        scope: "workspace",
+        appId: workspaceId,
       });
       if (!res.success) {
         setFetchError(res.error ?? "Install failed");
@@ -204,7 +189,7 @@ export function McpMarketplaceTab({
     } finally {
       setInstalling(false);
     }
-  }, [installDialog, ipc, refreshInstalled, onChanged]);
+  }, [installDialog, ipc, refreshInstalled, onChanged, workspaceId]);
 
   const onDisconnect = useCallback(
     async (entryId: string, installList: InstalledIndexEntry[]) => {
@@ -230,7 +215,7 @@ export function McpMarketplaceTab({
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 text-sm">
         <div className="font-medium text-foreground mb-1">Marketplace is a Pro feature</div>
         <p className="text-muted-foreground">
-          Free accounts can add <strong>one</strong> global MCP manually in Settings. One-click installs from the public registry
+          Free accounts can add <strong>one</strong> MCP per workspace manually. One-click marketplace installs
           require Pro or Workforce. Upgrade in Settings → Pricing.
         </p>
       </div>
@@ -268,7 +253,7 @@ export function McpMarketplaceTab({
 
       <p className="text-xs text-muted-foreground">
         Registry: <code className="bg-muted px-1 rounded">{DEFAULT_MCP_REGISTRY_URL}</code> ·{" "}
-        {registry?.mcps.length ?? 0} MCPs · Global capacity: {globalCount}/{MAX_GLOBAL_MCP}
+        {registry?.mcps.length ?? 0} MCPs · {workspaceName}: {workspaceCount}/{MAX_WORKSPACE_MCP}
       </p>
 
       {fetchError && (
@@ -367,9 +352,9 @@ export function McpMarketplaceTab({
                       size="sm"
                       className="w-full"
                       onClick={() => onConnect(entry)}
-                      disabled={globalCount >= MAX_GLOBAL_MCP}
+                      disabled={workspaceCount >= MAX_WORKSPACE_MCP}
                     >
-                      {globalCount >= MAX_GLOBAL_MCP ? "Capacity reached" : "Connect"}
+                      {workspaceCount >= MAX_WORKSPACE_MCP ? "Capacity reached" : "Connect"}
                     </Button>
                   )}
                 </div>
@@ -397,47 +382,9 @@ export function McpMarketplaceTab({
             </DialogHeader>
 
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Scope</Label>
-                <Select
-                  value={installDialog.scope}
-                  onValueChange={(v) =>
-                    setInstallDialog({
-                      ...installDialog,
-                      scope: v as "global" | "workspace",
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-[160px] h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="global">Global</SelectItem>
-                    <SelectItem value="workspace" disabled={workspaces.length === 0}>
-                      Workspace
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {installDialog.scope === "workspace" && workspaces.length > 0 && (
-                  <Select
-                    value={String(installDialog.workspaceId ?? "")}
-                    onValueChange={(v) =>
-                      setInstallDialog({ ...installDialog, workspaceId: Number(v) })
-                    }
-                  >
-                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Pick workspace" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {workspaces.map((w) => (
-                        <SelectItem key={w.id} value={String(w.id)}>
-                          {w.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Installing into workspace: <strong>{workspaceName}</strong>
+              </p>
 
               {(installDialog.entry.envVars ?? []).length > 0 && (
                 <div className="space-y-2">

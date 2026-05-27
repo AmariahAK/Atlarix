@@ -19,7 +19,7 @@ import { readSettings } from "@/main/settings";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
-import { getEphemeralChat, isEphemeralChatId } from "./chat_only_handlers";
+import { getEphemeralChat, isEphemeralChatId } from "@/lib/ephemeral-chat";
 
 const logger = log.scope("token_count_handlers");
 

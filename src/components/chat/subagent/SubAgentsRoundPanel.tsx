@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { SubAgentRunEntry, StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import { SubAgentRunCard } from "./SubAgentRunCard";
 import {
+  streamCardScrollBody,
   streamToolCardButton,
   streamToolCardChevron,
   streamToolCardShell,
@@ -14,10 +15,13 @@ export function SubAgentsRoundPanel({
   agents,
   status,
   isStreaming,
+  isHistorical = false,
 }: {
   agents: SubAgentRunEntry[];
   status: StreamThreadToolStatus;
   isStreaming: boolean;
+  /** Completed turn loaded from session/DB — expand and allow taller scroll. */
+  isHistorical?: boolean;
 }) {
   const sortedAgents = useMemo(() => {
     const rank = (s: SubAgentRunEntry["status"]) =>
@@ -35,7 +39,7 @@ export function SubAgentsRoundPanel({
       : `Sub-agents · ${agents.length} completed`;
 
   return (
-    <div className={cn(streamToolCardShell, "rounded-lg border my-1.5")}>
+    <div className={cn(streamToolCardShell, "rounded-lg border my-1.5 overflow-hidden")}>
       <button
         type="button"
         className={streamToolCardButton}
@@ -55,13 +59,20 @@ export function SubAgentsRoundPanel({
         ) : null}
       </button>
       {open ? (
-        <div className="flex flex-col gap-1.5 px-2 pb-2">
+        <div
+          className={cn(
+            streamCardScrollBody,
+            "flex flex-col gap-2 px-2 pb-2",
+            agents.length > 3 && "min-h-[14rem]",
+          )}
+        >
           {sortedAgents.map((agent) => (
             <SubAgentRunCard
               key={agent.id}
               agent={agent}
               isStreaming={isStreaming}
-              defaultExpanded
+              isHistorical={isHistorical}
+              defaultExpanded={isHistorical || (isStreaming && agent.status === "running")}
             />
           ))}
         </div>

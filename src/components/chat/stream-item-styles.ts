@@ -2,14 +2,23 @@
 
 /** Tool cards, context groups, collapsed activity sections */
 export const streamToolCardShell =
-  "my-1.5 rounded-lg border border-border bg-muted/60 dark:bg-muted/20 overflow-hidden text-xs shadow-sm/5 dark:shadow-none";
+  "my-1.5 rounded-lg border border-border bg-muted/60 dark:bg-muted/20 text-xs shadow-sm/5 dark:shadow-none";
 
+/** Scrollable body inside a stream card (sub-agents list, tool expand, etc.) */
+export const streamCardScrollBody =
+  "min-h-0 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain pr-0.5";
+
+/** Single-line tool row header */
 export const streamToolCardButton =
   "w-full flex items-center gap-2 px-2.5 py-1.5 text-left min-h-[28px] text-foreground hover:bg-muted/80 dark:hover:bg-muted/40";
 
+/** Multi-line header (sub-agent title + status subtitle) */
+export const streamToolCardButtonMultiLine =
+  "w-full flex items-start gap-2 px-2.5 py-2 text-left text-foreground hover:bg-muted/80 dark:hover:bg-muted/40";
+
 export const streamToolCardSummary = "flex-1 min-w-0 truncate font-medium text-foreground";
 
-export const streamToolCardChevron = "h-3.5 w-3.5 shrink-0 text-muted-foreground";
+export const streamToolCardChevron = "h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5";
 
 /** Inline reasoning / thought blocks */
 export const thoughtBlockShell =

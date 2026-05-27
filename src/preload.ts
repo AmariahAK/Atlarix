@@ -24,6 +24,7 @@ const validInvokeChannels = [
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
   "workspace:prewarm-cache",
+  "workspace:open-in-new-window",
   "chat:edit-message",             // v3.9: edit user message and truncate after
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
   "autonomous:revert-op",
@@ -41,7 +42,6 @@ const validInvokeChannels = [
   "github-actions:stop-stream",
   "chat:count-tokens",
   "create-chat",
-  "create-chat-only",
   "chat:clear-ephemeral-messages",
   "chat:hydrate-ephemeral-messages",
   "sessions:list",
@@ -51,6 +51,9 @@ const validInvokeChannels = [
   "sessions:get",
   "sessions:generate-title",
   "messages:add",
+  "messages:save-display-snapshot",
+  "session-messages:save-display-snapshot",
+  "chat:set-display-snapshot",
   "create-app",
   "copy-app",
   "get-chat",
@@ -146,6 +149,7 @@ const validInvokeChannels = [
   "start-chat-stream",
   "does-release-note-exist",
   "import-app",
+  "apps:touch-last-opened",
   "select-app-folder",
   "check-app-name",
   "rename-branch",
@@ -192,19 +196,6 @@ const validInvokeChannels = [
   // Help bot
   "help:chat:start",
   "help:chat:cancel",
-  // Prompts (Global + Workspace system)
-  "prompts:get-global",
-  "prompts:set-global",
-  "prompts:delete-global",
-  "prompts:get-workspace",
-  "prompts:set-workspace",
-  "prompts:delete-workspace",
-  "prompts:delete",
-  "prompts:list-workspaces-with-status",
-  // Legacy (deprecated)
-  "prompts:list",
-  "prompts:create",
-  "prompts:update",
   // adding app to favorite
   "add-to-favorite",
   "github:clone-repo-from-url",

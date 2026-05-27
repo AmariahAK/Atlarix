@@ -25,8 +25,7 @@ export function DeepLinkProvider({ children }: { children: React.ReactNode }) {
       if (data.type === "add-mcp-server") {
         navigate({ to: "/settings/mcp" });
       } else if (data.type === "add-prompt") {
-        // Navigate to library page
-        navigate({ to: "/library" });
+        navigate({ to: "/" });
       }
     });
 

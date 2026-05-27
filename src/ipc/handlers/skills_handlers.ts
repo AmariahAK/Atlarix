@@ -18,8 +18,7 @@ const handle = createLoggedHandler(logger);
 const DEFAULT_REGISTRY_URL =
   "https://raw.githubusercontent.com/AmariahAK/atlarix-skills/main/index.json";
 
-const SKILLS_GLOBAL_MAX = 5;
-const SKILLS_WORKSPACE_MAX = 5;
+export const SKILLS_WORKSPACE_MAX = 10;
 
 function requirePaidSkills(): void {
   // Mirror MCP: Pro OR Workforce unlocks paid features.
@@ -78,11 +77,8 @@ function assertValidInstallParams(params: InstallSkillParams): void {
   }
 }
 
-function localDirForInstall(scope: "global" | "workspace", skillId: string, workspacePath?: string) {
-  if (scope === "global") {
-    return path.join(app.getPath("userData"), "skills-cache", skillId);
-  }
-  return path.join(workspacePath as string, ".atlarix", "skills", skillId);
+function localDirForInstall(skillId: string, workspacePath: string) {
+  return path.join(workspacePath, ".atlarix", "skills", skillId);
 }
 
 async function fetchJsonWithTimeout(url: string): Promise<any> {
@@ -93,18 +89,14 @@ async function fetchJsonWithTimeout(url: string): Promise<any> {
   return res.json();
 }
 
-async function countSkillsForScope(scope: "global" | "workspace", workspacePath?: string) {
-  if (scope === "global") {
-    const rows = await db.select().from(installedSkills).where(eq(installedSkills.scope, "global"));
-    return rows.length;
-  }
+async function countSkillsForWorkspace(workspacePath: string) {
   const rows = await db
     .select()
     .from(installedSkills)
     .where(
       and(
         eq(installedSkills.scope, "workspace"),
-        eq(installedSkills.workspacePath, workspacePath ?? ""),
+        eq(installedSkills.workspacePath, workspacePath),
       ),
     );
   return rows.length;
@@ -121,26 +113,22 @@ export function registerSkillsHandlers() {
     "skills:list",
     async (
       _event: IpcMainInvokeEvent,
-      params?: { scope?: "global" | "workspace" | "all"; workspacePath?: string },
+      params?: { scope?: "workspace"; workspacePath?: string },
     ) => {
       requirePaidSkills();
-      const scope = params?.scope ?? "all";
-      const wsPath = params?.workspacePath ?? undefined;
-
-      const rows =
-        scope === "global"
-          ? await db.select().from(installedSkills).where(eq(installedSkills.scope, "global"))
-          : scope === "workspace"
-            ? await db
-                .select()
-                .from(installedSkills)
-                .where(
-                  and(
-                    eq(installedSkills.scope, "workspace"),
-                    eq(installedSkills.workspacePath, wsPath ?? ""),
-                  ),
-                )
-            : await db.select().from(installedSkills);
+      const wsPath = params?.workspacePath?.trim();
+      if (!wsPath) {
+        return [];
+      }
+      const rows = await db
+        .select()
+        .from(installedSkills)
+        .where(
+          and(
+            eq(installedSkills.scope, "workspace"),
+            eq(installedSkills.workspacePath, wsPath),
+          ),
+        );
 
       return rows.map((r) => ({
         ...r,
@@ -173,26 +161,21 @@ export function registerSkillsHandlers() {
   handle("skills:install", async (_event: IpcMainInvokeEvent, params: InstallSkillParams) => {
     requirePaidSkills();
     assertValidInstallParams(params);
-    const { skill, scope } = params;
+    const { skill } = params;
     const workspacePath = params.workspacePath?.trim();
+    if (!workspacePath) {
+      throw new Error("workspacePath is required to install a skill.");
+    }
+    const scope = "workspace" as const;
 
-    // 1. Slot limits
-    if (scope === "global") {
-      const globalCount = await countSkillsForScope("global");
-      if (globalCount >= SKILLS_GLOBAL_MAX) {
-        throw new Error(`Global skills limit reached (${SKILLS_GLOBAL_MAX}/${SKILLS_GLOBAL_MAX})`);
-      }
-    } else {
-      const wsCount = await countSkillsForScope("workspace", workspacePath);
-      if (wsCount >= SKILLS_WORKSPACE_MAX) {
-        throw new Error(
-          `Workspace skills limit reached (${SKILLS_WORKSPACE_MAX}/${SKILLS_WORKSPACE_MAX})`,
-        );
-      }
+    const wsCount = await countSkillsForWorkspace(workspacePath);
+    if (wsCount >= SKILLS_WORKSPACE_MAX) {
+      throw new Error(
+        `Workspace skills limit reached (${SKILLS_WORKSPACE_MAX}/${SKILLS_WORKSPACE_MAX})`,
+      );
     }
 
-    // 2. Local directory
-    const localDir = localDirForInstall(scope, skill.id, workspacePath);
+    const localDir = localDirForInstall(skill.id, workspacePath);
 
     // 3. Download
     try {
@@ -265,20 +248,22 @@ export function registerSkillsHandlers() {
       throw new Error("workspacePath is required when scope === \"workspace\"");
     }
 
-    const where =
-      scope === "global"
-        ? and(eq(installedSkills.id, skillId), eq(installedSkills.scope, "global"))
-        : and(
-            eq(installedSkills.id, skillId),
-            eq(installedSkills.scope, "workspace"),
-            eq(installedSkills.workspacePath, workspacePath as string),
-          );
+    if (scope !== "workspace" || !workspacePath) {
+      throw new Error("workspacePath is required to uninstall a skill.");
+    }
+    const where = and(
+      eq(installedSkills.id, skillId),
+      eq(installedSkills.scope, "workspace"),
+      eq(installedSkills.workspacePath, workspacePath),
+    );
 
     const [row] = await db.select().from(installedSkills).where(where).limit(1);
     if (!row) return { success: true };
 
     const cachedFiles = safeParseJson(row.cachedFiles, [] as Array<{ name: string; localPath: string }>);
-    const localDir = cachedFiles[0]?.localPath ? path.dirname(cachedFiles[0].localPath) : localDirForInstall(scope, skillId, workspacePath);
+    const localDir = cachedFiles[0]?.localPath
+      ? path.dirname(cachedFiles[0].localPath)
+      : localDirForInstall(skillId, workspacePath);
 
     try {
       await fs.rm(localDir, { recursive: true, force: true });
@@ -337,22 +322,19 @@ export function registerSkillsHandlers() {
     async (_event: IpcMainInvokeEvent, params?: { workspacePath?: string }) => {
       requirePaidSkills();
       const workspacePath = params?.workspacePath?.trim();
-      const [globalRows, workspaceRows] = await Promise.all([
-        db.select().from(installedSkills).where(eq(installedSkills.scope, "global")),
-        workspacePath
-          ? db
-              .select()
-              .from(installedSkills)
-              .where(
-                and(
-                  eq(installedSkills.scope, "workspace"),
-                  eq(installedSkills.workspacePath, workspacePath),
-                ),
-              )
-          : Promise.resolve([]),
-      ]);
+      const workspaceRows = workspacePath
+        ? await db
+            .select()
+            .from(installedSkills)
+            .where(
+              and(
+                eq(installedSkills.scope, "workspace"),
+                eq(installedSkills.workspacePath, workspacePath),
+              ),
+            )
+        : [];
 
-      const merged = [...workspaceRows, ...globalRows].slice(0, 10);
+      const merged = workspaceRows.slice(0, SKILLS_WORKSPACE_MAX);
       const out: Array<{ id: string; name: string; content: string }> = [];
       for (const s of merged) {
         const cachedFiles = safeParseJson(s.cachedFiles, [] as Array<{ name: string; localPath: string }>);

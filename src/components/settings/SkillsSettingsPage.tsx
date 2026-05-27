@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useAtomValue } from "jotai";
 import { ArrowLeft, Folder, Sparkles } from "lucide-react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,8 +68,7 @@ type InstalledSkillRow = {
 const OFFICIAL_REGISTRY_URL =
   "https://raw.githubusercontent.com/AmariahAK/atlarix-skills/main/index.json";
 
-const MAX_GLOBAL = 5;
-const MAX_WORKSPACE = 5;
+const MAX_WORKSPACE = 10;
 const PAGE_SIZE = 6;
 
 function normalizeModes(modes: unknown): string[] {
@@ -131,26 +132,16 @@ function WorkspaceSkillsCard({
 function SkillCard({
   skill,
   installed,
-  onInstallGlobal,
   onInstallWorkspace,
-  workspaceSelect,
-  selectedWorkspacePath,
   workspaceInstallDisabled,
-  installErrorGlobal,
   installErrorWorkspace,
-  isInstallingGlobal,
   isInstallingWorkspace,
 }: {
   skill: SkillManifestEntry;
-  installed: { global: boolean; workspace: boolean };
-  onInstallGlobal: () => void;
+  installed: boolean;
   onInstallWorkspace: () => void;
-  workspaceSelect?: React.ReactNode;
-  selectedWorkspacePath?: string;
   workspaceInstallDisabled: boolean;
-  installErrorGlobal?: string | null;
   installErrorWorkspace?: string | null;
-  isInstallingGlobal: boolean;
   isInstallingWorkspace: boolean;
 }) {
   return (
@@ -167,7 +158,7 @@ function SkillCard({
             {skill.description}
           </div>
         </div>
-        {(installed.global || installed.workspace) && (
+        {installed && (
           <Badge variant="outline" className="shrink-0">
             Installed
           </Badge>
@@ -192,47 +183,26 @@ function SkillCard({
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 pt-2">
-        <div className="space-y-1">
-          <Button
-            onClick={onInstallGlobal}
-            disabled={installed.global || isInstallingGlobal}
-            className="w-full"
-            variant={installed.global ? "outline" : "default"}
-          >
-            {installed.global ? "Installed (Global)" : isInstallingGlobal ? "Installing..." : "Install Global"}
-          </Button>
-          {installErrorGlobal ? (
-            <div className="text-xs text-destructive">{installErrorGlobal}</div>
-          ) : null}
-        </div>
-        <div className="space-y-1">
-          <Button
-            onClick={onInstallWorkspace}
-            disabled={
-              workspaceInstallDisabled ||
-              !selectedWorkspacePath ||
-              installed.workspace ||
-              isInstallingWorkspace
-            }
-            className="w-full"
-            variant={installed.workspace ? "outline" : "secondary"}
-          >
-            {installed.workspace
-              ? "Installed (Workspace)"
-              : isInstallingWorkspace
-                ? "Installing..."
-                : "Install for Workspace"}
-          </Button>
-          {!workspaceInstallDisabled ? workspaceSelect : null}
-          {workspaceInstallDisabled ? (
-            <div className="text-xs text-muted-foreground">
-              Add a workspace to enable workspace-scoped skill installs.
-            </div>
-          ) : installErrorWorkspace ? (
-            <div className="text-xs text-destructive">{installErrorWorkspace}</div>
-          ) : null}
-        </div>
+      <div className="pt-2 space-y-1">
+        <Button
+          onClick={onInstallWorkspace}
+          disabled={workspaceInstallDisabled || installed || isInstallingWorkspace}
+          className="w-full"
+          variant={installed ? "outline" : "default"}
+        >
+          {installed
+            ? "Installed"
+            : isInstallingWorkspace
+              ? "Installing..."
+              : "Install to workspace"}
+        </Button>
+        {workspaceInstallDisabled ? (
+          <div className="text-xs text-muted-foreground">
+            Open a workspace from the welcome screen or sidebar to install skills.
+          </div>
+        ) : installErrorWorkspace ? (
+          <div className="text-xs text-destructive">{installErrorWorkspace}</div>
+        ) : null}
       </div>
     </div>
   );
@@ -302,6 +272,15 @@ export function SkillsSettingsPage() {
   const router = useRouter();
   const navigate = useNavigate();
   const ipc = IpcClient.getInstance();
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
+  const workspacePath = workspaceInfo?.path ?? "";
+  const workspaceName = workspaceInfo?.name ?? "Workspace";
+  const currentWorkspace =
+    selectedAppId && workspacePath
+      ? { id: selectedAppId, name: workspaceName, path: workspacePath }
+      : null;
+
   const { status, loading: authLoading } = useAuth();
   const { handleUpgrade, isLoading: upgradeLoading } = useUpgrade();
   const plan = status?.plan ?? "free";
@@ -312,47 +291,33 @@ export function SkillsSettingsPage() {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [installedGlobal, setInstalledGlobal] = useState<InstalledSkillRow[]>([]);
-  const [workspaces, setWorkspaces] = useState<Array<{ id: number; name: string; path: string }>>([]);
-  const [installedWorkspaceByPath, setInstalledWorkspaceByPath] = useState<
-    Record<string, InstalledSkillRow[]>
-  >({});
+  const [installedWorkspace, setInstalledWorkspace] = useState<InstalledSkillRow[]>([]);
   const [orphanedSkills, setOrphanedSkills] = useState<InstalledSkillRow[]>([]);
 
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("");
   const [modeFilter, setModeFilter] = useState<string>("");
   const [page, setPage] = useState(1);
-  const [browseWorkspacePath, setBrowseWorkspacePath] = useState<string>("");
   const [activeSearch, setActiveSearch] = useState("");
 
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({});
 
-  // Workforce Feature 1: repo-scoped priority skills loaded from .atlarix/skills/
-  // in each workspace. We keep counts keyed by workspace id; the `isWorkforce`
-  // flag is the same across workspaces but cached separately so the indicator
-  // can show the upgrade hint when the priority flag is being ignored.
-  const [repoSkillsByWorkspaceId, setRepoSkillsByWorkspaceId] = useState<
-    Record<number, { total: number; priority: number; isWorkforce: boolean }>
-  >({});
+  const [repoSkillsInfo, setRepoSkillsInfo] = useState<{
+    total: number;
+    priority: number;
+    isWorkforce: boolean;
+  } | null>(null);
 
   const refreshInstalled = useCallback(async () => {
-    const globalRows = (await ipc.skillsList({ scope: "global" })) as InstalledSkillRow[];
-    setInstalledGlobal(globalRows);
-    if (workspaces.length > 0) {
-      const results = await Promise.all(
-        workspaces.map(async (w) => {
-          const wsRows = (await ipc.skillsList({
-            scope: "workspace",
-            workspacePath: w.path,
-          })) as InstalledSkillRow[];
-          return [w.path, wsRows] as const;
-        }),
-      );
-      setInstalledWorkspaceByPath(Object.fromEntries(results));
+    if (!workspacePath) {
+      setInstalledWorkspace([]);
     } else {
-      setInstalledWorkspaceByPath({});
+      const wsRows = (await ipc.skillsList({
+        scope: "workspace",
+        workspacePath,
+      })) as InstalledSkillRow[];
+      setInstalledWorkspace(wsRows ?? []);
     }
     try {
       const orphans = (await ipc.skillsListOrphaned()) as InstalledSkillRow[];
@@ -360,53 +325,40 @@ export function SkillsSettingsPage() {
     } catch {
       setOrphanedSkills([]);
     }
-  }, [ipc, workspaces]);
-
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      const ws = await ipc.listWorkspacesWithPromptStatus();
-      setWorkspaces(ws.map((w) => ({ id: w.id, name: w.name, path: w.path })));
-    } catch (e) {
-      // Non-fatal; workspace install UI will just be limited
-      console.warn("Failed to load workspaces for Skills:", e);
-    }
-  }, [ipc]);
+  }, [ipc, workspacePath]);
 
   useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces]);
-
-  // Workforce Feature 1: refresh repo-skill summaries whenever workspaces change.
-  useEffect(() => {
-    if (workspaces.length === 0) {
-      setRepoSkillsByWorkspaceId({});
+    if (!selectedAppId) {
+      setRepoSkillsInfo(null);
       return;
     }
     let cancelled = false;
     void (async () => {
-      const next: Record<number, { total: number; priority: number; isWorkforce: boolean }> = {};
-      for (const w of workspaces) {
-        try {
-          const res = await ipc.listRepoSkills(w.id);
-          const total = res.skills.length;
-          if (total === 0) continue;
-          const priority = res.skills.filter((s) => s.priority).length;
-          next[w.id] = { total, priority, isWorkforce: res.isWorkforce };
-        } catch (e) {
-          console.warn(`Failed to load repo skills for workspace ${w.id}:`, e);
+      try {
+        const res = await ipc.listRepoSkills(selectedAppId);
+        const total = res.skills.length;
+        if (total === 0) {
+          if (!cancelled) setRepoSkillsInfo(null);
+          return;
         }
+        const priority = res.skills.filter((s) => s.priority).length;
+        if (!cancelled) {
+          setRepoSkillsInfo({ total, priority, isWorkforce: res.isWorkforce });
+        }
+      } catch (e) {
+        console.warn(`Failed to load repo skills for workspace ${selectedAppId}:`, e);
+        if (!cancelled) setRepoSkillsInfo(null);
       }
-      if (!cancelled) setRepoSkillsByWorkspaceId(next);
     })();
     return () => {
       cancelled = true;
     };
-  }, [ipc, workspaces]);
+  }, [ipc, selectedAppId]);
 
   useEffect(() => {
     if (!isPaid) return;
     void refreshInstalled();
-  }, [refreshInstalled]);
+  }, [refreshInstalled, isPaid]);
 
   const onFetchRegistry = useCallback(async () => {
     setFetching(true);
@@ -423,14 +375,8 @@ export function SkillsSettingsPage() {
   }, [ipc, registryUrl]);
 
   const installedLookup = useMemo(() => {
-    const globalSet = new Set(installedGlobal.map((s) => s.id));
-    const wsSet = new Set(
-      Object.values(installedWorkspaceByPath)
-        .flat()
-        .map((s) => s.id),
-    );
-    return { globalSet, wsSet };
-  }, [installedGlobal, installedWorkspaceByPath]);
+    return new Set(installedWorkspace.map((s) => s.id));
+  }, [installedWorkspace]);
 
   const allTags = useMemo(() => {
     const skills = registry?.skills ?? [];
@@ -476,61 +422,35 @@ export function SkillsSettingsPage() {
     return filteredSkills.slice(start, start + PAGE_SIZE);
   }, [filteredSkills, page, totalPages]);
 
-  const workspaceInstallDisabled = workspaces.length === 0;
-  const effectiveBrowseWorkspacePath =
-    browseWorkspacePath || workspaces[0]?.path || "";
+  const workspaceInstallDisabled = !currentWorkspace;
 
   const activeQuery = activeSearch.trim().toLowerCase();
-  const installedGlobalFiltered = useMemo(() => {
-    if (!activeQuery) return installedGlobal;
-    return installedGlobal.filter((s) => {
+  const installedWorkspaceFiltered = useMemo(() => {
+    if (!activeQuery) return installedWorkspace;
+    return installedWorkspace.filter((s) => {
       const hay = `${s.name} ${s.author} ${s.id}`.toLowerCase();
       return hay.includes(activeQuery);
     });
-  }, [installedGlobal, activeQuery]);
-
-  const installedWorkspaceByPathFiltered = useMemo(() => {
-    if (!activeQuery) return installedWorkspaceByPath;
-    const out: Record<string, InstalledSkillRow[]> = {};
-    for (const [wsPath, rows] of Object.entries(installedWorkspaceByPath)) {
-      const filtered = rows.filter((s) => {
-        const hay = `${s.name} ${s.author} ${s.id}`.toLowerCase();
-        return hay.includes(activeQuery);
-      });
-      if (filtered.length > 0) out[wsPath] = filtered;
-    }
-    return out;
-  }, [installedWorkspaceByPath, activeQuery]);
-
-  useEffect(() => {
-    if (workspaces.length === 0) return;
-    if (!browseWorkspacePath) return;
-    const stillExists = workspaces.some((w) => w.path === browseWorkspacePath);
-    if (!stillExists) setBrowseWorkspacePath("");
-  }, [workspaces, browseWorkspacePath]);
+  }, [installedWorkspace, activeQuery]);
 
   const install = useCallback(
-    async (skill: SkillManifestEntry, scope: "global" | "workspace", workspacePath?: string) => {
-      const key = `${skill.id}:${scope}`;
+    async (skill: SkillManifestEntry, wsPath: string) => {
+      const key = `${skill.id}:workspace`;
       setInstallErrors((prev) => ({ ...prev, [key]: "" }));
       setInstallingKey(key);
       try {
         await ipc.skillsInstall({
           skill,
-          scope,
-          workspacePath: scope === "workspace" ? workspacePath : undefined,
+          scope: "workspace",
+          workspacePath: wsPath,
         });
-        showSuccess(
-          scope === "workspace" && workspacePath
-            ? `Installed ${skill.name} (workspace)`
-            : `Installed ${skill.name} (${scope})`,
-        );
+        showSuccess(`Installed ${skill.name} (workspace)`);
         await refreshInstalled();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         // Slot limit UX: surface clear inline error
         if (msg.includes("limit reached")) {
-          const limitLabel = scope === "global" ? `Global limit reached (${MAX_GLOBAL}/${MAX_GLOBAL})` : `Workspace limit reached (${MAX_WORKSPACE}/${MAX_WORKSPACE})`;
+          const limitLabel = `Workspace limit reached (${MAX_WORKSPACE}/${MAX_WORKSPACE})`;
           setInstallErrors((prev) => ({
             ...prev,
             [key]: `${limitLabel} — remove a skill first.`,
@@ -582,9 +502,16 @@ export function SkillsSettingsPage() {
             <h1 className="text-3xl font-bold text-foreground">Skills</h1>
           </div>
           <p className="text-muted-foreground mt-1">
-            Browse and install skills from the community registry. Install up to {MAX_GLOBAL} global skills and {MAX_WORKSPACE} per workspace.
+            Browse and install skills for your <strong>current workspace</strong> only (max{" "}
+            {MAX_WORKSPACE} per workspace).
           </p>
         </div>
+
+        {!selectedAppId ? (
+          <p className="text-sm text-muted-foreground py-4">
+            Open a workspace from the welcome screen or sidebar to manage skills for that project.
+          </p>
+        ) : null}
 
         {/* Tier gate */}
         {!authLoading && !isPaid ? (
@@ -610,7 +537,7 @@ export function SkillsSettingsPage() {
           </div>
         ) : null}
 
-        {(!authLoading && !isPaid) ? null : (
+        {(!authLoading && !isPaid) || !selectedAppId ? null : (
         <>
         <Accordion type="multiple" defaultValue={["registry", "browse", "active"]} className="w-full">
           <AccordionItem value="registry" className="border rounded-xl">
@@ -678,52 +605,44 @@ export function SkillsSettingsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Workspaces</Label>
-                  {workspaces.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      No workspaces yet. Add a workspace to enable workspace-scoped skill installs.
-                    </div>
-                  ) : (
+                {currentWorkspace ? (
+                  <div className="space-y-2">
+                    <Label>Current workspace</Label>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Folder className="w-4 h-4" />
-                      {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"} detected. Workspace
-                      install buttons are enabled.
+                      <Folder className="w-4 h-4 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-medium text-foreground truncate">{currentWorkspace.name}</div>
+                        <div className="text-xs truncate">{currentWorkspace.path}</div>
+                      </div>
                     </div>
-                  )}
-                  {Object.keys(repoSkillsByWorkspaceId).length > 0 && (
-                    <div className="space-y-1 pt-1">
-                      {workspaces
-                        .filter((w) => repoSkillsByWorkspaceId[w.id])
-                        .map((w) => {
-                          const info = repoSkillsByWorkspaceId[w.id];
-                          const priorityHonoured = info.isWorkforce && info.priority > 0;
-                          const priorityIgnored = !info.isWorkforce && info.priority > 0;
-                          return (
-                            <div key={w.id} className="flex items-center gap-2 text-xs">
-                              <Badge variant="secondary" className="font-normal">
-                                {w.name}
-                              </Badge>
-                              {priorityHonoured ? (
-                                <span className="text-foreground/80">
-                                  {info.priority} priority skill{info.priority === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>
-                                </span>
-                              ) : priorityIgnored ? (
-                                <span className="text-muted-foreground">
-                                  {info.total} repo skill{info.total === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>{" "}
-                                  <span className="text-amber-600 dark:text-amber-400">(Workforce required for priority)</span>
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">
-                                  {info.total} repo skill{info.total === 1 ? "" : "s"} from <code className="text-[10px]">.atlarix/skills/</code>
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
-                </div>
+                    {repoSkillsInfo ? (
+                      <div className="text-xs text-muted-foreground">
+                        {repoSkillsInfo.isWorkforce && repoSkillsInfo.priority > 0 ? (
+                          <span>
+                            {repoSkillsInfo.priority} priority skill
+                            {repoSkillsInfo.priority === 1 ? "" : "s"} from{" "}
+                            <code className="text-[10px]">.atlarix/skills/</code>
+                          </span>
+                        ) : !repoSkillsInfo.isWorkforce && repoSkillsInfo.priority > 0 ? (
+                          <span>
+                            {repoSkillsInfo.total} repo skill
+                            {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
+                            <code className="text-[10px]">.atlarix/skills/</code>{" "}
+                            <span className="text-amber-600 dark:text-amber-400">
+                              (Workforce required for priority)
+                            </span>
+                          </span>
+                        ) : (
+                          <span>
+                            {repoSkillsInfo.total} repo skill
+                            {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
+                            <code className="text-[10px]">.atlarix/skills/</code>
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -791,41 +710,18 @@ export function SkillsSettingsPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-3 pb-6">
                     {pagedSkills.map((s) => {
-                      const kG = `${s.id}:global`;
                       const kW = `${s.id}:workspace`;
                       return (
                         <SkillCard
                           key={s.id}
                           skill={s}
-                          installed={{
-                            global: installedLookup.globalSet.has(s.id),
-                            workspace: installedLookup.wsSet.has(s.id),
-                          }}
+                          installed={installedLookup.has(s.id)}
                           workspaceInstallDisabled={workspaceInstallDisabled}
-                          onInstallGlobal={() => void install(s, "global")}
                           onInstallWorkspace={() => {
-                            if (!effectiveBrowseWorkspacePath) return;
-                            void install(s, "workspace", effectiveBrowseWorkspacePath);
+                            if (!workspacePath) return;
+                            void install(s, workspacePath);
                           }}
-                          selectedWorkspacePath={effectiveBrowseWorkspacePath}
-                          workspaceSelect={
-                            workspaces.length > 0 ? (
-                              <select
-                                value={effectiveBrowseWorkspacePath}
-                                onChange={(e) => setBrowseWorkspacePath(e.target.value)}
-                                className="w-full h-8 rounded-md border bg-transparent px-2 text-xs"
-                              >
-                                {workspaces.map((w) => (
-                                  <option key={w.id} value={w.path}>
-                                    {w.name}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : null
-                          }
-                          installErrorGlobal={installErrors[kG] || null}
                           installErrorWorkspace={installErrors[kW] || null}
-                          isInstallingGlobal={installingKey === kG}
                           isInstallingWorkspace={installingKey === kW}
                         />
                       );
@@ -853,65 +749,13 @@ export function SkillsSettingsPage() {
                 placeholder="Search installed skills..."
               />
             </div>
-            <Accordion type="multiple" defaultValue={["globalActive", "workspaceActive"]} className="w-full">
-              <AccordionItem value="globalActive" className="border rounded-xl">
-                <AccordionTrigger className="px-6">
-                  <div className="text-base font-semibold">
-                    Global ({installedGlobal.length}/{MAX_GLOBAL})
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  {installedGlobalFiltered.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No global skills installed.</div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {installedGlobalFiltered.map((row) => (
-                        <InstalledSkillCard
-                          key={`${row.id}:global`}
-                          row={row}
-                          onRemove={() => remove(row)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="workspaceActive" className="border rounded-xl">
-                <AccordionTrigger className="px-6">
-                  <div className="text-base font-semibold">Workspaces</div>
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  {workspaces.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      Add a workspace to enable workspace skills.
-                    </div>
-                  ) : activeQuery && Object.keys(installedWorkspaceByPathFiltered).length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No matching workspace skills.</div>
-                  ) : (
-                    <ScrollArea className="h-[520px]">
-                      <div className="space-y-6 pr-3 pb-6">
-                        {(activeQuery
-                          ? workspaces.filter((ws) => (installedWorkspaceByPathFiltered[ws.path] ?? []).length > 0)
-                          : workspaces
-                        ).map((ws) => (
-                          <WorkspaceSkillsCard
-                            key={ws.path}
-                            workspace={ws}
-                            installed={
-                              (activeQuery
-                                ? installedWorkspaceByPathFiltered[ws.path]
-                                : installedWorkspaceByPath[ws.path]) ?? []
-                            }
-                            onRemove={remove}
-                          />
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+            {currentWorkspace ? (
+              <WorkspaceSkillsCard
+                workspace={currentWorkspace}
+                installed={installedWorkspaceFiltered}
+                onRemove={remove}
+              />
+            ) : null}
           </TabsContent>
         </Tabs>
 

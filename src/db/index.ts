@@ -27,7 +27,6 @@ const REQUIRED_CORE_TABLES = [
   "messages",
   "language_model_providers",
   "language_models",
-  "prompts",
 ] as const;
 
 function isCoreSchemaComplete(sqlite: Database.Database): boolean {
@@ -136,11 +135,6 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       sqlite = new Database(dbPath, { timeout: 10000 });
       sqlite.pragma("foreign_keys = ON");
 
-      // PRE-MIGRATION: Only schema fixes that must run before migrate() (column renames, etc.)
-      try { fixPromptsSchemaIfNeeded(sqlite); } catch (error) {
-        logger.error("Error fixing prompts schema (non-fatal, continuing):", error);
-      }
-
       const drizzleDb = drizzle(sqlite, { schema });
 
       logger.log("[Migrations] Applying embedded SQL bundle (Vite ?raw, no drizzle/ path).");
@@ -155,6 +149,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       try { ensureMcpBaseTablesIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal):", error);
       }
+      try { ensureAppsRemoteColumnsIfNeeded(sqlite); } catch (error) {
+        logger.warn("[Schema Fix] apps remote columns:", error);
+      }
       try { fixMcpServersSchemaIfNeeded(sqlite); } catch (error) {
         logger.error("Error fixing mcp_servers schema (non-fatal):", error);
       }
@@ -164,9 +161,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       }
       try { ensureReviewPatternsTableIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring review_patterns table (non-fatal):", error);
+      }
       try { ensureSessionMessagePlanColumnsIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring session_messages plan columns (non-fatal):", error);
-      }
       }
 
       if (!isCoreSchemaComplete(sqlite)) {
@@ -208,75 +205,6 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   }
 
   throw new Error("Database initialization failed after retries.");
-}
-
-/**
- * Fix prompts table schema if it has the old structure
- * OLD: id, title, description, content, created_at, updated_at
- * NEW: id, type, workspace_id, content, created_at, updated_at
- */
-function fixPromptsSchemaIfNeeded(sqlite: Database.Database): void {
-  // Check if prompts table exists
-  const tableExists = sqlite.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='prompts'"
-  ).get();
-
-  if (!tableExists) {
-    logger.log("[Schema Fix] Prompts table doesn't exist, will be created by migrations");
-    return;
-  }
-
-  // Check if 'type' column exists (new schema indicator)
-  const columns = sqlite.prepare("PRAGMA table_info(prompts)").all() as Array<{ name: string }>;
-  const hasTypeColumn = columns.some(col => col.name === 'type');
-  const hasTitleColumn = columns.some(col => col.name === 'title');
-
-  if (hasTypeColumn) {
-    logger.log("[Schema Fix] Prompts table already has correct schema (has 'type' column)");
-    return;
-  }
-
-  if (!hasTitleColumn) {
-    logger.log("[Schema Fix] Prompts table has unknown schema, skipping fix");
-    return;
-  }
-
-  // Old schema detected - migrate to new schema
-  logger.log("[Schema Fix] Detected OLD prompts schema (has 'title'), migrating to new schema...");
-
-  // Begin transaction for safety
-  const transaction = sqlite.transaction(() => {
-    // 1. Rename old table
-    sqlite.exec("ALTER TABLE prompts RENAME TO prompts_old_backup");
-
-    // 2. Create new table with correct schema
-    sqlite.exec(`
-      CREATE TABLE prompts (
-        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-        type text NOT NULL DEFAULT 'global',
-        workspace_id integer,
-        content text NOT NULL,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL
-      )
-    `);
-
-    // 3. Create unique index
-    sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS prompts_workspace_unique ON prompts (workspace_id)");
-
-    // 4. Copy data from old table (content becomes global prompts)
-    sqlite.exec(`
-      INSERT INTO prompts (id, type, workspace_id, content, created_at, updated_at)
-      SELECT id, 'global', NULL, content, created_at, updated_at
-      FROM prompts_old_backup
-    `);
-
-    // 5. Drop old table
-    sqlite.exec("DROP TABLE prompts_old_backup");
-  });
-
-  transaction();
-  logger.log("[Schema Fix] Successfully migrated prompts table to new schema!");
 }
 
 /**
@@ -404,7 +332,7 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
     return;
   }
   if (!hasScope) {
-    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'");
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'workspace'");
     logger.log("[Schema Fix] mcp_servers: added scope column");
   }
   if (!hasAppId) {
@@ -501,6 +429,18 @@ function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): voi
   if (!columnExists(sqlite, "session_messages", "plan_status")) {
     logger.log("[Schema Fix] Adding session_messages.plan_status (0048_session_plan_artifacts)");
     sqlite.exec("ALTER TABLE session_messages ADD COLUMN plan_status text");
+  }
+}
+
+function ensureAppsRemoteColumnsIfNeeded(sqlite: Database.Database): void {
+  if (!columnExists(sqlite, "apps", "last_opened_at")) {
+    sqlite.exec("ALTER TABLE apps ADD COLUMN last_opened_at INTEGER");
+  }
+  if (!columnExists(sqlite, "apps", "workspace_kind")) {
+    sqlite.exec("ALTER TABLE apps ADD COLUMN workspace_kind TEXT NOT NULL DEFAULT 'local'");
+  }
+  if (!columnExists(sqlite, "apps", "remote_connection")) {
+    sqlite.exec("ALTER TABLE apps ADD COLUMN remote_connection TEXT");
   }
 }
 

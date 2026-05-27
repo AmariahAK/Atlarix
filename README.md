@@ -21,11 +21,23 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v8.7.5**
+**Current release:** **v8.9.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+
+---
+
+## v8.9.0 — Workspace-first IDE
+
+- **Welcome launcher:** Open folder / clone repo; recent workspaces — no global chat without a project.
+- **Sessions:** Saved sessions per workspace; ephemeral **New chat**; background streams when switching sessions.
+- **Sub-agents:** Explore & Review cards with scoped labels (not raw delegation ids); grouped tool summaries.
+- **Right panel:** Code tab always loads the file tree; Monaco bundled for syntax highlighting in packaged builds; Vault tab removed.
+- **Settings:** MCP and Skills scoped to the active workspace only.
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) `[8.9.0]`.
 
 ---
 

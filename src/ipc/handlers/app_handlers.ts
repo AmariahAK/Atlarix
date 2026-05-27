@@ -565,6 +565,12 @@ async function stopDockerContainersOnPort(port: number): Promise<void> {
 }
 
 export function registerAppHandlers() {
+  handle("apps:touch-last-opened", async (_, appId: number) => {
+    const now = new Date();
+    await db.update(apps).set({ lastOpenedAt: now, updatedAt: now }).where(eq(apps.id, appId));
+    return { ok: true };
+  });
+
   handle("restart-atlarix", async () => {
     app.relaunch();
     app.quit();
@@ -815,7 +821,8 @@ export function registerAppHandlers() {
       orderBy: [desc(apps.createdAt)],
     });
     const appsWithPathExists = allApps.map((a) => {
-      const pathExists = fs.existsSync(getAtlarixAppPath(a.path));
+      const isRemote = a.path?.startsWith("atlarix-remote://");
+      const pathExists = isRemote || fs.existsSync(getAtlarixAppPath(a.path));
       return {
         ...a,
         pathExists,

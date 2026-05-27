@@ -1,19 +1,12 @@
 /**
- * MCP Settings Page — Pass 7
- * ==========================
- * Two tabs:
- *   - Active: existing global + workspace MCP managers (`ToolsMcpSettings`).
- *   - Marketplace: discover and one-click install MCPs from the public registry
- *     (`atlarix-mcps`), with env-var collection and per-scope install.
- *
- * Both views share the same enforcement (5 global / 5 per workspace) and
- * upgrade gates surfaced server-side from `mcp_handlers.ts`.
+ * MCP Settings — workspace-scoped to the active IDE workspace (selectedAppId).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Folder, Globe, Sparkles } from "lucide-react";
+import { ArrowLeft, Folder, Sparkles } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import {
   Tabs,
@@ -24,62 +17,28 @@ import {
 import { ToolsMcpSettings } from "./ToolsMcpSettings";
 import { McpMarketplaceTab } from "./McpMarketplaceTab";
 import { OrphanedMcpSection } from "./OrphanedMcpSection";
-import { IpcClient } from "@/ipc/ipc_client";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 
-const MAX_GLOBAL_MCP = 5;
-const MAX_WORKSPACE_MCP = 5;
+const MAX_WORKSPACE_MCP = 10;
 
-interface WorkspaceWithStatus {
-  id: number;
-  name: string;
-  path: string;
-  hasPrompt: boolean;
-  promptContent?: string;
-}
-
-function WorkspaceMcpCard({
-  workspace,
-  maxServers,
-}: {
-  workspace: WorkspaceWithStatus;
-  maxServers: number;
-}) {
+function WorkspaceRequiredEmpty() {
   return (
-    <div className="rounded-lg border border-border bg-card/50 p-4">
-      <div className="flex items-center gap-3 min-w-0 mb-3">
-        <Folder className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="font-medium truncate">{workspace.name}</div>
-          <div className="text-xs text-muted-foreground truncate">{workspace.path}</div>
-        </div>
-      </div>
-      <ToolsMcpSettings scope="workspace" appId={workspace.id} maxServers={maxServers} />
-    </div>
+    <p className="text-sm text-muted-foreground py-6">
+      Open a workspace from the welcome screen or sidebar to manage MCP servers for that
+      project.
+    </p>
   );
 }
 
 export function McpSettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [workspaces, setWorkspaces] = useState<WorkspaceWithStatus[]>([]);
-  const [workspacesLoading, setWorkspacesLoading] = useState(true);
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">("active");
 
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      setWorkspacesLoading(true);
-      const result = await IpcClient.getInstance().listWorkspacesWithPromptStatus();
-      setWorkspaces(result);
-    } catch (error) {
-      console.error("Failed to load workspaces for MCP:", error);
-    } finally {
-      setWorkspacesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces]);
+  const workspaceName = workspaceInfo?.name ?? "Workspace";
+  const workspacePath = workspaceInfo?.path ?? "";
 
   return (
     <div className="flex-1 min-h-0 bg-background overflow-y-auto">
@@ -97,86 +56,64 @@ export function McpSettingsPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">MCP Servers</h1>
           <p className="text-muted-foreground mt-1">
-            Connect Model Context Protocol servers — filesystem, GitHub, Postgres, Slack, Sentry, and
-            anything else with an MCP implementation. Use{" "}
-            <code className="text-xs bg-muted px-1 rounded">@mcp name</code> in chat to call a server.
+            MCP servers for your <strong>current workspace</strong> only (max{" "}
+            {MAX_WORKSPACE_MCP} per workspace). Use{" "}
+            <code className="text-xs bg-muted px-1 rounded">@mcp name</code> in chat.
           </p>
         </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={(v) => setActiveTab(v as "active" | "marketplace")}
-        >
-          <TabsList>
-            <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="marketplace">
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              Marketplace
-            </TabsTrigger>
-          </TabsList>
+        {!selectedAppId ? (
+          <WorkspaceRequiredEmpty />
+        ) : (
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as "active" | "marketplace")}
+          >
+            <TabsList>
+              <TabsTrigger value="active">Active</TabsTrigger>
+              <TabsTrigger value="marketplace">
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                Marketplace
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="active" className="space-y-8 mt-4">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Globe className="w-5 h-5 text-primary" />
-                <h2 className="text-xl font-semibold text-foreground">Global MCP</h2>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Available in every chat (incognito and workspace). Max {MAX_GLOBAL_MCP} servers.
-              </p>
-              <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-                <ToolsMcpSettings maxServers={MAX_GLOBAL_MCP} scope="global" />
-              </div>
-            </div>
-
-            <hr className="border-border" />
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Folder className="w-5 h-5 text-primary" />
-                <h2 className="text-xl font-semibold text-foreground">Workspace MCP</h2>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Project-specific servers, used only when that workspace is active in chat. Max{" "}
-                {MAX_WORKSPACE_MCP} per workspace.
-              </p>
-              <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-                {workspacesLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading workspaces...</p>
-                ) : workspaces.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No workspaces yet. Add a workspace from the Apps page; it will appear here.
-                  </p>
-                ) : (
-                  <div className="max-h-[min(70vh,720px)] overflow-y-auto overscroll-y-contain pr-1 -mr-1">
-                    <div className="space-y-6">
-                      {workspaces.map((ws) => (
-                        <WorkspaceMcpCard key={ws.id} workspace={ws} maxServers={MAX_WORKSPACE_MCP} />
-                      ))}
-                    </div>
+            <TabsContent value="active" className="space-y-8 mt-4">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Folder className="w-5 h-5 text-primary" />
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-semibold text-foreground truncate">
+                      {workspaceName}
+                    </h2>
+                    {workspacePath ? (
+                      <p className="text-xs text-muted-foreground truncate">{workspacePath}</p>
+                    ) : null}
                   </div>
-                )}
-                <p className="text-xs text-muted-foreground mt-3">
-                  Add or remove MCP servers per workspace above. Use @mcp name in chat when that
-                  workspace is active.
-                </p>
+                </div>
+                <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+                  <ToolsMcpSettings
+                    scope="workspace"
+                    appId={selectedAppId}
+                    maxServers={MAX_WORKSPACE_MCP}
+                  />
+                </div>
               </div>
-            </div>
+              <OrphanedMcpSection workspaceAppId={selectedAppId} />
+            </TabsContent>
 
-            <OrphanedMcpSection />
-          </TabsContent>
-
-          <TabsContent value="marketplace" className="mt-4">
-            <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-              <McpMarketplaceTab
-                workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
-                onChanged={() => {
-                  void queryClient.invalidateQueries({ queryKey: ["mcp"] });
-                }}
-              />
-            </div>
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="marketplace" className="mt-4">
+              <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+                <McpMarketplaceTab
+                  workspaceId={selectedAppId}
+                  workspaceName={workspaceName}
+                  onChanged={() => {
+                    void queryClient.invalidateQueries({ queryKey: ["mcp"] });
+                  }}
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
       </div>
     </div>
   );

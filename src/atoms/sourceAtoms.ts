@@ -24,7 +24,7 @@ export type PanelType =
     | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'vault' | 'activity' | 'chat' | 'plan';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
 
 export interface PanelContext {
     type: PanelType;

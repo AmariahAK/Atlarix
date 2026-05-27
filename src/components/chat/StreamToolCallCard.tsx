@@ -48,7 +48,7 @@ export function StreamToolCallCard({
         );
 
   return (
-    <div className={streamToolCardShell}>
+    <div className={cn(streamToolCardShell, "overflow-hidden")}>
       <button
         type="button"
         onClick={() => expandable && setOpen((o) => !o)}

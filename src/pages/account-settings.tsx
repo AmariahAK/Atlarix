@@ -12,6 +12,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState, useCallback } from 'react';
 import { showError, showSuccess } from '@/lib/toast';
 import { triggerUpgrade, triggerUpgradeWorkforce } from '@/hooks/useUpgrade';
+import { SettingsWorkspaceNav } from '@/components/settings/SettingsWorkspaceNav';
 import { Users, LogOut } from 'lucide-react';
 
 interface TeamInfo {
@@ -185,16 +186,12 @@ export function AccountSettings() {
   return (
     <div className="min-h-full bg-background p-8 pb-12">
       <div className="max-w-4xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Account Settings</h1>
-            <p className="text-muted-foreground mt-1">
-              Manage your profile, subscription, and team
-            </p>
-          </div>
-          <Button onClick={() => navigate({ to: '/' })} variant="outline">
-            Back to Home
-          </Button>
+        <SettingsWorkspaceNav />
+        <div>
+          <h1 className="text-3xl font-bold">Account Settings</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your profile, subscription, and team
+          </p>
         </div>
 
         {/* Profile Card */}

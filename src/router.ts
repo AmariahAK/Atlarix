@@ -8,7 +8,6 @@ import { mcpSettingsRoute } from "./routes/settings/mcp";
 import { skillsSettingsRoute } from "./routes/settings/skills";
 import { appDetailsRoute } from "./routes/app-details";
 import { hubRoute } from "./routes/hub";
-import { libraryRoute } from "./routes/library";
 import { codeRoute } from "./routes/code";
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
@@ -17,7 +16,6 @@ import { accountSettingsRoute } from "./routes/account";
 const routeTree = rootRoute.addChildren([
   homeRoute,
   hubRoute,
-  libraryRoute,
   codeRoute,
   toolsRoute,
   chatRoute,

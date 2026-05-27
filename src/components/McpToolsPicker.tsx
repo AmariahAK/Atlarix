@@ -24,12 +24,9 @@ import {
 } from "@/components/ui/select";
 
 /** Inner content for MCP tools; can be embedded in Config dropdown popover. */
-/** When appId is null/undefined (no workspace), only global MCPs are shown; when set, global + that workspace's MCPs. */
+/** When appId is set, lists MCP servers for that workspace only. */
 export function McpToolsPickerContent({ appId }: { appId?: number | null } = {}) {
-  const filter =
-    appId != null
-      ? { scope: "globalAndWorkspace" as const, appId }
-      : { scope: "global" as const };
+  const filter = appId != null ? { scope: "workspace" as const, appId } : undefined;
   const { servers, toolsByServer, consentsMap, setToolConsent } = useMcp(filter);
   return (
     <div className="space-y-4 p-4">
@@ -37,8 +34,8 @@ export function McpToolsPickerContent({ appId }: { appId?: number | null } = {})
         <h3 className="font-medium">Tools (MCP)</h3>
         <p className="text-sm text-muted-foreground">
           {appId != null
-            ? "Global and this workspace's MCP servers."
-            : "No workspace selected — showing global MCP servers only."}
+            ? "MCP servers installed for this workspace."
+            : "Open a workspace to configure MCP servers."}
         </p>
       </div>
       {servers.length === 0 ? (

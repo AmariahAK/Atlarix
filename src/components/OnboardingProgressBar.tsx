@@ -33,13 +33,13 @@ export function OnboardingProgressBar() {
   const isLoginStep = step === 1;
   const stepLabel =
     step === 2
-      ? "Step 2 of 5 — Start chatting with Compass"
+      ? "Step 2 of 5 — Open a workspace from the welcome screen"
       : step === 3
-        ? "Step 3 of 5 — Add your own models in Settings"
+        ? "Step 3 of 5 — Add models in Settings (optional BYOK)"
         : step === 4
-          ? "Step 4 of 5 — How chat continuity works"
+          ? "Step 4 of 5 — Saved sessions & new chat in the sidebar"
           : step === 5
-            ? "Step 5 of 5 — Resize the side panel"
+            ? "Step 5 of 5 — Preview, Code, Activity & more"
             : "";
 
   return (

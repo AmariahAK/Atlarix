@@ -695,7 +695,7 @@ ToolRegistry.register({
     description:
         "Read and extract structured content from a file attachment. " +
         "Returns text content for documents, metadata for images, and structured data for PDFs/Word/Excel. " +
-        "This tool is available in Ask, Plan, Build, Debug, Review, and chat-only modes. " +
+        "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
         "Call it whenever the user references an uploaded file or attachment. " +
         "Use this when you need to analyze or process files the user has attached to the conversation. " +
         "If content extraction fails, check rawBase64 for the original file data.",
@@ -826,7 +826,7 @@ ToolRegistry.register({
     name: "list_attachments",
     description:
         "List all available file attachments in the current conversation. " +
-        "This tool is available in Ask, Plan, Build, Debug, Review, and chat-only modes. " +
+        "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
         "Call it whenever the user references an uploaded file or attachment. " +
         "Use this to find the ID of an attachment you want to read with read_attachment.",
     category: ToolCategory.FILE,

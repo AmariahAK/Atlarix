@@ -1,5 +1,5 @@
 /**
- * Onboarding state — first-time guide (v5.1: sign in → Compass → BYOK in Settings).
+ * Onboarding state — first-time guide (workspace-first UI).
  * Stored in localStorage so "Restart guide" in Settings can reset it.
  */
 
@@ -37,38 +37,37 @@ export const ONBOARDING_STEPS = [
   {
     id: "welcome",
     title: "Welcome to Atlarix",
-    body: "Your private sovereign AI IDE — project memory, work modes, and Compass built in.",
+    body: "Your private sovereign AI IDE — open a folder to start, with saved sessions and workspace-scoped tools.",
     target: null as string | null,
   },
   {
-    id: "compass-chat",
-    title: "Start with Compass",
-    body: "Atlarix Core works immediately — no API key. Type in the chat to get started.",
-    target: "[data-onboarding=home-chat-input]",
+    id: "open-folder",
+    title: "Open a workspace",
+    body: "From the welcome screen, use Open folder or Clone repo — or pick a recent workspace.",
+    target: "[data-onboarding=welcome-open-folder]",
   },
   {
     id: "byok",
-    title: "Bring your own models",
-    body: "Open Settings to add API keys for OpenAI, Anthropic, Gemini, Ollama, and more whenever you want.",
+    title: "Models & Compass",
+    body: "Compass works without an API key. Open Settings to add BYOK providers (OpenAI, Anthropic, Gemini, Ollama, and more).",
     target: "[data-onboarding=settings-link]",
   },
-  // Fix: Finding 2 — continuity + right panel (wired via onboardingStepAtom 4–5)
   {
-    id: "chat-continuity",
-    title: "How chat memory works",
-    body: "There is no long-lived chat history. Use your .atlarix folder (project memory, snapshots, ATLARIX_PLAN.md) so context carries across sessions.",
-    target: "[data-onboarding=chat-continuity]",
+    id: "sessions",
+    title: "Sessions in the sidebar",
+    body: "Each workspace keeps saved chat sessions. Use + for a new ephemeral chat; switch sessions without stopping background work.",
+    target: "[data-onboarding=workspace-sessions]",
   },
   {
     id: "right-panel",
     title: "Right panel",
-    body: "Drag the grip between chat and the preview panel to resize. Use the tabs for Preview, Code, Terminal, and more.",
+    body: "Preview, Code (file tree + editor), Activity, Terminal, and Errors — resize with the grip between chat and the panel.",
     target: "[data-onboarding=panel-resize-grip]",
   },
   {
     id: "done",
     title: "You're set",
-    body: "Explore workspaces, diagrams, and work modes (Ask, Plan, Build, Debug, Review). On Workforce, configure team MCP servers and credentials in Settings; the app will ask for per-chat scope when using integration tools.",
+    body: "Explore work modes (Ask, Plan, Build, Debug, Review), sub-agents, and workspace MCP/skills under Settings.",
     target: null,
   },
 ] as const;

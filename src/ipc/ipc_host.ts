@@ -25,6 +25,7 @@ import { registerReleaseNoteHandlers } from "./handlers/release_note_handlers";
 import { registerImportHandlers } from "./handlers/import_handlers";
 import { registerSessionHandlers } from "./handlers/session_handlers";
 import { registerWorkspaceSessionHandlers } from "./handlers/workspace_session_handlers";
+import { registerDisplaySnapshotHandlers } from "./handlers/display_snapshot_handlers";
 import { registerProHandlers } from "./handlers/pro_handlers";
 import { registerContextPathsHandlers } from "./handlers/context_paths_handlers";
 import { registerAppUpgradeHandlers } from "./handlers/app_upgrade_handlers";
@@ -33,7 +34,6 @@ import { registerProblemsHandlers } from "./handlers/problems_handlers";
 import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
 import { registerTemplateHandlers } from "./handlers/template_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
-import { registerPromptHandlers } from "./handlers/prompt_handlers";
 import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
@@ -62,6 +62,7 @@ import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
+import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/diagram_handlers"; // Auto-registers on import
 import { registerFsDiagramSnapshotHandlers } from "./handlers/fs_diagram_snapshot_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
@@ -71,6 +72,7 @@ export function registerIpcHandlers() {
   registerAppHandlers();
   registerChatHandlers();
   registerWorkspaceSessionHandlers();
+  registerDisplaySnapshotHandlers();
   registerChatStreamHandlers();
   registerSettingsHandlers();
   registerShellHandlers();
@@ -95,6 +97,7 @@ export function registerIpcHandlers() {
   registerCompassHandlers();
   registerReleaseNoteHandlers();
   registerImportHandlers();
+  registerRemoteSshHandlers();
   registerSessionHandlers();
   registerProHandlers();
   registerContextPathsHandlers();
@@ -103,7 +106,6 @@ export function registerIpcHandlers() {
   registerAppEnvVarsHandlers();
   registerTemplateHandlers();
   registerPortalHandlers();
-  registerPromptHandlers();
   registerHelpBotHandlers();
   registerMcpHandlers();
   registerSkillsHandlers();

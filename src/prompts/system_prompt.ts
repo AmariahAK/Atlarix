@@ -539,7 +539,7 @@ export const constructSystemPromptParts = ({
     // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
     const toolContract = `<tool_contract>
 Every-mode tools: read_attachment, list_attachments, compress_context, web_search, deep_research, ask_user.
-Workspace-only tools (file read/write, search, diagram, etc.) are NOT available in chat-only mode.
+Workspace tools (file read/write, search, diagram, etc.) require an open workspace folder.
 If a tool is in your tool list, call it; do not claim it is missing.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
 </tool_contract>`;

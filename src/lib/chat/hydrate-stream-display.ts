@@ -1,8 +1,13 @@
 import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
-import { buildCompletedStreamThreadFromAssistantContent } from "@/lib/chat/stream-thread";
 import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import type { StreamThreadItem } from "@/lib/chat/stream-thread";
+import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
+import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
+import {
+  buildCompletedStreamThreadFromAssistantContent,
+  consolidateSubagentRoundsInThread,
+} from "@/lib/chat/stream-thread";
 
 export function buildInlineTimelineFromAssistantContent(
   content: string,
@@ -44,8 +49,21 @@ export function buildInlineTimelineFromAssistantContent(
   return out;
 }
 
+function threadFromSnapshot(
+  snapshot: DisplaySnapshotV1,
+): StreamThreadItem[] {
+  return flattenToolGroupsInThread(
+    consolidateSubagentRoundsInThread(snapshot.completedThread),
+  );
+}
+
 export function hydrateStreamDisplayForMessages(
-  messages: Array<{ id: number; role: string; content: string }>,
+  messages: Array<{
+    id: number;
+    role: string;
+    content: string;
+    displaySnapshot?: DisplaySnapshotV1 | null;
+  }>,
 ): {
   completedThreads: Record<number, StreamThreadItem[]>;
   inlineTimelines: Record<number, InlineTimelineItem[]>;
@@ -55,6 +73,21 @@ export function hydrateStreamDisplayForMessages(
 
   for (const m of messages) {
     if (m.role !== "assistant" || !m.content?.trim()) continue;
+
+    if (m.displaySnapshot) {
+      const thread = threadFromSnapshot(m.displaySnapshot);
+      if (thread.length > 0) {
+        completedThreads[m.id] = thread;
+      }
+      const timeline =
+        m.displaySnapshot.inlineTimeline ??
+        buildInlineTimelineFromAssistantContent(m.content);
+      if (timeline.length > 0) {
+        inlineTimelines[m.id] = timeline;
+      }
+      continue;
+    }
+
     const thread = buildCompletedStreamThreadFromAssistantContent(m.content);
     if (thread.length > 0) {
       completedThreads[m.id] = thread;

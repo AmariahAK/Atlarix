@@ -52,6 +52,9 @@ import raw_45_0045_chat_sessions from "../../../drizzle/0045_chat_sessions.sql?r
 import raw_46_0046_mcp_api_key from "../../../drizzle/0046_mcp_api_key.sql?raw";
 import raw_47_0047_drop_blueprints_table from "../../../drizzle/0047_drop_blueprints_table.sql?raw";
 import raw_48_0048_session_plan_artifacts from "../../../drizzle/0048_session_plan_artifacts.sql?raw";
+import raw_49_0049_workspace_only_remote from "../../../drizzle/0049_workspace_only_remote.sql?raw";
+import raw_50_0050_drop_prompts_table from "../../../drizzle/0050_drop_prompts_table.sql?raw";
+import raw_51_0051_display_snapshot from "../../../drizzle/0051_display_snapshot.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -111,6 +114,9 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0046_mcp_api_key", sql: raw_46_0046_mcp_api_key as string, drizzleHash: "9e62d06abc2767128b28b4d197ac6054e9fc6b601b6d053ca49f51dcc7bc1dad", when: 1778550000000 },
   { name: "0047_drop_blueprints_table", sql: raw_47_0047_drop_blueprints_table as string, drizzleHash: "4edaf07410c20e99ef4c3b1665a5be603003f72e5ba3d099fca90b7bdbd1d74e", when: 1778650000000 },
   { name: "0048_session_plan_artifacts", sql: raw_48_0048_session_plan_artifacts as string, drizzleHash: "b986005efa6ce1722310b38dbe8c78f7a92d87d44a83b3945ce63d18773255ea", when: 1778750000000 },
+  { name: "0049_workspace_only_remote", sql: raw_49_0049_workspace_only_remote as string, drizzleHash: "705004cea277f0bd095fc5831d33456de5300810830438c40e08c3b379a3c6e1", when: 1778850000000 },
+  { name: "0050_drop_prompts_table", sql: raw_50_0050_drop_prompts_table as string, drizzleHash: "e1472b348c2e0eda68e87dd0354b6514d73b81ac6dd29ba9c8d221fe2947354c", when: 1778950000000 },
+  { name: "0051_display_snapshot", sql: raw_51_0051_display_snapshot as string, drizzleHash: "3438ac73bdc806a3e96527576bf0a35d23b21f5b9cd2748ed78b171c844bc30e", when: 1779050000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -164,4 +170,7 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "9e62d06abc2767128b28b4d197ac6054e9fc6b601b6d053ca49f51dcc7bc1dad": "0046_mcp_api_key",
   "4edaf07410c20e99ef4c3b1665a5be603003f72e5ba3d099fca90b7bdbd1d74e": "0047_drop_blueprints_table",
   "b986005efa6ce1722310b38dbe8c78f7a92d87d44a83b3945ce63d18773255ea": "0048_session_plan_artifacts",
+  "705004cea277f0bd095fc5831d33456de5300810830438c40e08c3b379a3c6e1": "0049_workspace_only_remote",
+  "e1472b348c2e0eda68e87dd0354b6514d73b81ac6dd29ba9c8d221fe2947354c": "0050_drop_prompts_table",
+  "3438ac73bdc806a3e96527576bf0a35d23b21f5b9cd2748ed78b171c844bc30e": "0051_display_snapshot",
 };

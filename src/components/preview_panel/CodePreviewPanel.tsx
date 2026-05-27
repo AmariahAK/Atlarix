@@ -123,7 +123,6 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                             errors={errorsData}
                             workspacePath={workspacePath}
                             appId={currentAppId}
-                            files={currentAppId && currentApp?.id === currentAppId ? (currentApp?.files ?? []) : undefined}
                             selectedErrorForCode={selectedErrorForCode}
                             onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
                         />
@@ -421,7 +420,6 @@ function CodeTab({
     errors = [],
     workspacePath = '',
     appId = null,
-    files = undefined,
     selectedErrorForCode = null,
     onSelectedErrorForCodeConsumed = () => {},
 }: {
@@ -429,11 +427,20 @@ function CodeTab({
     errors?: ParsedError[];
     workspacePath?: string;
     appId?: number | null;
-    /** When provided, show file tree sidebar and editor (miniscreen mode). */
-    files?: string[] | undefined;
     selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
     onSelectedErrorForCodeConsumed?: () => void;
 }) {
+    const { data: appFilesData, isLoading: appFilesLoading } = useQuery({
+        queryKey: ['app-files', appId],
+        queryFn: async () => {
+            if (appId == null) return null;
+            return IpcClient.getInstance().getAppFiles(appId);
+        },
+        enabled: appId != null,
+        staleTime: 60_000,
+        refetchOnWindowFocus: false,
+    });
+    const workspaceFiles = appFilesData?.files ?? [];
     const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
     const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
     const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
@@ -469,7 +476,7 @@ function CodeTab({
         // Prefer readAppFile (handles path resolution) when we have appId
         if (appId) {
             // Miniscreen: editor is driven by tree selection + readAppFile in tree effect, not sidebarFile.
-            if (files != null && files.length > 0) {
+            if (appId) {
                 treeOpenLineRef.current = {
                     path: selectedFilePath,
                     line: selectedErrorForCode?.line,
@@ -508,7 +515,7 @@ function CodeTab({
             })
             .catch(() => setSidebarFile(null))
             .finally(() => setSidebarFileLoading(false));
-    }, [selectedFilePath, workspacePath, appId, files, selectedErrorForCode?.line, onSelectedErrorForCodeConsumed]);
+    }, [selectedFilePath, workspacePath, appId, selectedErrorForCode?.line, onSelectedErrorForCodeConsumed]);
 
     // Check if we have errors with file paths - show editor for those
     const filesWithErrors = errors.filter(e => e.file);
@@ -526,8 +533,8 @@ function CodeTab({
         );
     }
 
-    // Miniscreen mode: file tree sidebar + editor (same size as blueprint)
-    if (files != null && files.length > 0 && appId) {
+    // Miniscreen mode: file tree sidebar + editor whenever a workspace is selected
+    if (appId) {
         return (
             <div className="flex flex-1 min-h-0 min-w-0">
                 <div className="w-[160px] flex-shrink-0 border-r border-border flex flex-col bg-muted/10 overflow-hidden">
@@ -535,8 +542,13 @@ function CodeTab({
                         Files
                     </div>
                     <div className="flex-1 overflow-auto min-h-0">
+                        {appFilesLoading ? (
+                            <div className="flex items-center justify-center p-3 text-muted-foreground">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                            </div>
+                        ) : (
                         <WorkspaceFileTree
-                            files={files}
+                            files={workspaceFiles}
                             onFileClick={(path) => {
                                 setSelectedFilePathFromTree(path);
                                 if (treeOpenLineRef.current && path !== treeOpenLineRef.current.path) {
@@ -545,6 +557,7 @@ function CodeTab({
                             }}
                             maxHeight="100%"
                         />
+                        )}
                     </div>
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col min-h-0">

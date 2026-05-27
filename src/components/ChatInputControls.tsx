@@ -259,7 +259,9 @@ export function ChatInputControls({
         </Sheet>
         )}
 
-        <ChatIntentSelector />
+        <span className="inline-flex" data-tour="tour-ask-build">
+          <ChatIntentSelector />
+        </span>
 
         {showContextFilesPicker && (
           <>

@@ -54,6 +54,8 @@ import {
   mergeNestedToolActivityIntoSubagentRound,
 } from "@/lib/chat/stream-thread";
 import { buildInlineTimelineFromActivity } from "@/lib/chat/inline-timeline";
+import { buildDisplaySnapshotPayloadForMessage } from "@/lib/chat/apply-stream-display-hydration";
+import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import {
   extractThinkingFromContent,
   hasThinkingSnapshotContent,
@@ -105,9 +107,22 @@ import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  clearActivityForChatInStore,
+  filterActivityForChat,
+} from "@/lib/chat/activity-stream";
+import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
+import { showInfo } from "@/lib/toast";
 
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function isForegroundChatId(chatId: number): boolean {
+  const store = getDefaultStore();
+  const active = store.get(activeChatIdAtom);
+  if (active === chatId) return true;
+  return store.get(selectedChatIdAtom) === chatId;
 }
 
 function isSpammyProgressLine(line: string): boolean {
@@ -408,7 +423,7 @@ export function useStreamChat({
       let hasIncrementedStreamCount = false;
       let cleanupStreamListeners: (() => void) | null = null;
       try {
-        getDefaultStore().set(activityStreamItemsAtom, []);
+        clearActivityForChatInStore(chatId);
         if (hasChatId) {
           getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
             const n = new Map(prev);
@@ -1007,10 +1022,9 @@ export function useStreamChat({
             // Sort by score descending (highest first)
             allSources.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-            // Update sourceListAtom if we found sources
-            if (allSources.length > 0) {
+            if (allSources.length > 0 && isForegroundChatId(chatId)) {
               setSourceList(allSources);
-              maybeAutoOpenRightPanel(); // Auto-show panel when sources arrive
+              maybeAutoOpenRightPanel();
             }
 
             const th = messageStreamThrottleRef.current;
@@ -1171,45 +1185,15 @@ export function useStreamChat({
             messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(
               response.chatId,
             );
-            const appIdForPersist = getDefaultStore().get(selectedAppIdAtom);
-            void (async () => {
-              const sessionIdForPersist =
-                appIdForPersist != null
-                  ? await ensureWorkspaceSessionForChat(
-                      appIdForPersist,
-                      response.chatId,
-                    )
-                  : null;
-              if (!sessionIdForPersist || appIdForPersist == null) return;
-              const lastAssistant = [...msgs]
-                .reverse()
-                .find((m) => m.role === "assistant");
-              const assistantContent = lastAssistant?.content?.trim();
-              if (!assistantContent) return;
-              try {
-                await IpcClient.getInstance().addSessionMessage(
-                  sessionIdForPersist,
-                  "assistant",
-                  assistantContent,
-                );
-                if (!sessionTitleGeneratedRef.current.has(response.chatId)) {
-                  sessionTitleGeneratedRef.current.add(response.chatId);
-                  await applyAIWorkspaceSessionTitle(sessionIdForPersist);
-                }
-              } catch (e) {
-                console.error("Failed to persist assistant session message:", e);
-              }
-            })();
             const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
             if (lastAssistant) {
               const thinkingSnap =
                 getDefaultStore().get(completedTurnThinkingByAssistantMessageIdAtom)[
                   lastAssistant.id
                 ] ?? null;
+              const activitySnap = getDefaultStore().get(activityStreamItemsAtom);
               const timeline = buildInlineTimelineFromActivity(
-                activitySnap.filter(
-                  (i) => i.chatId == null || i.chatId === response.chatId,
-                ),
+                filterActivityForChat(activitySnap, response.chatId),
                 thinkingSnap,
               );
               if (timeline.length > 0) {
@@ -1221,13 +1205,26 @@ export function useStreamChat({
             }
             getDefaultStore().set(activeTurnScopeAtom, null);
 
-            // v3.5: Clear persistent tool indicator when stream ends
-            setToolIndicator(emptyToolIndicatorState());
-            getDefaultStore().set(summarizationProgressAtom, {
-              active: false,
-              chatId: null,
-              label: undefined,
+            setToolIndicator((prev) => {
+              if (
+                prev.activeChatId != null &&
+                prev.activeChatId !== response.chatId
+              ) {
+                return prev;
+              }
+              return emptyToolIndicatorState();
             });
+            const summarization = getDefaultStore().get(summarizationProgressAtom);
+            if (
+              summarization.chatId == null ||
+              summarization.chatId === response.chatId
+            ) {
+              getDefaultStore().set(summarizationProgressAtom, {
+                active: false,
+                chatId: null,
+                label: undefined,
+              });
+            }
             if (hasChatId) {
               persistAndClearLiveStreamThread(
                 response.chatId,
@@ -1240,7 +1237,107 @@ export function useStreamChat({
                 return n;
               });
             }
-            getDefaultStore().set(activityStreamItemsAtom, []);
+
+            const frozenThread =
+              lastAssistant?.id != null
+                ? getDefaultStore().get(
+                    completedStreamThreadByAssistantMessageIdAtom,
+                  )[lastAssistant.id] ?? []
+                : [];
+            const inlineForSnap =
+              lastAssistant?.id != null
+                ? getDefaultStore().get(inlineTimelineByMessageIdAtom)[
+                    lastAssistant.id
+                  ]
+                : undefined;
+            const thinkingForSnap =
+              lastAssistant?.id != null
+                ? getDefaultStore().get(
+                    completedTurnThinkingByAssistantMessageIdAtom,
+                  )[lastAssistant.id]
+                : null;
+            const snapshotJson =
+              lastAssistant?.id != null
+                ? buildDisplaySnapshotPayloadForMessage(
+                    lastAssistant.id,
+                    frozenThread,
+                    inlineForSnap,
+                    thinkingForSnap,
+                  )
+                : null;
+
+            if (snapshotJson && lastAssistant?.id != null) {
+              void IpcClient.getInstance()
+                .setChatDisplaySnapshot({
+                  chatId: response.chatId,
+                  messageId: lastAssistant.id,
+                  displaySnapshot: snapshotJson,
+                })
+                .catch((e) => {
+                  console.error("Failed to persist display snapshot:", e);
+                });
+              setMessagesById((prev) => {
+                const next = new Map(prev);
+                const cur = next.get(response.chatId);
+                if (!cur) return next;
+                next.set(
+                  response.chatId,
+                  cur.map((m) =>
+                    m.id === lastAssistant.id
+                      ? {
+                          ...m,
+                          displaySnapshot:
+                            parseDisplaySnapshot(snapshotJson) ?? undefined,
+                        }
+                      : m,
+                  ),
+                );
+                return next;
+              });
+            }
+
+            const appIdForPersist = getDefaultStore().get(selectedAppIdAtom);
+            void (async () => {
+              const sessionIdForPersist =
+                appIdForPersist != null
+                  ? await ensureWorkspaceSessionForChat(
+                      appIdForPersist,
+                      response.chatId,
+                    )
+                  : null;
+              if (!sessionIdForPersist || appIdForPersist == null) return;
+              const assistantContent = lastAssistant?.content?.trim();
+              if (!assistantContent) return;
+              try {
+                await IpcClient.getInstance().addSessionMessage(
+                  sessionIdForPersist,
+                  "assistant",
+                  assistantContent,
+                  snapshotJson ?? undefined,
+                );
+                if (!sessionTitleGeneratedRef.current.has(response.chatId)) {
+                  sessionTitleGeneratedRef.current.add(response.chatId);
+                  await applyAIWorkspaceSessionTitle(sessionIdForPersist);
+                }
+                const activeSessionId = getDefaultStore().get(
+                  activeWorkspaceSessionIdAtom,
+                );
+                if (
+                  activeSessionId != null &&
+                  activeSessionId !== sessionIdForPersist
+                ) {
+                  showInfo("Background session finished");
+                }
+              } catch (e) {
+                console.error("Failed to persist assistant session message:", e);
+              }
+            })();
+
+            if (appIdForPersist != null) {
+              getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+            }
+
+            clearActivityForChatInStore(response.chatId);
             toolEndStackRef.current.delete(response.chatId);
             setStreamLastActivityAtByChatId((prev) => {
               const n = new Map(prev);
@@ -1356,8 +1453,9 @@ export function useStreamChat({
                 getDefaultStore().get(completedTurnThinkingByAssistantMessageIdAtom)[
                   lastAssistantErr.id
                 ] ?? null;
+              const activityErr = getDefaultStore().get(activityStreamItemsAtom);
               const timeline = buildInlineTimelineFromActivity(
-                activityErr.filter((i) => i.chatId == null || i.chatId === chatId),
+                filterActivityForChat(activityErr, chatId),
                 thinkingSnap,
               );
               if (timeline.length > 0) {
@@ -1369,12 +1467,20 @@ export function useStreamChat({
             }
             getDefaultStore().set(activeTurnScopeAtom, null);
 
-            setToolIndicator(emptyToolIndicatorState());
-            getDefaultStore().set(summarizationProgressAtom, {
-              active: false,
-              chatId: null,
-              label: undefined,
+            setToolIndicator((prev) => {
+              if (prev.activeChatId != null && prev.activeChatId !== chatId) {
+                return prev;
+              }
+              return emptyToolIndicatorState();
             });
+            const summarizationErr = getDefaultStore().get(summarizationProgressAtom);
+            if (summarizationErr.chatId == null || summarizationErr.chatId === chatId) {
+              getDefaultStore().set(summarizationProgressAtom, {
+                active: false,
+                chatId: null,
+                label: undefined,
+              });
+            }
             if (hasChatId) {
               persistAndClearLiveStreamThread(chatId, lastAssistantErr?.id);
             } else {
@@ -1384,7 +1490,7 @@ export function useStreamChat({
                 return n;
               });
             }
-            getDefaultStore().set(activityStreamItemsAtom, []);
+            clearActivityForChatInStore(chatId);
             toolEndStackRef.current.delete(chatId);
             setStreamLastActivityAtByChatId((prev) => {
               const n = new Map(prev);

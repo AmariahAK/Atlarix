@@ -65,8 +65,6 @@ import type {
   RevertVersionParams,
   RespondToAppInputParams,
   PromptDto,
-  CreatePromptParamsDto,
-  UpdatePromptParamsDto,
   McpServerUpdate,
   CreateMcpServer,
   CloneRepoParams,
@@ -893,12 +891,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("create-app", params);
   }
 
-  // Create chat-only session (no workspace)
-  public async createChatOnly(): Promise<{ chatId: number }> {
-    const chatId = await this.ipcRenderer.invoke("create-chat-only");
-    return { chatId };
-  }
-
   public async getApp(appId: number): Promise<App> {
     return this.ipcRenderer.invoke("get-app", appId);
   }
@@ -1177,8 +1169,40 @@ export class IpcClient {
     sessionId: string,
     role: "user" | "assistant" | "tool",
     content: string,
+    displaySnapshot?: string,
   ) {
-    return this.ipcRenderer.invoke("messages:add", sessionId, role, content);
+    return this.ipcRenderer.invoke(
+      "messages:add",
+      sessionId,
+      role,
+      content,
+      displaySnapshot,
+    );
+  }
+
+  public async setChatDisplaySnapshot(params: {
+    chatId: number;
+    messageId: number;
+    displaySnapshot: string;
+  }): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("chat:set-display-snapshot", params);
+  }
+
+  public async saveMessageDisplaySnapshot(params: {
+    messageId: number;
+    displaySnapshot: string;
+  }): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("messages:save-display-snapshot", params);
+  }
+
+  public async saveSessionMessageDisplaySnapshot(params: {
+    sessionMessageId: string;
+    displaySnapshot: string;
+  }): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke(
+      "session-messages:save-display-snapshot",
+      params,
+    );
   }
 
   public async updateChat(params: UpdateChatParams): Promise<void> {
@@ -1588,7 +1612,7 @@ export class IpcClient {
   }
 
   // --- MCP Client Methods ---
-  public async listMcpServers(filter?: { scope?: "global" | "workspace" | "globalAndWorkspace"; appId?: number }) {
+  public async listMcpServers(filter?: { scope?: "workspace"; appId?: number }) {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);
   }
 
@@ -2485,6 +2509,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("import-app", params);
   }
 
+  public async touchAppLastOpened(appId: number): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("apps:touch-last-opened", appId);
+  }
+
+  public async openWorkspaceInNewWindow(
+    folderPath: string,
+  ): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("workspace:open-in-new-window", folderPath);
+  }
+
   async checkAppName(params: {
     appName: string;
   }): Promise<{ exists: boolean }> {
@@ -2566,120 +2600,29 @@ export class IpcClient {
     return this.ipcRenderer.invoke("list-templates");
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // PROMPTS - Global + Workspace System
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * Get the global prompt (or null if none exists)
-   */
-  public async getGlobalPrompt(): Promise<{
-    id: number;
-    type: "global" | "workspace";
-    workspaceId: number | null;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-  } | null> {
-    return this.ipcRenderer.invoke("prompts:get-global");
-  }
-
-  /**
-   * Set/update the global prompt (replaces existing)
-   */
-  public async setGlobalPrompt(content: string): Promise<{
-    id: number;
-    type: "global" | "workspace";
-    workspaceId: number | null;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }> {
-    return this.ipcRenderer.invoke("prompts:set-global", { content });
-  }
-
-  /**
-   * Delete the global prompt
-   */
-  public async deleteGlobalPrompt(): Promise<void> {
-    await this.ipcRenderer.invoke("prompts:delete-global");
-  }
-
-  /**
-   * Get workspace prompt (or null if none exists)
-   */
-  public async getWorkspacePrompt(workspaceId: number): Promise<{
-    id: number;
-    type: "global" | "workspace";
-    workspaceId: number | null;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-  } | null> {
-    return this.ipcRenderer.invoke("prompts:get-workspace", workspaceId);
-  }
-
-  /**
-   * Set/update workspace prompt (replaces existing)
-   */
-  public async setWorkspacePrompt(workspaceId: number, content: string): Promise<{
-    id: number;
-    type: "global" | "workspace";
-    workspaceId: number | null;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }> {
-    return this.ipcRenderer.invoke("prompts:set-workspace", { workspaceId, content });
-  }
-
-  /**
-   * Delete workspace prompt
-   */
-  public async deleteWorkspacePrompt(workspaceId: number): Promise<void> {
-    await this.ipcRenderer.invoke("prompts:delete-workspace", workspaceId);
-  }
-
-  /**
-   * Delete any prompt by ID
-   */
-  public async deletePrompt(id: number): Promise<void> {
-    await this.ipcRenderer.invoke("prompts:delete", id);
-  }
-
-  /**
-   * List all workspaces with their prompt status
-   * Used by Library page
-   */
-  public async listWorkspacesWithPromptStatus(): Promise<{
-    id: number;
-    name: string;
-    path: string;
-    hasPrompt: boolean;
-    promptContent?: string;
-  }[]> {
-    return this.ipcRenderer.invoke("prompts:list-workspaces-with-status");
-  }
-
-  // Legacy methods (deprecated)
-  public async listPrompts(): Promise<any[]> {
-    console.warn("listPrompts is deprecated, use getGlobalPrompt or getWorkspacePrompt");
-    return this.ipcRenderer.invoke("prompts:list");
-  }
-
-  public async createPrompt(params: CreatePromptParamsDto): Promise<any> {
-    console.warn("createPrompt is deprecated, use setGlobalPrompt or setWorkspacePrompt");
-    return this.ipcRenderer.invoke("prompts:create", params);
-  }
-
-  public async updatePrompt(params: UpdatePromptParamsDto): Promise<void> {
-    console.warn("updatePrompt is deprecated, use setGlobalPrompt or setWorkspacePrompt");
-    await this.ipcRenderer.invoke("prompts:update", params);
-  }
   public async cloneRepoFromUrl(
     params: CloneRepoParams,
   ): Promise<{ app: App } | { error: string }> {
     return this.ipcRenderer.invoke("github:clone-repo-from-url", params);
+  }
+
+  // --- Remote SSH ---
+  public async listSshHosts(): Promise<
+    Array<{ hostAlias: string; hostName?: string; user?: string; port?: number }>
+  > {
+    return this.ipcRenderer.invoke("ssh:list-hosts");
+  }
+
+  public async connectSsh(hostAlias: string) {
+    return this.ipcRenderer.invoke("ssh:connect", hostAlias);
+  }
+
+  public async disconnectSsh(hostAlias: string) {
+    return this.ipcRenderer.invoke("ssh:disconnect", hostAlias);
+  }
+
+  public async testSshConnection(hostAlias: string): Promise<{ ok: boolean; message: string }> {
+    return this.ipcRenderer.invoke("ssh:test-connection", hostAlias);
   }
 
   // --- Help bot ---

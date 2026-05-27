@@ -21,8 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
+import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
@@ -44,7 +43,6 @@ export default function SettingsPage() {
   const [isResetting, setIsResetting] = useState(false);
   const appVersion = useAppVersion();
   const { settings, updateSettings } = useSettings();
-  const router = useRouter();
   const navigate = useNavigate();
   const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
   const onboardingStep = useAtomValue(onboardingStepAtom);
@@ -83,15 +81,7 @@ export default function SettingsPage() {
   return (
     <div className="flex-1 bg-background overflow-auto">
       <div className="max-w-5xl mx-auto px-8 py-4 pb-20">
-        <Button
-          onClick={() => router.history.back()}
-          variant="outline"
-          size="sm"
-          className="flex items-center gap-2 mb-4 bg-(--background-lightest) py-5"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Go Back
-        </Button>
+        <SettingsWorkspaceNav className="mb-4" />
         <div className="flex justify-between mb-4">
           <h1 className="text-3xl font-bold text-foreground">
             Settings
@@ -271,7 +261,7 @@ function McpServersCard() {
         <div>
           <h2 className="text-lg font-medium text-foreground">MCP Servers</h2>
           <p className="text-sm text-muted-foreground">
-            Add and categorize MCP servers. Use @mcp name in chat. Global (5 max) and per-workspace (5 max).
+            MCP servers for the current workspace (10 max). Use @mcp name in chat.
           </p>
         </div>
       </div>
@@ -309,7 +299,7 @@ function SkillsCard() {
             <h2 className="text-lg font-medium text-foreground">Skills</h2>
             <p className="text-sm text-muted-foreground">
               {isPaid
-                ? "Browse the community registry and install up to 5 global skills and 5 per workspace."
+                ? "Browse the registry and install skills for the current workspace (10 max)."
                 : "Upgrade to Pro or Workforce to unlock Skills."}
             </p>
           </div>
@@ -488,8 +478,9 @@ function CliLauncherSettings() {
       <div className="space-y-0.5">
         <p className="text-sm font-medium text-foreground">Shell command</p>
         <p className="text-xs text-muted-foreground">
-          Install <code className="text-[11px]">atlarix</code> in your PATH to open a folder from
-          the terminal: <code className="text-[11px]">atlarix .</code>
+          Install <code className="text-[11px]">atlarix</code> in PATH, then run{" "}
+          <code className="text-[11px]">atlarix .</code> in any project folder — opens that workspace
+          if registered, or adds it automatically.
         </p>
         {cliPath ? (
           <p className="text-[11px] text-muted-foreground font-mono truncate">{cliPath}</p>

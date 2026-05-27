@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SubAgentRunEntry, StreamThreadItem } from "@/lib/chat/stream-thread";
+import { resolveSubagentCardLabel } from "@/lib/chat/stream-thread";
 import { subagentPhaseLabel } from "@/lib/chat/subagent-phase-label";
 import { InlineThoughtBlock } from "../InlineThoughtBlock";
 import { StreamToolCallCard } from "../StreamToolCallCard";
 import {
-  streamToolCardButton,
+  streamCardScrollBody,
+  streamToolCardButtonMultiLine,
   streamToolCardChevron,
   streamToolCardShell,
-  streamToolCardSummary,
 } from "../stream-item-styles";
 
 function flattenNestedItems(items: StreamThreadItem[]): StreamThreadItem[] {
@@ -76,10 +77,12 @@ function NestedThreadItems({
   items,
   isStreaming,
   agentStatus,
+  isHistorical,
 }: {
   items: StreamThreadItem[];
   isStreaming: boolean;
   agentStatus: SubAgentRunEntry["status"];
+  isHistorical?: boolean;
 }) {
   const flat = flattenNestedItems(sortNestedByTime(items));
   if (flat.length === 0) {
@@ -91,8 +94,18 @@ function NestedThreadItems({
       </p>
     );
   }
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isStreaming || agentStatus !== "running") return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [flat.length, isStreaming, agentStatus]);
+
   return (
-    <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+    <div
+      ref={scrollRef}
+      className={cn(streamCardScrollBody, "mt-2 space-y-1.5 border-t border-border/40 pt-2")}
+    >
       {flat.map((item) => {
         if (item.kind === "thought") {
           const isLiveProgress =
@@ -131,14 +144,18 @@ export function SubAgentRunCard({
   agent,
   defaultExpanded = true,
   isStreaming,
+  isHistorical = false,
 }: {
   agent: SubAgentRunEntry;
   defaultExpanded?: boolean;
   isStreaming: boolean;
+  isHistorical?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultExpanded);
+  const [open, setOpen] = useState(
+    defaultExpanded || isHistorical || (isStreaming && agent.status === "running"),
+  );
   const phase = subagentPhaseLabel(agent.agentType, agent.status);
-  const title = agent.label || agent.scope || agent.agentType;
+  const title = resolveSubagentCardLabel(agent);
   const latestActivity = useMemo(
     () => latestNestedActivitySummary(agent.nestedItems, agent.summary),
     [agent.nestedItems, agent.summary],
@@ -161,10 +178,10 @@ export function SubAgentRunCard({
     agent.summary?.trim().split(/\r?\n/)[0]?.slice(0, 160) ?? "";
 
   return (
-    <div className={cn(streamToolCardShell, "rounded-lg border px-2 py-1")}>
+    <div className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}>
       <button
         type="button"
-        className={cn(streamToolCardButton, "py-1")}
+        className={streamToolCardButtonMultiLine}
         onClick={() => setOpen((v) => !v)}
       >
         {open ? (
@@ -173,9 +190,11 @@ export function SubAgentRunCard({
           <ChevronRight className={streamToolCardChevron} />
         )}
         <StatusIcon />
-        <span className={cn(streamToolCardSummary, "flex flex-col items-start gap-0.5 min-w-0")}>
-          <span className="truncate max-w-full">{title}</span>
-          <span className="text-[10px] font-normal text-muted-foreground truncate max-w-full">
+        <span className="flex flex-1 flex-col items-start gap-0.5 min-w-0 text-left">
+          <span className="text-xs font-medium text-foreground line-clamp-2 leading-snug w-full">
+            {title}
+          </span>
+          <span className="text-[11px] font-normal leading-snug text-muted-foreground line-clamp-2 w-full">
             {subtitle}
           </span>
         </span>
@@ -186,6 +205,7 @@ export function SubAgentRunCard({
             items={agent.nestedItems}
             isStreaming={isStreaming}
             agentStatus={agent.status}
+            isHistorical={isHistorical}
           />
           {agent.status !== "running" && preview && agent.nestedItems.length === 0 ? (
             <p className="mt-2 text-[10px] text-muted-foreground line-clamp-3 border-t border-border/40 pt-2">
@@ -193,10 +213,6 @@ export function SubAgentRunCard({
             </p>
           ) : null}
         </div>
-      ) : latestActivity && latestActivity !== phase ? (
-        <p className="px-2 pb-1.5 text-[10px] text-muted-foreground line-clamp-1">
-          {latestActivity}
-        </p>
       ) : null}
     </div>
   );

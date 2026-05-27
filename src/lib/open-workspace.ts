@@ -8,15 +8,9 @@ import {
   selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
-import {
-  bindChatToAppId,
-  getChatBoundAppId,
-  shouldDeferWorkspaceToNextChat,
-} from "@/lib/chat-workspace-binding";
+import { bindChatToAppId, getChatBoundAppId } from "@/lib/chat-workspace-binding";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { App } from "@/ipc/ipc_types";
-import { toast } from "sonner";
-
 export type OpenWorkspaceOptions = {
   apps: App[];
   refreshApps?: () => Promise<void>;
@@ -59,10 +53,7 @@ async function importOrSelectApp(
   return { appId: importResult.appId, name: appName, path };
 }
 
-/**
- * Open folder picker and attach workspace. Mid-chat chat-only threads get
- * `pendingWorkspaceAppId` only; workspace binds on the next new chat.
- */
+/** Open folder picker and attach workspace to the current session. */
 export async function openWorkspaceFromDialog(
   options: OpenWorkspaceOptions,
 ): Promise<void> {
@@ -73,28 +64,16 @@ export async function openWorkspaceFromDialog(
   if (!result || result.canceled || !result.filePaths?.[0]) return;
 
   const path = result.filePaths[0];
-  const { appId, name, appPath } = await importOrSelectApp(
+  const { appId, name, path: workspacePath } = await importOrSelectApp(
     path,
     options.apps,
     options.refreshApps,
   );
 
   const store = getDefaultStore();
-  const defer = shouldDeferWorkspaceToNextChat(
-    options.activeChatId,
-    options.hasUserMessageInThread ?? false,
-  );
-
-  if (defer) {
-    store.set(pendingWorkspaceAppIdAtom, appId);
-    store.set(selectedWorkspaceInfoAtom, { id: appId, name, path: appPath });
-    toast.info("Workspace added — open a new chat to use it in this session.");
-    return;
-  }
-
   store.set(pendingWorkspaceAppIdAtom, null);
   store.set(selectedAppIdAtom, appId);
-  store.set(selectedWorkspaceInfoAtom, { id: appId, name, path: appPath });
+  store.set(selectedWorkspaceInfoAtom, { id: appId, name, path: workspacePath });
 
   if (options.activeChatId != null && getChatBoundAppId(options.activeChatId) === null) {
     bindChatToAppId(options.activeChatId, appId);

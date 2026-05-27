@@ -13,7 +13,7 @@ import {
 import { inferToolNameFromEnvelopeRaw } from "@/lib/chat/infer-tool-from-envelope";
 import {
   isDelegateToolName,
-  parseDelegateHandoffFromToolResult,
+  delegateDisplayMetaFromToolPart,
   type DelegateHandoffMeta,
 } from "@/lib/chat/delegate-handoff";
 
@@ -269,15 +269,17 @@ function rawPiecesToAssistantParts(
             if (toolName === "write_implementation_plan") {
               resultText = "Plan saved";
             }
-            const handoff =
-              isDelegateToolName(toolName) && resultText
-                ? parseDelegateHandoffFromToolResult(resultText) ?? undefined
-                : undefined;
-            out[idx] = {
+            const updatedTool: Extract<AssistantMessagePart, { type: "tool" }> = {
               ...prev,
               status,
               error: attrs.error,
               resultText: resultText || prev.resultText,
+            };
+            const handoff = isDelegateToolName(toolName)
+              ? delegateDisplayMetaFromToolPart(updatedTool) ?? undefined
+              : undefined;
+            out[idx] = {
+              ...updatedTool,
               handoff,
             };
             if (status !== "running") openToolIndex.delete(checkKey);
@@ -333,21 +335,21 @@ function envelopeToToolPart(
   const parsed = parseToolResultEnvelope(raw);
   const success = parsed?.envelope.success !== false;
   const id = `envelope_${toolName}_${envelopeSeq++}`;
-  const handoff = isDelegateToolName(toolName)
-    ? parseDelegateHandoffFromToolResult(raw) ?? undefined
-    : undefined;
-  return {
+  const part: Extract<AssistantMessagePart, { type: "tool" }> = {
     type: "tool",
     id,
     toolName,
     status: success ? "success" : "error",
     resultText: raw,
-    handoff,
     error:
       parsed?.envelope.success === false && typeof parsed.envelope.error === "string"
         ? parsed.envelope.error
         : undefined,
   };
+  const handoff = isDelegateToolName(toolName)
+    ? delegateDisplayMetaFromToolPart(part) ?? undefined
+    : undefined;
+  return { ...part, handoff };
 }
 
 function parseSegmentContent(

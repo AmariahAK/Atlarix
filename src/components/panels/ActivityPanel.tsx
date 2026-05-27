@@ -8,7 +8,7 @@ import {
   activityStreamItemsAtom,
   type ActivityStreamItem,
 } from "@/atoms/sourceAtoms";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
   Play,
   BookOpen,
@@ -142,7 +142,9 @@ function ActivityRow({ item }: { item: ActivityStreamItem }) {
 
 export function ActivityPanel() {
   const items = useAtomValue(activityStreamItemsAtom);
-  const chatId = useAtomValue(selectedChatIdAtom);
+  const activeChatId = useAtomValue(activeChatIdAtom);
+  const selectedChatId = useAtomValue(selectedChatIdAtom);
+  const chatId = activeChatId ?? selectedChatId;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {

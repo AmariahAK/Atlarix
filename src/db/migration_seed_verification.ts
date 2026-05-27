@@ -179,6 +179,15 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "session_messages", "kind") &&
         columnExists(sqlite, "session_messages", "plan_status")
       );
+    case "0049_workspace_only_remote":
+      return true;
+    case "0050_drop_prompts_table":
+      return !tableExists(sqlite, "prompts");
+    case "0051_display_snapshot":
+      return (
+        columnExists(sqlite, "messages", "display_snapshot") &&
+        columnExists(sqlite, "session_messages", "display_snapshot")
+      );
     default:
       return false;
   }

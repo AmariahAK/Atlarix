@@ -28,6 +28,7 @@ import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
+import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -45,10 +46,10 @@ export function SimpleInlineChat({
     const errorById = useAtomValue(chatErrorByIdAtom);
     const setErrorById = useSetAtom(chatErrorByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
+    const selectedAppId = useAtomValue(selectedAppIdAtom);
     const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
     // IMPORTANT: This component renders on non-"/chat" routes; avoid route-scoped search hooks.
     const { streamMessage } = useStreamChat({ hasChatId: false });
-    const selectedAppId = useAtomValue(selectedAppIdAtom);
     const [chatAppId, setChatAppId] = useState<number | null>(() =>
         selectedAppId != null ? selectedAppId : null,
     );
@@ -77,6 +78,10 @@ export function SimpleInlineChat({
     const fetchMessages = useCallback(async () => {
         const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
         if (existing && existing.length > 0) {
+            const { replaceDisplayHydrationForChat } = await import(
+                "@/lib/chat/apply-stream-display-hydration"
+            );
+            replaceDisplayHydrationForChat(chatId, existing);
             return;
         }
         try {
@@ -105,10 +110,14 @@ export function SimpleInlineChat({
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const error = errorById.get(chatId) ?? null;
 
-    // Handle new chat - reset to home state
-    const handleNewChat = useCallback(() => {
+    const handleNewChat = useCallback(async () => {
+        const workspaceId = selectedAppId ?? chatAppId;
+        if (workspaceId != null) {
+            await startNewWorkspaceConversation({ workspaceId });
+            return;
+        }
         setActiveChatId(null);
-    }, [setActiveChatId]);
+    }, [selectedAppId, chatAppId, setActiveChatId]);
 
     const handleEditUserMessage = useCallback(
         async (messageId: number, newContent: string) => {
@@ -124,7 +133,7 @@ export function SimpleInlineChat({
                 "@/lib/chat/apply-stream-display-hydration"
             );
             applyStreamDisplayHydration(chat.messages);
-            // Re-stream continuing from the edited message (chat-only mode uses continueAfterQuestions to avoid inserting a new user row).
+            // Re-stream continuing from the edited message (continueAfterQuestions avoids inserting a new user row).
             streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
         },
         [chatId, setMessagesById, streamMessage],

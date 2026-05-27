@@ -6,7 +6,12 @@ import { showError, showSuccess } from "@/lib/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 
-export function OrphanedMcpSection() {
+export function OrphanedMcpSection({
+  workspaceAppId: _workspaceAppId,
+}: {
+  /** Reserved for future: filter orphans tied to a specific workspace */
+  workspaceAppId?: number;
+} = {}) {
   const queryClient = useQueryClient();
   const [orphans, setOrphans] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);

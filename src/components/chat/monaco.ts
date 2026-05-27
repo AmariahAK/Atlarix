@@ -1,7 +1,32 @@
-import type { editor } from "monaco-editor";
+import * as monaco from "monaco-editor";
 import { loader } from "@monaco-editor/react";
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
+import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 
-export const customLight: editor.IStandaloneThemeData = {
+loader.config({ monaco });
+
+if (typeof globalThis !== "undefined") {
+  globalThis.MonacoEnvironment = {
+    getWorker(_workerId: string, label: string) {
+      if (label === "json") return new jsonWorker();
+      if (label === "css" || label === "scss" || label === "less") {
+        return new cssWorker();
+      }
+      if (label === "html" || label === "handlebars" || label === "razor") {
+        return new htmlWorker();
+      }
+      if (label === "typescript" || label === "javascript") {
+        return new tsWorker();
+      }
+      return new editorWorker();
+    },
+  };
+}
+
+export const customLight: monaco.editor.IStandaloneThemeData = {
   base: "vs",
   inherit: false,
   rules: [
@@ -61,7 +86,6 @@ export const customLight: editor.IStandaloneThemeData = {
     { token: "predefined.sql", foreground: "C700C7" },
   ],
   colors: {
-    // surface
     "editor.background": "#f7f5ff",
     "minimap.background": "#f7f5ff",
     "editor.foreground": "#000000",
@@ -72,7 +96,7 @@ export const customLight: editor.IStandaloneThemeData = {
   },
 };
 
-export const customDark: editor.IStandaloneThemeData = {
+export const customDark: monaco.editor.IStandaloneThemeData = {
   base: "vs-dark",
   inherit: false,
   rules: [
@@ -131,7 +155,6 @@ export const customDark: editor.IStandaloneThemeData = {
     { token: "predefined.sql", foreground: "FF00FF" },
   ],
   colors: {
-    // surface
     "editor.background": "#131316",
     "minimap.background": "#131316",
     "editor.foreground": "#D4D4D4",
@@ -142,74 +165,63 @@ export const customDark: editor.IStandaloneThemeData = {
   },
 };
 
-loader.init().then((monaco) => {
-  monaco.editor.defineTheme("atlarix-light", customLight);
-  monaco.editor.defineTheme("atlarix-dark", customDark);
+monaco.editor.defineTheme("atlarix-light", customLight);
+monaco.editor.defineTheme("atlarix-dark", customDark);
 
-  // ==========================================================
-  // TypeScript Configuration
-  // Disable all validation to prevent "inmemory://model" errors
-  // We don't have full TypeScript context so validation is noisy
-  // ==========================================================
-  monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-    jsx: monaco.languages.typescript.JsxEmit.React,
-    allowNonTsExtensions: true,
-    allowJs: true,
-    target: monaco.languages.typescript.ScriptTarget.ESNext,
-    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-    module: monaco.languages.typescript.ModuleKind.ESNext,
-    noEmit: true,
-    esModuleInterop: true,
-    skipLibCheck: true,
-  });
-
-  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: true,
-    noSuggestionDiagnostics: true,
-  });
-
-  // Disable eager model sync to prevent worker errors
-  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(false);
-
-  // ==========================================================
-  // JavaScript Configuration (same as TypeScript)
-  // ==========================================================
-  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-    jsx: monaco.languages.typescript.JsxEmit.React,
-    allowNonTsExtensions: true,
-    allowJs: true,
-    target: monaco.languages.typescript.ScriptTarget.ESNext,
-    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-    module: monaco.languages.typescript.ModuleKind.ESNext,
-    noEmit: true,
-    esModuleInterop: true,
-  });
-
-  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: true,
-    noSuggestionDiagnostics: true,
-  });
-
-  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
+monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+  jsx: monaco.languages.typescript.JsxEmit.React,
+  allowNonTsExtensions: true,
+  allowJs: true,
+  target: monaco.languages.typescript.ScriptTarget.ESNext,
+  moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+  module: monaco.languages.typescript.ModuleKind.ESNext,
+  noEmit: true,
+  esModuleInterop: true,
+  skipLibCheck: true,
 });
 
-// ==========================================================
-// Suppress Monaco TypeScript Worker Errors
-// These errors occur when TS worker tries to access disposed models
-// They are not actionable and clutter the console
-// ==========================================================
-if (typeof window !== 'undefined') {
+monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+  noSemanticValidation: true,
+  noSyntaxValidation: true,
+  noSuggestionDiagnostics: true,
+});
+
+monaco.languages.typescript.typescriptDefaults.setEagerModelSync(false);
+
+monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+  jsx: monaco.languages.typescript.JsxEmit.React,
+  allowNonTsExtensions: true,
+  allowJs: true,
+  target: monaco.languages.typescript.ScriptTarget.ESNext,
+  moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+  module: monaco.languages.typescript.ModuleKind.ESNext,
+  noEmit: true,
+  esModuleInterop: true,
+});
+
+monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+  noSemanticValidation: true,
+  noSyntaxValidation: true,
+  noSuggestionDiagnostics: true,
+});
+
+monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
+
+if (typeof window !== "undefined") {
   const originalConsoleError = console.error;
   console.error = (...args) => {
-    // Suppress "Could not find source file: 'inmemory://model'" errors
     const firstArg = args[0];
-    if (typeof firstArg === 'string' && firstArg.includes('inmemory://model')) {
-      return; // Suppress
+    if (typeof firstArg === "string" && firstArg.includes("inmemory://model")) {
+      return;
     }
-    if (typeof firstArg === 'object' && firstArg?.message?.includes?.('inmemory://model')) {
-      return; // Suppress
+    if (
+      typeof firstArg === "object" &&
+      firstArg !== null &&
+      "message" in firstArg &&
+      typeof (firstArg as { message?: string }).message === "string" &&
+      (firstArg as { message: string }).message.includes("inmemory://model")
+    ) {
+      return;
     }
     originalConsoleError.apply(console, args);
   };

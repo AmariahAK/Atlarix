@@ -112,9 +112,7 @@ import { fileExists } from "../utils/file_utils";
 import { FileUploadsState } from "../utils/file_uploads_state";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
-import { prompts as promptsTable } from "../../db/schema";
-import { inArray, asc } from "drizzle-orm";
-import { replacePromptReference } from "../utils/replacePromptReference";
+import { asc } from "drizzle-orm";
 import { mcpManager } from "../utils/mcp_manager";
 import { logMcpError } from "./mcp_handlers";
 import z from "zod";
@@ -224,7 +222,6 @@ import {
   ReviewerFindingsSchema,
 } from "@/lib/agents/agent-handoff-schemas";
 import { validateStructuredOutputWithSingleRetry } from "@/lib/agents/structured-output-validation";
-import { handleChatOnlyStream, type McpToolSet } from "./chat_only_handlers";
 import {
   requireAuthSession,
   formatAuthRequiredIpcError,
@@ -1352,15 +1349,20 @@ export function registerChatStreamHandlers() {
           const ephemeralAppId = getEphemeralChatAppId(req.chatId);
 
           if (ephemeralAppId) {
-            // This is an ephemeral WORKSPACE chat - has workspace context
             logger.log(`Chat ${req.chatId} is ephemeral workspace chat for app: ${ephemeralAppId}`);
-            // Continue below to use workspace-aware handler with the ephemeral appId
           } else {
-            // This is a pure chat-only (no workspace) - use simplified handler with global MCP tools
-            logger.log(`Chat ${req.chatId} is ephemeral chat-only mode (incognito)`);
-            const mcpTools = await getMcpTools(event, null, req.chatId);
-            await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
-            // chat_only_handlers emits chat:response:end; don't double-terminate.
+            const noWorkspaceMsg =
+              "Open a workspace folder to start chatting. Use Open folder on the welcome screen.";
+            logger.warn(`Chat ${req.chatId} rejected: ephemeral chat without workspace`);
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${noWorkspaceMsg}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
             streamTerminated = true;
             return;
           }
@@ -1413,12 +1415,19 @@ export function registerChatStreamHandlers() {
           throw new Error(`Chat not found: ${req.chatId}`);
         }
 
-        // Chat-only mode: route to simplified handler (no workspace/codebase) with global MCP tools
         if (!chat.app) {
-          logger.log(`Chat ${req.chatId} is chat-only mode (no workspace)`);
-          const mcpTools = await getMcpTools(event, null, req.chatId);
-          await handleChatOnlyStream(event, req, abortController, mcpTools as McpToolSet);
-          // chat_only_handlers emits chat:response:end; don't double-terminate.
+          const noWorkspaceMsg =
+            "This chat has no workspace. Open a folder from the welcome screen or sidebar.";
+          logger.warn(`Chat ${req.chatId} rejected: DB chat without appId`);
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${noWorkspaceMsg}`,
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
           streamTerminated = true;
           return;
         }
@@ -1647,29 +1656,6 @@ export function registerChatStreamHandlers() {
       if (!req.continueAfterQuestions) {
         userPrompt = req.prompt;
       }
-      // Inline referenced prompt contents for mentions like @prompt:<id> (skip when continueAfterQuestions)
-      if (!req.continueAfterQuestions) {
-        try {
-          const matches = Array.from(userPrompt.matchAll(/@prompt:(\d+)/g));
-          if (matches.length > 0) {
-            const ids = Array.from(new Set(matches.map((m) => Number(m[1]))));
-            const referenced = await db
-              .select()
-              .from(promptsTable)
-              .where(inArray(promptsTable.id, ids));
-            if (referenced.length > 0) {
-              const promptsMap: Record<number, string> = {};
-              for (const p of referenced) {
-                promptsMap[p.id] = p.content;
-              }
-              userPrompt = replacePromptReference(userPrompt, promptsMap);
-            }
-          }
-        } catch (e) {
-          logger.error("Failed to inline referenced prompts:", e);
-        }
-      }
-
       const componentsToProcess = req.continueAfterQuestions ? [] : (req.selectedComponents || []);
 
       if (componentsToProcess.length > 0) {
@@ -2403,15 +2389,9 @@ ${componentSnippet}
 
           let baseSystemPrompt: string;
           if (hasWorkspace && appPath && effectiveAppId != null) {
-            const workspacePromptRow = await db.query.prompts.findFirst({
-              where: and(
-                eq(promptsTable.type, "workspace"),
-                eq(promptsTable.workspaceId, effectiveAppId),
-              ),
-            });
             baseSystemPrompt = await buildSystemPromptWithProjectInstructions({
               workspacePath: appPath,
-              workspacePromptContent: workspacePromptRow?.content ?? null,
+              workspacePromptContent: null,
               contextSize,
               chatMode,
               effectiveWorkMode: modeBlockKey,
@@ -7773,7 +7753,7 @@ ${otherAppsCodebaseInfo}
 // to `@/lib/ai/normalize-tool-schema` so that delegation sub-agents
 // (`src/lib/tools/agent.ts`) can reuse the exact same wiring.
 
-/** When appId is null/undefined, only global MCPs; when set, global + that workspace's MCPs (same as list-servers). */
+/** Workspace-scoped MCP tools only (max 10 per workspace). */
 async function getMcpTools(
   event: IpcMainInvokeEvent,
   appId?: number | null,
@@ -7781,24 +7761,20 @@ async function getMcpTools(
   chatIdForToolIndicator?: number | null
 ): Promise<ToolSet> {
   const mcpToolSet: ToolSet = {};
+  if (appId == null) {
+    return mcpToolSet;
+  }
   try {
     const enabled = eq(mcpServers.enabled, true as any);
     const servers = await db
       .select()
       .from(mcpServers)
       .where(
-        appId != null
-          ? and(
-              enabled,
-              or(
-                eq(mcpServers.scope, "global"),
-                and(
-                  eq(mcpServers.scope, "workspace"),
-                  eq(mcpServers.appId, appId)
-                )
-              )
-            )
-          : and(enabled, eq(mcpServers.scope, "global"))
+        and(
+          enabled,
+          eq(mcpServers.scope, "workspace"),
+          eq(mcpServers.appId, appId),
+        ),
       );
     for (const s of servers) {
       const client = await mcpManager.getClient(s.id);
