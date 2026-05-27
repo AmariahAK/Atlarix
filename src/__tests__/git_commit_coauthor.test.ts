@@ -9,6 +9,16 @@ vi.mock("dugite", () => ({
   exec: vi.fn(),
 }));
 
+vi.mock("node:fs", () => {
+  const existsSync = vi.fn((filePath: string) =>
+    String(filePath).includes(".git"),
+  );
+  return {
+    default: { existsSync },
+    existsSync,
+  };
+});
+
 import { readSettings } from "@/main/settings";
 import { exec } from "dugite";
 import { gitCommit } from "@/ipc/utils/git_utils";

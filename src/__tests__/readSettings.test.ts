@@ -47,7 +47,6 @@ describe("readSettings", () => {
       );
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "agentMode": "guided",
           "autoMemory": {
             "enabled": true,
             "minConfidence": 0.7,
@@ -320,7 +319,6 @@ describe("readSettings", () => {
 
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "agentMode": "guided",
           "autoMemory": {
             "enabled": true,
             "minConfidence": 0.7,
