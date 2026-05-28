@@ -402,16 +402,6 @@ export const UserSettingsSchema = z.object({
   selectedChatMode: ChatModeSchema.optional(),
   /** @deprecated Ignored — unified runtime always enables delegation. */
   agentMode: AgentModeSchema.optional(),
-  /** v2.1: When true, hide model picker and route to Fast/Medium/Thinking by complexity. */
-  autoModelRouting: z.boolean().optional(),
-  /** v2.1: When Auto is ON, single provider for Fast/Medium/Thinking (must have API key). */
-  autoProviderId: z.string().nullable().optional(),
-  /** v2.1: When Auto is ON, [Fast, Medium, Thinking] model names for autoProviderId. */
-  autoModelIds: z.tuple([z.string(), z.string(), z.string()]).optional(),
-  /** v3.6: Show routing reasoning in Activity Stream when Auto is on. */
-  autoRoutingShowReasoning: z.boolean().optional(),
-  /** v3.6: Exchange count threshold for summarization fallback (3–20, default 6). */
-  autoRoutingExchangeThreshold: z.number().min(3).max(20).optional(),
   /** Intent: ask (read-only) | build (full access) | auto (model may switch). */
   intentMode: z.enum(["ask", "build", "auto"]).optional(),
   /** v5.1: Work mode for Blueprint tier + UX; maps to ask/build tools (see work-mode.ts). */

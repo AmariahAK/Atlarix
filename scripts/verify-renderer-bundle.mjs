@@ -14,6 +14,9 @@ const FORBIDDEN_IN_RENDERER = [
   "shutdownAstGrepPool",
 ];
 
+/** Broken Node path in renderer — use path-renderer-stub instead. */
+const PATH_BASENAME_BAD = /\.basename\s*\(/;
+
 const rendererRoots = [
   path.join(process.cwd(), ".vite", "renderer"),
   path.join(process.cwd(), "out"),
@@ -64,6 +67,10 @@ async function main() {
   const hits = [];
   for (const file of files) {
     const text = await fs.readFile(file, "utf8");
+    const rel = path.relative(process.cwd(), file);
+    if (PATH_BASENAME_BAD.test(text) && !rel.includes("path-renderer-stub")) {
+      hits.push({ file, needle: "path.basename(" });
+    }
     for (const needle of FORBIDDEN_IN_RENDERER) {
       if (text.includes(needle)) {
         hits.push({ file, needle });

@@ -26,6 +26,7 @@ import {
 import { loadedSessionTruncatedAtom } from "@/atoms/sessionAtoms";
 import { pushRecentWorkspace } from "@/lib/workspace-recents";
 import { showError } from "@/lib/toast";
+import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 
 export type OpenWorkspaceFolderResult = {
   appId: number;
@@ -64,6 +65,7 @@ export async function startNewWorkspaceConversation(
 
     const session = await ipc.createWorkspaceSession(workspaceId);
     const chatId = await ipc.createChat(workspaceId);
+    resetTerminalInstancesForNewChat();
     const store = getDefaultStore();
 
     attachWorkspaceToChat(chatId, workspaceId, {

@@ -18,9 +18,8 @@ import * as path from "path";
 import {
     getModelClient,
     getDiagramModelConfig,
-    getDiagramFallbackModel,
-    isDiagramModelNotFoundError,
 } from "@/ipc/utils/get_model_client";
+import { modelFailureUserMessage } from "@/shared/texts";
 import { getProjectFiles, getStructureScan } from "@/ipc/utils/project-files";
 import { readSettings } from "@/main/settings";
 import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
@@ -265,31 +264,8 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
                 messages: [{ role: 'user', content: userPrompt }],
             });
         } catch (genError) {
-            const modelNotFoundMessage = "That model is not available on this provider (e.g. it may have been removed or renamed). Choose a different model in Settings → AI, then try again.";
-            if (isDiagramModelNotFoundError(genError)) {
-                const fallback = getDiagramFallbackModel(settings);
-                if (fallback) {
-                    try {
-                        logger.warn(`[_generateDiagram] Model not found, retrying with fallback: ${fallback.provider}/${fallback.name}`);
-                        modelConfig = fallback;
-                        modelClientResult = await getModelClient(fallback, settings);
-                        result = await generateText({
-                            model: modelClientResult.modelClient.model,
-                            system: systemPrompt,
-                            messages: [{ role: 'user', content: userPrompt }],
-                        });
-                    } catch (fallbackError) {
-                        if (isDiagramModelNotFoundError(fallbackError)) {
-                            throw new Error(modelNotFoundMessage);
-                        }
-                        throw fallbackError;
-                    }
-                } else {
-                    throw new Error(modelNotFoundMessage);
-                }
-            } else {
-                throw genError;
-            }
+            const msg = String((genError as Error)?.message ?? "unknown error");
+            throw new Error(modelFailureUserMessage(msg));
         }
 
         // Parse output

@@ -26,7 +26,7 @@ export function settingsPatchForWorkMode(mode: WorkMode): {
 
 /**
  * Resolved work mode for prompts, tool allowlists, and activity labels.
- * - Manual UI selection (Explore / Plan / Build / Fix / Review): uses `workModePreference` (all five).
+ * - Manual UI selection (Explore / Plan / Build / Debug / Review): uses `workModePreference` (all five).
  * - Legacy Auto intent: collapses to ask or build from `selectedChatMode` only.
  */
 export function resolveEffectiveWorkMode(params: {
@@ -58,7 +58,7 @@ export function labelForWorkMode(mode: WorkMode): string {
     case "build":
       return "Build";
     case "debug":
-      return "Fix";
+      return "Debug";
     case "review":
       return "Review";
   }

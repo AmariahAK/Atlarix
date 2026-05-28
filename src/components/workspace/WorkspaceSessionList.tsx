@@ -37,6 +37,8 @@ import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import { showInfo } from "@/lib/toast";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
+import { attachmentInfoFromStoredFile, hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
+import type { PasteAttachmentMeta, StoredFileAttachment } from "@/ipc/ipc_types";
 
 let displayMessageId = -10000;
 
@@ -49,6 +51,9 @@ function sessionMessagesToUiMessages(
     content: string;
     createdAt: Date;
     displaySnapshot?: DisplaySnapshotV1 | null;
+    modelContent?: string | null;
+    pasteAttachments?: PasteAttachmentMeta[] | null;
+    fileAttachments?: StoredFileAttachment[] | null;
   }[],
 ): Message[] {
   return messages
@@ -59,6 +64,16 @@ function sessionMessagesToUiMessages(
       content: m.content,
       chatId,
       createdAt: m.createdAt,
+      ...(m.modelContent ? { modelContent: m.modelContent } : {}),
+      ...(m.pasteAttachments?.length
+        ? { pasteAttachments: m.pasteAttachments }
+        : {}),
+      ...(m.fileAttachments?.length
+        ? {
+            fileAttachments: m.fileAttachments,
+            attachments: m.fileAttachments.map(attachmentInfoFromStoredFile),
+          }
+        : {}),
       ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
     }));
 }
@@ -181,6 +196,7 @@ export function WorkspaceSessionList({
         chatId,
         messages,
       );
+      hydrateAttachmentStoreFromMessages(uiMessages);
       await IpcClient.getInstance().hydrateEphemeralChatMessages(
         chatId,
         uiMessages.map((m) => ({
@@ -188,6 +204,10 @@ export function WorkspaceSessionList({
           role: m.role,
           content: String(m.content ?? ""),
           displaySnapshot: m.displaySnapshot ?? undefined,
+          modelContent: m.modelContent ?? undefined,
+          pasteAttachments: m.pasteAttachments ?? undefined,
+          fileAttachments: m.fileAttachments ?? undefined,
+          attachments: m.attachments ?? undefined,
         })),
       );
       setMessagesById((prev) => {

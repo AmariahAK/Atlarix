@@ -93,6 +93,7 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import { applyAIWorkspaceSessionTitle } from "@/lib/workspace-session-title";
+import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
 import { workspaceSessionsRefreshAtom } from "@/atoms/sessionAtoms";
 import { useVersions } from "./useVersions";
@@ -104,7 +105,6 @@ import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
 import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
-import { useCheckProblems } from "./useCheckProblems";
 import { useSettings } from "./useSettings";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
@@ -279,7 +279,6 @@ export function useStreamChat({
   const { refreshVersions } = useVersions(selectedAppId);
   const { refreshAppIframe } = useRunApp();
   const { refetchUserBudget } = useUserBudgetInfo();
-  const { checkProblems } = useCheckProblems(selectedAppId);
   const { settings } = useSettings();
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
   const setSourceList = useSetAtom(sourceListAtom);
@@ -369,7 +368,12 @@ export function useStreamChat({
     }) => {
       if (!chatId) return;
       const hasAttachments =
-        attachments?.some((a) => a.file != null || a.textPaste?.content) ?? false;
+        attachments?.some(
+          (a) =>
+            a.file != null ||
+            a.textPaste?.content ||
+            a.terminalPaste?.content,
+        ) ?? false;
       if (!continueAfterQuestions && !prompt.trim() && !hasAttachments) {
         return;
       }
@@ -914,8 +918,12 @@ export function useStreamChat({
           "build";
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
-        const { prompt: promptForModel, fileAttachments } = buildPromptWithTextPastes(
-          prompt,
+        const {
+          modelPrompt: promptForModel,
+          displayPrompt,
+          fileAttachments,
+        } = buildPromptWithTextPastes(prompt, attachments);
+        const pasteAttachments = collectPasteAttachmentsFromFileAttachments(
           attachments,
         );
 
@@ -926,20 +934,12 @@ export function useStreamChat({
             streamAppId,
             chatId,
           );
-          if (workspaceSessionId) {
-            try {
-              await IpcClient.getInstance().addSessionMessage(
-                workspaceSessionId,
-                "user",
-                promptForModel.trim(),
-              );
-            } catch (e) {
-              console.error("Failed to persist user session message:", e);
-            }
-          }
         }
 
         IpcClient.getInstance().streamMessage(promptForModel, {
+          displayPrompt,
+          pasteAttachments:
+            pasteAttachments.length > 0 ? pasteAttachments : undefined,
           selectedComponents: selectedComponents ?? [],
           chatId,
           redo,
@@ -1105,9 +1105,6 @@ export function useStreamChat({
             if (response.updatedFiles) {
               setIsPreviewOpen(true);
               refreshAppIframe();
-              if (settings?.enableAutoFixProblems) {
-                checkProblems();
-              }
             }
             if (response.extraFiles) {
               showExtraFilesToast({
@@ -1566,7 +1563,6 @@ export function useStreamChat({
       setResponseDoneAnimation,
       setIsStreamingById,
       setIsPreviewOpen,
-      checkProblems,
       selectedAppId,
       refetchUserBudget,
       settings,

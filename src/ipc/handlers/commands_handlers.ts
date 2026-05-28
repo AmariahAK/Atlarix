@@ -16,10 +16,10 @@ const DEFAULT_GLOBAL = [
     modeOverride: null,
   },
   {
-    name: "fix",
+    name: "debug",
     promptTemplate:
-      "Propose a minimal fix (with reasoning) for the following issue or code:\n\n{{input}}",
-    modeOverride: null,
+      "Debug and propose a minimal fix (with reasoning) for the following issue or code:\n\n{{input}}",
+    modeOverride: "debug",
   },
 ];
 

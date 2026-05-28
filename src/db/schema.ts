@@ -72,6 +72,16 @@ export const messages = sqliteTable("messages", {
     .references(() => chats.id, { onDelete: "cascade" }),
   role: text("role", { enum: ["user", "assistant"] }).notNull(),
   content: text("content").notNull(),
+  /** Model-facing user message (paste/terminal bodies); `content` is display-only when set. */
+  modelContent: text("model_content"),
+  /** Pasted text / terminal metadata for chip preview (JSON). */
+  pasteAttachments: text("paste_attachments", { mode: "json" }).$type<
+    import("../ipc/ipc_types").PasteAttachmentMeta[] | null
+  >(),
+  /** Uploaded file payloads for read_attachment after restart (JSON). */
+  fileAttachments: text("file_attachments", { mode: "json" }).$type<
+    import("../ipc/ipc_types").StoredFileAttachment[] | null
+  >(),
   approvalState: text("approval_state", {
     enum: ["approved", "rejected"],
   }),
@@ -142,6 +152,14 @@ export const sessionMessages = sqliteTable("session_messages", {
   planStatus: text("plan_status", { enum: ["plan", "building", "built"] }),
   /** Frozen sub-agent / tool UI for session resume (JSON DisplaySnapshotV1). */
   displaySnapshot: text("display_snapshot"),
+  /** Model-facing user text (attachment bodies). */
+  modelContent: text("model_content"),
+  pasteAttachments: text("paste_attachments", { mode: "json" }).$type<
+    import("../ipc/ipc_types").PasteAttachmentMeta[] | null
+  >(),
+  fileAttachments: text("file_attachments", { mode: "json" }).$type<
+    import("../ipc/ipc_types").StoredFileAttachment[] | null
+  >(),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

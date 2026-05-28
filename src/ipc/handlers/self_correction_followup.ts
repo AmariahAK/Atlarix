@@ -13,8 +13,8 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { messages } from "@/db/schema";
 import { readSettings } from "@/main/settings";
-import { generateProblemReport } from "../processors/tsc";
-import { createProblemFixPrompt } from "@/shared/problem_prompt";
+import { collectLspProblemsForPaths } from "@/lib/lsp/collect-workspace-diagnostics";
+import { createLspFixPrompt } from "@/shared/problem_prompt";
 import { safeSend } from "../utils/safe_sender";
 import { DevServerManager } from "@/lib/dev_server_manager";
 
@@ -237,18 +237,24 @@ export async function schedulePostTurnSelfCorrection(opts: {
     return true;
   };
 
-  try {
-    const report = await generateProblemReport({
-      fullResponse: "",
-      appPath: opts.appPathResolved,
-    });
-    if (report.problems.length > 0) {
-      const prompt = createProblemFixPrompt(report);
-      await trySchedule(prompt, `${report.problems.length} TypeScript issue(s)`);
-      return;
+  const writtenForLsp = opts.filesWrittenInThisExchange ?? [];
+  if (writtenForLsp.length > 0) {
+    try {
+      const report = await collectLspProblemsForPaths(
+        opts.appPathResolved,
+        writtenForLsp,
+      );
+      if (report.problems.length > 0) {
+        const prompt = createLspFixPrompt(report);
+        await trySchedule(
+          prompt,
+          `${report.problems.length} LSP error${report.problems.length === 1 ? "" : "s"}`,
+        );
+        return;
+      }
+    } catch (e) {
+      logger.warn("Self-correction: collectLspProblemsForPaths failed", e);
     }
-  } catch (e) {
-    logger.warn("Self-correction: generateProblemReport failed", e);
   }
 
   const lines = DevServerManager.getInstance().getRecentOutputLines(opts.appId, 200);

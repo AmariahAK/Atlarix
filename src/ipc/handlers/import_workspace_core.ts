@@ -7,6 +7,7 @@ import { apps, chats } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
+import { PlanLimitError } from "@/lib/plan-limit-error";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -28,7 +29,7 @@ export async function importWorkspaceFromPath({
   const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
   const limitCheck = await SubscriptionManager.canCreateWorkspace();
   if (!limitCheck.allowed) {
-    throw new Error(
+    throw new PlanLimitError(
       limitCheck.reason || "Workspace limit reached. Upgrade to Pro for unlimited workspaces.",
     );
   }

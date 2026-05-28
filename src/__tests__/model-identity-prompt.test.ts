@@ -30,25 +30,25 @@ describe("model-identity-prompt", () => {
   it("builds workstation block with separate NorahLabs and Atlarix links", () => {
     const block = buildWorkstationIdentityBlock({
       modelDisplayName: "DeepSeek V4 Pro",
-      providerBrand: "openrouter",
-      labelWithProvider: "DeepSeek V4 Pro (openrouter)",
+      providerBrand: "deepseek",
+      labelWithProvider: "DeepSeek V4 Pro (deepseek)",
       appVersion: "8.7.0",
     });
     expect(block).toMatch(/agent workstation/i);
     expect(block).toMatch(/norahlabs\.com/);
     expect(block).toMatch(/atlarix\.dev/);
-    expect(block).toMatch(/DeepSeek V4 Pro \(openrouter\)/);
+    expect(block).toMatch(/DeepSeek V4 Pro \(deepseek\)/);
     expect(block).not.toMatch(/You are \*\*Atlarix AI\*\*/);
     expect(block).not.toMatch(/You are \*\*Compass/i);
   });
 
-  it("maps compass tier to OpenRouter model identity", () => {
+  it("maps compass tier to routed model identity", () => {
     const id = resolveActiveModelIdentity({
       provider: "compass",
       name: "compass-balanced",
     });
-    expect(id.providerBrand).toBe("openrouter");
-    expect(id.labelWithProvider).toMatch(/openrouter\)/);
+    expect(id.providerBrand).toBe("deepseek");
+    expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
     expect(id.modelDisplayName).not.toMatch(/Compass/i);
   });

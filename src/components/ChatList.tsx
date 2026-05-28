@@ -9,6 +9,7 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess } from "@/lib/toast";
+import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -86,6 +87,7 @@ export function ChatList({ show }: { show?: boolean }) {
       try {
         // Create a new chat with an empty title for now
         const chatId = await IpcClient.getInstance().createChat(selectedAppId);
+        resetTerminalInstancesForNewChat();
 
         // Navigate to the new chat
         setSelectedChatId(chatId);

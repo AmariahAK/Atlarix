@@ -1,5 +1,9 @@
 import * as monaco from "monaco-editor";
 import { loader } from "@monaco-editor/react";
+import {
+  registerManifestLanguages,
+  initTextMateGrammars,
+} from "@/lib/monaco/init-textmate";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
@@ -207,12 +211,16 @@ monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 
 monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
 
+registerManifestLanguages();
+void initTextMateGrammars();
+
 if (typeof window !== "undefined") {
   const originalConsoleError = console.error;
   console.error = (...args) => {
     const firstArg = args[0];
-    if (typeof firstArg === "string" && firstArg.includes("inmemory://model")) {
-      return;
+    if (typeof firstArg === "string") {
+      if (firstArg.includes("inmemory://model")) return;
+      if (firstArg.includes("Missing grammar for scope:")) return;
     }
     if (
       typeof firstArg === "object" &&

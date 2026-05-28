@@ -58,11 +58,6 @@ describe("readSettings", () => {
             "minConfidence": 0.7,
             "writeToFile": true,
           },
-          "autoModelIds": undefined,
-          "autoModelRouting": false,
-          "autoProviderId": null,
-          "autoRoutingExchangeThreshold": 6,
-          "autoRoutingShowReasoning": true,
           "blueprintAlwaysShowBeacons": false,
           "blueprintInjectionModePreference": "auto",
           "buildVerification": {
@@ -330,11 +325,6 @@ describe("readSettings", () => {
             "minConfidence": 0.7,
             "writeToFile": true,
           },
-          "autoModelIds": undefined,
-          "autoModelRouting": false,
-          "autoProviderId": null,
-          "autoRoutingExchangeThreshold": 6,
-          "autoRoutingShowReasoning": true,
           "blueprintAlwaysShowBeacons": false,
           "blueprintInjectionModePreference": "auto",
           "buildVerification": {

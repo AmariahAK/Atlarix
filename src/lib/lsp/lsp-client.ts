@@ -1,6 +1,7 @@
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node";
 import type { Diagnostic } from "vscode-languageserver-types";
 import { ChildProcess, spawn } from "child_process";
+import type { WebContents } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
@@ -9,7 +10,7 @@ import {
   findServerForWorkspace,
   findNearestRoot,
   getLanguageFromFile,
-  checkBinaryAvailable,
+  resolveServerCommand,
 } from "./lsp-server-registry";
 
 const logger = log.scope("lsp-client");
@@ -47,6 +48,40 @@ type DiagnosticsPayload = {
 const lspClients = new Map<string, LspClient>();
 const spawning = new Map<string, Promise<LspClient | null>>();
 const brokenServers = new Set<string>();
+const lspPushSubscribers = new Map<number, { webContents: WebContents; workspaceRoot: string }>();
+const documentVersions = new Map<string, number>();
+
+function documentVersionKey(workspaceRoot: string, filePath: string): string {
+  return `${workspaceRoot}::${filePath}`;
+}
+
+function nextDocumentVersion(workspaceRoot: string, filePath: string): number {
+  const key = documentVersionKey(workspaceRoot, filePath);
+  const version = (documentVersions.get(key) ?? 0) + 1;
+  documentVersions.set(key, version);
+  return version;
+}
+
+export function subscribeLspPush(webContents: WebContents, workspaceRoot: string): void {
+  lspPushSubscribers.set(webContents.id, { webContents, workspaceRoot });
+}
+
+export function unsubscribeLspPush(webContents: WebContents): void {
+  lspPushSubscribers.delete(webContents.id);
+}
+
+function pushDiagnosticsToRenderer(
+  workspaceRoot: string,
+  filePath: string,
+  diagnostics: Diagnostic[],
+): void {
+  const payload = { workspaceRoot, filePath, diagnostics };
+  for (const sub of lspPushSubscribers.values()) {
+    if (sub.workspaceRoot !== workspaceRoot) continue;
+    if (sub.webContents.isDestroyed()) continue;
+    sub.webContents.send("lsp:diagnostics", payload);
+  }
+}
 
 function getClientKey(workspaceRoot: string, serverId: string): string {
   return `${workspaceRoot}::${serverId}`;
@@ -125,23 +160,24 @@ async function createClient(
   workspaceRoot: string,
   config: LspServerConfig
 ): Promise<LspClient | null> {
-  const binaryPath = config.command[0];
-  const args = config.command.slice(1);
-  const binaryAvailable = await checkBinaryAvailable(binaryPath, workspaceRoot);
-  if (!binaryAvailable) {
-    logger.info(`LSP binary not available: ${binaryPath}`);
+  const cacheKey = getClientKey(workspaceRoot, config.id);
+  const resolved = await resolveServerCommand(config, workspaceRoot);
+  if (!resolved) {
+    logger.info(`LSP binary not available for ${config.id}`);
+    brokenServers.add(cacheKey);
     return null;
   }
 
   let proc: ChildProcess;
   try {
-    proc = spawn(binaryPath, args, {
+    proc = spawn(resolved.command, resolved.args, {
       cwd: workspaceRoot,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: resolved.env,
     });
   } catch (err) {
-    logger.error(`Failed to spawn LSP server: ${binaryPath}`, err);
+    logger.error(`Failed to spawn LSP server: ${config.id}`, err);
+    brokenServers.add(cacheKey);
     return null;
   }
 
@@ -187,6 +223,7 @@ async function createClient(
     }
 
     client.pushDiagnostics.set(filePath, params.diagnostics);
+    pushDiagnosticsToRenderer(workspaceRoot, filePath, params.diagnostics);
   });
 
   connection.onNotification("window/logMessage", (params) => {
@@ -203,12 +240,16 @@ async function createClient(
   proc.on("error", (err) => {
     logger.error(`LSP process error for ${config.id}:`, err);
     client.broken = true;
+    brokenServers.add(cacheKey);
   });
 
   proc.on("exit", (code, signal) => {
     logger.info(`LSP process exited: ${config.id}, code: ${code}, signal: ${signal}`);
     client.broken = true;
+    brokenServers.add(cacheKey);
   });
+
+  connection.listen();
 
   try {
     const rootPath = findNearestRoot(filePath, workspaceRoot, config.rootMarkers);
@@ -237,26 +278,33 @@ async function createClient(
     return client;
   } catch (err) {
     logger.error(`Failed to initialize LSP client: ${config.id}`, err);
+    brokenServers.add(cacheKey);
     connection.dispose();
     proc.kill();
     return null;
   }
 }
 
-export async function notifyFileOpen(filePath: string, workspaceRoot: string): Promise<void> {
+export async function notifyFileOpen(
+  filePath: string,
+  workspaceRoot: string,
+  options?: { content?: string; version?: number },
+): Promise<void> {
   const language = getLanguageFromFile(filePath);
   const client = await getOrCreateClient(filePath, workspaceRoot, language);
   if (!client || client.broken) return;
 
   try {
-    const content = fs.readFileSync(filePath, "utf-8");
+    const content = options?.content ?? fs.readFileSync(filePath, "utf-8");
     const languageId = language === "plaintext" ? "plaintext" : language;
+    const version =
+      options?.version ?? nextDocumentVersion(workspaceRoot, filePath);
 
     client.connection.sendNotification("textDocument/didOpen", {
       textDocument: {
         uri: `file://${filePath}`,
         languageId,
-        version: 0,
+        version,
         text: content,
       },
     });
@@ -265,23 +313,50 @@ export async function notifyFileOpen(filePath: string, workspaceRoot: string): P
   }
 }
 
-export async function notifyFileChange(filePath: string, workspaceRoot: string): Promise<void> {
+export async function notifyFileChange(
+  filePath: string,
+  workspaceRoot: string,
+  options?: { content?: string; version?: number },
+): Promise<void> {
   const language = getLanguageFromFile(filePath);
   const client = await getOrCreateClient(filePath, workspaceRoot, language);
   if (!client || client.broken) return;
 
   try {
-    const content = fs.readFileSync(filePath, "utf-8");
+    const content = options?.content ?? fs.readFileSync(filePath, "utf-8");
+    const version =
+      options?.version ?? nextDocumentVersion(workspaceRoot, filePath);
 
     client.connection.sendNotification("textDocument/didChange", {
       textDocument: {
         uri: `file://${filePath}`,
-        version: (client.pushDiagnostics.get(filePath)?.length ?? 0) + 1,
+        version,
       },
       contentChanges: [{ text: content }],
     });
   } catch (err) {
     logger.error(`Failed to send didChange for ${filePath}:`, err);
+  }
+}
+
+export async function notifyFileClose(
+  filePath: string,
+  workspaceRoot: string,
+): Promise<void> {
+  const language = getLanguageFromFile(filePath);
+  const client = await getOrCreateClient(filePath, workspaceRoot, language);
+  if (!client || client.broken) return;
+
+  try {
+    client.connection.sendNotification("textDocument/didClose", {
+      textDocument: { uri: `file://${filePath}` },
+    });
+    client.pushDiagnostics.delete(filePath);
+    client.published.delete(filePath);
+    documentVersions.delete(documentVersionKey(workspaceRoot, filePath));
+    pushDiagnosticsToRenderer(workspaceRoot, filePath, []);
+  } catch (err) {
+    logger.error(`Failed to send didClose for ${filePath}:`, err);
   }
 }
 

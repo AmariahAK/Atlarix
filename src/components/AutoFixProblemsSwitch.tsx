@@ -29,12 +29,13 @@ export function AutoFixProblemsSwitch({
             }
           }}
         />
-        <Label htmlFor="auto-fix-after-build">Auto-fix errors after build</Label>
+        <Label htmlFor="auto-fix-after-build">Auto-fix from LSP after build</Label>
       </div>
       {showDescription ? (
         <p className="text-sm text-muted-foreground max-w-xl pl-1">
-          After a build completes, automatically fix TypeScript errors and failed tests
-          (max 2 attempts). Applies to build/agent turns only; Ask mode is unchanged.
+          After a build completes, automatically fix language-server errors on edited
+          files and failed tests (max 2 attempts). Applies to build/agent turns only;
+          Ask mode is unchanged.
         </p>
       ) : null}
     </div>

@@ -150,6 +150,10 @@ export function hydrateEphemeralChatMessages(
     content: string;
     id?: number;
     displaySnapshot?: DisplaySnapshotV1 | null;
+    modelContent?: string | null;
+    pasteAttachments?: import("@/ipc/ipc_types").PasteAttachmentMeta[] | null;
+    fileAttachments?: import("@/ipc/ipc_types").StoredFileAttachment[] | null;
+    attachments?: import("@/ipc/ipc_types").AttachmentInfo[] | null;
   }[],
 ): void {
   const chat = ephemeralChats.get(chatId);
@@ -166,6 +170,14 @@ export function hydrateEphemeralChatMessages(
       role: m.role as "user" | "assistant",
       content: m.content ?? "",
       createdAt: new Date(),
+      ...(m.modelContent ? { modelContent: m.modelContent } : {}),
+      ...(m.pasteAttachments?.length
+        ? { pasteAttachments: m.pasteAttachments }
+        : {}),
+      ...(m.fileAttachments?.length
+        ? { fileAttachments: m.fileAttachments }
+        : {}),
+      ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
     }));
   ephemeralChats.set(chatId, chat);

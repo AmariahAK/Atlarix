@@ -8,7 +8,6 @@ import {
 
 import { CodeView } from "./CodeView";
 import { PreviewIframe } from "./PreviewIframe";
-import { Problems } from "./Problems";
 import { ConfigurePanel } from "./ConfigurePanel";
 import { ChevronDown, ChevronUp, Logs } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -123,7 +122,7 @@ export function PreviewPanel() {
               ) : previewMode === "security" ? (
                 <SecurityPanel />
               ) : (
-                <Problems />
+                <CodeView loading={loading} app={app} />
               )}
             </div>
           </Panel>

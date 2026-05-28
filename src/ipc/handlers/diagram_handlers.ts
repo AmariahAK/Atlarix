@@ -13,9 +13,8 @@ import {
     getModelClient,
     getEffectiveModel,
     getDiagramModelConfig,
-    getDiagramFallbackModel,
-    isDiagramModelNotFoundError,
 } from "../utils/get_model_client";
+import { modelFailureUserMessage } from "@/shared/texts";
 import { extractCodebaseCached } from "../../utils/codebase";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
@@ -223,22 +222,8 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     messages: [{ role: 'user', content: userPrompt }],
                 });
             } catch (genError) {
-                if (isDiagramModelNotFoundError(genError)) {
-                    const fallback = getDiagramFallbackModel(settings);
-                    if (fallback) {
-                        modelConfig = fallback;
-                        modelClientResult = await getModelClient(fallback, settings);
-                        result = await generateText({
-                            model: modelClientResult.modelClient.model,
-                            system: systemPrompt,
-                            messages: [{ role: 'user', content: userPrompt }],
-                        });
-                    } else {
-                        throw genError;
-                    }
-                } else {
-                    throw genError;
-                }
+                const msg = String((genError as Error)?.message ?? "unknown error");
+                throw new Error(modelFailureUserMessage(msg));
             }
 
             // 5. Parse Output
@@ -313,9 +298,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
         } catch (error: unknown) {
             console.error("[diagram:generate-ai] Error:", error);
             let message = error instanceof Error ? error.message : "Unknown error";
-            if (isDiagramModelNotFoundError(error)) {
-                message = "That model is not available on this provider (e.g. it may have been removed or renamed). Please choose another model in Settings, then try again.";
-            } else if (typeof (error as { statusCode?: number })?.statusCode === "number") {
+            if (typeof (error as { statusCode?: number })?.statusCode === "number") {
                 const code = (error as { statusCode: number }).statusCode;
                 if (code === 401) message = "API key invalid or user not found. Check your provider API key in Settings.";
                 else if (code >= 400 && code < 500) message = `API error (${code}). Check your API key and model in Settings.`;

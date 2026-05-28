@@ -42,8 +42,6 @@ env:
   COMPASS_MODEL_FAST: ${{ secrets.COMPASS_MODEL_FAST }}
   COMPASS_MODEL_BALANCED: ${{ secrets.COMPASS_MODEL_BALANCED }}
   COMPASS_MODEL_THINKING: ${{ secrets.COMPASS_MODEL_THINKING }}
-  GROQ_CLASSIFIER_API_KEY: ${{ secrets.GROQ_CLASSIFIER_API_KEY }}
-  GROQ_CLASSIFIER_MODEL: ${{ secrets.GROQ_CLASSIFIER_MODEL }}
   TEMPLATE_TOKEN: ${{ secrets.TEMPLATE_TOKEN }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

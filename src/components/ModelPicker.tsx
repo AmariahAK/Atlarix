@@ -32,13 +32,7 @@ import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
 import { useAuth } from "@/lib/auth/useAuth";
-import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-  COMPASS_TIER_ORDER,
-} from "@/ipc/shared/compass_constants";
-import { getDefaultAutoSettingsPatchSync } from "@/lib/routing/auto-settings-defaults-ui";
+import { filterCompassModelsForPlan } from "@/lib/compass-plan-access";
 import { IpcClient } from "@/ipc/ipc_client";
 
 import { ATLARIX_CORE_CATEGORY_LABEL } from "@/shared/compass_product_copy";
@@ -154,9 +148,6 @@ export function ModelPicker() {
 
   // Get display name for the selected model
   const getModelDisplayName = () => {
-    if (selectedModel.provider === "auto") {
-      return "Auto";
-    }
     if (selectedModel.provider === "compass") {
       const cm = modelsByProviders?.compass?.find(
         (m) => m.apiName === selectedModel.name,
@@ -202,28 +193,6 @@ export function ModelPicker() {
     // Fallback if not found
     return selectedModel.name;
   };
-
-  // Get auto provider models (if any)
-  const autoModels =
-    !loading && modelsByProviders && modelsByProviders["auto"]
-      ? modelsByProviders["auto"].filter((model) => {
-        if (
-          settings &&
-          !isAtlarixProEnabled(settings) &&
-          ["turbo", "value"].includes(model.apiName)
-        ) {
-          return false;
-        }
-        if (
-          settings &&
-          isAtlarixProEnabled(settings) &&
-          model.apiName === "free"
-        ) {
-          return false;
-        }
-        return true;
-      })
-      : [];
 
   // Determine availability of local models
   const hasOllamaModels =
@@ -299,46 +268,6 @@ export function ModelPicker() {
           <DropdownMenuLabel>Select Model</DropdownMenuLabel>
           <DropdownMenuSeparator />
 
-          {/* Auto option - always visible; Pro enables smart routing, else uses first available model */}
-          {settings && (
-            <>
-              <DropdownMenuItem
-                className={
-                  selectedModel.provider === "auto" ? "bg-secondary" : ""
-                }
-                onClick={() => {
-                  const firstAuto = autoModels[0];
-                  const modelName =
-                    firstAuto?.apiName ??
-                    (isAtlarixProEnabled(settings) ? "turbo" : "free");
-                  const autoPatch = settings
-                    ? getDefaultAutoSettingsPatchSync(settings, {
-                        compassAvailable: compassBuildOk,
-                        configuredProviderIds,
-                      })
-                    : null;
-                  updateSettings({
-                    selectedModel: { name: modelName, provider: "auto" },
-                    autoModelRouting: true,
-                    ...(autoPatch ?? {}),
-                  });
-                  queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
-                  setOpen(false);
-                }}
-              >
-                <div className="flex flex-col items-start">
-                  <span>Auto</span>
-                  <span className="text-xs text-muted-foreground">
-                    {isAtlarixProEnabled(settings)
-                      ? "Smart model routing"
-                      : "Use default model"}
-                  </span>
-                </div>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
-
           {/* Cloud models - loading state */}
           {loading ? (
             <div className="text-xs text-center py-2 text-muted-foreground">
@@ -352,68 +281,18 @@ export function ModelPicker() {
           ) : (
             /* Cloud models loaded */
             <>
-              {/* Auto models at top level if any */}
-              {autoModels.length > 0 && (
-                <>
-                  {autoModels.map((model) => (
-                    <DropdownMenuItem
-                      key={`auto-${model.apiName}`}
-                      className={
-                        selectedModel.provider === "auto" &&
-                          selectedModel.name === model.apiName
-                          ? "bg-secondary"
-                          : ""
-                      }
-                      onClick={() => {
-                        onModelSelect({
-                          name: model.apiName,
-                          provider: "auto",
-                        });
-                        setOpen(false);
-                      }}
-                    >
-                      <div className="flex justify-between items-start w-full gap-2">
-                        <span className="flex flex-col items-start min-w-0">
-                          <span>{model.displayName}</span>
-                          {model.description ? (
-                            <span className="text-[10px] text-muted-foreground line-clamp-2">
-                              {model.description}
-                            </span>
-                          ) : null}
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {model.tag && (
-                            <span
-                              className={cn(
-                                "text-[11px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium",
-                                model.tagColor,
-                              )}
-                            >
-                              {model.tag}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                  {Object.keys(modelsByProviders).length > 1 && (
-                    <DropdownMenuSeparator />
-                  )}
-                </>
-              )}
-
               {/* Primary providers (paginated) */}
               {primaryProvidersPaginated.map(([providerId, models]) => {
                 if (providerId === "compass") {
                   const plan = status?.plan ?? "free";
-                  const compassModels = models.filter((m) => {
-                    if (plan === "free") return m.apiName === COMPASS_TIER_FAST;
-                    return (
-                      m.apiName === COMPASS_TIER_FAST ||
-                      m.apiName === COMPASS_TIER_BALANCED ||
-                      m.apiName === COMPASS_TIER_THINKING
-                    );
-                  });
+                  const compassModels = filterCompassModelsForPlan(
+                    models,
+                    plan === "workforce"
+                      ? "workforce"
+                      : plan === "pro"
+                        ? "pro"
+                        : "free",
+                  );
                   const compassFiltered = filterLanguageModels(
                     compassModels,
                     compassModelSearch,
@@ -436,7 +315,7 @@ export function ModelPicker() {
                         <div className="flex flex-col items-start w-full">
                           <span>{ATLARIX_CORE_CATEGORY_LABEL}</span>
                           <span className="text-xs text-muted-foreground">
-                            OpenRouter · no API key
+                            Managed models · monthly quota
                           </span>
                         </div>
                       </DropdownMenuSubTrigger>
@@ -446,72 +325,6 @@ export function ModelPicker() {
                             {ATLARIX_CORE_CATEGORY_LABEL}
                           </DropdownMenuLabel>
                         </div>
-                        {compassModels.length > 1 ? (
-                          <div
-                            className="px-2 pb-2 border-b border-border"
-                            onPointerDown={(e) => e.stopPropagation()}
-                          >
-                            <table className="w-full text-xs">
-                              <tbody>
-                                {COMPASS_TIER_ORDER.filter((tierId) =>
-                                  compassModels.some((m) => m.apiName === tierId),
-                                ).map((tierId) => {
-                                  const m = compassModels.find(
-                                    (cm) => cm.apiName === tierId,
-                                  )!;
-                                  const isSel =
-                                    selectedModel.provider === "compass" &&
-                                    selectedModel.name === tierId;
-                                  return (
-                                    <tr
-                                      key={tierId}
-                                      className={cn(
-                                        isSel && "bg-secondary/70 rounded-sm",
-                                      )}
-                                    >
-                                      <td className="py-1 pr-1 align-middle min-w-0">
-                                        <button
-                                          type="button"
-                                          className="text-left truncate w-full hover:underline"
-                                          onClick={() => {
-                                            onModelSelect({
-                                              name: tierId,
-                                              provider: "compass",
-                                            });
-                                            setOpen(false);
-                                          }}
-                                        >
-                                          {m.displayName}
-                                        </button>
-                                      </td>
-                                      <td className="py-1 w-7 align-middle text-right">
-                                        {isSel ? (
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 shrink-0"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              e.stopPropagation();
-                                              onModelSelect({
-                                                name: COMPASS_TIER_FAST,
-                                                provider: "compass",
-                                              });
-                                            }}
-                                            aria-label="Use Fast tier"
-                                          >
-                                            <X className="h-3.5 w-3.5" />
-                                          </Button>
-                                        ) : null}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : null}
                         <div
                           className="px-2 py-1.5 border-b border-border"
                           onPointerDown={(e) => e.stopPropagation()}

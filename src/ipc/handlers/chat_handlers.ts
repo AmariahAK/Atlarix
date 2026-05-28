@@ -21,6 +21,10 @@ import {
   parseDisplaySnapshot,
   type DisplaySnapshotV1,
 } from "@/lib/chat/display-snapshot";
+import {
+  attachmentInfoFromStoredFile,
+  hydrateAttachmentStoreFromMessages,
+} from "@/lib/attachment-persistence";
 
 const logger = log.scope("chat_handlers");
 const handle = createLoggedHandler(logger);
@@ -91,6 +95,10 @@ export function registerChatHandlers() {
           content: string;
           id?: number;
           displaySnapshot?: DisplaySnapshotV1 | null;
+          modelContent?: string | null;
+          pasteAttachments?: import("../ipc_types").PasteAttachmentMeta[] | null;
+          fileAttachments?: import("../ipc_types").StoredFileAttachment[] | null;
+          attachments?: import("../ipc_types").AttachmentInfo[] | null;
         }[];
       },
     ) => {
@@ -98,6 +106,7 @@ export function registerChatHandlers() {
         "./chat_only_handlers"
       );
       if (!isEphemeralChatId(payload.chatId)) return;
+      hydrateAttachmentStoreFromMessages(payload.messages ?? []);
       hydrateEphemeralChatMessages(payload.chatId, payload.messages ?? []);
     },
   );
@@ -111,6 +120,7 @@ export function registerChatHandlers() {
       if (!ephemeralChat) {
         throw new Error("Ephemeral chat not found");
       }
+      hydrateAttachmentStoreFromMessages(ephemeralChat.messages);
       return {
         id: ephemeralChat.id,
         title: ephemeralChat.title,
@@ -137,11 +147,18 @@ export function registerChatHandlers() {
       throw new Error("Chat not found");
     }
 
+    hydrateAttachmentStoreFromMessages(chat.messages);
+
     return {
       ...chat,
       messages: chat.messages.map((m) => ({
         ...m,
         displaySnapshot: parseDisplaySnapshot(m.displaySnapshot),
+        pasteAttachments: m.pasteAttachments ?? undefined,
+        fileAttachments: m.fileAttachments ?? undefined,
+        attachments:
+          m.fileAttachments?.map(attachmentInfoFromStoredFile) ??
+          undefined,
       })),
     };
   });

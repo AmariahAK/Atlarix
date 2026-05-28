@@ -2,6 +2,10 @@
 assets/ctags/**/*
 !assets/ctags/.gitkeep
 
+# Fetched Monaco TextMate grammars (npm run fetch-monaco-grammars)
+src/lib/monaco/grammars/*
+!src/lib/monaco/grammars/.gitkeep
+
 scripts/.outreach-sent.log.json
 scripts/.feedback-outreach-v85-sent.jsonl
 

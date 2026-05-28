@@ -5,6 +5,7 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError } from "@/lib/toast";
+import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 
 export function useSummarizeInNewChat() {
   const chatId = useAtomValue(selectedChatIdAtom);
@@ -23,6 +24,7 @@ export function useSummarizeInNewChat() {
     }
     try {
       const newChatId = await IpcClient.getInstance().createChat(appId);
+      resetTerminalInstancesForNewChat();
       // navigate to new chat
       await navigate({ to: "/chat", search: { id: newChatId } });
       await streamMessage({

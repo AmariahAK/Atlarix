@@ -607,11 +607,6 @@ const config: ForgeConfig = {
           target: "preload",
         },
         {
-          entry: "workers/tsc/tsc_worker.ts",
-          config: "vite.worker.config.mts",
-          target: "main",
-        },
-        {
           entry: "workers/blueprint/astgrep_worker.ts",
           config: "vite.astgrep-worker.config.mts",
           target: "main",

@@ -29,6 +29,7 @@ import {
 } from "@/atoms/chatAtoms";
 import { useChats } from "@/hooks/useChats";
 import { showError, showSuccess } from "@/lib/toast";
+import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 import { useEffect } from "react";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useCurrentBranch } from "@/hooks/useCurrentBranch";
@@ -99,6 +100,7 @@ export function ChatHeader({
         try {
           const previousChatId = selectedChatId;
         const chatId = await IpcClient.getInstance().createChat(appId);
+        resetTerminalInstancesForNewChat();
         // Fix: Finding 2 — clear per-chat stream / indicator state so the new session has no ghost UI
         if (previousChatId != null) {
           setStreamLastActivity((prev) => {

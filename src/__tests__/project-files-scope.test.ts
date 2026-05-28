@@ -13,12 +13,12 @@ vi.mock("@/lib/index/ctags-index", () => ({
   getSymbolsForFile: vi.fn(),
 }));
 
-describe("getProjectFiles scoped git", () => {
+describe("getProjectFiles scoped discovery", () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
-  it("lists only files under scopePath via git pathspec", async () => {
+  it("lists only files under scopePath via ripgrep or fd", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-scope-"));
     execSync("git init", { cwd: tmp, stdio: "ignore" });
     fs.mkdirSync(path.join(tmp, "pkg-a", "src"), { recursive: true });
@@ -33,7 +33,7 @@ describe("getProjectFiles scoped git", () => {
     clearFileListCache(tmp);
 
     const result = await getProjectFiles(tmp, { scopePath: "pkg-a" });
-    expect(result.strategy).toBe("git");
+    expect(["fd", "ripgrep", "walk"]).toContain(result.strategy);
     expect(result.files).toContain("src/a.ts");
     expect(result.files.some((f) => f.includes("pkg-b"))).toBe(false);
   });

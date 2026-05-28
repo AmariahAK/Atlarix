@@ -1,11 +1,7 @@
-import type {
-  TerminalInstance,
-  TerminalLine,
-} from "@/atoms/terminalInstancesAtoms";
+import type { TerminalInstance } from "@/atoms/terminalInstancesAtoms";
 
 export function defaultUserInstanceLabel(instances: TerminalInstance[]): string {
-  const n =
-    instances.filter((i) => i.owner === "user").length + 1;
+  const n = instances.filter((i) => i.owner === "user").length + 1;
   return `Shell ${n}`;
 }
 
@@ -13,41 +9,46 @@ export function defaultAgentInstanceLabel(
   command: string,
   instances: TerminalInstance[],
 ): string {
-  const n =
-    instances.filter((i) => i.owner === "agent").length + 1;
+  const n = instances.filter((i) => i.owner === "agent").length + 1;
   const short = command.trim().slice(0, 28);
   return short ? `Agent ${n}: ${short}` : `Agent ${n}`;
 }
 
-export function outputToLines(
-  prefix: "[Agent]" | "[You]",
-  command: string,
-  output: string,
-  status: "running" | "completed" | "error",
-): TerminalLine[] {
-  const lines: TerminalLine[] = [
-    {
-      id: `cmd-${Date.now()}-${Math.random()}`,
-      prefix,
-      text: `$ ${command}`,
-      kind: "prompt",
-    },
-  ];
-  if (output.trim()) {
-    lines.push({
-      id: `out-${Date.now()}-${Math.random()}`,
-      prefix,
-      text: output,
-      kind: "output",
-    });
+export function shortenTerminalPath(fullPath: string): string {
+  const m = fullPath.match(/^\/Users\/[^/]+(.*)$/);
+  if (m) return `~${m[1] || ""}`;
+  const win = fullPath.match(/^[A-Za-z]:\\Users\\[^\\]+(.*)$/);
+  if (win) return `~${win[1].replace(/\\/g, "/") || ""}`;
+  return fullPath;
+}
+
+/** Tab label for user-owned terminals (cwd or last command). */
+export function userTabLabelFromInstance(
+  inst: TerminalInstance,
+  cwd?: string,
+): string {
+  const lastPrompt = [...inst.lines]
+    .reverse()
+    .find((l) => l.kind === "prompt" && l.prefix === "[You]");
+  if (lastPrompt) {
+    const cmd = lastPrompt.text.replace(/^\$\s*/, "").trim();
+    if (cmd) {
+      return cmd.length > 28 ? `${cmd.slice(0, 25)}…` : cmd;
+    }
   }
-  if (status === "completed" || status === "error") {
-    lines.push({
-      id: `st-${Date.now()}-${Math.random()}`,
-      prefix,
-      text: status === "completed" ? "exit 0" : "failed",
-      kind: "status",
-    });
+  if (cwd) {
+    const short = shortenTerminalPath(cwd);
+    const base = short.split("/").filter(Boolean).pop();
+    return base ? `~/${base}` : short || "Shell";
   }
-  return lines;
+  return inst.label;
+}
+
+/** Agent tabs show a single letter in the strip; full label goes in title. */
+export function agentTabStripLabel(
+  inst: TerminalInstance,
+  agentInstances: TerminalInstance[],
+): string {
+  const index = agentInstances.findIndex((i) => i.id === inst.id);
+  return index <= 0 ? "A" : `A${index + 1}`;
 }

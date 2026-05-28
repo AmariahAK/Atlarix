@@ -1,9 +1,10 @@
 import type { ErrorEvent, EventHint } from "@sentry/core";
+import { isPlanLimitError } from "@/lib/plan-limit-error";
+import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
- * - Auth required (logged-out users hitting gated features)
- * - Missing project typescript (mitigated by bundled worker TS in current builds)
+ * - Auth required, plan/workspace limits, missing TextMate grammars, bundled TS fallback
  */
 export function sentryBeforeSendDropExpected(
   event: ErrorEvent,
@@ -19,6 +20,7 @@ export function sentryBeforeSendDropExpected(
     }
   }
   const original = hint?.originalException;
+  if (isPlanLimitError(original)) return null;
   if (original instanceof Error) {
     parts.push(original.message, original.name);
   } else if (typeof original === "string") {
@@ -26,18 +28,7 @@ export function sentryBeforeSendDropExpected(
   }
   const combined = parts.join("\n");
 
-  if (
-    combined.includes("ATLARIX_AUTH_REQUIRED") ||
-    combined.includes("Please sign in or sign up to use Atlarix.")
-  ) {
-    return null;
-  }
-  if (combined.includes("AuthRequiredError")) return null;
-
-  if (
-    combined.includes("Failed to load TypeScript from") &&
-    combined.includes("Cannot find module 'typescript'")
-  ) {
+  if (sentryMessageMatchesIgnoredPattern(combined)) {
     return null;
   }
 

@@ -13,6 +13,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { showError, showSuccess } from '@/lib/toast';
 import { triggerUpgrade, triggerUpgradeWorkforce } from '@/hooks/useUpgrade';
 import { SettingsWorkspaceNav } from '@/components/settings/SettingsWorkspaceNav';
+import { AtlarixCoreUsageCard } from '@/components/settings/AtlarixCoreUsageCard';
 import { Users, LogOut } from 'lucide-react';
 
 interface TeamInfo {
@@ -261,6 +262,7 @@ export function AccountSettings() {
                 </Badge>
               )}
             </div>
+            <AtlarixCoreUsageCard showIntro className="mt-2" />
             {(status.plan === 'pro' || status.plan === 'workforce') && status.subscriptionEndsAt && (() => {
               const end = new Date(status.subscriptionEndsAt);
               const periodEndFuture = !Number.isNaN(+end) && end > new Date();

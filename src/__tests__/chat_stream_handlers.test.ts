@@ -1043,6 +1043,17 @@ const special = "Special chars: @#$%^&*()[]{}|\\";
     const result = removeAtlarixTags(text);
     expect(result).toBe("Before  After");
   });
+
+  it("preserves pasted text and terminal attachment bodies in ask mode", () => {
+    const text = `Question\n<atlarix-text-attachment filename="Pasted text · 791 lines">\nline one\nline two\n</atlarix-text-attachment>\n<atlarix-write path="x.ts">code</atlarix-write>\n<atlarix-terminal-attachment label="ls (1-16)" owner="user" lines="1-16">\n$ ls\nscripts\n</atlarix-terminal-attachment>`;
+    const result = removeAtlarixTags(text);
+    expect(result).toContain("<atlarix-text-attachment");
+    expect(result).toContain("line one");
+    expect(result).toContain("<atlarix-terminal-attachment");
+    expect(result).toContain("$ ls");
+    expect(result).not.toContain("<atlarix-write");
+    expect(result).not.toContain("code");
+  });
 });
 
 describe("hasUnclosedAtlarixWrite", () => {

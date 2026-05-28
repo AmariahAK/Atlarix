@@ -17,7 +17,6 @@ import {
   ChartColumnIncreasing,
   SendHorizontalIcon,
   Lock,
-  Zap,
 } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -82,7 +81,6 @@ import {
   pendingVisualChangesAtom,
 } from "@/atoms/previewAtoms";
 import { SelectedComponentsDisplay } from "./SelectedComponentDisplay";
-import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
 import { UserQuestionBar } from "./UserQuestionBar";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
@@ -104,7 +102,7 @@ type SlashCommandSuggestion = { name: string; description: string };
 const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { name: "review", description: "Review recent changes" },
   { name: "explain", description: "Explain code or concept" },
-  { name: "fix", description: "Fix a specific issue" },
+  { name: "debug", description: "Debug a specific issue" },
 ];
 
 /** Fix: Finding 4 — Build mode: warn if no stream activity for 5+ minutes */
@@ -195,17 +193,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
   const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
   const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
-  const [routingPreview, setRoutingPreview] = useState<{
-    category: string;
-    targetModel: string;
-    targetProvider: string;
-  } | null>(null);
-  const [modelOverrideForNextMessage, setModelOverrideForNextMessage] = useState<
-    { provider: string; name: string } | null
-  >(null);
-  const { compassExhausted, tier: compassTier } = useCompassSendGate(
-    modelOverrideForNextMessage,
-  );
+  const { compassExhausted, tier: compassTier } = useCompassSendGate();
   const { isAuthenticated, loading: authLoading } = useAuth();
   const mustSignIn = !authLoading && !isAuthenticated;
   const [selectedComponents, setSelectedComponents] = useAtom(
@@ -219,7 +207,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     currentComponentCoordinatesAtom,
   );
   const setPendingVisualChanges = useSetAtom(pendingVisualChangesAtom);
-  const { checkProblems } = useCheckProblems(appId);
   const { refreshAppIframe } = useRunApp();
   // Use the attachments hook
   const {
@@ -263,20 +250,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     }
   }, [error]);
 
-  // v3.6: Debounced routing preview when Auto is on (500ms)
-  useEffect(() => {
-    if (!settings?.autoModelRouting || !inputValue.trim()) {
-      setRoutingPreview(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      IpcClient.getInstance()
-        .getRoutingPreview(inputValue)
-        .then((preview) => setRoutingPreview(preview))
-        .catch(() => setRoutingPreview(null));
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [inputValue, settings?.autoModelRouting]);
 
   const [slashCommandSuggestions, setSlashCommandSuggestions] = useState<SlashCommandSuggestion[]>(
     BUILTIN_SLASH_COMMANDS,
@@ -368,10 +341,8 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       attachments,
       redo: false,
       selectedComponents: componentsToSend,
-      modelOverride: modelOverrideForNextMessage ?? undefined,
       forceThinkingTier: deepOnce ? true : undefined,
     });
-    setModelOverrideForNextMessage(null);
     setForceDeepThinkNext(false);
     clearAttachments();
     posthog.capture("chat:submit");
@@ -412,9 +383,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       setIsApproving(false);
       setIsPreviewOpen(true);
       refreshVersions();
-      if (settings?.enableAutoFixProblems) {
-        checkProblems();
-      }
 
       // Keep same as handleReject
       refreshProposal();
@@ -660,38 +628,6 @@ export function ChatInput({ chatId }: { chatId?: number }) {
               </button>
             )}
           </div>
-          {/* v3.6: Auto routing preview */}
-          {!isStreaming && settings?.autoModelRouting && (routingPreview || modelOverrideForNextMessage) && (
-            <div className="flex items-center justify-between gap-2 px-2 pb-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Zap size={12} />
-                {modelOverrideForNextMessage
-                  ? `Override: ${modelOverrideForNextMessage.name}`
-                  : routingPreview
-                    ? `Auto → ${routingPreview.targetModel} · ${routingPreview.category}`
-                    : null}
-              </span>
-              {routingPreview && !modelOverrideForNextMessage && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-1.5 text-xs"
-                onClick={() => {
-                  if (settings?.selectedModel?.provider && settings?.selectedModel?.name) {
-                    setModelOverrideForNextMessage({
-                      provider: settings.selectedModel.provider,
-                      name: settings.selectedModel.name,
-                    });
-                    setRoutingPreview(null);
-                  }
-                }}
-              >
-                Override
-              </Button>
-              )}
-            </div>
-          )}
           <div className="pl-2 pr-1 flex items-center justify-between pb-2">
             <div className="flex items-center">
               <ChatInputControls showContextFilesPicker={true} chatId={chatId} />

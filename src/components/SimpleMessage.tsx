@@ -6,9 +6,10 @@
  */
 
 import type { Message } from "@/ipc/ipc_types";
+import { resolvePasteAttachmentsForMessage } from "@/lib/chat/paste-attachment-meta";
 import {
     CHAT_MESSAGE_MARKDOWN_PROSE,
-    VanillaMarkdownParser,
+    UserMessageMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { motion } from "framer-motion";
@@ -24,9 +25,8 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import type { WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
-import { displayLabelForCompassTier } from "@/lib/atlarix-core-catalog";
-import { isCompassTierId } from "@/shared/compass_product_copy";
-import { formatModelApiNameForDisplay } from "@/lib/format-openrouter-model-label";
+import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
+import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
 import {
     Select,
@@ -63,6 +63,7 @@ export function SimpleMessage({
     const { copyMessageContent, copied: assistantCopied } = useCopyToClipboard();
     const { settings, updateSettings } = useSettings();
     const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
+    const { data: modelsByProviders } = useLanguageModelsByProviders();
     const appId = useAtomValue(selectedAppIdAtom);
     const currentApp = useAtomValue(currentAppAtom);
     const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
@@ -106,49 +107,11 @@ export function SimpleMessage({
     const isUser = message.role === "user";
     const isAssistant = message.role === "assistant";
 
-    // Get display name for the model (supports object { provider, name } or legacy string)
-    const getModelDisplayName = () => {
-        const model = settings?.selectedModel as { provider?: string; name?: string } | string | undefined;
-        if (!model) return "Model";
-
-        if (typeof model === 'string') {
-            const parts = model.split('/');
-            const modelName = parts[parts.length - 1];
-            return formatModelName(modelName);
-        }
-
-        if (model.provider === 'auto') {
-            const ids = settings?.autoModelIds;
-            if (Array.isArray(ids) && ids.length === 3 && ids.every(Boolean)) {
-                const labels = ids.map((id) =>
-                    displayLabelForCompassTier(id, coreCatalog),
-                );
-                return `Auto (${labels.join(" / ")})`;
-            }
-            return "Auto";
-        }
-
-        const name = model.name ?? '';
-        if (model.provider === "compass" || isCompassTierId(name)) {
-            return displayLabelForCompassTier(name, coreCatalog);
-        }
-        const parts = name.split('/');
-        const modelName = parts[parts.length - 1] || name;
-        return formatModelName(modelName);
-    };
-
-    function formatModelName(modelName: string): string {
-        return modelName
-            .replace(/-/g, ' ')
-            .replace(/\b\w/g, c => c.toUpperCase())
-            .replace(/Gpt/g, 'GPT')
-            .replace(/Deepseek/g, 'DeepSeek')
-            .replace(/Claude/g, 'Claude')
-            .replace(/Gemini/g, 'Gemini')
-            .replace(/Qwen/g, 'Qwen')
-            .replace(/Pony/g, 'Pony')
-            .replace(/Minimax/g, 'MiniMax');
-    }
+    const getModelDisplayName = () =>
+        resolveModelDisplayLabel(settings?.selectedModel, {
+            catalog: coreCatalog,
+            modelsByProviders,
+        });
 
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -239,7 +202,14 @@ export function SimpleMessage({
                                     }
                                 />
                             ) : (
-                                <VanillaMarkdownParser content={message.content} />
+                                <UserMessageMarkdownParser
+                                    content={message.content}
+                                    pasteAttachments={(() => {
+                                        const pastes =
+                                            resolvePasteAttachmentsForMessage(message);
+                                        return pastes.length > 0 ? pastes : undefined;
+                                    })()}
+                                />
                             )}
 
 

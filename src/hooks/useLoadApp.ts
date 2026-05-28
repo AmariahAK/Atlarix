@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { useQuery, QueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAtom, useSetAtom } from "jotai";
-import { toast } from "sonner";
 import { currentAppAtom } from "@/atoms/appAtoms";
 import { diagramStateAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
 
@@ -17,10 +16,10 @@ export function useLoadApp(appId: number | null) {
     return msg.includes("App not found") || msg.includes("not found");
   };
 
-  const fileListStaleMs = 5 * 60 * 1000;
+  const appStaleMs = 5 * 60 * 1000;
 
   const { data: appData, isLoading: loading, error, refetch: refreshApp } = useQuery({
-    queryKey: ['app', appId],
+    queryKey: ["app", appId],
     queryFn: async () => {
       if (appId === null) return null;
       try {
@@ -29,27 +28,14 @@ export function useLoadApp(appId: number | null) {
         if (isAppNotFoundError(err)) {
           return null;
         }
-        console.error('Error fetching app:', err);
+        console.error("Error fetching app:", err);
         throw err;
       }
     },
     enabled: appId !== null,
     retry: false,
-    staleTime: fileListStaleMs,
-    gcTime: fileListStaleMs,
-  });
-
-  const { data: appFilesData } = useQuery({
-    queryKey: ['app-files', appId],
-    queryFn: async () => {
-      if (appId === null) return null;
-      return IpcClient.getInstance().getAppFiles(appId);
-    },
-    enabled: appId !== null,
-    retry: false,
-    staleTime: fileListStaleMs,
-    gcTime: fileListStaleMs,
-    refetchOnWindowFocus: false,
+    staleTime: appStaleMs,
+    gcTime: appStaleMs,
   });
 
   useEffect(() => {
@@ -70,44 +56,10 @@ export function useLoadApp(appId: number | null) {
       if (loadedAppIdRef.current === appId) return;
       loadedAppIdRef.current = appId;
 
-      const files = appFilesData?.files ?? appData.files ?? [];
-      const fileDiscoveryWarnings =
-        appFilesData?.fileDiscoveryWarnings ?? appData.fileDiscoveryWarnings;
-      setApp({ ...appData, files, fileDiscoveryWarnings });
-
-      if (fileDiscoveryWarnings?.length) {
-        for (const msg of fileDiscoveryWarnings) {
-          toast.warning(msg, { duration: 9000 });
-        }
-      }
-
-      if (appData.workspaceDiscoveryHints && appData.pathExists !== false && appId !== null) {
-        const disc = appData.workspaceDiscoveryHints;
-        const key = `atlarix:discovery-hint:${appId}`;
-        try {
-          if (!sessionStorage.getItem(key)) {
-            sessionStorage.setItem(key, "1");
-            if (disc.isMultiRepoWorkspace) {
-              toast.message("Multi-repo workspace", {
-                description:
-                  "File discovery and repo overview are scoped to nested git repos. Open a single repo folder if you only need one project.",
-                duration: 10_000,
-              });
-            } else if (!disc.hasRootGit) {
-              toast.warning(
-                "This workspace root has no .git folder. File discovery may be degraded; open a repository subfolder when possible.",
-                { duration: 9000 },
-              );
-            }
-          }
-        } catch {
-          /* sessionStorage unavailable */
-        }
-      }
-
+      setApp({ ...appData, files: appData.files ?? [] });
       setDiagramStaleness(null);
     }
-  }, [appId, appData, appFilesData, setApp, setDiagramState, setDiagramStaleness]);
+  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness]);
 
   return { app: appData, loading, error, refreshApp };
 }

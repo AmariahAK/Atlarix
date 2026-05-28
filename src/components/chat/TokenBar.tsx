@@ -60,10 +60,7 @@ export function TokenBar({
 
   const budget = effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
-  const usesCompass = selectionUsesCompass(
-    settings?.selectedModel,
-    settings?.autoProviderId ?? undefined,
-  );
+  const usesCompass = selectionUsesCompass(settings?.selectedModel);
   const compassQuotaReady =
     usesCompass &&
     !compassUsage.loading &&

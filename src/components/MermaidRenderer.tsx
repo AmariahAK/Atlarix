@@ -31,6 +31,33 @@ function looksRenderableMermaidSource(source: string): boolean {
 const MERMAID_USER_ERROR_TITLE = "Diagram couldn't render";
 const MERMAID_USER_ERROR_BODY =
     "The AI generated a syntax issue. Click Retry to try again, or use 'View Raw Code' to inspect the output.";
+const MERMAID_LAYOUT_ERROR_TITLE = "Diagram couldn't be laid out";
+const MERMAID_LAYOUT_ERROR_BODY =
+    "Expand the card or retry when the panel is visible.";
+
+function isMermaidLayoutError(err: unknown): boolean {
+    if (err instanceof DOMException && err.code === 9) return true;
+    const msg =
+        err instanceof Error
+            ? err.message
+            : typeof err === "string"
+              ? err
+              : "";
+    return /SVGLength|relative length|NotSupportedError/i.test(msg);
+}
+
+async function waitForContainerDimensions(
+    element: HTMLElement,
+    maxFrames = 60,
+): Promise<boolean> {
+    for (let i = 0; i < maxFrames; i++) {
+        if (element.clientWidth >= 1 && element.clientHeight >= 1) {
+            return true;
+        }
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    }
+    return false;
+}
 import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize2, Move, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
@@ -218,6 +245,11 @@ export function MermaidRenderer({
             return;
         }
 
+        const sized = await waitForContainerDimensions(el);
+        if (!sized) {
+            return;
+        }
+
         setIsRendering(true);
         setError(null);
 
@@ -298,6 +330,11 @@ export function MermaidRenderer({
                 setError(null);
                 return;
             }
+            if (isMermaidLayoutError(err)) {
+                setError(MERMAID_LAYOUT_ERROR_BODY);
+                onError?.(MERMAID_LAYOUT_ERROR_TITLE);
+                return;
+            }
             let errorMessage = "Failed to render diagram";
             if (err instanceof Error) {
                 errorMessage = err.message || errorMessage;
@@ -335,6 +372,18 @@ export function MermaidRenderer({
             }
         }
     }, [code, onRender, onError]);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(() => {
+            if (el.clientWidth >= 1 && el.clientHeight >= 1) {
+                void renderDiagram();
+            }
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [renderDiagram]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => {

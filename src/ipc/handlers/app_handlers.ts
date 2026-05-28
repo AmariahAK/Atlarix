@@ -20,7 +20,6 @@ import { promises as fsPromises } from "node:fs";
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
 import { getProjectFiles } from "../utils/project-files";
-import { analyzeWorkspaceDiscovery } from "../utils/workspace-discovery";
 import { bootstrapAtlarixWorkspaceFolder } from "@/lib/atlarix/workspace-bootstrap";
 import {
   runningApps,
@@ -786,9 +785,6 @@ export function registerAppHandlers() {
     if (pathExists) {
       void bootstrapAtlarixWorkspaceFolder(appPath);
     }
-    const workspaceDiscoveryHints = pathExists
-      ? analyzeWorkspaceDiscovery(appPath)
-      : { hasRootGit: false, isMultiRepoWorkspace: false };
 
     let supabaseProjectName: string | null = null;
     const settings = readSettings();
@@ -812,7 +808,6 @@ export function registerAppHandlers() {
       vercelTeamSlug,
       pathExists,
       status,
-      workspaceDiscoveryHints,
     };
   });
 

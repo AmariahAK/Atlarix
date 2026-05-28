@@ -34,6 +34,7 @@ import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./ma
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
+import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
 import fs from "fs";
 import { execSync } from "node:child_process";
 import os from "node:os";
@@ -91,6 +92,7 @@ if (SENTRY_DSN) {
     dsn: SENTRY_DSN,
     release: app.getVersion(),
     tracesSampleRate: 1.0,
+    ignoreErrors: SENTRY_IGNORE_ERROR_PATTERNS,
     beforeSend: sentryBeforeSendDropExpected,
   });
 }

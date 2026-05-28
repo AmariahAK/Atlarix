@@ -24,7 +24,8 @@ describe("text-paste-attachment", () => {
   });
 
   it("injects full paste into prompt and strips from file attachments", () => {
-    const { prompt, fileAttachments } = buildPromptWithTextPastes("Hello", [
+    const { prompt, modelPrompt, displayPrompt, fileAttachments } =
+      buildPromptWithTextPastes("Hello", [
       {
         type: "chat-context",
         textPaste: { content: "long body", displayName: "Pasted text · 1 line" },
@@ -35,8 +36,9 @@ describe("text-paste-attachment", () => {
       },
     ]);
     expect(prompt).toContain("Hello");
-    expect(prompt).toContain("<atlarix-text-attachment");
-    expect(prompt).toContain("long body");
+    expect(modelPrompt).toContain("long body");
+    expect(displayPrompt).toContain("<atlarix-text-attachment");
+    expect(displayPrompt).not.toContain("long body");
     expect(fileAttachments).toHaveLength(1);
     expect(fileAttachments[0]?.file?.name).toBe("x.txt");
   });

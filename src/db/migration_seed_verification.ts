@@ -188,6 +188,8 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "messages", "display_snapshot") &&
         columnExists(sqlite, "session_messages", "display_snapshot")
       );
+    case "0052_message_model_content":
+      return columnExists(sqlite, "messages", "model_content");
     default:
       return false;
   }

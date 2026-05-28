@@ -16,6 +16,7 @@ import "./repo-overview";
 import "./edit";
 import "./search";
 import "./shell";
+import "./terminal-instances";
 import "./web";
 import "./memory";
 import "./blueprint";

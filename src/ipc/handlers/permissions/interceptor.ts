@@ -49,6 +49,10 @@ import { FileUploadsState } from "../../utils/file_uploads_state";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
 import {
+  openTerminalInstance,
+  resolveScopeKey,
+} from "../../../lib/terminal-instance-store";
+import {
     isGitInitCommand,
     runCommandGitInitGateResult,
 } from "../../../lib/git-init-command-guard";
@@ -1545,6 +1549,13 @@ export class PermissionInterceptor extends EventEmitter {
         const startTime = Date.now();
 
         logger.log(`[executeRunCommand] Running: ${commandToRun} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
+
+        const scopeKey = resolveScopeKey(this.activeChatId, this.workspaceId);
+        openTerminalInstance(scopeKey, {
+          owner: "agent",
+          operationId,
+          commandHint: commandToRun,
+        });
 
         // Audit log for dangerous commands (rm -rf, sudo, etc.)
         if (preview.isDangerous) {

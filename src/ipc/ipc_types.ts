@@ -36,7 +36,12 @@ export interface ListAppsResponse {
 export interface ChatStreamParams {
   chatId: number;
   appId?: number | null;
+  /** Full prompt for the model (may include attachment XML bodies). */
   prompt: string;
+  /** User-visible bubble text (chips / stub attachment tags). When omitted, uses `prompt`. */
+  displayPrompt?: string;
+  /** Pasted text / terminal payloads for chip preview in the UI. */
+  pasteAttachments?: PasteAttachmentMeta[];
   redo?: boolean;
   attachments?: Array<{
     id?: string;
@@ -242,10 +247,34 @@ export interface AttachmentInfo {
   contentPreview?: string;
 }
 
+/** Persisted file upload payload (survives app restart). */
+export interface StoredFileAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  /** Base64-encoded file bytes (no data: URL prefix). */
+  data: string;
+}
+
+/** Pasted text / terminal blocks for UI preview (not sent as file uploads). */
+export interface PasteAttachmentMeta {
+  /** Stable id for read_attachment / AttachmentStore. */
+  id?: string;
+  kind: "text" | "terminal";
+  displayName: string;
+  /** Model-facing body (full paste / terminal transcript). */
+  content: string;
+  /** Terminal: UI-faithful text for copy/preview. */
+  displayContent?: string;
+}
+
 export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /** Full model-facing user text (attachment bodies); UI uses `content` when set. */
+  modelContent?: string | null;
   /** Ephemeral/chat-only: in-memory chat id (not persisted). */
   chatId?: number;
   approvalState?: "approved" | "rejected" | null;
@@ -277,6 +306,10 @@ export interface Message {
   workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   /** File attachments for this message (shown as chips in UI). */
   attachments?: AttachmentInfo[] | null;
+  /** Persisted file upload payloads for rehydrating AttachmentStore. */
+  fileAttachments?: StoredFileAttachment[] | null;
+  /** Pasted text / terminal bodies for chip preview after send. */
+  pasteAttachments?: PasteAttachmentMeta[] | null;
   /** Frozen tool / sub-agent UI (DisplaySnapshotV1). */
   displaySnapshot?: DisplaySnapshotV1 | null;
 }
@@ -628,6 +661,18 @@ export interface FileAttachment {
   textPaste?: {
     content: string;
     displayName: string;
+  };
+  /** Terminal selection copied into chat — UI chip only; injected into prompt on send. */
+  terminalPaste?: {
+    /** Model-facing transcript (prompt tagged, output raw). */
+    content: string;
+    /** Terminal-faithful text for copy/preview (no prefix on stdout). */
+    displayContent?: string;
+    displayName: string;
+    instanceLabel: string;
+    owner: "user" | "agent";
+    lineStart: number;
+    lineEnd: number;
   };
 }
 

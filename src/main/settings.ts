@@ -65,11 +65,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableProSmartFilesContextMode: true,
   selectedChatMode: "ask",
   workModePreference: "ask",
-  autoModelRouting: false,
-  autoProviderId: null,
-  autoModelIds: undefined,
-  autoRoutingShowReasoning: true,
-  autoRoutingExchangeThreshold: 6,
   counsel: {
     enabled: true,
     autoTriggerOnThinking: true,

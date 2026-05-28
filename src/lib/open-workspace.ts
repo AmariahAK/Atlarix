@@ -11,6 +11,7 @@ import {
 import { bindChatToAppId, getChatBoundAppId } from "@/lib/chat-workspace-binding";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { App } from "@/ipc/ipc_types";
+import { PlanLimitError } from "@/lib/plan-limit-error";
 export type OpenWorkspaceOptions = {
   apps: App[];
   refreshApps?: () => Promise<void>;
@@ -41,7 +42,7 @@ async function importOrSelectApp(
     if (!limitCheck.allowed) {
       const { triggerUpgrade } = await import("@/hooks/useUpgrade");
       void triggerUpgrade();
-      throw new Error(
+      throw new PlanLimitError(
         limitCheck.reason ?? "Upgrade to Pro for unlimited workspaces.",
       );
     }

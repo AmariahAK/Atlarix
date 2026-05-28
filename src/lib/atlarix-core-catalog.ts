@@ -26,7 +26,11 @@ export type AtlarixCoreTierPresentation = {
   labelWithProvider: string;
 };
 
-export const ATLARIX_CORE_PROVIDER_SLUG = "openrouter";
+function providerSlugFromOpenRouterId(openRouterModelId: string): string {
+  const trimmed = openRouterModelId.trim();
+  if (!trimmed.includes("/")) return "openrouter";
+  return trimmed.split("/")[0]?.toLowerCase() || "openrouter";
+}
 
 const SLOT_TO_INTERNAL: { slot: AtlarixCoreTierSlot; internalTierId: string }[] = [
   { slot: "fast", internalTierId: COMPASS_TIER_FAST },
@@ -43,7 +47,7 @@ function presentationForInternalTier(
   const modelDisplayName = openRouterModelId
     ? formatModelApiNameForDisplay(openRouterModelId)
     : formatModelApiNameForDisplay(internalTierId.replace(/^compass-/, ""));
-  const providerSlug = ATLARIX_CORE_PROVIDER_SLUG;
+  const providerSlug = providerSlugFromOpenRouterId(openRouterModelId);
   return {
     slot,
     internalTierId,
@@ -96,13 +100,11 @@ export function resolveAtlarixCoreIdentity(
   const modelDisplayName = formatModelApiNameForDisplay(
     internalTierId.replace(/^compass-/, ""),
   );
+  const slug = providerSlugFromOpenRouterId(internalTierId.replace(/^compass-/, ""));
   return {
     modelDisplayName,
-    providerSlug: ATLARIX_CORE_PROVIDER_SLUG,
-    labelWithProvider: formatModelWithProvider(
-      modelDisplayName,
-      ATLARIX_CORE_PROVIDER_SLUG,
-    ),
+    providerSlug: slug,
+    labelWithProvider: formatModelWithProvider(modelDisplayName, slug),
   };
 }
 
@@ -122,7 +124,7 @@ export function displayLabelForCompassTier(
   }
   return formatModelWithProvider(
     formatModelApiNameForDisplay(internalTierId.replace(/^compass-/, "")),
-    ATLARIX_CORE_PROVIDER_SLUG,
+    "openrouter",
   );
 }
 

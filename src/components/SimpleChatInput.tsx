@@ -6,7 +6,7 @@
  */
 
 import React, { useRef, useEffect, useCallback } from "react";
-import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, X, ChevronDown, Upload } from "lucide-react";
+import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, Upload } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtom, useAtomValue } from "jotai";
 import { isStreamingByIdAtom, chatInputValueAtom } from "@/atoms/chatAtoms";
@@ -29,6 +29,9 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "@/components/chat/SignInToChatNotice";
 import { cn } from "@/lib/utils";
+import { useAttachments } from "@/hooks/useAttachments";
+import { AttachmentsList } from "@/components/chat/AttachmentsList";
+import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -37,7 +40,6 @@ interface SimpleChatInputProps {
 }
 
 export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the conversation..." }: SimpleChatInputProps) {
-    // Use global atom so "Fix with AI" button can pre-fill this input
     const [inputValue, setInputValue] = useAtom(chatInputValueAtom);
     const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
     const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -45,65 +47,33 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const [attachments, setAttachments] = useState<FileAttachment[]>([]);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const { isAuthenticated, loading: authLoading } = useAuth();
     const mustSignIn = !authLoading && !isAuthenticated;
-    // Prevent double-submit when clicking rapidly or "Fix with AI" triggers re-renders
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isDragOver, setIsDragOver] = useState(false);
+
+    const {
+        attachments,
+        fileInputRef,
+        isDraggingOver,
+        handleFileSelect,
+        removeAttachment,
+        handleDragOver,
+        handleDragLeave,
+        handleDrop,
+        clearAttachments,
+        handlePaste,
+        handlePasteCapture,
+    } = useAttachments();
+
     const attachDisabled = isStreaming || mustSignIn;
     const sendDisabled = (isSubmitting || isStreaming || mustSignIn || (!inputValue.trim() && attachments.length === 0));
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        if (!isStreaming && !mustSignIn) {
-            setIsDragOver(true);
-        }
-    }, [isStreaming, mustSignIn]);
 
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-    }, []);
-
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-        if (isStreaming || mustSignIn) return;
-
-        const files = Array.from(e.dataTransfer.files);
-        if (files.length === 0) return;
-
-        const newAttachments: FileAttachment[] = files.map((file) => ({
-            file,
-            type: "chat-context",
-        }));
-        setAttachments((prev) => [...prev, ...newAttachments]);
-    }, [isStreaming, mustSignIn]);
-
-    // Auto-resize textarea when value changes (e.g., pre-filled by "Fix with AI")
     useEffect(() => {
         if (inputRef.current) {
             inputRef.current.style.height = 'auto';
             inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 160)}px`;
         }
     }, [inputValue]);
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files ?? []);
-        if (files.length === 0) return;
-
-        const newAttachments: FileAttachment[] = files.map((file) => ({
-            file,
-            type: "chat-context",
-        }));
-        setAttachments((prev) => [...prev, ...newAttachments]);
-        e.target.value = "";
-    };
-
-    const removeAttachment = (index: number) => {
-        setAttachments(prev => prev.filter((_, i) => i !== index));
-    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -116,10 +86,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             return;
         }
 
-        // Set submitting guard immediately
         setIsSubmitting(true);
 
-        // Check model is selected
         const hasModel = settings?.selectedModel ||
             ((settings?.providerSettings?.ollama as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0 ||
             ((settings?.providerSettings?.lmstudio as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
@@ -128,15 +96,14 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             import("@/lib/toast").then(({ showError }) => {
                 showError("Please select a model first");
             });
-            setIsSubmitting(false); // Reset guard on early return
+            setIsSubmitting(false);
             return;
         }
 
         onSubmit(inputValue, attachments);
         setInputValue("");
-        setAttachments([]);
+        clearAttachments();
 
-        // Reset submitting guard after a short delay to prevent double-clicks
         setTimeout(() => setIsSubmitting(false), 100);
         inputRef.current?.focus();
     };
@@ -144,7 +111,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            handleSubmit(e as any);
+            handleSubmit(e as unknown as React.FormEvent);
         }
     };
 
@@ -156,53 +123,38 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         <div
             className={cn(
                 "p-4 border-t border-border transition-colors",
-                isDragOver && "bg-purple-500/10"
+                isDraggingOver && "bg-purple-500/10"
             )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* Attachment preview chips */}
-            {attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                    {attachments.map((att, idx) => (
-                        <div
-                            key={idx}
-                            className="flex items-center gap-1.5 px-2.5 py-1 bg-muted rounded-full text-xs text-foreground"
-                        >
-                            <Upload className="w-3 h-3 text-purple-500" />
-                            <span className="max-w-[100px] truncate">{att.file.name}</span>
-                            <button
-                                onClick={() => removeAttachment(idx)}
-                                className="ml-1 hover:text-destructive"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-
             {mustSignIn ? (
                 <div className="mb-2">
                     <SignInToChatNotice />
                 </div>
             ) : null}
 
-            {/* Drag-drop overlay */}
-            {isDragOver && (
-                <div className="mb-3 p-4 border-2 border-dashed border-purple-500/50 rounded-lg text-center text-sm text-purple-400">
-                    Drop files to attach
-                </div>
-            )}
+            <div
+                className={cn(
+                    "relative flex flex-col space-y-2 border border-border rounded-lg bg-background/50 shadow-sm",
+                    isDraggingOver && "ring-2 ring-blue-500 border-blue-500",
+                )}
+            >
+                <AttachmentsList
+                    attachments={attachments}
+                    onRemove={removeAttachment}
+                />
 
-            <div className="flex flex-col space-y-2 border border-border rounded-lg bg-background/50 shadow-sm">
-                <form onSubmit={handleSubmit} className="flex items-center">
+                <DragDropOverlay isDraggingOver={isDraggingOver} />
+
+                <form onSubmit={handleSubmit} className="flex items-center" onPasteCapture={handlePasteCapture}>
                     <textarea
-                        ref={inputRef as any}
+                        ref={inputRef}
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder={effectivePlaceholder}
                         disabled={isStreaming || mustSignIn}
                         rows={1}
@@ -218,7 +170,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         }}
                     />
 
-                    {/* File attachment button with menu */}
                     <Popover open={attachmentMenuOpen} onOpenChange={setAttachmentMenuOpen}>
                         <TooltipProvider>
                             <Tooltip>
@@ -245,8 +196,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                                 className="w-full justify-start text-sm gap-2"
                                 onClick={() => {
                                     fileInputRef.current?.click();
-                                    // IMPORTANT: do not close the popover here.
-                                    // In Electron, closing can unmount the <input>, preventing the onChange event from firing.
                                 }}
                             >
                                 <Upload className="w-4 h-4" />
@@ -254,19 +203,20 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             </Button>
                         </PopoverContent>
                     </Popover>
-                    {/* Keep file input mounted even when popover closes */}
                     <input
                         ref={fileInputRef}
                         type="file"
                         multiple
                         className="hidden"
                         onChange={(e) => {
-                            handleFileSelect(e);
+                            if (e.target.files?.length) {
+                                handleFileSelect(e.target.files, "chat-context");
+                            }
                             setAttachmentMenuOpen(false);
+                            e.target.value = "";
                         }}
                     />
 
-                    {/* Send/Stop button */}
                     {isStreaming ? (
                         <Button
                             type="button"
@@ -274,7 +224,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             size="icon"
                             className="mx-1 hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => {
-                                // Stop the chat stream
                                 import("@/ipc/ipc_client").then(({ IpcClient }) => {
                                     IpcClient.getInstance().cancelChatStream(chatId);
                                 });
@@ -296,7 +245,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     )}
                 </form>
 
-                {/* Model switcher and controls */}
                 <div className="px-2 pb-2 flex items-center justify-between gap-2">
                     <ChatInputControls chatId={chatId} />
                     <Popover open={tokenUsagePopoverOpen} onOpenChange={setTokenUsagePopoverOpen}>

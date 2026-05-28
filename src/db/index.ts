@@ -165,6 +165,15 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       try { ensureSessionMessagePlanColumnsIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring session_messages plan columns (non-fatal):", error);
       }
+      try { ensureMessagesModelContentColumnIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring messages.model_content column (non-fatal):", error);
+      }
+      try { ensureMessagesPasteAttachmentsColumnIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring messages.paste_attachments column (non-fatal):", error);
+      }
+      try { ensureMessagesFileAttachmentsColumnIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring messages.file_attachments column (non-fatal):", error);
+      }
 
       if (!isCoreSchemaComplete(sqlite)) {
         throw new Error(
@@ -414,6 +423,27 @@ function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
   `);
   sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
 }
+function ensureMessagesModelContentColumnIfNeeded(sqlite: Database.Database): void {
+  if (!columnExists(sqlite, "messages", "model_content")) {
+    logger.log("[Schema Fix] Adding messages.model_content (0052_message_model_content)");
+    sqlite.exec("ALTER TABLE messages ADD COLUMN model_content text");
+  }
+}
+
+function ensureMessagesPasteAttachmentsColumnIfNeeded(sqlite: Database.Database): void {
+  if (!columnExists(sqlite, "messages", "paste_attachments")) {
+    logger.log("[Schema Fix] Adding messages.paste_attachments (0053_message_paste_attachments)");
+    sqlite.exec("ALTER TABLE messages ADD COLUMN paste_attachments text");
+  }
+}
+
+function ensureMessagesFileAttachmentsColumnIfNeeded(sqlite: Database.Database): void {
+  if (!columnExists(sqlite, "messages", "file_attachments")) {
+    logger.log("[Schema Fix] Adding messages.file_attachments (0054_message_file_attachments)");
+    sqlite.exec("ALTER TABLE messages ADD COLUMN file_attachments text");
+  }
+}
+
 function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): void {
   const hasSessionMessages = sqlite
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_messages'")
@@ -429,6 +459,18 @@ function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): voi
   if (!columnExists(sqlite, "session_messages", "plan_status")) {
     logger.log("[Schema Fix] Adding session_messages.plan_status (0048_session_plan_artifacts)");
     sqlite.exec("ALTER TABLE session_messages ADD COLUMN plan_status text");
+  }
+  if (!columnExists(sqlite, "session_messages", "model_content")) {
+    logger.log("[Schema Fix] Adding session_messages.model_content (0055_session_message_attachments)");
+    sqlite.exec("ALTER TABLE session_messages ADD COLUMN model_content text");
+  }
+  if (!columnExists(sqlite, "session_messages", "paste_attachments")) {
+    logger.log("[Schema Fix] Adding session_messages.paste_attachments (0055_session_message_attachments)");
+    sqlite.exec("ALTER TABLE session_messages ADD COLUMN paste_attachments text");
+  }
+  if (!columnExists(sqlite, "session_messages", "file_attachments")) {
+    logger.log("[Schema Fix] Adding session_messages.file_attachments (0055_session_message_attachments)");
+    sqlite.exec("ALTER TABLE session_messages ADD COLUMN file_attachments text");
   }
 }
 

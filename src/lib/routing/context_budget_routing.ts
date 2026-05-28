@@ -18,20 +18,6 @@ export function resolveContextBudgetTier(
     return "fast";
   }
 
-  const providerId = settings.autoProviderId ?? null;
-  const autoModelIds = settings.autoModelIds;
-  if (
-    providerId &&
-    effectiveModel.provider === providerId &&
-    Array.isArray(autoModelIds) &&
-    autoModelIds.length > 0
-  ) {
-    const name = effectiveModel.name;
-    if (name === autoModelIds[2]) return "thinking";
-    if (name === autoModelIds[1]) return "balanced";
-    if (name === autoModelIds[0]) return "fast";
-  }
-
   return "balanced";
 }
 
@@ -46,22 +32,11 @@ export function resolveTierLimitModelIds(
   balanced: string;
   thinking: string;
 } {
-  const ids = settings.autoModelIds ?? [];
-  const providerId = settings.autoProviderId ?? "";
-  let out: { fast: string; balanced: string; thinking: string };
-  if (providerId === "openrouter" && ids.length > 0) {
-    out = {
-      fast: (ids[0] ?? "").trim(),
-      balanced: (ids[1] ?? "").trim(),
-      thinking: (ids[2] ?? "").trim(),
-    };
-  } else {
-    out = {
-      fast: getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
-      balanced: getOpenRouterModelIdForCompassTier(COMPASS_TIER_BALANCED) ?? "",
-      thinking: getOpenRouterModelIdForCompassTier(COMPASS_TIER_THINKING) ?? "",
-    };
-  }
+  let out: { fast: string; balanced: string; thinking: string } = {
+    fast: getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
+    balanced: getOpenRouterModelIdForCompassTier(COMPASS_TIER_BALANCED) ?? "",
+    thinking: getOpenRouterModelIdForCompassTier(COMPASS_TIER_THINKING) ?? "",
+  };
   const em = options?.effectiveModel;
   const rt = options?.resolvedTier;
   if (em?.provider === "openrouter" && em.name?.trim() && rt) {

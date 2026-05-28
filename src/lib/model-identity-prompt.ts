@@ -43,21 +43,16 @@ export type ActiveModelIdentity = {
   labelWithProvider?: string;
 };
 
-function identityProviderBrand(providerId: string): string {
-  if (providerId === "compass") return "openrouter";
-  return providerBrandName(providerId).toLowerCase();
-}
-
 export function resolveActiveModelIdentity(
   model: LargeLanguageModel,
   settings?: UserSettings | null,
   catalog?: AtlarixCoreTierPresentation[],
 ): ActiveModelIdentity {
   if (model.provider === "auto") {
-    const pid = settings?.autoProviderId;
     return {
-      modelDisplayName: "Auto routing",
-      providerBrand: pid ? identityProviderBrand(pid) : "auto",
+      modelDisplayName: "Unconfigured model",
+      providerBrand: "auto",
+      labelWithProvider: "Select a model in chat settings",
     };
   }
   if (model.provider === "compass" || isCompassTierId(model.name)) {

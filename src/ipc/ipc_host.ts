@@ -4,6 +4,7 @@ import { registerChatStreamHandlers } from "./handlers/chat_stream_handlers";
 import { registerSettingsHandlers } from "./handlers/settings_handlers";
 import { registerShellHandlers } from "./handlers/shell_handler";
 import { registerTerminalHandlers } from "./handlers/terminal_handlers";
+import { registerTerminalInstancesHandlers } from "./handlers/terminal_instances_handlers";
 import { registerCliHandlers } from "./handlers/cli_handlers";
 import { registerGithubHandlers } from "./handlers/github_handlers";
 import { registerVercelHandlers } from "./handlers/vercel_handlers";
@@ -30,7 +31,6 @@ import { registerProHandlers } from "./handlers/pro_handlers";
 import { registerContextPathsHandlers } from "./handlers/context_paths_handlers";
 import { registerAppUpgradeHandlers } from "./handlers/app_upgrade_handlers";
 import { registerCapacitorHandlers } from "./handlers/capacitor_handlers";
-import { registerProblemsHandlers } from "./handlers/problems_handlers";
 import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
 import { registerTemplateHandlers } from "./handlers/template_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
@@ -44,6 +44,7 @@ import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
 import { registerDiagramTimelineHandlers } from "./handlers/diagram_timeline_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
+import { registerLspHandlers } from "./handlers/lsp_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
@@ -51,7 +52,6 @@ import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
-import { registerRoutingHandlers } from "./handlers/routing_handlers";
 import { registerHooksHandlers } from "./handlers/hooks_handlers";
 import { registerCommandsHandlers } from "./handlers/commands_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
@@ -77,11 +77,11 @@ export function registerIpcHandlers() {
   registerSettingsHandlers();
   registerShellHandlers();
   registerTerminalHandlers();
+  registerTerminalInstancesHandlers();
   registerCliHandlers();
   registerGithubHandlers();
   registerVercelHandlers();
   registerNodeHandlers();
-  registerProblemsHandlers();
   registerProposalHandlers();
   registerDebugHandlers();
   registerSupabaseHandlers();
@@ -118,6 +118,7 @@ export function registerIpcHandlers() {
   registerSearxngAutoStop(); // Auto-stop Docker container when app quits
   registerDiagramTimelineHandlers(); // Diagram timeline system
   registerFileHandlers(); // File read/write for live code editor
+  registerLspHandlers(); // LSP → Monaco diagnostics in Code tab
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
@@ -126,7 +127,6 @@ export function registerIpcHandlers() {
   registerBlueprintHandlers();
   registerPivotAnalysisHandlers();
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
-  registerRoutingHandlers();
   registerHooksHandlers();
   registerCommandsHandlers(); // v3.6 Auto routing preview
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)

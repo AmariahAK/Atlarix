@@ -1,11 +1,5 @@
 import type { FileAttachment } from "@/ipc/ipc_types";
-
-function escapeXmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;");
-}
+import { buildPastePromptsFromAttachments } from "@/lib/chat/attachment-tag-blocks";
 
 export function isTextPasteAttachment(
   attachment: FileAttachment,
@@ -53,29 +47,17 @@ export function formatPasteMetadata(content: string): string {
 export function buildPromptWithTextPastes(
   prompt: string,
   attachments: FileAttachment[] | undefined,
-): { prompt: string; fileAttachments: FileAttachment[] } {
-  if (!attachments?.length) {
-    return { prompt: prompt.trim(), fileAttachments: [] };
-  }
-
-  const fileAttachments: FileAttachment[] = [];
-  const pasteBlocks: string[] = [];
-  let body = prompt.trim();
-
-  for (const att of attachments) {
-    if (isTextPasteAttachment(att)) {
-      const name = att.textPaste.displayName;
-      pasteBlocks.push(
-        `<atlarix-text-attachment filename="${escapeXmlAttr(name)}">\n${att.textPaste.content}\n</atlarix-text-attachment>`,
-      );
-    } else if (att.file) {
-      fileAttachments.push(att);
-    }
-  }
-
-  if (pasteBlocks.length > 0) {
-    body = [body, ...pasteBlocks].filter(Boolean).join("\n\n");
-  }
-
-  return { prompt: body, fileAttachments };
+): {
+  prompt: string;
+  modelPrompt: string;
+  displayPrompt: string;
+  fileAttachments: FileAttachment[];
+} {
+  const built = buildPastePromptsFromAttachments(prompt, attachments);
+  return {
+    prompt: built.modelPrompt,
+    modelPrompt: built.modelPrompt,
+    displayPrompt: built.displayPrompt,
+    fileAttachments: built.fileAttachments,
+  };
 }

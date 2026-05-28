@@ -16,13 +16,13 @@ describe("atlarix-core-catalog", () => {
     vi.unstubAllEnvs();
   });
 
-  it("builds three tier entries with openrouter labels", () => {
+  it("builds three tier entries with provider slug from model id", () => {
     const catalog = buildAtlarixCoreTierCatalog();
     expect(catalog).toHaveLength(3);
     const balanced = catalog.find((e) => e.slot === "balanced");
     expect(balanced?.openRouterModelId).toBe("deepseek/deepseek-v4-pro");
-    expect(balanced?.labelWithProvider).toMatch(/openrouter\)/);
-    expect(balanced?.labelWithProvider.toLowerCase()).toContain("deepseek");
+    expect(balanced?.labelWithProvider).toMatch(/\(deepseek\)/);
+    expect(balanced?.providerSlug).toBe("deepseek");
   });
 
   it("formatModelWithProvider uses lowercase provider slug", () => {
@@ -33,7 +33,7 @@ describe("atlarix-core-catalog", () => {
 
   it("resolveAtlarixCoreIdentity maps compass-balanced", () => {
     const id = resolveAtlarixCoreIdentity("compass-balanced");
-    expect(id.labelWithProvider).toMatch(/openrouter\)/);
+    expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
   });
 });

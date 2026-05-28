@@ -1,7 +1,8 @@
 import type { Message } from "@/ipc/ipc_types";
+import { resolvePasteAttachmentsForMessage } from "@/lib/chat/paste-attachment-meta";
 import {
   CHAT_MESSAGE_MARKDOWN_PROSE,
-  VanillaMarkdownParser,
+  UserMessageMarkdownParser,
 } from "./AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./AssistantMessageBody";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -509,7 +510,13 @@ const ChatMessage = ({ message, isLastMessage }: ChatMessageProps) => {
                       ))}
                     </div>
                   )}
-                  <VanillaMarkdownParser content={message.content} />
+                  <UserMessageMarkdownParser
+                    content={message.content}
+                    pasteAttachments={(() => {
+                      const pastes = resolvePasteAttachmentsForMessage(message);
+                      return pastes.length > 0 ? pastes : undefined;
+                    })()}
+                  />
                 </>
               )}
             </div>

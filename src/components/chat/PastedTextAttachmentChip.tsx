@@ -7,10 +7,12 @@ export function PastedTextAttachmentChip({
   content,
   displayName,
   onRemove,
+  readOnly = false,
 }: {
   content: string;
   displayName: string;
-  onRemove: () => void;
+  onRemove?: () => void;
+  readOnly?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const title =
@@ -43,17 +45,19 @@ export function PastedTextAttachmentChip({
         <span className="rounded border border-border/60 bg-background/80 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
           Pasted
         </span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="ml-auto rounded-full p-0.5 hover:bg-muted-foreground/20 shrink-0"
-          aria-label="Remove pasted text"
-        >
-          <X className="h-3 w-3 text-muted-foreground" />
-        </button>
+        {!readOnly && onRemove ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="ml-auto rounded-full p-0.5 hover:bg-muted-foreground/20 shrink-0"
+            aria-label="Remove pasted text"
+          >
+            <X className="h-3 w-3 text-muted-foreground" />
+          </button>
+        ) : null}
       </div>
       <TextPastePreviewDialog
         open={previewOpen}

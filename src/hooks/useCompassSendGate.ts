@@ -3,22 +3,15 @@ import { useSettings } from "@/hooks/useSettings";
 import { useCompassUsage } from "@/hooks/useCompassUsage";
 import type { LargeLanguageModel } from "@/lib/schemas";
 
-/** True when manual Compass or Auto with Compass provider (shared with token UI, etc.). */
+/** True when Atlarix Core (compass) is the selected provider. */
 export function selectionUsesCompass(
   selected: LargeLanguageModel | undefined,
-  autoProviderId: string | undefined,
 ): boolean {
-  if (!selected) return false;
-  if (selected.provider === "compass") return true;
-  if (selected.provider === "auto" && autoProviderId === "compass") return true;
-  return false;
+  return selected?.provider === "compass";
 }
 
-/**
- * When Compass is selected and monthly usage is exhausted, block sending on Compass.
- * Optional one-shot model override (e.g. Auto routing) can use a non-Compass model.
- */
-export function useCompassSendGate(modelOverride?: LargeLanguageModel | null) {
+/** When Compass is selected and monthly usage is exhausted, block sending on Compass. */
+export function useCompassSendGate() {
   const { settings } = useSettings();
   const {
     percentRemaining,
@@ -28,20 +21,13 @@ export function useCompassSendGate(modelOverride?: LargeLanguageModel | null) {
     tokensUsedThisMonth,
   } = useCompassUsage();
 
-  const usesCompass = useMemo(() => {
-    if (!settings?.selectedModel) return false;
-    if (
-      modelOverride &&
-      modelOverride.provider &&
-      modelOverride.provider !== "compass"
-    ) {
-      return false;
-    }
-    return selectionUsesCompass(
-      settings.selectedModel,
-      settings.autoProviderId ?? undefined,
-    );
-  }, [settings?.selectedModel, settings?.autoProviderId, modelOverride]);
+  const usesCompass = useMemo(
+    () =>
+      settings?.selectedModel
+        ? selectionUsesCompass(settings.selectedModel)
+        : false,
+    [settings?.selectedModel],
+  );
 
   const compassExhausted =
     usesCompass &&

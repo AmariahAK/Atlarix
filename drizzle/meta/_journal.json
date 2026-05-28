@@ -365,6 +365,34 @@
       "when": 1779050000000,
       "tag": "0051_display_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1779150000000,
+      "tag": "0052_message_model_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1779250000000,
+      "tag": "0053_message_paste_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1779350000000,
+      "tag": "0054_message_file_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1779450000000,
+      "tag": "0055_session_message_attachments",
+      "breakpoints": true
     }
   ]
 }

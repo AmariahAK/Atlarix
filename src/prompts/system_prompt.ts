@@ -238,7 +238,7 @@ const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
   plan: "Author session plan artifacts (write_implementation_plan) and .atlarix/atlarix.md before production code changes.",
   build: "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
-  debug: "Fix mode — investigate and fix bugs. Read tools + diagnose_issue + run_command + edit_file. After substantive edits, call **lsp_diagnostics** on touched files before claiming success.",
+  debug: "Debug mode — investigate and fix bugs. Read tools + run_command + edit_file. Prefer **lsp_diagnostics** on touched files (language-server errors) before claiming success; use **diagnose_issue** when LSP is unavailable or for runtime/terminal failures.",
   review: "Read-only review. Inspect changes, surface findings; do not mutate files. Use **lsp_diagnostics** / **lsp_hover** when IDE-grade signals help.",
 };
 
@@ -307,9 +307,9 @@ You CAN:
 
 Focus on implementing correctly and completely. Every file write goes through the approval queue — do not ask the user to approve, just make the change and it will be queued automatically.`,
 
-    debug: `## Current mode: Fix
+    debug: `## Current mode: Debug
 
-You are in Fix mode. This is a targeted debugging and repair mode.
+You are in Debug mode. This is a targeted debugging and repair mode.
 
 You CAN:
 - Read and write files (with approval)
@@ -452,12 +452,13 @@ You are in **Plan** mode: read-only exploration plus session plan artifacts and 
         return `
 ---
 
-# Mode: Fix
+# Mode: Debug
 
-You are in **Fix** mode: targeted debugging with read/write tools and \`run_command\` for tests and repro steps.
+You are in **Debug** mode: targeted debugging with read/write tools and \`run_command\` for tests and repro steps.
 
 - Prefer minimal, root-cause fixes over broad refactors.
-- Use \`diagnose_issue\` when helpful.
+- After edits, call **lsp_diagnostics** on touched files when a language server is available.
+- Use \`diagnose_issue\` only when LSP does not cover the failure (runtime logs, test output, tooling).
 `;
     }
     if (workMode === "review") {
@@ -486,6 +487,8 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 4. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
 
 If architecture context is missing, obtain it before changing code.
+
+After **edit_file** or **write_file**, call **lsp_diagnostics** on touched paths when a language server is available — prefer LSP over ad-hoc TypeScript-only checks for claiming the change is clean.
 
 **Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one run_command that creates the project; do not emit multiple create/scaffold commands in the same turn.
 

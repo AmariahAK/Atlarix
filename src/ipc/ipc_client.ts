@@ -930,11 +930,25 @@ export class IpcClient {
   public async getChat(chatId: number): Promise<Chat> {
     try {
       const data = await this.ipcRenderer.invoke("get-chat", chatId);
+      this.hydrateRendererAttachmentStore(data.messages ?? []);
       return data;
     } catch (error) {
       showError(error);
       throw error;
     }
+  }
+
+  private hydrateRendererAttachmentStore(
+    messages: Array<{
+      fileAttachments?: import("./ipc_types").StoredFileAttachment[] | null;
+      pasteAttachments?: import("./ipc_types").PasteAttachmentMeta[] | null;
+    }>,
+  ): void {
+    import("@/lib/attachment-persistence")
+      .then(({ hydrateAttachmentStoreFromMessages }) => {
+        hydrateAttachmentStoreFromMessages(messages);
+      })
+      .catch(() => {});
   }
 
   // Get all chats
@@ -1002,6 +1016,9 @@ export class IpcClient {
   public streamMessage(
     prompt: string,
     options: {
+      /** User-visible message text (optional; defaults to `prompt`). */
+      displayPrompt?: string;
+      pasteAttachments?: import("./ipc_types").PasteAttachmentMeta[];
       selectedComponents?: ComponentSelection[];
       chatId: number;
       redo?: boolean;
@@ -1040,6 +1057,8 @@ export class IpcClient {
       prefillTaskLedger,
       forceThinkingTier,
       workModeOverride,
+      displayPrompt,
+      pasteAttachments,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
 
@@ -1053,6 +1072,8 @@ export class IpcClient {
           this.ipcRenderer
             .invoke("chat:stream", {
               prompt,
+              displayPrompt: displayPrompt ?? undefined,
+              pasteAttachments: pasteAttachments ?? undefined,
               chatId,
               redo,
               selectedComponents,
@@ -1083,6 +1104,8 @@ export class IpcClient {
       this.ipcRenderer
         .invoke("chat:stream", {
           prompt,
+          displayPrompt: displayPrompt ?? undefined,
+          pasteAttachments: pasteAttachments ?? undefined,
           chatId,
           redo,
           selectedComponents,
@@ -1170,6 +1193,11 @@ export class IpcClient {
     role: "user" | "assistant" | "tool",
     content: string,
     displaySnapshot?: string,
+    extras?: {
+      modelContent?: string | null;
+      pasteAttachments?: import("./ipc_types").PasteAttachmentMeta[] | null;
+      fileAttachments?: import("./ipc_types").StoredFileAttachment[] | null;
+    },
   ) {
     return this.ipcRenderer.invoke(
       "messages:add",
@@ -1177,6 +1205,7 @@ export class IpcClient {
       role,
       content,
       displaySnapshot,
+      extras,
     );
   }
 
@@ -1354,15 +1383,6 @@ export class IpcClient {
       showError(error);
       throw error;
     }
-  }
-
-  /** v3.6: Get routing preview when Auto is on (category + model for display). */
-  public async getRoutingPreview(prompt: string): Promise<{
-    category: string;
-    targetModel: string;
-    targetProvider: string;
-  } | null> {
-    return this.ipcRenderer.invoke("routing:preview", { prompt });
   }
 
   // Delete an app and all its files
@@ -1872,6 +1892,136 @@ export class IpcClient {
     operationId: string;
   }> {
     return this.ipcRenderer.invoke("terminal:run", params);
+  }
+
+  public async listTerminalInstances(params: {
+    chatId?: number | null;
+    appId?: number | null;
+  }): Promise<{
+    scopeKey: string;
+    instances: Array<{
+      id: string;
+      label: string;
+      owner: "user" | "agent";
+      lineCount: number;
+      active: boolean;
+      createdAt: number;
+    }>;
+  }> {
+    return this.ipcRenderer.invoke("terminal-instances:list", params);
+  }
+
+  public async readTerminalInstance(params: {
+    chatId?: number | null;
+    appId?: number | null;
+    instanceId: string;
+    maxLines?: number;
+  }): Promise<
+    | {
+        success: true;
+        instanceId: string;
+        owner: "user" | "agent";
+        label: string;
+        lineCount: number;
+        text: string;
+      }
+    | { success: false; error: string }
+  > {
+    return this.ipcRenderer.invoke("terminal-instances:read", {
+      chatId: params.chatId,
+      appId: params.appId,
+      instanceId: params.instanceId,
+      maxLines: params.maxLines,
+    });
+  }
+
+  public async openTerminalInstance(params: {
+    chatId?: number | null;
+    appId?: number | null;
+    owner?: "user" | "agent";
+    label?: string;
+    commandHint?: string;
+    operationId?: string;
+  }): Promise<
+    | { success: true; instanceId: string; created: boolean; label?: string }
+    | { success: false; error: string }
+  > {
+    return this.ipcRenderer.invoke("terminal-instances:open", {
+      chatId: params.chatId,
+      appId: params.appId,
+      owner: params.owner ?? "agent",
+      label: params.label,
+      commandHint: params.commandHint,
+      operationId: params.operationId,
+    });
+  }
+
+  public async closeTerminalInstance(params: {
+    chatId?: number | null;
+    appId?: number | null;
+    instanceId: string;
+  }): Promise<
+    | { success: true; instanceId: string }
+    | { success: false; error: string }
+  > {
+    return this.ipcRenderer.invoke("terminal-instances:close", {
+      chatId: params.chatId,
+      appId: params.appId,
+      instanceId: params.instanceId,
+    });
+  }
+
+  public async getTerminalScopeState(params: {
+    chatId?: number | null;
+    appId?: number | null;
+  }): Promise<{
+    scopeKey: string;
+    state: {
+      instances: import("@/atoms/terminalInstancesAtoms").TerminalInstance[];
+      activeInstanceId: string | null;
+      agentOpMap: Record<string, string>;
+    };
+  }> {
+    return this.ipcRenderer.invoke("terminal-instances:get-scope", params);
+  }
+
+  public async syncTerminalScopeState(params: {
+    chatId?: number | null;
+    appId?: number | null;
+    state: {
+      instances: import("@/atoms/terminalInstancesAtoms").TerminalInstance[];
+      activeInstanceId: string | null;
+      agentOpMap: Record<string, string>;
+    };
+  }): Promise<{ ok: true }> {
+    return this.ipcRenderer.invoke("terminal-instances:sync-scope", {
+      chatId: params.chatId,
+      appId: params.appId,
+      state: params.state,
+    });
+  }
+
+  public async clearAllTerminalInstances(): Promise<{ ok: true }> {
+    return this.ipcRenderer.invoke("terminal-instances:clear-all");
+  }
+
+  public onTerminalInstancesUpdated(
+    handler: (payload: { scopeKey: string }) => void,
+  ): () => void {
+    const listener = (_event: unknown, payload: { scopeKey: string }) =>
+      handler(payload);
+    this.ipcRenderer.on("terminal-instances:updated", listener);
+    return () => {
+      this.ipcRenderer.removeListener("terminal-instances:updated", listener);
+    };
+  }
+
+  public onTerminalInstancesCleared(handler: () => void): () => void {
+    const listener = () => handler();
+    this.ipcRenderer.on("terminal-instances:cleared", listener);
+    return () => {
+      this.ipcRenderer.removeListener("terminal-instances:cleared", listener);
+    };
   }
 
   public async installCli(): Promise<{
@@ -2581,12 +2731,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("open-android", params);
   }
 
-  public async checkProblems(params: {
-    appId: number;
-  }): Promise<ProblemReport> {
-    return this.ipcRenderer.invoke("check-problems", params);
-  }
-
   // Template methods
   public async getTemplates(): Promise<Template[]> {
     return this.ipcRenderer.invoke("get-templates");
@@ -3194,6 +3338,84 @@ export class IpcClient {
     servers: Array<{ workspaceId: number; url: string | null; framework: string }>;
   }> {
     return this.ipcRenderer.invoke("dev-server:list-running");
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // LSP (Monaco live diagnostics)
+  // ═══════════════════════════════════════════════════════════
+
+  public async lspSubscribe(appId: number): Promise<{
+    success: boolean;
+    workspaceRoot?: string;
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("lsp:subscribe", { appId });
+  }
+
+  public async lspUnsubscribe(): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("lsp:unsubscribe");
+  }
+
+  public async lspOpenDocument(params: {
+    appId: number;
+    filePath: string;
+    content: string;
+    version?: number;
+  }): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    return this.ipcRenderer.invoke("lsp:openDocument", params);
+  }
+
+  public async lspChange(params: {
+    appId: number;
+    filePath: string;
+    content: string;
+    version?: number;
+  }): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    return this.ipcRenderer.invoke("lsp:change", params);
+  }
+
+  public async lspClose(params: {
+    appId: number;
+    filePath: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("lsp:close", params);
+  }
+
+  public onLspDiagnostics(
+    handler: (payload: {
+      workspaceRoot: string;
+      filePath: string;
+      diagnostics: Array<{
+        range: {
+          start: { line: number; character: number };
+          end: { line: number; character: number };
+        };
+        message: string;
+        severity?: number;
+        source?: string;
+        code?: string | number;
+      }>;
+    }) => void,
+  ): () => void {
+    const subscription = (
+      _: Electron.IpcRendererEvent,
+      payload: {
+        workspaceRoot: string;
+        filePath: string;
+        diagnostics: Array<{
+          range: {
+            start: { line: number; character: number };
+            end: { line: number; character: number };
+          };
+          message: string;
+          severity?: number;
+          source?: string;
+          code?: string | number;
+        }>;
+      },
+    ) => handler(payload);
+    this.ipcRenderer.on("lsp:diagnostics", subscription);
+    return () => this.ipcRenderer.removeListener("lsp:diagnostics", subscription);
   }
 
   // ═══════════════════════════════════════════════════════════

@@ -1,7 +1,15 @@
 import { FileText, X } from "lucide-react";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
+import { isTerminalPasteAttachment } from "@/lib/chat/terminal-paste-attachment";
 import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
+import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
+
+function isPasteChipAttachment(attachment: FileAttachment): boolean {
+  return (
+    isTextPasteAttachment(attachment) || isTerminalPasteAttachment(attachment)
+  );
+}
 
 interface AttachmentsListProps {
   attachments: FileAttachment[];
@@ -14,8 +22,7 @@ export function AttachmentsList({
 }: AttachmentsListProps) {
   if (attachments.length === 0) return null;
 
-  const textPastes = attachments.filter(isTextPasteAttachment);
-  const fileAttachments = attachments.filter((a) => !isTextPasteAttachment(a));
+  const fileAttachments = attachments.filter((a) => !isPasteChipAttachment(a));
 
   return (
     <div className="px-2 pt-2 flex flex-wrap gap-1">
@@ -30,12 +37,23 @@ export function AttachmentsList({
             />
           );
         }
+        if (isTerminalPasteAttachment(attachment)) {
+          return (
+            <TerminalOutputAttachmentChip
+              key={`terminal-${index}`}
+              content={attachment.terminalPaste.content}
+              displayContent={attachment.terminalPaste.displayContent}
+              displayName={attachment.terminalPaste.displayName}
+              onRemove={() => onRemove(index)}
+            />
+          );
+        }
         return null;
       })}
       {fileAttachments.length > 0 ? (
         <>
           {attachments.map((attachment, index) => {
-            if (isTextPasteAttachment(attachment)) return null;
+            if (isPasteChipAttachment(attachment)) return null;
             return (
               <div
                 key={`file-${index}`}

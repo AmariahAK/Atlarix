@@ -18,6 +18,11 @@ import {
   parseDisplaySnapshot,
   type DisplaySnapshotV1,
 } from "@/lib/chat/display-snapshot";
+import type {
+  PasteAttachmentMeta,
+  StoredFileAttachment,
+} from "../ipc_types";
+import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
@@ -39,6 +44,15 @@ export type SessionMessageRow = {
   kind: "message" | "plan";
   createdAt: Date;
   displaySnapshot?: DisplaySnapshotV1 | null;
+  modelContent?: string | null;
+  pasteAttachments?: PasteAttachmentMeta[] | null;
+  fileAttachments?: StoredFileAttachment[] | null;
+};
+
+export type SessionMessageExtras = {
+  modelContent?: string | null;
+  pasteAttachments?: PasteAttachmentMeta[] | null;
+  fileAttachments?: StoredFileAttachment[] | null;
 };
 
 function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
@@ -60,7 +74,54 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     kind: (row.kind ?? "message") as SessionMessageRow["kind"],
     createdAt: row.createdAt,
     displaySnapshot: parseDisplaySnapshot(row.displaySnapshot),
+    modelContent: row.modelContent ?? null,
+    pasteAttachments: row.pasteAttachments ?? null,
+    fileAttachments: row.fileAttachments ?? null,
   };
+}
+
+async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
+  const rows = await db
+    .select({ id: sessionMessages.id })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, sessionId))
+    .orderBy(asc(sessionMessages.createdAt));
+
+  if (rows.length > SESSION_STORE_MESSAGE_MAX) {
+    const excess = rows.length - SESSION_STORE_MESSAGE_MAX;
+    const idsToDelete = rows.slice(0, excess).map((r) => r.id);
+    await db
+      .delete(sessionMessages)
+      .where(inArray(sessionMessages.id, idsToDelete));
+  }
+}
+
+export async function persistWorkspaceSessionUserMessage(
+  sessionId: string,
+  content: string,
+  extras?: SessionMessageExtras,
+): Promise<SessionMessageRow> {
+  const now = new Date();
+  const id = randomUUID();
+  const [message] = await db
+    .insert(sessionMessages)
+    .values({
+      id,
+      sessionId,
+      role: "user",
+      content,
+      modelContent: extras?.modelContent ?? null,
+      pasteAttachments: extras?.pasteAttachments ?? null,
+      fileAttachments: extras?.fileAttachments ?? null,
+      createdAt: now,
+    })
+    .returning();
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: now })
+    .where(eq(chatSessions.id, sessionId));
+  await trimSessionMessagesIfNeeded(sessionId);
+  return mapMessage(message);
 }
 
 export function registerWorkspaceSessionHandlers(): void {
@@ -138,6 +199,7 @@ export function registerWorkspaceSessionHandlers(): void {
         .reverse()
         .map(mapMessage)
         .filter((m) => m.kind !== "plan");
+      hydrateAttachmentStoreFromMessages(messages);
       return {
         session: mapSession(session),
         messages,
@@ -155,6 +217,7 @@ export function registerWorkspaceSessionHandlers(): void {
       role: "user" | "assistant" | "tool",
       content: string,
       displaySnapshot?: string,
+      extras?: SessionMessageExtras,
     ) => {
       if (!["user", "assistant", "tool"].includes(role)) {
         throw new Error(`Invalid message role: ${role}`);
@@ -172,6 +235,9 @@ export function registerWorkspaceSessionHandlers(): void {
           role,
           content,
           displaySnapshot: displaySnapshot ?? null,
+          modelContent: extras?.modelContent ?? null,
+          pasteAttachments: extras?.pasteAttachments ?? null,
+          fileAttachments: extras?.fileAttachments ?? null,
           createdAt: now,
         })
         .returning();
@@ -180,19 +246,7 @@ export function registerWorkspaceSessionHandlers(): void {
         .set({ updatedAt: now })
         .where(eq(chatSessions.id, sessionId));
 
-      const rows = await db
-        .select({ id: sessionMessages.id })
-        .from(sessionMessages)
-        .where(eq(sessionMessages.sessionId, sessionId))
-        .orderBy(asc(sessionMessages.createdAt));
-
-      if (rows.length > SESSION_STORE_MESSAGE_MAX) {
-        const excess = rows.length - SESSION_STORE_MESSAGE_MAX;
-        const idsToDelete = rows.slice(0, excess).map((r) => r.id);
-        await db
-          .delete(sessionMessages)
-          .where(inArray(sessionMessages.id, idsToDelete));
-      }
+      await trimSessionMessagesIfNeeded(sessionId);
 
       return mapMessage(message);
     },

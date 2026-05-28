@@ -20,6 +20,7 @@ import { PerfDevOverlayHost } from "./components/dev/PerfDevOverlay";
 import { useDbReady } from "./hooks/useDbReady";
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
+import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
 
 // @ts-ignore
 console.log("Running in mode:", import.meta.env.MODE);
@@ -253,6 +254,7 @@ async function bootstrap() {
       release: sentryConfig.version,
       integrations: [Sentry.browserTracingIntegration()],
       tracesSampleRate: 1.0,
+      ignoreErrors: SENTRY_IGNORE_ERROR_PATTERNS,
       beforeSend: sentryBeforeSendDropExpected,
     });
   }

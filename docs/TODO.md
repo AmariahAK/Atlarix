@@ -1,7 +1,32 @@
 # Atlarix TODO
 
-**Current Version:** v8.9.0
-**Last Updated:** 2026-05-27
+**Current Version:** v9.1.0
+**Last Updated:** 2026-05-28
+
+---
+
+## Shipped in v9.1.0
+
+| Area | Notes |
+|------|--------|
+| **Attachments** | Post-send chips; `displayPrompt` / `modelContent`; DB + session persistence; Explore mode preserves paste/terminal tags |
+| **LSP** | `listen()` before init; bundled TS/JSON servers; broken-server cache; absolute spawn paths |
+| **Self-correction** | LSP diagnostics only; TSC worker + Problems tab removed |
+| **Workspace open** | No auto `get-app-files` / git scan; on-demand file tree; multi-repo UI/hints removed |
+| **Discovery** | `project-files`: fd → rg → walk (no git ls-files aggregate) |
+| **Polish** | Atlarix Core catalog labels; welcome dark-mode buttons; Sentry noise filters |
+
+See [CHANGELOG.md](CHANGELOG.md) `[9.1.0]`.
+
+---
+
+## Shipped in v9.0.0
+
+| Area | Notes |
+|------|--------|
+| **Welcome** | Open folder / recent workspaces without renderer `node:path`; hide right-panel toggle on launcher |
+
+See [CHANGELOG.md](CHANGELOG.md) `[9.0.0]`.
 
 ---
 
@@ -16,7 +41,7 @@
 | **Vault** | UI removed; env utils kept for codegen |
 | **Docs / onboarding** | Tools page, Shepherd tour, onboarding targets updated |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.9.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.9.0]`.
 
 **Follow-ups:** Remote SSH full FS RPC; Windows code signing; packaged Monaco smoke on CI.
 
@@ -31,7 +56,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.9.0]`.
 | **Session titles** | Async AI naming after first assistant reply |
 | **Folder picker** | Instant native dialog on `+`; `get-app-files` for sidebar tree |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.8.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.8.0]`.
 
 ---
 
@@ -46,7 +71,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.8.0]`.
 | **Blueprint logs** | Routine parse/scan success at `debug` |
 | **Docs** | RTE reference §19.5 packaged grammars; architecture + skill guide updates |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.7.5]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.7.5]`.
 
 ---
 
@@ -62,7 +87,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.7.5]`.
 | **Agent guide** | `src/skills/guides/blueprint-section-first.md` |
 | **Tools UI** | Removed unused Diagram filter tab |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.7.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.7.0]`.
 
 ---
 
@@ -83,7 +108,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.7.0]`.
 | **Blast radius** | BFS on flow edges; permission + `diagnose_issue` wiring; skipped in autonomous auto-approve |
 | **`edit_file` permission fix** | schema + interceptor `executeOperation` |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.6.0]` / `[8.6.1]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.6.0]` / `[8.6.1]`.
 
 ---
 
@@ -101,7 +126,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.6.0]` / `[8.6.1]`.
 | `read_file` structured errors | `file.ts`, tests |
 | Viz prompt routing | `system_prompt.ts` inline viz rules |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.5.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.5.0]`.
 
 ---
 
@@ -122,7 +147,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.5.0]`.
 | Ask mode `run_command` + Autonomous terminal approve | `shell.ts`, ask-tier stream path |
 | Git author `atlarix-agent` + live co-author toggle | `git_author.ts`, `git_utils.ts` |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.4.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.4.0]`.
 
 ---
 
@@ -133,7 +158,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.4.0]`.
 - **`task_complete` UI fix:** Tags stripped in stream/DB/render paths.
 - **architecture.md:** Live Code Map / parser documentation moved out of README lead.
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.3.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.3.0]`.
 
 ---
 
@@ -144,7 +169,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.3.0]`.
 - ~~**WASM RTE**~~ Superseded by Universal Ctags for symbols; ast-grep for TS/JS edges.
 - **CI:** `npm test` + `bench-blueprint-index.ts` before release builds.
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.2.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.2.0]`.
 
 ---
 
@@ -161,7 +186,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.2.0]`.
 | PDF worker | **Done** | `attachment-tools` `workerSrc ''` |
 | Pass 7 carryovers | **Done** | MCP on-demand, skills tools, `<mode_system>` / `modeAllowlist`, `edit_file` / `memory` / `diagnose_issue` consolidation (see CHANGELOG Pass 7 section for detail) |
 
-See [CHANGELOG.md](CHANGELOG.md) Pass 6 + Pass 7 entries for `[8.1.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) Pass 6 + Pass 7 entries for `[8.1.0]`.
 
 ---
 
@@ -178,7 +203,7 @@ See [CHANGELOG.md](CHANGELOG.md) Pass 6 + Pass 7 entries for `[8.1.0]`.
 | Dependency audit | **Partial** | `@xyflow/react` + `elkjs` restored for Blueprint UI; tree-sitter packages may remain absent (stubs) |
 | Tool count log | **Done** | `initializeTools()` logs sorted registered tool list at startup |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.1.0]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.1.0]`.
 
 ---
 
@@ -191,7 +216,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.1.0]`.
 | Package build heap | **Done** | `cross-env NODE_OPTIONS=--max-old-space-size=8192` on package/make/publish |
 | Quit lifecycle logs | **Done** | `main.ts` `[lifecycle]` memory on `before-quit` / `will-quit` |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.0.3]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.0.3]`.
 
 ---
 
@@ -201,7 +226,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.0.3]`.
 |------|--------|-------|
 | Dev install / Electron binary | **Done** | Root `postinstall` runs `node_modules/electron/install.js` after native rebuilds so `Electron.app` / binary exists when `dist/` was incomplete (fixes `spawn …/Electron ENOENT` on `npm start`) |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.0.4]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.0.4]`.
 
 ---
 
@@ -221,7 +246,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.0.4]`.
 | Tool spinner reconciliation | **Done** | `AtlarixMarkdownParser` stream-end handling |
 | Debug instrumentation removal | **Done** | `debugLog` / `hypothesisId` removed from chat stream |
 
-See [CHANGELOG.md](CHANGELOG.md) `[8.0.1]`.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.0.1]`.
 
 ---
 
@@ -258,7 +283,7 @@ See [CHANGELOG.md](CHANGELOG.md) `[8.0.1]`.
 | PTY support | **Done** | `src/lib/pty-utils.ts` with `@lydell/node-pty`; interactive shell in Build/Debug; graceful fallback to pipes on failure |
 | Blueprint file watcher | **Done** | Uses Node.js `fs.watch` with 500ms debounce; incremental cache updates |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.1.2.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.1.2.
 
 ---
 
@@ -268,7 +293,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.1.2.
 |------|--------|--------|
 | No-workspace CTA after first user message | **Done** | `ChatInputControls`: hide `NoWorkspaceBanner` when thread has a user turn (`chatMessagesByIdAtom` + `chatId` / `selectedChatId`); `HomeChatInput` / `SimpleChatInput` pass `chatId` |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.1.1.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.1.1.
 
 ---
 
@@ -284,7 +309,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.1.1.
 | Workspace onboarding CTA | **Done** | `NoWorkspaceBanner` + `ChatInputControls` open-folder flow |
 | Diagram panel Generate UX / TSC / logs | **Done** | Empty-state ordering, all modes diagram AI, tsconfig skip, log noise reduction |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.1.0.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.1.0.
 
 ---
 
@@ -296,7 +321,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.1.0.
 | `read_file` + codebase: block / omit `.env*` secret paths | **Done** | `src/lib/security/env-secret-paths.ts`; `file-tools.ts` `read_file`; `codebase.ts` `shouldReadFileContents*` |
 | Follow-up: extend env denylist to other file readers | **Open** | `view_symbol`, `get_file_outline`, `find_files`, `search_code`, renderer `file:read-content` IPC — same `isEnvSecretPath` pattern |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.4.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.4.
 
 ---
 
@@ -307,7 +332,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.4.
 | Auto-update (macOS ZIP feed) | **Done** | Release now publishes a notarized/stapled `.zip` of the `.app`; `latest-mac.yml` points to ZIP first (required by `electron-updater`) |
 | Linux updates for all installs | **Done** | AppImage: silent auto-update stays on. `.deb`/`.rpm`: show native notification with one-click download link to the latest release |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.5.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.5.
 
 ---
 
@@ -319,7 +344,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.5.
 | Dark mode button/toggle affordance | **Done** | Dark tokens + outline/ghost button surfaces + switch borders so controls read as clickable |
 | Sign-in free tier copy aligned to pricing | **Done** | One workspace; starter included usage; BYOK/local models; no credit card |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.3.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.3.
 
 ---
 
@@ -332,7 +357,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.3.
 | Deep think → Counsel fallback | **Done** | `hasNativeDeepThinkingSupport`, `deep_think_fallback`, chat-only parity |
 | Turn artifact cards | **Done** | `completedTurnArtifactsByAssistantMessageIdAtom`, `TurnArtifactsCards` |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.2.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.2.
 
 ---
 
@@ -345,7 +370,7 @@ See [CHANGELOG.md](CHANGELOG.md) v7.0.2.
 | Web search snippet filter | **Done** | `filterRelevantResults` threshold 0.25 |
 | Deep research answered threshold | **Done** | Relevance score > 0.35 → `answered` |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.1.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.1.
 
 ---
 
@@ -363,7 +388,7 @@ Includes everything previously tracked as **Project Vanguard / v6.5.0**, now rel
 | Migration / journal audit | **Done** | Through 0040 + seed verification |
 | Plan viewer UI + `chat:plan-update` | **Done** | Task ledger card in chat; `plan_created` activity row |
 
-See [CHANGELOG.md](CHANGELOG.md) v7.0.0.
+See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.0.
 
 ---
 

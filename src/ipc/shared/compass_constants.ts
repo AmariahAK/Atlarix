@@ -24,15 +24,23 @@ export const COMPASS_TIER_ORDER = [
   COMPASS_TIER_THINKING,
 ] as const;
 
+function compassProviderSlug(openRouterModelId: string): string {
+  if (!openRouterModelId.includes("/")) return "openrouter";
+  return openRouterModelId.split("/")[0]?.toLowerCase() || "openrouter";
+}
+
 export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
   (row) => {
     const openRouterModelId = getOpenRouterModelIdForCompassTier(row.id)?.trim() ?? "";
     const modelDisplayName = openRouterModelId
       ? formatModelApiNameForDisplay(openRouterModelId)
       : row.id;
+    const slug = openRouterModelId
+      ? compassProviderSlug(openRouterModelId)
+      : "openrouter";
     return {
     apiName: row.id,
-    displayName: formatModelWithProvider(modelDisplayName, "openrouter"),
+    displayName: formatModelWithProvider(modelDisplayName, slug),
     description: row.description,
     type: "cloud" as const,
     dollarSigns: 0,
@@ -97,26 +105,6 @@ export function coerceCompassTierForPlan(
     return COMPASS_TIER_FAST;
   }
   return COMPASS_TIER_FAST;
-}
-
-/** Fallback order: user's tier first, then remaining tiers in Fast → Balanced → Thinking order. */
-export function compassFallbackChain(
-  resolvedTier: string,
-  effectiveTier: CompassPlan,
-): string[] {
-  const primary = coerceCompassTierForPlan(resolvedTier, effectiveTier);
-  if (effectiveTier === "free") {
-    return [COMPASS_TIER_FAST];
-  }
-  const start = COMPASS_TIER_ORDER.indexOf(
-    primary as (typeof COMPASS_TIER_ORDER)[number],
-  );
-  const idx = start >= 0 ? start : 0;
-  const rotated = [
-    ...COMPASS_TIER_ORDER.slice(idx),
-    ...COMPASS_TIER_ORDER.slice(0, idx),
-  ];
-  return [...new Set(rotated)];
 }
 
 export const COMPASS_REACHABILITY_ERROR =

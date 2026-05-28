@@ -3,11 +3,10 @@
  * ========================
  * Single source of truth for workspace file discovery.
  *
- * Uses a 4-strategy cascade:
- * 1. git ls-files (primary) — uses project's own .gitignore
- * 2. fd (fallback) — cross-platform, respects .gitignore
- * 3. ripgrep --files (fallback) — also respects .gitignore
- * 4. getFilesRecursively (last resort) — legacy with manual exclusions
+ * Uses a 3-strategy cascade (on-demand only — never on workspace open):
+ * 1. fd — cross-platform, respects .gitignore
+ * 2. ripgrep --files — also respects .gitignore
+ * 3. getFilesRecursively (last resort) — legacy with manual exclusions
  *
  * Results are cached in memory for 5 minutes per workspace.
  * File discovery is LAZY — only runs when a tool or handler
@@ -23,7 +22,6 @@ import { getFilesRecursively } from "./file_utils";
 import {
     projectFilesCacheKey,
     normalizeProjectFilesScopePath,
-    getCachedWorkspaceDiscovery,
     clearWorkspaceDiscoverySessionCache,
 } from "./workspace-discovery";
 import { ensureSymbolIndex, getSymbolsForFile } from "@/lib/index/ctags-index";
@@ -84,7 +82,7 @@ function normalizeDiscoveredFile(
 
 export interface ProjectFilesResult {
     files: string[];
-    strategy: "git" | "fd" | "ripgrep" | "fallback";
+    strategy: "git" | "fd" | "ripgrep" | "walk";
     count: number;
     /** Paths the app could not read (permissions); mainly from fallback walk */
     accessWarnings?: string[];
@@ -256,118 +254,15 @@ async function discoverProjectFiles(
     const scope = normalizeProjectFilesScopePath(options?.scopePath);
     const cacheKey = projectFilesCacheKey(workspacePath, scope);
     const timeout = options?.timeout ?? 15_000;
-    const gitCtx = resolveGitListContext(workspacePath, scope);
+    const scanRoot = scope ? path.join(workspacePath, scope) : workspacePath;
+
+    const toScopedRelPath = (raw: string): string | null => {
+        const rel = normalizeDiscoveredFile(scanRoot, raw);
+        return rel ? rel.replace(/\\/g, "/") : null;
+    };
 
     // -----------------------------------------------
-    // STRATEGY 1: git ls-files (primary)
-    // -----------------------------------------------
-    try {
-        const args = ["ls-files"];
-
-        if (options?.extensions?.length) {
-            for (const ext of options.extensions) {
-                args.push(`*.${ext}`);
-            }
-        }
-
-        if (gitCtx.pathspec) {
-            args.push("--", gitCtx.pathspec);
-        }
-
-        const { stdout } = await execAsync("git " + args.join(" "), {
-            cwd: gitCtx.gitCwd,
-            timeout,
-            maxBuffer: 50 * 1024 * 1024,
-        });
-
-        const files = filterDiscoveryPaths(
-            pathsRelativeToScanRoot(
-                stdout
-                    .split("\n")
-                    .filter(Boolean)
-                    .map((f) => f.replace(/\\/g, "/")),
-                gitCtx,
-            ),
-        );
-
-        if (files.length > 0) {
-            const result: ProjectFilesResult = {
-                files,
-                strategy: "git",
-                count: files.length,
-            };
-            fileListCache.set(cacheKey, {
-                result,
-                timestamp: Date.now(),
-            });
-            logger.info(
-                `[project-files] ${files.length} files via git ls-files${scope ? ` scope=${scope}` : gitCtx.pathspec ? ` pathspec=${gitCtx.pathspec}` : ""}`
-            );
-            return result;
-        }
-    } catch (err) {
-        logger.info(
-            "[project-files] git ls-files not available or failed, trying fd",
-            {
-                error: err instanceof Error ? err.message : String(err),
-            }
-        );
-    }
-
-    // -----------------------------------------------
-    // STRATEGY 1b: multi-repo parent — aggregate git ls-files from each nested repo
-    // -----------------------------------------------
-    const hints1b = getCachedWorkspaceDiscovery(workspacePath);
-    if (hints1b.isMultiRepoWorkspace && hints1b.nestedRepoNames?.length) {
-        logger.info(
-            `[project-files] multi-repo: detected ${hints1b.nestedRepoNames.length} repos, trying git ls-files per subfolder`,
-        );
-        const merged: string[] = [];
-        for (const name of hints1b.nestedRepoNames) {
-            const subRoot = path.join(workspacePath, name);
-            try {
-                const args = ["ls-files"];
-                if (options?.extensions?.length) {
-                    for (const ext of options.extensions) {
-                        args.push(`*.${ext}`);
-                    }
-                }
-                const { stdout } = await execAsync("git " + args.join(" "), {
-                    cwd: subRoot,
-                    timeout,
-                    maxBuffer: 50 * 1024 * 1024,
-                });
-                const rels = stdout
-                    .split("\n")
-                    .filter(Boolean)
-                    .map((f) => f.replace(/\\/g, "/"));
-                for (const r of rels) {
-                    merged.push(`${name}/${r}`);
-                }
-            } catch {
-                /* not a git worktree or git failed */
-            }
-        }
-        const filesMulti = filterDiscoveryPaths(merged);
-        if (filesMulti.length > 0) {
-            const result: ProjectFilesResult = {
-                files: filesMulti,
-                strategy: "git",
-                count: filesMulti.length,
-            };
-            fileListCache.set(cacheKey, {
-                result,
-                timestamp: Date.now(),
-            });
-            logger.info(
-                `[project-files] ${filesMulti.length} files via git ls-files (multi-repo aggregate)`,
-            );
-            return result;
-        }
-    }
-
-    // -----------------------------------------------
-    // STRATEGY 2: fd (fallback)
+    // STRATEGY 1: fd (primary)
     // -----------------------------------------------
     try {
         const args = [
@@ -389,16 +284,15 @@ async function discoverProjectFiles(
         }
 
         const { stdout } = await execAsync("fd " + args.join(" "), {
-            cwd: workspacePath,
+            cwd: scanRoot,
             timeout,
             maxBuffer: 50 * 1024 * 1024,
         });
 
-        // fd path output may be relative (default with `cwd`) or absolute (some flags).
         const files = filterDiscoveryPaths(
             stdout
                 .split("\n")
-                .map((f) => normalizeDiscoveredFile(workspacePath, f))
+                .map((f) => toScopedRelPath(f))
                 .filter((f): f is string => f !== null),
         );
 
@@ -425,7 +319,7 @@ async function discoverProjectFiles(
     }
 
     // -----------------------------------------------
-    // STRATEGY 3: ripgrep --files (fallback)
+    // STRATEGY 2: ripgrep --files (fallback)
     // -----------------------------------------------
     try {
         const args = ["--files", "--hidden"];
@@ -436,16 +330,15 @@ async function discoverProjectFiles(
         }
 
         const { stdout } = await execAsync("rg " + args.join(" "), {
-            cwd: workspacePath,
+            cwd: scanRoot,
             timeout,
             maxBuffer: 50 * 1024 * 1024,
         });
 
-        // `rg --files` emits paths relative to its cwd by default.
         const files = filterDiscoveryPaths(
             stdout
                 .split("\n")
-                .map((f) => normalizeDiscoveredFile(workspacePath, f))
+                .map((f) => toScopedRelPath(f))
                 .filter((f): f is string => f !== null),
         );
 
@@ -474,41 +367,20 @@ async function discoverProjectFiles(
     }
 
     // -----------------------------------------------
-    // STRATEGY 4: getFilesRecursively (last resort)
+    // STRATEGY 3: getFilesRecursively (last resort)
     // -----------------------------------------------
-    const discovery = getCachedWorkspaceDiscovery(workspacePath);
-    if (discovery.isMultiRepoWorkspace && discovery.nestedRepoNames?.length) {
-        logger.info(
-            `[project-files] multi-repo: detected ${discovery.nestedRepoNames.length} repos, scanning subfolders only (legacy walk)`,
-        );
-    } else {
-        logger.warn(
-            "[project-files] all fast strategies failed — using legacy recursive scan. " +
-                "Results may include build artifacts.",
-        );
-    }
+    logger.warn(
+        "[project-files] fd and ripgrep unavailable — using legacy recursive scan. " +
+            "Results may include build artifacts.",
+    );
     const accessWarnings: string[] = [];
-    let legacyFiles: string[];
-    if (discovery.isMultiRepoWorkspace && discovery.nestedRepoNames?.length) {
-        legacyFiles = [];
-        for (const name of discovery.nestedRepoNames) {
-            const subRoot = path.join(workspacePath, name);
-            const subFiles = getFilesRecursively(subRoot, subRoot, accessWarnings).map((f) =>
-                f.replace(/\\/g, "/"),
-            );
-            for (const f of subFiles) {
-                legacyFiles.push(`${name}/${f}`);
-            }
-        }
-    } else {
-        legacyFiles = getFilesRecursively(workspacePath, workspacePath, accessWarnings).map((f) =>
-            f.replace(/\\/g, "/"),
-        );
-    }
+    const legacyFiles = getFilesRecursively(scanRoot, scanRoot, accessWarnings).map(
+        (f) => f.replace(/\\/g, "/"),
+    );
     const filteredLegacy = filterDiscoveryPaths(legacyFiles);
     const result: ProjectFilesResult = {
         files: filteredLegacy,
-        strategy: "fallback",
+        strategy: "walk",
         count: filteredLegacy.length,
         ...(accessWarnings.length > 0 ? { accessWarnings } : {}),
     };

@@ -99,6 +99,9 @@ export function rendererMainOnlyShimsPlugin(): Plugin {
       if (source === "@/db") {
         return stubPath(STUB_FILES.db);
       }
+      if (source === "path" || source === "node:path") {
+        return stubPath("path-renderer-stub.ts");
+      }
       if (
         source === "@ast-grep/napi" ||
         source.startsWith("@ast-grep/napi-") ||

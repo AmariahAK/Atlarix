@@ -193,15 +193,6 @@ function PersistentChatContainer() {
                 title={`Commands run in this workspace. Path: ${currentApp.path}`}
               >
                 <span className="truncate">Workspace: {currentApp.name}</span>
-                {currentApp.workspaceDiscoveryHints?.isMultiRepoWorkspace ? (
-                  <span
-                    className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground border border-border/80"
-                    title="Parent folder contains multiple nested git repositories"
-                  >
-                    Multi-repo workspace —{" "}
-                    {currentApp.workspaceDiscoveryHints.nestedRepoNames?.length ?? 0} repos detected
-                  </span>
-                ) : null}
               </span>
             )}
           </div>

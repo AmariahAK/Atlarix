@@ -4,7 +4,6 @@ import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
 import { McpToolsPickerContent } from "@/components/McpToolsPicker";
-import { AutoConfigContent } from "@/components/AutoConfigContent";
 import { useSettings } from "@/hooks/useSettings";
 import { useContextTokenCount } from "@/hooks/useCountTokens";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -27,8 +26,6 @@ import { chatMessagesByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
-import { formatAutoTierLabel, useLastAutoRoutedTier } from "@/hooks/useLastAutoRoutedTier";
-import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode } from "@/lib/work-mode";
 import { TokenCircle } from "./chat/TokenCircle";
@@ -61,9 +58,7 @@ export function ChatInputControls({
     threadMessages?.some((m) => m.role === "user") ?? false;
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
-  const [configSubView, setConfigSubView] = useState<
-    "model" | "mcp" | "auto" | null
-  >(null);
+  const [configSubView, setConfigSubView] = useState<"mcp" | null>(null);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
@@ -117,19 +112,7 @@ export function ChatInputControls({
     else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
   }
 
-  const isAutoMode =
-    settings?.autoModelRouting === true || settings?.selectedModel?.provider === "auto";
-  const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
-  const lastAutoTier = useLastAutoRoutedTier(chatId ?? selectedChatId ?? null);
-  const autoTierSuffix = formatAutoTierLabel(
-    lastAutoTier,
-    coreCatalog,
-    settings?.autoProviderId,
-  );
-  const usesCompassQuotaRow = selectionUsesCompass(
-    settings?.selectedModel,
-    settings?.autoProviderId ?? undefined,
-  );
+  const usesCompassQuotaRow = selectionUsesCompass(settings?.selectedModel);
   const compassQuotaReady =
     usesCompassQuotaRow &&
     !compassUsage.loading &&
@@ -167,14 +150,6 @@ export function ChatInputControls({
         data-testid="active-context-bar"
       >
         <span>{contextLine}</span>
-        {isAutoMode && (
-          <span
-            className="text-[11px] text-muted-foreground shrink-0 max-w-[min(100%,14rem)] sm:max-w-none"
-            title="Turn off Auto in the config menu to pick a fixed model."
-          >
-            {autoTierSuffix ? `Auto · ${autoTierSuffix} tier` : "Auto"}
-          </span>
-        )}
         {tokenWarning && (
           <span className="text-amber-600 dark:text-amber-400" title={tokenWarning}>
             ({tokenWarning})
@@ -200,7 +175,7 @@ export function ChatInputControls({
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        {rightPanelVisible && !isAutoMode && (
+        {rightPanelVisible && (
           <CompactModelSearch className="shrink-0" />
         )}
         <Popover
@@ -210,9 +185,8 @@ export function ChatInputControls({
           <PopoverAnchor asChild>
             <span className="inline-flex" data-tour="tour-model-picker">
               <ChatConfigDropdown
-                hideManualModelControls={isAutoMode}
                 onOpenModelPicker={
-                  rightPanelVisible || isAutoMode
+                  rightPanelVisible
                     ? undefined
                     : () => {
                         setConfigSubView(null);
@@ -220,7 +194,6 @@ export function ChatInputControls({
                       }
                 }
                 onOpenMcpTools={() => setConfigSubView("mcp")}
-                onOpenAutoConfig={() => setConfigSubView("auto")}
               />
             </span>
           </PopoverAnchor>
@@ -233,16 +206,13 @@ export function ChatInputControls({
             className="z-200 w-auto max-w-[min(90vw,24rem)] max-h-[min(70vh,var(--radix-popover-content-available-height,70vh))] overflow-y-auto p-0"
           >
             {configSubView === "mcp" && <McpToolsPickerContent appId={appId} />}
-            {configSubView === "auto" && <AutoConfigContent />}
           </PopoverContent>
         </Popover>
 
         {!rightPanelVisible && (
         <Sheet
-          open={modelSheetOpen && !isAutoMode}
-          onOpenChange={(o) => {
-            if (!isAutoMode) setModelSheetOpen(o);
-          }}
+          open={modelSheetOpen}
+          onOpenChange={setModelSheetOpen}
         >
           <SheetContent
             side="right"
@@ -251,10 +221,7 @@ export function ChatInputControls({
             <SheetHeader>
               <SheetTitle>Change model</SheetTitle>
             </SheetHeader>
-            <ModelPickerSheetContent
-              onClose={() => setModelSheetOpen(false)}
-              disabled={isAutoMode}
-            />
+            <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
           </SheetContent>
         </Sheet>
         )}

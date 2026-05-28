@@ -6,6 +6,27 @@ import {
   shouldCaptureAsTextPaste,
   textPasteDisplayName,
 } from "@/lib/chat/text-paste-attachment";
+import {
+  parseTerminalPasteFromClipboard,
+  upsertTerminalAttachment,
+} from "@/lib/chat/terminal-line-buffer";
+
+function tryCaptureTerminalPaste(
+  clipboardData: DataTransfer,
+): FileAttachment | null {
+  return parseTerminalPasteFromClipboard(clipboardData);
+}
+
+function applyPasteAttachment(
+  setAttachments: React.Dispatch<React.SetStateAction<FileAttachment[]>>,
+  att: FileAttachment,
+) {
+  if (att.terminalPaste) {
+    setAttachments((prev) => upsertTerminalAttachment(prev, att));
+    return;
+  }
+  setAttachments((prev) => [...prev, att]);
+}
 
 export function useAttachments() {
   const [attachments, setAttachments] = useAtom(attachmentsAtom);
@@ -122,18 +143,23 @@ export function useAttachments() {
       return;
     }
 
+    const terminalAtt = tryCaptureTerminalPaste(clipboardData);
+    if (terminalAtt) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyPasteAttachment(setAttachments, terminalAtt);
+      return;
+    }
+
     const plainText = clipboardData.getData("text/plain");
     if (plainText && shouldCaptureAsTextPaste(plainText)) {
       e.preventDefault();
       e.stopPropagation();
       const displayName = textPasteDisplayName(plainText);
-      setAttachments((prev) => [
-        ...prev,
-        {
-          type: "chat-context",
-          textPaste: { content: plainText, displayName },
-        },
-      ]);
+      applyPasteAttachment(setAttachments, {
+        type: "chat-context",
+        textPaste: { content: plainText, displayName },
+      });
     }
   };
 
@@ -145,18 +171,24 @@ export function useAttachments() {
       item.type.startsWith("image/"),
     );
     if (hasImage) return;
+
+    const terminalAtt = tryCaptureTerminalPaste(clipboardData);
+    if (terminalAtt) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyPasteAttachment(setAttachments, terminalAtt);
+      return;
+    }
+
     const plainText = clipboardData.getData("text/plain");
     if (plainText && shouldCaptureAsTextPaste(plainText)) {
       e.preventDefault();
       e.stopPropagation();
       const displayName = textPasteDisplayName(plainText);
-      setAttachments((prev) => [
-        ...prev,
-        {
-          type: "chat-context",
-          textPaste: { content: plainText, displayName },
-        },
-      ]);
+      applyPasteAttachment(setAttachments, {
+        type: "chat-context",
+        textPaste: { content: plainText, displayName },
+      });
     }
   };
 

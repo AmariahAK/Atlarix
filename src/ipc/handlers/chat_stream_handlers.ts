@@ -43,8 +43,7 @@ import {
 } from "../processors/response_processor";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, hasAutoRoutingModelConfig, ModelClient, isDiagramModelNotFoundError, type GetModelClientOptions } from "../utils/get_model_client";
-import { ensureAutoRoutingConfigAsync } from "@/lib/routing/auto-settings-defaults";
+import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, type GetModelClientOptions } from "../utils/get_model_client";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
 import {
@@ -101,7 +100,6 @@ import {
   stripTaskCompleteTags,
   stripThinkBlocks,
 } from "../utils/thinking_tags";
-import { generateProblemReport } from "../processors/tsc";
 import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
 import {
   getAtlarixWriteTags,
@@ -122,6 +120,7 @@ import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
   SAFETY_FILTER_BLOCKED_MESSAGE,
+  modelFailureUserMessage,
 } from "@/shared/texts";
 import {
   attachEmptyOutputSafeRejectHandlers,
@@ -148,7 +147,6 @@ import {
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
-import { getRecentAssistantRoutingTiers } from "@/lib/routing/auto-router-context";
 import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
 import { revertSnapshot, revertSnapshotFiles } from "../../lib/snapshot/snapshot-manager";
@@ -165,6 +163,14 @@ import {
 } from "../../utils/chat_naming";
 import { ToolRegistry } from "../../lib/tools";
 import { AttachmentStore } from "../../lib/attachment-store";
+import {
+  attachmentInfoFromStoredFile,
+  buildPasteAttachmentDirective,
+  ensurePasteAttachmentIds,
+  hydrateAttachmentStoreFromMessages,
+  pasteToAttachmentData,
+} from "../../lib/attachment-persistence";
+import type { StoredFileAttachment } from "../ipc_types";
 import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import {
@@ -207,7 +213,6 @@ import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-prun
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
-import { maybeEscalateTier } from "../../lib/routing/heuristic-classifier";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import {
@@ -927,12 +932,7 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-type TierSourceTag =
-  | "user_setting"
-  | "auto"
-  | "override"
-  | "force_thinking"
-  | "heuristic";
+type TierSourceTag = "user_setting" | "override" | "force_thinking";
 
 function tierLabelForActivity(tier: string): string {
   switch (tier) {
@@ -952,47 +952,22 @@ function tierDetailForActivity(args: {
   source: TierSourceTag;
   providerId: string;
   modelName: string;
-  autoModelRouting: boolean;
   reason?: string;
 }): string {
   const friendlySource = (() => {
     switch (args.source) {
       case "user_setting":
-        return args.autoModelRouting
-          ? "manual model (auto-routing disabled for this provider)"
-          : "manual model selection";
-      case "auto":
-        return "auto-routing classifier";
+        return "manual model selection";
       case "override":
         return "per-turn override";
       case "force_thinking":
         return "force-thinking opt-in";
-      case "heuristic":
-        return "Atlarix heuristic fallback";
       default:
         return args.source;
     }
   })();
   const base = `${args.providerId}/${args.modelName} · source: ${friendlySource}`;
   return args.reason ? `${base} · ${args.reason}` : base;
-}
-
-async function getRecentAutoRoutedTiersFromDb(chatId: number): Promise<ModelTier[]> {
-  const rows = await db
-    .select({ tier: messages.autoRoutedTier })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.chatId, chatId),
-        eq(messages.role, "assistant"),
-        isNotNull(messages.autoRoutedTier),
-      ),
-    )
-    .orderBy(desc(messages.id))
-    .limit(3);
-  return rows
-    .map((r) => r.tier)
-    .filter((t): t is ModelTier => t === "fast" || t === "balanced" || t === "thinking");
 }
 
 /** Full snapshot revert + ledger cancel + message `isReverted` flags + blueprint (via `revertSnapshot` or partial files + sync). */
@@ -1339,8 +1314,6 @@ export function registerChatStreamHandlers() {
         const fileUploadsState = FileUploadsState.getInstance();
         let engineRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
-        let autoRoutedTierForTurn: ModelTier | null = null;
-
         // Check if this is an ephemeral (incognito) chat BEFORE querying database
         const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
 
@@ -1550,6 +1523,11 @@ export function registerChatStreamHandlers() {
       let attachmentInfoForModel = "";
       let attachmentPaths: string[] = [];
       let attachmentInfosForMessage: { id: string; filename: string; mimeType: string; size: number }[] = [];
+      let storedFileAttachments: StoredFileAttachment[] = [];
+      let pasteAttachmentsForMessage =
+        req.pasteAttachments && req.pasteAttachments.length > 0
+          ? ensurePasteAttachmentIds(req.pasteAttachments)
+          : null;
 
       const mimeTypes: Record<string, string> = {
         ".pdf": "application/pdf",
@@ -1614,6 +1592,13 @@ export function registerChatStreamHandlers() {
             mimeType: resolvedMimeType,
             size: resolvedSize,
           });
+          storedFileAttachments.push({
+            id: hash,
+            filename: attachment.name,
+            mimeType: resolvedMimeType,
+            size: resolvedSize,
+            data: base64Data,
+          });
 
           if (attachment.attachmentType === "upload-to-codebase") {
             // For upload-to-codebase, create a unique file ID and store the mapping
@@ -1651,15 +1636,29 @@ export function registerChatStreamHandlers() {
           '\nMANDATORY TOOL USE:\n- If the user asks to read/summarize any attached file, you MUST call the tool `read_attachment` with the exact `attachmentId` shown above.\n- Example: read_attachment({ "attachmentId": "<id>" })\n';
       }
 
+      if (pasteAttachmentsForMessage?.length) {
+        for (const paste of pasteAttachmentsForMessage) {
+          AttachmentStore.add(pasteToAttachmentData(paste));
+        }
+        attachmentInfoForModel += buildPasteAttachmentDirective(pasteAttachmentsForMessage);
+        if (!attachmentInfoForModel.includes("MANDATORY TOOL USE")) {
+          attachmentInfoForModel +=
+            '\nMANDATORY TOOL USE:\n- For pasted text or terminal snippets, content is inline in the user message AND available via read_attachment using the attachmentId above.\n';
+        }
+      }
+
       // Add user message to database (skip when continueAfterQuestions).
-      // IMPORTANT: Don't append attachment info; it would leak into the user-visible bubble.
+      // Display text uses stub attachment tags; model uses full bodies in req.prompt.
+      let userDisplayContent = userPrompt;
       if (!req.continueAfterQuestions) {
+        userDisplayContent = req.displayPrompt ?? req.prompt;
         userPrompt = req.prompt;
       }
       const componentsToProcess = req.continueAfterQuestions ? [] : (req.selectedComponents || []);
 
       if (componentsToProcess.length > 0) {
         userPrompt += "\n\nSelected components:\n";
+        userDisplayContent += "\n\nSelected components:\n";
 
         for (const component of componentsToProcess) {
           let componentSnippet = "[component snippet not available]";
@@ -1690,18 +1689,45 @@ export function registerChatStreamHandlers() {
             );
           }
 
-          userPrompt += `\n${componentsToProcess.length > 1 ? `${componentsToProcess.indexOf(component) + 1}. ` : ""}Component: ${component.name} (file: ${component.relativePath})
+          const componentBlock = `\n${componentsToProcess.length > 1 ? `${componentsToProcess.indexOf(component) + 1}. ` : ""}Component: ${component.name} (file: ${component.relativePath})
 
 Snippet:
 \`\`\`
 ${componentSnippet}
 \`\`\`
 `;
+          userPrompt += componentBlock;
+          userDisplayContent += componentBlock;
         }
       }
 
       // Check if this is an ephemeral workspace chat (skip legacy chats/messages DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
+
+      if (
+        req.workspaceSessionId &&
+        !req.continueAfterQuestions &&
+        isEphemeralWorkspace
+      ) {
+        try {
+          const { persistWorkspaceSessionUserMessage } = await import(
+            "./workspace_session_handlers"
+          );
+          await persistWorkspaceSessionUserMessage(
+            req.workspaceSessionId,
+            userDisplayContent,
+            {
+              modelContent:
+                userPrompt !== userDisplayContent ? userPrompt : null,
+              pasteAttachments: pasteAttachmentsForMessage,
+              fileAttachments:
+                storedFileAttachments.length > 0 ? storedFileAttachments : null,
+            },
+          );
+        } catch (err) {
+          logger.error("Failed to persist workspace session user message:", err);
+        }
+      }
 
       // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
       // Capture inserted user message id so we can attach session-only metadata (attachments) for renderer.
@@ -1727,7 +1753,15 @@ ${componentSnippet}
           .values({
             chatId: req.chatId,
             role: "user",
-            content: userPrompt,
+            content: userDisplayContent,
+            modelContent:
+              userPrompt !== userDisplayContent ? userPrompt : null,
+            pasteAttachments:
+              pasteAttachmentsForMessage && pasteAttachmentsForMessage.length > 0
+                ? pasteAttachmentsForMessage
+                : null,
+            fileAttachments:
+              storedFileAttachments.length > 0 ? storedFileAttachments : null,
             workMode: workModeForUserMessage,
           })
           .returning();
@@ -1742,7 +1776,6 @@ ${componentSnippet}
         const { settingsPatchForWorkMode } = await import("@/lib/work-mode");
         settings = { ...settings, ...settingsPatchForWorkMode(req.workModeOverride) };
       }
-      settings = await ensureAutoRoutingConfigAsync(settings);
       // Generate requestId early so it can be saved with the message
       engineRequestId = uuidv4();
 
@@ -1786,19 +1819,25 @@ ${componentSnippet}
           throw new Error(`Chat not found: ${req.chatId}`);
         }
         updatedChat = fetchedChat;
+        hydrateAttachmentStoreFromMessages(updatedChat.messages as Parameters<
+          typeof hydrateAttachmentStoreFromMessages
+        >[0]);
 
-        // Session-only: attach the uploaded file metadata to the user message so the renderer
-        // can show attachment chips/previews without persisting anything to SQLite.
+        // Session-only: attach file metadata when DB row lacks file_attachments (legacy rows).
         if (attachmentInfosForMessage.length > 0 && insertedUserMessageId != null) {
           const idx = (updatedChat.messages as any[]).findIndex(
             (m) => m?.id === insertedUserMessageId,
           );
           if (idx >= 0) {
             const cur = (updatedChat.messages as any[])[idx];
-            (updatedChat.messages as any[])[idx] = {
-              ...cur,
-              attachments: attachmentInfosForMessage,
-            };
+            if (!cur.fileAttachments?.length) {
+              (updatedChat.messages as any[])[idx] = {
+                ...cur,
+                attachments: attachmentInfosForMessage,
+                fileAttachments: storedFileAttachments,
+                pasteAttachments: pasteAttachmentsForMessage,
+              };
+            }
           }
         }
 
@@ -1874,12 +1913,20 @@ ${componentSnippet}
             id: Date.now(),
             chatId: req.chatId,
             role: "user",
-            content: userPrompt,
+            content: userDisplayContent,
+            modelContent:
+              userPrompt !== userDisplayContent ? userPrompt : null,
+            pasteAttachments:
+              pasteAttachmentsForMessage && pasteAttachmentsForMessage.length > 0
+                ? pasteAttachmentsForMessage
+                : null,
             createdAt: new Date(),
             sourceCommitHash: null,
             commitHash: null,
             attachments:
               attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
+            fileAttachments:
+              storedFileAttachments.length > 0 ? storedFileAttachments : null,
           };
           updatedChat.messages = [
             ...existingMessages,
@@ -1938,102 +1985,19 @@ ${componentSnippet}
         let effectiveModel = getEffectiveModel(settings);
         if (req.modelOverride) {
           effectiveModel = req.modelOverride;
-        } else if (settings.autoModelRouting && effectiveModel.provider === "auto") {
-          const { runAutoRouterAsync, recommendModeRoute } = await import("../../lib/routing/auto-router");
-          const hasPlanHint = (updatedChat.messages ?? []).some((m: any) =>
-            String(m?.content ?? "").includes("ATLARIX_PLAN.md"),
-          );
-          const routingMsgs = (updatedChat.messages ?? []).map((m: any) => ({
-            role: m.role,
-            content: String(m.content ?? ""),
-            autoRoutedTier: m.autoRoutedTier as ModelTier | null | undefined,
-          }));
-          const recentAssistantTiers =
-            !isEphemeralWorkspace && req.chatId > 0
-              ? await getRecentAutoRoutedTiersFromDb(req.chatId)
-              : getRecentAssistantRoutingTiers(routingMsgs, 3);
-          const lastTier = recentAssistantTiers[0] ?? null;
-          const messageIndex = (updatedChat.messages ?? []).filter((m: any) => m.role === "user").length;
-          const prov = settings.autoProviderId;
-          const ids = settings.autoModelIds;
-          const forceThinking =
-            req.forceThinkingTier === true &&
-            prov &&
-            Array.isArray(ids) &&
-            Boolean(ids[0]) &&
-            Boolean(ids[1]) &&
-            Boolean(ids[2]);
-          if (forceThinking) {
-            effectiveModel = { provider: prov, name: ids[2]! };
-            autoRoutedTierForTurn = "thinking";
-            if (settings.autoRoutingShowReasoning !== false) {
-              safeSend(event.sender, "chat:activity", {
-                id: `routing-${req.chatId}-${Date.now()}`,
-                type: "routing_decision",
-                label: `Auto → thinking tier (Deep think)`,
-                status: "done",
-                timestamp: Date.now(),
-                chatId: req.chatId,
-              });
+        }
+        if (effectiveModel.provider === "compass") {
+          const usageForPlan = await getCompassUsageFromSupabase();
+          if (usageForPlan.ok) {
+            const { coerceCompassModelForPlan, subscriptionTierToPlan } =
+              await import("../../lib/compass-plan-access");
+            const coercedName = coerceCompassModelForPlan(
+              effectiveModel.name,
+              subscriptionTierToPlan(usageForPlan.tier),
+            );
+            if (coercedName !== effectiveModel.name) {
+              effectiveModel = { ...effectiveModel, name: coercedName };
             }
-          } else {
-          const { decision, model, classifierMeta } = await runAutoRouterAsync(
-            req.prompt,
-            settings,
-            mainOptions,
-            {
-              messages: routingMsgs,
-              taskState: {
-                currentMode: settings.selectedChatMode ?? "ask",
-                workModePreference: settings.workModePreference ?? "ask",
-                agentMode: settings.agentMode ?? "guided",
-                hasActivePlan: hasPlanHint,
-                lastTier,
-                messageIndex,
-                recentAssistantTiers,
-              },
-            },
-          );
-          const modeRoute = recommendModeRoute({
-            prompt: req.prompt,
-            hasPlan: hasPlanHint,
-            activeBuild: settings.selectedChatMode === "build",
-            lastMode: settings.workModePreference,
-          });
-          effectiveModel = model;
-          autoRoutedTierForTurn = decision.tier;
-          if (settings.autoRoutingShowReasoning !== false) {
-            const srcLabel =
-              classifierMeta.source === "groq"
-                ? "groq"
-                : classifierMeta.source === "fast-model"
-                  ? "fast-model"
-                  : "fallback";
-            const pctPart =
-              classifierMeta.confidence != null
-                ? ` (${Math.round(classifierMeta.confidence * 100)}%)`
-                : "";
-            safeSend(event.sender, "chat:activity", {
-              id: `classifier-${req.chatId}-${Date.now()}`,
-              type: "classifier_routing",
-              label: `Classifier → ${classifierMeta.tier}${pctPart} via ${srcLabel}`,
-              status: "done",
-              timestamp: Date.now(),
-              chatId: req.chatId,
-            });
-            const agentHint = decision.recommendedAgent
-              ? ` · delegate: ${String(decision.recommendedAgent).replace(/^./, (c) => c.toUpperCase())}`
-              : "";
-            safeSend(event.sender, "chat:activity", {
-              id: `routing-${req.chatId}-${Date.now()}`,
-              type: "routing_decision",
-              label: `Auto → ${decision.targetModel} (${decision.category})${agentHint}`,
-              status: "done",
-              timestamp: Date.now(),
-              chatId: req.chatId,
-              detail: `${modeRoute.recommended_mode}: ${modeRoute.reason}`,
-            });
-          }
           }
         }
         // `modelClient` is `let` (not destructured const) so the mid-stream
@@ -2069,14 +2033,12 @@ ${componentSnippet}
         // actual source so we can confirm whether any "stuck on fast" symptom
         // originates from user_setting (settings.selectedModel), auto routing,
         // an explicit override, or the forceThinking branch above.
-        const tierSource: "user_setting" | "auto" | "override" | "force_thinking" =
+        const tierSource: "user_setting" | "override" | "force_thinking" =
           req.forceThinkingTier === true && forceThinkingNativeSupported
             ? "force_thinking"
-              : settings.autoModelRouting && hasAutoRoutingModelConfig(settings)
-              ? "override"
             : req.modelOverride
-                ? "auto"
-                : "user_setting";
+              ? "override"
+              : "user_setting";
         logger.log(
           `[stream:${req.chatId}] tier=${contextBudgetTier} ` +
           `source=${tierSource} model=${effectiveModel.provider}/${effectiveModel.name} ` +
@@ -2096,7 +2058,6 @@ ${componentSnippet}
             source: tierSource,
             providerId: effectiveModel.provider,
             modelName: effectiveModel.name,
-            autoModelRouting: settings.autoModelRouting === true,
           }),
           status: "done",
           timestamp: Date.now(),
@@ -2262,8 +2223,11 @@ ${componentSnippet}
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
           type Msg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
-          const messageHistory = updatedChat.messages.map((message: Msg) => {
-            const content = message.content || "";
+          const messageHistory = updatedChat.messages.map((message: Msg & { modelContent?: string | null }) => {
+            const content =
+              message.role === "user"
+                ? (message.modelContent ?? message.content ?? "")
+                : (message.content || "");
             const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
               role: message.role as "user" | "assistant" | "system",
               content,
@@ -2303,7 +2267,12 @@ ${componentSnippet}
           // - Gated by `useAutoSummarize` so ephemeral / opted-out users skip it.
           // Honors the TokenBar UI copy that says "auto-summarize will run on next message".
           if (useAutoSummarize) {
-            const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
+            const msgList = updatedChat.messages as {
+              id: number;
+              role: string;
+              content: string;
+              modelContent?: string | null;
+            }[];
 
             // Check for existing summary
             const existingSummary = (await getContextSummary(req.chatId)) as any;
@@ -2312,7 +2281,10 @@ ${componentSnippet}
               const afterSummary = msgList.filter((m) => m.id > existingSummary.lastMessageId);
               limitedMessageHistory = afterSummary.map((m) => ({
                 role: m.role as "user" | "assistant" | "system",
-                content: m.content || "",
+                content:
+                  m.role === "user"
+                    ? (m.modelContent ?? m.content ?? "")
+                    : (m.content ?? ""),
               }));
               logger.log(
                 `Using context summary + ${afterSummary.length} messages (after msg ${existingSummary.lastMessageId})`,
@@ -3006,80 +2978,12 @@ This conversation includes one or more image attachments. When the user uploads 
               ? modelContextResolved.rawContextLength
               : Math.max(1, Math.round(modelContextResolved.tierLimit / 0.8));
 
-          // Closure that rebinds effectiveModel/modelClient/contextBudgetTier
-          // when mid-stream heuristic upgrades the tier in Auto mode. The
-          // outer `let` declarations make rebind possible without threading
-          // mutable state into the loop bodies. Manual selections short-circuit
-          // via the `tierSource !== "auto"` guard in maybeEscalateTier so the
-          // user's chosen model is never silently replaced.
-          const applyTierEscalation = async (args: {
+          const applyTierEscalation = async (_args: {
             agenticIteration: number;
             iterationInterval: number;
             runningTokens: number;
-            mode: import("../../lib/routing/heuristic-classifier").HeuristicClassifierMode;
-          }): Promise<boolean> => {
-            const escalation = maybeEscalateTier({
-              agenticIteration: args.agenticIteration,
-              iterationInterval: args.iterationInterval,
-              runningTokens: args.runningTokens,
-              tierTokenBudget: modelContextResolved.tierLimit,
-              tierSource,
-              currentTier: contextBudgetTier as
-                | "fast"
-                | "balanced"
-                | "thinking",
-              prompt: req.prompt ?? "",
-              mode: args.mode,
-            });
-            if (!escalation) return false;
-            const fromTier = contextBudgetTier;
-            const { resolveTierToModel } = await import(
-              "../../lib/routing/fallback-router"
-            );
-            const newModel = resolveTierToModel(settings, escalation.newTier);
-            const previousProvider = effectiveModel.provider;
-            const previousName = effectiveModel.name;
-            // Skip the rebind if the resolved model is identical (e.g. user has
-            // the same compass slot in all three tiers) — still useful to log
-            // the heuristic decision for visibility.
-            if (
-              newModel.provider !== previousProvider ||
-              newModel.name !== previousName
-            ) {
-              try {
-                const next = await getModelClient(newModel, settings, mainOptions);
-                effectiveModel = newModel;
-                modelClient = next.modelClient;
-              } catch (rebindErr) {
-                logger.warn(
-                  `[tier-escalation] failed to rebind model client for ${newModel.provider}/${newModel.name}, staying on ${previousProvider}/${previousName}: ${String(rebindErr)}`,
-                );
-                return false;
-              }
-            }
-            contextBudgetTier = escalation.newTier;
-            logger.log(
-              `[stream:${req.chatId}] tier_escalation ${fromTier} → ${escalation.newTier} (${escalation.reason})`,
-            );
-            safeSend(event.sender, "chat:activity", {
-              id: `tier-escalation-${req.chatId}-${Date.now()}`,
-              type: "tier_escalation",
-              label: `Tier escalated → ${tierLabelForActivity(escalation.newTier)}`,
-              detail: tierDetailForActivity({
-                tier: escalation.newTier,
-                source: "heuristic",
-                providerId: effectiveModel.provider,
-                modelName: effectiveModel.name,
-                autoModelRouting: settings.autoModelRouting === true,
-                reason: `from ${fromTier} · ${escalation.reason}`,
-              }),
-              status: "done",
-              timestamp: Date.now(),
-              chatId: req.chatId,
-              modelId: `${effectiveModel.provider}/${effectiveModel.name}`,
-            });
-            return true;
-          };
+            mode: string;
+          }): Promise<boolean> => false;
 
           let dispatchEstimate = estimateDispatchTokens({
             systemPrompt,
@@ -3527,7 +3431,10 @@ This conversation includes one or more image attachments. When the user uploads 
           ];
 
           // Check if the last message should include attachments (model-only injection)
-          if (chatMessages.length >= 2 && attachmentPaths.length > 0) {
+          if (
+            chatMessages.length >= 2 &&
+            (attachmentPaths.length > 0 || attachmentInfoForModel.trim().length > 0)
+          ) {
             const lastUserIndex = chatMessages.length - 2;
             const lastUserMessage = chatMessages[lastUserIndex];
 
@@ -3804,7 +3711,6 @@ This conversation includes one or more image attachments. When the user uploads 
                   );
                   return;
                 }
-                const modelNotFoundUserMessage = "The selected model was not found for any provider. Please choose a different model in Settings.";
                 let errorMessage = (error as any)?.error?.message;
                 const responseBody = error?.error?.responseBody;
                 if (errorMessage && responseBody) {
@@ -3813,8 +3719,8 @@ This conversation includes one or more image attachments. When the user uploads 
                 let message = errorMessage || JSON.stringify(error);
                 if (modelClient.builtinProviderId === "compass") {
                   message = COMPASS_REACHABILITY_ERROR;
-                } else if (isDiagramModelNotFoundError(error)) {
-                  message = modelNotFoundUserMessage;
+                } else {
+                  message = modelFailureUserMessage(message);
                 }
                 const requestIdPrefix = isEngineEnabled
                   ? `[Request ID: ${engineRequestId}] `
@@ -6758,7 +6664,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 content: stripAssistantDisplayContent(responseToStore),
                 ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
                 ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
-                ...(autoRoutedTierForTurn != null && { autoRoutedTier: autoRoutedTierForTurn }),
               })
               .where(eq(messages.id, placeholderAssistantMessage.id));
           } else {
@@ -6772,18 +6677,10 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 : null;
             if (lastInUpdated?.role === "assistant") {
               lastInUpdated.content = finalContent;
-              if (autoRoutedTierForTurn != null) {
-                (lastInUpdated as { autoRoutedTier?: string }).autoRoutedTier =
-                  autoRoutedTierForTurn;
-              }
             } else if (ec) {
               const last = ec.messages[ec.messages.length - 1];
               if (last?.role === "assistant") {
                 last.content = finalContent;
-                if (autoRoutedTierForTurn != null) {
-                  (last as { autoRoutedTier?: string }).autoRoutedTier =
-                    autoRoutedTierForTurn;
-                }
               }
             }
             if (ec) {
@@ -7243,11 +7140,11 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
-        const errMessage = isDiagramModelNotFoundError(error)
-          ? "The selected model was not found for any provider. Please choose a different model in Settings."
-          : isNoUsableModelOutputError(error)
-            ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
-            : `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : String(error)}`;
+        const errMessage = isNoUsableModelOutputError(error)
+          ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
+          : modelFailureUserMessage(
+              error instanceof Error ? error.message : String(error),
+            );
         safeSend(event.sender, "chat:response:error", {
           chatId: req.chatId,
           error: errMessage,
@@ -7670,7 +7567,9 @@ export function removeProblemReportTags(text: string): string {
 
 export function removeAtlarixTags(text: string): string {
   const legacyDyadBlock = /<dyad-[^>]*>[\s\S]*?<\/dyad-[^>]*>/g;
-  const atlarixBlock = /<atlarix-[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
+  // Keep user paste/terminal attachments — ask mode needs these bodies for the model.
+  const atlarixBlock =
+    /<atlarix-(?!text-attachment|terminal-attachment)[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
   return text.replace(legacyDyadBlock, "").replace(atlarixBlock, "").trim();
 }
 

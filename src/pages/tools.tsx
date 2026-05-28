@@ -48,33 +48,63 @@ const CATEGORIES: { id: Category; label: string }[] = [
 const FEATURES: ToolFeature[] = [
   {
     id: "modes",
-    title: "Work modes (Ask, Plan, Build, Debug, Review)",
+    title: "Work modes (Explore, Plan, Build, Debug, Review)",
     shortDescription:
       "Match the chat to the job: read-only exploration, structured planning, executing edits, debugging, or review passes.",
     category: "ai",
     steps: [
       "Pick a mode from the chat toolbar",
-      "Ask stays read-only (no project writes)",
+      "Explore stays read-only (no project writes)",
       "Plan shapes work before Build runs commands and file edits through approvals",
     ],
     howItWorks:
-      "Modes change which tools the model may call. Build unlocks writes and terminal runs behind the permission queue; Ask limits you to safe, read-only tools.",
+      "Modes change which tools the model may call. Build unlocks writes and terminal runs behind the permission queue; Explore limits you to safe, read-only tools.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
-    id: "auto-routing",
-    title: "Auto & Compass tiers",
+    id: "atlarix-core",
+    title: "Atlarix Core",
     shortDescription:
-      "Compass is the managed provider (no API key). Free gets Fast only; Pro and Workforce unlock Balanced and Thinking with higher monthly allowances.",
+      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Solo gets Fast only; Studio and Team unlock Balanced and Thinking.",
     category: "models",
     steps: [
-      "Sign in for Compass, or add BYOK keys under Settings → Model Providers",
-      "Toggle Auto in Config to route Fast / Balanced / Thinking when your plan allows",
+      "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",
+      "Pick Fast, Balanced, or Thinking in the model picker when your plan allows",
       "Watch the context bar for long threads—Balanced/Thinking use tier-aware windows",
     ],
     howItWorks:
-      "Compass tiers are enforced server-side. BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Compass—pick the active model per chat.",
+      "Atlarix Core tiers are enforced server-side. BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
     link: { label: "Settings → Providers", to: "/settings" },
+  },
+  {
+    id: "attachments",
+    title: "Attachments (files, paste, terminal)",
+    shortDescription:
+      "Attach files, pasted text, or terminal output to a message. After send they appear as chips with preview and persist when you reload the session.",
+    category: "ai",
+    steps: [
+      "Paste into the composer or use the attachment control for files/PDFs",
+      "Send — chips show in your bubble; click to preview full content",
+      "Switch sessions or restart — attachments rehydrate from the database",
+    ],
+    howItWorks:
+      "The model receives full bodies in modelContent while the thread shows compact chips. Explore mode keeps paste and terminal tags so read-only chats still see your context.",
+    link: { label: "Workspace chat", to: "/" },
+  },
+  {
+    id: "code-tab",
+    title: "Code tab & file tree",
+    shortDescription:
+      "Monaco editor and file tree load on demand when you open the Code tab or expand a workspace in the sidebar—not a full-repo scan at startup.",
+    category: "code",
+    steps: [
+      "Open a workspace from the welcome screen",
+      "Open the Code tab or expand the workspace row for the tree",
+      "Use @ mentions once files are loaded, or ask the agent to list_files / search",
+    ],
+    howItWorks:
+      "Atlarix no longer runs git ls-files across the whole workspace on open. The agent still explores via Blueprint, search, and explicit file tools.",
+    link: { label: "Right panel → Code", to: "/" },
   },
   {
     id: "workspace-open",
@@ -130,7 +160,7 @@ const FEATURES: ToolFeature[] = [
     steps: [
       "Start in Build: common file/search/git tools are callable immediately",
       "After a tool runs, it stays hot for the rest of the chat where allowed",
-      "Ask uses a read-only allowlist; workspace chats avoid merging every MCP tool by default",
+      "Explore uses a read-only allowlist; workspace chats avoid merging every MCP tool by default",
     ],
     howItWorks:
       "This keeps small chats fast while still advertising the full catalog to the planner. MCP-heavy workflows opt in per call.",
@@ -167,12 +197,18 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "autofix",
-    title: "Errors panel",
-    shortDescription: "Surface TypeScript, lint, and runtime issues; jump back into chat to fix.",
+    title: "LSP diagnostics & auto-fix",
+    shortDescription:
+      "Editor underlines from bundled TypeScript and JSON language servers; optional auto-fix follow-ups after build use LSP diagnostics on touched files.",
     category: "code",
-    steps: ["Open Errors in the right stack", "Click a row to jump to code", "Use Fix with AI when you want a guided patch"],
-    howItWorks: "Diagnostics aggregate preview + terminal output so you do not hunt tabs manually.",
-    link: { label: "Right panel → Errors", to: "/" },
+    steps: [
+      "Open a file in the Code tab for live markers",
+      "Enable auto-fix after build in chat settings if you want synthetic follow-ups",
+      "Review permission queue changes from the agent's fix pass",
+    ],
+    howItWorks:
+      "Self-correction reads LSP push/pull diagnostics instead of a separate TSC worker or Problems tab. External servers (e.g. rust-analyzer) work when installed on PATH.",
+    link: { label: "Settings → Chat", to: "/settings" },
   },
   {
     id: "blueprint-graph",
@@ -326,7 +362,7 @@ export default function ToolsPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Tools</h1>
           <p className="text-muted-foreground text-sm">
-            What the desktop app can do today—modes, section-scoped Blueprint (Live Code Map), Skills, MCP, previews, and team features.
+            What the desktop app can do today—modes, attachments, section-scoped Blueprint, Skills, MCP, LSP diagnostics, and team features.
           </p>
         </div>
 

@@ -55,6 +55,10 @@ import raw_48_0048_session_plan_artifacts from "../../../drizzle/0048_session_pl
 import raw_49_0049_workspace_only_remote from "../../../drizzle/0049_workspace_only_remote.sql?raw";
 import raw_50_0050_drop_prompts_table from "../../../drizzle/0050_drop_prompts_table.sql?raw";
 import raw_51_0051_display_snapshot from "../../../drizzle/0051_display_snapshot.sql?raw";
+import raw_52_0052_message_model_content from "../../../drizzle/0052_message_model_content.sql?raw";
+import raw_53_0053_message_paste_attachments from "../../../drizzle/0053_message_paste_attachments.sql?raw";
+import raw_54_0054_message_file_attachments from "../../../drizzle/0054_message_file_attachments.sql?raw";
+import raw_55_0055_session_message_attachments from "../../../drizzle/0055_session_message_attachments.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -117,6 +121,10 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0049_workspace_only_remote", sql: raw_49_0049_workspace_only_remote as string, drizzleHash: "705004cea277f0bd095fc5831d33456de5300810830438c40e08c3b379a3c6e1", when: 1778850000000 },
   { name: "0050_drop_prompts_table", sql: raw_50_0050_drop_prompts_table as string, drizzleHash: "e1472b348c2e0eda68e87dd0354b6514d73b81ac6dd29ba9c8d221fe2947354c", when: 1778950000000 },
   { name: "0051_display_snapshot", sql: raw_51_0051_display_snapshot as string, drizzleHash: "3438ac73bdc806a3e96527576bf0a35d23b21f5b9cd2748ed78b171c844bc30e", when: 1779050000000 },
+  { name: "0052_message_model_content", sql: raw_52_0052_message_model_content as string, drizzleHash: "0594c9ebe7d0f6658eaf787289ddc16cefb3fa190bfd60b4a9eae479c16f6d5b", when: 1779150000000 },
+  { name: "0053_message_paste_attachments", sql: raw_53_0053_message_paste_attachments as string, drizzleHash: "a9e754faff79660c375d09d733666253caa9b37426b519bbfa29058011bf8a6f", when: 1779250000000 },
+  { name: "0054_message_file_attachments", sql: raw_54_0054_message_file_attachments as string, drizzleHash: "3146549033c13356eeac0c9aa0b6d63cef261c6ea85d5efc6c6b0a4f8a085110", when: 1779350000000 },
+  { name: "0055_session_message_attachments", sql: raw_55_0055_session_message_attachments as string, drizzleHash: "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799", when: 1779450000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -173,4 +181,8 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "705004cea277f0bd095fc5831d33456de5300810830438c40e08c3b379a3c6e1": "0049_workspace_only_remote",
   "e1472b348c2e0eda68e87dd0354b6514d73b81ac6dd29ba9c8d221fe2947354c": "0050_drop_prompts_table",
   "3438ac73bdc806a3e96527576bf0a35d23b21f5b9cd2748ed78b171c844bc30e": "0051_display_snapshot",
+  "0594c9ebe7d0f6658eaf787289ddc16cefb3fa190bfd60b4a9eae479c16f6d5b": "0052_message_model_content",
+  "a9e754faff79660c375d09d733666253caa9b37426b519bbfa29058011bf8a6f": "0053_message_paste_attachments",
+  "3146549033c13356eeac0c9aa0b6d63cef261c6ea85d5efc6c6b0a4f8a085110": "0054_message_file_attachments",
+  "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799": "0055_session_message_attachments",
 };

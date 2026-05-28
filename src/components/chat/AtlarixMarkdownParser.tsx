@@ -54,6 +54,14 @@ import { contentHasPlanArtifactMarker } from "@/lib/plan-cards/plan-card-rendere
 import { InlinePlanArtifactSlot } from "./InlinePlanArtifactSlot";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
 import { stripTaskCompleteTags } from "@/ipc/utils/thinking_tags";
+import type { PasteAttachmentMeta } from "@/ipc/ipc_types";
+import {
+  lookupTerminalPasteContent,
+  lookupTextPasteContent,
+} from "@/lib/chat/paste-attachment-meta";
+import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
+import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
+import { findAttachmentTagsInContent } from "@/lib/chat/attachment-tag-parse";
 
 interface AtlarixMarkdownParserProps {
   content: string;
@@ -292,6 +300,56 @@ const markdownTableComponents = {
   td: ({ children }: { children?: React.ReactNode }) => (
     <td className="border border-border px-2 py-1">{children}</td>
   ),
+};
+
+const ATTACHMENT_TAG_MARKERS = [
+  "<atlarix-text-attachment",
+  "<atlarix-terminal-attachment",
+] as const;
+
+function contentHasAttachmentTags(text: string): boolean {
+  return ATTACHMENT_TAG_MARKERS.some((m) => text.includes(m));
+}
+
+/** User bubbles: render paste/terminal chips + markdown (not raw XML). */
+export const UserMessageMarkdownParser = ({
+  content,
+  pasteAttachments,
+}: {
+  content: string;
+  pasteAttachments?: PasteAttachmentMeta[];
+}) => {
+  const pieces = useMemo(() => parseCustomTags(content), [content]);
+
+  if (!contentHasAttachmentTags(content)) {
+    return <VanillaMarkdownParser content={content} />;
+  }
+
+  return (
+    <>
+      {pieces.map((piece, index) => {
+        if (piece.type === "markdown") {
+          const trimmed = piece.content.trim();
+          if (!trimmed) return null;
+          return <VanillaMarkdownParser key={`md-${index}`} content={piece.content} />;
+        }
+        if (
+          piece.tagInfo.tag === "atlarix-text-attachment" ||
+          piece.tagInfo.tag === "atlarix-terminal-attachment"
+        ) {
+          return (
+            <React.Fragment key={`tag-${index}`}>
+              {renderCustomTag(piece.tagInfo, {
+                isStreaming: false,
+                pasteAttachments,
+              })}
+            </React.Fragment>
+          );
+        }
+        return null;
+      })}
+    </>
+  );
 };
 
 export const VanillaMarkdownParser = ({ content }: { content: string }) => {
@@ -572,8 +630,9 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-mcp-tool-result",
     "atlarix-tool-call",
     "atlarix-tool-result",
-    "atlarix-text-attachment",
   ];
+
+  // Attachment tags (incl. self-closing display stubs) are parsed via findAttachmentTagsInContent.
 
   // Normalize provider-emitted variants to a single tag name so mismatched
   // open/close tags don't leak into the visible markdown stream.
@@ -624,77 +683,70 @@ function preprocessUnclosedTags(content: string): {
   return { processedContent, inProgressTags };
 }
 
-/**
- * Parse the content to extract custom tags and markdown sections into a unified array
- */
-function parseCustomTags(content: string): ContentPiece[] {
-  const { processedContent, inProgressTags } = preprocessUnclosedTags(content);
+const REGEX_CUSTOM_TAG_NAMES = [
+  "atlarix-write",
+  "atlarix-rename",
+  "atlarix-delete",
+  "atlarix-execute-sql",
+  "atlarix-add-integration",
+  "atlarix-output",
+  "atlarix-problem-report",
+  "atlarix-chat-summary",
+  "atlarix-edit",
+  "atlarix-search-replace",
+  "atlarix-codebase-context",
+  "atlarix-web-search-result",
+  "atlarix-web-search",
+  "atlarix-web-crawl",
+  "atlarix-code-search-result",
+  "atlarix-code-search",
+  "atlarix-read",
+  "think",
+  "thinking",
+  "reasoning",
+  "redacted_thinking",
+  "atlarix-command",
+  "atlarix-mcp-tool-call",
+  "atlarix-mcp-tool-result",
+  "atlarix-tool-call",
+  "atlarix-tool-result",
+] as const;
 
-  const customTagNames = [
-    "atlarix-write",
-    "atlarix-rename",
-    "atlarix-delete",
-    "atlarix-execute-sql",
-    "atlarix-add-integration",
-    "atlarix-output",
-    "atlarix-problem-report",
-    "atlarix-chat-summary",
-    "atlarix-edit",
-    "atlarix-search-replace",
-    "atlarix-codebase-context",
-    "atlarix-web-search-result",
-    "atlarix-web-search",
-    "atlarix-web-crawl",
-    "atlarix-code-search-result",
-    "atlarix-code-search",
-    "atlarix-read",
-    "think",
-    "thinking",
-    "reasoning",
-    "redacted_thinking",
-    "atlarix-command",
-    "atlarix-mcp-tool-call",
-    "atlarix-mcp-tool-result",
-    "atlarix-tool-call",
-    "atlarix-tool-result",
-    "atlarix-text-attachment",
-  ];
-
+function parseCustomTagsInSegment(
+  segment: string,
+  inProgressTags: Map<string, Set<number>>,
+  segmentStartOffset: number,
+): ContentPiece[] {
   const tagPattern = new RegExp(
-    `<(${customTagNames.join("|")})\\s*([^>]*)>(.*?)<\\/\\1>`,
+    `<(${REGEX_CUSTOM_TAG_NAMES.join("|")})\\s*([^>]*)>(.*?)<\\/\\1>`,
     "gs",
   );
 
   const contentPieces: ContentPiece[] = [];
   let lastIndex = 0;
-  let match;
+  let match: RegExpExecArray | null;
 
-  // Find all custom tags
-  while ((match = tagPattern.exec(processedContent)) !== null) {
+  while ((match = tagPattern.exec(segment)) !== null) {
     const [fullMatch, tag, attributesStr, tagContent] = match;
     const startIndex = match.index;
 
-    // Add the markdown content before this tag
     if (startIndex > lastIndex) {
       contentPieces.push({
         type: "markdown",
-        content: processedContent.substring(lastIndex, startIndex),
+        content: segment.substring(lastIndex, startIndex),
       });
     }
 
-    // Parse attributes
     const attributes: Record<string, string> = {};
     const attrPattern = /(\w+)="([^"]*)"/g;
-    let attrMatch;
+    let attrMatch: RegExpExecArray | null;
     while ((attrMatch = attrPattern.exec(attributesStr)) !== null) {
       attributes[attrMatch[1]] = attrMatch[2];
     }
 
-    // Check if this tag was marked as in progress
     const tagInProgressSet = inProgressTags.get(tag);
-    const isInProgress = tagInProgressSet?.has(startIndex);
+    const isInProgress = tagInProgressSet?.has(segmentStartOffset + startIndex);
 
-    // Add the tag info
     contentPieces.push({
       type: "custom-tag",
       tagInfo: {
@@ -709,12 +761,56 @@ function parseCustomTags(content: string): ContentPiece[] {
     lastIndex = startIndex + fullMatch.length;
   }
 
-  // Add the remaining markdown content
-  if (lastIndex < processedContent.length) {
+  if (lastIndex < segment.length) {
     contentPieces.push({
       type: "markdown",
-      content: processedContent.substring(lastIndex),
+      content: segment.substring(lastIndex),
     });
+  }
+
+  return contentPieces;
+}
+
+/**
+ * Parse the content to extract custom tags and markdown sections into a unified array
+ */
+function parseCustomTags(content: string): ContentPiece[] {
+  const { processedContent, inProgressTags } = preprocessUnclosedTags(content);
+  const attachmentTags = findAttachmentTagsInContent(processedContent);
+
+  if (attachmentTags.length === 0) {
+    return parseCustomTagsInSegment(processedContent, inProgressTags, 0);
+  }
+
+  const contentPieces: ContentPiece[] = [];
+  let lastIndex = 0;
+
+  for (const at of attachmentTags) {
+    if (at.startIndex > lastIndex) {
+      const segment = processedContent.substring(lastIndex, at.startIndex);
+      contentPieces.push(...parseCustomTagsInSegment(segment, inProgressTags, lastIndex));
+    }
+
+    const tagInProgressSet = inProgressTags.get(at.tag);
+    const isInProgress = tagInProgressSet?.has(at.startIndex);
+
+    contentPieces.push({
+      type: "custom-tag",
+      tagInfo: {
+        tag: at.tag,
+        attributes: at.attributes,
+        content: at.content,
+        fullMatch: at.fullMatch,
+        inProgress: isInProgress || false,
+      },
+    });
+
+    lastIndex = at.startIndex + at.fullMatch.length;
+  }
+
+  if (lastIndex < processedContent.length) {
+    const segment = processedContent.substring(lastIndex);
+    contentPieces.push(...parseCustomTagsInSegment(segment, inProgressTags, lastIndex));
   }
 
   return contentPieces;
@@ -738,7 +834,10 @@ function getState({
  */
 function renderCustomTag(
   tagInfo: CustomTagInfo,
-  { isStreaming }: { isStreaming: boolean },
+  {
+    isStreaming,
+    pasteAttachments,
+  }: { isStreaming: boolean; pasteAttachments?: PasteAttachmentMeta[] },
 ): React.ReactNode {
   const { tag, attributes, content, inProgress } = tagInfo;
 
@@ -1030,9 +1129,36 @@ function renderCustomTag(
 
     case "atlarix-text-attachment": {
       const filename = attributes.filename || "attachment";
+      const textBody = pasteAttachments?.length
+        ? lookupTextPasteContent(filename, pasteAttachments) || content.trim()
+        : content.trim();
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-xs font-mono border border-[var(--border-color)]">
-          📄 {filename}
+        <span className="inline-block my-1">
+          <PastedTextAttachmentChip
+            content={textBody}
+            displayName={filename}
+            readOnly
+          />
+        </span>
+      );
+    }
+
+    case "atlarix-terminal-attachment": {
+      const label = attributes.label || "Terminal output";
+      const terminalBody = pasteAttachments?.length
+        ? lookupTerminalPasteContent(label, pasteAttachments)
+        : {
+            content: content.trim(),
+            displayContent: attributes.displayContent,
+          };
+      return (
+        <span className="inline-block my-1">
+          <TerminalOutputAttachmentChip
+            content={terminalBody.content}
+            displayContent={terminalBody.displayContent}
+            displayName={label}
+            readOnly
+          />
         </span>
       );
     }

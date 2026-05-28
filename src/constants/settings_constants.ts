@@ -24,12 +24,6 @@ export const WORKSPACE_MEMORY_SAFE_BYTES = 1_500_000_000;
 export const WORKSPACE_LARGE_FILE_THRESHOLD = 500;
 
 /**
- * Number of .git folders that indicates a multi-repo workspace.
- * When detected, show picker for user to select which project to analyze.
- */
-export const WORKSPACE_MULTI_REPO_GIT_COUNT = 2;
-
-/**
  * Check if the process is under memory pressure.
  * Returns true if heap usage exceeds WORKSPACE_MEMORY_SAFE_BYTES.
  */

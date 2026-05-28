@@ -48,8 +48,8 @@ export const ONBOARDING_STEPS = [
   },
   {
     id: "byok",
-    title: "Models & Compass",
-    body: "Compass works without an API key. Open Settings to add BYOK providers (OpenAI, Anthropic, Gemini, Ollama, and more).",
+    title: "Models & Atlarix Core",
+    body: "Atlarix Core works without an API key. Open Settings to add BYOK providers (OpenAI, Anthropic, Gemini, Ollama, and more).",
     target: "[data-onboarding=settings-link]",
   },
   {

@@ -11,7 +11,6 @@ import {
   numberParam,
   stringParam,
 } from "./registry";
-import { analyzeWorkspaceDiscovery } from "../../ipc/utils/workspace-discovery";
 
 const IGNORE_DIRS = new Set([
   "node_modules",
@@ -300,26 +299,6 @@ export async function buildRepoOverviewMarkdown(
   const root = path.resolve(workspaceRoot);
   if (!(await pathExists(root))) {
     return { success: false, error: `Workspace not accessible: ${root}` };
-  }
-
-  if (!focusPath) {
-    const disc = analyzeWorkspaceDiscovery(root);
-    if (disc.isMultiRepoWorkspace && disc.nestedRepoNames?.length) {
-      const list = disc.nestedRepoNames.map((n) => `- \`${n}/\``).join("\n");
-      const example = disc.nestedRepoNames[0] ?? "subdir";
-      return {
-        success: true,
-        markdown: [
-          `# Multi-repo workspace`,
-          ``,
-          `This folder has **no .git** at the root but contains **${disc.nestedRepoNames.length}** nested repo(s):`,
-          ``,
-          list,
-          ``,
-          `Call **get_repo_overview** again with \`focus_path\` set to one repo (e.g. \`${example}\`) for a scoped tree and stats. Avoid assuming a single root tree when listing files from the parent folder.`,
-        ].join("\n"),
-      };
-    }
   }
 
   let base = root;

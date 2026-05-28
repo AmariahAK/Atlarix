@@ -22,14 +22,14 @@ export function isCompassTierId(tierId: string): boolean {
 export const COMPASS_TIER_ROWS = [
   {
     id: "compass-fast",
-    description: "Quick responses for simple tasks and Explore mode",
+    description: "Included with Solo — general coding and exploration",
   },
   {
     id: "compass-balanced",
-    description: "Strong all-rounder for planning and building",
+    description: "Studio and Team — stronger all-rounder for planning and building",
   },
   {
     id: "compass-thinking",
-    description: "Deep reasoning for complex debugging and architecture work",
+    description: "Studio and Team — deeper reasoning for complex work",
   },
 ] as const;

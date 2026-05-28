@@ -1,11 +1,11 @@
 /**
- * Interactive terminal panel — multiple persisted instances (user + agent).
+ * Interactive terminal panel — unified tab strip (user + agent instances).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { terminalOutputsAtom, type TerminalOutput } from "@/atoms/sourceAtoms";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { attachmentsAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
   currentAppAtom,
   selectedAppIdAtom,
@@ -21,25 +21,30 @@ import {
   type TerminalLine,
 } from "@/atoms/terminalInstancesAtoms";
 import {
+  agentTabStripLabel,
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
+  shortenTerminalPath,
+  userTabLabelFromInstance,
 } from "@/lib/terminal-instances";
 import { IpcClient } from "@/ipc/ipc_client";
-import { Terminal, Loader2, Plus, X } from "lucide-react";
+import { Terminal, Loader2, MessageSquarePlus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-
-function shortenPath(fullPath: string): string {
-  const m = fullPath.match(/^\/Users\/[^/]+(.*)$/);
-  if (m) return `~${m[1] || ""}`;
-  const win = fullPath.match(/^[A-Za-z]:\\Users\\[^\\]+(.*)$/);
-  if (win) return `~${win[1].replace(/\\/g, "/") || ""}`;
-  return fullPath;
-}
+import {
+  buildTerminalPasteAttachment,
+  buildTerminalPasteFromSelection,
+  capTerminalLines,
+  commandBlockRangeAt,
+  commandBlockRanges,
+  upsertTerminalAttachment,
+  writeTerminalClipboard,
+} from "@/lib/chat/terminal-line-buffer";
+import { toast } from "sonner";
 
 function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
-  return [...prev, ...add];
+  return capTerminalLines([...prev, ...add]);
 }
 
 function upsertAgentOutputLines(
@@ -87,7 +92,7 @@ function upsertAgentOutputLines(
         },
       ]);
     }
-    return { ...inst, lines };
+    return { ...inst, lines: capTerminalLines(lines) };
   });
 }
 
@@ -99,6 +104,8 @@ export function TerminalPanel() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
 
   const scopeKey = terminalScopeKey(chatId, selectedAppId ?? currentApp?.id);
+  const appId = selectedAppId ?? currentApp?.id ?? null;
+
   const [instancesByScope, setInstancesByScope] = useAtom(
     terminalInstancesByScopeAtom,
   );
@@ -109,6 +116,7 @@ export function TerminalPanel() {
     terminalAgentOpMapByScopeAtom,
   );
   const [draftByScope, setDraftByScope] = useAtom(terminalDraftByScopeAtom);
+  const setAttachments = useSetAtom(attachmentsAtom);
 
   const instances = instancesByScope[scopeKey] ?? [];
   const activeId = activeByScope[scopeKey];
@@ -130,6 +138,7 @@ export function TerminalPanel() {
   );
   const seenOps = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
+  const skipSyncRef = useRef(false);
 
   const workspacePath = useMemo(() => {
     if (workspace?.path) return workspace.path;
@@ -144,8 +153,116 @@ export function TerminalPanel() {
 
   const cwdLabel = useMemo(() => {
     if (!workspacePath) return "~ $";
-    return `${shortenPath(workspacePath)} $`;
+    return `${shortenTerminalPath(workspacePath)} $`;
   }, [workspacePath]);
+
+  const agentInstances = useMemo(
+    () => instances.filter((i) => i.owner === "agent"),
+    [instances],
+  );
+
+  const applyScopeFromMain = useCallback(
+    (state: {
+      instances: TerminalInstance[];
+      activeInstanceId: string | null;
+      agentOpMap: Record<string, string>;
+    }) => {
+      skipSyncRef.current = true;
+      setInstancesByScope((prev) => ({ ...prev, [scopeKey]: state.instances }));
+      setActiveByScope((prev) => ({
+        ...prev,
+        [scopeKey]: state.activeInstanceId ?? "",
+      }));
+      setAgentOpMapByScope((prev) => ({
+        ...prev,
+        [scopeKey]: state.agentOpMap,
+      }));
+      requestAnimationFrame(() => {
+        skipSyncRef.current = false;
+      });
+    },
+    [scopeKey, setInstancesByScope, setActiveByScope, setAgentOpMapByScope],
+  );
+
+  const syncScopeToMain = useCallback(() => {
+    if (skipSyncRef.current) return;
+    void IpcClient.getInstance()
+      .syncTerminalScopeState({
+        chatId,
+        appId,
+        state: {
+          instances: instancesByScope[scopeKey] ?? [],
+          activeInstanceId: activeByScope[scopeKey] ?? null,
+          agentOpMap: agentOpMapByScope[scopeKey] ?? {},
+        },
+      })
+      .catch(() => {});
+  }, [
+    chatId,
+    appId,
+    scopeKey,
+    instancesByScope,
+    activeByScope,
+    agentOpMapByScope,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void IpcClient.getInstance()
+      .getTerminalScopeState({ chatId, appId })
+      .then(({ state }) => {
+        if (cancelled) return;
+        const local = instancesByScope[scopeKey] ?? [];
+        if (local.length > 0 && state.instances.length === 0) {
+          syncScopeToMain();
+          return;
+        }
+        if (state.instances.length > 0) {
+          applyScopeFromMain(state);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Hydrate once per scope; local-first when main is empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, chatId, appId]);
+
+  useEffect(() => {
+    const ipc = IpcClient.getInstance();
+    const unsubUpdated = ipc.onTerminalInstancesUpdated(({ scopeKey: sk }) => {
+      if (sk !== scopeKey) return;
+      void ipc.getTerminalScopeState({ chatId, appId }).then(({ state }) => {
+        applyScopeFromMain(state);
+      });
+    });
+    const unsubCleared = ipc.onTerminalInstancesCleared(() => {
+      skipSyncRef.current = true;
+      setInstancesByScope({});
+      setActiveByScope({});
+      setAgentOpMapByScope({});
+      requestAnimationFrame(() => {
+        skipSyncRef.current = false;
+      });
+    });
+    return () => {
+      unsubUpdated();
+      unsubCleared();
+    };
+  }, [
+    scopeKey,
+    chatId,
+    appId,
+    applyScopeFromMain,
+    setInstancesByScope,
+    setActiveByScope,
+    setAgentOpMapByScope,
+  ]);
+
+  useEffect(() => {
+    syncScopeToMain();
+  }, [instancesByScope, activeByScope, agentOpMapByScope, syncScopeToMain]);
 
   const ensureDefaultInstance = useCallback(() => {
     if ((instancesByScope[scopeKey]?.length ?? 0) > 0) return;
@@ -228,11 +345,16 @@ export function TerminalPanel() {
         delete scopeDrafts[instanceId];
         return { ...prev, [scopeKey]: scopeDrafts };
       });
+      void IpcClient.getInstance()
+        .closeTerminalInstance({ chatId, appId, instanceId })
+        .catch(() => {});
     },
     [
       instancesByScope,
       scopeKey,
       activeByScope,
+      chatId,
+      appId,
       setInstancesByScope,
       setActiveByScope,
       setAgentOpMapByScope,
@@ -270,6 +392,15 @@ export function TerminalPanel() {
           ...prev,
           [scopeKey]: { ...(prev[scopeKey] ?? {}), [operationId]: instanceId! },
         }));
+        void IpcClient.getInstance()
+          .openTerminalInstance({
+            chatId,
+            appId,
+            owner: "agent",
+            commandHint: command,
+            operationId,
+          })
+          .catch(() => {});
       }
       return instanceId;
     },
@@ -279,6 +410,8 @@ export function TerminalPanel() {
       createInstance,
       instancesByScope,
       setAgentOpMapByScope,
+      chatId,
+      appId,
     ],
   );
 
@@ -396,6 +529,7 @@ export function TerminalPanel() {
     activeInstance,
     chatId,
     appendToInstance,
+    setInput,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -405,10 +539,71 @@ export function TerminalPanel() {
     }
   };
 
+  const tabLabel = (inst: TerminalInstance) => {
+    if (inst.owner === "agent") {
+      return agentTabStripLabel(inst, agentInstances);
+    }
+    return userTabLabelFromInstance(inst, workspacePath);
+  };
+
+  const tabTitle = (inst: TerminalInstance) =>
+    inst.owner === "agent" ? inst.label : userTabLabelFromInstance(inst, workspacePath);
+
   const noWorkspace = !workspacePath;
-  const userInstances = instances.filter((i) => i.owner === "user");
-  const agentInstances = instances.filter((i) => i.owner === "agent");
   const logLines = activeInstance?.lines ?? [];
+
+  const addCommandBlockToChat = useCallback(
+    (promptIndex: number) => {
+      if (!activeInstance) return;
+      const { start, end, slice } = commandBlockRangeAt(
+        activeInstance.lines,
+        promptIndex,
+      );
+      const att = buildTerminalPasteAttachment({
+        lines: slice,
+        instanceLabel: activeInstance.label,
+        owner: activeInstance.owner,
+        lineStart: start,
+        lineEnd: end,
+      });
+      setAttachments((prev) => upsertTerminalAttachment(prev, att));
+      toast.success("Added to chat");
+    },
+    [activeInstance, setAttachments],
+  );
+
+  const handleLogCopy = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!activeInstance) return;
+      const selected = window.getSelection()?.toString();
+      if (!selected?.trim()) return;
+      e.preventDefault();
+      const att = buildTerminalPasteFromSelection({
+        allLines: activeInstance.lines,
+        selectedText: selected,
+        instanceLabel: activeInstance.label,
+        owner: activeInstance.owner,
+      });
+      const { terminalPaste } = att;
+      if (!terminalPaste) return;
+      const visible =
+        terminalPaste.displayContent ?? terminalPaste.content;
+      writeTerminalClipboard({
+        content: visible,
+        instanceLabel: terminalPaste.instanceLabel,
+        owner: terminalPaste.owner,
+        lineStart: terminalPaste.lineStart,
+        lineEnd: terminalPaste.lineEnd,
+      });
+      toast.message("Copied — paste into chat to attach");
+    },
+    [activeInstance],
+  );
+
+  const commandBlocks = useMemo(
+    () => commandBlockRanges(logLines),
+    [logLines],
+  );
 
   return (
     <div className="flex flex-col h-full bg-[#1e1e1e] min-h-0">
@@ -423,67 +618,26 @@ export function TerminalPanel() {
         )}
       </div>
 
-      <div className="shrink-0 border-b border-zinc-700 bg-zinc-900/80 px-2 py-1.5 space-y-1.5 max-h-[120px] overflow-y-auto">
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wide mr-1">
-            You
-          </span>
-          {userInstances.map((inst) => (
-            <button
-              key={inst.id}
-              type="button"
-              onClick={() =>
-                setActiveByScope((prev) => ({ ...prev, [scopeKey]: inst.id }))
-              }
-              className={cn(
-                "group flex items-center gap-1 max-w-[140px] px-2 py-0.5 rounded text-[11px] font-mono truncate",
-                activeInstance?.id === inst.id
-                  ? "bg-amber-500/20 text-amber-200"
-                  : "text-zinc-400 hover:bg-zinc-800",
-              )}
-            >
-              <span className="truncate">{inst.label}</span>
-              {userInstances.length > 1 && (
-                <X
-                  className="w-3 h-3 shrink-0 opacity-60 hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteInstance(inst.id);
-                  }}
-                />
-              )}
-            </button>
-          ))}
-          <Button
+      <div className="shrink-0 border-b border-zinc-700 bg-zinc-900/80 px-2 py-1.5 flex items-center gap-1 flex-wrap max-h-[88px] overflow-y-auto">
+        {instances.map((inst) => (
+          <button
+            key={inst.id}
             type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-zinc-400"
-            title="New shell"
-            onClick={() => createInstance("user")}
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wide mr-1">
-            Agent
-          </span>
-          {agentInstances.map((inst) => (
-            <button
-              key={inst.id}
-              type="button"
-              onClick={() =>
-                setActiveByScope((prev) => ({ ...prev, [scopeKey]: inst.id }))
-              }
-              className={cn(
-                "group flex items-center gap-1 max-w-[180px] px-2 py-0.5 rounded text-[11px] font-mono truncate",
-                activeInstance?.id === inst.id
+            title={tabTitle(inst)}
+            onClick={() =>
+              setActiveByScope((prev) => ({ ...prev, [scopeKey]: inst.id }))
+            }
+            className={cn(
+              "group flex items-center gap-1 max-w-[160px] px-2 py-0.5 rounded text-[11px] font-mono truncate",
+              activeInstance?.id === inst.id
+                ? inst.owner === "agent"
                   ? "bg-blue-500/20 text-blue-200"
-                  : "text-zinc-400 hover:bg-zinc-800",
-              )}
-            >
-              <span className="truncate">{inst.label}</span>
+                  : "bg-amber-500/20 text-amber-200"
+                : "text-zinc-400 hover:bg-zinc-800",
+            )}
+          >
+            <span className="truncate">{tabLabel(inst)}</span>
+            {(inst.owner === "agent" || instances.filter((i) => i.owner === "user").length > 1) && (
               <X
                 className="w-3 h-3 shrink-0 opacity-60 hover:opacity-100"
                 onClick={(e) => {
@@ -491,55 +645,82 @@ export function TerminalPanel() {
                   deleteInstance(inst.id);
                 }}
               />
-            </button>
-          ))}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-zinc-400"
-            title="New agent terminal"
-            onClick={() => createInstance("agent")}
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </Button>
-        </div>
+            )}
+          </button>
+        ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-zinc-400 text-[11px] gap-1"
+          title="New terminal"
+          onClick={() => createInstance("user")}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New terminal
+        </Button>
       </div>
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-0"
+        className="flex-1 overflow-y-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-0 select-text"
+        onCopy={handleLogCopy}
       >
         {logLines.length === 0 ? (
-          <p className="text-zinc-500">
+          <p className="text-zinc-500 select-none">
             Command output from you and the agent appears here. Output persists
             when you switch tabs until you start a new chat.
           </p>
         ) : (
-          logLines.map((line) => (
-            <div key={line.id} className="mb-1">
-              <span
-                className={
-                  line.prefix === "[Agent]"
-                    ? "text-blue-400/90 mr-2"
-                    : "text-amber-400/90 mr-2"
-                }
+          logLines.map((line, lineIndex) => {
+            const block = commandBlocks.find((b) => b.promptIndex === lineIndex);
+            return (
+              <div
+                key={line.id}
+                className={cn(
+                  "group mb-1 flex items-start gap-1",
+                  block && "rounded-md -mx-1 px-1 hover:bg-zinc-800/60",
+                )}
               >
-                {line.prefix}
-              </span>
-              <span
-                className={
-                  line.kind === "prompt"
-                    ? "text-zinc-100"
-                    : line.kind === "status"
-                      ? "text-zinc-500"
-                      : ""
-                }
-              >
-                {line.text}
-              </span>
-            </div>
-          ))
+                <div className="min-w-0 flex-1">
+                  {line.kind === "prompt" ? (
+                    <>
+                      <span
+                        className={
+                          line.prefix === "[Agent]"
+                            ? "text-blue-400/90 mr-2"
+                            : "text-amber-400/90 mr-2"
+                        }
+                      >
+                        {line.prefix}
+                      </span>
+                      <span className="text-zinc-100">{line.text}</span>
+                    </>
+                  ) : (
+                    <span
+                      className={
+                        line.kind === "status"
+                          ? "text-zinc-500"
+                          : "text-zinc-300"
+                      }
+                    >
+                      {line.text}
+                    </span>
+                  )}
+                </div>
+                {block ? (
+                  <button
+                    type="button"
+                    title="Add this command to chat"
+                    className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-zinc-500 hover:text-emerald-400 transition-opacity"
+                    onClick={() => addCommandBlockToChat(block.promptIndex)}
+                  >
+                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -565,7 +746,7 @@ export function TerminalPanel() {
               noWorkspace
                 ? "Open a workspace to run commands"
                 : activeInstance?.owner === "agent"
-                  ? "Select a Shell tab to run commands"
+                  ? "Select a shell tab to run commands"
                   : "Enter command..."
             }
             className="font-mono text-xs h-8 bg-zinc-800 border-zinc-600 text-zinc-100"

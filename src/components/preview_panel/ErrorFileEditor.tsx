@@ -25,6 +25,7 @@ import {
     Loader2,
 } from 'lucide-react';
 import { type ParsedError } from '@/lib/devServerErrorParser';
+import { getMonacoLanguageForPath } from '@/lib/monaco/language-manifest';
 
 interface ErrorFileEditorProps {
     errors: ParsedError[];
@@ -319,30 +320,6 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initia
         // FIX 3: Remove fileContent from deps, use isInitialLoad instead
     }, [selectedFile, isLoading, isInitialLoad, initialLine]);
 
-    // Get file extension for language detection
-    const getLanguage = (filePath: string): string => {
-        const ext = filePath.split('.').pop()?.toLowerCase();
-        const langMap: Record<string, string> = {
-            ts: 'typescript',
-            tsx: 'typescript',
-            js: 'javascript',
-            jsx: 'javascript',
-            mjs: 'javascript',
-            cjs: 'javascript',
-            json: 'json',
-            css: 'css',
-            scss: 'scss',
-            less: 'less',
-            html: 'html',
-            vue: 'vue',
-            svelte: 'html',
-            md: 'markdown',
-            py: 'python',
-            rs: 'rust',
-            go: 'go',
-        };
-        return langMap[ext || ''] || 'plaintext';
-    };
 
     if (filesWithErrors.length === 0) {
         return (
@@ -448,7 +425,7 @@ export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initia
                         key={selectedFile.absolutePath}
                         path={selectedFile.absolutePath}
                         height="100%"
-                        language={getLanguage(selectedFile.path)}
+                        language={getMonacoLanguageForPath(selectedFile.path)}
                         value={fileContent}
                         onChange={(value) => {
                             // FIX 3: Mark as no longer initial load when user starts typing
