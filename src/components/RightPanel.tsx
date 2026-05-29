@@ -22,7 +22,7 @@ import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import FileDiffPanel from './preview_panel/FileDiffPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
 import { TimelineView } from './DiagramTimeline';
-import { PermissionQueuePanel } from './PermissionQueuePanel';
+import { InlinePermissionsHint } from './chat/InlinePermissionsHint';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
 import { cn } from '@/lib/utils';
 import {
@@ -377,7 +377,7 @@ function PanelContent({
             case 'permission':
             case 'approve':
             case 'diff':
-                return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
+                return <InlinePermissionsHint />;
             case 'preview':
             case 'code':
             case 'errors':
@@ -400,7 +400,7 @@ function PanelContent({
                 return <SourcePreviewPanel data={context.data} activeTab="sources" />;
             default:
                 // Default to permission queue
-                return <PermissionQueuePanel chatId={context.data?.chatId ?? fallbackChatId} />;
+                return <InlinePermissionsHint />;
         }
     }
 

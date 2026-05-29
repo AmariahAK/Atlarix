@@ -20,7 +20,7 @@ import "./terminal-instances";
 import "./web";
 import "./memory";
 import "./blueprint";
-import "./diagram";
+// get_diagram removed — model uses get_blueprint + inline mermaid fences
 import "./agent";
 import "./spawn-task";
 import "./workspace";

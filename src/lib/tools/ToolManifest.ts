@@ -38,24 +38,18 @@ export function generateManifest(
   askMode: boolean
 ): string {
   const core: ToolMetadata[] = [];
-  const onDemand: ToolMetadata[] = [];
 
   for (const tool of availableTools) {
     if (askMode && !(tool.isReadOnly || tool.allowInAskMode)) continue;
     if (isCoreTool(tool)) core.push(tool);
-    else onDemand.push(tool);
   }
 
-  let out = "## Available tools (call any by name when needed):\n";
-  out += "### Core (always available):\n";
+  let out = "## Core tools (registered for native function calling):\n";
   for (const t of core) {
     out += `- ${t.name}: ${oneLineDescription(t)}\n`;
   }
-  out += "\n### On demand (request when relevant):\n";
-  for (const t of onDemand) {
-    out += `- ${t.name}: ${oneLineDescription(t)}\n`;
-  }
-  out += "\nTo use any tool, simply call it. Full parameter details are provided when you invoke the tool.";
+  out +=
+    "\nUse the registered function tools above. Additional tools load automatically when first invoked — do not emit XML tool syntax in visible text.";
   out +=
     "\n\nGit operations: use **run_command** with git CLI (git status, git log, git diff). Do not read .git/objects manually.";
   return out;

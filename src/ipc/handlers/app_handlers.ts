@@ -13,7 +13,11 @@ import type {
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { getAtlarixAppPath, getUserDataPath } from "../../paths/paths";
+import {
+  getAtlarixAppPath,
+  getUserDataPath,
+  isAtlarixManagedWorkspacePath,
+} from "../../paths/paths";
 import { ChildProcess, spawn } from "node:child_process";
 import { promises as fsPromises } from "node:fs";
 
@@ -1244,26 +1248,38 @@ export function registerAppHandlers() {
           );
         }
 
-        // NOTE: We do NOT delete the source files because:
-        // 1. We now store absolute paths to the ORIGINAL project location
-        // 2. Deleting the user's source code would be destructive and unexpected
-        // 3. This handler only removes the workspace REGISTRATION from Atlarix
+        // Remove clone folders under Atlarix-managed roots (atlarix-apps, ~/Documents/Atlarix).
+        const workspacePath = path.isAbsolute(app.path)
+          ? path.resolve(app.path)
+          : getAtlarixAppPath(app.path);
+        if (isAtlarixManagedWorkspacePath(workspacePath)) {
+          try {
+            if (fs.existsSync(workspacePath)) {
+              await fsPromises.rm(workspacePath, { recursive: true, force: true });
+              logger.log(`Deleted managed workspace files at ${workspacePath}`);
+            }
+          } catch (error: any) {
+            logger.warn(
+              `Could not delete managed workspace path ${workspacePath}: ${error.message}`,
+            );
+          }
+        }
 
         // Clean up any legacy copied files in atlarix-apps folder (if they exist)
-        // This handles workspaces created before the direct-path change
         const legacyInternalPath = getAtlarixAppPath(app.name);
         try {
-          if (fs.existsSync(legacyInternalPath)) {
+          if (
+            legacyInternalPath !== workspacePath &&
+            fs.existsSync(legacyInternalPath)
+          ) {
             await fsPromises.rm(legacyInternalPath, { recursive: true, force: true });
             logger.log(`Deleted legacy copied files at ${legacyInternalPath}`);
           }
         } catch (error: any) {
           logger.warn(`Could not delete legacy path ${legacyInternalPath}: ${error.message}`);
-          // Don't throw - this is just cleanup
         }
 
         // Clean up any remaining database records (workspaceModifications by path)
-        const workspacePath = path.isAbsolute(app.path) ? app.path : legacyInternalPath;
         try {
           await onWorkspaceRemoved(workspacePath);
           logger.info(`Database cleanup completed for: ${workspacePath}`);

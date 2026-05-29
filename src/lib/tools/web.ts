@@ -19,6 +19,9 @@ import {
 import { smartSearch, isSearxngEnabled } from "../search";
 import createBm25Engine from "wink-bm25-text-search";
 
+const WEB_SEARCH_SETUP_HINT =
+  "\n\n**Search setup:** For more reliable results, enable **SearxNG** in Settings → Search (Docker auto-setup), or configure a **search MCP** server. Atlarix cannot enable these automatically.";
+
 // ===== HELPER FUNCTIONS (used by web tools below) =====
 
 function extractReadableContent(html: string, contentType: string): string {
@@ -540,7 +543,7 @@ _SearxNG is a privacy-respecting meta-search engine that aggregates results from
             }
 
             return {
-                text: `❌ Web search error: ${errorMessage}`,
+                text: `❌ Web search error: ${errorMessage}${WEB_SEARCH_SETUP_HINT}`,
                 sources: []
             };
         }
@@ -1209,7 +1212,7 @@ class WebSearchAggregator {
      */
     private formatResults(originalQuery: string, results: SearchResult[]): string {
         if (results.length === 0) {
-            return `**No results found for: "${originalQuery}"**\n\n💡 **Suggestions:**\n- Try different keywords\n- Be more specific\n- Check spelling`;
+            return `**No results found for: "${originalQuery}"**\n\n💡 **Suggestions:**\n- Try different keywords\n- Be more specific\n- Check spelling${WEB_SEARCH_SETUP_HINT}`;
         }
 
         const lines: string[] = [

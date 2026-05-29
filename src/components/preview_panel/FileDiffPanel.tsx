@@ -17,7 +17,7 @@ import {
 } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
 import { IpcClient } from '@/ipc/ipc_client';
-import { PermissionQueuePanel } from '@/components/PermissionQueuePanel';
+import { InlinePermissionsHint } from '@/components/chat/InlinePermissionsHint';
 import {
     File,
     FilePlus,
@@ -168,13 +168,10 @@ export function FileDiffPanel({ data, activeTab }: FileDiffPanelProps) {
     }, [chatId, approvalState, setPendingProposals]);
 
     if (proposals.length === 0) {
-        // When no proposals, still show PermissionQueuePanel for real-time queue
-        return <PermissionQueuePanel chatId={chatId} />;
+        return <InlinePermissionsHint />;
     }
 
-    // Unified view - PermissionQueuePanel handles everything now
-    // It shows each operation as a collapsible card with inline approve/reject
-    return <PermissionQueuePanel chatId={chatId} />;
+    return <InlinePermissionsHint />;
 }
 
 /**

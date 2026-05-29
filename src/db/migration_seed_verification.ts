@@ -190,6 +190,30 @@ export function isJournalMigrationApplied(
       );
     case "0052_message_model_content":
       return columnExists(sqlite, "messages", "model_content");
+    case "0053_message_paste_attachments":
+      return columnExists(sqlite, "messages", "paste_attachments");
+    case "0054_message_file_attachments":
+      return columnExists(sqlite, "messages", "file_attachments");
+    case "0055_session_message_attachments":
+      return (
+        columnExists(sqlite, "session_messages", "model_content") &&
+        columnExists(sqlite, "session_messages", "file_attachments")
+      );
+    case "0056_workspace_command_permissions":
+      return tableExists(sqlite, "workspace_command_permissions");
+    case "0057_workspace_file_permissions":
+      return tableExists(sqlite, "workspace_file_permissions");
+    case "0053_message_paste_attachments":
+      return columnExists(sqlite, "messages", "paste_attachments");
+    case "0054_message_file_attachments":
+      return columnExists(sqlite, "messages", "file_attachments");
+    case "0055_session_message_attachments":
+      return (
+        columnExists(sqlite, "session_messages", "model_content") &&
+        columnExists(sqlite, "session_messages", "file_attachments")
+      );
+    case "0056_workspace_command_permissions":
+      return tableExists(sqlite, "workspace_command_permissions");
     default:
       return false;
   }

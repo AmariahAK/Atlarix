@@ -29,6 +29,8 @@ import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
+import { ToolIndicator } from "@/components/chat/ToolIndicator";
+import { SlowStreamWarningBar } from "@/components/chat/SlowStreamWarningBar";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -41,14 +43,13 @@ export function SimpleInlineChat({
 }: SimpleInlineChatProps) {
     const messagesById = useAtomValue(chatMessagesByIdAtom);
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-    const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
+    const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const errorById = useAtomValue(chatErrorByIdAtom);
     const setErrorById = useSetAtom(chatErrorByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
-    // IMPORTANT: This component renders on non-"/chat" routes; avoid route-scoped search hooks.
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const [chatAppId, setChatAppId] = useState<number | null>(() =>
         selectedAppId != null ? selectedAppId : null,
@@ -67,14 +68,14 @@ export function SimpleInlineChat({
         messagesEndRef.current?.scrollIntoView({ behavior });
     }, []);
 
-    // Scroll on new messages
+    const streamCount = streamCountById.get(chatId) ?? 0;
+
     useEffect(() => {
         if (chatId) {
-            scrollToBottom("instant");
+            scrollToBottom("auto");
         }
-    }, [chatId, streamCountById.get(chatId) ?? 0, scrollToBottom]);
+    }, [chatId, streamCount, scrollToBottom]);
 
-    // Fetch initial messages
     const fetchMessages = useCallback(async () => {
         const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
         if (existing && existing.length > 0) {
@@ -109,7 +110,6 @@ export function SimpleInlineChat({
     const visibleMessages = sliceLastExchanges(messages, 7);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const error = errorById.get(chatId) ?? null;
-
     const handleNewChat = useCallback(async () => {
         const workspaceId = selectedAppId ?? chatAppId;
         if (workspaceId != null) {
@@ -133,18 +133,13 @@ export function SimpleInlineChat({
                 "@/lib/chat/apply-stream-display-hydration"
             );
             applyStreamDisplayHydration(chat.messages);
-            // Re-stream continuing from the edited message (continueAfterQuestions avoids inserting a new user row).
             streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
         },
         [chatId, setMessagesById, streamMessage],
     );
 
     return (
-        // PASS8 H1: `min-h-0` allows the flex-1 scroll child below to shrink past
-        // its intrinsic content height. Without it the growing composer pushes
-        // the message thread off-screen and the last messages become unreachable.
         <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
-            {/* Fix: Finding 2 — pinned New Chat (always visible) */}
             <div className="flex-shrink-0 z-10 flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-border/40 bg-background/95">
                 <button
                     type="button"
@@ -194,8 +189,6 @@ export function SimpleInlineChat({
                 </div>
             )}
 
-            {/* Messages area - ONLY this should scroll */}
-            {/* PASS8 H1: `min-h-0` so this child can shrink when the composer grows. */}
             <div
                 ref={messagesContainerRef}
                 className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4"
@@ -204,8 +197,7 @@ export function SimpleInlineChat({
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
                         <span>Starting chat…</span>
                         <span className="text-xs max-w-sm">
-                            Workspace conversations save as sessions in the sidebar — resume anytime. Terminal output and panel state persist until you start a new chat. Long-term context also lives in project memory and files under{" "}
-                            <code className="text-[10px] bg-muted px-1 rounded">.atlarix</code> (including the plan file).
+                            Workspace conversations save as sessions in the sidebar — resume anytime.
                         </span>
                     </div>
                 ) : (
@@ -222,7 +214,6 @@ export function SimpleInlineChat({
                     ))
                 )}
 
-                {/* Typing indicator when streaming with no assistant response yet */}
                 {isStreaming && visibleMessages.length > 0 &&
                     visibleMessages[visibleMessages.length - 1].role === "user" && (
                         <div className="flex justify-start">
@@ -239,12 +230,16 @@ export function SimpleInlineChat({
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* ask_user: PersistentChatContainer uses this overlay; HomeChatInput is unmounted — bar must live here */}
-            <div className="flex-shrink-0 px-4 pb-2">
+            <div className="flex-shrink-0 px-4 pb-2 space-y-2">
+                <ToolIndicator forChatId={chatId} />
+                <SlowStreamWarningBar
+                    chatId={chatId}
+                    isStreaming={isStreaming}
+                    requireBuildMode={false}
+                />
                 <UserQuestionBar chatId={chatId} />
             </div>
 
-            {/* Rich input with model switcher */}
             <SimpleChatInput
                 chatId={chatId}
                 onSubmit={(prompt, attachments) => {

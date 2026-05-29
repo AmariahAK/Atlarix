@@ -61,6 +61,8 @@ import { registerTeamHandlers } from "./handlers/team_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
+import { registerCommandPermissionHandlers } from "./handlers/command_permission_handlers";
+import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/diagram_handlers"; // Auto-registers on import
@@ -137,4 +139,6 @@ export function registerIpcHandlers() {
   registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
   registerPlanArtifactHandlers();
+  registerCommandPermissionHandlers();
+  registerFilePermissionHandlers();
 }

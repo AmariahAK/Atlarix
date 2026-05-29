@@ -1,3 +1,13 @@
+/** Strip hallucinated Atlarix tool XML from a streaming text-delta (no trim). */
+export function stripHallucinatedAtlarixToolTagsFromDelta(text: string): string {
+  if (!text) return "";
+  let out = text;
+  out = out.replace(/<\/?atlarix-tool_calls\b[^>]*>/gi, "");
+  out = out.replace(/<\/?atlarix-(?:tool|mcp)-[\w-]*[^>]*>/gi, "");
+  out = out.replace(/<atlarix-tool[_-][\w-]*(?:\s[^>]*)?$/gi, "");
+  return out;
+}
+
 /** Remove orphan tool XML fragments and JSON tails leaked into markdown. */
 export function stripOrphanToolTagFragments(content: string): string {
   if (!content) return "";

@@ -219,7 +219,6 @@ ToolRegistry.register({
         end_line,
         workspace,
     }) => {
-        let displayPath: string | undefined;
         try {
             let filePath = pathArg || file_path;
 
@@ -233,27 +232,37 @@ ToolRegistry.register({
                 return structured;
             }
 
-            try {
-                displayPath = workspace
-                    ? safeRelativePathUnderWorkspace(filePath)
-                    : stripToolPathPrefixes(filePath);
-            } catch (normErr) {
-                const structured = readFileStructuredError(normErr, String(filePath));
-                if (structured) {
-                    logReadFileError(structured);
-                    return structured;
+            const rawPath = String(filePath);
+            const normalizedAbsolute = path.isAbsolute(rawPath)
+                ? path.normalize(rawPath)
+                : null;
+            const toolOutputSpill =
+                normalizedAbsolute != null &&
+                isAllowedToolOutputPath(normalizedAbsolute);
+
+            let displayPath: string;
+            if (toolOutputSpill) {
+                displayPath = normalizedAbsolute!;
+            } else {
+                try {
+                    displayPath = workspace
+                        ? safeRelativePathUnderWorkspace(filePath)
+                        : stripToolPathPrefixes(filePath);
+                } catch (normErr) {
+                    const structured = readFileStructuredError(normErr, rawPath);
+                    if (structured) {
+                        logReadFileError(structured);
+                        return structured;
+                    }
+                    throw normErr;
                 }
-                throw normErr;
             }
 
-            const strippedPath = stripToolPathPrefixes(filePath);
-            const toolOutputSpill =
-                path.isAbsolute(strippedPath) && isAllowedToolOutputPath(strippedPath);
             const fullPath = toolOutputSpill
-                ? path.normalize(strippedPath)
+                ? normalizedAbsolute!
                 : workspace
                   ? resolvePathUnderWorkspace(workspace, filePath)
-                  : path.resolve(strippedPath);
+                  : path.resolve(stripToolPathPrefixes(filePath));
 
             try {
                 if (toolOutputSpill) {

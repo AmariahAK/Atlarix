@@ -13,6 +13,10 @@ export const SENTRY_IGNORE_ERROR_PATTERNS: RegExp[] = [
   /Upgrade to Pro for unlimited workspaces/i,
   /Free tier is limited to 1 MCP/i,
   /Missing grammar for scope:/i,
+  /invalid pattern in look-behind/i,
+  /look-behind/i,
+  /OnigScanner/i,
+  /OnigScanner\.findNextMatchSync/i,
   /Failed to load TypeScript from[\s\S]*Cannot find module 'typescript'/i,
 ];
 

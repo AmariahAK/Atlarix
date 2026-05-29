@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 
 import { ImportAppParams, ImportAppResult } from "../ipc_types";
 import { importWorkspaceFromPath } from "./import_workspace_core";
+import { resolveAppPath } from "@/paths/paths";
 
 const logger = log.scope("import-handlers");
 const handle = createLoggedHandler(logger);
@@ -53,15 +54,19 @@ export function registerImportHandlers() {
       }: ImportAppParams,
     ): Promise<ImportAppResult> => {
       const isRemoteUri = sourcePath.startsWith("atlarix-remote://");
+      const resolvedPath =
+        !isRemoteUri && !path.isAbsolute(sourcePath)
+          ? resolveAppPath(sourcePath)
+          : sourcePath;
       if (!isRemoteUri) {
         try {
-          await fs.access(sourcePath);
+          await fs.access(resolvedPath);
         } catch {
           throw new Error("Source folder does not exist");
         }
       }
       return importWorkspaceFromPath({
-        path: sourcePath,
+        path: resolvedPath,
         appName,
         installCommand,
         startCommand,

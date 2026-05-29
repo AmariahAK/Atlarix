@@ -502,7 +502,13 @@ export async function gitClone({
   accessToken,
   singleBranch = true,
   depth,
+  signal,
 }: GitCloneParams): Promise<void> {
+  if (signal?.aborted) {
+    const err = new Error("Clone cancelled");
+    err.name = "AbortError";
+    throw err;
+  }
   const settings = readSettings();
   if (settings.enableNativeGit) {
     // Dugite version (real Git)
@@ -519,8 +525,13 @@ export async function gitClone({
       args.push("--single-branch");
     }
     args.push(finalUrl, path);
-    const result = await exec(args, ".");
+    const result = await exec(args, ".", { signal });
 
+    if (signal?.aborted) {
+      const err = new Error("Clone cancelled");
+      err.name = "AbortError";
+      throw err;
+    }
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.toString());
     }
@@ -542,6 +553,11 @@ export async function gitClone({
       singleBranch,
       depth: depth ?? undefined,
     });
+    if (signal?.aborted) {
+      const err = new Error("Clone cancelled");
+      err.name = "AbortError";
+      throw err;
+    }
   }
 }
 

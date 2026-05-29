@@ -21,6 +21,10 @@ import type { GithubRepository } from "@/ipc/ipc_types";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useSetAtom } from "jotai";
 import { useLoadApps } from "@/hooks/useLoadApps";
+import { useGithubCloneFlow } from "@/hooks/useGithubCloneFlow";
+import { CloneDestinationFields } from "@/components/welcome/CloneDestinationFields";
+import { CloneProgressOverlay } from "@/components/welcome/CloneProgressOverlay";
+import { openWorkspaceByAppId } from "@/lib/open-workspace-session";
 import {
   Accordion,
   AccordionContent,
@@ -49,8 +53,19 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
   const [repos, setRepos] = useState<GithubRepository[]>([]);
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState("");
-  const [importing, setImporting] = useState(false);
   const { settings, refreshSettings } = useSettings();
+  const {
+    targetParentDir,
+    cloning,
+    cloneProgress,
+    cloneMessage,
+    activeRepo,
+    resolveTargetPath,
+    chooseFolder,
+    ensureFolder,
+    cancelClone,
+    runClone,
+  } = useGithubCloneFlow();
   const isAuthenticated = !!settings?.githubAccessToken;
 
   const [githubAppName, setGithubAppName] = useState("");
@@ -100,62 +115,53 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
     const match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
     return match ? match[2] : null;
   };
+  const finishGithubClone = async (
+    cloneUrl: string,
+    appName: string,
+    repoLabel?: string,
+  ) => {
+    if (!(await ensureFolder())) return;
+
+    const result = await runClone({
+      url: cloneUrl,
+      appName,
+      installCommand: installCommand.trim() || undefined,
+      startCommand: startCommand.trim() || undefined,
+      repoLabel,
+    });
+    if (!result) return;
+
+    setSelectedAppId(result.app.id);
+    showSuccess(`Successfully imported ${result.app.name}`);
+    onClose();
+    await openWorkspaceByAppId({
+      appId: result.app.id,
+      folderPath: result.app.path,
+      navigate: (opts) => navigate(opts),
+      refreshApps,
+    });
+  };
+
   const handleImportFromUrl = async () => {
-    setImporting(true);
-    try {
-      const match = extractRepoNameFromUrl(url);
-      const repoName = match ? match[2] : "";
-      const appName = githubAppName.trim() || repoName;
-      const result = await IpcClient.getInstance().cloneRepoFromUrl({
-        url,
-        installCommand: installCommand.trim() || undefined,
-        startCommand: startCommand.trim() || undefined,
-        appName,
-      });
-      if ("error" in result) {
-        showError(result.error);
-        setImporting(false);
-        return;
-      }
-      setSelectedAppId(result.app.id);
-      showSuccess(`Successfully imported ${result.app.name}`);
-      const chatId = await IpcClient.getInstance().createChat(result.app.id);
-      navigate({ to: "/chat", search: { id: chatId } });
-      onClose();
-    } catch (error: unknown) {
-      showError("Failed to import repository: " + (error as any).toString());
-    } finally {
-      setImporting(false);
-    }
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    const appName =
+      githubAppName.trim() || extractRepoNameFromUrl(trimmed) || "repo";
+    await finishGithubClone(trimmed, appName);
   };
 
   const handleSelectRepo = async (repo: GithubRepository) => {
-    setImporting(true);
-
-    try {
-      const appName = githubAppName.trim() || repo.name;
-      const result = await IpcClient.getInstance().cloneRepoFromUrl({
-        url: `https://github.com/${repo.full_name}.git`,
-        installCommand: installCommand.trim() || undefined,
-        startCommand: startCommand.trim() || undefined,
-        appName,
-      });
-      if ("error" in result) {
-        showError(result.error);
-        setImporting(false);
-        return;
-      }
-      setSelectedAppId(result.app.id);
-      showSuccess(`Successfully imported ${result.app.name}`);
-      const chatId = await IpcClient.getInstance().createChat(result.app.id);
-      navigate({ to: "/chat", search: { id: chatId } });
-      onClose();
-    } catch (error: unknown) {
-      showError("Failed to import repository: " + (error as any).toString());
-    } finally {
-      setImporting(false);
-    }
+    const appName = githubAppName.trim() || repo.name;
+    await finishGithubClone(
+      `https://github.com/${repo.full_name}.git`,
+      appName,
+      repo.full_name,
+    );
   };
+
+  const githubWorkspaceName =
+    githubAppName.trim() || extractRepoNameFromUrl(url.trim()) || "repo";
+  const githubDestinationPreview = resolveTargetPath(githubWorkspaceName);
 
   const handleGithubAppNameChange = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -263,8 +269,13 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
   const hasStartCommand = startCommand.trim().length > 0;
   const commandsValid = hasInstallCommand === hasStartCommand;
 
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open && cloning) return;
+    if (!open) onClose();
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] max-h-[98vh] overflow-y-auto flex flex-col p-0">
         <DialogHeader className="sticky top-0 bg-background border-b px-6 py-4">
           <DialogTitle>Import App</DialogTitle>
@@ -444,7 +455,20 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                 </Button>
               </DialogFooter>
             </TabsContent>
-            <TabsContent value="github-repos" className="space-y-4">
+            <TabsContent value="github-repos" className="space-y-4 relative">
+              <CloneProgressOverlay
+                visible={cloning}
+                message={cloneMessage}
+                progress={cloneProgress}
+                activeRepo={activeRepo}
+                onCancel={cancelClone}
+              />
+              <CloneDestinationFields
+                targetParentDir={targetParentDir}
+                destinationPreview={githubDestinationPreview}
+                onChooseFolder={() => void chooseFolder()}
+                disabled={cloning}
+              />
               {!isAuthenticated ? (
                 <UnconnectedGitHubConnector
                   appId={null}
@@ -471,7 +495,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                       onChange={handleGithubAppNameChange}
                       placeholder="Leave empty to use repository name"
                       className="w-full pr-8 text-sm"
-                      disabled={importing}
+                      disabled={cloning}
                     />
                     {isCheckingGithubName && (
                       <div className="absolute right-2 top-1/2 -translate-y-1/2">
@@ -508,11 +532,11 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleSelectRepo(repo)}
-                          disabled={importing}
+                          onClick={() => void handleSelectRepo(repo)}
+                          disabled={cloning || !targetParentDir}
                           className="flex-shrink-0 text-xs"
                         >
-                          {importing ? (
+                          {cloning ? (
                             <Loader2 className="animate-spin h-4 w-4" />
                           ) : (
                             "Import"
@@ -541,7 +565,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                                 }
                                 placeholder="pnpm install"
                                 className="text-sm"
-                                disabled={importing}
+                                disabled={cloning}
                               />
                             </div>
                             <div className="grid gap-2">
@@ -555,7 +579,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                                 }
                                 placeholder="pnpm dev"
                                 className="text-sm"
-                                disabled={importing}
+                                disabled={cloning}
                               />
                             </div>
                             {!commandsValid && (
@@ -568,17 +592,35 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                       </Accordion>
                     </>
                   )}
+                  {!targetParentDir ? (
+                    <p className="text-xs text-muted-foreground">
+                      Choose a save folder above before importing a repository.
+                    </p>
+                  ) : null}
                 </>
               )}
             </TabsContent>
-            <TabsContent value="github-url" className="space-y-4">
+            <TabsContent value="github-url" className="space-y-4 relative">
+              <CloneProgressOverlay
+                visible={cloning}
+                message={cloneMessage}
+                progress={cloneProgress}
+                activeRepo={activeRepo}
+                onCancel={cancelClone}
+              />
+              <CloneDestinationFields
+                targetParentDir={targetParentDir}
+                destinationPreview={githubDestinationPreview}
+                onChooseFolder={() => void chooseFolder()}
+                disabled={cloning}
+              />
               <div className="space-y-2">
                 <Label className="text-xs sm:text-sm">Repository URL</Label>
                 <Input
                   placeholder="https://github.com/user/repo.git"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  disabled={importing}
+                  disabled={cloning}
                   onBlur={handleUrlBlur}
                   className="text-sm break-all"
                 />
@@ -591,7 +633,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                   value={githubAppName}
                   onChange={handleGithubAppNameChange}
                   placeholder="Leave empty to use repository name"
-                  disabled={importing}
+                  disabled={cloning}
                   className="text-sm"
                 />
                 {isCheckingGithubName && (
@@ -622,7 +664,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                         onChange={(e) => setInstallCommand(e.target.value)}
                         placeholder="pnpm install"
                         className="text-sm"
-                        disabled={importing}
+                        disabled={cloning}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -634,7 +676,7 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
                         onChange={(e) => setStartCommand(e.target.value)}
                         placeholder="pnpm dev"
                         className="text-sm"
-                        disabled={importing}
+                        disabled={cloning}
                       />
                     </div>
                     {!commandsValid && (
@@ -647,11 +689,13 @@ export function ImportAppDialog({ isOpen, onClose }: ImportAppDialogProps) {
               </Accordion>
 
               <Button
-                onClick={handleImportFromUrl}
-                disabled={importing || !url.trim() || !commandsValid}
+                onClick={() => void handleImportFromUrl()}
+                disabled={
+                  cloning || !url.trim() || !targetParentDir || !commandsValid
+                }
                 className="w-full"
               >
-                {importing ? (
+                {cloning ? (
                   <>
                     <Loader2 className="animate-spin mr-2 h-4 w-4" />
                     Importing...

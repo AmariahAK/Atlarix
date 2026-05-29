@@ -27,16 +27,24 @@ import {
     AlertTriangle,
     Trash2,
     Shield,
-    Globe,
     ExternalLink as LinkIcon,
     Sparkles,
     History,
     Lightbulb,
     Check
 } from 'lucide-react';
-import { PermissionQueuePanel } from '../PermissionQueuePanel';
+import { InlinePermissionsHint } from '@/components/chat/InlinePermissionsHint';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
-import { type SourceItem, type TerminalOutput, browserErrorsAtom, dismissedErrorSignaturesAtom, visibleBrowserErrorsAtom, getErrorSignature, diagramStateAtom, selectedErrorForCodeAtom } from '@/atoms/sourceAtoms';
+import {
+    type TerminalOutput,
+    browserErrorsAtom,
+    dismissedErrorSignaturesAtom,
+    visibleBrowserErrorsAtom,
+    getErrorSignature,
+    diagramStateAtom,
+    selectedErrorForCodeAtom,
+    previewTabAtom,
+} from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { WorkspaceFileTree } from '@/components/workspace/WorkspaceFileTree';
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
@@ -53,7 +61,6 @@ interface CodePreviewPanelProps {
         terminal?: { output: string[]; running: boolean };
         terminalOutputs?: Map<string, TerminalOutput>;
         errors?: ParsedError[];
-        sources?: SourceItem[];  // Web search sources for search tab
         chatId?: number;         // For permissions tab
         workspacePath?: string;  // For live code editor
     } | null;
@@ -85,7 +92,6 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
     const currentFile = data?.file;
     const terminalData = data?.terminal;
     const errorsData = data?.errors !== undefined ? visibleErrors : (data?.errors || []);
-    const sourcesData = data?.sources || [];
     const chatId = data?.chatId;
     const workspacePath = data?.workspacePath || '';
 
@@ -123,8 +129,15 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                             errors={errorsData}
                             workspacePath={workspacePath}
                             appId={currentAppId}
+                            files={
+                                currentAppId &&
+                                currentApp?.id === currentAppId
+                                    ? (currentApp?.files ?? [])
+                                    : undefined
+                            }
                             selectedErrorForCode={selectedErrorForCode}
                             onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
+                            onSwitchToCode={onSwitchToCode}
                         />
                     </div>
                 </div>
@@ -150,13 +163,7 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                 />
             )}
             {activeTab === 'permissions' && (
-                <PermissionsTab chatId={chatId} />
-            )}
-            {activeTab === 'search' && (
-                <SearchTab
-                    sources={sourcesData}
-                    appId={currentAppId}
-                />
+                <PermissionsTab />
             )}
         </div>
     );
@@ -420,15 +427,19 @@ function CodeTab({
     errors = [],
     workspacePath = '',
     appId = null,
+    files,
     selectedErrorForCode = null,
     onSelectedErrorForCodeConsumed = () => {},
+    onSwitchToCode,
 }: {
     file?: { path: string; content: string };
     errors?: ParsedError[];
     workspacePath?: string;
     appId?: number | null;
+    files?: string[];
     selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
     onSelectedErrorForCodeConsumed?: () => void;
+    onSwitchToCode?: () => void;
 }) {
     const { data: appFilesData, isLoading: appFilesLoading } = useQuery({
         queryKey: ['app-files', appId],
@@ -437,10 +448,10 @@ function CodeTab({
             return IpcClient.getInstance().getAppFiles(appId);
         },
         enabled: appId != null,
-        staleTime: 60_000,
-        refetchOnWindowFocus: false,
+        staleTime: 5_000,
+        refetchOnWindowFocus: true,
     });
-    const workspaceFiles = appFilesData?.files ?? [];
+    const workspaceFiles = files ?? appFilesData?.files ?? [];
     const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
     const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
     const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
@@ -542,7 +553,7 @@ function CodeTab({
                         Files
                     </div>
                     <div className="flex-1 overflow-auto min-h-0">
-                        {appFilesLoading ? (
+                        {appFilesLoading && files == null ? (
                             <div className="flex items-center justify-center p-3 text-muted-foreground">
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
                             </div>
@@ -551,6 +562,7 @@ function CodeTab({
                             files={workspaceFiles}
                             onFileClick={(path) => {
                                 setSelectedFilePathFromTree(path);
+                                onSwitchToCode?.();
                                 if (treeOpenLineRef.current && path !== treeOpenLineRef.current.path) {
                                     treeOpenLineRef.current = null;
                                 }
@@ -716,10 +728,21 @@ function ErrorsTab({
 
     if (errors.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 bg-[#1e1e1e]">
-                <Shield className="w-12 h-12 mb-3 opacity-20 text-green-500" />
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 bg-[#1e1e1e] gap-3">
+                <Shield className="w-12 h-12 opacity-20 text-green-500" />
                 <p className="text-sm text-green-500/80">No errors detected</p>
-                <p className="text-xs text-zinc-500">Dev server output is clean</p>
+                <p className="text-xs text-zinc-500 text-center max-w-xs">
+                    Open and edit project files in the <strong className="text-zinc-400">Code</strong> tab.
+                </p>
+                {onSwitchToCode ? (
+                    <button
+                        type="button"
+                        onClick={onSwitchToCode}
+                        className="text-xs px-3 py-1.5 rounded-md border border-border/60 bg-muted/30 hover:bg-muted/50 transition-colors"
+                    >
+                        Go to Code tab
+                    </button>
+                ) : null}
             </div>
         );
     }
@@ -1053,81 +1076,10 @@ function ErrorsTab({
  * Permissions Tab - Show pending permission requests
  * Features empty state when no permissions pending
  */
-function PermissionsTab({ chatId }: { chatId?: number }) {
+function PermissionsTab() {
     return (
         <div className="flex flex-col h-full">
-            <PermissionQueuePanel chatId={chatId} />
-        </div>
-    );
-}
-
-/**
- * Search Tab - Web search results only (codebase search lives in Code tab)
- */
-function SearchTab({ sources }: { sources: SourceItem[]; appId: number | null }) {
-    return (
-        <div className="flex flex-col h-full bg-background">
-            {/* Web Search Results Header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20 flex-shrink-0">
-                <Globe className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">Web Results</span>
-                <span className="ml-auto text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                    {sources.length} source{sources.length !== 1 ? 's' : ''}
-                </span>
-            </div>
-
-            {/* Web Source List */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
-                {sources.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                        <Globe className="w-10 h-10 mb-2 opacity-40" />
-                        <p className="text-xs">Web search URLs will appear here when AI searches</p>
-                    </div>
-                ) : sources.map((source) => (
-                    <a
-                        key={source.id}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
-                    >
-                        <div className="flex items-start gap-3">
-                            {/* Favicon */}
-                            {source.favicon ? (
-                                <img
-                                    src={source.favicon}
-                                    alt=""
-                                    className="w-5 h-5 rounded mt-0.5"
-                                />
-                            ) : (
-                                <Globe className="w-5 h-5 text-muted-foreground mt-0.5" />
-                            )}
-
-                            <div className="flex-1 min-w-0">
-                                {/* Title */}
-                                <h4 className="text-sm font-medium text-foreground line-clamp-1">
-                                    {source.title}
-                                </h4>
-
-                                {/* URL */}
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                    {source.url}
-                                </p>
-
-                                {/* Snippet */}
-                                {source.snippet && (
-                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                        {source.snippet}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* External link indicator */}
-                            <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                        </div>
-                    </a>
-                ))}
-            </div>
+            <InlinePermissionsHint />
         </div>
     );
 }

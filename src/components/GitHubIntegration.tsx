@@ -2,20 +2,24 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Github } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
+import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
 
 export function GitHubIntegration() {
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, refreshSettings } = useSettings();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   const handleDisconnectFromGithub = async () => {
     setIsDisconnecting(true);
     try {
+      IpcClient.getInstance().cancelGithubDeviceFlow();
       const result = await updateSettings({
         githubAccessToken: undefined,
+        githubUser: undefined,
       });
+      await refreshSettings();
       if (result) {
-        showSuccess("Successfully disconnected from GitHub");
+        showSuccess("Disconnected from GitHub. Connect again to use another account.");
       } else {
         showError("Failed to disconnect from GitHub");
       }

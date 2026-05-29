@@ -16,6 +16,7 @@ import {
   repairBracketMermaidLabels,
   repairSequenceDiagramMessages,
   mergeBrokenSequenceMessageLines,
+  isIncompleteMindmapSource,
 } from "@/lib/sanitizeMermaid";
 
 const MERMAID_DEBOUNCE_MS = 500;
@@ -25,7 +26,9 @@ function looksRenderableMermaidSource(source: string): boolean {
     const t = source.trim();
     if (t.length < 12) return false;
     const lines = t.split("\n").filter((l) => l.trim().length > 0);
-    return lines.length >= 2;
+    if (lines.length < 2) return false;
+    if (isIncompleteMindmapSource(t)) return false;
+    return true;
 }
 
 const MERMAID_USER_ERROR_TITLE = "Diagram couldn't render";
@@ -362,6 +365,10 @@ export function MermaidRenderer({
                 if (maybeMsg.trim()) {
                     errorMessage = maybeMsg.trim();
                 }
+            }
+            if (/only one root|No parent could be found/i.test(errorMessage)) {
+                setError(null);
+                return;
             }
             console.error("[MermaidRenderer] Error:", err, { errorMessage });
             setError(errorMessage);

@@ -60,6 +60,8 @@ export interface UnconnectedGitHubConnectorProps {
   refreshSettings: () => void;
   handleRepoSetupComplete: () => void;
   expanded?: boolean;
+  /** Welcome clone dialog: connect only; parent shows repo picker after token is saved. */
+  connectOnly?: boolean;
 }
 
 function ConnectedGitHubConnector({
@@ -294,6 +296,7 @@ export function UnconnectedGitHubConnector({
   refreshSettings,
   handleRepoSetupComplete,
   expanded,
+  connectOnly = false,
 }: UnconnectedGitHubConnectorProps) {
   // --- Collapsible State ---
   const [isExpanded, setIsExpanded] = useState(expanded || false);
@@ -389,8 +392,12 @@ export function UnconnectedGitHubConnector({
         setGithubVerificationUri(null);
         setGithubError(null);
         setIsConnectingToGithub(false);
-        refreshSettings();
-        setIsExpanded(true);
+        refreshSettings?.();
+        if (!connectOnly) {
+          setIsExpanded(true);
+        } else {
+          setGithubStatusMessage(null);
+        }
       });
     cleanupFunctions.push(removeSuccessListener);
 
@@ -410,7 +417,9 @@ export function UnconnectedGitHubConnector({
     // Cleanup function to remove all listeners when component unmounts or appId changes
     return () => {
       cleanupFunctions.forEach((cleanup) => cleanup());
-      // Reset state when appId changes or component unmounts
+      if (!connectOnly) {
+        IpcClient.getInstance().cancelGithubDeviceFlow();
+      }
       setGithubUserCode(null);
       setGithubVerificationUri(null);
       setGithubError(null);
@@ -418,6 +427,15 @@ export function UnconnectedGitHubConnector({
       setGithubStatusMessage(null);
     };
   }, []); // Re-run effect if appId changes
+
+  const handleCancelGithubConnect = () => {
+    IpcClient.getInstance().cancelGithubDeviceFlow();
+    setGithubUserCode(null);
+    setGithubVerificationUri(null);
+    setGithubStatusMessage(null);
+    setGithubError(null);
+    setIsConnectingToGithub(false);
+  };
 
   // Load available repos when GitHub is connected
   useEffect(() => {
@@ -553,7 +571,10 @@ export function UnconnectedGitHubConnector({
 
   if (!settings?.githubAccessToken) {
     return (
-      <div className="mt-1 w-full" data-testid="github-unconnected-repo">
+      <div
+        className={connectOnly ? "w-full" : "mt-1 w-full"}
+        data-testid="github-unconnected-repo"
+      >
         <Button
           onClick={handleConnectToGithub}
           className="cursor-pointer w-full py-5 flex justify-center items-center gap-2"
@@ -650,9 +671,28 @@ export function UnconnectedGitHubConnector({
                 {githubStatusMessage}
               </p>
             )}
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleCancelGithubConnect}
+              >
+                Cancel connection
+              </Button>
+            </div>
           </div>
         )}
       </div>
+    );
+  }
+
+  if (connectOnly) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Connected to GitHub. Pick a repository below.
+      </p>
     );
   }
 

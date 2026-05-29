@@ -11,7 +11,7 @@ import {
 } from "@/lib/chat/inline-timeline";
 import { InlineThoughtBlock } from "./InlineThoughtBlock";
 import { StreamToolCallCard } from "./StreamToolCallCard";
-import { InlinePermissionPrompts } from "./InlinePermissionPrompts";
+import { InlinePermissionApprovals } from "./InlinePermissionApprovals";
 
 export function MessageActivityTimeline({
   messageId,
@@ -57,7 +57,7 @@ export function MessageActivityTimeline({
           />
         ),
       )}
-      {isStreaming ? <InlinePermissionPrompts chatId={chatId} /> : null}
+      <InlinePermissionApprovals chatId={chatId} />
     </div>
   );
 }

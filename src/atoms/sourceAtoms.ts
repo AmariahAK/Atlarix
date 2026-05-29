@@ -218,6 +218,14 @@ export interface ActivityStreamItem {
   cost?: number;
   timestamp: number;
   detail?: string;
+  /** Full tool result JSON for chat expand panels (diff, search links, terminal output). */
+  resultText?: string;
+  /** Tool invocation args when available (for expand path/command preview). */
+  toolArgs?: Record<string, unknown>;
+  /** Full tool result JSON for chat expand panels (diff, search links, terminal output). */
+  resultText?: string;
+  /** Tool invocation args when available (for expand path/command preview). */
+  toolArgs?: Record<string, unknown>;
   parentId?: string;
   /** Delegation: agent id, task snippet, depth; for pipeline/graph */
   agent?: string;

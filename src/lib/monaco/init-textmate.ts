@@ -117,6 +117,21 @@ export async function initTextMateGrammars(): Promise<boolean> {
     }
     await wireTmGrammars(monaco, registry, grammarMap);
     textMateReady = true;
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("error", (event) => {
+        const msg = event.message ?? "";
+        if (
+          msg.includes("invalid pattern in look-behind") ||
+          msg.includes("look-behind") ||
+          msg.includes("OnigScanner")
+        ) {
+          event.preventDefault();
+          console.warn("[monaco] Suppressed TextMate tokenizer error:", msg);
+        }
+      });
+    }
+
     return true;
   } catch (err) {
     console.warn(

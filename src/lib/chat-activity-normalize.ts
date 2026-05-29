@@ -110,6 +110,11 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     tokens: typeof p.tokens === "number" ? p.tokens : undefined,
     cost: typeof p.cost === "number" ? p.cost : undefined,
     detail: p.detail != null ? String(p.detail) : undefined,
+    resultText: p.resultText != null ? String(p.resultText) : undefined,
+    toolArgs:
+      p.toolArgs && typeof p.toolArgs === "object" && !Array.isArray(p.toolArgs)
+        ? (p.toolArgs as Record<string, unknown>)
+        : undefined,
     parentId: p.parentId != null ? String(p.parentId) : undefined,
     agent: p.agent != null ? String(p.agent) : undefined,
     task: p.task != null ? String(p.task) : undefined,

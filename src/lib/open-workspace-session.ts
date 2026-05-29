@@ -171,6 +171,72 @@ async function resolveSessionAndChat(
   return { sessionId: session.id, chatId };
 }
 
+export type OpenWorkspaceByAppIdOptions = {
+  appId: number;
+  /** Absolute path for recents (falls back to app.path from DB) */
+  folderPath?: string;
+  navigate?: (opts: NavigateOptions) => void;
+  refreshApps?: () => Promise<void>;
+};
+
+/**
+ * Open a workspace already registered in the DB (e.g. after GitHub clone).
+ * Does not run import-app again.
+ */
+export async function openWorkspaceByAppId(
+  options: OpenWorkspaceByAppIdOptions,
+): Promise<OpenWorkspaceFolderResult | null> {
+  const { appId } = options;
+  try {
+    await options.refreshApps?.();
+    await IpcClient.getInstance().touchAppLastOpened(appId);
+
+    const app = await IpcClient.getInstance().getApp(appId);
+    if (app.pathExists === false) {
+      showError("Workspace folder not found. Remove it from the list and try again.");
+      return null;
+    }
+
+    const folderPath = options.folderPath?.trim() || app.path?.trim() || "";
+    const { sessionId, chatId } = await resolveSessionAndChat(appId);
+
+    const store = getDefaultStore();
+    attachWorkspaceToChat(chatId, appId, {
+      name: app.name,
+      path: folderPath || app.path || undefined,
+    });
+    store.set(selectedAppIdAtom, appId);
+    store.set(selectedWorkspaceInfoAtom, {
+      id: appId,
+      name: app.name,
+      path: folderPath || app.path || "",
+    });
+    store.set(activeWorkspaceSessionIdAtom, sessionId);
+    store.set(loadedSessionResumeAtom, false);
+    store.set(activeChatIdAtom, chatId);
+    store.set(selectedChatIdAtom, chatId);
+    store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
+
+    if (folderPath && !folderPath.startsWith("atlarix-remote://")) {
+      pushRecentWorkspace(folderPath);
+    }
+
+    options.navigate?.({ to: "/" });
+
+    return {
+      appId,
+      chatId,
+      sessionId,
+      path: folderPath || app.path || "",
+      name: app.name,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    showError(msg);
+    return null;
+  }
+}
+
 /**
  * Open a folder as workspace: import/focus app, bind session + chat, navigate to IDE.
  */

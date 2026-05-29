@@ -48,6 +48,8 @@ export type StreamThreadItem =
       /** @deprecated raw tool output; use expand */
       detail?: string;
       expand?: ToolExpandView;
+      toolArgs?: Record<string, unknown>;
+      resultText?: string;
       status: StreamThreadToolStatus;
       ts: number;
     }
@@ -151,6 +153,8 @@ function mergeToolItems(
       ...next,
       id: prev.id,
       toolName: prev.toolName || next.toolName,
+      toolArgs: next.toolArgs ?? prev.toolArgs,
+      resultText: next.resultText ?? prev.resultText,
       detail: next.detail ?? (next.status !== "running" ? prev.detail : undefined),
       expand: next.expand ?? prev.expand,
       summary:
@@ -164,6 +168,8 @@ function mergeToolItems(
     ...next,
     id: prev.id,
     toolName: prev.toolName,
+    toolArgs: next.toolArgs ?? prev.toolArgs,
+    resultText: next.resultText ?? prev.resultText,
     detail: next.detail ?? prev.detail,
     expand: next.expand ?? prev.expand,
   };
@@ -225,6 +231,7 @@ export function streamThreadItemFromToolStart(payload: {
   toolId?: string;
   toolName?: string;
   chatId?: number;
+  toolArgs?: Record<string, unknown>;
 }): StreamThreadItem {
   const registryName = resolveRegistryToolName(payload.toolId, payload.toolName);
   return {
@@ -233,6 +240,7 @@ export function streamThreadItemFromToolStart(payload: {
     toolName: registryName,
     summary: getToolRunningSummary(registryName),
     status: "running",
+    toolArgs: payload.toolArgs,
     ts: Date.now(),
   };
 }
@@ -247,7 +255,7 @@ function finalizeToolItem(
   const expand =
     opts?.expand ??
     (rawDetail
-      ? buildToolExpandView(registryName, undefined, rawDetail, status)
+      ? buildToolExpandView(registryName, item.toolArgs, rawDetail, status)
       : item.expand);
   return {
     ...item,
@@ -259,6 +267,7 @@ function finalizeToolItem(
         : getToolCompletedSummary(registryName)),
     detail: rawDetail,
     expand,
+    toolArgs: item.toolArgs,
   };
 }
 
@@ -433,14 +442,19 @@ export function streamThreadItemFromActivity(
         ? "error"
         : "done";
 
-    let rawDetail = item.detail?.trim();
+    let rawDetail = (item.resultText ?? item.detail)?.trim();
     if (isRunning && looksLikeToolArgsJson(rawDetail)) {
       rawDetail = undefined;
     }
 
     const expand =
       !isRunning && rawDetail
-        ? buildToolExpandView(registryName, undefined, rawDetail, status)
+        ? buildToolExpandView(
+            registryName,
+            item.toolArgs,
+            rawDetail,
+            status,
+          )
         : undefined;
 
     const runningSummary =
@@ -456,6 +470,8 @@ export function streamThreadItemFromActivity(
           getToolCompletedSummary(registryName),
       detail: rawDetail,
       expand,
+      toolArgs: item.toolArgs,
+      resultText: item.resultText,
       status,
       ts,
     };

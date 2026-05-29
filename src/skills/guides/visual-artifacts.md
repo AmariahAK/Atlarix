@@ -10,10 +10,9 @@ Use **one** primary visual per answer unless the user asked for multiple views.
 |-----------|-----|------------|
 | Multi-column rows (names, statuses, dates, text fields) | GFM **markdown table** | ASCII grid, chart fence |
 | Numeric series, rankings, counts, metrics | ` ```chart ` JSON fence | ASCII bar art, table with one numeric column |
-| Request/response flow, sequence, state machine, class/ER, dependencies | ` ```mermaid ` | markmap for flows |
+| Request/response flow, process steps, state machine, class/ER, dependencies | ` ```mermaid ` **flowchart** (flowchart TD/LR) | markmap for flows; sequenceDiagram only if user asks |
 | Timelines, Gantt schedules | ` ```mermaid ` with `gantt` | chart fence for dates |
 | Repo/folder tree, module outline, doc hierarchy, brainstorm branches | ` ```markmap ` | mermaid for pure hierarchies |
-| After `get_diagram` | Echo `mermaid_code` in ` ```mermaid ` | Paraphrase without the fence |
 
 ## Tables
 
@@ -57,12 +56,12 @@ Atlarix wraps diagrams in a collapsible artifact card with pan/zoom.
 Supported types include: `flowchart`, `sequenceDiagram`, `classDiagram`, `erDiagram`, `stateDiagram-v2`, `gantt`, `pie`, etc.
 
 Rules:
+- **Prefer flowchart TD or flowchart LR** for flows, request paths, and architecture—not sequenceDiagram (unless the user explicitly asks for a sequence).
 - First non-comment line must declare the diagram type.
 - Node IDs: no spaces—use `camelCase` or `snake_case`.
 - Labels with spaces/special chars: `A["Process (main)"]`
-- After `get_diagram`, always echo returned `mermaid_code` in a mermaid fence.
 
-**Flowchart example:**
+**Flowchart example (default for flows):**
 
 ```mermaid
 flowchart TD
@@ -70,7 +69,7 @@ flowchart TD
   API --> DB
 ```
 
-**Sequence example:**
+**Sequence (only when user asks):**
 
 ```mermaid
 sequenceDiagram

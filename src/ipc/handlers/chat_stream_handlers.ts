@@ -93,6 +93,9 @@ import {
   getToolsUsedThisTurn,
   recordToolUseForTurn,
 } from "./turn-tool-tracking";
+import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
+import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
+import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { cleanFullResponse, stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
   removeThinkingTags,
@@ -272,8 +275,13 @@ import {
   shouldAutoApprovePermissions,
 } from "../../lib/agents/agent-runtime";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
-import { summarizeToolResultForActivityDetail } from "@/lib/chat/stream-tool-display";
+import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
 import { captureSafe } from "../../main/lib/analytics";
+import { runCommandCategoryPreflight } from "./command_permission_handlers";
+import {
+  applyFileScopePreflightInStream,
+  enrichFilePermissionRequest,
+} from "./file_permission_preflight";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -298,6 +306,120 @@ function runCommandGateResult(command: string, workMode: WorkMode): string | nul
   );
   if (gitInitBlock) return gitInitBlock;
   return runCommandModeGateResult(command, workMode);
+}
+
+function emitRunCommandPermissionActivity(
+  sender: Electron.WebContents,
+  chatId: number,
+  label: string,
+  command: string,
+) {
+  safeSend(sender, "chat:activity", {
+    id: `run-cmd-perm-${chatId}-${Date.now()}`,
+    type: "tool_use",
+    toolName: "run_command",
+    label,
+    detail: command.slice(0, 200),
+    status: "done",
+    timestamp: Date.now(),
+    chatId,
+  });
+}
+
+function emitFilePermissionActivity(
+  sender: Electron.WebContents,
+  chatId: number,
+  label: string,
+  path: string,
+) {
+  safeSend(sender, "chat:activity", {
+    id: `file-perm-${chatId}-${Date.now()}`,
+    type: "tool_use",
+    toolName: "write_file",
+    label,
+    detail: path.slice(0, 200),
+    status: "done",
+    timestamp: Date.now(),
+    chatId,
+  });
+}
+
+function enrichPermissionRequestForUi(
+  permRequest: { operation: string; preview: unknown },
+  appId: number | null | undefined,
+) {
+  if (permRequest.operation === "run_command") {
+    return enrichRunCommandPermissionRequest(permRequest, appId);
+  }
+  return enrichFilePermissionRequest(permRequest as import("@/lib/tools/permissions/schema").PermissionRequest, appId);
+}
+
+/** Category DB gate for run_command; returns tool JSON to return early, or null to continue permission UI. */
+function runCommandCategoryGateToolResult(
+  command: string,
+  appId: number | null | undefined,
+  chatId: number,
+  sender: Electron.WebContents,
+): string | null {
+  const preflight = runCommandCategoryPreflight(command, appId);
+  if (preflight.type === "auto_deny") {
+    emitRunCommandPermissionActivity(
+      sender,
+      chatId,
+      `run_command blocked (${preflight.category})`,
+      command,
+    );
+    safeSend(sender, "command-permission-blocked", {
+      chatId,
+      category: preflight.category,
+      message: `Command blocked (${preflight.category}) — change in Settings`,
+    });
+    return JSON.stringify({
+      success: false,
+      error: `Command blocked by workspace policy (${preflight.category}). Update Terminal permissions in Settings.`,
+      operation: "run_command",
+    });
+  }
+  return null;
+}
+
+function shouldSkipPermissionWaitForRunCommand(
+  command: string,
+  appId: number | null | undefined,
+  chatId: number,
+  sender: Electron.WebContents,
+): boolean {
+  const preflight = runCommandCategoryPreflight(command, appId);
+  if (preflight.type === "auto_allow") {
+    emitRunCommandPermissionActivity(
+      sender,
+      chatId,
+      `run_command auto-approved (${preflight.category})`,
+      command,
+    );
+    return true;
+  }
+  return false;
+}
+
+function enrichRunCommandPermissionRequest<T extends { operation: string; preview: unknown }>(
+  permRequest: T,
+  appId: number | null | undefined,
+): T {
+  if (permRequest.operation !== "run_command") return permRequest;
+  const preview = permRequest.preview as { command?: string; isDangerous?: boolean };
+  const preflight = runCommandCategoryPreflight(preview.command ?? "", appId);
+  const dangerous =
+    preflight.type === "prompt" ? preflight.dangerous : false;
+  return {
+    ...permRequest,
+    preview: {
+      ...preview,
+      commandCategory: preflight.category,
+      isDangerous: dangerous || preview.isDangerous,
+      canAlwaysAllow: preflight.type === "prompt" && !preflight.dangerous,
+    },
+  } as T;
 }
 
 function sentryAddBreadcrumbSafe(
@@ -1247,8 +1369,48 @@ export function registerChatStreamHandlers() {
         activeStreams.delete(req.chatId);
       };
 
-      /** No-op: stream stall watchdog removed (8.5.2). */
-      const handleStreamStall = () => {};
+      /** Stream stall watchdog — aborts hung provider streams after 45s silence. */
+      let streamStallNotified = false;
+      const handleStreamStall = () => {
+        if (streamStallNotified) return;
+        streamStallNotified = true;
+        logger.warn(`[stream] Stall detected for chat ${req.chatId}`);
+        safeSend(event.sender, "chat:activity", {
+          id: `stream-stall-${req.chatId}-${Date.now()}`,
+          type: "stream_stall_aborted",
+          label: "Stream stalled",
+          detail:
+            "The model stopped responding mid-stream. Retry the message or switch models.",
+          status: "error",
+          timestamp: Date.now(),
+          chatId: req.chatId,
+        });
+      };
+
+      const streamDebugLogging = isStreamDebugLoggingEnabled();
+      let lastToolInputPhaseLabel = "";
+      const handleToolInputProgress = ({
+        toolName,
+        deltaCount,
+      }: {
+        toolName: string;
+        deltaCount: number;
+      }) => {
+        const label = `${getToolActivityLabel(toolName).replace(/…$/u, "")} (${deltaCount} chunks)…`;
+        if (label === lastToolInputPhaseLabel) return;
+        lastToolInputPhaseLabel = label;
+        safeSend(event.sender, "chat:stream:phase", {
+          chatId: req.chatId,
+          phase: "thinking",
+          label,
+        });
+      };
+      const handleStreamActivityPulse = () => {
+        safeSend(event.sender, "chat:stream:pulse", {
+          chatId: req.chatId,
+          timestamp: Date.now(),
+        });
+      };
 
       try {
         try {
@@ -1979,7 +2141,7 @@ ${componentSnippet}
       } else {
         // Normal AI processing for non-test prompts
         const mainOptions: GetModelClientOptions = {
-          agentMode: settings.agentMode ?? "guided",
+          agentMode: settings.agentMode ?? "direct",
           delegationRole: "main",
         };
         let effectiveModel = getEffectiveModel(settings);
@@ -2125,6 +2287,18 @@ ${componentSnippet}
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
+        if (hasWorkspace && appPath && !fs.existsSync(appPath)) {
+          logger.warn(`Workspace path does not exist on disk: ${appPath}`);
+          safeSend(event.sender, "chat:activity", {
+            id: `workspace-path-missing-${req.chatId}`,
+            type: "orchestrator_blocker",
+            label: "Workspace folder not found",
+            status: "error",
+            timestamp: Date.now(),
+            detail: `The project path does not exist on disk: ${appPath}. Re-open the folder or re-clone the repository.`,
+            chatId: req.chatId,
+          });
+        }
 
         let codebaseInfo = "";
         let files: any[] = [];
@@ -2682,7 +2856,7 @@ ${componentSnippet}
 
           // PASS8: Blueprint is a lazy read-only graph built on demand when get_blueprint
           // is called (NOT deleted — that note from Pass 7 is wrong and superseded by Pass 6).
-          // Architecture exploration is tool-driven via get_blueprint + get_diagram + search + read_file.
+          // Architecture exploration is tool-driven via get_blueprint + search + read_file.
 
           // PASS5: SQLite project memory is now tool-driven.
           // The model calls get_project_memory when it needs to recall project context.
@@ -2905,7 +3079,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       role: "assistant",
                       content: hasInjectedArchitectureContext
                         ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
-                        : "Understood. I do not currently have a diagram in context, so I will call get_blueprint / get_diagram and use search + explore_folder to scope the relevant paths.",
+                        : "Understood. I do not currently have a blueprint in context, so I will call get_blueprint and use search + explore_folder to scope the relevant paths.",
                     },
                   ] as const);
               void _codebasePrefix;
@@ -3387,10 +3561,9 @@ This conversation includes one or more image attachments. When the user uploads 
               // Why remove thinking tags?
               // Thinking tags are generally not critical for the context
               // and eats up extra tokens.
-              content:
-                settings.selectedChatMode === "ask"
-                  ? removeAtlarixTags(removeNonEssentialTags(msg.content ?? ""))
-                  : removeNonEssentialTags(msg.content ?? ""),
+              content: removeAtlarixTags(
+                removeNonEssentialTags(msg.content ?? ""),
+              ),
             };
 
             // Only include providerOptions if we have actual commit hash values
@@ -3778,6 +3951,12 @@ This conversation includes one or more image attachments. When the user uploads 
             onFirstReasoningDelta?: () => void;
             onFirstTextAfterReasoning?: () => void;
             onStreamStall?: () => void;
+            sanitizeTextDelta?: (text: string) => string;
+            onToolInputProgress?: (info: {
+              toolName: string;
+              deltaCount: number;
+            }) => void;
+            onStreamActivityPulse?: () => void;
           }): Promise<{
             bundle: SimpleStreamTextBundle;
             fullResponse: string;
@@ -3805,9 +3984,17 @@ This conversation includes one or more image attachments. When the user uploads 
                   onFirstReasoningDelta: params.onFirstReasoningDelta,
                   onFirstTextAfterReasoning: params.onFirstTextAfterReasoning,
                   onStreamStall: params.onStreamStall,
+                  sanitizeTextDelta: params.sanitizeTextDelta,
+                  onToolInputProgress: params.onToolInputProgress,
+                  onStreamActivityPulse: params.onStreamActivityPulse,
                 });
                 fullResponse = chunkResult.fullResponse;
                 const finishReason = await bundle.finishReason;
+                if (chunkResult.stalled) {
+                  throw new Error(
+                    "Stream stalled: no chunks from the model for 45 seconds",
+                  );
+                }
                 return { bundle, fullResponse, finishReason };
               } catch (err) {
                 // User abort always wins over any retry path.
@@ -4043,6 +4230,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     chatId: req.chatId,
                     toolId: regName,
                     toolName: getToolActivityLabel(regName),
+                    toolArgs: args,
                   });
                   try {
                     if (regName === "compress_context") {
@@ -4196,11 +4384,11 @@ This conversation includes one or more image attachments. When the user uploads 
                     });
                   },
                   onFirstTextDelta: logTtftOnce,
-                      id: `reasoning-${req.chatId}`,
-                      type: "reasoning_started",
                   onFirstReasoningDelta: () => {
                     safeSend(event.sender, "chat:activity", {
                       id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                      type: "reasoning_started",
+                      label: "Thinking deeply...",
                       status: "running",
                       timestamp: Date.now(),
                       chatId: req.chatId,
@@ -4217,6 +4405,9 @@ This conversation includes one or more image attachments. When the user uploads 
                     });
                   },
                   onStreamStall: handleStreamStall,
+                  onToolInputProgress: handleToolInputProgress,
+                  onStreamActivityPulse: handleStreamActivityPulse,
+                  sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
                 });
               fullResponse = agentRoundFull;
               if (
@@ -4368,7 +4559,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "find_file",
                 "get_active_skills",
                 "get_blueprint",
-                "get_diagram",
                 "get_file_outline",
                 "get_project_history",
                 "get_project_structure",
@@ -4393,7 +4583,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "find_file",
                 "get_active_skills",
                 "get_blueprint",
-                "get_diagram",
                 "get_file_outline",
                 "get_plan_scope",
                 "get_project_history",
@@ -4420,7 +4609,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "find_file",
                 "get_active_skills",
                 "get_blueprint",
-                "get_diagram",
                 "get_file_outline",
                 "get_project_structure",
                 "get_repo_overview",
@@ -4448,7 +4636,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 "find_file",
                 "get_active_skills",
                 "get_blueprint",
-                "get_diagram",
                 "get_file_outline",
                 "get_project_history",
                 "get_project_structure",
@@ -4524,6 +4711,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       chatId: req.chatId,
                       toolId: tool.name,
                       toolName: getToolActivityLabel(tool.name),
+                      toolArgs: args,
                     });
                     safeSend(event.sender, "chat:activity", {
                       id: toolActivityId,
@@ -4533,6 +4721,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       timestamp: Date.now(),
                       chatId: req.chatId,
                       toolName: tool.name,
+                      toolArgs: args,
                     });
                   }
                   try {
@@ -4640,7 +4829,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       ...args,
                       workspace: appPath,
                       workspaceId: effectiveAppId ?? undefined,
-                      agentMode: settings.agentMode ?? "guided",
+                      agentMode: settings.agentMode ?? "direct",
                       chatMode:
                         liveWorkMode === "plan"
                           ? "plan"
@@ -4658,6 +4847,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           chatId: req.chatId,
                           toolId: tool.name,
                           toolName: label,
+                          toolArgs: execArgs,
                         });
                         return () => {
                           safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
@@ -4724,16 +4914,51 @@ This conversation includes one or more image attachments. When the user uploads 
                     }
 
                     if (askPermissionInterceptor.isPermissionRequest(result)) {
-                      const permRequest = askPermissionInterceptor.parsePermissionRequest(result);
+                      let permRequest = askPermissionInterceptor.parsePermissionRequest(result);
                       if (permRequest) {
                         if (permRequest.operation === "run_command") {
                           const cmd =
                             (permRequest.preview as { command?: string }).command ?? "";
                           const gate = runCommandGateResult(cmd, liveWorkMode);
                           if (gate) return gate;
+                          const categoryBlock = runCommandCategoryGateToolResult(
+                            cmd,
+                            effectiveAppId,
+                            req.chatId,
+                            event.sender,
+                          );
+                          if (categoryBlock) return categoryBlock;
                         }
+                        const filePref = await applyFileScopePreflightInStream(
+                          permRequest,
+                          effectiveAppId,
+                          req.chatId,
+                          event.sender,
+                          askPermissionInterceptor,
+                          (label, detail) =>
+                            emitFilePermissionActivity(event.sender, req.chatId, label, detail),
+                          (message) =>
+                            safeSend(event.sender, "file-permission-blocked", {
+                              chatId: req.chatId,
+                              message,
+                            }),
+                        );
+                        if (filePref.earlyReturn) return filePref.earlyReturn;
+                        permRequest = filePref.permRequest;
                         const operationId = askPermissionInterceptor.generateOperationId();
+                        const runCmd =
+                          permRequest.operation === "run_command"
+                            ? ((permRequest.preview as { command?: string }).command ?? "")
+                            : "";
                         const skipPermissionWait =
+                          filePref.skipPermissionWait ||
+                          (permRequest.operation === "run_command" &&
+                            shouldSkipPermissionWaitForRunCommand(
+                              runCmd,
+                              effectiveAppId,
+                              req.chatId,
+                              event.sender,
+                            )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                         askPermissionInterceptor.bufferOperation(
@@ -4746,7 +4971,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           safeSend(event.sender, "permission-request", {
                             chatId: req.chatId,
                             operationId,
-                            request: permRequest,
+                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
                           });
 
                           logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);
@@ -4889,6 +5114,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         toolResultForActivity,
                         askActivityStatus === "error" ? "error" : "done",
                       );
+                      const resultText = toolResultTextForExpand(toolResultForActivity);
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                       safeSend(event.sender, "chat:activity", {
                         id: toolActivityId,
@@ -4898,7 +5124,9 @@ This conversation includes one or more image attachments. When the user uploads 
                         timestamp: Date.now(),
                         chatId: req.chatId,
                         toolName: tool.name,
+                        toolArgs: args,
                         ...(activityDetail ? { detail: activityDetail } : {}),
+                        ...(resultText ? { resultText } : {}),
                       });
                     }
                   }
@@ -4957,7 +5185,7 @@ IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions
 **Git and shell:** Use the **run_command** tool for git and read-only shell (git status, git log -1, git diff, ls, cat). Do not read .git/objects manually when run_command can answer. Mutating commands (npm install, git commit, rm, etc.) are blocked in Explore.
 
 Available tools (Explore — read-only):
-- read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline, get_diagram
+- read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline
 - spawn_sub_agent / delegate_to_agent: for multi-repo work use **one** spawn with **scopes: [repo paths]** or **default_focus_path** per repo (preset map_repo); up to **5** concurrent sub-agents per turn — batch scopes when possible
 - task (background sub-agent runs; use task_id to resume)
 - **run_command** (read-only git/shell only)
@@ -5062,6 +5290,8 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   });
                 },
                 onStreamStall: handleStreamStall,
+                onToolInputProgress: handleToolInputProgress,
+                onStreamActivityPulse: handleStreamActivityPulse,
               });
               fullResponse = askRoundFull;
               if (
@@ -5280,6 +5510,17 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 inputSchema: aiJsonSchema((toolMeta.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
                 execute: async (args: any) => {
                   buildLoader.onToolCall(toolName);
+                  const buildToolStartMs = Date.now();
+                  if (streamDebugLogging) {
+                    logger.log(`[Build Tool] start`, {
+                      toolName,
+                      chatId: req.chatId,
+                      argsKeys:
+                        args && typeof args === "object"
+                          ? Object.keys(args as object)
+                          : [],
+                    });
+                  }
                   const toolActivityId = `tool-${toolName}-${Date.now()}`;
                   let activityStatus: "done" | "error" = "done";
                   let toolResultForActivity: unknown;
@@ -5291,6 +5532,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       chatId: req.chatId,
                       toolId: toolName,
                       toolName: uiToolLabel,
+                      toolArgs: args,
                     });
                   }
                   safeSend(event.sender, "chat:activity", {
@@ -5301,6 +5543,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     timestamp: Date.now(),
                     chatId: req.chatId,
                     toolName,
+                    toolArgs: args,
                   });
                   try {
                     if (toolName === "compress_context") {
@@ -5371,7 +5614,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       ...args,
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
-                      agentMode: settings.agentMode ?? "guided",
+                      agentMode: settings.agentMode ?? "direct",
                       chatMode: "build",
                       _chatSessionId: req.chatId,
                       workspaceSessionId: req.workspaceSessionId ?? undefined,
@@ -5384,6 +5627,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                           chatId: req.chatId,
                           toolId: toolName,
                           toolName: label,
+                          toolArgs: executeArgs,
                         });
                         return () => {
                           safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
@@ -5427,18 +5671,54 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
 
                     // Check if this is a permission request (object or string)
                   if (permissionInterceptor.isPermissionRequest(result)) {
-                    const permRequest = permissionInterceptor.parsePermissionRequest(result);
+                    let permRequest = permissionInterceptor.parsePermissionRequest(result);
                     if (permRequest) {
                       if (permRequest.operation === "run_command") {
                         const cmdPreview = permRequest.preview as { command?: string };
+                        const cmd = cmdPreview.command ?? "";
                         const gate = runCommandGateResult(
-                          cmdPreview.command ?? "",
+                          cmd,
                           readSettings().workModePreference ?? effectiveWorkMode,
                         );
                         if (gate) return gate;
+                        const categoryBlock = runCommandCategoryGateToolResult(
+                          cmd,
+                          effectiveAppId,
+                          req.chatId,
+                          event.sender,
+                        );
+                        if (categoryBlock) return categoryBlock;
                       }
+                      const filePref = await applyFileScopePreflightInStream(
+                        permRequest,
+                        effectiveAppId,
+                        req.chatId,
+                        event.sender,
+                        permissionInterceptor,
+                        (label, detail) =>
+                          emitFilePermissionActivity(event.sender, req.chatId, label, detail),
+                        (message) =>
+                          safeSend(event.sender, "file-permission-blocked", {
+                            chatId: req.chatId,
+                            message,
+                          }),
+                      );
+                      if (filePref.earlyReturn) return filePref.earlyReturn;
+                      permRequest = filePref.permRequest;
                       const operationId = permissionInterceptor.generateOperationId();
+                      const buildRunCmd =
+                        permRequest.operation === "run_command"
+                          ? ((permRequest.preview as { command?: string }).command ?? "")
+                          : "";
                       const skipPermissionWait =
+                        filePref.skipPermissionWait ||
+                        (permRequest.operation === "run_command" &&
+                          shouldSkipPermissionWaitForRunCommand(
+                            buildRunCmd,
+                            effectiveAppId,
+                            req.chatId,
+                            event.sender,
+                          )) ||
                         shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                         permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                       permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
@@ -5559,14 +5839,28 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       safeSend(event.sender, "permission-request", {
                         chatId: req.chatId,
                         operationId,
-                        request: permRequest,
+                        request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
                       });
 
                       logger.log(`[Build Mode] Permission request buffered: ${operationId}`);
 
                       try {
+                        if (streamDebugLogging) {
+                          logger.log(`[Build Tool] waitForApproval start`, {
+                            operationId,
+                            operation: permRequest.operation,
+                            chatId: req.chatId,
+                          });
+                        }
                         // BLOCKING: Wait for user to approve or reject
                         const approved = await permissionInterceptor.waitForApproval(operationId);
+                        if (streamDebugLogging) {
+                          logger.log(`[Build Tool] waitForApproval end`, {
+                            operationId,
+                            approved,
+                            chatId: req.chatId,
+                          });
+                        }
 
                         if (approved) {
                           // User approved - return success to AI
@@ -5638,6 +5932,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                         toolResultForActivity,
                         activityStatus === "error" ? "error" : "done",
                       );
+                      const resultText = toolResultTextForExpand(toolResultForActivity);
+                      if (streamDebugLogging) {
+                        logger.log(`[Build Tool] end`, {
+                          toolName,
+                          chatId: req.chatId,
+                          ms: Date.now() - buildToolStartMs,
+                          status: activityStatus,
+                        });
+                      }
                       safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
                       safeSend(event.sender, "chat:activity", {
                         id: toolActivityId,
@@ -5647,7 +5950,9 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                         timestamp: Date.now(),
                         chatId: req.chatId,
                         toolName,
+                        toolArgs: args,
                         ...(activityDetail ? { detail: activityDetail } : {}),
+                        ...(resultText ? { resultText } : {}),
                       });
                     }
                   }
@@ -5756,6 +6061,9 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             };
 
             const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
+            const useTextToolFallback = shouldUseTextToolFallback(
+              modelClient.builtinProviderId,
+            );
 
             try {
               agenticRepetition.setEnabled(true);
@@ -5835,6 +6143,9 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       });
                     },
                     onStreamStall: handleStreamStall,
+                    onToolInputProgress: handleToolInputProgress,
+                    onStreamActivityPulse: handleStreamActivityPulse,
+                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
                   });
                   fullResponse = buildRoundFull;
                   const buildResp = await buildBundle.response;
@@ -5898,7 +6209,8 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 // ═══════════════════════════════════════════════════════════
 
                 // Check for text-based tool calls (MiniMax, Claude XML, etc.)
-                const hasTextToolCalls = containsTextToolCall(fullResponse);
+                const hasTextToolCalls =
+                  useTextToolFallback && containsTextToolCall(fullResponse);
 
                 // Check how many operations were buffered in this iteration
                 // (This tracks native function calling - Claude, GPT via OpenRouter)
@@ -5914,6 +6226,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   const newOps = currentOpCount - totalToolExecutions;
                   logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
                   totalToolExecutions = currentOpCount;
+                }
+
+                if (streamDebugLogging) {
+                  logger.log(`[Agentic Loop] Round summary`, {
+                    iteration: agenticIteration + 1,
+                    hasTextToolCalls,
+                    hadNativeToolExecution,
+                    responseTail: fullResponse.slice(-200),
+                  });
                 }
 
                 // End only on explicit <task_complete> or a completed task ledger
@@ -5990,6 +6311,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       chatId: req.chatId,
                       toolId: tc.toolName,
                       toolName: getToolActivityLabel(tc.toolName),
+                      toolArgs: tc.args,
                     });
                   }
                 }
@@ -6052,6 +6374,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       chatId: req.chatId,
                       toolId: toolCall.toolName,
                       toolName: getToolActivityLabel(toolCall.toolName),
+                      toolArgs: toolCall.args,
                     });
                   }
                   let toolResult: unknown;
@@ -6106,21 +6429,69 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
 
                     // Check if this is a permission request
                     if (permissionInterceptor.isPermissionRequest(toolResult)) {
-                      const permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
+                      let permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
                       if (permRequest) {
                         if (permRequest.operation === "run_command") {
                           const cmdPreview = permRequest.preview as { command?: string };
+                          const cmd = cmdPreview.command ?? "";
                           const gate = runCommandGateResult(
-                            cmdPreview.command ?? "",
+                            cmd,
                             readSettings().workModePreference ?? effectiveWorkMode,
                           );
                           if (gate) {
                             iterationResults.push({ tool: toolCall.toolName, result: gate });
                             continue;
                           }
+                          const categoryBlock = runCommandCategoryGateToolResult(
+                            cmd,
+                            effectiveAppId,
+                            req.chatId,
+                            event.sender,
+                          );
+                          if (categoryBlock) {
+                            iterationResults.push({
+                              tool: toolCall.toolName,
+                              result: categoryBlock,
+                            });
+                            continue;
+                          }
                         }
+                        const filePref = await applyFileScopePreflightInStream(
+                          permRequest,
+                          effectiveAppId,
+                          req.chatId,
+                          event.sender,
+                          permissionInterceptor,
+                          (label, detail) =>
+                            emitFilePermissionActivity(event.sender, req.chatId, label, detail),
+                          (message) =>
+                            safeSend(event.sender, "file-permission-blocked", {
+                              chatId: req.chatId,
+                              message,
+                            }),
+                        );
+                        if (filePref.earlyReturn) {
+                          iterationResults.push({
+                            tool: toolCall.toolName,
+                            result: filePref.earlyReturn,
+                          });
+                          continue;
+                        }
+                        permRequest = filePref.permRequest;
                         const operationId = permissionInterceptor.generateOperationId();
+                        const agenticRunCmd =
+                          permRequest.operation === "run_command"
+                            ? ((permRequest.preview as { command?: string }).command ?? "")
+                            : "";
                         const skipPermissionWait =
+                          filePref.skipPermissionWait ||
+                          (permRequest.operation === "run_command" &&
+                            shouldSkipPermissionWaitForRunCommand(
+                              agenticRunCmd,
+                              effectiveAppId,
+                              req.chatId,
+                              event.sender,
+                            )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                         permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
@@ -6201,7 +6572,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                           safeSend(event.sender, "permission-request", {
                             chatId: req.chatId,
                             operationId,
-                            request: permRequest,
+                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
                           });
                           logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
                           hasPermissionRequest = true;
@@ -6300,10 +6671,16 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 });
 
                 // Add tool results as a user message so AI can continue
-                agenticMessages.push({
-                  role: 'user' as const,
-                  content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
-                });
+                if (iterationResults.length > 0) {
+                  agenticMessages.push({
+                    role: 'user' as const,
+                    content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
+                  });
+                } else if (hadNativeToolExecution) {
+                  logger.log(
+                    "[Agentic Loop] Skipping empty tool-results user message (native tools executed in-stream)",
+                  );
+                }
 
                 const loopCorrection = agenticRepetition.takePendingCorrection();
                 if (loopCorrection) {
@@ -6706,200 +7083,10 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           } catch (error) {
             logger.warn("Failed to record session memory exchange:", error);
           }
-          let atlarixProcessedFileWrites = false;
           const settings = readSettings();
           const isBuildModeTurn =
             settings.selectedChatMode === "agent" || settings.selectedChatMode === "build";
-          if (
-            settings.autoApproveChanges &&
-            settings.selectedChatMode !== "ask"
-          ) {
-            const status = await processFullResponseActions(
-              responseToStore,
-              req.chatId,
-              {
-                chatSummary,
-                messageId: placeholderAssistantMessage.id,
-              }, // Use placeholder ID
-            );
-
-            const chat = await db.query.chats.findFirst({
-              where: eq(chats.id, req.chatId),
-              with: {
-                messages: {
-                  orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-                },
-              },
-            });
-
-            safeSend(event.sender, "chat:response:chunk", {
-              chatId: req.chatId,
-              messages: chat!.messages,
-            });
-
-            if (status.error) {
-              safeSend(event.sender, "chat:response:error", {
-                chatId: req.chatId,
-                error: `Sorry, there was an error applying the AI's changes: ${status.error}`,
-              });
-            }
-
-            atlarixProcessedFileWrites = status.updatedFiles ?? false;
-
-            const newReviewSystemActive =
-              streamStopWasTaskComplete ||
-              delegatedAgentsThisTurn.includes("reviewer");
-
-            // v2.1: Self-review activity (runtime stub - show in Activity Stream when enabled)
-            const selfReview = settings.aiConfiguration?.selfReview;
-            if (
-              !newReviewSystemActive &&
-              selfReview?.enabled &&
-              (selfReview.strategy === "runtime" || selfReview.strategy === "both") &&
-              selfReview.showInActivityStream
-            ) {
-              const id = `self-review-${req.chatId}-${Date.now()}`;
-              safeSend(event.sender, "chat:activity", {
-                id,
-                type: "self_review",
-                label: "Self-reviewing response",
-                status: "running",
-                timestamp: Date.now(),
-                chatId: req.chatId,
-              });
-              safeSend(event.sender, "chat:activity", {
-                id,
-                type: "self_review",
-                label: "Self-reviewing response",
-                status: "done",
-                timestamp: Date.now(),
-                detail: `Score: ${(selfReview.qualityThreshold ?? 0.85).toFixed(2)} (threshold met)`,
-                chatId: req.chatId,
-              });
-            }
-
-            // v2.1: Turn summary in Activity Stream (token count when available)
-            if (maxTokensUsed != null) {
-              safeSend(event.sender, "chat:activity", {
-                id: `turn-summary-${req.chatId}-${Date.now()}`,
-                type: "turn_summary",
-                label: "Turn total",
-                status: "done",
-                timestamp: Date.now(),
-                tokens: maxTokensUsed,
-                chatId: req.chatId,
-              });
-            }
-
-            // v2.1: Agent Lightning trace collection (when enabled)
-            if (
-              hasWorkspace &&
-              appPath &&
-              settings.aiConfiguration?.agentLightning?.collectData
-            ) {
-              recordTrace(appPath, {
-                timestamp: Date.now(),
-                chatId: req.chatId,
-                requestSnippet: (userPrompt ?? "").slice(0, 500),
-                agentMode: settings.agentMode,
-                finalSnippet: (fullResponse ?? "").slice(0, 1000),
-              }).catch(() => {});
-            }
-
-            if (
-              isBuildModeTurn &&
-              effectiveAppId != null &&
-              appPath &&
-              (atlarixProcessedFileWrites || filesWrittenInThisExchange.length > 0)
-            ) {
-              const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
-              void recordBuildCompleteSnapshot(
-                effectiveAppId,
-                appPath,
-                userPrompt?.slice(0, 500),
-              );
-            }
-
-            if (
-              isBuildModeTurn &&
-              (!abortController.signal.aborted || streamStopWasTaskComplete)
-            ) {
-              const tid = String(placeholderAssistantMessage.id);
-              const ops = getAutonomousSessionLog(req.chatId, tid);
-              const agentActivity = getAgentActivityForTurn(req.chatId, tid);
-              if (ops.length > 0 || agentActivity.length > 0) {
-                safeSend(event.sender, "autonomous:session-complete", {
-                  chatId: req.chatId,
-                  turnId: tid,
-                  workspaceId: effectiveAppId ?? null,
-                  ops,
-                  agentActivity,
-                });
-              }
-            }
-
-            // Signal that the stream has completed
-            markLedgerStreamComplete(streamTurnIdForLedger);
-            notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
-            {
-              const finalLedger = getLedger(streamTurnIdForLedger);
-              if (
-                finalLedger &&
-                isLedgerTaskComplete(finalLedger) &&
-                !streamStopWasTaskComplete
-              ) {
-                streamStopWasTaskComplete = true;
-              }
-            }
-            await maybeAppendAutoMemoryAfterStream({
-              settings,
-              appPath,
-              chatId: req.chatId,
-              isEphemeralWorkspace,
-              streamTurnIdForLedger,
-              isBuildModeTurn,
-              sender: event.sender,
-            });
-            notifyCompactionLedgerSettled(req.chatId, streamTurnIdForLedger);
-            safeSend(event.sender, "chat:response:end", {
-              chatId: req.chatId,
-              updatedFiles: status.updatedFiles ?? false,
-              extraFiles: status.extraFiles,
-              extraFilesError: status.extraFilesError,
-              hadToolCallsOrPermissions: status.updatedFiles ?? (status.extraFiles?.length ? true : false),
-              usedCompass: usedCompassThisStream,
-              compassTier: compassStreamTier,
-              compassTokens: compassStreamTokens,
-              ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
-                ? { reasoningTokens: maxReasoningTokensUsed }
-                : {}),
-            } satisfies ChatResponseEnd);
-            queuePostTurnSelfCorrection(event.sender, {
-              chatId: req.chatId,
-              rootAssistantMessageId: placeholderAssistantMessage.id,
-              appId: effectiveAppId,
-              appPath,
-              filesWrittenInThisExchange,
-              isBuildModeTurn,
-              isEphemeralWorkspace,
-              aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
-            });
-            activeStreams.delete(req.chatId);
-            void runAutonomousBuildVerificationAfterTaskComplete({
-              sender: event.sender,
-              chatId: req.chatId,
-              streamStopWasTaskComplete,
-              agentMode: settings.agentMode,
-              appPath,
-              workspaceId: effectiveAppId ?? undefined,
-              streamTurnIdForLedger,
-              rootAssistantMessageId: placeholderAssistantMessage.id,
-              isEphemeralWorkspace,
-              settings,
-            }).catch((buildVerifyErr) => {
-              logger.warn("[build-verify] Post-turn verification failed:", buildVerifyErr);
-            });
-          } else {
+          {
             const newReviewSystemActiveElse =
               streamStopWasTaskComplete ||
               delegatedAgentsThisTurn.includes("reviewer");
@@ -6975,6 +7162,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               }
             }
             markLedgerStreamComplete(streamTurnIdForLedger);
+            inFlightDelegationKeys.clear();
             notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
             {
               const finalLedgerElse = getLedger(streamTurnIdForLedger);
@@ -7618,7 +7806,6 @@ Use this deterministic flow:
 
 ## Recommended tool sequence
 - **get_blueprint**: structural slice (files, functions, edges) for a folder or path
-- **get_diagram**: Mermaid architecture diagram (when one is generated)
 - **explore_folder** / **list_files** / **find_file**: navigate the tree
 - **search** (mode: auto | text | semantic | structural): locate symbols, patterns, concepts, or graph relationships
 - **get_file_outline**: list functions/classes/types in a file before reading it
@@ -7627,14 +7814,13 @@ Use this deterministic flow:
   }
   return `# Workspace Context
 
-You currently do not have a Diagram in context for this turn.
+You currently do not have a Blueprint slice in context for this turn.
 
 Your first actions should be:
 1. Call **get_blueprint** or **search** to locate relevant areas.
-2. Call **get_diagram** for the Mermaid architecture (if present).
-3. Use **explore_folder** + **read_file** to drill in once you have a target.
+2. Use **explore_folder** + **read_file** to drill in once you have a target.
 
-Do not claim a diagram is present until you have called get_diagram successfully.
+Use inline \`\`\`mermaid\`\`\` flowchart fences in your reply when a visual helps explain a flow.
 `;
 }
 
@@ -7691,6 +7877,7 @@ async function getMcpTools(
                 chatId: cid,
                 toolId: key,
                 toolName: getToolActivityLabel(key),
+                toolArgs: args,
               });
             }
             try {

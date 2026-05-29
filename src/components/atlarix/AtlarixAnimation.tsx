@@ -1,20 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ATLARIX_ANIMATION_PALETTE_DARK,
+  resolveAnimationPalette,
+  type AnimationThemeMode,
+  type AtlarixAnimationPalette,
+} from "./atlarix-animation-palette";
 
 const TWO_PI = Math.PI * 2;
-
-const C = {
-  bg:        "#030a06",
-  bgMid:     "#071510",
-  green:     "#1a7a45",
-  greenDark: "#0d2b1a",
-  teal:      "#2db87a",
-  mint:      "#c8ecd4",
-  mintSoft:  "#e8f7ee",
-  gold:      "#f0a800",
-  goldLight: "#ffd166",
-  white:     "#f0f8f2",
-  dim:       "#1a3a28",
-};
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function easeOut(t: number)  { t=clamp(t,0,1); return 1-Math.pow(1-t,3); }
@@ -45,6 +37,8 @@ export interface AtlarixAnimationProps {
   playOnce?: boolean;
   /** Hide corner version labels (welcome / sign-in). */
   minimalChrome?: boolean;
+  /** Match system light/dark or force a palette. */
+  theme?: AnimationThemeMode;
   className?: string;
 }
 
@@ -61,8 +55,10 @@ export default function AtlarixAnimation({
   phase,
   playOnce = false,
   minimalChrome = false,
+  theme = "auto",
   className,
 }: AtlarixAnimationProps) {
+  const [palette, setPalette] = useState(() => resolveAnimationPalette(theme));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number | null>(null);
   const sRef      = useRef<{ ready: boolean; W?: number; H?: number; cx?: number; cy?: number; R?: number; aR?: number }>({ ready: false });
@@ -74,7 +70,29 @@ export default function AtlarixAnimation({
   playOnceRef.current = playOnce;
 
   useEffect(() => {
+    const syncPalette = () => setPalette(resolveAnimationPalette(theme));
+    syncPalette();
+    if (theme !== "auto" || typeof window === "undefined") return;
+
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", syncPalette);
+
+    const rootObserver = new MutationObserver(syncPalette);
+    rootObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => {
+      mq.removeEventListener("change", syncPalette);
+      rootObserver.disconnect();
+    };
+  }, [theme]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
+    const C: AtlarixAnimationPalette = palette;
+    const isAppDark = palette.bg === ATLARIX_ANIMATION_PALETTE_DARK.bg;
     if (!canvas) return;
     const ctx    = canvas.getContext("2d");
     if (!ctx) return;
@@ -101,9 +119,12 @@ export default function AtlarixAnimation({
     }
 
     function drawBg(ctx: CanvasRenderingContext2D, W: number, H: number) {
-      const bg = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.72);
-      bg.addColorStop(0,"#0d2218"); bg.addColorStop(0.55,"#071510"); bg.addColorStop(1,"#030a06");
-      ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+      const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.72);
+      bg.addColorStop(0, C.bgMid);
+      bg.addColorStop(0.55, C.bg);
+      bg.addColorStop(1, C.bg);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
     }
 
     function drawGrid(ctx: CanvasRenderingContext2D, W: number, H: number, alpha: number) {
@@ -375,10 +396,12 @@ export default function AtlarixAnimation({
       ctx.save(); ctx.textAlign="center";
       ctx.globalAlpha=alpha;
       ctx.font="300 26px Georgia,'Times New Roman',serif";
-      ctx.fillStyle=C.white; ctx.shadowColor=C.teal; ctx.shadowBlur=16*alpha;
+      ctx.fillStyle=C.white;
+      ctx.shadowColor=C.teal;
+      ctx.shadowBlur=isAppDark ? 16 * alpha : 4 * alpha;
       ctx.fillText("Atlarix",W/2,H-42);
       ctx.font="500 8px 'Courier New',monospace";
-      ctx.fillStyle=C.teal; ctx.shadowBlur=6; ctx.globalAlpha=alpha*0.6;
+      ctx.fillStyle=C.teal; ctx.shadowBlur=isAppDark ? 6 : 0; ctx.globalAlpha=alpha*0.6;
       ctx.fillText("GRAPH INTELLIGENCE  ·  ARCHITECTURE FIRST",W/2,H-24);
       ctx.restore();
     }
@@ -494,14 +517,14 @@ export default function AtlarixAnimation({
     window.addEventListener("resize",resize);
     rafRef.current=requestAnimationFrame(frame);
     return ()=>{ window.removeEventListener("resize",resize); if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [phase, playOnce]);
+  }, [phase, playOnce, palette]);
 
   const dims = SIZE_MAP[size];
   const isFull = size === "full";
   const containerStyle: React.CSSProperties = {
     width: typeof dims.width === "number" ? dims.width : dims.width,
     height: typeof dims.height === "number" ? dims.height : dims.height,
-    background: C.bg,
+    background: palette.bg,
     overflow: "hidden",
     position: "relative",
     borderRadius: isFull ? 0 : 8,

@@ -37,9 +37,9 @@ import {
   selectedSourceAtom,
   diagramStalenessAtom,
   diagramStateAtom,
+  rightPanelSuppressAutoOpenAtom,
   pinnedPanelAtom,
   previewTabAtom,
-  rightPanelSuppressAutoOpenAtom,
 } from "@/atoms/sourceAtoms";
 import { activeExtensionIdsAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
@@ -197,7 +197,6 @@ function PersistentChatContainer() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Source count badge – click to open right panel and show Sources tab */}
             {sources.length > 0 && (
               <button
                 type="button"
@@ -212,7 +211,6 @@ function PersistentChatContainer() {
                 {sources.length} sources
               </button>
             )}
-            {/* Panel toggle button */}
             <button
               type="button"
               onClick={toggleRightPanel}

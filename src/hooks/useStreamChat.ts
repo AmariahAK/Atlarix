@@ -428,13 +428,11 @@ export function useStreamChat({
       let cleanupStreamListeners: (() => void) | null = null;
       try {
         clearActivityForChatInStore(chatId);
-        if (hasChatId) {
-          getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-            const n = new Map(prev);
-            n.set(chatId, []);
-            return n;
-          });
-        }
+        getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+          const n = new Map(prev);
+          n.set(chatId, []);
+          return n;
+        });
         toolEndStackRef.current.delete(chatId);
         getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
           const n = new Map(prev);
@@ -736,62 +734,60 @@ export function useStreamChat({
             getDefaultStore().set(activityStreamItemsAtom, (prev) =>
               upsertActivityStreamItem(prev, item),
             );
-            if (hasChatId) {
-              const isSubagent =
-                item.type === "subagent_start" ||
-                item.type === "subagent_progress" ||
-                item.type === "subagent_complete";
-              if (isSubagent) {
+            const isSubagent =
+              item.type === "subagent_start" ||
+              item.type === "subagent_progress" ||
+              item.type === "subagent_complete";
+            if (isSubagent) {
+              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                const n = new Map(prev);
+                const cur = n.get(chatId) ?? [];
+                n.set(chatId, mergeSubagentActivityIntoThread(cur, item));
+                return n;
+              });
+            } else {
+              const parentDelegationId =
+                item.parentDelegationId?.trim() || undefined;
+              const isNestedTool =
+                parentDelegationId &&
+                (item.type === "tool_use" || item.type === "tool");
+              if (isNestedTool) {
                 getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
                   const n = new Map(prev);
                   const cur = n.get(chatId) ?? [];
-                  n.set(chatId, mergeSubagentActivityIntoThread(cur, item));
+                  n.set(
+                    chatId,
+                    mergeNestedToolActivityIntoSubagentRound(
+                      cur,
+                      parentDelegationId,
+                      item,
+                    ),
+                  );
                   return n;
                 });
               } else {
-                const parentDelegationId =
-                  item.parentDelegationId?.trim() || undefined;
-                const isNestedTool =
-                  parentDelegationId &&
-                  (item.type === "tool_use" || item.type === "tool");
-                if (isNestedTool) {
+                const threadItem = streamThreadItemFromActivity(item);
+                if (threadItem) {
                   getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
                     const n = new Map(prev);
                     const cur = n.get(chatId) ?? [];
-                    n.set(
-                      chatId,
-                      mergeNestedToolActivityIntoSubagentRound(
-                        cur,
-                        parentDelegationId,
-                        item,
-                      ),
-                    );
+                    let next = cur;
+                    if (
+                      threadItem.kind === "tool" &&
+                      threadItem.status !== "running"
+                    ) {
+                      next = handleStreamToolEnd(cur, {
+                        toolId: item.toolName ?? threadItem.id,
+                        toolName: item.toolName,
+                        status: threadItem.status,
+                        detail: item.detail,
+                      });
+                    } else {
+                      next = upsertStreamThreadItem(cur, threadItem);
+                    }
+                    n.set(chatId, next);
                     return n;
                   });
-                } else {
-                  const threadItem = streamThreadItemFromActivity(item);
-                  if (threadItem) {
-                    getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                      const n = new Map(prev);
-                      const cur = n.get(chatId) ?? [];
-                      let next = cur;
-                      if (
-                        threadItem.kind === "tool" &&
-                        threadItem.status !== "running"
-                      ) {
-                        next = handleStreamToolEnd(cur, {
-                          toolId: item.toolName ?? threadItem.id,
-                          toolName: item.toolName,
-                          status: threadItem.status,
-                          detail: item.detail,
-                        });
-                      } else {
-                        next = upsertStreamThreadItem(cur, threadItem);
-                      }
-                      n.set(chatId, next);
-                      return n;
-                    });
-                  }
                 }
               }
             }
@@ -821,17 +817,15 @@ export function useStreamChat({
             const stack = toolEndStackRef.current.get(chatId) ?? [];
             stack.push({ toolId: registryName, toolName: registryName });
             toolEndStackRef.current.set(chatId, stack);
-            if (hasChatId) {
-              const threadItem = streamThreadItemFromToolStart({
-                toolId: registryName,
-              });
-              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                const n = new Map(prev);
-                const cur = n.get(chatId) ?? [];
-                n.set(chatId, upsertStreamThreadItem(cur, threadItem));
-                return n;
-              });
-            }
+            const threadItem = streamThreadItemFromToolStart({
+              toolId: registryName,
+            });
+            getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+              const n = new Map(prev);
+              const cur = n.get(chatId) ?? [];
+              n.set(chatId, upsertStreamThreadItem(cur, threadItem));
+              return n;
+            });
             setToolIndicator((prev) => ({
               ...prev,
               active: true,
@@ -860,26 +854,34 @@ export function useStreamChat({
             }
             const stack = toolEndStackRef.current.get(chatId) ?? [];
             const popped = stack.pop();
+            const toolName =
+              popped?.toolName ?? end.toolName ?? end.toolId ?? "";
+            if (
+              end.status !== "error" &&
+              (toolName === "write_file" ||
+                toolName === "write_multiple_files" ||
+                toolName === "run_command")
+            ) {
+              refreshApp();
+            }
             if (stack.length === 0) {
               toolEndStackRef.current.delete(chatId);
             } else {
               toolEndStackRef.current.set(chatId, stack);
             }
-            if (hasChatId) {
-              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                const n = new Map(prev);
-                const cur = n.get(chatId) ?? [];
-                n.set(
-                  chatId,
-                  handleStreamToolEnd(cur, {
-                    toolId: end.toolId ?? popped?.toolId,
-                    toolName: popped?.toolName,
-                    status: end.status === "error" ? "error" : "done",
-                  }),
-                );
-                return n;
-              });
-            }
+            getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+              const n = new Map(prev);
+              const cur = n.get(chatId) ?? [];
+              n.set(
+                chatId,
+                handleStreamToolEnd(cur, {
+                  toolId: end.toolId ?? popped?.toolId,
+                  toolName: popped?.toolName,
+                  status: end.status === "error" ? "error" : "done",
+                }),
+              );
+              return n;
+            });
             setToolIndicator((prev) => {
               const newCount = Math.max(0, prev.count - 1);
               return {
@@ -1222,18 +1224,10 @@ export function useStreamChat({
                 label: undefined,
               });
             }
-            if (hasChatId) {
-              persistAndClearLiveStreamThread(
-                response.chatId,
-                lastAssistant?.id,
-              );
-            } else {
-              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                const n = new Map(prev);
-                n.delete(response.chatId);
-                return n;
-              });
-            }
+            persistAndClearLiveStreamThread(
+              response.chatId,
+              lastAssistant?.id,
+            );
 
             const frozenThread =
               lastAssistant?.id != null
@@ -1478,15 +1472,7 @@ export function useStreamChat({
                 label: undefined,
               });
             }
-            if (hasChatId) {
-              persistAndClearLiveStreamThread(chatId, lastAssistantErr?.id);
-            } else {
-              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                const n = new Map(prev);
-                n.delete(chatId);
-                return n;
-              });
-            }
+            persistAndClearLiveStreamThread(chatId, lastAssistantErr?.id);
             clearActivityForChatInStore(chatId);
             toolEndStackRef.current.delete(chatId);
             setStreamLastActivityAtByChatId((prev) => {

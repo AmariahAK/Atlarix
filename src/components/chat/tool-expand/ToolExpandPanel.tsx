@@ -3,6 +3,7 @@ import { ToolDiffExpand } from "./ToolDiffExpand";
 import { ToolFileListExpand } from "./ToolFileListExpand";
 import { ToolMatchListExpand } from "./ToolMatchListExpand";
 import { ToolReadSnippetExpand } from "./ToolReadSnippetExpand";
+import { ToolSearchResultsExpand } from "./ToolSearchResultsExpand";
 import { cn } from "@/lib/utils";
 
 export function ToolExpandPanel({
@@ -20,6 +21,9 @@ export function ToolExpandPanel({
       {view.kind === "match_list" ? <ToolMatchListExpand view={view} /> : null}
       {view.kind === "read_snippet" ? <ToolReadSnippetExpand view={view} /> : null}
       {view.kind === "diff" ? <ToolDiffExpand view={view} /> : null}
+      {view.kind === "search_results" ? (
+        <ToolSearchResultsExpand view={view} />
+      ) : null}
       {view.kind === "text" ? (
         <pre
           className={cn(

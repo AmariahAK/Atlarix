@@ -484,6 +484,16 @@ export class PermissionInterceptor extends EventEmitter {
         return `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
+    /** Pre-execute writes for batch auto-allow paths (file scope preflight). */
+    async preExecuteWritePreviews(previews: FileOperationPreview[]): Promise<void> {
+        if (!previews.length) return;
+        await this.executeWriteMultipleFiles({
+            __permission_required: true,
+            operation: "write_multiple_files",
+            preview: previews,
+        });
+    }
+
     /**
      * Buffer an operation for batch approval
      * @param silent When true, do not emit permission-request (autonomous auto-approve path).

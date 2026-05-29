@@ -178,7 +178,7 @@ export function TourManager() {
       > = {
         diagram: [
           { title: "Inline diagrams", text: "Request a diagram in chat — Mermaid and markmap fences render in the thread.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },
-          { title: "get_diagram tool", text: "The assistant can call get_diagram for workspace architecture; results appear as inline Mermaid in the reply.", attach: '[data-tour="tour-activity-panel"]', on: "left" },
+          { title: "Inline Mermaid diagrams", text: "The assistant can include ```mermaid flowchart``` fences in replies; they render as collapsible diagram cards in chat.", attach: '[data-tour="tour-activity-panel"]', on: "left" },
         ],
         agents: [
           { title: "Sub-agents", text: "In Build, Explore & Review sub-agents map scoped paths (up to five per turn) — cards appear in the Sub-agents panel.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },

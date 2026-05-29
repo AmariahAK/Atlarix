@@ -48,7 +48,6 @@ import {
 
 import { isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import { useRunApp } from "@/hooks/useRunApp";
-import { AutoApproveSwitch } from "../AutoApproveSwitch";
 import { usePostHog } from "posthog-js/react";
 import { CodeHighlight } from "./CodeHighlight";
 import { TokenBar } from "./TokenBar";
@@ -94,7 +93,7 @@ import { CompassExhaustedBanner } from "./CompassExhaustedBanner";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "./SignInToChatNotice";
 
-const STREAM_STALL_MS = 5 * 60 * 1000;
+import { SlowStreamWarningBar } from "./SlowStreamWarningBar";
 
 type SlashCommandSuggestion = { name: string; description: string };
 
@@ -104,63 +103,6 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { name: "explain", description: "Explain code or concept" },
   { name: "debug", description: "Debug a specific issue" },
 ];
-
-/** Fix: Finding 4 — Build mode: warn if no stream activity for 5+ minutes */
-function SlowStreamWarningBar({
-  chatId,
-  isStreaming,
-}: {
-  chatId?: number | null;
-  isStreaming: boolean;
-}) {
-  const { settings } = useSettings();
-  const setSlow = useSetAtom(streamSlowWarningByChatIdAtom);
-  const slowMap = useAtomValue(streamSlowWarningByChatIdAtom);
-
-  useEffect(() => {
-    if (!isStreaming || chatId == null || settings?.selectedChatMode !== "build") {
-      return;
-    }
-    const tick = window.setInterval(() => {
-      const last = getDefaultStore().get(streamLastActivityAtByChatIdAtom).get(chatId);
-      if (last != null && Date.now() - last > STREAM_STALL_MS) {
-        setSlow((prev) => {
-          const n = new Map(prev);
-          n.set(chatId, true);
-          return n;
-        });
-      }
-    }, 15_000);
-    return () => clearInterval(tick);
-  }, [isStreaming, chatId, settings?.selectedChatMode, setSlow]);
-
-  if (chatId == null || !slowMap.get(chatId)) return null;
-
-  return (
-    <div className="mx-4 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 flex flex-wrap items-center gap-2">
-      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
-      <span className="flex-1 min-w-[12rem]">
-        This is taking longer than usual. You can wait or stop and retry.
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0 border-amber-600/50"
-        onClick={() => {
-          IpcClient.getInstance().cancelChatStream(chatId);
-          setSlow((prev) => {
-            const n = new Map(prev);
-            n.delete(chatId);
-            return n;
-          });
-        }}
-      >
-        Stop
-      </Button>
-    </div>
-  );
-}
 
 export function ChatInput({ chatId }: { chatId?: number }) {
   const posthog = usePostHog();
@@ -1011,9 +953,6 @@ function ChatInputActions({
             )}
             Reject
           </Button>
-          <div className="flex items-center space-x-1 ml-auto">
-            <AutoApproveSwitch />
-          </div>
         </div>
       </div>
 

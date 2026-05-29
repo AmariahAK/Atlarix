@@ -1,0 +1,160 @@
+import { useCallback, useEffect, useState } from "react";
+import { useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { IpcClient } from "@/ipc/ipc_client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { isDangerousCategory } from "@/lib/terminal-command-category";
+import { toast } from "sonner";
+
+type PermissionRow = {
+  id: number;
+  appId: number;
+  category: string;
+  decision: "always_allow" | "always_deny";
+  createdAt?: Date | null;
+};
+
+export function WorkspaceTerminalPermissions() {
+  const appId = useAtomValue(selectedAppIdAtom);
+  const [rows, setRows] = useState<PermissionRow[]>([]);
+  const [categoryInput, setCategoryInput] = useState("");
+  const [decisionInput, setDecisionInput] = useState<"always_allow" | "always_deny">(
+    "always_allow",
+  );
+  const [loading, setLoading] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (appId == null) {
+      setRows([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const list = await IpcClient.getInstance().listCommandPermissions(appId);
+      setRows(Array.isArray(list) ? list : []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [appId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  if (appId == null) {
+    return null;
+  }
+
+  const handleAdd = async () => {
+    const cat = categoryInput.trim().toLowerCase();
+    if (!cat) {
+      toast.error("Enter a command category (first token, e.g. git)");
+      return;
+    }
+    if (isDangerousCategory(cat)) {
+      toast.error("Dangerous categories cannot be saved as always allow or deny rules");
+      return;
+    }
+    const result = await IpcClient.getInstance().upsertCommandPermission({
+      appId,
+      category: cat,
+      decision: decisionInput,
+    });
+    if (result && typeof result === "object" && "success" in result && !result.success) {
+      toast.error((result as { error?: string }).error ?? "Failed to save");
+      return;
+    }
+    setCategoryInput("");
+    void reload();
+  };
+
+  const handleRevoke = async (category: string) => {
+    await IpcClient.getInstance().revokeCommandPermission({ appId, category });
+    void reload();
+  };
+
+  return (
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-border mt-6">
+      <h2 className="text-lg font-medium text-foreground mb-1">Terminal permissions</h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        Remember allow or deny decisions for command categories in this workspace (first token of
+        the command, e.g. <code className="text-xs">git</code> for{" "}
+        <code className="text-xs">git status</code>). Dangerous commands always require inline
+        approval.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Input
+          placeholder="Category (e.g. git)"
+          value={categoryInput}
+          onChange={(e) => setCategoryInput(e.target.value)}
+          className="max-w-[160px] h-9"
+        />
+        <Select
+          value={decisionInput}
+          onValueChange={(v) => setDecisionInput(v as "always_allow" | "always_deny")}
+        >
+          <SelectTrigger className="w-[140px] h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="always_allow">Always allow</SelectItem>
+            <SelectItem value="always_deny">Always deny</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button type="button" size="sm" onClick={() => void handleAdd()}>
+          Add
+        </Button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No saved rules yet.</p>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Category</th>
+                <th className="text-left px-3 py-2 font-medium">Decision</th>
+                <th className="text-right px-3 py-2 font-medium"> </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-t border-border/60">
+                  <td className="px-3 py-2 font-mono">{row.category}</td>
+                  <td className="px-3 py-2">
+                    {row.decision === "always_allow" ? "Always allow" : "Always deny"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => void handleRevoke(row.category)}
+                    >
+                      Revoke
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

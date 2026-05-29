@@ -7,8 +7,14 @@ import { AI_STREAM_EMPTY_RESPONSE_FALLBACK } from "@/shared/texts";
 import { isNoUsableModelOutputError } from "../utils/no_usable_model_output";
 import { cleanFullResponse } from "../utils/cleanFullResponse";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
+import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 
 const logger = log.scope("stream-chunk-tags");
+
+/** Abort stream when no chunk arrives for this long (ms). */
+export const STREAM_STALL_TIMEOUT_MS = 45_000;
+const HEARTBEAT_LOG_INTERVAL_MS = 15_000;
+const TOOL_INPUT_PROGRESS_INTERVAL_MS = 2_000;
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -42,9 +48,24 @@ export type ProcessStreamChunksParams = {
   onFirstTextDelta?: () => void;
   onFirstReasoningDelta?: () => void;
   onFirstTextAfterReasoning?: () => void;
-  /** @deprecated Stall watchdog removed */
+  /** Called when no stream chunk arrives within STREAM_STALL_TIMEOUT_MS. */
   onStreamStall?: () => void;
+  /** Throttled while model streams native tool arguments (tool-input-delta). */
+  onToolInputProgress?: (info: {
+    toolName: string;
+    deltaCount: number;
+  }) => void;
+  /** Lightweight pulse for UI scroll / slow-stream timers during silent phases. */
+  onStreamActivityPulse?: () => void;
+  stallTimeoutMs?: number;
 };
+
+function detectHallucinatedAtlarixToolTag(text: string): boolean {
+  return (
+    /<atlarix-tool_calls\b/i.test(text) ||
+    /<atlarix-tool-call\b/i.test(text)
+  );
+}
 
 /** Map AI SDK stream parts to atlarix inline tags in assistant content. */
 export async function processStreamChunks({
@@ -58,9 +79,15 @@ export async function processStreamChunks({
   onFirstTextDelta,
   onFirstReasoningDelta,
   onFirstTextAfterReasoning,
+  onStreamStall,
+  onToolInputProgress,
+  onStreamActivityPulse,
+  stallTimeoutMs = STREAM_STALL_TIMEOUT_MS,
 }: ProcessStreamChunksParams): Promise<{
   fullResponse: string;
   incrementalResponse: string;
+  stalled: boolean;
+  finishReason?: string;
 }> {
   let fullResponse = initialFullResponse;
   let incrementalResponse = "";
@@ -69,6 +96,17 @@ export async function processStreamChunks({
   let firstTextDeltaSent = false;
   let firstReasoningActivitySent = false;
   let reasoningStreamActive = false;
+  let stalled = false;
+  let finishReason: string | undefined;
+  let lastChunkAt = Date.now();
+  let lastHeartbeatLogAt = Date.now();
+  let loggedHallucinatedTag = false;
+  const partCounts: Record<string, number> = {};
+  const streamStartedAt = Date.now();
+  let pendingInputToolName: string | undefined;
+  let toolInputDeltaCount = 0;
+  let lastToolInputNotifyAt = 0;
+  const streamDebug = isStreamDebugLoggingEnabled();
 
   const markFirstModelActivity = () => {
     if (firstModelActivitySent || !onFirstModelActivity) return;
@@ -84,10 +122,54 @@ export async function processStreamChunks({
     fullResponse = await processResponseChunkUpdate({ fullResponse });
   };
 
-  let pendingToolCallDepth = 0;
+  const notifyToolInputProgress = (force = false) => {
+    if (!onToolInputProgress && !onStreamActivityPulse) return;
+    const now = Date.now();
+    if (!force && now - lastToolInputNotifyAt < TOOL_INPUT_PROGRESS_INTERVAL_MS) {
+      return;
+    }
+    lastToolInputNotifyAt = now;
+    const toolName = pendingInputToolName ?? "tool";
+    onToolInputProgress?.({ toolName, deltaCount: toolInputDeltaCount });
+    onStreamActivityPulse?.();
+  };
+
+  const stallTimer = setInterval(() => {
+    if (abortController.signal.aborted) return;
+    const now = Date.now();
+    const sinceChunk = now - lastChunkAt;
+    if (sinceChunk >= stallTimeoutMs) {
+      stalled = true;
+      logger.warn(
+        `[stream] chat ${chatId} stalled — no chunk for ${sinceChunk}ms`,
+      );
+      onStreamStall?.();
+      abortController.abort();
+      return;
+    }
+    if (
+      streamDebug &&
+      now - lastHeartbeatLogAt >= HEARTBEAT_LOG_INTERVAL_MS
+    ) {
+      lastHeartbeatLogAt = now;
+      logger.log(
+        `[stream heartbeat] chat ${chatId} active — ${sinceChunk}ms since last chunk (parts: ${JSON.stringify(partCounts)})`,
+      );
+    }
+  }, HEARTBEAT_LOG_INTERVAL_MS);
 
   try {
     for await (const part of fullStream) {
+      lastChunkAt = Date.now();
+      partCounts[part.type] = (partCounts[part.type] ?? 0) + 1;
+
+      if (part.type === "finish") {
+        finishReason =
+          typeof (part as { finishReason?: string }).finishReason === "string"
+            ? (part as { finishReason?: string }).finishReason
+            : undefined;
+      }
+
       let chunk = "";
       if (
         inThinkingBlock &&
@@ -99,10 +181,37 @@ export async function processStreamChunks({
         inThinkingBlock = false;
       }
 
-      if (part.type === "text-delta") {
+      if (part.type === "tool-input-start") {
+        const toolKey =
+          typeof (part as { toolName?: string }).toolName === "string"
+            ? (part as { toolName: string }).toolName
+            : undefined;
+        if (toolKey) {
+          pendingInputToolName = parseMcpToolKey(toolKey).toolName || toolKey;
+        }
+        toolInputDeltaCount = 0;
+        markFirstModelActivity();
+        notifyToolInputProgress(true);
+      } else if (part.type === "tool-input-delta") {
+        toolInputDeltaCount += 1;
+        markFirstModelActivity();
+        notifyToolInputProgress(false);
+      } else if (part.type === "text-delta") {
         let text = part.text ?? "";
         if (sanitizeTextDelta) {
           text = sanitizeTextDelta(text);
+        }
+        if (
+          text &&
+          detectHallucinatedAtlarixToolTag(text) &&
+          !loggedHallucinatedTag
+        ) {
+          loggedHallucinatedTag = true;
+          if (streamDebug) {
+            logger.warn(
+              `[stream] chat ${chatId}: model emitted raw Atlarix tool tag in text-delta`,
+            );
+          }
         }
         if (text) {
           if (reasoningStreamActive && onFirstTextAfterReasoning) {
@@ -131,7 +240,8 @@ export async function processStreamChunks({
           chunk += escapeAtlarixTags(rtext);
         }
       } else if (part.type === "tool-call") {
-        pendingToolCallDepth += 1;
+        pendingInputToolName = undefined;
+        toolInputDeltaCount = 0;
         markFirstModelActivity();
         const toolKey =
           typeof part.toolName === "string" ? part.toolName : "tool";
@@ -143,7 +253,6 @@ export async function processStreamChunks({
           chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
         }
       } else if (part.type === "tool-result") {
-        pendingToolCallDepth = Math.max(0, pendingToolCallDepth - 1);
         markFirstModelActivity();
         const toolKey =
           typeof part.toolName === "string" ? part.toolName : "tool";
@@ -168,12 +277,16 @@ export async function processStreamChunks({
       fullResponse = await processResponseChunkUpdate({ fullResponse });
 
       if (abortController.signal.aborted) {
-        logger.log(`Stream for chat ${chatId} was aborted`);
+        if (streamDebug) {
+          logger.log(`Stream for chat ${chatId} was aborted`);
+        }
         break;
       }
     }
   } catch (err) {
-    if (isNoUsableModelOutputError(err) && !abortController.signal.aborted) {
+    if (abortController.signal.aborted && stalled) {
+      logger.warn(`Stream for chat ${chatId} aborted due to stall`);
+    } else if (isNoUsableModelOutputError(err) && !abortController.signal.aborted) {
       logger.warn(
         `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
         err,
@@ -181,8 +294,15 @@ export async function processStreamChunks({
       if (!fullResponse.trim()) {
         await applyEmptyFallback();
       }
-    } else {
+    } else if (!abortController.signal.aborted) {
       throw err;
+    }
+  } finally {
+    clearInterval(stallTimer);
+    if (streamDebug) {
+      logger.log(
+        `[stream heartbeat] chat ${chatId} ended — duration ${Date.now() - streamStartedAt}ms stalled=${stalled} finish=${finishReason ?? "n/a"} parts=${JSON.stringify(partCounts)}`,
+      );
     }
   }
 
@@ -199,5 +319,5 @@ export async function processStreamChunks({
     await applyEmptyFallback();
   }
 
-  return { fullResponse, incrementalResponse };
+  return { fullResponse, incrementalResponse, stalled, finishReason };
 }

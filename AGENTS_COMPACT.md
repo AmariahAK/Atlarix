@@ -10,6 +10,8 @@
 
 ## Tool surface (Pass 7 consolidated)
 
+Use **native function calling** for all tools. Core tools are always registered; additional tools load on first use. Never emit XML tool syntax in visible text.
+
 - **Search:** `search({ mode: "auto" | "text" | "semantic" | "semantic-lite" | "semantic-graph" | "structural" })`. Prefer an explicit `mode`. Legacy `semantic` is treated as `semantic-graph` (BM25 over ctags symbols). `auto` picks text, semantic-lite, or structural; upgrades concept queries to `semantic-graph` when `.atlarix/symbols.json` is warm. `semantic-lite` scans source files only (no symbol index). `web_search({deep: true})` for multi-source web; `deep_research` is the agentic loop. `read_url` for a specific URL.
 - **Edit:** `edit_file({operation: "replace" | "insert" | "delete" | "section"})`.
 - **Memory:** `memory({operation: "recall" | "search"})` for session activity. Project memory uses `get_project_history` (optional `revert_to`) / `set_project_memory`.

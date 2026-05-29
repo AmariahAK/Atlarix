@@ -98,6 +98,8 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
   const [value, setValue] = useState<string | undefined>(undefined);
   const [displayUnsavedChanges, setDisplayUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [plainTextMode, setPlainTextMode] = useState(false);
+  const [editorLanguage, setEditorLanguage] = useState(() => getLanguage(filePath));
   const { settings } = useSettings();
   // Use refs for values that need to be current in event handlers
   const originalValueRef = useRef<string | undefined>(undefined);
@@ -173,6 +175,28 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
       setIsSaving(false);
     }
   }, [content, filePath]);
+
+  useEffect(() => {
+    setEditorLanguage(getLanguage(filePath));
+    setPlainTextMode(false);
+  }, [filePath]);
+
+  useEffect(() => {
+    const onTokenizerError = (event: ErrorEvent) => {
+      const msg = event.message ?? "";
+      if (
+        msg.includes("look-behind") ||
+        msg.includes("OnigScanner") ||
+        msg.includes("invalid pattern")
+      ) {
+        event.preventDefault();
+        setPlainTextMode(true);
+        setEditorLanguage("plaintext");
+      }
+    };
+    window.addEventListener("error", onTokenizerError);
+    return () => window.removeEventListener("error", onTokenizerError);
+  }, [filePath]);
 
   // Sync the UI with the needsSave ref
   useEffect(() => {
@@ -285,9 +309,14 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
         isSaving={isSaving}
       />
       <div className="flex-1 overflow-hidden">
+        {plainTextMode ? (
+          <div className="px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400 border-b border-border/40 bg-muted/20">
+            Syntax highlighting unavailable — showing plain text.
+          </div>
+        ) : null}
         <Editor
           height="100%"
-          defaultLanguage={getLanguage(filePath)}
+          language={plainTextMode ? "plaintext" : editorLanguage}
           value={value}
           theme={editorTheme}
           onChange={handleEditorChange}

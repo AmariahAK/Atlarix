@@ -27,8 +27,13 @@ Add these to your `.env` file:
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-# GitHub OAuth
-GITHUB_CLIENT_ID=your_github_client_id
+# GitHub OAuth (device flow — repo clone)
+OAUTH_CLIENT_ID=your_github_oauth_app_client_id
+# Legacy fallback until renamed:
+# GITHUB_CLIENT_ID=your_github_oauth_app_client_id
+
+# GitHub OAuth (Supabase sign-in — optional UI)
+VITE_GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 
 # Backend API

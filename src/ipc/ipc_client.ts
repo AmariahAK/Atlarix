@@ -68,6 +68,7 @@ import type {
   McpServerUpdate,
   CreateMcpServer,
   CloneRepoParams,
+  GithubCloneProgress,
   SupabaseBranch,
   SetSupabaseAppProjectParams,
   SelectNodeFolderResult,
@@ -238,6 +239,14 @@ export class IpcClient {
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
   private permissionHandlers: Map<number, (payload: any) => void>;
+  private commandPermissionBlockedHandlers: Map<
+    number,
+    (payload: { chatId: number; category?: string; message?: string }) => void
+  >;
+  private filePermissionBlockedHandlers: Map<
+    number,
+    (payload: { chatId: number; message?: string }) => void
+  >;
   private userQuestionHandlers: Map<number, (payload: any) => void>;
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
   private diagramHandlers: Map<number, (payload: any) => void>;
@@ -248,6 +257,9 @@ export class IpcClient {
   private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
   private streamPhaseHandlers: Set<
     (payload: { chatId: number; phase: string; label: string }) => void
+  > = new Set();
+  private streamPulseHandlers: Set<
+    (payload: { chatId: number; timestamp: number }) => void
   > = new Set();
   private modelsDevStatusHandlers: Set<
     (payload: { message: string; timedOut?: boolean }) => void
@@ -276,6 +288,8 @@ export class IpcClient {
     this.helpStreams = new Map();
     this.mcpConsentHandlers = new Map();
     this.permissionHandlers = new Map();
+    this.commandPermissionBlockedHandlers = new Map();
+    this.filePermissionBlockedHandlers = new Map();
     this.userQuestionHandlers = new Map();
     this.diagramHandlers = new Map();
     this.terminalHandlers = new Map();
@@ -347,12 +361,13 @@ export class IpcClient {
 
     this.ipcRenderer.on("chat:tool:start", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload && "toolName" in payload) {
-        const { chatId, toolName, toolId } = payload as {
+        const { chatId, toolName, toolId, toolArgs } = payload as {
           chatId: number;
           toolName: string;
           toolId?: string;
+          toolArgs?: Record<string, unknown>;
         };
-        this.toolStartHandlers.forEach((h) => h({ chatId, toolName, toolId }));
+        this.toolStartHandlers.forEach((h) => h({ chatId, toolName, toolId, toolArgs }));
       }
     });
     this.ipcRenderer.on("chat:tool:end", (payload: unknown) => {
@@ -377,6 +392,18 @@ export class IpcClient {
         this.streamPhaseHandlers.forEach((h) =>
           h({ chatId: p.chatId, phase: p.phase, label: p.label ?? "" }),
         );
+      }
+    });
+
+    this.ipcRenderer.on("chat:stream:pulse", (_e, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "timestamp" in payload
+      ) {
+        const p = payload as { chatId: number; timestamp: number };
+        this.streamPulseHandlers.forEach((h) => h(p));
       }
     });
 
@@ -479,6 +506,22 @@ export class IpcClient {
         } else {
           console.warn(`[IPC] No permission handler for chat ${chatId}`);
         }
+      }
+    });
+
+    this.ipcRenderer.on("command-permission-blocked", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload as { chatId: number };
+        const handler = this.commandPermissionBlockedHandlers.get(chatId);
+        handler?.(payload);
+      }
+    });
+
+    this.ipcRenderer.on("file-permission-blocked", (payload: any) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const { chatId } = payload as { chatId: number };
+        const handler = this.filePermissionBlockedHandlers.get(chatId);
+        handler?.(payload);
       }
     });
 
@@ -826,7 +869,12 @@ export class IpcClient {
 
   /** v3.5: Register for tool start/end events (persistent "Working…" indicator). Returns unsubscribe. */
   public onToolIndicator(
-    onStart: (payload: { chatId: number; toolName: string; toolId?: string }) => void,
+    onStart: (payload: {
+      chatId: number;
+      toolName: string;
+      toolId?: string;
+      toolArgs?: Record<string, unknown>;
+    }) => void,
     onEnd: (payload: {
       chatId: number;
       toolId?: string;
@@ -848,6 +896,16 @@ export class IpcClient {
     this.streamPhaseHandlers.add(handler);
     return () => {
       this.streamPhaseHandlers.delete(handler);
+    };
+  }
+
+  /** Lightweight activity pulse during silent stream phases (e.g. tool-input-delta). */
+  public onStreamPulse(
+    handler: (payload: { chatId: number; timestamp: number }) => void,
+  ): () => void {
+    this.streamPulseHandlers.add(handler);
+    return () => {
+      this.streamPulseHandlers.delete(handler);
     };
   }
 
@@ -1436,7 +1494,27 @@ export class IpcClient {
 
   // --- GitHub Device Flow ---
   public startGithubDeviceFlow(appId: number | null): void {
-    this.ipcRenderer.invoke("github:start-flow", { appId });
+    void this.ipcRenderer.invoke("github:start-flow", { appId });
+  }
+
+  public cancelGithubDeviceFlow(): void {
+    void this.ipcRenderer.invoke("github:cancel-flow");
+  }
+
+  public cancelGithubClone(): void {
+    void this.ipcRenderer.invoke("github:cancel-clone");
+  }
+
+  public onGithubCloneProgress(
+    callback: (data: GithubCloneProgress) => void,
+  ): () => void {
+    const listener = (data: GithubCloneProgress) => {
+      callback(data);
+    };
+    this.ipcRenderer.on("github:clone:progress", listener);
+    return () => {
+      this.ipcRenderer.removeListener("github:clone:progress", listener);
+    };
   }
 
   public onGithubDeviceFlowUpdate(
@@ -2074,14 +2152,66 @@ export class IpcClient {
   public async executePermission({
     chatId,
     operationId,
+    approvalMode = "once",
+    appId,
   }: {
     chatId: number;
     operationId: string;
+    approvalMode?:
+      | "once"
+      | "always_allow"
+      | "deny"
+      | "always_allow_file"
+      | "always_allow_directory"
+      | "always_allow_extension";
+    appId?: number | null;
   }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
     return this.ipcRenderer.invoke("execute-permission", {
       chatId,
       operationId,
+      approvalMode,
+      appId,
     });
+  }
+
+  public async listFilePermissions(appId: number) {
+    return this.ipcRenderer.invoke("file-permissions:list", { appId });
+  }
+
+  public async upsertFilePermission(params: {
+    appId: number;
+    scopeType: "file" | "directory" | "extension";
+    scopeValue: string;
+    decision: "always_allow" | "always_deny";
+  }) {
+    return this.ipcRenderer.invoke("file-permissions:upsert", params);
+  }
+
+  public async revokeFilePermission(params: {
+    appId: number;
+    scopeType: "file" | "directory" | "extension";
+    scopeValue: string;
+  }) {
+    return this.ipcRenderer.invoke("file-permissions:revoke", params);
+  }
+
+  public async listCommandPermissions(appId: number) {
+    return this.ipcRenderer.invoke("command-permissions:list", { appId });
+  }
+
+  public async upsertCommandPermission(params: {
+    appId: number;
+    category: string;
+    decision: "always_allow" | "always_deny";
+  }) {
+    return this.ipcRenderer.invoke("command-permissions:upsert", params);
+  }
+
+  public async revokeCommandPermission(params: {
+    appId: number;
+    category: string;
+  }) {
+    return this.ipcRenderer.invoke("command-permissions:revoke", params);
   }
 
   public async rejectPermission({
@@ -2183,6 +2313,30 @@ export class IpcClient {
     this.permissionHandlers.set(chatId, handler);
     return () => {
       this.permissionHandlers.delete(chatId);
+    };
+  }
+
+  public onCommandPermissionBlocked(
+    chatId: number,
+    handler: (payload: {
+      chatId: number;
+      category?: string;
+      message?: string;
+    }) => void,
+  ): () => void {
+    this.commandPermissionBlockedHandlers.set(chatId, handler);
+    return () => {
+      this.commandPermissionBlockedHandlers.delete(chatId);
+    };
+  }
+
+  public onFilePermissionBlocked(
+    chatId: number,
+    handler: (payload: { chatId: number; message?: string }) => void,
+  ): () => void {
+    this.filePermissionBlockedHandlers.set(chatId, handler);
+    return () => {
+      this.filePermissionBlockedHandlers.delete(chatId);
     };
   }
 

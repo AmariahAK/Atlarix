@@ -22,6 +22,13 @@ export const FileOperationPreviewSchema = z.object({
     // For rename operations
     fromPath: z.string().optional().describe("Original path (for rename)"),
     toPath: z.string().optional().describe("New path (for rename)"),
+    isProtectedFile: z.boolean().optional(),
+    isDeleteOrRename: z.boolean().optional(),
+    canAlwaysAllowFile: z.boolean().optional(),
+    canAlwaysAllowDirectory: z.boolean().optional(),
+    canAlwaysAllowExtension: z.boolean().optional(),
+    fileParentDir: z.string().optional(),
+    fileExtension: z.string().optional(),
 });
 
 export type FileOperationPreview = z.infer<typeof FileOperationPreviewSchema>;
@@ -36,6 +43,8 @@ export const CommandOperationPreviewSchema = z.object({
     description: z.string().describe("What this command does"),
     isDangerous: z.boolean().optional().describe("Whether command is risky"),
     dangerExplanation: z.string().optional().describe("Plain-English explanation of risks"),
+    commandCategory: z.string().optional().describe("First token category for workspace terminal rules"),
+    canAlwaysAllow: z.boolean().optional().describe("Whether Always allow category is offered"),
     /** Max wall-clock for the shell run (ms). Clamped in the interceptor. */
     timeout_ms: z.number().optional(),
     /** Max UTF-8 bytes for formatted output returned to the model. */

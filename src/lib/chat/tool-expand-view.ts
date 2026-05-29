@@ -31,6 +31,10 @@ const SEARCH_MATCH_TOOLS = new Set([
 
 const READ_FILE_TOOLS = new Set(["read_file", "read_url"]);
 
+const WEB_SEARCH_TOOLS = new Set(["web_search", "deep_research"]);
+
+const RUN_COMMAND_TOOLS = new Set(["run_command", "run_shell_command"]);
+
 const MAX_FILE_ROWS = 50;
 const MAX_READ_LINES = 40;
 const DIFF_CONTENT_MAX = 120_000;
@@ -83,7 +87,12 @@ export type ToolExpandView =
       removedCount?: number;
       snippetFallback?: string;
     }
-  | { kind: "text"; body: string; isError?: boolean };
+  | { kind: "text"; body: string; isError?: boolean }
+  | {
+      kind: "search_results";
+      query: string;
+      results: { title: string; url: string; snippet?: string }[];
+    };
 
 export function splitPathForDisplay(fullPath: string): {
   fileName: string;
@@ -317,6 +326,61 @@ function trimDiffContent(s: string): string {
   return `${s.slice(0, DIFF_CONTENT_MAX)}\n… (truncated)`;
 }
 
+function buildWebSearchResultsView(
+  payload: Record<string, unknown>,
+  args?: unknown,
+): Extract<ToolExpandView, { kind: "search_results" }> | null {
+  const rawSources = payload.sources;
+  if (!Array.isArray(rawSources) || rawSources.length === 0) return null;
+
+  const results: { title: string; url: string; snippet?: string }[] = [];
+  for (const entry of rawSources) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const url = typeof o.url === "string" ? o.url.trim() : "";
+    if (!url) continue;
+    const title =
+      (typeof o.title === "string" && o.title.trim()) || url;
+    const snippet =
+      typeof o.content === "string"
+        ? o.content
+        : typeof o.snippet === "string"
+          ? o.snippet
+          : undefined;
+    results.push({ title, url, snippet });
+  }
+  if (results.length === 0) return null;
+
+  let query = "";
+  if (args && typeof args === "object") {
+    const a = args as Record<string, unknown>;
+    if (typeof a.query === "string") query = a.query.trim();
+  }
+
+  return { kind: "search_results", query, results };
+}
+
+function buildCommandOutputView(
+  payload: Record<string, unknown>,
+  plainText?: string,
+): Extract<ToolExpandView, { kind: "text" }> | null {
+  const output =
+    typeof payload.output === "string"
+      ? payload.output
+      : typeof payload.stdout === "string" || typeof payload.stderr === "string"
+        ? [
+            typeof payload.stdout === "string" ? payload.stdout : "",
+            typeof payload.stderr === "string" ? payload.stderr : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : plainText?.trim() && !plainText.trim().startsWith("{")
+          ? plainText
+          : "";
+  if (!output.trim()) return null;
+  return { kind: "text", body: output.trim() };
+}
+
 function buildDiffView(
   payload: Record<string, unknown>,
   plainText?: string,
@@ -480,6 +544,16 @@ export function buildToolExpandView(
   if (WRITE_TOOLS.has(toolName)) {
     const diff = buildDiffView(payload, plain, args);
     if (diff) return diff;
+  }
+
+  if (WEB_SEARCH_TOOLS.has(toolName)) {
+    const search = buildWebSearchResultsView(payload, args);
+    if (search) return search;
+  }
+
+  if (RUN_COMMAND_TOOLS.has(toolName)) {
+    const cmd = buildCommandOutputView(payload, plain);
+    if (cmd) return cmd;
   }
 
   const preview = formatToolResultPreview(toolName, resultText, streamStatus);

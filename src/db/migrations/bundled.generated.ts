@@ -59,6 +59,8 @@ import raw_52_0052_message_model_content from "../../../drizzle/0052_message_mod
 import raw_53_0053_message_paste_attachments from "../../../drizzle/0053_message_paste_attachments.sql?raw";
 import raw_54_0054_message_file_attachments from "../../../drizzle/0054_message_file_attachments.sql?raw";
 import raw_55_0055_session_message_attachments from "../../../drizzle/0055_session_message_attachments.sql?raw";
+import raw_56_0056_workspace_command_permissions from "../../../drizzle/0056_workspace_command_permissions.sql?raw";
+import raw_57_0057_workspace_file_permissions from "../../../drizzle/0057_workspace_file_permissions.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -125,6 +127,8 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0053_message_paste_attachments", sql: raw_53_0053_message_paste_attachments as string, drizzleHash: "a9e754faff79660c375d09d733666253caa9b37426b519bbfa29058011bf8a6f", when: 1779250000000 },
   { name: "0054_message_file_attachments", sql: raw_54_0054_message_file_attachments as string, drizzleHash: "3146549033c13356eeac0c9aa0b6d63cef261c6ea85d5efc6c6b0a4f8a085110", when: 1779350000000 },
   { name: "0055_session_message_attachments", sql: raw_55_0055_session_message_attachments as string, drizzleHash: "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799", when: 1779450000000 },
+  { name: "0056_workspace_command_permissions", sql: raw_56_0056_workspace_command_permissions as string, drizzleHash: "ce5d3f0a5d5467aaf40d8616998eac91725d545c352d40a3a0b9f6392fd24e06", when: 1779550000000 },
+  { name: "0057_workspace_file_permissions", sql: raw_57_0057_workspace_file_permissions as string, drizzleHash: "788ddfa1f251375f0efc54f59fc94d4988eeb57ce1de50267b2dafb956543415", when: 1779650000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -185,4 +189,6 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "a9e754faff79660c375d09d733666253caa9b37426b519bbfa29058011bf8a6f": "0053_message_paste_attachments",
   "3146549033c13356eeac0c9aa0b6d63cef261c6ea85d5efc6c6b0a4f8a085110": "0054_message_file_attachments",
   "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799": "0055_session_message_attachments",
+  "ce5d3f0a5d5467aaf40d8616998eac91725d545c352d40a3a0b9f6392fd24e06": "0056_workspace_command_permissions",
+  "788ddfa1f251375f0efc54f59fc94d4988eeb57ce1de50267b2dafb956543415": "0057_workspace_file_permissions",
 };

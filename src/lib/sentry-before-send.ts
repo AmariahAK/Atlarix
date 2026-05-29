@@ -1,6 +1,7 @@
 import type { ErrorEvent, EventHint } from "@sentry/core";
 import { isPlanLimitError } from "@/lib/plan-limit-error";
 import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
+import { normalizeSentryErrorText } from "@/lib/sentry-decode-message";
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
@@ -11,11 +12,11 @@ export function sentryBeforeSendDropExpected(
   hint?: EventHint,
 ): ErrorEvent | null {
   const parts: string[] = [];
-  if (event.message) parts.push(event.message);
+  if (event.message) parts.push(normalizeSentryErrorText(event.message));
   const values = event.exception?.values;
   if (values) {
     for (const ex of values) {
-      if (ex.value) parts.push(ex.value);
+      if (ex.value) parts.push(normalizeSentryErrorText(ex.value));
       if (ex.type) parts.push(ex.type);
     }
   }

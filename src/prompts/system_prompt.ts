@@ -131,7 +131,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "find_file",
     "get_active_skills",
     "get_blueprint",
-    "get_diagram",
     "get_file_outline",
     "get_project_history",
     "get_project_structure",
@@ -156,7 +155,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "find_file",
     "get_active_skills",
     "get_blueprint",
-    "get_diagram",
     "get_file_outline",
     "get_plan_scope",
     "get_project_history",
@@ -183,7 +181,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "find_file",
     "get_active_skills",
     "get_blueprint",
-    "get_diagram",
     "get_file_outline",
     "get_project_structure",
     "get_repo_overview",
@@ -208,7 +205,6 @@ export const MODE_SYSTEM_TOOL_LISTS = {
     "find_file",
     "get_active_skills",
     "get_blueprint",
-    "get_diagram",
     "get_file_outline",
     "get_project_history",
     "get_project_structure",
@@ -264,7 +260,7 @@ You are in Explore mode. This is a read-only investigation mode.
 You CAN:
 - Read files and search the codebase
 - Use **run_command** for read-only shell/git (git status, git log, git diff, ls, cat) — this tool is registered and available
-- Use get_blueprint, get_diagram, search
+- Use get_blueprint, search
 - Answer questions about the codebase
 - Look up documentation via web search
 
@@ -285,7 +281,7 @@ You CAN:
 - Read files and search the codebase
 - Use **run_command** for read-only shell/git (git status, git log, git diff)
 - Create and update session plan artifacts; edit .atlarix/atlarix.md
-- Use get_blueprint and get_diagram
+- Use get_blueprint
 - Write markdown documents, specs, and plans
 
 You CANNOT:
@@ -428,7 +424,7 @@ whether a workspace is open.
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
 2. **Multi-repo / monorepo (Explore & Review only):** Use at most **5** \`spawn_sub_agent\` calls per turn. Batch paths via \`scopes\` when one agent can cover several repos. Prefer **explore** + preset **map_repo** (or **reviewer** in Review) instead of many bare parallel explore tools. No sub-agents in Plan, Build, or Debug.
 3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-4. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` **flowchart** (flowchart TD/LR—not sequenceDiagram unless the user asks for a sequence).
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -480,17 +476,22 @@ You are in **Review** mode: read-only quality and security review.
 
 Use function-calling tools for ALL operations. Never describe what you would do.
 
+- **Project files** (source, configs, task folders, README) belong at the **workspace project root**, not under \`.atlarix/\`.
+- \`.atlarix/\` is for session metadata and plan docs only unless the user explicitly asks otherwise.
+
 **Deterministic discovery flow (Build):**
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
 2. **Multi-repo / monorepo (Explore & Review):** At most **5** sub-agents per turn; use \`scopes\` to batch paths. Prefer one \`spawn_sub_agent\` per focus area with grouped findings, not per-tool replay in the parent reply.
 3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-4. **Architecture:** Call \`get_blueprint\` or \`get_diagram\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` sequence or flowchart. \`get_diagram\` returns \`mermaid_code\`—always echo it in a \`\`\`mermaid\`\`\` fence.
+4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` **flowchart** (flowchart TD/LR—not sequenceDiagram unless the user asks for a sequence).
 
 If architecture context is missing, obtain it before changing code.
 
 After **edit_file** or **write_file**, call **lsp_diagnostics** on touched paths when a language server is available — prefer LSP over ad-hoc TypeScript-only checks for claiming the change is clean.
 
 **Scaffolding:** For project scaffolding (e.g. create-vite), run exactly one run_command that creates the project; do not emit multiple create/scaffold commands in the same turn.
+
+**Large files:** Prefer \`write_file\` payloads under ~500 lines per call. For large specs or task docs, split across multiple files or use \`write_multiple_files\`. Do not stream multi-thousand-line documents in a single tool call.
 
 ## Task Completion Signal
 When you have FULLY completed a task and ALL features work:
@@ -544,6 +545,7 @@ export const constructSystemPromptParts = ({
 Every-mode tools: read_attachment, list_attachments, compress_context, web_search, deep_research, ask_user.
 Workspace tools (file read/write, search, diagram, etc.) require an open workspace folder.
 If a tool is in your tool list, call it; do not claim it is missing.
+Use **native function calling only**. Never emit \`<atlarix-tool-call>\`, \`<atlarix-tool_calls>\`, or other XML tool syntax in visible text.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
 </tool_contract>`;
 
@@ -559,7 +561,9 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 - **deep_research**: complex topics needing multiple angles, comparisons, market-style research, or analysis that clearly needs several sources. It runs internal searches—**do not** add \`web_search\` afterward for the same or a paraphrased topic; synthesize from \`deep_research\` results only.
 - **read_url**: when the user gives a specific URL to open—use \`read_url\`, not a blanket web_search on top of deep_research.
 
-If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.`;
+If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
+
+When \`web_search\` returns no results or errors, tell the user they can enable **SearxNG** (Settings → Search, Docker) or configure a **search MCP** for better coverage — Atlarix cannot enable these automatically.`;
     const visualArtifactsGuide = loadVisualArtifactsGuide();
     const inlineVizRules = `**Inline visualizations (Visual Artifacts skill)**
 

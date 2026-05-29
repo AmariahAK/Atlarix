@@ -33,6 +33,7 @@ export interface GitCloneParams {
   depth?: number | null;
   singleBranch?: boolean;
   accessToken?: string;
+  signal?: AbortSignal;
 }
 export interface GitLogParams extends GitBaseParams {
   depth?: number;

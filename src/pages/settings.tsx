@@ -3,8 +3,6 @@ import posthog from "posthog-js";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
-import { AutoApproveSwitch } from "@/components/AutoApproveSwitch";
-import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 import { MaxChatTurnsSelector } from "@/components/MaxChatTurnsSelector";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
@@ -26,6 +24,9 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
+import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
+import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
+import { GitHubIntegration } from "@/components/GitHubIntegration";
 import { useSetAtom, useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
@@ -198,6 +199,10 @@ export default function SettingsPage() {
                 When enabled, every commit made through Atlarix will include a Co-authored-by trailer for atlarix-agent.
               </p>
             </div>
+              <GitHubIntegration />
+              <p className="text-xs text-muted-foreground">
+                GitHub sign-in is saved on this Mac until you disconnect. Use disconnect to connect a different GitHub account.
+              </p>
           </div>
 
           {/* Danger Zone */}
@@ -511,19 +516,17 @@ export function WorkflowSettings() {
         Workflow Settings
       </h2>
 
-      <div className="space-y-1 opacity-50">
-        <div className="flex items-center gap-2 pointer-events-none">
-          <AutoApproveSwitch showToast={false} />
-          <span className="text-xs bg-muted px-2 py-0.5 rounded">Coming Soon</span>
-        </div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          This will automatically approve code changes and run them, currently only autonomous mode does this.
-        </div>
-      </div>
+      <p className="text-sm text-muted-foreground mb-6">
+        File and command approvals are reviewed inline in chat. Terminal command categories can be
+        managed per workspace below when a workspace is selected.
+      </p>
 
+      <WorkspaceTerminalPermissions />
+      <WorkspaceFilePermissions />
     </div>
   );
 }
+
 type HookRow = {
   id: number;
   name: string;

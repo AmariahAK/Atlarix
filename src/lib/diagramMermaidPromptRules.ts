@@ -5,6 +5,7 @@
 /** Verbatim copy for all architecture diagram system prompts. */
 export const DIAGRAM_MERMAID_CRITICAL_RULES = `
 CRITICAL MERMAID SYNTAX RULES — NEVER VIOLATE:
+- Prefer **flowchart TD** or **flowchart LR** for flows (not sequenceDiagram unless the user asks for a sequence).
 - NEVER use parentheses ( ) inside square bracket node labels [ ]
   WRONG:  [Client Tier (TypeScript)]
   RIGHT:  [Client Tier - TypeScript]

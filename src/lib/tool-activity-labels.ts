@@ -120,6 +120,7 @@ export function getToolDoneLabel(toolName: string): string {
     }
   }
   if (DONE_LABELS[toolName]) return DONE_LABELS[toolName];
+  if (toolName === "unknown" || toolName === "tool") return "Completed tool";
   const running = getToolActivityLabel(toolName).replace(/…$/u, "");
   if (/ing\b/i.test(running)) {
     return running.replace(/ing\b/i, "ed");

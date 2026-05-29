@@ -101,7 +101,7 @@ export function extractThinkingFromContent(
       tag === "atlarix-mcp-tool-call" ||
       tag === "atlarix-mcp-tool-result"
     ) {
-      const toolName = attrs.tool || attrs.name || attrs.server || "unknown";
+      const toolName = attrs.tool || attrs.name || attrs.server || "";
       const isInProgress = false;
       let status: ToolCallInfo["status"] = "success";
       if (attrs.status === "error") status = "error";

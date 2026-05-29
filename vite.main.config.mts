@@ -29,6 +29,9 @@ const MAIN_KEYS = [
   "COMPASS_MODEL_BALANCED",
   "COMPASS_MODEL_THINKING",
   "TEMPLATE_TOKEN",
+  "OAUTH_CLIENT_ID",
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_ID",
 ] as const;
 
 /** Keep in sync with `forge.config.ts` `packageAfterPrune` (named export for fallback + npm install roots). */

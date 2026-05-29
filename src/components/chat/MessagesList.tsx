@@ -24,10 +24,11 @@ import { sliceLastExchanges } from "../../lib/chat/lastExchanges";
 interface MessagesListProps {
   messages: Message[];
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  className?: string;
 }
 
 export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
-  function MessagesList({ messages, messagesEndRef }, ref) {
+  function MessagesList({ messages, messagesEndRef, className }, ref) {
     const appId = useAtomValue(selectedAppIdAtom);
     const { versions, revertVersion } = useVersions(appId);
     const { streamMessage, isStreaming } = useStreamChat();
@@ -80,7 +81,7 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
 
     return (
       <div
-        className="absolute inset-0 overflow-y-auto p-4"
+        className={`absolute inset-0 overflow-y-auto p-4${className ? ` ${className}` : ""}`}
         ref={setScrollRef}
         data-testid="messages-list"
       >

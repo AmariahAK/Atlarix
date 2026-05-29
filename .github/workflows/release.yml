@@ -43,6 +43,7 @@ env:
   COMPASS_MODEL_BALANCED: ${{ secrets.COMPASS_MODEL_BALANCED }}
   COMPASS_MODEL_THINKING: ${{ secrets.COMPASS_MODEL_THINKING }}
   TEMPLATE_TOKEN: ${{ secrets.TEMPLATE_TOKEN }}
+  OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Stable path for Electron zips so actions/cache can persist them across runs (reduces postinstall 504s).

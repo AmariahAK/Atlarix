@@ -1,6 +1,6 @@
+import "./preload-env";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, shell, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
-import { registerIpcHandlers } from "./ipc/ipc_host";
 import dotenv from "dotenv";
 // @ts-ignore
 import started from "electron-squirrel-startup";
@@ -54,6 +54,7 @@ import {
   parseDirectoryArgFromArgv,
 } from "./main/open_workspace_from_cli";
 import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
+import { registerIpcHandlers } from "./ipc/ipc_host";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -81,8 +82,7 @@ process.on("unhandledRejection", (reason: unknown) => {
   }
   logger.error("[main] Unhandled rejection:", reason);
 });
-
-// Load environment variables from .env file
+// .env loaded in ./preload-env (must run before other modules read process.env)
 dotenv.config();
 resolveSystemPath();
 

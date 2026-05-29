@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   isOnlyToolDebris,
   sanitizeMarkdownForDisplay,
+  stripHallucinatedAtlarixToolTagsFromDelta,
   stripMultilineToolJsonEnvelopes,
   stripOrphanToolTagFragments,
 } from "@/lib/chat/answer-display";
+
+describe("stripHallucinatedAtlarixToolTagsFromDelta", () => {
+  it("removes hallucinated tool_calls tags from streaming deltas", () => {
+    const raw = 'Done.\n<atlarix-tool_calls tool="write_file">';
+    const out = stripHallucinatedAtlarixToolTagsFromDelta(raw);
+    expect(out).toBe("Done.\n");
+    expect(out).not.toContain("atlarix-tool");
+  });
+});
 
 describe("stripOrphanToolTagFragments", () => {
   it("removes orphan closing tool-result tags", () => {

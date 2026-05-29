@@ -5,7 +5,7 @@
  *  - `search` is the unified codebase search (auto | text | semantic | structural).
  *  - `get_blueprint` returns a focused Blueprint graph slice (lazy parse).
  *  - edit_file replaces replace_code / insert_code / delete_lines / edit_file_section.
- *  - get_diagram is the canonical Mermaid accessor.
+ *  - Inline \`\`\`mermaid\`\`\` flowchart fences in chat for flows (no get_diagram tool).
  */
 
 import { ToolRegistry } from "../tools/registry";
@@ -21,7 +21,6 @@ const ARCHITECT: ToolManifest = {
     "read_file",
     "search",
     "get_blueprint",
-    "get_diagram",
     "get_file_outline",
   ],
   readOnly: true,
@@ -49,7 +48,6 @@ const REVIEWER: ToolManifest = {
     "search",
     "get_blueprint",
     "get_file_outline",
-    "get_diagram",
   ],
   readOnly: true,
 };
@@ -61,7 +59,6 @@ const DEBUGGER: ToolManifest = {
     "get_blueprint",
     "diagnose_issue",
     "get_file_outline",
-    "get_diagram",
     "read_url",
     "list_files",
     "find_file",
@@ -151,7 +148,6 @@ const manifests: Record<string, ToolManifest> = {
       "find_file",
       "get_active_skills",
       "get_blueprint",
-      "get_diagram",
       "get_file_outline",
       "get_project_structure",
       "get_repo_overview",

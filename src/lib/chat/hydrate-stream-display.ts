@@ -7,6 +7,7 @@ import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
 import {
   buildCompletedStreamThreadFromAssistantContent,
   consolidateSubagentRoundsInThread,
+  mergeSubAgentRunEntries,
 } from "@/lib/chat/stream-thread";
 
 export function buildInlineTimelineFromAssistantContent(
@@ -51,10 +52,32 @@ export function buildInlineTimelineFromAssistantContent(
 
 function threadFromSnapshot(
   snapshot: DisplaySnapshotV1,
+  assistantContent?: string,
 ): StreamThreadItem[] {
-  return flattenToolGroupsInThread(
+  let thread = flattenToolGroupsInThread(
     consolidateSubagentRoundsInThread(snapshot.completedThread),
   );
+  if (!assistantContent?.trim()) return thread;
+
+  const fromContent = buildCompletedStreamThreadFromAssistantContent(
+    assistantContent,
+  );
+  const snapshotRound = thread.find((i) => i.kind === "subagent_round");
+  const contentRound = fromContent.find((i) => i.kind === "subagent_round");
+  if (snapshotRound && contentRound) {
+    const mergedAgents = mergeSubAgentRunEntries(
+      snapshotRound.agents,
+      contentRound.agents,
+    );
+    thread = thread.map((item) =>
+      item.kind === "subagent_round"
+        ? { ...item, agents: mergedAgents }
+        : item,
+    );
+  } else if (!snapshotRound && contentRound) {
+    thread = [...thread, contentRound];
+  }
+  return thread;
 }
 
 export function hydrateStreamDisplayForMessages(
@@ -75,7 +98,7 @@ export function hydrateStreamDisplayForMessages(
     if (m.role !== "assistant" || !m.content?.trim()) continue;
 
     if (m.displaySnapshot) {
-      const thread = threadFromSnapshot(m.displaySnapshot);
+      const thread = threadFromSnapshot(m.displaySnapshot, m.content);
       if (thread.length > 0) {
         completedThreads[m.id] = thread;
       }

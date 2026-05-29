@@ -27,7 +27,6 @@ import { useConfiguredProviders } from "@/hooks/useConfiguredProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
 import { PriceBadge } from "@/components/PriceBadge";
-import { TURBO_MODELS } from "@/ipc/shared/language_model_constants";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
@@ -218,9 +217,6 @@ export function ModelPicker() {
     const provider = providers?.find((p) => p.id === providerId);
     return !(provider && provider.secondary);
   });
-  if (settings && isAtlarixProEnabled(settings)) {
-    primaryProviders.unshift(["auto", TURBO_MODELS]);
-  }
   const allPrimary = primaryProviders;
   const primaryProvidersPaginated = allPrimary.slice(
     0,

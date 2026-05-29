@@ -223,7 +223,7 @@ function rawPiecesToAssistantParts(
 
     if (TOOL_CALL_TAGS.has(tag) || TOOL_RESULT_TAGS.has(tag)) {
       flushThoughts();
-      const toolName = attrs.tool || attrs.name || attrs.server || "unknown";
+      const toolName = attrs.tool || attrs.name || attrs.server || "";
       if (
         hasPlanArtifactMarker &&
         (toolName === "write_implementation_plan" ||

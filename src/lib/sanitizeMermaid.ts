@@ -9,10 +9,25 @@ export function sanitizeMermaid(code: string): string {
   let s = prepareMermaidForParse(code);
   s = mergeBrokenSequenceMessageLines(s);
   s = repairSequenceDiagramMessages(s);
+  if (/^\s*(flowchart|graph)\b/im.test(s.trim())) {
+    s = repairBracketMermaidLabels(s);
+  }
   return s;
 }
 
-const SEQUENCE_DIRECTIVE_RE =
+/** Mindmaps need a non-paren root line; streamed fragments like `("Python/JAX")` fail parse. */
+export function isIncompleteMindmapSource(code: string): boolean {
+  const t = code.trim();
+  if (!/^mindmap\b/im.test(t)) return false;
+  const lines = t
+    .split("\n")
+    .slice(1)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return true;
+  const hasRoot = lines.some((l) => !/^\(\s*.+\)\s*$/.test(l));
+  return !hasRoot;
+}
   /^\s*(sequenceDiagram|participant|actor|loop|alt|else|end|note|rect|critical|break|par|and|opt|autonumber|activate|deactivate|title|link|links)\b/i;
 
 const SEQUENCE_ARROW_RE =

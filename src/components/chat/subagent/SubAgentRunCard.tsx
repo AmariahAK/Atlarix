@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { useState } from "react";
+import { Loader2, CheckCircle2, XCircle, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { SubAgentRunEntry, StreamThreadItem } from "@/lib/chat/stream-thread";
 import { resolveSubagentCardLabel } from "@/lib/chat/stream-thread";
 import { subagentPhaseLabel } from "@/lib/chat/subagent-phase-label";
@@ -9,7 +16,6 @@ import { StreamToolCallCard } from "../StreamToolCallCard";
 import {
   streamCardScrollBody,
   streamToolCardButtonMultiLine,
-  streamToolCardChevron,
   streamToolCardShell,
 } from "../stream-item-styles";
 
@@ -29,7 +35,6 @@ function sortNestedByTime(items: StreamThreadItem[]): StreamThreadItem[] {
   return [...items].sort((a, b) => a.ts - b.ts);
 }
 
-/** Latest tool or progress line for collapsed subtitle (by timestamp). */
 function latestNestedActivitySummary(
   items: StreamThreadItem[],
   fallbackSummary?: string,
@@ -78,11 +83,13 @@ function NestedThreadItems({
   isStreaming,
   agentStatus,
   isHistorical,
+  autoScroll = false,
 }: {
   items: StreamThreadItem[];
   isStreaming: boolean;
   agentStatus: SubAgentRunEntry["status"];
   isHistorical?: boolean;
+  autoScroll?: boolean;
 }) {
   const flat = flattenNestedItems(sortNestedByTime(items));
   if (flat.length === 0) {
@@ -96,10 +103,10 @@ function NestedThreadItems({
   }
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!isStreaming || agentStatus !== "running") return;
+    if (!autoScroll || !isStreaming || agentStatus !== "running") return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [flat.length, isStreaming, agentStatus]);
+  }, [flat.length, isStreaming, agentStatus, autoScroll]);
 
   return (
     <div
@@ -142,18 +149,14 @@ function NestedThreadItems({
 
 export function SubAgentRunCard({
   agent,
-  defaultExpanded = true,
   isStreaming,
   isHistorical = false,
 }: {
   agent: SubAgentRunEntry;
-  defaultExpanded?: boolean;
   isStreaming: boolean;
   isHistorical?: boolean;
 }) {
-  const [open, setOpen] = useState(
-    defaultExpanded || isHistorical || (isStreaming && agent.status === "running"),
-  );
+  const [dialogOpen, setDialogOpen] = useState(false);
   const phase = subagentPhaseLabel(agent.agentType, agent.status);
   const title = resolveSubagentCardLabel(agent);
   const latestActivity = useMemo(
@@ -174,21 +177,16 @@ export function SubAgentRunCard({
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
           );
 
-  const preview =
-    agent.summary?.trim().split(/\r?\n/)[0]?.slice(0, 160) ?? "";
+  const openDialog = () => setDialogOpen(true);
 
   return (
     <div className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}>
       <button
         type="button"
-        className={streamToolCardButtonMultiLine}
-        onClick={() => setOpen((v) => !v)}
+        className={cn(streamToolCardButtonMultiLine, "cursor-pointer")}
+        onClick={openDialog}
       >
-        {open ? (
-          <ChevronDown className={streamToolCardChevron} />
-        ) : (
-          <ChevronRight className={streamToolCardChevron} />
-        )}
+        <span className="w-3.5 shrink-0" aria-hidden />
         <StatusIcon />
         <span className="flex flex-1 flex-col items-start gap-0.5 min-w-0 text-left">
           <span className="text-xs font-medium text-foreground line-clamp-2 leading-snug w-full">
@@ -198,22 +196,29 @@ export function SubAgentRunCard({
             {subtitle}
           </span>
         </span>
+        <Maximize2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </button>
-      {open ? (
-        <div className="px-2 pb-2">
-          <NestedThreadItems
-            items={agent.nestedItems}
-            isStreaming={isStreaming}
-            agentStatus={agent.status}
-            isHistorical={isHistorical}
-          />
-          {agent.status !== "running" && preview && agent.nestedItems.length === 0 ? (
-            <p className="mt-2 text-[10px] text-muted-foreground line-clamp-3 border-t border-border/40 pt-2">
-              {preview}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{title}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 min-h-0 pr-1">
+            <NestedThreadItems
+              items={agent.nestedItems}
+              isStreaming={isStreaming}
+              agentStatus={agent.status}
+              isHistorical={isHistorical}
+              autoScroll
+            />
+            {agent.summary?.trim() ? (
+              <p className="mt-3 text-xs text-muted-foreground whitespace-pre-wrap border-t border-border/40 pt-3">
+                {agent.summary.trim()}
+              </p>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

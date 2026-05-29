@@ -4,21 +4,40 @@ import { writeSettings, readSettings } from "../../main/settings";
 import { gitSetRemoteUrl, gitPush, gitClone } from "../utils/git_utils";
 import * as schema from "../../db/schema";
 import fs from "node:fs";
+import os from "node:os";
+import { promises as fsPromises } from "node:fs";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { db } from "../../db";
 import { apps } from "../../db/schema";
-import type { CloneRepoParams, CloneRepoReturnType } from "@/ipc/ipc_types";
+import type {
+  CloneRepoParams,
+  CloneRepoReturnType,
+  GithubCloneProgress,
+} from "@/ipc/ipc_types";
 import { eq } from "drizzle-orm";
 import { GithubUser } from "../../lib/schemas";
 import log from "electron-log";
 import { IS_TEST_BUILD } from "../utils/test_utils";
 import path from "node:path"; // ← ADD THIS
+import {
+  getGithubDeviceFlowClientId,
+  isLegacyDyadGithubDeviceClient,
+  looksLikeInvalidGithubOAuthClientId,
+} from "@/config/github-oauth";
 
 const logger = log.scope("github_handlers");
 
+if (isLegacyDyadGithubDeviceClient()) {
+  logger.warn(
+    "[GitHub] Using legacy Dyad OAuth client — GitHub will show “Authorize Dyad”. " +
+      "Set OAUTH_CLIENT_ID to an OAuth app named Atlarix (Device Flow enabled).",
+  );
+}
+
 // --- GitHub Device Flow Constants ---
-// TODO: Fetch this securely, e.g., from environment variables or a config file
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "Ov23liWV2HdC0RBLecWx";
+function resolveGithubClientId(): string {
+  return getGithubDeviceFlowClientId();
+}
 
 // Use test server URLs when in test mode
 
@@ -85,13 +104,40 @@ export async function getGithubUser(): Promise<GithubUser | null> {
   }
 }
 
-// function event.sender.send(channel: string, data: any) {
-//   if (currentFlowState?.window && !currentFlowState.window.isDestroyed()) {
-//     currentFlowState.window.webContents.send(channel, data);
-//   }
-// }
+type GithubFlowChannel =
+  | "github:flow-update"
+  | "github:flow-success"
+  | "github:flow-error";
 
-async function pollForAccessToken(event: IpcMainInvokeEvent) {
+function sendGithubFlowEvent(
+  channel: GithubFlowChannel,
+  data: Record<string, unknown>,
+): boolean {
+  const win = currentFlowState?.window;
+  if (!win || win.isDestroyed()) return false;
+  const wc = win.webContents;
+  if (wc.isDestroyed()) return false;
+  try {
+    wc.send(channel, data);
+    return true;
+  } catch (err) {
+    logger.debug(
+      "[GitHub Handler] Flow event not delivered (renderer destroyed):",
+      err,
+    );
+    return false;
+  }
+}
+
+function isDestroyedRendererError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes("Object has been destroyed") ||
+      error.message.includes("Render frame was disposed"))
+  );
+}
+
+async function pollForAccessToken() {
   if (!currentFlowState || !currentFlowState.isPolling) {
     logger.debug("[GitHub Handler] Polling stopped or no active flow.");
     return;
@@ -100,9 +146,14 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
   const { deviceCode, interval } = currentFlowState;
 
   logger.debug("[GitHub Handler] Polling for token with device code");
-  event.sender.send("github:flow-update", {
-    message: "Polling GitHub for authorization...",
-  });
+  if (
+    !sendGithubFlowEvent("github:flow-update", {
+      message: "Polling GitHub for authorization...",
+    })
+  ) {
+    stopPolling();
+    return;
+  }
 
   try {
     const response = await fetch(GITHUB_ACCESS_TOKEN_URL, {
@@ -112,7 +163,7 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
         Accept: "application/json",
       },
       body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
+        client_id: resolveGithubClientId(),
         device_code: deviceCode,
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       }),
@@ -122,7 +173,7 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
 
     if (response.ok && data.access_token) {
       logger.log("Successfully obtained GitHub Access Token.");
-      event.sender.send("github:flow-success", {
+      sendGithubFlowEvent("github:flow-success", {
         message: "Successfully connected!",
       });
       writeSettings({
@@ -137,12 +188,12 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
       switch (data.error) {
         case "authorization_pending":
           logger.debug("Authorization pending...");
-          event.sender.send("github:flow-update", {
+          sendGithubFlowEvent("github:flow-update", {
             message: "Waiting for user authorization...",
           });
           // Schedule next poll
           currentFlowState.timeoutId = setTimeout(
-            () => pollForAccessToken(event),
+            () => void pollForAccessToken(),
             interval * 1000,
           );
           break;
@@ -150,25 +201,25 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
           const newInterval = interval + 5;
           logger.debug(`Slow down requested. New interval: ${newInterval}s`);
           currentFlowState.interval = newInterval; // Update interval
-          event.sender.send("github:flow-update", {
+          sendGithubFlowEvent("github:flow-update", {
             message: `GitHub asked to slow down. Retrying in ${newInterval}s...`,
           });
           currentFlowState.timeoutId = setTimeout(
-            () => pollForAccessToken(event),
+            () => void pollForAccessToken(),
             newInterval * 1000,
           );
           break;
         case "expired_token":
           logger.error("Device code expired.");
-          event.sender.send("github:flow-error", {
+          sendGithubFlowEvent("github:flow-error", {
             error: "Verification code expired. Please try again.",
           });
           stopPolling();
           break;
         case "access_denied":
-          logger.error("Access denied by user.");
-          event.sender.send("github:flow-error", {
-            error: "Authorization denied by user.",
+          logger.debug("Access denied by user (cancelled on GitHub).");
+          sendGithubFlowEvent("github:flow-error", {
+            error: "Authorization cancelled.",
           });
           stopPolling();
           break;
@@ -176,7 +227,7 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
           logger.error(
             `Unknown GitHub error: ${data.error_description || data.error}`,
           );
-          event.sender.send("github:flow-error", {
+          sendGithubFlowEvent("github:flow-error", {
             error: `GitHub authorization error: ${data.error_description || data.error
               }`,
           });
@@ -187,8 +238,12 @@ async function pollForAccessToken(event: IpcMainInvokeEvent) {
       throw new Error(`Unknown response structure: ${JSON.stringify(data)}`);
     }
   } catch (error) {
+    if (isDestroyedRendererError(error)) {
+      stopPolling();
+      return;
+    }
     logger.error("Error polling for GitHub access token:", error);
-    event.sender.send("github:flow-error", {
+    sendGithubFlowEvent("github:flow-error", {
       error: `Network or unexpected error during polling: ${error instanceof Error ? error.message : String(error)
         }`,
     });
@@ -200,12 +255,22 @@ function stopPolling() {
   if (currentFlowState) {
     if (currentFlowState.timeoutId) {
       clearTimeout(currentFlowState.timeoutId);
+      currentFlowState.timeoutId = null;
     }
     currentFlowState.isPolling = false;
-    currentFlowState.timeoutId = null;
-
     logger.debug("[GitHub Handler] Polling stopped.");
   }
+}
+
+function cancelGithubDeviceFlow(notifyRenderer = true) {
+  stopPolling();
+  if (notifyRenderer) {
+    sendGithubFlowEvent("github:flow-error", {
+      error: "GitHub connection cancelled.",
+    });
+  }
+  currentFlowState = null;
+  logger.debug("[GitHub Handler] Device flow cancelled.");
 }
 
 // --- IPC Handlers ---
@@ -216,13 +281,20 @@ function handleStartGithubFlow(
 ) {
   logger.debug(`Received github:start-flow for appId: ${args.appId}`);
 
-  // If a flow is already in progress, maybe cancel it or send an error
-  if (currentFlowState && currentFlowState.isPolling) {
-    logger.warn("Another GitHub flow is already in progress.");
-    event.sender.send("github:flow-error", {
-      error: "Another connection process is already active.",
-    });
+  const githubClientId = resolveGithubClientId();
+  if (looksLikeInvalidGithubOAuthClientId(githubClientId)) {
+    const hint =
+      "OAUTH_CLIENT_ID in .env must be the OAuth App **Client ID** (public, often starts with Ov23li…), " +
+      "not the client secret or a GitHub App key. Enable Device Flow on the OAuth app.";
+    logger.error(`[GitHub] Invalid client id shape: ${githubClientId.slice(0, 8)}…`);
+    sendGithubFlowEvent("github:flow-error", { error: hint });
     return;
+  }
+
+  // If a flow is already in progress, cancel it before starting a new one
+  if (currentFlowState?.isPolling) {
+    logger.warn("Replacing in-progress GitHub device flow.");
+    cancelGithubDeviceFlow(false);
   }
 
   // Store the window that initiated the request
@@ -240,7 +312,7 @@ function handleStartGithubFlow(
     window: window,
   };
 
-  event.sender.send("github:flow-update", {
+  sendGithubFlowEvent("github:flow-update", {
     message: "Requesting device code from GitHub...",
   });
 
@@ -251,16 +323,22 @@ function handleStartGithubFlow(
       Accept: "application/json",
     },
     body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
+      client_id: githubClientId,
       scope: GITHUB_SCOPES,
     }),
   })
     .then((res) => {
       if (!res.ok) {
         return res.json().then((errData) => {
-          throw new Error(
-            `GitHub API Error: ${errData.error_description || res.statusText}`,
-          );
+          const detail = errData.error_description || errData.error || res.statusText;
+          if (res.status === 404) {
+            throw new Error(
+              `GitHub does not recognize this OAuth client ID (404). Use the Client ID from ` +
+                `Settings → Developer settings → OAuth Apps → Atlarix (Device Flow enabled). ` +
+                `Do not paste the client secret into OAUTH_CLIENT_ID.`,
+            );
+          }
+          throw new Error(`GitHub API Error: ${detail}`);
         });
       }
       return res.json();
@@ -274,7 +352,7 @@ function handleStartGithubFlow(
       currentFlowState.isPolling = true;
 
       // Send user code and verification URI to renderer
-      event.sender.send("github:flow-update", {
+      sendGithubFlowEvent("github:flow-update", {
         userCode: data.user_code,
         verificationUri: data.verification_uri,
         message: "Please authorize in your browser.",
@@ -282,18 +360,21 @@ function handleStartGithubFlow(
 
       // Start polling after the initial interval
       currentFlowState.timeoutId = setTimeout(
-        () => pollForAccessToken(event),
+        () => void pollForAccessToken(),
         currentFlowState.interval * 1000,
       );
     })
     .catch((error) => {
       logger.error("Error initiating GitHub device flow:", error);
-      event.sender.send("github:flow-error", {
+      sendGithubFlowEvent("github:flow-error", {
         error: `Failed to start GitHub connection: ${error.message}`,
       });
-      stopPolling(); // Ensure polling stops on initial error
-      currentFlowState = null; // Clear state on initial error
+      cancelGithubDeviceFlow(false);
     });
+}
+
+function handleCancelGithubFlow() {
+  cancelGithubDeviceFlow(true);
 }
 
 // --- GitHub List Repos Handler ---
@@ -619,12 +700,44 @@ async function handleDisconnectGithubRepo(
     .where(eq(apps.id, appId));
 }
 // --- GitHub Clone Repo from URL Handler ---
+let activeCloneAbort: AbortController | null = null;
+
+function sendCloneProgress(
+  event: IpcMainInvokeEvent,
+  progress: GithubCloneProgress,
+): void {
+  if (!event.sender.isDestroyed()) {
+    event.sender.send("github:clone:progress", progress);
+  }
+}
+
+function handleCancelGithubClone(): void {
+  activeCloneAbort?.abort();
+  activeCloneAbort = null;
+}
+
+async function removePartialCloneDir(dirPath: string): Promise<void> {
+  try {
+    await fsPromises.rm(dirPath, { recursive: true, force: true });
+  } catch (e) {
+    logger.warn(`[GitHub Handler] Could not remove partial clone at ${dirPath}:`, e);
+  }
+}
+
 async function handleCloneRepoFromUrl(
   event: IpcMainInvokeEvent,
   params: CloneRepoParams,
 ): Promise<CloneRepoReturnType> {
-  const { url, installCommand, startCommand, appName } = params;
+  const { url, installCommand, startCommand, appName, targetPath } = params;
+  activeCloneAbort?.abort();
+  const abort = new AbortController();
+  activeCloneAbort = abort;
+
+  const sendProgress = (p: GithubCloneProgress) => sendCloneProgress(event, p);
+
   try {
+    sendProgress({ step: "validating", message: "Validating repository…", progress: 5 });
+
     const settings = readSettings();
     const accessToken = settings.githubAccessToken?.value;
     const urlPattern = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/;
@@ -661,40 +774,71 @@ async function handleCloneRepoFromUrl(
       return { error: `An app named "${finalAppName}" already exists.` };
     }
 
-    const appPath = getAtlarixAppPath(finalAppName);
-    // Ensure the app directory exists if native git is disabled
-    if (!settings.enableNativeGit) {
-      if (!fs.existsSync(appPath)) {
-        fs.mkdirSync(appPath, { recursive: true });
-      }
+    if (!targetPath || !path.isAbsolute(targetPath)) {
+      return { error: "Choose a save folder before cloning." };
     }
+    const fullAppPath = path.resolve(targetPath);
+
+    if (fs.existsSync(fullAppPath)) {
+      return { error: `Folder already exists: ${fullAppPath}` };
+    }
+
+    if (!settings.enableNativeGit) {
+      fs.mkdirSync(path.dirname(fullAppPath), { recursive: true });
+    }
+
     // Use authenticated URL if token exists, otherwise use public HTTPS URL
     const cloneUrl = accessToken
       ? IS_TEST_BUILD
         ? `${GITHUB_GIT_BASE}/${owner}/${repoName}.git`
         : `https://${accessToken}:x-oauth-basic@github.com/${owner}/${repoName}.git`
-      : `https://github.com/${owner}/${repoName}.git`; // Changed: use public HTTPS URL instead of original url
+      : `https://github.com/${owner}/${repoName}.git`;
+
+    sendProgress({ step: "cloning", message: "Cloning repository…", progress: 15 });
+
     try {
       await gitClone({
-        path: appPath,
+        path: fullAppPath,
         url: cloneUrl,
         accessToken,
         singleBranch: false,
+        signal: abort.signal,
       });
-    } catch (cloneErr) {
+    } catch (cloneErr: unknown) {
+      await removePartialCloneDir(fullAppPath);
+      if (
+        abort.signal.aborted ||
+        (cloneErr instanceof Error && cloneErr.name === "AbortError")
+      ) {
+        return { error: "Clone cancelled." };
+      }
       logger.error("[GitHub Handler] Clone failed:", cloneErr);
       return {
         error:
           "Failed to clone repository. Please check the URL and try again.",
       };
     }
+
+    if (abort.signal.aborted) {
+      await removePartialCloneDir(fullAppPath);
+      return { error: "Clone cancelled." };
+    }
+
+    sendProgress({
+      step: "registering",
+      message: "Registering workspace…",
+      progress: 90,
+    });
+
+    const now = new Date();
     const [newApp] = await db
       .insert(schema.apps)
       .values({
         name: finalAppName,
-        path: finalAppName,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        path: fullAppPath,
+        createdAt: now,
+        updatedAt: now,
+        lastOpenedAt: now,
         githubOrg: owner,
         githubRepo: repoName,
         githubBranch: "main",
@@ -702,28 +846,48 @@ async function handleCloneRepoFromUrl(
         startCommand: startCommand || null,
       })
       .returning();
-    logger.log(`Successfully cloned repo ${owner}/${repoName} to ${appPath}`);
-    // Return success object
+    const [newChat] = await db
+      .insert(schema.chats)
+      .values({ appId: newApp.id })
+      .returning();
+
+    sendProgress({ step: "complete", message: "Complete!", progress: 100 });
+    logger.log(`Successfully cloned repo ${owner}/${repoName} to ${fullAppPath}`);
     return {
       app: {
         ...newApp,
+        path: fullAppPath,
         files: [],
         supabaseProjectName: null,
         vercelTeamSlug: null,
       },
+      chatId: newChat.id,
     };
-  } catch (err: any) {
-    // Catch any remaining unexpected errors and return an error object
+  } catch (err: unknown) {
     logger.error("[GitHub Handler] Unexpected error in clone flow:", err);
+    if (err instanceof Error && err.name === "AbortError") {
+      return { error: "Clone cancelled." };
+    }
     return {
-      error: err.message || "An unexpected error occurred during cloning.",
+      error:
+        err instanceof Error
+          ? err.message
+          : "An unexpected error occurred during cloning.",
     };
+  } finally {
+    if (activeCloneAbort === abort) {
+      activeCloneAbort = null;
+    }
   }
 }
 
 // --- Registration ---
 export function registerGithubHandlers() {
   ipcMain.handle("github:start-flow", handleStartGithubFlow);
+  ipcMain.handle("github:cancel-flow", handleCancelGithubFlow);
+  ipcMain.handle("github:cancel-clone", () => {
+    handleCancelGithubClone();
+  });
   ipcMain.handle("github:list-repos", handleListGithubRepos);
   ipcMain.handle(
     "github:get-repo-branches",

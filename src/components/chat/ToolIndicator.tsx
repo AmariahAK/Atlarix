@@ -189,7 +189,7 @@ export function ToolIndicator({ forChatId }: ToolIndicatorProps = {}) {
   const idleDefault = idleLabelForWorkMode(workMode);
   let displayLine = state.phaseLabel?.trim() || idleDefault;
   if (autonomousOverride) {
-    displayLine = "Splitting to autonomous agents…";
+    displayLine = "Agents working…";
   } else if (state.counselPhaseActive) {
     displayLine = "Consulting multiple models…";
   } else if (state.count > 0 && state.toolName?.trim()) {

@@ -31,6 +31,16 @@ export function ChatErrorBox({
     );
   }
 
+  // Stream stalled (45s watchdog) — retry or switch models.
+  if (error.includes("Stream stalled")) {
+    return (
+      <ChatErrorContainer onDismiss={onDismiss}>
+        The model stopped responding mid-stream. Try sending your message again or
+        switch to another model.
+      </ChatErrorContainer>
+    );
+  }
+
   // Stream stalled mid-tool-call (watchdog) — not fixable by upgrading; docs + retry only.
   if (
     error.includes("Stream paused:") ||

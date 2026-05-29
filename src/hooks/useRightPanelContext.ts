@@ -43,16 +43,15 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 
 // Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
-    'web-search': ['sources', 'debug'],
-    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors', 'search'],
+    'web-search': [],
+    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors'],
     'diagram': ['activity'],
     'terminal': ['terminal', 'activity'],
-    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'search', 'diff'],
+    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'diff'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'timeline': ['timeline'],
-    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'search', 'diff'],
-    'empty': [],
+    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'diff'],
 };
 
 export interface RightPanelContextResult {

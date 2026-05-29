@@ -11,7 +11,7 @@ export type OperationStatus = 'pending' | 'queued' | 'running' | 'completed' | '
 
 export interface QueuedOperation {
     id: string;
-    operation: 'run_command' | 'write_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'update_diagram' | 'batch_plan' | 'revert_project_snapshot' | 'unknown';
+    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'update_diagram' | 'batch_plan' | 'revert_project_snapshot' | 'unknown';
     command?: string;
     path?: string;
     content?: string;       // File content for write_file
@@ -29,6 +29,15 @@ export interface QueuedOperation {
     isRecovering?: boolean; // AI is analyzing this failure
     isDangerous?: boolean;  // Command is risky (rm -rf, sudo, etc.)
     dangerExplanation?: string;  // Plain-English risk explanation
+    commandCategory?: string;
+    canAlwaysAllow?: boolean;
+    isProtectedFile?: boolean;
+    isDeleteOrRename?: boolean;
+    canAlwaysAllowFile?: boolean;
+    canAlwaysAllowDirectory?: boolean;
+    canAlwaysAllowExtension?: boolean;
+    fileParentDir?: string;
+    fileExtension?: string;
     timestamp: number;
 }
 

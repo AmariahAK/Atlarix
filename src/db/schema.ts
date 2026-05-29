@@ -47,6 +47,60 @@ export const apps = sqliteTable("apps", {
   remoteConnection: text("remote_connection", { mode: "json" }),
 });
 
+/** Per-workspace allow/deny for terminal command categories (first token). */
+export const workspaceCommandPermissions = sqliteTable(
+  "workspace_command_permissions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    appId: integer("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    decision: text("decision", {
+      enum: ["always_allow", "always_deny"],
+    }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    unique("workspace_command_permissions_app_category").on(
+      table.appId,
+      table.category,
+    ),
+    index("workspace_command_permissions_app_id_idx").on(table.appId),
+  ],
+);
+
+/** Per-workspace allow/deny for file paths (file, directory, or extension scope). */
+export const workspaceFilePermissions = sqliteTable(
+  "workspace_file_permissions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    appId: integer("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    scopeType: text("scope_type", {
+      enum: ["file", "directory", "extension"],
+    }).notNull(),
+    scopeValue: text("scope_value").notNull(),
+    decision: text("decision", {
+      enum: ["always_allow", "always_deny"],
+    }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    unique("workspace_file_permissions_app_scope").on(
+      table.appId,
+      table.scopeType,
+      table.scopeValue,
+    ),
+    index("workspace_file_permissions_app_id_idx").on(table.appId),
+  ],
+);
+
 export const chats = sqliteTable("chats", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   appId: integer("app_id")
@@ -232,7 +286,6 @@ export const versions = sqliteTable(
       .default(sql`(unixepoch())`),
   },
   (table) => [
-    // Unique constraint to prevent duplicate versions
     unique("versions_app_commit_unique").on(table.appId, table.commitHash),
   ],
 );
@@ -246,7 +299,29 @@ export const appsRelations = relations(apps, ({ many }) => ({
   // Pass 7: Blueprint + PIVOT relations removed (tables dropped in migration 0043).
   projectSnapshots: many(projectSnapshots),
   projectMemoryRows: many(projectMemory),
+  commandPermissions: many(workspaceCommandPermissions),
+  filePermissions: many(workspaceFilePermissions),
 }));
+
+export const workspaceCommandPermissionsRelations = relations(
+  workspaceCommandPermissions,
+  ({ one }) => ({
+    workspace: one(apps, {
+      fields: [workspaceCommandPermissions.appId],
+      references: [apps.id],
+    }),
+  }),
+);
+
+export const workspaceFilePermissionsRelations = relations(
+  workspaceFilePermissions,
+  ({ one }) => ({
+    workspace: one(apps, {
+      fields: [workspaceFilePermissions.appId],
+      references: [apps.id],
+    }),
+  }),
+);
 
 export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
   workspace: one(apps, {

@@ -282,7 +282,7 @@ See guides/blueprint-section-first.md.
       toolsForAgent = toolsForAgent.filter((t) => t.isReadOnly === true);
       if (!manifest.readOnly) {
         toolsForAgent = toolsForAgent.filter((t) =>
-          ["read_file", "search", "explore_folder", "list_files", "get_repo_overview", "get_blueprint", "get_file_outline", "get_diagram", "web_search", "read_url", "find_file"].includes(t.name),
+          ["read_file", "search", "explore_folder", "list_files", "get_repo_overview", "get_blueprint", "get_file_outline", "web_search", "read_url", "find_file"].includes(t.name),
         );
       }
     }

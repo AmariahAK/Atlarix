@@ -30,7 +30,7 @@ import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
 import { InlineThoughtBlock } from "./InlineThoughtBlock";
 import { InlinePlanArtifactSlot } from "./InlinePlanArtifactSlot";
 import { InlineToolPartCard } from "./InlineToolPartCard";
-import { InlinePermissionPrompts } from "./InlinePermissionPrompts";
+import { InlinePermissionApprovals } from "./InlinePermissionApprovals";
 import { StreamToolCallCard } from "./StreamToolCallCard";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
 import {
@@ -459,7 +459,7 @@ export function AssistantMessageBody({
           />
         ) : null}
         {isStreaming && chatId != null ? (
-          <InlinePermissionPrompts chatId={chatId} />
+          <InlinePermissionApprovals chatId={chatId} />
         ) : null}
       </div>
     );
@@ -521,7 +521,7 @@ export function AssistantMessageBody({
         <AtlarixMarkdownSegment content={trailingAnswer} isStreaming={isStreaming} />
       ) : null}
       {isStreaming && chatId != null ? (
-        <InlinePermissionPrompts chatId={chatId} />
+        <InlinePermissionApprovals chatId={chatId} />
       ) : null}
     </div>
   );

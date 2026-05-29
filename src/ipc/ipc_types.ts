@@ -887,6 +887,14 @@ export interface CloneRepoParams {
   installCommand?: string;
   startCommand?: string;
   appName: string;
+  /** Absolute path to the new repo root (e.g. parentDir/workspaceName). */
+  targetPath?: string;
+}
+
+export interface GithubCloneProgress {
+  step: string;
+  message: string;
+  progress: number;
 }
 
 export interface GithubRepository {
@@ -898,6 +906,10 @@ export interface GithubRepository {
 export type CloneRepoReturnType =
   | {
     app: App;
+    /** Initial chat row created with the cloned workspace */
+    chatId?: number;
+    /** Initial chat row created with the cloned workspace */
+    chatId?: number;
   }
   | {
     error: string;

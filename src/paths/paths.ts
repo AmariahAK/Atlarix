@@ -73,6 +73,21 @@ export function getUserDataPath(): string {
   return path.resolve("./userData");
 }
 
+/** True when the path is under legacy or default Atlarix clone roots (safe to offer disk delete). */
+export function isAtlarixManagedWorkspacePath(absolutePath: string): boolean {
+  if (!path.isAbsolute(absolutePath)) return false;
+  const normalized = path.resolve(absolutePath);
+  const roots = IS_TEST_BUILD
+    ? []
+    : [
+        path.join(os.homedir(), "atlarix-apps"),
+        path.join(os.homedir(), "Documents", "Atlarix"),
+      ];
+  return roots.some(
+    (root) => normalized === root || normalized.startsWith(`${root}${path.sep}`),
+  );
+}
+
 export function getElectron(): typeof import("electron") | undefined {
   let electron: typeof import("electron") | undefined;
   try {

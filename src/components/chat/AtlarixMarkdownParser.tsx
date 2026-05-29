@@ -152,7 +152,7 @@ function partitionContentPieces(
         tag === "atlarix-mcp-tool-result"
       ) {
         const attrs = piece.tagInfo.attributes;
-        const toolName = attrs.tool || attrs.name || attrs.server || "unknown";
+        const toolName = attrs.tool || attrs.name || attrs.server || "";
         const isInProgress = piece.tagInfo.inProgress === true;
         let status: "success" | "error" | "running" = "success";
         if (attrs.status === "error") {

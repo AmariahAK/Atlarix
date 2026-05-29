@@ -196,10 +196,7 @@ export function SimpleMessage({
                                     assistantMessageId={message.id}
                                     chatId={chatId ?? message.chatId}
                                     isStreaming={isStreaming}
-                                    contentDrivenThread={
-                                        (chatId ?? message.chatId) != null &&
-                                        (chatId ?? message.chatId)! < 0
-                                    }
+                                    contentDrivenThread={false}
                                 />
                             ) : (
                                 <UserMessageMarkdownParser

@@ -271,6 +271,17 @@ function formatWritePreview(
   return "File saved";
 }
 
+/** Serialize tool result for expand panels (full JSON, not summarized). */
+export function toolResultTextForExpand(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Human-readable preview for stream tool cards and activity detail. */
 export function formatToolResultPreview(
   registryName: string,

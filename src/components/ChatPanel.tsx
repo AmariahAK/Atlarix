@@ -8,6 +8,7 @@ import {
 import { terminalOutputsAtom } from "../atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { ToolIndicator } from "./chat/ToolIndicator";
 
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessagesList } from "./chat/MessagesList";
@@ -16,7 +17,6 @@ import { VersionPane } from "./chat/VersionPane";
 import { ChatError } from "./chat/ChatError";
 import { CommandOutputCard } from "./CommandOutputCard";
 import { IterationProgressBar } from "./IterationProgressBar";
-import { AutonomousReviewPanel } from "./chat/AutonomousReviewPanel";
 import { CompassQuotaInlineBanner } from "./chat/CompassQuotaInlineBanner";
 import { CompassUsageStrip } from "./chat/CompassUsageStrip";
 import { LoadedSessionBanner } from "./chat/LoadedSessionBanner";
@@ -68,34 +68,21 @@ export function ChatPanel({
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
 
-  // Get stream function for "Fix with AI"
   const { streamMessage } = useStreamChat();
 
-  // Terminal output listener - tracks running AND failed commands
   const terminalOutputs = useAtomValue(terminalOutputsAtom);
-
-  // Show running commands AND recently failed commands (for recovery)
-  const activeCommands = Array.from(terminalOutputs.values())
-    .filter(t => t.status === 'running' || t.status === 'error');
-
-  // Reference to store the processed prompt so we don't submit it twice
+  const activeCommands = Array.from(terminalOutputs.values()).filter(
+    (t) => t.status === "running" || t.status === "error",
+  );
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Scroll-related properties
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const userScrollTimeoutRef = useRef<number | null>(null);
-  const lastScrollTopRef = useRef<number>(0);
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
-  };
-
-  const handleScrollButtonClick = () => {
-    if (!messagesContainerRef.current) return;
-
-    scrollToBottom("smooth");
   };
 
   const getDistanceFromBottom = () => {
@@ -110,7 +97,7 @@ export function ChatPanel({
     return getDistanceFromBottom() <= threshold;
   };
 
-  const scrollAwayThreshold = 150; // pixels from bottom to consider "scrolled away"
+  const scrollAwayThreshold = 150;
 
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current) return;
@@ -119,7 +106,6 @@ export function ChatPanel({
     const distanceFromBottom =
       container.scrollHeight - (container.scrollTop + container.clientHeight);
 
-    // User has scrolled away from bottom
     if (distanceFromBottom > scrollAwayThreshold) {
       setIsUserScrolling(true);
       setShowScrollButton(true);
@@ -130,33 +116,27 @@ export function ChatPanel({
 
       userScrollTimeoutRef.current = window.setTimeout(() => {
         setIsUserScrolling(false);
-      }, 2000); // Increased timeout to 2 seconds
+      }, 2000);
     } else {
-      // User is near bottom
       setIsUserScrolling(false);
       setShowScrollButton(false);
     }
-    lastScrollTopRef.current = container.scrollTop;
   }, []);
 
-  // Track if we're in an active streaming session (to differentiate from initial load)
   const wasStreamingRef = useRef(false);
 
   useEffect(() => {
     const streamCount = chatId ? (streamCountById.get(chatId) ?? 0) : 0;
-    const currentlyStreaming = chatId ? (isStreamingById.get(chatId) ?? false) : false;
+    const currentlyStreaming = chatId
+      ? (isStreamingById.get(chatId) ?? false)
+      : false;
 
-    // Only auto-scroll when:
-    // 1. We're actively streaming (not just loading a chat)
-    // 2. Stream count > 1 (skip first chunk so user sees their message first)
-    // 3. User hasn't scrolled away
     if (currentlyStreaming && streamCount > 1 && !isUserScrolling) {
       requestAnimationFrame(() => {
         scrollToBottom("smooth");
       });
     }
 
-    // Track streaming state for next render
     wasStreamingRef.current = currentlyStreaming;
   }, [
     chatId,
@@ -182,10 +162,7 @@ export function ChatPanel({
   }, [handleScroll]);
 
   const fetchChatMessages = useCallback(async () => {
-    if (!chatId) {
-      // no-op when no chat
-      return;
-    }
+    if (!chatId) return;
     const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
     if (existing && existing.length > 0) {
       const { replaceDisplayHydrationForChat } = await import(
@@ -213,7 +190,6 @@ export function ChatPanel({
   const messages = chatId ? (messagesById.get(chatId) ?? []) : [];
   const isStreaming = chatId ? (isStreamingById.get(chatId) ?? false) : false;
 
-  // Auto-scroll effect when messages change during streaming
   useEffect(() => {
     if (
       !isUserScrolling &&
@@ -221,42 +197,42 @@ export function ChatPanel({
       messagesContainerRef.current &&
       messages.length > 0
     ) {
-      // Only auto-scroll if user is close to bottom
       if (isNearBottom(280)) {
         requestAnimationFrame(() => {
-          scrollToBottom("instant");
+          scrollToBottom("auto");
         });
       }
     }
   }, [messages, isUserScrolling, isStreaming]);
 
-  // Recovery action handlers
-  const handleFixWithAI = useCallback((cmd: { command: string; output?: string }) => {
-    if (!chatId) return;
+  const handleFixWithAI = useCallback(
+    (cmd: { command: string; output?: string }) => {
+      if (!chatId) return;
+      const fixPrompt = `The previous command failed:\n\`\`\`\n${cmd.command}\n\`\`\`\n\nError output:\n\`\`\`\n${cmd.output || "No output"}\n\`\`\`\n\nPlease analyze this error and suggest a fix.`;
+      streamMessage({ chatId, prompt: fixPrompt });
+    },
+    [chatId, streamMessage],
+  );
 
-    // Inject error context into chat and trigger AI to fix
-    const fixPrompt = `The previous command failed:\n\`\`\`\n${cmd.command}\n\`\`\`\n\nError output:\n\`\`\`\n${cmd.output || 'No output'}\n\`\`\`\n\nPlease analyze this error and suggest a fix.`;
+  const handleRetry = useCallback(
+    async (_operationId: string, command: string) => {
+      if (!chatId) return;
+      const retryPrompt = `Please run this command again:\n\`\`\`bash\n${command}\n\`\`\``;
+      streamMessage({ chatId, prompt: retryPrompt });
+    },
+    [chatId, streamMessage],
+  );
 
-    streamMessage({ chatId, prompt: fixPrompt });
-  }, [chatId, streamMessage]);
-
-  const handleRetry = useCallback(async (operationId: string, command: string) => {
-    if (!chatId) return;
-
-    // Re-run the same command
-    const retryPrompt = `Please run this command again:\n\`\`\`bash\n${command}\n\`\`\``;
-
-    streamMessage({ chatId, prompt: retryPrompt });
-  }, [chatId, streamMessage]);
-
-  const handleIgnore = useCallback((operationId: string) => {
-    // Remove the failed command from display
-    setTerminalOutputs((prev) => {
-      const next = new Map(prev);
-      next.delete(operationId);
-      return next;
-    });
-  }, [setTerminalOutputs]);
+  const handleIgnore = useCallback(
+    (operationId: string) => {
+      setTerminalOutputs((prev) => {
+        const next = new Map(prev);
+        next.delete(operationId);
+        return next;
+      });
+    },
+    [setTerminalOutputs],
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -270,11 +246,8 @@ export function ChatPanel({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isVersionPaneOpen && (
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
-            {/* Iteration progress bar - shows during agentic loop */}
             <IterationProgressBar chatId={chatId ?? -999} />
-
             <LoadedSessionBanner />
-
             <div className="flex-1 relative min-h-0 overflow-hidden">
               <SessionLoadingOverlay />
               <MessagesList
@@ -282,50 +255,55 @@ export function ChatPanel({
                 messagesEndRef={messagesEndRef}
                 ref={messagesContainerRef}
               />
-
-              {/* Scroll to bottom button */}
               {showScrollButton && (
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
                   <Button
-                    onClick={handleScrollButtonClick}
+                    onClick={() => scrollToBottom("smooth")}
                     size="icon"
                     className="rounded-full shadow-lg hover:shadow-xl transition-all border border-border/50 backdrop-blur-sm bg-background/95 hover:bg-accent"
                     variant="outline"
-                    title={"Scroll to bottom"}
+                    title="Scroll to bottom"
                   >
                     <ArrowDown className="h-4 w-4" />
                   </Button>
                 </div>
               )}
             </div>
-
             <ChatError error={error} onDismiss={() => setError(null)} />
-
-            <AutonomousReviewPanel chatId={chatId} />
-
-            {/* Running and failed commands - show above input with recovery actions */}
             {activeCommands.length > 0 && (
               <div className="px-4 pb-2 space-y-2">
-                {activeCommands.map(cmd => (
+                {activeCommands.map((cmd) => (
                   <CommandOutputCard
                     key={cmd.operationId}
                     command={cmd.command}
-                    status={cmd.status === 'completed' ? 'success' : cmd.status}
+                    status={
+                      cmd.status === "completed" ? "success" : cmd.status
+                    }
                     output={cmd.output}
                     exitCode={cmd.exitCode}
                     duration={cmd.duration}
-                    // Recovery actions - only for failed commands
-                    onFixWithAI={cmd.status === 'error' ? () => handleFixWithAI(cmd) : undefined}
-                    onRetry={cmd.status === 'error' ? () => handleRetry(cmd.operationId, cmd.command) : undefined}
-                    onIgnore={cmd.status === 'error' ? () => handleIgnore(cmd.operationId) : undefined}
+                    onFixWithAI={
+                      cmd.status === "error"
+                        ? () => handleFixWithAI(cmd)
+                        : undefined
+                    }
+                    onRetry={
+                      cmd.status === "error"
+                        ? () => handleRetry(cmd.operationId, cmd.command)
+                        : undefined
+                    }
+                    onIgnore={
+                      cmd.status === "error"
+                        ? () => handleIgnore(cmd.operationId)
+                        : undefined
+                    }
                   />
                 ))}
               </div>
             )}
-
             <ChatCompassMonthlyFooter />
-            {/* flex-shrink-0 ensures input controls are never clipped */}
             <div className="flex-shrink-0">
+              {chatId != null ? <ToolIndicator forChatId={chatId} /> : null}
               <ChatInput chatId={chatId} />
             </div>
           </div>
@@ -338,4 +316,3 @@ export function ChatPanel({
     </div>
   );
 }
-
