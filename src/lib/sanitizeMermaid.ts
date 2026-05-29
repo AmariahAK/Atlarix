@@ -28,6 +28,8 @@ export function isIncompleteMindmapSource(code: string): boolean {
   const hasRoot = lines.some((l) => !/^\(\s*.+\)\s*$/.test(l));
   return !hasRoot;
 }
+
+const SEQUENCE_DIRECTIVE_RE =
   /^\s*(sequenceDiagram|participant|actor|loop|alt|else|end|note|rect|critical|break|par|and|opt|autonumber|activate|deactivate|title|link|links)\b/i;
 
 const SEQUENCE_ARROW_RE =
