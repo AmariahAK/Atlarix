@@ -1,0 +1,24 @@
+diff --git a/node_modules/@electron-forge/core/dist/api/make.js b/node_modules/@electron-forge/core/dist/api/make.js
+index c177a77..da649f9 100644
+--- a/node_modules/@electron-forge/core/dist/api/make.js
++++ b/node_modules/@electron-forge/core/dist/api/make.js
+@@ -45,6 +45,7 @@ const listrMake = (childTrace, { dir: providedDir = process.cwd(), interactive =
+             collapseErrors: false,
+         },
+         silentRendererCondition: !interactive,
++        fallbackRenderer: 'verbose',
+         fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
+     };
+     const runner = new listr2_1.Listr([
+diff --git a/node_modules/@electron-forge/core/dist/api/package.js b/node_modules/@electron-forge/core/dist/api/package.js
+index 8fb0bea..7327abb 100644
+--- a/node_modules/@electron-forge/core/dist/api/package.js
++++ b/node_modules/@electron-forge/core/dist/api/package.js
+@@ -383,6 +383,7 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
+     ], {
+         concurrent: false,
+         silentRendererCondition: !interactive,
++        fallbackRenderer: 'verbose',
+         fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
+         rendererOptions: {
+             collapseSubtasks: false,
