@@ -286,6 +286,11 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/@tanstack")) return true;
   if (file.startsWith("/node_modules/echarts")) return true;
   if (file.startsWith("/node_modules/zrender")) return true;
+  // geist depends on next (~200MB); ship font files only (see globals.css paths).
+  if (file.startsWith("/node_modules/geist/dist")) return false;
+  if (file.startsWith("/node_modules/geist")) return true;
+  if (file.startsWith("/node_modules/next")) return true;
+  if (file.startsWith("/node_modules/@next")) return true;
   if (file.startsWith("/node_modules/dugite")) return true;
   for (const deny of RELEASE_DENY_PACKAGES) {
     if (file === `/node_modules/${deny}` || file.startsWith(`/node_modules/${deny}/`)) {
@@ -559,6 +564,13 @@ const config: ForgeConfig = {
       for (const pkg of RELEASE_DENY_PACKAGES) {
         const pkgPath = path.join(buildPath, "node_modules", pkg);
         await fs.rm(pkgPath, { recursive: true, force: true });
+      }
+      // geist → next is optional; fonts live under geist/dist only.
+      for (const pkg of ["next", "@next"]) {
+        await fs.rm(path.join(buildPath, "node_modules", pkg), {
+          recursive: true,
+          force: true,
+        });
       }
       await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
         recursive: true,

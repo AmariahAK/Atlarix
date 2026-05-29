@@ -95,7 +95,7 @@ jobs:
   build-macos:
     needs: create-draft
     runs-on: macos-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       matrix:
         arch: [arm64, x64]
@@ -158,13 +158,28 @@ jobs:
       - name: Test and blueprint index benchmarks
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
-      - name: Build for macOS (${{ matrix.arch }})
+      - name: Package for macOS (${{ matrix.arch }})
+        timeout-minutes: 90
         run: |
           set -euo pipefail
-          npm run make -- --arch=${{ matrix.arch }}
+          npm run clean
+          npx electron-forge package --arch=${{ matrix.arch }}
+          node scripts/verify-ci-package-out.mjs --stage package --platform darwin --arch ${{ matrix.arch }}
+        env:
+          # listr "simple" renderer under CI=true can finish before packager hooks complete.
+          CI: false
+          FORCE_COLOR: 1
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+      - name: Make distributables for macOS (${{ matrix.arch }})
+        run: |
+          set -euo pipefail
+          npx electron-forge make --skip-package --arch=${{ matrix.arch }}
           node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
-          # Match package.json make script (8192); 4096 caused early OOM during packageAfterPrune on CI.
+          CI: false
+          FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
@@ -268,6 +283,7 @@ jobs:
   build-linux:
     needs: create-draft
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -334,12 +350,26 @@ jobs:
       - name: Test and blueprint index benchmarks
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
-      - name: Build for Linux
+      - name: Package for Linux
+        timeout-minutes: 90
         run: |
           set -euo pipefail
-          npm run make
+          npm run clean
+          npx electron-forge package
+          node scripts/verify-ci-package-out.mjs --stage package --platform linux --arch x64
+        env:
+          CI: false
+          FORCE_COLOR: 1
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+      - name: Make distributables for Linux
+        run: |
+          set -euo pipefail
+          npx electron-forge make --skip-package
           node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
         env:
+          CI: false
+          FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Upload Linux assets to release
@@ -406,6 +436,7 @@ jobs:
   build-windows:
     needs: create-draft
     runs-on: windows-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -479,14 +510,31 @@ jobs:
         shell: pwsh
         run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-blueprint-index.ts
 
-      - name: Build for Windows
+      - name: Package for Windows
+        shell: pwsh
+        timeout-minutes: 90
+        run: |
+          npm run clean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-forge package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        env:
+          CI: false
+          FORCE_COLOR: 1
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+      - name: Make distributables for Windows
         shell: pwsh
         run: |
-          npm run make
+          npx electron-forge make --skip-package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
+          CI: false
+          FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Upload Windows assets to release
