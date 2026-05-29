@@ -42,6 +42,11 @@ for (const key of envKeys) {
   const v = process.env[key];
   console.log(`env.${key}=${v === undefined ? "(unset)" : v === "" ? "(empty)" : v}`);
 }
+if (process.env.DEBUG) {
+  console.warn(
+    "WARNING: DEBUG is set — electron-forge may use listr fallback and exit before packaging completes. Unset DEBUG during npm run make (see release.yml).",
+  );
+}
 
 if (process.platform === "darwin") {
   const bytes = run("sysctl -n hw.memsize 2>/dev/null");

@@ -398,6 +398,8 @@ async function logTopNodeModules(buildPath: string, limit = 20): Promise<void> {
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // Forge defaults quiet:true; verbose packager logs when ATLARIX_PACKAGING_DEBUG / GHA.
+    ...(shouldLogPackaging() ? { quiet: false as const } : {}),
     // Electron Packager supports this flag even though Forge's type lags behind.
     // @ts-expect-error chromiumSandbox is forwarded to electron-packager
     chromiumSandbox: false,
