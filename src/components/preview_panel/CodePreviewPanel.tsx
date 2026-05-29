@@ -51,7 +51,6 @@ import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ErrorFileEditor } from './ErrorFileEditor';
 import { FileEditor } from './FileEditor';
-import { MermaidRenderer } from '@/components/MermaidRenderer';
 import { TerminalPanel } from '@/components/panels/TerminalPanel';
 
 interface CodePreviewPanelProps {

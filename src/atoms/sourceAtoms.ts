@@ -364,7 +364,7 @@ export const approvalStateAtom = atom<{
 export interface DiagramState {
     id?: number;
     code: string;
-    type: 'mermaid' | 'architecture' | 'sequence' | 'class' | 'flowchart';
+    type: 'graph' | 'architecture' | 'sequence' | 'class' | 'flowchart';
     compareMode: 'current' | 'before' | 'after' | 'side-by-side';
     beforeCode?: string;
     afterCode?: string;
@@ -436,7 +436,7 @@ export interface DiagramStalenessWarning {
 export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
 
 // Pass 7: Legacy Blueprint editor atoms removed (`diagramViewModeAtom`, `blueprintAiEditingAtom`).
-// `blueprintStateAtom` — legacy panel state; primary architecture viz is inline markmap/mermaid in chat.
+// `blueprintStateAtom` — legacy panel state; primary architecture viz is inline markmap/graph in chat.
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

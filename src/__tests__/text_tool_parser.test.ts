@@ -45,13 +45,3 @@ describe("text_tool_parser legacy <function=...> format", () => {
     expect(out.trim()).toBe("more");
   });
 });
-
-describe("sanitizeMermaid", () => {
-  it("normalizes capital Style to style", async () => {
-    const { sanitizeMermaid } = await import("@/lib/sanitizeMermaid");
-    const input = `graph LR\n    subgraph X [A]\n        Style N fill:red\n    end`;
-    expect(sanitizeMermaid(input)).toBe(
-      `graph LR\n    subgraph X [A]\nstyle N fill:red\n    end`,
-    );
-  });
-});

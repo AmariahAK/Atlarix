@@ -548,6 +548,7 @@ export function useStreamChat({
           chatId,
           (payload) => {
             const code =
+              (payload as any).graphCode ??
               (payload as any).mermaidCode ??
               (payload as any).diagram ??
               '';
@@ -561,7 +562,7 @@ export function useStreamChat({
               code,
               type: typeRaw === 'class' ? 'class' :
                 typeRaw === 'sequence' ? 'sequence' :
-                  typeRaw === 'flowchart' ? 'flowchart' : 'mermaid',
+                  typeRaw === 'flowchart' ? 'flowchart' : 'graph',
               compareMode: 'current',
               title,
               workspaceId: selectedAppId ?? undefined,

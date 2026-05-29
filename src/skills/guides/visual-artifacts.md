@@ -1,6 +1,6 @@
 # Visual Artifacts (chat)
 
-Atlarix renders tables, charts, mermaid diagrams, and markmaps **inline** as collapsible artifact cards. Put the visual in the **same reply** as your explanation—do not ask the user to open a side panel.
+Atlarix renders tables, charts, graph diagrams, and markmaps **inline** as collapsible artifact cards. Put the visual in the **same reply** as your explanation—do not ask the user to open a side panel.
 
 Use **one** primary visual per answer unless the user asked for multiple views.
 
@@ -10,9 +10,8 @@ Use **one** primary visual per answer unless the user asked for multiple views.
 |-----------|-----|------------|
 | Multi-column rows (names, statuses, dates, text fields) | GFM **markdown table** | ASCII grid, chart fence |
 | Numeric series, rankings, counts, metrics | ` ```chart ` JSON fence | ASCII bar art, table with one numeric column |
-| Request/response flow, process steps, state machine, class/ER, dependencies | ` ```mermaid ` **flowchart** (flowchart TD/LR) | markmap for flows; sequenceDiagram only if user asks |
-| Timelines, Gantt schedules | ` ```mermaid ` with `gantt` | chart fence for dates |
-| Repo/folder tree, module outline, doc hierarchy, brainstorm branches | ` ```markmap ` | mermaid for pure hierarchies |
+| Flows, architecture, dependencies, state machines, relationships | ` ```graph ` JSON (nodes + edges) | markmap for flows |
+| Repo/folder tree, module outline, doc hierarchy, brainstorm branches | ` ```markmap ` | graph for pure hierarchies |
 
 ## Tables
 
@@ -49,46 +48,37 @@ Schema:
 - `labels`: string array
 - `values`: number array (same length as `labels`)
 
-## Mermaid diagrams (` ```mermaid `)
+## Graph diagrams (` ```graph `)
 
-Atlarix wraps diagrams in a collapsible artifact card with pan/zoom.
+Atlarix wraps relationship graphs in a collapsible artifact card with pan/zoom (ECharts force layout).
 
-Supported types include: `flowchart`, `sequenceDiagram`, `classDiagram`, `erDiagram`, `stateDiagram-v2`, `gantt`, `pie`, etc.
+**The model only outputs nodes and edges** — Atlarix applies styling and layout.
+
+```graph
+{
+  "title": "Workspace architecture",
+  "nodes": [
+    { "id": "user", "name": "User" },
+    { "id": "workspace", "name": "Workspace" },
+    { "id": "model", "name": "Model" }
+  ],
+  "edges": [
+    { "source": "user", "target": "workspace" },
+    { "source": "workspace", "target": "model" }
+  ]
+}
+```
+
+Schema:
+- `title`: optional string (card header)
+- `nodes`: array of `{ "id": string, "name": string }` (required)
+- `edges`: array of `{ "source": id, "target": id }` (required; ids must exist on nodes)
 
 Rules:
-- **Prefer flowchart TD or flowchart LR** for flows, request paths, and architecture—not sequenceDiagram (unless the user explicitly asks for a sequence).
-- First non-comment line must declare the diagram type.
-- Node IDs: no spaces—use `camelCase` or `snake_case`.
-- Labels with spaces/special chars: `A["Process (main)"]`
-
-**Flowchart example (default for flows):**
-
-```mermaid
-flowchart TD
-  Client --> API
-  API --> DB
-```
-
-**Sequence (only when user asks):**
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant API
-  Client->>API: POST /login
-  API-->>Client: 200 token
-```
-
-**Gantt example:**
-
-```mermaid
-gantt
-  title Project timeline
-  dateFormat YYYY-MM-DD
-  section Phase 1
-  Design :a1, 2026-01-01, 7d
-  Build  :a2, after a1, 14d
-```
+- Use for flows, request paths, architecture, and dependencies.
+- Do **not** include x/y coordinates unless the user asks for a fixed layout.
+- Do **not** output rendering code — only JSON.
+- You may call `visualize_graph` to validate JSON and get a ready-made fence.
 
 ## Markmap (` ```markmap `)
 
@@ -106,12 +96,12 @@ Atlarix wraps mind-maps in a collapsible artifact card. Use one root `#` heading
 Rules:
 - Use markdown headings (`#`, `##`) and bullet lists.
 - One root `#` title drives the artifact card header.
-- Prefer markmap for hierarchies; prefer mermaid for flows and interactions.
+- Prefer markmap for hierarchies; prefer graph for flows and interactions.
 
 ## Streaming
 
 - Finish the closing ``` on every fence before continuing prose.
-- Do not emit partial JSON in chart fences.
+- Do not emit partial JSON in chart or graph fences.
 - Do not split a single diagram across multiple messages.
 
 ## Anti-patterns
@@ -120,3 +110,4 @@ Rules:
 - Do not ask "Would you like a diagram?" when you can show one now.
 - Do not wrap fences in prose without the actual fence block.
 - Do not use ` ```chart ` for non-numeric data.
+- Do not use Mermaid or flowchart syntax — use ` ```graph ` JSON only.

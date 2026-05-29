@@ -2391,7 +2391,7 @@ export class IpcClient {
       chatId: number;
       type: string;
       title: string;
-      mermaidCode: string;
+      graphCode: string;
       snapshotId: number;
     }) => void
   ): () => void {
@@ -3056,7 +3056,7 @@ export class IpcClient {
   public async generateDiagram(input: {
     workspaceId?: number;
     chatId?: number;
-    type: "mermaid" | "architecture" | "sequence" | "class" | "flowchart";
+    type: "graph" | "architecture" | "sequence" | "class" | "flowchart";
     title: string;
     content: string;
     metadata?: { files?: string[]; entities?: string[]; focus?: string };

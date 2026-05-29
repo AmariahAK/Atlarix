@@ -31,7 +31,7 @@ Blueprint is **lazy** and **section-scoped** for `get_blueprint` only — parse 
 
 ## Diagram (Mermaid) — model-driven only
 
-`get_diagram({type?, scope?, path?, focus_path?})` returns the saved/generated Mermaid in `mermaid_code` and a short natural-language summary in `context_for_ai`. Pass `focus_path` for multi-repo scoping. Diagrams are never auto-generated on workspace open.
+`visualize_graph({ graph_json, title? })` validates nodes/edges JSON and returns a ` ```graph ` fence for inline chat. `get_blueprint` returns structural architecture slices. Diagrams are never auto-generated on workspace open.
 
 ## Architecture exploration flow
 

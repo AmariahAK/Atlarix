@@ -35,13 +35,13 @@ ToolRegistry.register({
   isReadOnly: true,
   allowInAskMode: true,
   description:
-    "Get the SKILL.md content for skills installed in this session (workspace skills first, then global), plus built-in guides when filtered. Call this when you need guidance on language patterns, framework conventions, workflow automation, or **inline visuals** (tables, charts, mermaid, markmap). Use filter `visual` or `artifact` for the Visual Artifacts built-in guide.",
+    "Get the SKILL.md content for skills installed in this session (workspace skills first, then global), plus built-in guides when filtered. Call this when you need guidance on language patterns, framework conventions, workflow automation, or **inline visuals** (tables, charts, graph, markmap). Use filter `visual` or `artifact` for the Visual Artifacts built-in guide.",
   parameters: {
     type: "object",
     properties: {
       filter: {
         type: "string",
-        description: "Optional substring to filter by skill name or tag (e.g. 'react', 'visual', 'artifact', 'mermaid').",
+        description: "Optional substring to filter by skill name or tag (e.g. 'react', 'visual', 'artifact', 'graph').",
       },
     },
   },

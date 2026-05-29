@@ -58,6 +58,7 @@ const toolIcons: Record<string, React.ElementType> = {
     deep_search: Globe,
     read_url: Globe,
     get_diagram: BarChart3,
+    visualize_graph: BarChart3,
     recall_memory: Database,
     search_memory: Search,
     run_command: Terminal,

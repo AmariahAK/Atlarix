@@ -16,7 +16,7 @@ const BUILTIN_GUIDES: Array<{ id: string; name: string; tags: string[]; file: st
   {
     id: "visual-artifacts",
     name: "Visual Artifacts",
-    tags: ["visual", "artifact", "mermaid", "markmap", "chart", "table", "diagram", "graph"],
+    tags: ["visual", "artifact", "graph", "markmap", "chart", "table", "diagram"],
     file: "visual-artifacts.md",
   },
 ];

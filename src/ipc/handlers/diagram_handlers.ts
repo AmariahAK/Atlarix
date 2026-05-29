@@ -24,8 +24,8 @@ import { checkSnapshotStaleness, type StalenessCheck } from "../../lib/snapshot/
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 // Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
-import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
-import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
+import { normalizeDiagramAiOutput, serializeGraphSpec } from "../../lib/visual-artifacts/graph-spec";
+import { DIAGRAM_GRAPH_CRITICAL_RULES } from "@/lib/diagramGraphPromptRules";
 import { runDiagramRegenerateBackground } from "./diagram_regenerate_background";
 
 // ============================================
@@ -45,7 +45,7 @@ export interface GitDiagramDecision {
 export interface DiagramInput {
     workspaceId?: number;
     chatId?: number;
-    type: "mermaid" | "architecture" | "sequence" | "class" | "flowchart";
+    type: "graph" | "architecture" | "sequence" | "class" | "flowchart";
     title: string;
     content: string;
     metadata?: {
@@ -59,7 +59,7 @@ function toClientDiagram<T extends { diagramType?: string; [key: string]: unknow
     const { diagramType, ...rest } = diagram;
     return {
         ...rest,
-        type: typeof diagramType === "string" && diagramType.trim() ? diagramType : "mermaid",
+        type: typeof diagramType === "string" && diagramType.trim() ? diagramType : "graph",
     };
 }
 
@@ -144,7 +144,15 @@ ipcMain.handle(
                 formattedOutput.startsWith("# Error:") ||
                 formattedOutput.trim().length < 80;
             if (noCode) {
-                const placeholderContent = "graph TB\n  A[No code found]\n  B[Add files to generate architecture diagram]\n  A --> B";
+                const placeholderContent = serializeGraphSpec({
+                    title: "No code found",
+                    layout: "force",
+                    nodes: [
+                        { id: "a", name: "No code found" },
+                        { id: "b", name: "Add files to generate architecture diagram" },
+                    ],
+                    edges: [{ source: "a", target: "b" }],
+                });
                 const existingDiagram = await db.query.diagrams.findFirst({
                     where: eq(diagrams.workspaceId, workspaceId),
                 });
@@ -153,7 +161,7 @@ ipcMain.handle(
                         .update(diagrams)
                         .set({
                             content: placeholderContent,
-                            diagramType: "mermaid",
+                            diagramType: "graph",
                             title: "No code found",
                             updatedAt: new Date(),
                             metadata: { focus: "no-code-placeholder" },
@@ -163,13 +171,13 @@ ipcMain.handle(
                     return {
                         success: true,
                         diagram: updated
-                            ? { id: updated.id, content: placeholderContent, type: "mermaid" as const, title: "No code found" }
+                            ? { id: updated.id, content: placeholderContent, type: "graph" as const, title: "No code found" }
                             : undefined,
                     };
                 }
                 const [created] = await db.insert(diagrams).values({
                     workspaceId,
-                    diagramType: "mermaid",
+                    diagramType: "graph",
                     title: "No code found",
                     content: placeholderContent,
                     metadata: { focus: "no-code-placeholder" },
@@ -177,7 +185,7 @@ ipcMain.handle(
                 return {
                     success: true,
                     diagram: created
-                        ? { id: created.id, content: placeholderContent, type: "mermaid" as const, title: "No code found" }
+                        ? { id: created.id, content: placeholderContent, type: "graph" as const, title: "No code found" }
                         : undefined,
                 };
             }
@@ -188,7 +196,7 @@ ipcMain.handle(
 
             // 4. Generate Diagram (retry once with fallback on 404 / model not found)
             const systemPrompt = `You are an expert software architect.
-Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
+Analyze the provided codebase and generate a graph JSON diagram that best represents the high-level architecture.
 Focus on:
 - Major components/modules
 - Data flow
@@ -196,19 +204,11 @@ Focus on:
 - External dependencies (if obvious)
 
 Requirements:
-- Return ONLY the mermaid code block.
-- Use 'graph TB' or 'graph LR'.
-- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
+- Return ONLY a JSON object with nodes and edges arrays.
 - Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.
+- Group related components with edges from a parent hub node when helpful.
 
-${DIAGRAM_MERMAID_CRITICAL_RULES}
-
-- Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
-- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
-- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
-- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
+${DIAGRAM_GRAPH_CRITICAL_RULES}`;
 
             const userPrompt = `Generate an architecture diagram for this project:
 
@@ -233,10 +233,10 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
             if (!content || content.length < 10) {
                 try {
                     const { extractAppMap } = await import("../../lib/workflow/extractors");
-                    const { appMapToMermaid } = await import("../../lib/workflow/app_map_to_mermaid");
+                    const { appMapToGraphJson } = await import("../../lib/workflow/app_map_to_graph_spec");
                     const appMap = await extractAppMap(appPath);
                     if (appMap && ((appMap.entryPoints?.length ?? 0) > 0 || (appMap.dataSources?.length ?? 0) > 0)) {
-                        content = appMapToMermaid(appMap);
+                        content = appMapToGraphJson(appMap);
                     }
                 } catch {
                     /* AppMap fallback optional */
@@ -258,7 +258,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .update(diagrams)
                     .set({
                         content,
-                        diagramType: "mermaid",
+                        diagramType: "graph",
                         title: title || existingDiagram.title || `${app.name} Architecture (AI)`,
                         updatedAt: new Date(),
                         metadata: {
@@ -275,7 +275,7 @@ ${formattedOutput.substring(0, 50000)} // Limit context to 50k chars to avoid hu
                     .insert(diagrams)
                     .values({
                         workspaceId,
-                        diagramType: "mermaid",
+                        diagramType: "graph",
                         title: title || `${app.name} Architecture (AI)`,
                         content,
                         metadata: {

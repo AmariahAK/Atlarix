@@ -36,6 +36,7 @@ import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
 import { persistOnboardingStep } from "@/lib/onboarding";
 import { UpgradeChoiceDialog } from "@/components/UpgradeChoiceDialog";
+import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 
 const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 

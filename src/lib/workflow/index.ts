@@ -6,4 +6,4 @@
 
 export { extractAppMap, extractAppMapFromNode, extractAppMapFromPython, detectRuntime } from "./extractors";
 export type { AppMap, AppMapEntryPoint, AppMapDataSource, AppMapFlow, AppMapScreen, Runtime } from "./app_map_types";
-export { appMapToMermaid } from "./app_map_to_mermaid";
+export { appMapToGraphSpec, appMapToGraphJson } from "./app_map_to_graph_spec";

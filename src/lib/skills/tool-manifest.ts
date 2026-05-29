@@ -5,7 +5,7 @@
  *  - `search` is the unified codebase search (auto | text | semantic | structural).
  *  - `get_blueprint` returns a focused Blueprint graph slice (lazy parse).
  *  - edit_file replaces replace_code / insert_code / delete_lines / edit_file_section.
- *  - Inline \`\`\`mermaid\`\`\` flowchart fences in chat for flows (no get_diagram tool).
+ *  - Inline \`\`\`graph\`\`\` JSON fences in chat for flows (or \`visualize_graph\` tool).
  */
 
 import { ToolRegistry } from "../tools/registry";
@@ -22,6 +22,7 @@ const ARCHITECT: ToolManifest = {
     "search",
     "get_blueprint",
     "get_file_outline",
+    "visualize_graph",
   ],
   readOnly: true,
 };
@@ -81,6 +82,7 @@ const RESEARCHER: ToolManifest = {
     "web_search",
     "deep_research",
     "read_url",
+    "visualize_graph",
   ],
   readOnly: true,
 };

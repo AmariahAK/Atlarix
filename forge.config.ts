@@ -199,7 +199,6 @@ const RENDERER_ONLY_PACKAGES = new Set([
   "@shikijs",
   "core-js",
   "@tanstack",
-  "mermaid",
 ]);
 
 const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
@@ -283,7 +282,6 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/shiki")) return true;
   if (file.startsWith("/node_modules/core-js")) return true;
   if (file.startsWith("/node_modules/@tanstack")) return true;
-  if (file.startsWith("/node_modules/mermaid")) return true;
   if (file.startsWith("/node_modules/dugite")) return true;
   for (const deny of RELEASE_DENY_PACKAGES) {
     if (file === `/node_modules/${deny}` || file.startsWith(`/node_modules/${deny}/`)) {
@@ -536,7 +534,6 @@ const config: ForgeConfig = {
         "react-shiki",
         "shiki",
         "core-js",
-        "mermaid",
         "markmap-lib",
         "markmap-view",
         "markmap-common",

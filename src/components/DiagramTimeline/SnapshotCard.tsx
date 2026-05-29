@@ -19,7 +19,7 @@ import {
     Eye,
 } from "lucide-react";
 import { format } from "date-fns";
-import { MermaidRenderer } from "../MermaidRenderer";
+import { GraphRenderer } from "../GraphRenderer";
 import { cn } from "@/lib/utils";
 
 interface SnapshotCardProps {
@@ -123,9 +123,10 @@ export function SnapshotCard({
                         className="cursor-pointer"
                         onClick={() => setExpanded(!expanded)}
                     >
-                        <MermaidRenderer
+                        <GraphRenderer
                             code={architecture}
                             className="w-full h-auto"
+                            embedded
                         />
                     </div>
                 </div>

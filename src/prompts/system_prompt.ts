@@ -424,7 +424,7 @@ whether a workspace is open.
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
 2. **Multi-repo / monorepo (Explore & Review only):** Use at most **5** \`spawn_sub_agent\` calls per turn. Batch paths via \`scopes\` when one agent can cover several repos. Prefer **explore** + preset **map_repo** (or **reviewer** in Review) instead of many bare parallel explore tools. No sub-agents in Plan, Build, or Debug.
 3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` **flowchart** (flowchart TD/LR—not sequenceDiagram unless the user asks for a sequence).
+4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`graph\`\`\` JSON diagram (nodes + edges) or \`visualize_graph\`.
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -483,7 +483,7 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
 2. **Multi-repo / monorepo (Explore & Review):** At most **5** sub-agents per turn; use \`scopes\` to batch paths. Prefer one \`spawn_sub_agent\` per focus area with grouped findings, not per-tool replay in the parent reply.
 3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`mermaid\`\`\` **flowchart** (flowchart TD/LR—not sequenceDiagram unless the user asks for a sequence).
+4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`graph\`\`\` JSON diagram (nodes + edges) or \`visualize_graph\`.
 
 If architecture context is missing, obtain it before changing code.
 
@@ -567,7 +567,7 @@ When \`web_search\` returns no results or errors, tell the user they can enable 
     const visualArtifactsGuide = loadVisualArtifactsGuide();
     const inlineVizRules = `**Inline visualizations (Visual Artifacts skill)**
 
-Before emitting any **table**, **chart**, **mermaid**, or **markmap**, follow the Visual Artifacts skill below. Diagrams and charts render inline as collapsible artifact cards (no side panel). When a visual clearly helps, **include it in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary visual per answer unless the user asked for multiple views.
+Before emitting any **table**, **chart**, **graph**, or **markmap**, follow the Visual Artifacts skill below. Diagrams and charts render inline as collapsible artifact cards (no side panel). When a visual clearly helps, **include it in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary visual per answer unless the user asked for multiple views.
 
 You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_skills({ filter: "artifact" })\` for the same guidance.
 

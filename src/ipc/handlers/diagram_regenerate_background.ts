@@ -14,9 +14,9 @@ import { readSettings } from "../../main/settings";
 import type { AppChatContext } from "../../lib/schemas";
 import { persistWorkspaceSnapshotHashes } from "../../lib/snapshot/snapshot-manager";
 // Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
-import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
+import { DIAGRAM_GRAPH_CRITICAL_RULES } from "@/lib/diagramGraphPromptRules";
 import { requireAuthSession, AuthRequiredError } from "../../lib/auth/require_auth_session";
-import { normalizeDiagramAiOutput } from "../../lib/normalizeDiagramMermaid";
+import { normalizeDiagramAiOutput } from "../../lib/visual-artifacts/graph-spec";
 
 export type RegenerateBackgroundResult =
   | { success: true; skipped: true; reason: "ask_mode_no_auto_regen" }
@@ -64,7 +64,7 @@ export async function runDiagramRegenerateBackground(
     const { modelClient } = await getModelClient(modelConfig, settings);
 
     const systemPrompt = `You are an expert software architect.
-Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
+Analyze the provided codebase and generate a graph JSON diagram that best represents the high-level architecture.
 Focus on:
 - Major components/modules
 - Data flow
@@ -72,19 +72,10 @@ Focus on:
 - External dependencies (if obvious)
 
 Requirements:
-- Return ONLY the mermaid code block.
-- Use 'graph TB' or 'graph LR'.
-- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
+- Return ONLY a JSON object with nodes and edges arrays.
 - Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.
 
-${DIAGRAM_MERMAID_CRITICAL_RULES}
-
-- Mermaid node IDs (left side): Use safe identifiers only (letters/numbers/underscores). If you need special characters like &, put them in the quoted label, not the node ID.
-- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
-- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
-- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
+${DIAGRAM_GRAPH_CRITICAL_RULES}`;
 
     const userPrompt = `Generate an architecture diagram for this project:\n\n${formattedOutput.substring(0, 50000)}`;
 
@@ -121,7 +112,7 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
       .insert(diagrams)
       .values({
         workspaceId,
-        diagramType: "mermaid",
+        diagramType: "graph",
         title: `${app.name} Architecture`,
         content,
         metadata: { focus: "auto-generated" },

@@ -1,75 +1,85 @@
 /**
  * Diagram Generator
  * =================
- * Converts workspace analysis to Mermaid diagrams and AI-readable text
- * Inspired by StackSense's diagram_to_text.py
+ * Converts workspace analysis to graph JSON specs and AI-readable text
  */
 import * as path from 'path';
-import { WorkspaceAnalysis, Cluster, AnalyzedFile } from './workspace-analyzer';
+import { WorkspaceAnalysis, AnalyzedFile } from './workspace-analyzer';
+import type { GraphSpec } from '@/lib/visual-artifacts/graph-spec';
+import { serializeGraphSpec } from '@/lib/visual-artifacts/graph-spec';
+
+function sanitizeId(raw: string): string {
+    return raw.replace(/[^a-zA-Z0-9_]/g, '_') || 'node';
+}
 
 /**
- * Generate Mermaid architecture diagram
+ * Generate architecture graph spec (nodes + edges JSON).
  */
-export function generateArchitectureDiagram(analysis: WorkspaceAnalysis): string {
+export function generateArchitectureGraphSpec(analysis: WorkspaceAnalysis): GraphSpec {
     const { language, framework, clusters, entryPoints, dependencies } = analysis;
+    const nodes: GraphSpec['nodes'] = [];
+    const edges: GraphSpec['edges'] = [];
+    const nodeIds = new Set<string>();
 
-    let diagram = `graph TB\n`;
-    diagram += `    %% ${language.charAt(0).toUpperCase() + language.slice(1)} project${framework ? ` with ${framework}` : ''}\n\n`;
+    const addNode = (id: string, name: string, color?: string) => {
+        const safe = sanitizeId(id);
+        if (nodeIds.has(safe)) return safe;
+        nodeIds.add(safe);
+        nodes.push({
+            id: safe,
+            name,
+            ...(color ? { itemStyle: { color } } : {}),
+        });
+        return safe;
+    };
 
-    // Style definitions for visual appeal
-    diagram += `    classDef entryPoint fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff\n`;
-    diagram += `    classDef service fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#fff\n`;
-    diagram += `    classDef component fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff\n`;
-    diagram += `    classDef utility fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff\n`;
-    diagram += `    classDef model fill:#ec4899,stroke:#db2777,stroke-width:2px,color:#fff\n\n`;
+    const rootId = addNode('project', `${language}${framework ? ` / ${framework}` : ''} project`, '#64748B');
 
-    // Add clusters as subgraphs
-    for (const cluster of clusters.slice(0, 6)) { // Max 6 clusters
-        const sanitizedId = sanitizeId(cluster.name);
-        diagram += `    subgraph ${sanitizedId}["${cluster.name}"]\n`;
+    for (const cluster of clusters.slice(0, 6)) {
+        const clusterId = addNode(`cluster_${sanitizeId(cluster.name)}`, cluster.name, '#2563EB');
+        edges.push({ source: rootId, target: clusterId });
 
-        // Show max 5 files per cluster
         for (const filePath of cluster.files.slice(0, 5)) {
             const fileName = path.basename(filePath, path.extname(filePath));
-            const nodeId = sanitizeId(fileName);
-            diagram += `        ${nodeId}["${fileName}"]\n`;
-
-            // Apply styles based on file type
             const file = analysis.files.find(f => f.relativePath === filePath);
-            if (entryPoints.includes(filePath)) {
-                diagram += `        class ${nodeId} entryPoint\n`;
-            } else if (file?.type === 'component') {
-                diagram += `        class ${nodeId} component\n`;
-            } else if (file?.type === 'model') {
-                diagram += `        class ${nodeId} model\n`;
-            } else if (file?.type === 'utility') {
-                diagram += `        class ${nodeId} utility\n`;
-            } else {
-                diagram += `        class ${nodeId} service\n`;
-            }
+            let color = '#3b82f6';
+            if (entryPoints.includes(filePath)) color = '#1D9E75';
+            else if (file?.type === 'component') color = '#EA580C';
+            else if (file?.type === 'model') color = '#DB2777';
+            else if (file?.type === 'utility') color = '#7C3AED';
+
+            const fileId = addNode(`${clusterId}_${sanitizeId(fileName)}`, fileName, color);
+            edges.push({ source: clusterId, target: fileId });
         }
 
         if (cluster.files.length > 5) {
-            diagram += `        ${sanitizedId}_more["... +${cluster.files.length - 5} more"]\n`;
+            const moreId = addNode(`${clusterId}_more`, `+${cluster.files.length - 5} more`, '#94a3b8');
+            edges.push({ source: clusterId, target: moreId });
         }
-
-        diagram += `    end\n\n`;
     }
 
-    // Add key dependencies (top 15 most important)
     const addedEdges = new Set<string>();
     for (const dep of dependencies.slice(0, 15)) {
         const fromName = sanitizeId(path.basename(dep.from, path.extname(dep.from)));
         const toName = sanitizeId(path.basename(dep.to, path.extname(dep.to)));
-
         const edgeKey = `${fromName}-${toName}`;
-        if (!addedEdges.has(edgeKey) && fromName !== toName) {
-            diagram += `    ${fromName} --> ${toName}\n`;
+        if (!addedEdges.has(edgeKey) && fromName !== toName && nodeIds.has(fromName) && nodeIds.has(toName)) {
+            edges.push({ source: fromName, target: toName });
             addedEdges.add(edgeKey);
         }
     }
 
-    return diagram;
+    return {
+        title: `${language} architecture`,
+        layout: 'force',
+        nodes,
+        edges,
+    };
+}
+
+/** Serialized JSON for DB / context injection. */
+export function generateArchitectureDiagram(analysis: WorkspaceAnalysis): string {
+    return serializeGraphSpec(generateArchitectureGraphSpec(analysis));
 }
 
 /**
@@ -164,16 +174,6 @@ export function generateSystemPromptContext(analysis: WorkspaceAnalysis): string
     }
 
     return context;
-}
-
-/**
- * Sanitize ID for Mermaid node names
- */
-function sanitizeId(name: string): string {
-    return name
-        .replace(/[^a-zA-Z0-9]/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .replace(/_+/g, '_') || 'node';
 }
 
 /**

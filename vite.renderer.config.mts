@@ -43,7 +43,7 @@ export default defineConfig({
       external: [],
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/mermaid")) return "vendor-mermaid";
+          if (id.includes("node_modules/echarts")) return "vendor-echarts";
           if (id.includes("node_modules/shiki") || id.includes("node_modules/@shikijs")) {
             return "vendor-shiki";
           }

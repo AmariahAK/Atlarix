@@ -33,7 +33,7 @@ In Autonomous mode, `message_agent` may also be available.
 
 ## Inline visuals
 
-When structure or data flow is clearer visually, follow the **Visual Artifacts** skill. Echo `get_diagram` output in ` ```mermaid ` fences; use ` ```markmap ` for hierarchies—all in the **same reply** as your plan.
+When structure or data flow is clearer visually, follow the **Visual Artifacts** skill. Use ` ```graph ` JSON (nodes + edges) or `visualize_graph`; use ` ```markmap ` for hierarchies—all in the **same reply** as your plan.
 
 ## Blueprint
 

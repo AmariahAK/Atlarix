@@ -35,11 +35,14 @@ export interface SnapshotManifest {
     filesChanged: string[];
 }
 
-/** Parse mermaid body from markdown fence or treat whole file as mermaid when it looks like a diagram. */
-export function extractMermaidFromMarkdown(md: string): string | undefined {
-    const fence = /```\s*mermaid\s*([\s\S]*?)```/i.exec(md);
+/** Parse graph JSON from markdown ```graph fence or raw JSON body. */
+export function extractGraphFromMarkdown(md: string): string | undefined {
+    const fence = /```\s*graph\s*\r?\n([\s\S]*?)```/i.exec(md);
     if (fence) return fence[1].trim();
+    const legacyMermaid = /```\s*mermaid\s*([\s\S]*?)```/i.exec(md);
+    if (legacyMermaid) return legacyMermaid[1].trim();
     const t = md.trim();
+    if (t.startsWith("{") && t.includes('"nodes"')) return t;
     if (
         /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt)\b/m.test(
             t,
@@ -50,15 +53,18 @@ export function extractMermaidFromMarkdown(md: string): string | undefined {
     return undefined;
 }
 
-/** Rich `diagram.md` template; `extractMermaidFromMarkdown` still finds the fenced block. */
+/** @deprecated Use extractGraphFromMarkdown */
+export const extractMermaidFromMarkdown = extractGraphFromMarkdown;
+
+/** Rich `diagram.md` template; `extractGraphFromMarkdown` finds the fenced block. */
 export function buildRichDiagramMarkdown(fields: {
-    mermaidBody: string;
+    graphBody: string;
     capturedAt?: string;
     promptLine?: string;
     blueprintSummary?: string;
 }): string {
     const cap = fields.capturedAt ?? new Date().toISOString();
-    const inner = fields.mermaidBody.trim();
+    const inner = fields.graphBody.trim();
     const summary =
         fields.blueprintSummary?.trim() ||
         "(Blueprint summary not attached to this snapshot.)";
@@ -70,9 +76,9 @@ ${fields.promptLine ? `**Context:** ${fields.promptLine}\n` : ""}
 
 ${summary}
 
-## Mermaid
+## Graph
 
-\`\`\`mermaid
+\`\`\`graph
 ${inner}
 \`\`\`
 `;
@@ -271,7 +277,7 @@ export async function ensureInitialDiagramSnapshot(
     await fs.writeFile(
         diagramPath,
         buildRichDiagramMarkdown({
-            mermaidBody: body,
+            graphBody: body,
             promptLine: "Initial workspace diagram baseline",
         }),
         "utf8",

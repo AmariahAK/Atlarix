@@ -22,9 +22,9 @@ import {
 import { modelFailureUserMessage } from "@/shared/texts";
 import { getProjectFiles, getStructureScan } from "@/ipc/utils/project-files";
 import { readSettings } from "@/main/settings";
-import { DIAGRAM_MERMAID_CRITICAL_RULES } from "@/lib/diagramMermaidPromptRules";
+import { DIAGRAM_GRAPH_CRITICAL_RULES } from "@/lib/diagramGraphPromptRules";
 // Pass 7: invalidateBlueprintCache removed with the Blueprint subsystem.
-import { normalizeDiagramAiOutput } from "./normalizeDiagramMermaid";
+import { normalizeDiagramAiOutput } from "./visual-artifacts/graph-spec";
 import { persistWorkspaceSnapshotHashes } from "./snapshot/snapshot-manager";
 import log from "electron-log";
 
@@ -220,7 +220,7 @@ export class DiagramManager {
 
         // Build system prompt with optional focus from AI
         let systemPrompt = `You are an expert software architect.
-Analyze the provided codebase and generate a Mermaid.js diagram that best represents the high-level architecture.
+Analyze the provided codebase and generate a graph JSON diagram that best represents the high-level architecture.
 Focus on:
 - Major components/modules
 - Data flow
@@ -228,18 +228,10 @@ Focus on:
 - External dependencies (if obvious)
 
 Requirements:
-- Return ONLY the mermaid code block.
-- Use 'graph TB' or 'graph LR'.
-- Do NOT use 'classDiagram' unless specifically appropriate for OOP analysis.
+- Return ONLY a JSON object with nodes and edges arrays.
 - Keep the diagram clean and readable (avoid too many nodes).
-- Group related components in subgraphs.
 
-${DIAGRAM_MERMAID_CRITICAL_RULES}
-
-- Subgraphs: use explicit id and bracket title, e.g. subgraph clientTier [Client Tier].
-- Prefer no style/classDef/class (theme-safe). If coloring nodes, the directive is lowercase style (never Style).
-- Start the diagram body with graph or flowchart as the first line; do not prefix with a standalone line that is only the word mermaid (breaks detection).
-- Avoid linkStyle default and long CSS on edges; prefer simple --> links when possible.`;
+${DIAGRAM_GRAPH_CRITICAL_RULES}`;
 
         // Add focus context if provided by AI
         if (options?.focusComponents?.length) {
@@ -311,7 +303,7 @@ ${DIAGRAM_MERMAID_CRITICAL_RULES}
                 .insert(diagrams)
                 .values({
                     workspaceId,
-                    diagramType: "mermaid",
+                    diagramType: "graph",
                     title: `${app.name} Architecture`,
                     content,
                     metadata: {

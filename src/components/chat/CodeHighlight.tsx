@@ -9,8 +9,8 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { Copy, Check } from "lucide-react";
 import { MarkmapRenderer } from "@/components/chat/MarkmapRenderer";
 
-const LazyMermaidRenderer = React.lazy(() =>
-  import("@/components/MermaidRenderer").then((m) => ({ default: m.MermaidRenderer })),
+const LazyGraphRenderer = React.lazy(() =>
+  import("@/components/GraphRenderer").then((m) => ({ default: m.GraphRenderer })),
 );
 import { ChartArtifactCard } from "@/components/chat/ChartArtifactCard";
 import { VisualArtifactCard } from "@/components/chat/VisualArtifactCard";
@@ -110,19 +110,19 @@ export const CodeHighlight = memo(
       );
     }
 
-    if (!isInline && language === "mermaid") {
-      const title = inferArtifactTitle("mermaid", code) ?? "Diagram";
+    if (!isInline && language === "graph") {
+      const title = inferArtifactTitle("graph", code) ?? "Diagram";
       return (
         <div className="not-prose my-2 w-full">
           <VisualArtifactCard title={title} layout="canvas">
             <Suspense
               fallback={
                 <div className="flex h-full min-h-[120px] items-center justify-center text-xs text-muted-foreground">
-                  Loading diagram…
+                  Loading graph…
                 </div>
               }
             >
-              <LazyMermaidRenderer
+              <LazyGraphRenderer
                 code={code}
                 embedded
                 className="h-full min-h-0"

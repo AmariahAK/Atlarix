@@ -7820,7 +7820,7 @@ Your first actions should be:
 1. Call **get_blueprint** or **search** to locate relevant areas.
 2. Use **explore_folder** + **read_file** to drill in once you have a target.
 
-Use inline \`\`\`mermaid\`\`\` flowchart fences in your reply when a visual helps explain a flow.
+Use inline \`\`\`graph\`\`\` JSON fences (nodes + edges) in your reply when a visual helps explain a flow.
 `;
 }
 

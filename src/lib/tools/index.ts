@@ -20,13 +20,14 @@ import "./terminal-instances";
 import "./web";
 import "./memory";
 import "./blueprint";
-// get_diagram removed — model uses get_blueprint + inline mermaid fences
+// get_diagram removed — model uses get_blueprint + inline ```graph fences
 import "./agent";
 import "./spawn-task";
 import "./workspace";
 import "./plan";
 import "./mcp";
 import "./skills";
+import "./visualize_graph";
 import "./db";
 import "./lsp-tools";
 

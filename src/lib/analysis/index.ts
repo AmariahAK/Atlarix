@@ -13,6 +13,7 @@ export {
 
 export {
     generateArchitectureDiagram,
+    generateArchitectureGraphSpec,
     generateTextSummary,
     generateSystemPromptContext,
 } from './diagram-generator';

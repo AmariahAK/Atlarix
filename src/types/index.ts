@@ -49,8 +49,10 @@ export interface WebSearchResult {
 }
 
 export interface DiagramData {
-    type: 'architecture' | 'class' | 'sequence';
-    mermaidCode: string;
+    type: 'architecture' | 'class' | 'sequence' | 'graph';
+    graphCode: string;
+    /** @deprecated Legacy field — use graphCode */
+    mermaidCode?: string;
     title?: string;
 }
 
