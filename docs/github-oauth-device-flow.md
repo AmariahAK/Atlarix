@@ -12,7 +12,7 @@ The browser screen **“Authorize …”** shows the **OAuth application name** 
      - Enable **Device Flow**
      - Homepage: `https://atlarix.dev` (or your product URL)
 3. Set the client ID in:
-   - Local dev: `OAUTH_CLIENT_ID=` in `.env` (the **Client ID** field only — usually starts with `Ov23li…`). Legacy `GITHUB_CLIENT_ID` is still read as a fallback until you rename it.
+   - Local dev: `OAUTH_CLIENT_ID=` in `.env` (the **Client ID** field only — usually starts with `Ov23li…`).
    - Release CI: repository secret `OAUTH_CLIENT_ID` (see `.github/workflows/release.yml`)
 
 **Do not** put the client **secret**, a PAT, or a 40-character hex string in `OAUTH_CLIENT_ID`. Those are different values; GitHub returns `404 Not Found` for device flow.

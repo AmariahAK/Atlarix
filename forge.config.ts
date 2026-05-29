@@ -199,6 +199,8 @@ const RENDERER_ONLY_PACKAGES = new Set([
   "@shikijs",
   "core-js",
   "@tanstack",
+  "echarts",
+  "zrender",
 ]);
 
 const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
@@ -282,6 +284,8 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/shiki")) return true;
   if (file.startsWith("/node_modules/core-js")) return true;
   if (file.startsWith("/node_modules/@tanstack")) return true;
+  if (file.startsWith("/node_modules/echarts")) return true;
+  if (file.startsWith("/node_modules/zrender")) return true;
   if (file.startsWith("/node_modules/dugite")) return true;
   for (const deny of RELEASE_DENY_PACKAGES) {
     if (file === `/node_modules/${deny}` || file.startsWith(`/node_modules/${deny}/`)) {
@@ -458,6 +462,9 @@ const config: ForgeConfig = {
       platform: string,
       arch: string,
     ) => {
+      console.log(
+        `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
+      );
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
       const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
       const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
@@ -537,6 +544,8 @@ const config: ForgeConfig = {
         "markmap-lib",
         "markmap-view",
         "markmap-common",
+        "echarts",
+        "zrender",
         "d3",
         "@shikijs",
         "@tanstack",

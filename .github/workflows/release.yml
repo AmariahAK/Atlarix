@@ -159,9 +159,13 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for macOS (${{ matrix.arch }})
-        run: npm run make -- --arch=${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          npm run make -- --arch=${{ matrix.arch }}
+          node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          # Match package.json make script (8192); 4096 caused early OOM during packageAfterPrune on CI.
+          NODE_OPTIONS: "--max-old-space-size=8192"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
       - name: Notarize macOS app (DMG), staple .app, re-zip stapled bundle, staple DMG
@@ -331,18 +335,28 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Linux
-        run: npm run make
+        run: |
+          set -euo pipefail
+          npm run make
+          node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Upload Linux assets to release
         if: success()
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
+          set -euo pipefail
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%\{*}"
           export UPLOAD_URL RELEASES_TOKEN
+          shopt -s nullglob
+          mapfile -t assets < <(find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \))
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::No Linux installers under out/make"
+            exit 1
+          fi
           find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | while IFS= read -r -d '' f; do
             echo "Uploading $(basename "$f")..."
             curl -sS -X POST \
@@ -467,9 +481,13 @@ jobs:
 
       - name: Build for Windows
         shell: pwsh
-        run: npm run make
+        run: |
+          npm run make
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Upload Windows assets to release
         if: success()
@@ -477,9 +495,16 @@ jobs:
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
+          set -euo pipefail
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%\{*}"
           export UPLOAD_URL RELEASES_TOKEN
+          shopt -s nullglob
+          mapfile -t assets < <(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \))
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::No Windows installers under out/make"
+            exit 1
+          fi
           find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0 | while IFS= read -r -d '' f; do
             BASENAME=$(basename "$f")
             ENCODED=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$BASENAME")

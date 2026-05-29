@@ -11,9 +11,7 @@ export const LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID = "Ov23liWV2HdC0RBLecWx";
 
 /** Read at call time — not module load — so preload-env runs first. */
 export function getGithubDeviceFlowClientId(): string {
-  const fromEnv =
-    process.env.OAUTH_CLIENT_ID?.trim() ||
-    process.env.GITHUB_CLIENT_ID?.trim();
+  const fromEnv = process.env.OAUTH_CLIENT_ID?.trim();
   return fromEnv || LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID;
 }
 

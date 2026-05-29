@@ -27,14 +27,10 @@ Add these to your `.env` file:
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-# GitHub OAuth (device flow — repo clone)
+# GitHub OAuth App (device flow — repo clone / Connect to GitHub)
 OAUTH_CLIENT_ID=your_github_oauth_app_client_id
-# Legacy fallback until renamed:
-# GITHUB_CLIENT_ID=your_github_oauth_app_client_id
 
-# GitHub OAuth (Supabase sign-in — optional UI)
-VITE_GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
+# GitHub OAuth (Supabase sign-in — configure Client ID/secret in Supabase Dashboard, not here)
 
 # Backend API
 ATLARIX_API_URL=https:// atlarix-api.fly.dev
@@ -59,7 +55,7 @@ ATLARIX_API_URL=https:// atlarix-api.fly.dev
 3. Go to [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**.
 4. Application name: Atlarix. Homepage URL: `https://atlarix.dev`. **Authorization callback URL**: paste the Supabase callback URL from step 2.
 5. Copy **Client ID** and **Client Secret** from GitHub into Supabase (Authentication → Providers → GitHub). Save.
-6. In Atlarix `.env`, set `VITE_GITHUB_CLIENT_ID` to the same GitHub Client ID (optional, for UI). The app uses Supabase’s OAuth flow; redirect back to the app is `atlarix://auth/callback`.
+6. For **in-app repo clone** (device flow), set `OAUTH_CLIENT_ID` in Atlarix `.env` to your GitHub OAuth App Client ID (same app or a separate “Atlarix” app with Device Flow enabled). Supabase sign-in uses the credentials from step 5 only. Redirect back to the app is `atlarix://auth/callback`.
 
 ### 3. Protocol Handler
 

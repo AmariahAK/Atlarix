@@ -42,7 +42,7 @@ _(Nothing yet.)_
 ### Changed
 
 - **GitHub clone:** Welcome and Import dialogs require a save folder before cloning (picker auto-opens); backend rejects clone without absolute `targetPath`; progress bar and cancel during clone. SQLite stores absolute paths only — repo files stay on disk (no silent `~/Documents/Atlarix` default).
-- **OAuth env:** Device-flow client ID is `OAUTH_CLIENT_ID` (with `GITHUB_CLIENT_ID` fallback for existing `.env` files).
+- **OAuth env:** Device-flow client ID is `OAUTH_CLIENT_ID` (replaces legacy `GITHUB_CLIENT_ID`).
 - **Mermaid guidance:** Flowchart-first prompts and sanitizer repairs for common label syntax issues; `sequenceDiagram` documented as fallback only.
 - **Build mode prompt:** Application files belong at project root; `.atlarix/` is metadata/plan docs only.
 - **Remove workspace:** Deleting a workspace under `~/atlarix-apps` or `~/Documents/Atlarix` also removes those files from disk.
