@@ -162,9 +162,14 @@ jobs:
         timeout-minutes: 120
         run: |
           set -euo pipefail
+          set -x
+          node scripts/log-packaging-env.mjs
           npm run make -- --arch=${{ matrix.arch }}
+          node scripts/log-packaging-env.mjs
           node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
+          ATLARIX_PACKAGING_DEBUG: "1"
+          DEBUG: "electron-forge:*,electron-packager"
           FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
@@ -340,9 +345,14 @@ jobs:
         timeout-minutes: 120
         run: |
           set -euo pipefail
+          set -x
+          node scripts/log-packaging-env.mjs
           npm run make
+          node scripts/log-packaging-env.mjs
           node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
         env:
+          ATLARIX_PACKAGING_DEBUG: "1"
+          DEBUG: "electron-forge:*,electron-packager"
           FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
 
@@ -488,11 +498,14 @@ jobs:
         shell: pwsh
         timeout-minutes: 120
         run: |
+          $ErrorActionPreference = "Stop"
+          node scripts/log-packaging-env.mjs
           npm run make
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/log-packaging-env.mjs
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
+          ATLARIX_PACKAGING_DEBUG: "1"
+          DEBUG: "electron-forge:*,electron-packager"
           FORCE_COLOR: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
 

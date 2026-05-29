@@ -18,6 +18,47 @@ import { rebuild } from "@electron/rebuild";
 /** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
+/** Set ATLARIX_PACKAGING_DEBUG=1 or run on GitHub Actions for step timing + failure logs. */
+function shouldLogPackaging(): boolean {
+  return (
+    process.env.ATLARIX_PACKAGING_DEBUG === "1" ||
+    process.env.ATLARIX_PACKAGING_DEBUG === "true" ||
+    process.env.GITHUB_ACTIONS === "true"
+  );
+}
+
+function packagingLog(step: string, detail?: Record<string, unknown>): void {
+  if (!shouldLogPackaging()) return;
+  const ts = new Date().toISOString();
+  const mem = process.memoryUsage();
+  const prefix = `[atlarix-packaging] ${ts} ${step} rss=${Math.round(mem.rss / 1e6)}MiB heap=${Math.round(mem.heapUsed / 1e6)}MiB`;
+  if (detail === undefined) {
+    console.log(prefix);
+    return;
+  }
+  console.log(`${prefix} ${JSON.stringify(detail)}`);
+}
+
+async function packagingStep<T>(step: string, fn: () => Promise<T>): Promise<T> {
+  if (!shouldLogPackaging()) return fn();
+  packagingLog(`${step} begin`);
+  const t0 = Date.now();
+  try {
+    const result = await fn();
+    packagingLog(`${step} done`, { ms: Date.now() - t0 });
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    packagingLog(`${step} FAILED`, {
+      ms: Date.now() - t0,
+      error: message,
+      stack: stack?.split("\n").slice(0, 10),
+    });
+    throw err;
+  }
+}
+
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(npm, args, {
@@ -460,6 +501,31 @@ const config: ForgeConfig = {
     },
   ],
   hooks: {
+    prePackage: async (_config, platform, arch) => {
+      packagingLog("hook.prePackage", {
+        platform,
+        arch,
+        cwd: process.cwd(),
+        ci: process.env.CI ?? "(unset)",
+        nodeOptions: process.env.NODE_OPTIONS ?? "(unset)",
+      });
+    },
+    packageAfterCopy: async (_config, buildPath, electronVersion, platform, arch) => {
+      packagingLog("hook.packageAfterCopy", {
+        buildPath,
+        electronVersion,
+        platform,
+        arch,
+      });
+    },
+    packageAfterExtract: async (_config, buildPath, electronVersion, platform, arch) => {
+      packagingLog("hook.packageAfterExtract", {
+        buildPath,
+        electronVersion,
+        platform,
+        arch,
+      });
+    },
     packageAfterPrune: async (
       _config,
       buildPath: string,
@@ -467,144 +533,196 @@ const config: ForgeConfig = {
       platform: string,
       arch: string,
     ) => {
-      console.log(
-        `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
-      );
-      const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
-      const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
-      const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
-      const mainExternalsFallback: string[] = Array.isArray(viteMainConfig.mainRollupExternals)
-        ? [...viteMainConfig.mainRollupExternals]
-        : [];
-      const raw = viteMainConfig?.default?.build?.rollupOptions?.external;
-      let externalList: string[] = Array.isArray(raw)
-        ? raw.map(String)
-        : typeof raw === "function"
-          ? mainExternalsFallback
-          : mainExternalsFallback;
-      try {
-        const viteWorkerConfig = await import(pathToFileURL(workerConfigPath).href);
-        const workerRaw = viteWorkerConfig?.default?.build?.rollupOptions?.external;
-        if (Array.isArray(workerRaw)) {
-          externalList = [...externalList, ...workerRaw.map(String)];
-        }
-      } catch {
-        /* worker config optional */
-      }
-      const builtins = new Set([
-        "electron",
-        "fs",
-        "path",
-        "url",
-        "stream",
-        "zlib",
-        "crypto",
-        "os",
-        "child_process",
-      ]);
-      const npmRoots = new Set<string>();
-      for (const id of externalList) {
-        if (!id || id.startsWith("node:") || builtins.has(id)) continue;
-        npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
-      }
-      const astGrepRoots = new Set<string>(AST_GREP_RUNTIME_PACKAGES);
-      const toInstall = [...npmRoots].filter((pkg) => {
-        const root = pkg.startsWith("@")
-          ? pkg.split("/").slice(0, 2).join("/")
-          : pkg.split("/")[0];
-        if (RENDERER_ONLY_PACKAGES.has(root)) return false;
-        if (astGrepRoots.has(root)) return false;
-        // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
-        if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
-          return false;
-        return true;
-      });
-      const fs = await import("node:fs/promises");
-
-      if (toInstall.length > 0) {
-        // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
-        const commands = [
-          "install",
-          "--omit=dev",
-          "--omit=optional",
-          "--omit=peer",
-          "--no-package-lock",
-          "--no-save",
-          "--no-audit",
-          "--no-fund",
-          ...npmTargetPlatformArgs(platform, arch),
-          ...toInstall,
-        ];
-        await runNpmInstall(buildPath, commands);
-      }
-
-      const RENDERER_ONLY_DIRS = [
-        "lucide-react",
-        "date-fns",
-        "posthog-js",
-        "posthog-node",
-        "react-shiki",
-        "shiki",
-        "core-js",
-        "markmap-lib",
-        "markmap-view",
-        "markmap-common",
-        "echarts",
-        "zrender",
-        "d3",
-        "@shikijs",
-        "@tanstack",
-        ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1" ? [] : ["dugite"]),
-      ];
-      for (const pkg of RENDERER_ONLY_DIRS) {
-        const pkgPath = path.join(buildPath, "node_modules", pkg);
-        await fs.rm(pkgPath, { recursive: true, force: true });
-      }
-
-      for (const pkg of RELEASE_DENY_PACKAGES) {
-        const pkgPath = path.join(buildPath, "node_modules", pkg);
-        await fs.rm(pkgPath, { recursive: true, force: true });
-      }
-      // geist → next is optional; fonts live under geist/dist only.
-      for (const pkg of ["next", "@next"]) {
-        await fs.rm(path.join(buildPath, "node_modules", pkg), {
-          recursive: true,
-          force: true,
-        });
-      }
-      await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
-        recursive: true,
-        force: true,
-      });
-      await fs.rm(path.join(buildPath, "node_modules", "@vitest"), {
-        recursive: true,
-        force: true,
-      });
-
-      // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) — never run npm prune after this.
-      await installAstGrepRuntimePackages(buildPath, platform, arch);
-      await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
-
-      const bindingPkg = astGrepNativeBindingPackage(platform, arch);
-      const rebuildModules = [
-        "better-sqlite3",
-        "keytar",
-        "@lydell/node-pty",
-        "@ast-grep/napi",
-      ];
-      if (bindingPkg) rebuildModules.push(bindingPkg);
-
-      await rebuild({
+      packagingLog("hook.packageAfterPrune start", {
         buildPath,
         electronVersion,
-        platform: platform as NodeJS.Platform,
+        platform,
         arch,
-        force: true,
-        extraModules: rebuildModules,
       });
+      try {
+        const toInstall = await packagingStep("resolve-externals", async () => {
+          const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
+          const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
+          const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
+          const mainExternalsFallback: string[] = Array.isArray(
+            viteMainConfig.mainRollupExternals,
+          )
+            ? [...viteMainConfig.mainRollupExternals]
+            : [];
+          const raw = viteMainConfig?.default?.build?.rollupOptions?.external;
+          let externalList: string[] = Array.isArray(raw)
+            ? raw.map(String)
+            : typeof raw === "function"
+              ? mainExternalsFallback
+              : mainExternalsFallback;
+          try {
+            const viteWorkerConfig = await import(pathToFileURL(workerConfigPath).href);
+            const workerRaw = viteWorkerConfig?.default?.build?.rollupOptions?.external;
+            if (Array.isArray(workerRaw)) {
+              externalList = [...externalList, ...workerRaw.map(String)];
+            }
+          } catch {
+            packagingLog("resolve-externals.worker-config-skipped");
+          }
+          const builtins = new Set([
+            "electron",
+            "fs",
+            "path",
+            "url",
+            "stream",
+            "zlib",
+            "crypto",
+            "os",
+            "child_process",
+          ]);
+          const npmRoots = new Set<string>();
+          for (const id of externalList) {
+            if (!id || id.startsWith("node:") || builtins.has(id)) continue;
+            npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
+          }
+          const astGrepRoots = new Set<string>(AST_GREP_RUNTIME_PACKAGES);
+          const roots = [...npmRoots].filter((pkg) => {
+            const root = pkg.startsWith("@")
+              ? pkg.split("/").slice(0, 2).join("/")
+              : pkg.split("/")[0];
+            if (RENDERER_ONLY_PACKAGES.has(root)) return false;
+            if (astGrepRoots.has(root)) return false;
+            if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
+              return false;
+            return true;
+          });
+          packagingLog("resolve-externals.result", {
+            externalCount: externalList.length,
+            installCount: roots.length,
+            sample: roots.slice(0, 12),
+          });
+          return roots;
+        });
 
-      await stripSourceMapsFromBuild(buildPath);
-      await logTopNodeModules(buildPath);
+        const fs = await import("node:fs/promises");
+
+        if (toInstall.length > 0) {
+          await packagingStep("npm-install-pruned", async () => {
+            const commands = [
+              "install",
+              "--omit=dev",
+              "--omit=optional",
+              "--omit=peer",
+              "--no-package-lock",
+              "--no-save",
+              "--no-audit",
+              "--no-fund",
+              ...npmTargetPlatformArgs(platform, arch),
+              ...toInstall,
+            ];
+            packagingLog("npm-install-pruned.command", { cwd: buildPath, packages: toInstall.length });
+            await runNpmInstall(buildPath, commands);
+          });
+        }
+
+        await packagingStep("prune-renderer-dirs", async () => {
+          const RENDERER_ONLY_DIRS = [
+            "lucide-react",
+            "date-fns",
+            "posthog-js",
+            "posthog-node",
+            "react-shiki",
+            "shiki",
+            "core-js",
+            "markmap-lib",
+            "markmap-view",
+            "markmap-common",
+            "echarts",
+            "zrender",
+            "d3",
+            "@shikijs",
+            "@tanstack",
+            ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1" ? [] : ["dugite"]),
+          ];
+          for (const pkg of RENDERER_ONLY_DIRS) {
+            await fs.rm(path.join(buildPath, "node_modules", pkg), {
+              recursive: true,
+              force: true,
+            });
+          }
+        });
+
+        await packagingStep("prune-deny-packages", async () => {
+          for (const pkg of RELEASE_DENY_PACKAGES) {
+            await fs.rm(path.join(buildPath, "node_modules", pkg), {
+              recursive: true,
+              force: true,
+            });
+          }
+          for (const pkg of ["next", "@next"]) {
+            await fs.rm(path.join(buildPath, "node_modules", pkg), {
+              recursive: true,
+              force: true,
+            });
+          }
+          await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
+            recursive: true,
+            force: true,
+          });
+          await fs.rm(path.join(buildPath, "node_modules", "@vitest"), {
+            recursive: true,
+            force: true,
+          });
+        });
+
+        await packagingStep("ast-grep-runtime", async () => {
+          await installAstGrepRuntimePackages(buildPath, platform, arch);
+          await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
+        });
+
+        await packagingStep("rebuild-native-modules", async () => {
+          const bindingPkg = astGrepNativeBindingPackage(platform, arch);
+          const rebuildModules = [
+            "better-sqlite3",
+            "keytar",
+            "@lydell/node-pty",
+            "@ast-grep/napi",
+          ];
+          if (bindingPkg) rebuildModules.push(bindingPkg);
+          packagingLog("rebuild-native-modules.targets", { rebuildModules });
+          await rebuild({
+            buildPath,
+            electronVersion,
+            platform: platform as NodeJS.Platform,
+            arch,
+            force: true,
+            extraModules: rebuildModules,
+          });
+        });
+
+        await packagingStep("strip-maps-and-report", async () => {
+          await stripSourceMapsFromBuild(buildPath);
+          await logTopNodeModules(buildPath);
+        });
+
+        packagingLog("hook.packageAfterPrune complete", { buildPath, platform, arch });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : undefined;
+        packagingLog("hook.packageAfterPrune FATAL", { error: message, stack });
+        throw err;
+      }
+    },
+    postPackage: async (_config, packageResult) => {
+      packagingLog("hook.postPackage", {
+        platform: packageResult.platform,
+        arch: packageResult.arch,
+        outputPaths: packageResult.outputPaths,
+      });
+    },
+    preMake: async () => {
+      packagingLog("hook.preMake", { cwd: process.cwd() });
+    },
+    postMake: async (_config, makeResults) => {
+      packagingLog("hook.postMake", {
+        artifactGroups: makeResults.length,
+        artifacts: makeResults.flatMap((r) => r.artifacts ?? []).map((a) => path.basename(a)),
+      });
     },
   },
   plugins: [
