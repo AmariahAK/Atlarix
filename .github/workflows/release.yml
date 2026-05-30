@@ -159,7 +159,20 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for macOS (${{ matrix.arch }})
-        run: npm run make -- --arch=${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          npm run make -- --arch=${{ matrix.arch }}
+          APP=$(find out -type d -name "Atlarix.app" -path "*/Atlarix-darwin-*" | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::Build failed: No Atlarix.app found under out/"
+            exit 1
+          fi
+          echo "✓ Build successful: $APP"
+          if [ ! -d out/make ]; then
+            echo "::error::Build failed: out/make missing (makers did not run)"
+            exit 1
+          fi
+          echo "✓ Installers present under out/make"
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
@@ -332,7 +345,25 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Linux
-        run: npm run make
+        run: |
+          set -euo pipefail
+          npm run make
+          PKG=$(find out -maxdepth 1 -type d -name 'Atlarix-linux-*' | head -1)
+          if [ -z "$PKG" ]; then
+            echo "::error::Build failed: No Atlarix-linux-* package dir under out/"
+            exit 1
+          fi
+          echo "✓ Build successful: $PKG"
+          if [ ! -d out/make ]; then
+            echo "::error::Build failed: out/make missing (makers did not run)"
+            exit 1
+          fi
+          mapfile -t assets < <(find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \))
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::Build failed: No Linux installers under out/make"
+            exit 1
+          fi
+          echo "✓ Installers present under out/make (${#assets[@]} file(s))"
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
@@ -476,7 +507,30 @@ jobs:
 
       - name: Build for Windows
         shell: pwsh
-        run: npm run make
+        run: |
+          npm run make
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $pkg = Get-ChildItem -Path out -Directory -Filter 'Atlarix-win32-*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pkg) {
+            Write-Error 'Build failed: No Atlarix-win32-* package dir under out/'
+            exit 1
+          }
+          $exe = Get-ChildItem -Path $pkg.FullName -Filter 'Atlarix.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "Build failed: No Atlarix.exe under $($pkg.FullName)"
+            exit 1
+          }
+          Write-Host "✓ Build successful: $($exe.FullName)"
+          if (-not (Test-Path out/make)) {
+            Write-Error 'Build failed: out/make missing (makers did not run)'
+            exit 1
+          }
+          $installers = @(Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg -File -ErrorAction SilentlyContinue)
+          if ($installers.Count -eq 0) {
+            Write-Error 'Build failed: No Windows installers under out/make'
+            exit 1
+          }
+          Write-Host "✓ Installers present under out/make ($($installers.Count) file(s))"
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
