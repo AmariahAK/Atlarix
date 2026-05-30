@@ -18,7 +18,7 @@
     "staging:engine": "cross-env ATLARIX_ENGINE_URL=https://staging---dyad-llm-engine-kq7pivehnq-uc.a.run.app/v1 npm start",
     "package": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge package",
     "package:verify": "npm run package && npm run verify-astgrep-packaged && npm run measure-package-size",
-    "make": "npm run clean && cross-env CI= DEBUG= NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",
+    "make": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",
     "make:debug": "npm run clean && cross-env CI= ATLARIX_PACKAGING_DEBUG=1 DEBUG=electron-forge:*,electron-packager NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",
     "publish": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge publish",
     "verify-release": "node scripts/verify-release-assets.js",

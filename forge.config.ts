@@ -1,5 +1,6 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import fs from "node:fs";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,14 +19,67 @@ import { rebuild } from "@electron/rebuild";
 /** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
-/** Set ATLARIX_PACKAGING_DEBUG=1 or run on GitHub Actions for step timing + failure logs. */
+/** Set ATLARIX_PACKAGING_DEBUG=1 for step timing + failure logs (opt-in; do not auto-enable on GHA). */
 function shouldLogPackaging(): boolean {
   return (
     process.env.ATLARIX_PACKAGING_DEBUG === "1" ||
-    process.env.ATLARIX_PACKAGING_DEBUG === "true" ||
-    process.env.GITHUB_ACTIONS === "true"
+    process.env.ATLARIX_PACKAGING_DEBUG === "true"
   );
 }
+
+// #region agent log
+function agentPackagingDebugLog(
+  message: string,
+  data: Record<string, unknown>,
+  hypothesisId: string,
+): void {
+  fetch("http://127.0.0.1:7669/ingest/572c3b4f-f7f7-44f1-93a5-c6315dcbb9ad", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "cc6bbc",
+    },
+    body: JSON.stringify({
+      sessionId: "cc6bbc",
+      location: "forge.config.ts:agentPackagingDebugLog",
+      message,
+      data,
+      hypothesisId,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+}
+
+let atlarixPackagingAgentHooksInstalled = false;
+
+if (!atlarixPackagingAgentHooksInstalled) {
+  atlarixPackagingAgentHooksInstalled = true;
+  const snapshot = () => ({
+    cwd: process.cwd(),
+    outExists: fs.existsSync(path.join(process.cwd(), "out")),
+    ci: process.env.CI ?? "(unset)",
+    nodeOptions: process.env.NODE_OPTIONS ?? "(unset)",
+    rssMiB: Math.round(process.memoryUsage().rss / 1e6),
+    freeMemMiB: Math.round(os.freemem() / 1e6),
+  });
+  process.on("exit", (code) => {
+    agentPackagingDebugLog("process exit", { code, ...snapshot() }, "H-process-exit");
+  });
+  process.on("SIGTERM", () => {
+    agentPackagingDebugLog("SIGTERM received", snapshot(), "H-oom-sigterm");
+  });
+  process.on("unhandledRejection", (reason) => {
+    agentPackagingDebugLog(
+      "unhandledRejection",
+      {
+        reason: reason instanceof Error ? reason.message : String(reason),
+        ...snapshot(),
+      },
+      "H-unhandled-rejection",
+    );
+  });
+}
+// #endregion
 
 function packagingLog(step: string, detail?: Record<string, unknown>): void {
   if (!shouldLogPackaging()) return;

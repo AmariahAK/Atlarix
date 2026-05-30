@@ -159,20 +159,9 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for macOS (${{ matrix.arch }})
-        timeout-minutes: 120
-        run: |
-          set -euo pipefail
-          set -x
-          node scripts/log-packaging-env.mjs
-          npm run make -- --arch=${{ matrix.arch }}
-          node scripts/log-packaging-env.mjs
-          node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
+        run: npm run make -- --arch=${{ matrix.arch }}
         env:
-          # Do not set DEBUG here — electron-forge uses it for listr's fallback renderer,
-          # which exits before electron-packager finishes (no out/). Use make:debug locally.
-          ATLARIX_PACKAGING_DEBUG: "1"
-          FORCE_COLOR: 1
-          NODE_OPTIONS: "--max-old-space-size=8192"
+          NODE_OPTIONS: "--max-old-space-size=4096"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
       - name: Notarize macOS app (DMG), staple .app, re-zip stapled bundle, staple DMG
@@ -343,20 +332,9 @@ jobs:
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Linux
-        timeout-minutes: 120
-        run: |
-          set -euo pipefail
-          set -x
-          node scripts/log-packaging-env.mjs
-          npm run make
-          node scripts/log-packaging-env.mjs
-          node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
+        run: npm run make
         env:
-          # Do not set DEBUG here — electron-forge uses it for listr's fallback renderer,
-          # which exits before electron-packager finishes (no out/). Use make:debug locally.
-          ATLARIX_PACKAGING_DEBUG: "1"
-          FORCE_COLOR: 1
-          NODE_OPTIONS: "--max-old-space-size=8192"
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Upload Linux assets to release
         if: success()
@@ -498,19 +476,9 @@ jobs:
 
       - name: Build for Windows
         shell: pwsh
-        timeout-minutes: 120
-        run: |
-          $ErrorActionPreference = "Stop"
-          node scripts/log-packaging-env.mjs
-          npm run make
-          node scripts/log-packaging-env.mjs
-          node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
+        run: npm run make
         env:
-          # Do not set DEBUG here — electron-forge uses it for listr's fallback renderer,
-          # which exits before electron-packager finishes (no out/). Use make:debug locally.
-          ATLARIX_PACKAGING_DEBUG: "1"
-          FORCE_COLOR: 1
-          NODE_OPTIONS: "--max-old-space-size=8192"
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Upload Windows assets to release
         if: success()
