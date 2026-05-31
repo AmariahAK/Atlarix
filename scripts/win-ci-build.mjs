@@ -13,9 +13,16 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
-import { loadForgeConfig } from "./forge-config-load.mjs";
+import { loadForgeConfig, resolveCjsDefault } from "./forge-config-load.mjs";
 
 const require = createRequire(import.meta.url);
+const { runHook } = require("@electron-forge/core/dist/util/hook.js");
+const { readMutatedPackageJson } = require("@electron-forge/core/dist/util/read-package-json.js");
+const { getElectronVersion } = require("@electron-forge/core-utils/dist/electron-version.js");
+const outDirFn = resolveCjsDefault("@electron-forge/core/dist/util/out-dir.js");
+const { packager } = require("@electron/packager");
+const { serialHooks } = require("@electron/packager/dist/hooks.js");
+const { rebuild } = require("@electron/rebuild");
 const PLATFORM = "win32";
 const ARCH = "x64";
 const APP = "Atlarix";
@@ -80,17 +87,8 @@ async function buildProductionViteBundles() {
 }
 
 async function packageAppDirect() {
-  const { runHook } = await import("@electron-forge/core/dist/util/hook.js");
-  const { readMutatedPackageJson } = await import(
-    "@electron-forge/core/dist/util/read-package-json.js"
-  );
-  const { getElectronVersion } = await import("@electron-forge/core-utils/dist/electron-version.js");
-  const outDirFn = (await import("@electron-forge/core/dist/util/out-dir.js")).default;
-  const { packager } = await import("@electron/packager");
-  const { serialHooks } = await import("@electron/packager/dist/hooks.js");
   const fsExtra = (await import("fs-extra")).default;
   const fg = (await import("fast-glob")).default;
-  const { rebuild } = await import("@electron/rebuild");
 
   const dir = process.cwd();
   console.log("[win-ci-build] loading forge.config");
