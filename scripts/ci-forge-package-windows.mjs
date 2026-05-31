@@ -46,7 +46,10 @@ function startForgePackage() {
     ...process.env,
     // Stay under ~16GB runner RAM during packager finalize + asar.
     NODE_OPTIONS: "--max-old-space-size=10240",
-    CI: "",
+    // Keep CI=true (GHA default). Clearing CI ("") changes electron-forge's
+    // async-completion and error-propagation paths in a way that can cause
+    // the packager to exit before the output directory is written on Windows.
+    // At v9.1.0 (last known-working Windows build), forge ran with CI=true.
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };
 
