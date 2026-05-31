@@ -21,7 +21,7 @@
     "ci:package": "cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge package",
     "ci:package:win": "node scripts/ci-forge-package-windows.mjs",
     "ci:installers": "cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge make --skip-package",
-    "ci:installers:win": "cross-env CI= NODE_OPTIONS=--max-old-space-size=8192 electron-forge make --skip-package",
+    "ci:installers:win": "cross-env CI= NODE_OPTIONS=--max-old-space-size=12288 electron-forge make --skip-package",
     "make": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",
     "make:ci-simulate": "node scripts/simulate-ci-make.mjs --profile=fixed --arch=arm64",
     "make:ci-verify": "node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64",

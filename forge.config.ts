@@ -18,12 +18,24 @@ import { rebuild } from "@electron/rebuild";
 /** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
+function packagingNodeOptions(): string | undefined {
+  if (process.env.NODE_OPTIONS) return process.env.NODE_OPTIONS;
+  if (process.env.GITHUB_ACTIONS === "true" && process.platform === "win32") {
+    return "--max-old-space-size=12288";
+  }
+  return undefined;
+}
+
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
+  const nodeOptions = packagingNodeOptions();
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(npm, args, {
       cwd,
       stdio: "inherit",
       shell: process.platform === "win32",
+      env: nodeOptions
+        ? { ...process.env, NODE_OPTIONS: nodeOptions }
+        : process.env,
     });
     proc.on("close", (code) => {
       if (code === 0) resolve();
