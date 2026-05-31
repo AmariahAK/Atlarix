@@ -494,10 +494,10 @@ jobs:
           npm run clean
           npm run ci:package:win
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          npm run ci:installers
+          npm run ci:installers:win
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Upload Windows assets to release
         if: success()

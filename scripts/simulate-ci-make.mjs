@@ -137,7 +137,14 @@ if (!verifyOnly) {
     exit = verify(env, "package", platform, arch);
     if (exit !== 0) process.exit(exit);
 
-    exit = run("npm", ["run", "ci:installers", ...archArgs], env, "npm run ci:installers");
+    const installersScript =
+      platform === "win32" ? "ci:installers:win" : "ci:installers";
+    exit = run(
+      "npm",
+      ["run", installersScript, ...archArgs],
+      env,
+      `npm run ${installersScript}`,
+    );
     if (exit !== 0) process.exit(exit);
   }
 }

@@ -34,7 +34,8 @@ function packageReady() {
 function startForgePackage() {
   const env = {
     ...process.env,
-    NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=8192",
+    // Packaging on win32 needs 8GB; workflow used to pass 4096 and caused OOM during packager.
+    NODE_OPTIONS: "--max-old-space-size=8192",
     // Avoid win32+CI listr path; silent renderer matches macOS/Linux CI behavior.
     CI: "",
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
