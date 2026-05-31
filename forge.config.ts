@@ -389,7 +389,6 @@ const config: ForgeConfig = {
           }),
         },
     osxNotarize: undefined,
-    prune: true,
     asar: true,
     asarUnpack: [
       "**/@ast-grep/napi-darwin-*/**",
@@ -466,6 +465,16 @@ const config: ForgeConfig = {
     },
   ],
   hooks: {
+    postPackage: async (_config, packageResult) => {
+      const diag = await loadPackagingDiagnostics();
+      const outputPaths: string[] = (packageResult as { outputPaths?: string[] }).outputPaths ?? [];
+      diag.logPackagingStep("postPackage:done", {
+        detail: `outputPaths=${JSON.stringify(outputPaths)}`,
+      });
+      for (const p of outputPaths) {
+        diag.logBuildPathSizes(p, "postPackage output dir");
+      }
+    },
     packageAfterPrune: async (
       _config,
       buildPath: string,
