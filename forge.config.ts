@@ -21,7 +21,7 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 function packagingNodeOptions(): string | undefined {
   if (process.env.NODE_OPTIONS) return process.env.NODE_OPTIONS;
   if (process.env.GITHUB_ACTIONS === "true" && process.platform === "win32") {
-    return "--max-old-space-size=12288";
+    return "--max-old-space-size=10240";
   }
   return undefined;
 }
@@ -217,6 +217,12 @@ const RENDERER_ONLY_PACKAGES = new Set([
 
 const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
 
+/** GHA windows-latest: skip ASAR to avoid multi-GB peak RAM during archive (see packaging-diag logs). */
+const isWindowsCiUnpackedPackage =
+  !isEndToEndTestBuild &&
+  process.env.GITHUB_ACTIONS === "true" &&
+  process.platform === "win32";
+
 /** Dev/test packages that must never ship in production asar. */
 const RELEASE_DENY_PACKAGES = [
   "playwright",
@@ -344,8 +350,8 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
       }
     }
   }
-  await walk(path.join(buildPath, ".vite"));
-  await walk(path.join(buildPath, "node_modules"));
+  // Production Vite builds disable sourcemaps; avoid walking all of node_modules on CI (high RAM).
+  await walk(path.join(buildPath, ".vite", "build"));
   if (removed > 0) {
     console.log(`[packageAfterPrune] removed ${removed} .map file(s)`);
   }
@@ -389,7 +395,8 @@ const config: ForgeConfig = {
           }),
         },
     osxNotarize: undefined,
-    asar: true,
+    prune: true,
+    asar: !isWindowsCiUnpackedPackage,
     asarUnpack: [
       "**/@ast-grep/napi-darwin-*/**",
       "**/@ast-grep/napi-linux-*/**",
@@ -476,7 +483,10 @@ const config: ForgeConfig = {
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
       const diag = await loadPackagingDiagnostics();
-      diag.logPackagingStep("packageAfterPrune:start", { buildPath });
+      diag.logPackagingStep("packageAfterPrune:start", {
+        buildPath,
+        detail: isWindowsCiUnpackedPackage ? "asar=false (win CI)" : "asar=true",
+      });
       diag.logBuildPathSizes(buildPath, "after prune (before npm install)");
 
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");

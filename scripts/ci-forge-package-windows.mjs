@@ -6,6 +6,7 @@
  * Unset CI so listr uses the silent renderer (same as macOS/Linux), then poll for output.
  */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -15,6 +16,7 @@ import {
   shouldLogPackagingDiagnostics,
 } from "./packaging-diagnostics.mjs";
 
+const require = createRequire(import.meta.url);
 const POLL_MS = 5_000;
 const MEM_LOG_EVERY_MS = 30_000;
 const TIMEOUT_MS = 90 * 60 * 1_000;
@@ -22,6 +24,7 @@ const APP = "Atlarix";
 const PLATFORM = "win32";
 const ARCH = "x64";
 const PACKAGE_DIR = path.join(process.cwd(), "out", `${APP}-${PLATFORM}-${ARCH}`);
+const FORGE_CLI = require.resolve("@electron-forge/cli/dist/electron-forge.js");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,35 +44,40 @@ function packageReady() {
 function startForgePackage() {
   const env = {
     ...process.env,
-    // win32 packager + asar + packageAfterPrune npm install can exceed 8GB on GHA (16GB runners).
-    NODE_OPTIONS: "--max-old-space-size=12288",
-    // Avoid win32+CI listr path; silent renderer matches macOS/Linux CI behavior.
+    // Stay under ~16GB runner RAM; ASAR disabled on win CI reduces peak during finalize.
+    NODE_OPTIONS: "--max-old-space-size=10240",
     CI: "",
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };
 
   return new Promise((resolve) => {
-    const npmCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-    const child = spawn(
-      npmCmd,
-      ["electron-forge", "package"],
-      { env, stdio: "inherit", shell: process.platform === "win32" },
+    const child = spawn(process.execPath, [FORGE_CLI, "package"], {
+      env,
+      stdio: "inherit",
+      shell: false,
+      windowsHide: true,
+    });
+
+    console.log(
+      `[ci-forge-package-windows] spawned forge pid=${child.pid ?? "?"} wrapper-pid=${process.pid} cli=${FORGE_CLI}`,
     );
 
     child.on("error", (err) => {
       console.error("::error::Failed to spawn electron-forge package:", err.message);
-      resolve({ code: 1, signal: null });
+      resolve({ code: 1, signal: null, pid: child.pid });
     });
 
     child.on("close", (code, signal) => {
-      resolve({ code: code ?? 1, signal: signal ?? null });
+      resolve({ code: code ?? 1, signal: signal ?? null, pid: child.pid });
     });
   });
 }
 
 async function main() {
-  console.log("[ci-forge-package-windows] starting electron-forge package");
-  logPackagingStep("ci-forge-package-windows:start");
+  console.log("[ci-forge-package-windows] starting electron-forge package (unpacked asar on win CI)");
+  logPackagingStep("ci-forge-package-windows:start", {
+    detail: `wrapper-pid=${process.pid}`,
+  });
 
   const forgeDone = startForgePackage();
   const deadline = Date.now() + TIMEOUT_MS;
@@ -94,7 +102,7 @@ async function main() {
     if (shouldLogPackagingDiagnostics() && Date.now() - lastMemLog >= MEM_LOG_EVERY_MS) {
       lastMemLog = Date.now();
       logPackagingStep("ci-forge-package-windows:waiting", {
-        detail: `no ${PACKAGE_DIR} yet | ${formatMemory()}`,
+        detail: `no ${PACKAGE_DIR} yet | wrapper ${formatMemory()}`,
       });
       if (fs.existsSync(path.join(process.cwd(), "out"))) {
         try {
@@ -127,7 +135,9 @@ async function main() {
         console.warn(
           "[ci-forge-package-windows] forge exited 0 but package dir missing; waiting for electron-packager…",
         );
-        logPackagingStep("ci-forge-package-windows:forge-exit-0-still-waiting");
+        logPackagingStep("ci-forge-package-windows:forge-exit-0-still-waiting", {
+          detail: `forge-pid=${forgeResult.pid ?? "?"}`,
+        });
       }
     }
   }
