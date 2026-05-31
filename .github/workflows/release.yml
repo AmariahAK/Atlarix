@@ -110,7 +110,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "25"
           cache: "npm"
 
       - name: Verify tag matches package.json version
@@ -161,7 +161,10 @@ jobs:
       - name: Build for macOS (${{ matrix.arch }})
         run: |
           set -euo pipefail
-          npm run make -- --arch=${{ matrix.arch }}
+          npm run clean
+          npm run ci:package -- --arch=${{ matrix.arch }}
+          node scripts/verify-ci-package-out.mjs --stage package --platform darwin --arch ${{ matrix.arch }}
+          npm run ci:installers -- --arch=${{ matrix.arch }}
           node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -275,7 +278,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "25"
           cache: "npm"
 
       - name: Verify tag matches package.json version
@@ -337,7 +340,10 @@ jobs:
       - name: Build for Linux
         run: |
           set -euo pipefail
-          npm run make
+          npm run clean
+          npm run ci:package
+          node scripts/verify-ci-package-out.mjs --stage package --platform linux --arch x64
+          npm run ci:installers
           node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -414,7 +420,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "25"
           # npm cache restore on windows-latest is flaky (tar on C:\npm\cache; fails when a prior run saved cache).
 
       - name: Verify tag matches package.json version
@@ -483,7 +489,13 @@ jobs:
       - name: Build for Windows
         shell: pwsh
         run: |
-          npm run make
+          npm run clean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run ci:package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run ci:installers
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:

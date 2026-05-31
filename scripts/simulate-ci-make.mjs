@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 /**
- * Local dry-run of GitHub Actions release build steps (make + verify).
+ * Local dry-run of GitHub Actions release build (split package + installers + verify).
  *
  * Profiles:
- *   fixed   — proposed CI after fix (v9.0.0-style: no DEBUG, GHA-like CI=true)
- *   broken  — current failing CI (DEBUG + CI="")
+ *   fixed   — CI flow: clean, ci:package, verify package, ci:installers, verify make
+ *   broken  — old single `npm run make` with DEBUG + CI=""
  *
  * Usage:
  *   node scripts/simulate-ci-make.mjs [--profile=fixed|broken] [--arch=arm64|x64]
  *   node scripts/simulate-ci-make.mjs --verify-only [--arch=arm64]
- *
- * Examples:
- *   npm run make:ci-simulate
- *   npm run make:ci-simulate -- --profile=broken --arch=arm64
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,22 +33,16 @@ function parseArgs(argv) {
       console.log(`Usage: node scripts/simulate-ci-make.mjs [options]
 
 Options:
-  --profile=fixed|broken   Env shape to simulate (default: fixed)
-  --arch=arm64|x64         Target arch (default: host arch)
+  --profile=fixed|broken   Env shape (default: fixed = split package + installers)
+  --arch=arm64|x64
   --platform=darwin|linux|win32
-  --verify-only            Skip make; only run verify-ci-package-out.mjs
-  --help
-
-Profiles:
-  fixed   NODE_OPTIONS=4096, CI=true, GITHUB_ACTIONS=true, no DEBUG
-  broken  NODE_OPTIONS=4096, CI="", DEBUG=electron-forge:*,electron-packager
+  --verify-only
 `);
       process.exit(0);
     }
   }
 
   if (platform === "win32") {
-    // CI windows job does not pass --arch
     return { profile, arch: "x64", verifyOnly, platform };
   }
 
@@ -74,7 +64,6 @@ function profileEnv(profile) {
     };
   }
 
-  // fixed — matches GitHub Actions default + proposed release.yml (no DEBUG)
   return {
     ...base,
     CI: "true",
@@ -100,6 +89,23 @@ function run(cmd, args, env, label) {
   return result.status ?? 1;
 }
 
+function verify(env, stage, platform, arch) {
+  return run(
+    "node",
+    [
+      "scripts/verify-ci-package-out.mjs",
+      "--stage",
+      stage,
+      "--platform",
+      platform,
+      "--arch",
+      arch,
+    ],
+    env,
+    `verify-ci-package-out (${stage})`,
+  );
+}
+
 const { profile, arch, verifyOnly, platform } = parseArgs(process.argv);
 const env = profileEnv(profile);
 
@@ -107,42 +113,41 @@ console.log("[simulate-ci-make] profile:", profile);
 console.log("[simulate-ci-make] platform:", platform, "arch:", arch);
 
 if (!verifyOnly) {
-  const makeArgs =
-    platform === "win32"
-      ? ["run", "make"]
-      : platform === "darwin"
-        ? ["run", "make", "--", `--arch=${arch}`]
-        : ["run", "make"];
+  if (profile === "broken") {
+    const makeArgs =
+      platform === "win32"
+        ? ["run", "make"]
+        : platform === "darwin"
+          ? ["run", "make", "--", `--arch=${arch}`]
+          : ["run", "make"];
+    const makeExit = run("npm", makeArgs, env, "npm run make (broken CI simulate)");
+    if (makeExit !== 0) process.exit(makeExit);
+  } else {
+    const archArgs =
+      platform === "darwin" ? ["--", `--arch=${arch}`] : platform === "win32" ? [] : [];
 
-  const makeExit = run("npm", makeArgs, env, "npm run make (CI simulate)");
-  if (makeExit !== 0) {
-    console.error(`[simulate-ci-make] make failed exit=${makeExit}`);
-    process.exit(makeExit);
+    let exit = run("npm", ["run", "clean"], env, "npm run clean");
+    if (exit !== 0) process.exit(exit);
+
+    exit = run("npm", ["run", "ci:package", ...archArgs], env, "npm run ci:package");
+    if (exit !== 0) process.exit(exit);
+
+    exit = verify(env, "package", platform, arch);
+    if (exit !== 0) process.exit(exit);
+
+    exit = run("npm", ["run", "ci:installers", ...archArgs], env, "npm run ci:installers");
+    if (exit !== 0) process.exit(exit);
   }
 }
 
-const verifyExit = run(
-  "node",
-  [
-    "scripts/verify-ci-package-out.mjs",
-    "--stage",
-    "make",
-    "--platform",
-    platform,
-    "--arch",
-    arch,
-  ],
-  env,
-  "verify-ci-package-out",
-);
-
+const verifyExit = verify(env, "make", platform, arch);
 const outDir = path.join(process.cwd(), "out");
 console.log(`\n[simulate-ci-make] out/ exists=${fs.existsSync(outDir)} verify exit=${verifyExit}`);
 
 if (verifyExit === 0) {
-  console.log("\n✓ Local CI simulation passed — safe to apply release.yml fix and push.");
+  console.log("\n✓ Local CI simulation passed.");
 } else {
-  console.error("\n✗ Local CI simulation failed — do not tag/push until this passes.");
+  console.error("\n✗ Local CI simulation failed.");
 }
 
 process.exit(verifyExit);
