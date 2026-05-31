@@ -15,25 +15,16 @@ import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { rebuild } from "@electron/rebuild";
 
-function packagingNodeOptions(): string | undefined {
-  if (process.env.NODE_OPTIONS) return process.env.NODE_OPTIONS;
-  if (process.env.GITHUB_ACTIONS === "true" && process.platform === "win32") {
-    return "--max-old-space-size=4096";
-  }
-  return undefined;
-}
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
-  const nodeOptions = packagingNodeOptions();
   const useShell = process.platform === "win32";
   return new Promise<void>((resolve, reject) => {
-    const proc = spawn("npm", args, {
+    const proc = spawn(npm, args, {
       cwd,
       stdio: "inherit",
       shell: useShell,
-      env: nodeOptions
-        ? { ...process.env, NODE_OPTIONS: nodeOptions }
-        : process.env,
+      env: process.env,
     });
     proc.on("close", (code) => {
       if (code === 0) resolve();
@@ -372,17 +363,6 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
   return removed;
 }
 
-type PackagingDiagModule = typeof import("./scripts/packaging-diagnostics.mjs");
-
-let packagingDiagPromise: Promise<PackagingDiagModule> | null = null;
-
-function loadPackagingDiagnostics(): Promise<PackagingDiagModule> {
-  packagingDiagPromise ??= import(
-    pathToFileURL(path.join(__dirname, "scripts/packaging-diagnostics.mjs")).href
-  ) as Promise<PackagingDiagModule>;
-  return packagingDiagPromise;
-}
-
 const config: ForgeConfig = {
   packagerConfig: {
     // Electron Packager supports this flag even though Forge's type lags behind.
@@ -490,16 +470,6 @@ const config: ForgeConfig = {
     },
   ],
   hooks: {
-    postPackage: async (_config, packageResult) => {
-      const diag = await loadPackagingDiagnostics();
-      const outputPaths: string[] = (packageResult as { outputPaths?: string[] }).outputPaths ?? [];
-      diag.logPackagingStep("postPackage:done", {
-        detail: `outputPaths=${JSON.stringify(outputPaths)}`,
-      });
-      for (const p of outputPaths) {
-        diag.logBuildPathSizes(p, "postPackage output dir");
-      }
-    },
     packageAfterPrune: async (
       _config,
       buildPath: string,
@@ -511,9 +481,6 @@ const config: ForgeConfig = {
       console.log(
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
-      const diag = await loadPackagingDiagnostics();
-      diag.logPackagingStep("packageAfterPrune:start", { buildPath });
-      diag.logBuildPathSizes(buildPath, "after prune (before npm install)");
 
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
       const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
@@ -566,8 +533,6 @@ const config: ForgeConfig = {
       });
       const fs = await import("node:fs/promises");
 
-      diag.logToInstallSummary(toInstall);
-
       if (toInstall.length > 0) {
         // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
         const commands = [
@@ -583,10 +548,6 @@ const config: ForgeConfig = {
           ...toInstall,
         ];
         await runNpmInstall(buildPath, commands);
-        diag.logPackagingStep("packageAfterPrune:after-externals-npm-install", {
-          buildPath,
-        });
-        diag.logBuildPathSizes(buildPath, "after externals npm install");
       }
 
       const RENDERER_ONLY_DIRS = [
@@ -632,13 +593,8 @@ const config: ForgeConfig = {
         force: true,
       });
 
-      diag.logPackagingStep("packageAfterPrune:after-renderer-deny-prune", { buildPath });
-
-      // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) — never run npm prune after this.
       await installAstGrepRuntimePackages(buildPath, platform, arch);
-      diag.logPackagingStep("packageAfterPrune:after-astgrep-npm-install", { buildPath });
       await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
-      diag.logPackagingStep("packageAfterPrune:after-astgrep-grammars-staged", { buildPath });
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
       // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
@@ -662,17 +618,8 @@ const config: ForgeConfig = {
         extraModules: rebuildModules,
       });
 
-      diag.logPackagingStep("packageAfterPrune:after-native-rebuild", { buildPath });
-      diag.logBuildPathSizes(buildPath, "after native rebuild");
-
-      const mapsRemoved = await stripSourceMapsFromBuild(buildPath);
-      diag.logPackagingStep("packageAfterPrune:after-strip-sourcemaps", {
-        buildPath,
-        detail: `removed ${mapsRemoved} .map file(s)`,
-      });
-
-      diag.logTopNodeModules(buildPath);
-      diag.logPackagingStep("packageAfterPrune:done", { buildPath });
+      await stripSourceMapsFromBuild(buildPath);
+      console.log(`[packageAfterPrune] done buildPath=${buildPath}`);
       } catch (err) {
         console.error("[packageAfterPrune] FATAL ERROR:", err);
         if (err instanceof Error && err.stack) {
