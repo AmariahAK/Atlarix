@@ -462,6 +462,9 @@ jobs:
           Write-Error "npm ci failed after $maxAttempts attempts"
           exit 1
 
+      - name: Verify Forge patch applied
+        shell: pwsh
+        run: node scripts/verify-forge-patch.mjs
 
       - name: Fetch Universal Ctags
         shell: pwsh
@@ -492,8 +495,7 @@ jobs:
         run: |
           npm run clean
           Start-Sleep -Seconds 2
-          # v9.0.0 used single-step `make`; split ci:package exits before packager writes out/ on win32 CI.
-          npm run ci:make
+          npm run ci:make:win
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
