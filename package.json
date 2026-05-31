@@ -20,6 +20,7 @@
     "package:verify": "npm run package && npm run verify-astgrep-packaged && npm run measure-package-size",
     "ci:package": "electron-forge package",
     "ci:package:win": "node scripts/ci-forge-package-windows.mjs",
+    "ci:make": "electron-forge make",
     "ci:installers": "electron-forge make --skip-package",
     "ci:installers:win": "electron-forge make --skip-package",
     "make": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",

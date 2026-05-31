@@ -492,22 +492,8 @@ jobs:
         run: |
           npm run clean
           Start-Sleep -Seconds 2
-          npm run ci:package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Write-Host "=== POST-PACKAGE DISK STATE ==="
-          Get-ChildItem -Path . -Depth 1 -ErrorAction SilentlyContinue | Format-Table Name, Mode, LastWriteTime
-          if (Test-Path 'out') {
-            Write-Host "out/ exists:"
-            Get-ChildItem -Path 'out' -ErrorAction SilentlyContinue | Format-Table
-          } else {
-            Write-Warning "out/ missing — searching for package output..."
-            Get-ChildItem -Path . -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -like '*win32*' -or $_.Name -like '*Atlarix*' } |
-              Format-Table FullName
-          }
-          node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run ci:installers:win
+          # v9.0.0 used single-step `make`; split ci:package exits before packager writes out/ on win32 CI.
+          npm run ci:make
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
