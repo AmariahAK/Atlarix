@@ -492,6 +492,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/log-packaging-env.mjs
+          wmic OS get TotalVisibleMemorySize,FreePhysicalMemory /Value 2>/dev/null || true
           npm run clean
           npm run ci:package
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64

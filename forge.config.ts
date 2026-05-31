@@ -398,17 +398,22 @@ const config: ForgeConfig = {
     icon: "./assets/icon/logo",
     executableName: "atlarix", // Fixes Linux 'could not find binary' error (case sensitivity)
 
-    osxSign: isEndToEndTestBuild
-      ? undefined
-      : {
-          identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
-          optionsForFile: () => ({
-            entitlements: "./entitlements.plist",
-            "entitlements-inherit": "./entitlements.plist",
-            "hardened-runtime": true,
-          }),
-        },
+    // osxSign must not be set on win32/linux — packager may invoke codesign and fail silently when quiet:true.
+    osxSign:
+      isEndToEndTestBuild || process.platform !== "darwin"
+        ? undefined
+        : {
+            identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
+            optionsForFile: () => ({
+              entitlements: "./entitlements.plist",
+              "entitlements-inherit": "./entitlements.plist",
+              "hardened-runtime": true,
+            }),
+          },
     osxNotarize: undefined,
+    // Forge defaults quiet:true; on CI surface packager/asar stderr (see electron-forge packageOpts).
+    // @ts-expect-error quiet is forwarded to electron-packager
+    quiet: process.env.GITHUB_ACTIONS !== "true",
     asar: true,
     asarUnpack: [
       "**/@ast-grep/napi-darwin-*/**",
