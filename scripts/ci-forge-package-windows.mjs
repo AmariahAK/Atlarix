@@ -114,30 +114,38 @@ async function main() {
       }
     }
 
-    const pending = Promise.race([forgeDone, sleep(POLL_MS).then(() => null)]);
-    const maybe = await pending;
-    if (maybe !== null) {
-      forgeResult = maybe;
-      if (forgeResult.code !== 0) {
-        console.error(
-          `::error::electron-forge package exited ${forgeResult.code} before ${PACKAGE_DIR} existed`,
-        );
-        if (forgeResult.signal) {
-          console.error(`::error::signal: ${forgeResult.signal}`);
+    if (forgeResult !== null) {
+      // forge has already exited — use a real sleep so setTimeout callbacks can fire.
+      // Racing an already-resolved Promise creates a tight microtask loop that starves
+      // the macrotask queue: abandoned sleep() timers never fire, their promises pile up,
+      // and the wrapper heap explodes to OOM without doing any useful work.
+      await sleep(POLL_MS);
+    } else {
+      const pending = Promise.race([forgeDone, sleep(POLL_MS).then(() => null)]);
+      const maybe = await pending;
+      if (maybe !== null) {
+        forgeResult = maybe;
+        if (forgeResult.code !== 0) {
+          console.error(
+            `::error::electron-forge package exited ${forgeResult.code} before ${PACKAGE_DIR} existed`,
+          );
+          if (forgeResult.signal) {
+            console.error(`::error::signal: ${forgeResult.signal}`);
+          }
+          logPackagingStep("ci-forge-package-windows:failed", {
+            detail: `forge exit ${forgeResult.code}`,
+          });
+          return forgeResult.code;
         }
-        logPackagingStep("ci-forge-package-windows:failed", {
-          detail: `forge exit ${forgeResult.code}`,
-        });
-        return forgeResult.code;
-      }
-      if (!loggedEarlyExit) {
-        loggedEarlyExit = true;
-        console.warn(
-          "[ci-forge-package-windows] forge exited 0 but package dir missing; waiting for electron-packager…",
-        );
-        logPackagingStep("ci-forge-package-windows:forge-exit-0-still-waiting", {
-          detail: `forge-pid=${forgeResult.pid ?? "?"}`,
-        });
+        if (!loggedEarlyExit) {
+          loggedEarlyExit = true;
+          console.warn(
+            "[ci-forge-package-windows] forge exited 0 but package dir missing; waiting for electron-packager…",
+          );
+          logPackagingStep("ci-forge-package-windows:forge-exit-0-still-waiting", {
+            detail: `forge-pid=${forgeResult.pid ?? "?"}`,
+          });
+        }
       }
     }
   }
