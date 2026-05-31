@@ -489,16 +489,7 @@ jobs:
 
       - name: Build for Windows
         shell: pwsh
-        run: |
-          npm run clean
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run ci:package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run ci:installers
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
+        run: npm run make
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
