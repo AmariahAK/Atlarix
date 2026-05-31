@@ -46,7 +46,7 @@ function startForgePackage() {
   const env = {
     ...process.env,
     // Stay under ~16GB runner RAM during packager finalize + asar.
-    NODE_OPTIONS: "--max-old-space-size=10240",
+    NODE_OPTIONS: "--max-old-space-size=8192",
     // GHA sets CI=true; silent listr renderer (see patches/@electron-forge+core+7.11.1.patch).
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };

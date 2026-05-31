@@ -18,7 +18,7 @@ import { rebuild } from "@electron/rebuild";
 function packagingNodeOptions(): string | undefined {
   if (process.env.NODE_OPTIONS) return process.env.NODE_OPTIONS;
   if (process.env.GITHUB_ACTIONS === "true" && process.platform === "win32") {
-    return "--max-old-space-size=10240";
+    return "--max-old-space-size=8192";
   }
   return undefined;
 }
