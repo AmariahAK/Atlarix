@@ -19,7 +19,7 @@ import {
 const require = createRequire(import.meta.url);
 const POLL_MS = 5_000;
 const MEM_LOG_EVERY_MS = 30_000;
-const TIMEOUT_MS = 90 * 60 * 1_000;
+const TIMEOUT_MS = 150 * 60 * 1_000; // 150 min — Vite + packager + rebuild on Windows can hit 90min
 const APP = "Atlarix";
 const PLATFORM = "win32";
 const ARCH = "x64";

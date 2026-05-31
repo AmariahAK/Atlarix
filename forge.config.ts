@@ -615,6 +615,11 @@ const config: ForgeConfig = {
       diag.logPackagingStep("packageAfterPrune:after-astgrep-grammars-staged", { buildPath });
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
+      // better-sqlite3, keytar, @lydell/node-pty, and @ast-grep/napi are already
+      // compiled for Electron by forge's rebuildConfig before this hook runs.
+      // force: false lets @electron/rebuild skip them when they're already at the
+      // right Electron ABI — avoids a second full MSVC compilation on Windows
+      // (~20 min) that would otherwise blow the 90-minute CI timeout.
       const rebuildModules = [
         "better-sqlite3",
         "keytar",
@@ -628,7 +633,7 @@ const config: ForgeConfig = {
         electronVersion,
         platform: platform as NodeJS.Platform,
         arch,
-        force: true,
+        force: false,
         extraModules: rebuildModules,
       });
 
