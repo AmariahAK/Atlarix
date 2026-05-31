@@ -161,48 +161,10 @@ jobs:
       - name: Build for macOS (${{ matrix.arch }})
         run: |
           set -euo pipefail
-          echo "=== pre-make diagnostics (macOS ${{ matrix.arch }}) ==="
-          date -u +%Y-%m-%dT%H:%M:%SZ
-          node -v && npm -v
-          echo "CI=${CI:-unset} GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset} DEBUG=${DEBUG:-unset}"
-          echo "NODE_OPTIONS=${NODE_OPTIONS:-unset}"
-          df -h .
-          vm_stat | head -12 || true
-          echo "=== npm run make -- --arch=${{ matrix.arch }} ==="
-          set +e
           npm run make -- --arch=${{ matrix.arch }}
-          MAKE_EXIT=$?
-          set -e
-          echo "=== post-make diagnostics (make exit=${MAKE_EXIT}) ==="
-          date -u +%Y-%m-%dT%H:%M:%SZ
-          df -h .
-          vm_stat | head -12 || true
-          if [ -d out ]; then
-            echo "out/ tree (maxdepth 3):"
-            find out -maxdepth 3 \( -type d -o -type f \) 2>/dev/null | head -80
-          else
-            echo "::warning::out/ missing after make"
-            ls -la
-          fi
-          if [ "$MAKE_EXIT" -ne 0 ]; then
-            echo "::error::npm run make failed exit=${MAKE_EXIT}"
-            exit "$MAKE_EXIT"
-          fi
-          APP=$(find out -type d -name "Atlarix.app" -path "*/Atlarix-darwin-*" 2>/dev/null | head -1 || true)
-          if [ -z "$APP" ]; then
-            echo "::error::Build failed: No Atlarix.app found under out/"
-            exit 1
-          fi
-          echo "✓ Build successful: $APP"
-          if [ ! -d out/make ]; then
-            echo "::error::Build failed: out/make missing (makers did not run)"
-            exit 1
-          fi
-          echo "✓ Installers present under out/make"
+          node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          DEBUG: "electron-forge:*,electron-packager"
-          CI: ""
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
       - name: Notarize macOS app (DMG), staple .app, re-zip stapled bundle, staple DMG
@@ -375,53 +337,10 @@ jobs:
       - name: Build for Linux
         run: |
           set -euo pipefail
-          echo "=== pre-make diagnostics (Linux x64) ==="
-          date -u +%Y-%m-%dT%H:%M:%SZ
-          node -v && npm -v
-          echo "CI=${CI:-unset} GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset} DEBUG=${DEBUG:-unset}"
-          echo "NODE_OPTIONS=${NODE_OPTIONS:-unset}"
-          df -h .
-          free -m || true
-          echo "=== npm run make ==="
-          set +e
           npm run make
-          MAKE_EXIT=$?
-          set -e
-          echo "=== post-make diagnostics (make exit=${MAKE_EXIT}) ==="
-          date -u +%Y-%m-%dT%H:%M:%SZ
-          df -h .
-          free -m || true
-          if [ -d out ]; then
-            echo "out/ tree (maxdepth 3):"
-            find out -maxdepth 3 \( -type d -o -type f \) 2>/dev/null | head -80
-          else
-            echo "::warning::out/ missing after make"
-            ls -la
-          fi
-          if [ "$MAKE_EXIT" -ne 0 ]; then
-            echo "::error::npm run make failed exit=${MAKE_EXIT}"
-            exit "$MAKE_EXIT"
-          fi
-          PKG=$(find out -maxdepth 1 -type d -name 'Atlarix-linux-*' 2>/dev/null | head -1 || true)
-          if [ -z "$PKG" ]; then
-            echo "::error::Build failed: No Atlarix-linux-* package dir under out/"
-            exit 1
-          fi
-          echo "✓ Build successful: $PKG"
-          if [ ! -d out/make ]; then
-            echo "::error::Build failed: out/make missing (makers did not run)"
-            exit 1
-          fi
-          mapfile -t assets < <(find out/make -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \))
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "::error::Build failed: No Linux installers under out/make"
-            exit 1
-          fi
-          echo "✓ Installers present under out/make (${#assets[@]} file(s))"
+          node scripts/verify-ci-package-out.mjs --stage make --platform linux --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          DEBUG: "electron-forge:*,electron-packager"
-          CI: ""
 
       - name: Upload Linux assets to release
         if: success()
@@ -564,53 +483,11 @@ jobs:
       - name: Build for Windows
         shell: pwsh
         run: |
-          Write-Host "=== pre-make diagnostics (Windows x64) ==="
-          Get-Date -Format o
-          node -v; npm -v
-          Write-Host "CI=$env:CI GITHUB_ACTIONS=$env:GITHUB_ACTIONS DEBUG=$env:DEBUG"
-          Write-Host "NODE_OPTIONS=$env:NODE_OPTIONS"
-          Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize
           npm run make
-          $makeExit = $LASTEXITCODE
-          Write-Host "=== post-make diagnostics (make exit=$makeExit) ==="
-          Get-Date -Format o
-          Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize
-          if (Test-Path out) {
-            Write-Host "out/ tree (maxdepth 3):"
-            Get-ChildItem -Path out -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 80 | ForEach-Object { $_.FullName }
-          } else {
-            Write-Host "::warning::out/ missing after make"
-            Get-ChildItem
-          }
-          if ($makeExit -ne 0) {
-            Write-Error "npm run make failed exit=$makeExit"
-            exit $makeExit
-          }
-          $pkg = Get-ChildItem -Path out -Directory -Filter 'Atlarix-win32-*' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $pkg) {
-            Write-Error 'Build failed: No Atlarix-win32-* package dir under out/'
-            exit 1
-          }
-          $exe = Get-ChildItem -Path $pkg.FullName -Filter 'Atlarix.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) {
-            Write-Error "Build failed: No Atlarix.exe under $($pkg.FullName)"
-            exit 1
-          }
-          Write-Host "✓ Build successful: $($exe.FullName)"
-          if (-not (Test-Path out/make)) {
-            Write-Error 'Build failed: out/make missing (makers did not run)'
-            exit 1
-          }
-          $installers = @(Get-ChildItem -Path out/make -Recurse -Include *.exe,*.nupkg -File -ErrorAction SilentlyContinue)
-          if ($installers.Count -eq 0) {
-            Write-Error 'Build failed: No Windows installers under out/make'
-            exit 1
-          }
-          Write-Host "✓ Installers present under out/make ($($installers.Count) file(s))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          DEBUG: "electron-forge:*,electron-packager"
-          CI: ""
 
       - name: Upload Windows assets to release
         if: success()
