@@ -352,19 +352,15 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
   return removed;
 }
 
-async function logTopNodeModules(buildPath: string, limit = 20): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const { execSync } = await import("node:child_process");
-  const nm = path.join(buildPath, "node_modules");
-  try {
-    const out = execSync(`du -sh "${nm}"/* 2>/dev/null | sort -hr | head -${limit}`, {
-      encoding: "utf8",
-    });
-    console.log(`[packageAfterPrune] top node_modules:\n${out}`);
-  } catch {
-    /* optional */
-  }
-  void fs;
+type PackagingDiagModule = typeof import("./scripts/packaging-diagnostics.mjs");
+
+let packagingDiagPromise: Promise<PackagingDiagModule> | null = null;
+
+function loadPackagingDiagnostics(): Promise<PackagingDiagModule> {
+  packagingDiagPromise ??= import(
+    pathToFileURL(path.join(__dirname, "scripts/packaging-diagnostics.mjs")).href
+  ) as Promise<PackagingDiagModule>;
+  return packagingDiagPromise;
 }
 
 const config: ForgeConfig = {
@@ -479,6 +475,10 @@ const config: ForgeConfig = {
       console.log(
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
+      const diag = await loadPackagingDiagnostics();
+      diag.logPackagingStep("packageAfterPrune:start", { buildPath });
+      diag.logBuildPathSizes(buildPath, "after prune (before npm install)");
+
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
       const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
       const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
@@ -530,6 +530,8 @@ const config: ForgeConfig = {
       });
       const fs = await import("node:fs/promises");
 
+      diag.logToInstallSummary(toInstall);
+
       if (toInstall.length > 0) {
         // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
         const commands = [
@@ -545,6 +547,10 @@ const config: ForgeConfig = {
           ...toInstall,
         ];
         await runNpmInstall(buildPath, commands);
+        diag.logPackagingStep("packageAfterPrune:after-externals-npm-install", {
+          buildPath,
+        });
+        diag.logBuildPathSizes(buildPath, "after externals npm install");
       }
 
       const RENDERER_ONLY_DIRS = [
@@ -590,9 +596,13 @@ const config: ForgeConfig = {
         force: true,
       });
 
+      diag.logPackagingStep("packageAfterPrune:after-renderer-deny-prune", { buildPath });
+
       // ast-grep optional platform bindings (@ast-grep/napi-darwin-arm64, etc.) — never run npm prune after this.
       await installAstGrepRuntimePackages(buildPath, platform, arch);
+      diag.logPackagingStep("packageAfterPrune:after-astgrep-npm-install", { buildPath });
       await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
+      diag.logPackagingStep("packageAfterPrune:after-astgrep-grammars-staged", { buildPath });
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
       const rebuildModules = [
@@ -612,8 +622,17 @@ const config: ForgeConfig = {
         extraModules: rebuildModules,
       });
 
-      await stripSourceMapsFromBuild(buildPath);
-      await logTopNodeModules(buildPath);
+      diag.logPackagingStep("packageAfterPrune:after-native-rebuild", { buildPath });
+      diag.logBuildPathSizes(buildPath, "after native rebuild");
+
+      const mapsRemoved = await stripSourceMapsFromBuild(buildPath);
+      diag.logPackagingStep("packageAfterPrune:after-strip-sourcemaps", {
+        buildPath,
+        detail: `removed ${mapsRemoved} .map file(s)`,
+      });
+
+      diag.logTopNodeModules(buildPath);
+      diag.logPackagingStep("packageAfterPrune:done", { buildPath });
     },
   },
   plugins: [

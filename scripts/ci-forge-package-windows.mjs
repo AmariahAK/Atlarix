@@ -8,8 +8,15 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  formatMemory,
+  logBuildPathSizes,
+  logPackagingStep,
+  shouldLogPackagingDiagnostics,
+} from "./packaging-diagnostics.mjs";
 
 const POLL_MS = 5_000;
+const MEM_LOG_EVERY_MS = 30_000;
 const TIMEOUT_MS = 90 * 60 * 1_000;
 const APP = "Atlarix";
 const PLATFORM = "win32";
@@ -62,10 +69,13 @@ function startForgePackage() {
 
 async function main() {
   console.log("[ci-forge-package-windows] starting electron-forge package");
+  logPackagingStep("ci-forge-package-windows:start");
+
   const forgeDone = startForgePackage();
   const deadline = Date.now() + TIMEOUT_MS;
   let forgeResult = null;
   let loggedEarlyExit = false;
+  let lastMemLog = Date.now();
 
   while (Date.now() < deadline) {
     if (packageReady()) {
@@ -75,8 +85,25 @@ async function main() {
           `[ci-forge-package-windows] forge exited ${forgeResult.code} but ${PACKAGE_DIR} exists; continuing`,
         );
       }
+      logPackagingStep("ci-forge-package-windows:success", { detail: PACKAGE_DIR });
+      logBuildPathSizes(PACKAGE_DIR, "final package dir");
       console.log(`[ci-forge-package-windows] OK: ${PACKAGE_DIR}`);
       return 0;
+    }
+
+    if (shouldLogPackagingDiagnostics() && Date.now() - lastMemLog >= MEM_LOG_EVERY_MS) {
+      lastMemLog = Date.now();
+      logPackagingStep("ci-forge-package-windows:waiting", {
+        detail: `no ${PACKAGE_DIR} yet | ${formatMemory()}`,
+      });
+      if (fs.existsSync(path.join(process.cwd(), "out"))) {
+        try {
+          const outEntries = fs.readdirSync(path.join(process.cwd(), "out"));
+          console.log(`[ci-forge-package-windows] out/ entries: ${outEntries.join(", ") || "(empty)"}`);
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     const pending = Promise.race([forgeDone, sleep(POLL_MS).then(() => null)]);
@@ -90,6 +117,9 @@ async function main() {
         if (forgeResult.signal) {
           console.error(`::error::signal: ${forgeResult.signal}`);
         }
+        logPackagingStep("ci-forge-package-windows:failed", {
+          detail: `forge exit ${forgeResult.code}`,
+        });
         return forgeResult.code;
       }
       if (!loggedEarlyExit) {
@@ -97,11 +127,15 @@ async function main() {
         console.warn(
           "[ci-forge-package-windows] forge exited 0 but package dir missing; waiting for electron-packager…",
         );
+        logPackagingStep("ci-forge-package-windows:forge-exit-0-still-waiting");
       }
     }
   }
 
   forgeResult ??= await forgeDone;
+  logPackagingStep("ci-forge-package-windows:timeout", {
+    detail: `forge exit ${forgeResult.code}`,
+  });
   console.error(
     `::error::Timed out after ${TIMEOUT_MS / 60_000}m waiting for ${PACKAGE_DIR} (forge exit ${forgeResult.code})`,
   );
