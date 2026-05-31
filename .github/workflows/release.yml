@@ -488,21 +488,16 @@ jobs:
         run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx tsx scripts/bench-blueprint-index.ts
 
       - name: Build for Windows
-        shell: pwsh
+        shell: bash
         run: |
+          set -euo pipefail
           npm run clean
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run ci:package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run ci:package:win
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run ci:installers
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          DEBUG: "electron-forge:*,electron-packager"
 
       - name: Upload Windows assets to release
         if: success()

@@ -129,7 +129,9 @@ if (!verifyOnly) {
     let exit = run("npm", ["run", "clean"], env, "npm run clean");
     if (exit !== 0) process.exit(exit);
 
-    exit = run("npm", ["run", "ci:package", ...archArgs], env, "npm run ci:package");
+    const packageScript =
+      platform === "win32" ? "ci:package:win" : "ci:package";
+    exit = run("npm", ["run", packageScript, ...archArgs], env, `npm run ${packageScript}`);
     if (exit !== 0) process.exit(exit);
 
     exit = verify(env, "package", platform, arch);
