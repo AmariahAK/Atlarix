@@ -493,7 +493,7 @@ jobs:
           set -euo pipefail
           node scripts/log-packaging-env.mjs
           npm run clean
-          npm run ci:package:win
+          npm run ci:package
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           npm run ci:installers:win
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64

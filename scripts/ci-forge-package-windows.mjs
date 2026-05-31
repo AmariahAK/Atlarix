@@ -2,8 +2,8 @@
 /**
  * Windows CI: run electron-forge package and block until out/Atlarix-win32-x64 exists.
  *
- * GHA windows-latest often returns from forge while electron-packager is still running.
- * Unset CI so listr uses the silent renderer (same as macOS/Linux), then poll for output.
+ * Prefer `npm run ci:package` in release.yml (same as macOS/Linux). This wrapper remains
+ * for local debugging when listr exits before packager finishes.
  */
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -20,6 +20,7 @@ const require = createRequire(import.meta.url);
 const POLL_MS = 5_000;
 const MEM_LOG_EVERY_MS = 30_000;
 const TIMEOUT_MS = 150 * 60 * 1_000; // 150 min — Vite + packager + rebuild on Windows can hit 90min
+const EARLY_EXIT_GRACE_MS = 10 * 60 * 1_000; // fail fast if forge exit 0 but out/ never appears
 const APP = "Atlarix";
 const PLATFORM = "win32";
 const ARCH = "x64";
@@ -46,10 +47,7 @@ function startForgePackage() {
     ...process.env,
     // Stay under ~16GB runner RAM during packager finalize + asar.
     NODE_OPTIONS: "--max-old-space-size=10240",
-    // Keep CI=true (GHA default). Clearing CI ("") changes electron-forge's
-    // async-completion and error-propagation paths in a way that can cause
-    // the packager to exit before the output directory is written on Windows.
-    // At v9.1.0 (last known-working Windows build), forge ran with CI=true.
+    // GHA sets CI=true; silent listr renderer (see patches/@electron-forge+core+7.11.1.patch).
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };
 
@@ -86,6 +84,7 @@ async function main() {
   const deadline = Date.now() + TIMEOUT_MS;
   let forgeResult = null;
   let loggedEarlyExit = false;
+  let earlyExitAt = null;
   let lastMemLog = Date.now();
 
   while (Date.now() < deadline) {
@@ -142,6 +141,7 @@ async function main() {
         }
         if (!loggedEarlyExit) {
           loggedEarlyExit = true;
+          earlyExitAt = Date.now();
           console.warn(
             "[ci-forge-package-windows] forge exited 0 but package dir missing; waiting for electron-packager…",
           );
@@ -150,6 +150,20 @@ async function main() {
           });
         }
       }
+    }
+
+    if (
+      earlyExitAt !== null &&
+      Date.now() - earlyExitAt >= EARLY_EXIT_GRACE_MS &&
+      !packageReady()
+    ) {
+      console.error(
+        `::error::forge exited 0 but ${PACKAGE_DIR} still missing after ${EARLY_EXIT_GRACE_MS / 60_000}m (listr finished before packager; check @electron-forge patch)`,
+      );
+      logPackagingStep("ci-forge-package-windows:early-exit-grace-expired", {
+        detail: `forge-pid=${forgeResult?.pid ?? "?"}`,
+      });
+      return 1;
     }
   }
 
