@@ -22,7 +22,8 @@ const make = readOrFail(makeApi);
 
 const checks = [
   [pkg, "packager output missing at", "package.js: output path verification"],
-  [pkg, "await (0, tracer_1.delayTraceTillSignal)", "package.js: await packaging listr"],
+  [pkg, "await packagingRunner.run()", "package.js: await packaging listr run"],
+  [pkg, "const packagingRunner = (0, tracer_1.delayTraceTillSignal)", "package.js: packaging listr runner"],
   [
     make,
     "process.platform === 'win32' && Boolean(process.env.CI)",

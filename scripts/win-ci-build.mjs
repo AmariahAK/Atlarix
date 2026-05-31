@@ -2,7 +2,7 @@
 /**
  * Windows CI release build — bypasses electron-forge listr for the package step.
  *
- * 1. Production Vite bundles (same output as forge prePackage)
+ * 1. Forge generateAssets + prePackage (production Vite via plugin-vite)
  * 2. @electron/packager directly (awaited, no listr)
  * 3. packageAfterPrune + plugin hooks via forge hook runner
  * 4. electron-forge make --skip-package (Squirrel only)
@@ -12,6 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
 
 const require = createRequire(import.meta.url);
 const PLATFORM = "win32";
@@ -65,16 +66,13 @@ function dumpFailureDiagnostics() {
 
 async function buildProductionViteBundles() {
   const fsExtra = (await import("fs-extra")).default;
-  const viteDir = path.join(process.cwd(), ".vite");
-  await fsExtra.remove(viteDir);
+  await fsExtra.remove(path.join(process.cwd(), ".vite"));
 
-  run("astgrep worker", "npm", ["run", "build:astgrep-worker"]);
-  run("vite main", "npx", ["vite", "build", "--config", "vite.main.config.mts"]);
-  run("vite preload", "npx", ["vite", "build", "--config", "vite.preload.config.mts"]);
-  run("vite renderer", "npx", ["vite", "build", "--config", "vite.renderer.config.mts"]);
+  await runForgePrePackageBuilds({ platform: PLATFORM, arch: ARCH });
 
-  if (!fs.existsSync(path.join(viteDir, "build", "main.js"))) {
-    console.error("::error::Missing .vite/build/main.js after production Vite builds");
+  const mainJs = path.join(process.cwd(), ".vite", "build", "main.js");
+  if (!fs.existsSync(mainJs)) {
+    console.error("::error::Missing .vite/build/main.js after Forge prePackage builds");
     dumpFailureDiagnostics();
     process.exit(1);
   }
@@ -97,8 +95,6 @@ async function packageAppDirect() {
   const dir = process.cwd();
   console.log("[win-ci-build] loading forge.config");
   const forgeConfig = await loadForgeConfig(dir);
-
-  await runHook(forgeConfig, "generateAssets", PLATFORM, ARCH);
 
   const packageJSON = await readMutatedPackageJson(dir, forgeConfig);
   const calculatedOutDir = outDirFn(dir, forgeConfig);
@@ -148,7 +144,6 @@ async function packageAppDirect() {
   ];
 
   const packageOpts = {
-    asar: false,
     overwrite: true,
     ignore: [/^\/out\//g],
     quiet: process.env.GITHUB_ACTIONS !== "true",

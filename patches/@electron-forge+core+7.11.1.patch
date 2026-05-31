@@ -12,7 +12,7 @@ index c177a77..a954a56 100644
      const runner = new listr2_1.Listr([
          {
 diff --git a/node_modules/@electron-forge/core/dist/api/package.js b/node_modules/@electron-forge/core/dist/api/package.js
-index 8fb0bea..ba89885 100644
+index 8fb0bea..df64dd8 100644
 --- a/node_modules/@electron-forge/core/dist/api/package.js
 +++ b/node_modules/@electron-forge/core/dist/api/package.js
 @@ -290,7 +290,7 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
@@ -20,14 +20,15 @@ index 8fb0bea..ba89885 100644
                  }
                  d('targets:', targets);
 -                return (0, tracer_1.delayTraceTillSignal)(childTrace, task.newListr(targets.map((target) => target.arch === 'universal'
-+                await (0, tracer_1.delayTraceTillSignal)(childTrace, task.newListr(targets.map((target) => target.arch === 'universal'
++                const packagingRunner = (0, tracer_1.delayTraceTillSignal)(childTrace, task.newListr(targets.map((target) => target.arch === 'universal'
                      ? {
                          title: `Stitching ${chalk_1.default.cyan(`${target.platform}/x64`)} and ${chalk_1.default.cyan(`${target.platform}/arm64`)} into a ${chalk_1.default.green(`${target.platform}/universal`)} package`,
                          task: async () => {
-@@ -366,6 +366,15 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
+@@ -366,6 +366,16 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
                          collapseErrors: false,
                      },
                  }), 'run');
++                await packagingRunner.run();
 +                const outputPaths = await ctx.packagerPromise;
 +                if (!outputPaths?.length) {
 +                    throw new Error('@electron-forge/core: electron-packager produced no output paths');
@@ -40,7 +41,7 @@ index 8fb0bea..ba89885 100644
              }),
          },
          {
-@@ -383,7 +392,7 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
+@@ -383,7 +393,7 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
      ], {
          concurrent: false,
          silentRendererCondition: !interactive,
