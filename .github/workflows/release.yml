@@ -411,8 +411,7 @@ jobs:
 
   build-windows:
     needs: create-draft
-    # windows-latest → Server 2025; native/toolchain mismatches with Electron 38 + Node 24.
-    runs-on: windows-2022
+    runs-on: windows-latest
     timeout-minutes: 180
     steps:
       - name: Checkout code
@@ -492,21 +491,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/log-packaging-env.mjs
-          wmic OS get TotalVisibleMemorySize,FreePhysicalMemory /Value 2>/dev/null || true
           npm run clean
-
-          # Rebuild natives for Electron ABI before packager probes them (tests may load Node ABI).
-          npx electron-rebuild -f -w better-sqlite3,keytar,@lydell/node-pty,@ast-grep/napi
-
           npm run ci:package
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           npm run ci:installers:win
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+          NODE_OPTIONS: "--max-old-space-size=4096"
           ATLARIX_PACKAGING_DEBUG: "true"
-          DEBUG: "electron-forge:*,electron-packager:*,electron-rebuild:*"
 
       - name: Upload Windows assets to release
         if: success()

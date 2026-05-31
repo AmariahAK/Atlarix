@@ -1,30 +1,28 @@
 diff --git a/node_modules/@electron-forge/core/dist/api/make.js b/node_modules/@electron-forge/core/dist/api/make.js
-index c177a77..0c626c3 100644
+index c177a77..e8a1b2c 100644
 --- a/node_modules/@electron-forge/core/dist/api/make.js
 +++ b/node_modules/@electron-forge/core/dist/api/make.js
-@@ -44,8 +44,8 @@ const listrMake = (childTrace, { dir: providedDir = process.cwd(), interactive =
+@@ -44,7 +44,7 @@ const listrMake = (childTrace, { dir: providedDir = process.cwd(), interactive =
              collapseSubtasks: false,
              collapseErrors: false,
          },
--        silentRendererCondition: !interactive,
+         silentRendererCondition: !interactive,
 -        fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
-+        silentRendererCondition: !interactive && !(Boolean(process.env.CI) && process.platform === 'win32'),
-+        fallbackRendererCondition: Boolean(process.env.DEBUG) || (Boolean(process.env.CI) && process.platform === 'win32'),
++        fallbackRendererCondition: Boolean(process.env.DEBUG),
      };
      const runner = new listr2_1.Listr([
          {
 diff --git a/node_modules/@electron-forge/core/dist/api/package.js b/node_modules/@electron-forge/core/dist/api/package.js
-index 8fb0bea..5dbacde 100644
+index 8fb0bea..d9c3e4f 100644
 --- a/node_modules/@electron-forge/core/dist/api/package.js
 +++ b/node_modules/@electron-forge/core/dist/api/package.js
-@@ -382,8 +382,8 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
+@@ -382,7 +382,7 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
          },
      ], {
          concurrent: false,
--        silentRendererCondition: !interactive,
+         silentRendererCondition: !interactive,
 -        fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
-+        silentRendererCondition: !interactive && !(Boolean(process.env.CI) && process.platform === 'win32'),
-+        fallbackRendererCondition: Boolean(process.env.DEBUG) || (Boolean(process.env.CI) && process.platform === 'win32'),
++        fallbackRendererCondition: Boolean(process.env.DEBUG),
          rendererOptions: {
              collapseSubtasks: false,
              collapseErrors: false,
