@@ -420,7 +420,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "25"
+          # Node 25 breaks better-sqlite3 native build on windows-latest (llvm-lib /LTCG:INCREMENTAL).
+          node-version: "24"
           # npm cache restore on windows-latest is flaky (tar on C:\npm\cache; fails when a prior run saved cache).
 
       - name: Verify tag matches package.json version
