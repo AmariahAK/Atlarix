@@ -217,12 +217,6 @@ const RENDERER_ONLY_PACKAGES = new Set([
 
 const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
 
-/** GHA windows-latest: skip ASAR to avoid multi-GB peak RAM during archive (see packaging-diag logs). */
-const isWindowsCiUnpackedPackage =
-  !isEndToEndTestBuild &&
-  process.env.GITHUB_ACTIONS === "true" &&
-  process.platform === "win32";
-
 /** Dev/test packages that must never ship in production asar. */
 const RELEASE_DENY_PACKAGES = [
   "playwright",
@@ -396,7 +390,7 @@ const config: ForgeConfig = {
         },
     osxNotarize: undefined,
     prune: true,
-    asar: !isWindowsCiUnpackedPackage,
+    asar: true,
     asarUnpack: [
       "**/@ast-grep/napi-darwin-*/**",
       "**/@ast-grep/napi-linux-*/**",
@@ -483,10 +477,7 @@ const config: ForgeConfig = {
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
       const diag = await loadPackagingDiagnostics();
-      diag.logPackagingStep("packageAfterPrune:start", {
-        buildPath,
-        detail: isWindowsCiUnpackedPackage ? "asar=false (win CI)" : "asar=true",
-      });
+      diag.logPackagingStep("packageAfterPrune:start", { buildPath });
       diag.logBuildPathSizes(buildPath, "after prune (before npm install)");
 
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");

@@ -44,7 +44,7 @@ function packageReady() {
 function startForgePackage() {
   const env = {
     ...process.env,
-    // Stay under ~16GB runner RAM; ASAR disabled on win CI reduces peak during finalize.
+    // Stay under ~16GB runner RAM during packager finalize + asar.
     NODE_OPTIONS: "--max-old-space-size=10240",
     CI: "",
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
@@ -74,7 +74,7 @@ function startForgePackage() {
 }
 
 async function main() {
-  console.log("[ci-forge-package-windows] starting electron-forge package (unpacked asar on win CI)");
+  console.log("[ci-forge-package-windows] starting electron-forge package");
   logPackagingStep("ci-forge-package-windows:start", {
     detail: `wrapper-pid=${process.pid}`,
   });
