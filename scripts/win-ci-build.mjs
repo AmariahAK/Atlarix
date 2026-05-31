@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
+import { loadForgeConfig } from "./forge-config-load.mjs";
 
 const require = createRequire(import.meta.url);
 const PLATFORM = "win32";
@@ -79,7 +80,6 @@ async function buildProductionViteBundles() {
 }
 
 async function packageAppDirect() {
-  const loadForgeConfig = (await import("@electron-forge/core/dist/util/forge-config.js")).default;
   const { runHook } = await import("@electron-forge/core/dist/util/hook.js");
   const { readMutatedPackageJson } = await import(
     "@electron-forge/core/dist/util/read-package-json.js"

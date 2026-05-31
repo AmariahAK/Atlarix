@@ -3,9 +3,8 @@
  * Run Electron Forge generateAssets + prePackage hooks (production Vite builds).
  * Uses the same listr2 path as `electron-forge package`, without electron-packager.
  */
-import loadForgeConfig from "@electron-forge/core/dist/util/forge-config.js";
-import { getHookListrTasks } from "@electron-forge/core/dist/util/hook.js";
 import { Listr } from "listr2";
+import { loadForgeConfig } from "./forge-config-load.mjs";
 
 /** Minimal childTrace — hooks only need a callable wrapper. */
 function childTrace(_opts, fn) {
@@ -13,6 +12,7 @@ function childTrace(_opts, fn) {
 }
 
 async function runHookListr(forgeConfig, hookName, platform, arch) {
+  const { getHookListrTasks } = await import("@electron-forge/core/dist/util/hook.js");
   const tasks = await getHookListrTasks(childTrace, forgeConfig, hookName, platform, arch);
   if (!tasks.length) return;
   console.log(`[forge-packaging-hooks] ${hookName} (${tasks.length} task(s))`);
