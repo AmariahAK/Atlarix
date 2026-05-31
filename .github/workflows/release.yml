@@ -502,6 +502,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          DEBUG: "electron-forge:*,electron-packager"
 
       - name: Upload Windows assets to release
         if: success()
