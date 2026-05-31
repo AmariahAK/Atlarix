@@ -499,6 +499,8 @@ jobs:
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=10240"
+          ATLARIX_PACKAGING_DEBUG: "true"
+          DEBUG: "electron-forge:*"
 
       - name: Upload Windows assets to release
         if: success()

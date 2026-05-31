@@ -15,9 +15,6 @@ import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { rebuild } from "@electron/rebuild";
 
-/** Windows resolves npm via `npm.cmd`; spawn with shell:false cannot execute it as `npm`. */
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-
 function packagingNodeOptions(): string | undefined {
   if (process.env.NODE_OPTIONS) return process.env.NODE_OPTIONS;
   if (process.env.GITHUB_ACTIONS === "true" && process.platform === "win32") {
@@ -28,11 +25,12 @@ function packagingNodeOptions(): string | undefined {
 
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
   const nodeOptions = packagingNodeOptions();
+  const useShell = process.platform === "win32";
   return new Promise<void>((resolve, reject) => {
-    const proc = spawn(npm, args, {
+    const proc = spawn("npm", args, {
       cwd,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell: useShell,
       env: nodeOptions
         ? { ...process.env, NODE_OPTIONS: nodeOptions }
         : process.env,
@@ -100,14 +98,36 @@ async function resolveAstGrepParserSource(
   }
 }
 
+/** Windows file locking can make fs.rm throw EBUSY/EPERM — retry with backoff. */
+async function resetStagingDir(dirPath: string): Promise<void> {
+  const fsp = await import("node:fs/promises");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await fsp.rm(dirPath, { recursive: true, force: true });
+      break;
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as NodeJS.ErrnoException).code)
+          : "";
+      if (attempt === 4) throw err;
+      if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOTEMPTY") throw err;
+      console.log(
+        `[packageAfterPrune] rm ${code} on ${dirPath}, retry ${attempt + 1}/4…`,
+      );
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  await fsp.mkdir(dirPath, { recursive: true });
+}
+
 async function stageAstGrepGrammarsForExtraResource(
   buildPath: string,
   platform: string,
   arch: string,
 ): Promise<void> {
   const fs = await import("node:fs/promises");
-  await fs.rm(AST_GREP_GRAMMARS_STAGING, { recursive: true, force: true });
-  await fs.mkdir(AST_GREP_GRAMMARS_STAGING, { recursive: true });
+  await resetStagingDir(AST_GREP_GRAMMARS_STAGING);
 
   const langs: Array<{ key: string; pkg: string }> = [
     { key: "python", pkg: "@ast-grep/lang-python" },
@@ -482,6 +502,7 @@ const config: ForgeConfig = {
       platform: string,
       arch: string,
     ) => {
+      try {
       console.log(
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
@@ -615,11 +636,10 @@ const config: ForgeConfig = {
       diag.logPackagingStep("packageAfterPrune:after-astgrep-grammars-staged", { buildPath });
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
-      // better-sqlite3, keytar, @lydell/node-pty, and @ast-grep/napi are already
-      // compiled for Electron by forge's rebuildConfig before this hook runs.
-      // force: false lets @electron/rebuild skip them when they're already at the
-      // right Electron ABI — avoids a second full MSVC compilation on Windows
-      // (~20 min) that would otherwise blow the 90-minute CI timeout.
+      // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
+      // forge's rebuildConfig ran before hook-installed modules landed.
+      const rebuildForce =
+        platform === "win32" && process.env.GITHUB_ACTIONS === "true";
       const rebuildModules = [
         "better-sqlite3",
         "keytar",
@@ -633,7 +653,7 @@ const config: ForgeConfig = {
         electronVersion,
         platform: platform as NodeJS.Platform,
         arch,
-        force: false,
+        force: rebuildForce,
         extraModules: rebuildModules,
       });
 
@@ -648,6 +668,14 @@ const config: ForgeConfig = {
 
       diag.logTopNodeModules(buildPath);
       diag.logPackagingStep("packageAfterPrune:done", { buildPath });
+      } catch (err) {
+        console.error("[packageAfterPrune] FATAL ERROR:", err);
+        if (err instanceof Error && err.stack) {
+          console.error(err.stack);
+        }
+        process.exitCode = 1;
+        process.exit(1);
+      }
     },
   },
   plugins: [
