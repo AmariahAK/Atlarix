@@ -19,12 +19,18 @@ import {
   logSourceDirStats,
   PREFIX_PHASE,
 } from "./win-ci-packager-instrumentation.mjs";
+import {
+  ensureElectronZipReady,
+  installWindowsCiElectronExtractPatch,
+  resolveElectronCacheRoot,
+} from "./win-ci-electron-zip.mjs";
 
 /** Windows CI: fail if packager produces no out/ within this window. */
 export const PACKAGER_TIMEOUT_MS = 50 * 60 * 1000;
 const HEARTBEAT_MS = 60_000;
 
 const require = createRequire(import.meta.url);
+installWindowsCiElectronExtractPatch();
 const { runHook } = require("@electron-forge/core/dist/util/hook.js");
 const { readMutatedPackageJson } = require("@electron-forge/core/dist/util/read-package-json.js");
 const { getElectronVersion } = require("@electron-forge/core-utils/dist/electron-version.js");
@@ -241,12 +247,20 @@ export async function packageAppDirect(tag) {
     process.env.GITHUB_ACTIONS === "true" &&
     typeof forgeIgnore === "function";
 
+  const electronCacheRoot = resolveElectronCacheRoot(dir);
+  const onGhaWin =
+    process.platform === "win32" && process.env.GITHUB_ACTIONS === "true";
+
   const packageOpts = {
     overwrite: true,
     ignore: [/^\/out\//g],
     quiet: false,
     tmpdir: PACKAGER_TMP,
     ...forgeConfig.packagerConfig,
+    download: {
+      ...(forgeConfig.packagerConfig?.download ?? {}),
+      cacheRoot: electronCacheRoot,
+    },
     ignore: useFastIgnore ? createFastPackagerIgnore(forgeIgnore) : forgeIgnore,
     dir,
     arch: ARCH,
@@ -302,10 +316,28 @@ export async function packageAppDirect(tag) {
 
   console.log(`[${tag}] running @electron/packager (direct, no listr)`);
   console.log(
-    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} fastIgnore=${useFastIgnore} prune=${prune} asar=${asar} electron=${electronVersion}`,
+    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} electronCache=${electronCacheRoot} fastIgnore=${useFastIgnore} prune=${prune} asar=${asar} electron=${electronVersion}`,
   );
   logSourceDirStats(dir);
   logPackagerWorkDirSnapshot(`${tag}-pre-packager`, PACKAGER_TMP);
+
+  if (onGhaWin) {
+    phases.start("electron-zip-ready", { detail: `cacheRoot=${electronCacheRoot}` });
+    try {
+      const zipPath = await ensureElectronZipReady({
+        version: electronVersion,
+        platform: PLATFORM,
+        arch: ARCH,
+        cacheRoot: electronCacheRoot,
+      });
+      phases.end("electron-zip-ready", { detail: path.basename(zipPath) });
+    } catch (err) {
+      phases.end("electron-zip-ready", { detail: `error=${err.message}` });
+      console.error(`::error::[${tag}] ${err.message}`);
+      dumpFailureDiagnostics(tag);
+      process.exit(1);
+    }
+  }
 
   let outputPaths;
   logPackagingStep(`${tag}:packager-start`, {

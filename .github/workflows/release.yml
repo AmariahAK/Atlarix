@@ -483,6 +483,14 @@ jobs:
       - name: Ensure Electron binary (Windows)
         shell: pwsh
         run: node node_modules/electron/install.js
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+
+      - name: Verify Electron distro zip (Windows)
+        shell: pwsh
+        run: node scripts/win-ci-electron-zip.mjs --verify
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
 
       - name: Install ripgrep
         shell: pwsh
@@ -526,6 +534,7 @@ jobs:
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
           DEBUG: "electron-packager:*"

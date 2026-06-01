@@ -13,6 +13,7 @@ Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA
 
 - Child process + event-loop keep-alive
 - **`fastIgnore`** on GHA: skip most `node_modules` without running full `forge.config` ignore on every file
+- **Electron zip** (`scripts/win-ci-electron-zip.mjs`): verify zip size before packager; on GHA win32 **bypass `extract-zip`** with PowerShell `Expand-Archive` (fixes stuck ~528 KiB partial template)
 - **Instrumentation** (`scripts/win-ci-packager-instrumentation.mjs`):
   - **`[win-packager-phase]`** — timed boundaries: `afterExtract`, `copy-walk` (until first `afterCopy`), each `afterCopy` hook, `afterPrune`, `packager-await`
   - **`[win-packager-snapshot]`** — sizes for `electron-packager/tmp-*` staging, `resources/app`, `app.asar` (not only abandoned `template-*` dirs)
@@ -30,7 +31,10 @@ Environment on package/make step:
 
 - Node **24**
 - `NODE_OPTIONS=--max-old-space-size=8192`
+- `ELECTRON_CACHE` → `${{ github.workspace }}/.cache/electron` (packager `download.cacheRoot`)
 - `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp`
+
+Workflow also runs `node scripts/win-ci-electron-zip.mjs --verify` after `electron/install.js`.
 
 macOS/Linux still use `ci:package` + `ci:installers`.
 

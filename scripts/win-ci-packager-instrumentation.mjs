@@ -351,8 +351,11 @@ export function logPackagerHeartbeatDetailed(tag, ctx) {
   const curStagingBytes = scan.staging?.stats?.bytes ?? 0;
   const prevAppBytes = ctx.lastScan?.staging?.resourcesApp?.bytes ?? 0;
   const curAppBytes = scan.staging?.resourcesApp?.bytes ?? 0;
+  const prevTemplateBytes = ctx.lastScan?.template?.stats?.bytes ?? 0;
+  const curTemplateBytes = scan.template?.stats?.bytes ?? 0;
   const deltaStaging = curStagingBytes - prevStagingBytes;
   const deltaApp = curAppBytes - prevAppBytes;
+  const deltaTemplate = curTemplateBytes - prevTemplateBytes;
 
   const outExists = fs.existsSync(ctx.outDir);
   const pkgExists = fs.existsSync(ctx.packageDir);
@@ -381,7 +384,7 @@ export function logPackagerHeartbeatDetailed(tag, ctx) {
     }
   } else if (scan.template) {
     summary.push(
-      `template-only ${scan.template.name} ${formatBytes(scan.template.stats.bytes)} (staging not created yet — likely extract/move)`,
+      `template-only ${scan.template.name} ${formatBytes(curTemplateBytes)} files=${scan.template.stats.files} (Δ${formatBytes(Math.max(0, deltaTemplate))}) — pre-staging (extract or initialize)`,
     );
   } else {
     summary.push("no template/staging under electron-packager (pre-extract or wrong tmpdir)");
@@ -390,9 +393,19 @@ export function logPackagerHeartbeatDetailed(tag, ctx) {
   console.log(summary.join(" | "));
 
   if (deltaStaging === 0 && deltaApp === 0 && !pkgExists && Number(elapsedSec) >= 180) {
-    console.log(
-      `${PREFIX_HEARTBEAT} [${tag}] ::warning:: no staging growth for 3+ min — likely stuck in copy-walk, prune/galactus, or asar`,
-    );
+    let stallHint;
+    if (!scan.staging) {
+      if (scan.template && deltaTemplate === 0 && scan.template.stats.bytes < 5 * 1024 * 1024) {
+        stallHint = `stuck during Electron zip extract (template flat at ${formatBytes(curTemplateBytes)}, ${scan.template.stats.files} file(s) — extract-zip or Expand-Archive)`;
+      } else if (scan.template && deltaTemplate === 0) {
+        stallHint = `stuck after partial extract (template ${formatBytes(curTemplateBytes)} unchanged) — before staging tmp-*`;
+      } else {
+        stallHint = "stuck before electron-packager temp dirs (download or mkdir)";
+      }
+    } else {
+      stallHint = "stuck in copy-walk, prune/galactus, or asar";
+    }
+    console.log(`${PREFIX_HEARTBEAT} [${tag}] ::warning:: no progress for 3+ min — ${stallHint}`);
     logPackagerWorkDirSnapshot(`${tag}-heartbeat-stall-hint`, ctx.packagerTmp);
   }
 
