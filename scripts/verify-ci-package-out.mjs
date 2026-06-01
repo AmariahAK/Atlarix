@@ -8,6 +8,7 @@
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 function parseArgs(argv) {
@@ -66,6 +67,20 @@ function dumpPackagingDiagnostics(context) {
   }
   const viteBuild = path.join(root, ".vite", "build");
   console.error(`.vite/build exists: ${fs.existsSync(viteBuild)}`);
+  if (process.platform === "win32") {
+    const tempRoot = path.join(os.tmpdir(), "electron-packager");
+    console.error(`temp ${tempRoot} exists: ${fs.existsSync(tempRoot)}`);
+    if (fs.existsSync(tempRoot)) {
+      try {
+        const entries = fs.readdirSync(tempRoot);
+        console.error(
+          `electron-packager temp entries (max 15): ${entries.slice(0, 15).join(", ") || "(empty)"}`,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  }
   console.error("=== end diagnostics ===");
 }
 
@@ -86,7 +101,7 @@ console.log(
 
 if (!fs.existsSync(outDir)) {
   fail(
-    `Missing out/ after ${stage}. Search logs for [atlarix-packaging] and hook.packageAfterPrune — forge may have exited during Finalizing package.`,
+    `Missing out/ after ${stage}. Search logs for [win-ci-build], [packageAfterPrune], or electron-forge Finalizing package.`,
     "missing-out-dir",
   );
 }

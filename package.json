@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "9.1.2",
+  "version": "9.1.3",
   "description": "The Private Sovereign AI IDE",
   "main": ".vite/build/main.js",
   "repository": {
@@ -20,6 +20,7 @@
     "package:verify": "npm run package && npm run verify-astgrep-packaged && npm run measure-package-size",
     "ci:package": "electron-forge package",
     "ci:package:win": "node scripts/ci-forge-package-windows.mjs",
+    "ci:make:win": "node scripts/win-ci-build.mjs",
     "ci:make": "electron-forge make",
     "ci:installers": "electron-forge make --skip-package",
     "make": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge make",

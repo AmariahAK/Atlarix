@@ -500,11 +500,9 @@ jobs:
         shell: pwsh
         run: |
           npm run clean
-          npm run ci:package
+          npm run ci:make:win
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run ci:installers
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
