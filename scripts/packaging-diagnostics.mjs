@@ -11,7 +11,8 @@ const PREFIX = "[packaging-diag]";
 export function shouldLogPackagingDiagnostics() {
   return (
     process.env.ATLARIX_PACKAGING_DEBUG === "1" ||
-    process.env.GITHUB_ACTIONS === "true"
+    process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1" ||
+    (process.platform === "win32" && process.env.GITHUB_ACTIONS === "true")
   );
 }
 

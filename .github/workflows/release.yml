@@ -14,9 +14,9 @@ on:
         description: "Version tag (e.g., v1.0.0)"
         required: false
       packaging_debug:
-        description: "Enable ATLARIX_PACKAGING_DEBUG on Windows build (electron-packager verbose logs)"
+        description: "Extra Windows packaging logs (always on for build-windows; enables workflow_dispatch-only overrides)"
         type: boolean
-        default: false
+        default: true
 
 # Retagging the same version cancels in-progress runs by default; that often aborts
 # build-windows during setup-node npm cache restore (no error line, step shows failure).
@@ -507,16 +507,23 @@ jobs:
           if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/.cache/packager-tmp" | Out-Null
 
+      - name: Windows packaging debug (pre-build snapshot)
+        shell: pwsh
+        run: node scripts/dump-windows-packaging-state.mjs --label pre-build
+        env:
+          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
+
       - name: Build for Windows
         shell: pwsh
         run: |
           npm run clean
           node scripts/log-packaging-env.mjs
-          if ($env:ATLARIX_PACKAGING_DEBUG -eq '1') { $env:DEBUG = 'electron-packager:*' }
+          node scripts/dump-windows-packaging-state.mjs --label post-clean
           npm run ci:package:win
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           if (-not $?) { exit $LASTEXITCODE }
+          node scripts/dump-windows-packaging-state.mjs --label post-package
           npm run ci:installers
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
@@ -524,7 +531,17 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
-          ATLARIX_PACKAGING_DEBUG: ${{ github.event_name == 'workflow_dispatch' && inputs.packaging_debug == true && '1' || '' }}
+          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
+          ATLARIX_PACKAGING_DEBUG: "1"
+          # Packager + Forge core API (avoid bare electron-forge:* — changes listr on Windows CI)
+          DEBUG: "electron-packager:*,@electron-forge/core:*"
+
+      - name: Windows packaging debug (post-mortem)
+        if: failure()
+        shell: pwsh
+        run: node scripts/dump-windows-packaging-state.mjs --label post-mortem
+        env:
+          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
 
       - name: Upload Windows assets to release
         if: success()

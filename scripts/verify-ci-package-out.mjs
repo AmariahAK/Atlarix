@@ -98,65 +98,80 @@ function dumpPackagingDiagnostics(context) {
   console.error("=== end diagnostics ===");
 }
 
-function fail(msg, context) {
+async function fail(msg, context) {
   dumpPackagingDiagnostics(context);
+  if (process.platform === "win32") {
+    try {
+      const { dumpFullWindowsPackagingState } = await import("./windows-packaging-debug.mjs");
+      dumpFullWindowsPackagingState(`verify-fail-${context}`, { detail: msg });
+    } catch (e) {
+      console.error(`[verify-ci-package-out] windows debug dump failed: ${e?.message ?? e}`);
+    }
+  }
   console.error(`::error::${msg}`);
   process.exit(1);
 }
 
-const { stage, platform, arch } = parseArgs(process.argv);
-const root = process.cwd();
-const outDir = path.join(root, "out");
-const appName = "Atlarix";
+async function main() {
+  const { stage, platform, arch } = parseArgs(process.argv);
+  const root = process.cwd();
+  const outDir = path.join(root, "out");
+  const appName = "Atlarix";
 
-console.log(
-  `[verify-ci-package-out] stage=${stage} platform=${platform} arch=${arch}`,
-);
-
-if (!fs.existsSync(outDir)) {
-  fail(
-    `Missing out/ after ${stage}. Search logs for [win-ci-build], [packageAfterPrune], or electron-forge Finalizing package.`,
-    "missing-out-dir",
+  console.log(
+    `[verify-ci-package-out] stage=${stage} platform=${platform} arch=${arch}`,
   );
-}
 
-const packageDir = path.join(outDir, `${appName}-${platform}-${arch}`);
-if (!fs.existsSync(packageDir)) {
-  const entries = fs.readdirSync(outDir);
-  fail(
-    `Missing packaged app at ${packageDir}. Found under out/: ${entries.join(", ") || "(empty)"}`,
-    "missing-package-dir",
-  );
-}
-
-if (platform === "darwin") {
-  const appBundle = path.join(packageDir, `${appName}.app`);
-  if (!fs.existsSync(appBundle)) {
-    const entries = fs.readdirSync(packageDir);
-    fail(
-      `Missing ${appName}.app under ${packageDir}. Found: ${entries.join(", ") || "(empty)"}`,
-      "missing-darwin-app-bundle",
+  if (!fs.existsSync(outDir)) {
+    await fail(
+      `Missing out/ after ${stage}. Search logs for [win-ci-build], [packageAfterPrune], or electron-forge Finalizing package.`,
+      "missing-out-dir",
     );
   }
-}
 
-if (stage === "make") {
-  const makeDir = path.join(outDir, "make");
-  if (!fs.existsSync(makeDir)) {
-    fail(
-      `Missing out/make after make (packaged dir exists at ${packageDir}). Makers did not run — check hook.postMake in logs.`,
-      "missing-out-make",
+  const packageDir = path.join(outDir, `${appName}-${platform}-${arch}`);
+  if (!fs.existsSync(packageDir)) {
+    const entries = fs.readdirSync(outDir);
+    await fail(
+      `Missing packaged app at ${packageDir}. Found under out/: ${entries.join(", ") || "(empty)"}`,
+      "missing-package-dir",
     );
   }
-  const files = listFilesRecursive(makeDir);
-  if (files.length === 0) {
-    fail("out/make exists but contains no distributable files", "empty-out-make");
+
+  if (platform === "darwin") {
+    const appBundle = path.join(packageDir, `${appName}.app`);
+    if (!fs.existsSync(appBundle)) {
+      const entries = fs.readdirSync(packageDir);
+      await fail(
+        `Missing ${appName}.app under ${packageDir}. Found: ${entries.join(", ") || "(empty)"}`,
+        "missing-darwin-app-bundle",
+      );
+    }
   }
-  console.log(`OK: ${files.length} file(s) under out/make`);
-  for (const f of files.slice(0, 8)) {
-    console.log(`  - ${path.relative(root, f)}`);
+
+  if (stage === "make") {
+    const makeDir = path.join(outDir, "make");
+    if (!fs.existsSync(makeDir)) {
+      await fail(
+        `Missing out/make after make (packaged dir exists at ${packageDir}). Makers did not run — check hook.postMake in logs.`,
+        "missing-out-make",
+      );
+    }
+    const files = listFilesRecursive(makeDir);
+    if (files.length === 0) {
+      await fail("out/make exists but contains no distributable files", "empty-out-make");
+    }
+    console.log(`OK: ${files.length} file(s) under out/make`);
+    for (const f of files.slice(0, 8)) {
+      console.log(`  - ${path.relative(root, f)}`);
+    }
+    if (files.length > 8) console.log(`  ... and ${files.length - 8} more`);
   }
-  if (files.length > 8) console.log(`  ... and ${files.length - 8} more`);
+
+  console.log(`OK: packaged app at ${packageDir}`);
 }
 
-console.log(`OK: packaged app at ${packageDir}`);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

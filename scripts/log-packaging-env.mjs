@@ -36,6 +36,7 @@ const envKeys = [
   "NODE_OPTIONS",
   "DEBUG",
   "ATLARIX_PACKAGING_DEBUG",
+  "ATLARIX_WINDOWS_PACKAGING_DEBUG",
   "FORCE_COLOR",
 ];
 for (const key of envKeys) {
@@ -58,7 +59,7 @@ if (process.platform === "darwin") {
   console.log(`memory: ${run("free -h | head -2 | tr '\\n' ' | '")}`);
   console.log(`disk: ${run("df -h . | tail -1")}`);
 } else if (process.platform === "win32") {
-  console.log(`disk: ${run("wmic logicaldisk get size,freespace,caption 2>nul | head -5")}`);
+  console.log(`disk: ${run('powershell -NoProfile -Command "Get-PSDrive C | Select-Object Used,Free"')}`);
 }
 
 console.log(`out/ exists: ${fs.existsSync(outDir)}`);
@@ -73,3 +74,12 @@ if (fs.existsSync(viteDir)) {
   }
 }
 console.log("=== end packaging environment ===");
+
+if (
+  process.platform === "win32" &&
+  (process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1" ||
+    process.env.GITHUB_ACTIONS === "true")
+) {
+  const { dumpFullWindowsPackagingState } = await import("./windows-packaging-debug.mjs");
+  dumpFullWindowsPackagingState("log-packaging-env-after-summary");
+}
