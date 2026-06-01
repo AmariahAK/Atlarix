@@ -247,6 +247,13 @@ const ignore = (file: string) => {
   if (!file) return false;
   // `file` always starts with `/`
   // @see - https://github.com/electron/packager/blob/v18.1.3/src/copy-filter.ts#L89-L93
+  // Never copy build output or local caches (packager tmpdir may live under .cache on CI).
+  if (file === "/.cache" || file.startsWith("/.cache/")) {
+    return true;
+  }
+  if (file === "/out" || file.startsWith("/out/")) {
+    return true;
+  }
   if (file === "/node_modules") {
     return false;
   }

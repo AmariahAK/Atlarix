@@ -10,7 +10,10 @@ import { createRequire } from "node:module";
 import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
 import { loadForgeConfig, resolveCjsDefault } from "./forge-config-load.mjs";
 import { logPackagingStep } from "./packaging-diagnostics.mjs";
-import { createFastPackagerIgnore } from "./win-ci-packager-ignore.mjs";
+import {
+  createFastPackagerIgnore,
+  wrapPackagerIgnore,
+} from "./win-ci-packager-ignore.mjs";
 import {
   createPackagerPhaseLogger,
   dumpPackagerInstrumentation,
@@ -43,8 +46,21 @@ export const PLATFORM = "win32";
 export const ARCH = "x64";
 export const APP = "Atlarix";
 export const PACKAGE_DIR = path.join(process.cwd(), "out", `${APP}-${PLATFORM}-${ARCH}`);
+/** Workspace-local temp (npm TMP/TEMP on CI); not used as packager tmpdir on GHA win32. */
 export const PACKAGER_TMP = path.join(process.cwd(), ".cache", "packager-tmp");
 export const MAIN_JS = path.join(process.cwd(), ".vite", "build", "main.js");
+
+/**
+ * Packager temp must not live under `dir` or fs.copy hits "subdirectory of itself".
+ * On GHA Windows use RUNNER_TEMP; locally keep .cache/packager-tmp.
+ */
+export function resolvePackagerTmpdir() {
+  if (process.platform === "win32" && process.env.GITHUB_ACTIONS === "true") {
+    const base = process.env.RUNNER_TEMP || os.tmpdir();
+    return path.join(base, "atlarix-electron-packager");
+  }
+  return PACKAGER_TMP;
+}
 
 const fatalRegistered = new Set();
 
@@ -113,7 +129,7 @@ export function dumpFailureDiagnostics(tag) {
   }
   console.error(`.vite/build exists: ${fs.existsSync(MAIN_JS)}`);
   logPackagerTempDirs();
-  dumpPackagerInstrumentation(tag, { packagerTmp: PACKAGER_TMP });
+  dumpPackagerInstrumentation(tag, { packagerTmp: resolvePackagerTmpdir() });
   console.error("=== end diagnostics ===\n");
 }
 
@@ -153,6 +169,8 @@ export async function packageAppDirect(tag) {
   const calculatedOutDir = outDirFn(dir, forgeConfig);
   const electronVersion = await getElectronVersion(dir, packageJSON);
 
+  const packagerTmpdir = resolvePackagerTmpdir();
+  fs.mkdirSync(packagerTmpdir, { recursive: true });
   fs.mkdirSync(PACKAGER_TMP, { recursive: true });
 
   const afterCopySubHooks = [
@@ -216,7 +234,7 @@ export async function packageAppDirect(tag) {
           spaces: 2,
         });
         phases.end("afterCopy:write-package-json");
-        logPackagerWorkDirSnapshot(`${tag}-after-copy`, PACKAGER_TMP);
+        logPackagerWorkDirSnapshot(`${tag}-after-copy`, packagerTmpdir);
         done();
       } catch (err) {
         phases.end("afterCopy:write-package-json", { detail: `error=${err.message}` });
@@ -232,7 +250,7 @@ export async function packageAppDirect(tag) {
         console.log(`[${tag}] hook afterPrune → packageAfterPrune`);
         await runHook(forgeConfig, "packageAfterPrune", buildPath, ev, pPlatform, pArch);
         phases.end("afterPrune:packageAfterPrune");
-        logPackagerWorkDirSnapshot(`${tag}-after-prune`, PACKAGER_TMP);
+        logPackagerWorkDirSnapshot(`${tag}-after-prune`, packagerTmpdir);
         done();
       } catch (err) {
         phases.end("afterPrune:packageAfterPrune", { detail: `error=${err.message}` });
@@ -255,13 +273,15 @@ export async function packageAppDirect(tag) {
     overwrite: true,
     ignore: [/^\/out\//g],
     quiet: false,
-    tmpdir: PACKAGER_TMP,
+    tmpdir: packagerTmpdir,
     ...forgeConfig.packagerConfig,
     download: {
       ...(forgeConfig.packagerConfig?.download ?? {}),
       cacheRoot: electronCacheRoot,
     },
-    ignore: useFastIgnore ? createFastPackagerIgnore(forgeIgnore) : forgeIgnore,
+    ignore: wrapPackagerIgnore(
+      useFastIgnore ? createFastPackagerIgnore(forgeIgnore) : forgeIgnore,
+    ),
     dir,
     arch: ARCH,
     platform: PLATFORM,
@@ -271,7 +291,7 @@ export async function packageAppDirect(tag) {
           buildPath,
           detail: "fs.copy repo→resources/app (ends when first afterCopy runs)",
         });
-        logPackagerWorkDirSnapshot(`${tag}-before-copy`, PACKAGER_TMP);
+        logPackagerWorkDirSnapshot(`${tag}-before-copy`, packagerTmpdir);
         done();
       },
     ]),
@@ -289,7 +309,7 @@ export async function packageAppDirect(tag) {
         try {
           await runHook(forgeConfig, "packageAfterExtract", buildPath, ev, pPlatform, pArch);
           phases.end("afterExtract");
-          logPackagerWorkDirSnapshot(`${tag}-after-extract`, PACKAGER_TMP);
+          logPackagerWorkDirSnapshot(`${tag}-after-extract`, packagerTmpdir);
           done();
         } catch (err) {
           phases.end("afterExtract", { detail: `error=${err.message}` });
@@ -316,10 +336,10 @@ export async function packageAppDirect(tag) {
 
   console.log(`[${tag}] running @electron/packager (direct, no listr)`);
   console.log(
-    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} electronCache=${electronCacheRoot} fastIgnore=${useFastIgnore} prune=${prune} asar=${asar} electron=${electronVersion}`,
+    `[${tag}] out=${calculatedOutDir} tmpdir=${packagerTmpdir} electronCache=${electronCacheRoot} fastIgnore=${useFastIgnore} prune=${prune} asar=${asar} electron=${electronVersion}`,
   );
   logSourceDirStats(dir);
-  logPackagerWorkDirSnapshot(`${tag}-pre-packager`, PACKAGER_TMP);
+  logPackagerWorkDirSnapshot(`${tag}-pre-packager`, packagerTmpdir);
 
   if (onGhaWin) {
     phases.start("electron-zip-ready", { detail: `cacheRoot=${electronCacheRoot}` });
@@ -341,12 +361,12 @@ export async function packageAppDirect(tag) {
 
   let outputPaths;
   logPackagingStep(`${tag}:packager-start`, {
-    detail: `tmpdir=${PACKAGER_TMP} prune=${prune} asar=${asar}`,
+    detail: `tmpdir=${packagerTmpdir} prune=${prune} asar=${asar}`,
   });
   const packagerStartedAt = Date.now();
   const heartbeatCtx = {
     outDir: calculatedOutDir,
-    packagerTmp: PACKAGER_TMP,
+    packagerTmp: packagerTmpdir,
     packageDir: PACKAGE_DIR,
     startedAt: packagerStartedAt,
     maxMs: PACKAGER_TIMEOUT_MS,
@@ -376,7 +396,7 @@ export async function packageAppDirect(tag) {
   phases.end("packager-await", { detail: `paths=${outputPaths?.length ?? 0}` });
   if (instrumentPackager) {
     logPackagerHeartbeatDetailed(tag, heartbeatCtx);
-    logPackagerWorkDirSnapshot(`${tag}-post-packager`, PACKAGER_TMP);
+    logPackagerWorkDirSnapshot(`${tag}-post-packager`, packagerTmpdir);
   }
   logPackagingStep(`${tag}:packager-done`, { detail: `paths=${outputPaths?.length ?? 0}` });
 

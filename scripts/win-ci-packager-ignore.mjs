@@ -34,6 +34,13 @@ function isAllowedNodeModulesPath(file) {
   );
 }
 
+/** Paths that must never be copied into resources/app (avoid self-copy when tmpdir is under repo). */
+function isWorkspaceMetaPath(file) {
+  if (file === "/.cache" || file.startsWith("/.cache/")) return true;
+  if (file === "/out" || file.startsWith("/out/")) return true;
+  return false;
+}
+
 /**
  * @param {(file: string) => boolean} forgeIgnore from forge.config packagerConfig.ignore
  * @returns {(file: string) => boolean}
@@ -41,10 +48,26 @@ function isAllowedNodeModulesPath(file) {
 export function createFastPackagerIgnore(forgeIgnore) {
   return (file) => {
     if (!file) return false;
+    if (isWorkspaceMetaPath(file)) return true;
     if (file.startsWith("/node_modules")) {
       if (!isAllowedNodeModulesPath(file)) return true;
       return forgeIgnore(file);
     }
     return forgeIgnore(file);
   };
+}
+
+/**
+ * @param {((file: string) => boolean) | RegExp | (string | RegExp)[]} ignore
+ * @returns {(file: string) => boolean}
+ */
+export function wrapPackagerIgnore(ignore) {
+  if (typeof ignore === "function") {
+    return (file) => {
+      if (!file) return false;
+      if (isWorkspaceMetaPath(file)) return true;
+      return ignore(file);
+    };
+  }
+  return ignore;
 }

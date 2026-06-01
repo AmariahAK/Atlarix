@@ -109,10 +109,14 @@ export function expandZipPowerShell(zipPath, targetDir) {
  */
 export function verifyUnpackedElectron(targetDir, opts = {}) {
   const minBytes = opts.minBytes ?? MIN_ELECTRON_UNPACKED_BYTES;
-  const stats = directoryStats(targetDir, { maxFiles: 200 });
+  const stats = directoryStats(targetDir);
+  const truncNote = stats.truncated ? " (walk truncated — increase maxFiles)" : "";
   console.log(
-    `${PREFIX} unpacked ${targetDir}: ${formatBytes(stats.bytes)} files=${stats.files} dirs=${stats.dirs}`,
+    `${PREFIX} unpacked ${targetDir}: ${formatBytes(stats.bytes)} files=${stats.files} dirs=${stats.dirs}${truncNote}`,
   );
+  if (stats.truncated) {
+    throw new Error(`${PREFIX} unpacked directory walk truncated; cannot verify full extract`);
+  }
   if (stats.bytes < minBytes) {
     throw new Error(
       `${PREFIX} unpacked tree too small (${formatBytes(stats.bytes)} < ${formatBytes(minBytes)})`,
