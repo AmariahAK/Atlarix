@@ -13,7 +13,11 @@ Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA
 
 - Child process + event-loop keep-alive
 - **`fastIgnore`** on GHA: skip most `node_modules` without running full `forge.config` ignore on every file
-- **`[win-packager-heartbeat]`** every 60s: template size, `out/` / exe existence
+- **Instrumentation** (`scripts/win-ci-packager-instrumentation.mjs`):
+  - **`[win-packager-phase]`** — timed boundaries: `afterExtract`, `copy-walk` (until first `afterCopy`), each `afterCopy` hook, `afterPrune`, `packager-await`
+  - **`[win-packager-snapshot]`** — sizes for `electron-packager/tmp-*` staging, `resources/app`, `app.asar` (not only abandoned `template-*` dirs)
+  - **`[win-packager-heartbeat]`** every 60s on GHA win32: current phase, staging/resources/app bytes + Δ since last tick, memory; stall warning if no growth 3+ min
+  - Failure / timeout dumps call the same snapshot helpers
 - **50 min** in-process timeout; GHA step **55 min** `timeout-minutes`
 - `DEBUG=electron-packager:*` on the package step
 
@@ -40,7 +44,8 @@ node scripts/win-ci-package.mjs
 
 ## Success signals
 
-- Heartbeats show **template size growing** then `packageDir=true exe=true`
+- Heartbeats show **staging `tmp-*` and `resources/app` growing**, then `packageDir=true exe=true`
+- `[win-packager-phase] end beforeCopy` then later `end afterCopy:*` and `end afterPrune:packageAfterPrune`
 - `[packageAfterPrune] start` / `done`
 - `[win-ci-package] OK packaged app at …\out\Atlarix-win32-x64`
 - `out/make` Squirrel artifacts

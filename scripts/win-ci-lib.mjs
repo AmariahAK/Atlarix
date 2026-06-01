@@ -11,7 +11,14 @@ import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
 import { loadForgeConfig, resolveCjsDefault } from "./forge-config-load.mjs";
 import { logPackagingStep } from "./packaging-diagnostics.mjs";
 import { createFastPackagerIgnore } from "./win-ci-packager-ignore.mjs";
-import { logPackagerHeartbeat } from "./win-ci-packager-progress.mjs";
+import {
+  createPackagerPhaseLogger,
+  dumpPackagerInstrumentation,
+  logPackagerHeartbeatDetailed,
+  logPackagerWorkDirSnapshot,
+  logSourceDirStats,
+  PREFIX_PHASE,
+} from "./win-ci-packager-instrumentation.mjs";
 
 /** Windows CI: fail if packager produces no out/ within this window. */
 export const PACKAGER_TIMEOUT_MS = 50 * 60 * 1000;
@@ -100,6 +107,7 @@ export function dumpFailureDiagnostics(tag) {
   }
   console.error(`.vite/build exists: ${fs.existsSync(MAIN_JS)}`);
   logPackagerTempDirs();
+  dumpPackagerInstrumentation(tag, { packagerTmp: PACKAGER_TMP });
   console.error("=== end diagnostics ===\n");
 }
 
@@ -127,10 +135,13 @@ export async function buildProductionViteBundles(tag) {
 export async function packageAppDirect(tag) {
   const fsExtra = (await import("fs-extra")).default;
   const fg = (await import("fast-glob")).default;
+  const phases = createPackagerPhaseLogger(tag);
 
   const dir = process.cwd();
+  phases.start("load-forge-config");
   console.log(`[${tag}] loading forge.config`);
   const forgeConfig = await loadForgeConfig(dir);
+  phases.end("load-forge-config");
 
   const packageJSON = await readMutatedPackageJson(dir, forgeConfig);
   const calculatedOutDir = outDirFn(dir, forgeConfig);
@@ -138,30 +149,35 @@ export async function packageAppDirect(tag) {
 
   fs.mkdirSync(PACKAGER_TMP, { recursive: true });
 
-  const afterCopyHooks = [
+  const afterCopySubHooks = [
     async (buildPath, ev, pPlatform, pArch, done) => {
+      phases.start("afterCopy:strip-bin-symlinks", { buildPath });
       try {
-        if (process.env.GITHUB_ACTIONS === "true") {
-          console.log(`[${tag}] hook afterCopy: strip .bin symlinks`);
-        }
         const bins = await fg(path.join(buildPath, "**/.bin/**/*"));
+        console.log(`${PREFIX_PHASE} [${tag}] strip .bin count=${bins.length}`);
         for (const bin of bins) {
           await fsExtra.remove(bin);
         }
+        phases.end("afterCopy:strip-bin-symlinks", { detail: `removed=${bins.length}` });
         done();
       } catch (err) {
+        phases.end("afterCopy:strip-bin-symlinks", { detail: `error=${err.message}` });
         done(err);
       }
     },
     async (buildPath, ev, pPlatform, pArch, done) => {
+      phases.start("afterCopy:packageAfterCopy", { buildPath });
       try {
         await runHook(forgeConfig, "packageAfterCopy", buildPath, ev, pPlatform, pArch);
+        phases.end("afterCopy:packageAfterCopy");
         done();
       } catch (err) {
+        phases.end("afterCopy:packageAfterCopy", { detail: `error=${err.message}` });
         done(err);
       }
     },
     async (buildPath, ev, pPlatform, pArch, done) => {
+      phases.start("afterCopy:native-rebuild", { buildPath });
       try {
         if (process.env.GITHUB_ACTIONS !== "true") {
           console.log(`[${tag}] rebuilding native modules in packaged app (local)`);
@@ -176,12 +192,15 @@ export async function packageAppDirect(tag) {
         } else {
           console.log(`[${tag}] skipping afterCopy rebuild on GHA (packageAfterPrune rebuilds)`);
         }
+        phases.end("afterCopy:native-rebuild", { detail: "skipped-on-gha" });
         done();
       } catch (err) {
+        phases.end("afterCopy:native-rebuild", { detail: `error=${err.message}` });
         done(err);
       }
     },
     async (buildPath, ev, pPlatform, pArch, done) => {
+      phases.start("afterCopy:write-package-json", { buildPath });
       try {
         const copiedPackageJSON = await readMutatedPackageJson(buildPath, forgeConfig);
         if (copiedPackageJSON.config?.forge) {
@@ -190,8 +209,11 @@ export async function packageAppDirect(tag) {
         await fsExtra.writeJson(path.join(buildPath, "package.json"), copiedPackageJSON, {
           spaces: 2,
         });
+        phases.end("afterCopy:write-package-json");
+        logPackagerWorkDirSnapshot(`${tag}-after-copy`, PACKAGER_TMP);
         done();
       } catch (err) {
+        phases.end("afterCopy:write-package-json", { detail: `error=${err.message}` });
         done(err);
       }
     },
@@ -199,13 +221,15 @@ export async function packageAppDirect(tag) {
 
   const afterPruneHooks = [
     async (buildPath, ev, pPlatform, pArch, done) => {
+      phases.start("afterPrune:packageAfterPrune", { buildPath });
       try {
-        if (process.env.GITHUB_ACTIONS === "true") {
-          console.log(`[${tag}] hook afterPrune → packageAfterPrune`);
-        }
+        console.log(`[${tag}] hook afterPrune → packageAfterPrune`);
         await runHook(forgeConfig, "packageAfterPrune", buildPath, ev, pPlatform, pArch);
+        phases.end("afterPrune:packageAfterPrune");
+        logPackagerWorkDirSnapshot(`${tag}-after-prune`, PACKAGER_TMP);
         done();
       } catch (err) {
+        phases.end("afterPrune:packageAfterPrune", { detail: `error=${err.message}` });
         done(err);
       }
     },
@@ -227,14 +251,34 @@ export async function packageAppDirect(tag) {
     dir,
     arch: ARCH,
     platform: PLATFORM,
-    afterCopy: serialHooks(afterCopyHooks),
+    beforeCopy: serialHooks([
+      async (buildPath, ev, pPlatform, pArch, done) => {
+        phases.start("copy-walk", {
+          buildPath,
+          detail: "fs.copy repo→resources/app (ends when first afterCopy runs)",
+        });
+        logPackagerWorkDirSnapshot(`${tag}-before-copy`, PACKAGER_TMP);
+        done();
+      },
+    ]),
+    afterCopy: serialHooks([
+      async (buildPath, ev, pPlatform, pArch, done) => {
+        phases.end("copy-walk", { detail: "copy+prune filter walk finished" });
+        done();
+      },
+      ...afterCopySubHooks,
+    ]),
     afterPrune: serialHooks(afterPruneHooks),
     afterExtract: serialHooks([
       async (buildPath, ev, pPlatform, pArch, done) => {
+        phases.start("afterExtract", { buildPath });
         try {
           await runHook(forgeConfig, "packageAfterExtract", buildPath, ev, pPlatform, pArch);
+          phases.end("afterExtract");
+          logPackagerWorkDirSnapshot(`${tag}-after-extract`, PACKAGER_TMP);
           done();
         } catch (err) {
+          phases.end("afterExtract", { detail: `error=${err.message}` });
           done(err);
         }
       },
@@ -253,13 +297,20 @@ export async function packageAppDirect(tag) {
     process.env.DEBUG = process.env.DEBUG ?? "electron-packager:*";
   }
 
+  const prune = packageOpts.prune !== false;
+  const asar = Boolean(packageOpts.asar);
+
   console.log(`[${tag}] running @electron/packager (direct, no listr)`);
   console.log(
-    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} fastIgnore=${useFastIgnore}`,
+    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} fastIgnore=${useFastIgnore} prune=${prune} asar=${asar} electron=${electronVersion}`,
   );
+  logSourceDirStats(dir);
+  logPackagerWorkDirSnapshot(`${tag}-pre-packager`, PACKAGER_TMP);
 
   let outputPaths;
-  logPackagingStep(`${tag}:packager-start`, { detail: `tmpdir=${PACKAGER_TMP}` });
+  logPackagingStep(`${tag}:packager-start`, {
+    detail: `tmpdir=${PACKAGER_TMP} prune=${prune} asar=${asar}`,
+  });
   const packagerStartedAt = Date.now();
   const heartbeatCtx = {
     outDir: calculatedOutDir,
@@ -267,22 +318,34 @@ export async function packageAppDirect(tag) {
     packageDir: PACKAGE_DIR,
     startedAt: packagerStartedAt,
     maxMs: PACKAGER_TIMEOUT_MS,
+    phaseLogger: phases,
+    lastScan: undefined,
   };
-  const onGhaWin =
-    process.platform === "win32" && process.env.GITHUB_ACTIONS === "true";
-  const keepAlive = onGhaWin
-    ? setInterval(() => logPackagerHeartbeat(tag, heartbeatCtx), HEARTBEAT_MS)
+  const instrumentPackager =
+    process.platform === "win32" &&
+    (process.env.GITHUB_ACTIONS === "true" ||
+      process.env.ATLARIX_PACKAGING_DEBUG === "1" ||
+      process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1");
+
+  phases.start("packager-await", { detail: "await packager() — includes extract, copy, asar, move" });
+  const keepAlive = instrumentPackager
+    ? setInterval(() => logPackagerHeartbeatDetailed(tag, heartbeatCtx), HEARTBEAT_MS)
     : null;
   try {
     outputPaths = await packager(packageOpts);
   } catch (err) {
     console.error(`[${tag}] packager threw:`, err);
+    phases.end("packager-await", { detail: `threw=${err.message}` });
     dumpFailureDiagnostics(tag);
     process.exit(1);
   } finally {
     if (keepAlive) clearInterval(keepAlive);
   }
-  logPackagerHeartbeat(tag, heartbeatCtx);
+  phases.end("packager-await", { detail: `paths=${outputPaths?.length ?? 0}` });
+  if (instrumentPackager) {
+    logPackagerHeartbeatDetailed(tag, heartbeatCtx);
+    logPackagerWorkDirSnapshot(`${tag}-post-packager`, PACKAGER_TMP);
+  }
   logPackagingStep(`${tag}:packager-done`, { detail: `paths=${outputPaths?.length ?? 0}` });
 
   console.log(`[${tag}] packager returned: ${JSON.stringify(outputPaths)}`);

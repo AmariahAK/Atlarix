@@ -22,6 +22,9 @@ const WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), "win-ci-p
 registerFatalHandlers(TAG);
 
 console.log(`[${TAG}] packager + installers (spawnSync packager worker)`);
+console.log(
+  `[${TAG}] instrumentation: [win-packager-phase] [win-packager-snapshot] [win-packager-heartbeat] (see win-ci-packager-instrumentation.mjs)`,
+);
 const mem = process.memoryUsage();
 const mib = (n) => `${(n / 1024 / 1024).toFixed(1)} MiB`;
 console.log(
