@@ -234,12 +234,20 @@ export async function packageAppDirect(tag) {
 
   let outputPaths;
   logPackagingStep(`${tag}:packager-start`, { detail: `tmpdir=${PACKAGER_TMP}` });
+  // GHA win32: packager can spawn work without keeping the Node event loop alive.
+  const needsKeepAlive =
+    process.platform === "win32" && process.env.GITHUB_ACTIONS === "true";
+  const keepAlive = needsKeepAlive
+    ? setInterval(() => {}, 60_000)
+    : null;
   try {
     outputPaths = await packager(packageOpts);
   } catch (err) {
     console.error(`[${tag}] packager threw:`, err);
     dumpFailureDiagnostics(tag);
     process.exit(1);
+  } finally {
+    if (keepAlive) clearInterval(keepAlive);
   }
   logPackagingStep(`${tag}:packager-done`, { detail: `paths=${outputPaths?.length ?? 0}` });
 

@@ -2,14 +2,14 @@
 
 Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA) because Forge’s package listr exits before `out/` is written on `windows-latest`.
 
-## CI flow (v9.1.12+)
+## CI flow (v9.1.13+)
 
 1. `npm run clean`
 2. **`node scripts/win-ci-vite.mjs`** — production Vite / Forge prePackage
 3. **`node scripts/win-ci-package.mjs`** — `spawnSync` → `win-ci-packager-worker.mjs` (`@electron/packager`) then `electron-forge make --skip-package`
 4. `verify-ci-package-out` (package, then make)
 
-Packager runs in a **child Node process** so the parent cannot exit before `out/` exists (GHA win32 event-loop quirk).
+Packager runs in a **child Node process** (`spawnSync`) with an event-loop keep-alive during `@electron/packager` on GHA win32.
 
 Environment on package/make step:
 
