@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Windows CI: run win-ci-build.mjs and block until the packaged app exists.
+ * Windows CI: win-ci-vite.mjs then win-ci-package.mjs (separate Node processes).
  *
- * Used from release.yml via `npm run ci:make:win`. Polls for out/Atlarix-win32-x64
- * while the child runs; catches early exit / npm exit-code quirks on GHA.
+ * Used from release.yml via `npm run ci:make:win`. Step 1 frees Vite heap before packager.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -17,11 +16,14 @@ import {
 } from "./packaging-diagnostics.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WIN_CI_BUILD = path.join(__dirname, "win-ci-build.mjs");
+const WIN_CI_VITE = path.join(__dirname, "win-ci-vite.mjs");
+const WIN_CI_PACKAGE = path.join(__dirname, "win-ci-package.mjs");
 const POLL_MS = 5_000;
 const MEM_LOG_EVERY_MS = 30_000;
 const TIMEOUT_MS = 150 * 60 * 1_000;
 const EARLY_EXIT_GRACE_MS = 10 * 60 * 1_000;
+/** Fail fast when package child exits 0 almost immediately (OOM / abort). */
+const FAST_FAIL_MS = 120 * 1_000;
 const APP = "Atlarix";
 const PLATFORM = "win32";
 const ARCH = "x64";
@@ -42,14 +44,14 @@ function packageReady() {
   }
 }
 
-function startWinCiBuild() {
+function spawnScript(scriptPath, label) {
   const env = {
     ...process.env,
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };
 
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [WIN_CI_BUILD], {
+    const child = spawn(process.execPath, [scriptPath], {
       env,
       stdio: "inherit",
       shell: false,
@@ -57,37 +59,68 @@ function startWinCiBuild() {
     });
 
     console.log(
-      `[ci-win-release] spawned win-ci-build pid=${child.pid ?? "?"} wrapper-pid=${process.pid} script=${WIN_CI_BUILD}`,
+      `[ci-win-release] spawned ${label} pid=${child.pid ?? "?"} wrapper-pid=${process.pid}`,
     );
 
     child.on("error", (err) => {
-      console.error("::error::Failed to spawn win-ci-build:", err.message);
-      resolve({ code: 1, signal: null, pid: child.pid });
+      console.error(`::error::Failed to spawn ${label}:`, err.message);
+      resolve({ code: 1, signal: null, pid: child.pid, startedAt: Date.now() });
     });
 
     child.on("close", (code, signal) => {
-      resolve({ code: code ?? 1, signal: signal ?? null, pid: child.pid });
+      resolve({
+        code: code ?? 1,
+        signal: signal ?? null,
+        pid: child.pid,
+        startedAt: child.startedAt,
+      });
     });
+
+    child.startedAt = Date.now();
   });
 }
 
-async function main() {
-  console.log("[ci-win-release] starting win-ci-build");
-  logPackagingStep("ci-win-release:start", { detail: `wrapper-pid=${process.pid}` });
+async function runViteStep() {
+  console.log("[ci-win-release] step 1: win-ci-vite");
+  logPackagingStep("ci-win-release:vite-start");
+  const result = await spawnScript(WIN_CI_VITE, "win-ci-vite");
+  if (result.code !== 0) {
+    console.error(`::error::win-ci-vite exited ${result.code}`);
+    if (result.signal) console.error(`::error::signal: ${result.signal}`);
+    return result.code;
+  }
+  logPackagingStep("ci-win-release:vite-done");
+  console.log("[ci-win-release] win-ci-vite OK");
+  return 0;
+}
 
-  const buildDone = startWinCiBuild();
+async function runPackageStep() {
+  console.log("[ci-win-release] step 2: win-ci-package");
+  logPackagingStep("ci-win-release:package-start");
+
+  const packageDone = spawnScript(WIN_CI_PACKAGE, "win-ci-package");
   const deadline = Date.now() + TIMEOUT_MS;
-  let buildResult = null;
+  let packageResult = null;
   let loggedEarlyExit = false;
   let earlyExitAt = null;
   let lastMemLog = Date.now();
 
   while (Date.now() < deadline) {
-    if (buildResult !== null && buildResult.code === 0) {
+    if (packageResult !== null && packageResult.code === 0) {
       if (!packageReady()) {
-        console.error(`::error::win-ci-build exited 0 but ${PACKAGE_DIR} is missing`);
+        const elapsed = Date.now() - (packageResult.startedAt ?? Date.now());
+        if (elapsed < FAST_FAIL_MS) {
+          console.error(
+            `::error::win-ci-package exited 0 after ${Math.round(elapsed / 1000)}s but ${PACKAGE_DIR} is missing (likely OOM or process abort — check logs above)`,
+          );
+          logPackagingStep("ci-win-release:fast-fail-early-exit-0", {
+            detail: `elapsed=${elapsed}ms`,
+          });
+          return 1;
+        }
+        console.error(`::error::win-ci-package exited 0 but ${PACKAGE_DIR} is missing`);
         logPackagingStep("ci-win-release:exit-0-missing-package", {
-          detail: `child-pid=${buildResult.pid ?? "?"}`,
+          detail: `child-pid=${packageResult.pid ?? "?"}`,
         });
         return 1;
       }
@@ -97,22 +130,20 @@ async function main() {
       return 0;
     }
 
-    if (buildResult !== null && buildResult.code !== 0) {
+    if (packageResult !== null && packageResult.code !== 0) {
       console.error(
-        `::error::win-ci-build exited ${buildResult.code} before success (packageReady=${packageReady()})`,
+        `::error::win-ci-package exited ${packageResult.code} (packageReady=${packageReady()})`,
       );
-      if (buildResult.signal) {
-        console.error(`::error::signal: ${buildResult.signal}`);
+      if (packageResult.signal) {
+        console.error(`::error::signal: ${packageResult.signal}`);
       }
-      logPackagingStep("ci-win-release:failed", {
-        detail: `exit ${buildResult.code}`,
-      });
-      return buildResult.code;
+      logPackagingStep("ci-win-release:failed", { detail: `exit ${packageResult.code}` });
+      return packageResult.code;
     }
 
     if (shouldLogPackagingDiagnostics() && Date.now() - lastMemLog >= MEM_LOG_EVERY_MS) {
       lastMemLog = Date.now();
-      logPackagingStep("ci-win-release:waiting", {
+      logPackagingStep("ci-win-release:package-waiting", {
         detail: `packageReady=${packageReady()} | wrapper ${formatMemory()}`,
       });
       if (fs.existsSync(path.join(process.cwd(), "out"))) {
@@ -125,25 +156,33 @@ async function main() {
       }
     }
 
-    if (buildResult !== null) {
+    if (packageResult !== null) {
       await sleep(POLL_MS);
     } else {
-      const pending = Promise.race([buildDone, sleep(POLL_MS).then(() => null)]);
+      const pending = Promise.race([packageDone, sleep(POLL_MS).then(() => null)]);
       const maybe = await pending;
       if (maybe !== null) {
-        buildResult = maybe;
-        if (buildResult.code !== 0) {
-          continue;
-        }
+        packageResult = maybe;
+        if (packageResult.code !== 0) continue;
         if (!packageReady()) {
+          const elapsed = Date.now() - (packageResult.startedAt ?? Date.now());
+          if (elapsed < FAST_FAIL_MS) {
+            console.error(
+              `::error::win-ci-package exited 0 after ${Math.round(elapsed / 1000)}s without ${PACKAGE_DIR} (likely OOM — check logs)`,
+            );
+            logPackagingStep("ci-win-release:fast-fail-early-exit-0", {
+              detail: `elapsed=${elapsed}ms`,
+            });
+            return 1;
+          }
           if (!loggedEarlyExit) {
             loggedEarlyExit = true;
             earlyExitAt = Date.now();
             console.warn(
-              "[ci-win-release] win-ci-build exited 0 but package dir missing; waiting…",
+              "[ci-win-release] win-ci-package exited 0 but package dir missing; waiting…",
             );
             logPackagingStep("ci-win-release:exit-0-still-waiting", {
-              detail: `child-pid=${buildResult.pid ?? "?"}`,
+              detail: `child-pid=${packageResult.pid ?? "?"}`,
             });
           }
         }
@@ -156,23 +195,31 @@ async function main() {
       !packageReady()
     ) {
       console.error(
-        `::error::win-ci-build exited 0 but ${PACKAGE_DIR} still missing after ${EARLY_EXIT_GRACE_MS / 60_000}m`,
+        `::error::win-ci-package exited 0 but ${PACKAGE_DIR} still missing after ${EARLY_EXIT_GRACE_MS / 60_000}m`,
       );
       logPackagingStep("ci-win-release:early-exit-grace-expired", {
-        detail: `child-pid=${buildResult?.pid ?? "?"}`,
+        detail: `child-pid=${packageResult?.pid ?? "?"}`,
       });
       return 1;
     }
   }
 
-  buildResult ??= await buildDone;
-  logPackagingStep("ci-win-release:timeout", {
-    detail: `exit ${buildResult.code}`,
-  });
+  packageResult ??= await packageDone;
+  logPackagingStep("ci-win-release:timeout", { detail: `exit ${packageResult.code}` });
   console.error(
-    `::error::Timed out after ${TIMEOUT_MS / 60_000}m (win-ci-build exit ${buildResult.code}, packageReady=${packageReady()})`,
+    `::error::Timed out after ${TIMEOUT_MS / 60_000}m (win-ci-package exit ${packageResult.code}, packageReady=${packageReady()})`,
   );
   return 1;
+}
+
+async function main() {
+  console.log("[ci-win-release] Windows release (split Vite + package processes)");
+  logPackagingStep("ci-win-release:start", { detail: `wrapper-pid=${process.pid}` });
+
+  const viteCode = await runViteStep();
+  if (viteCode !== 0) return viteCode;
+
+  return runPackageStep();
 }
 
 process.exit(await main());

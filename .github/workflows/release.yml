@@ -13,6 +13,10 @@ on:
       version:
         description: "Version tag (e.g., v1.0.0)"
         required: false
+      packaging_debug:
+        description: "Enable ATLARIX_PACKAGING_DEBUG on Windows build (electron-packager verbose logs)"
+        type: boolean
+        default: false
 
 # Retagging the same version cancels in-progress runs by default; that often aborts
 # build-windows during setup-node npm cache restore (no error line, step shows failure).
@@ -516,6 +520,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
+          ATLARIX_PACKAGING_DEBUG: ${{ github.event_name == 'workflow_dispatch' && inputs.packaging_debug == true && '1' || '' }}
 
       - name: Upload Windows assets to release
         if: success()
