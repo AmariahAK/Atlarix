@@ -2,6 +2,8 @@
 /**
  * Fail fast when Electron Forge did not produce expected output (CI release builds).
  *
+ * Windows CI uses npm run ci:make:win → scripts/ci-win-release.mjs (polls win-ci-build).
+ *
  * Usage:
  *   node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64
  *   node scripts/verify-ci-package-out.mjs --stage package --platform linux --arch x64
@@ -68,6 +70,18 @@ function dumpPackagingDiagnostics(context) {
   const viteBuild = path.join(root, ".vite", "build");
   console.error(`.vite/build exists: ${fs.existsSync(viteBuild)}`);
   if (process.platform === "win32") {
+    const workspaceTmp = path.join(root, ".cache", "packager-tmp");
+    console.error(`workspace .cache/packager-tmp exists: ${fs.existsSync(workspaceTmp)}`);
+    if (fs.existsSync(workspaceTmp)) {
+      try {
+        const entries = fs.readdirSync(workspaceTmp);
+        console.error(
+          `packager-tmp entries (max 15): ${entries.slice(0, 15).join(", ") || "(empty)"}`,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
     const tempRoot = path.join(os.tmpdir(), "electron-packager");
     console.error(`temp ${tempRoot} exists: ${fs.existsSync(tempRoot)}`);
     if (fs.existsSync(tempRoot)) {
