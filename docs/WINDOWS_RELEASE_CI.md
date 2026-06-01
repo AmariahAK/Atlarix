@@ -1,12 +1,12 @@
 # Windows release CI
 
-GitHub Actions builds Windows installers on `windows-latest` using the **same Electron Forge flow as macOS/Linux**: `ci:package` + `ci:installers`, with the `@electron-forge/core` patch (await packaging listr, validate `out/` paths, silent listr on CI).
+GitHub Actions builds Windows installers on `windows-latest` using Forge **`ci:package:win`** (polls until `out/` exists) + **`ci:installers`**, with the `@electron-forge/core` patch (await packaging listr, validate `out/` paths).
 
-## CI flow (default)
+## CI flow (default, v9.1.7+)
 
 1. `npm run clean`
 2. `node scripts/log-packaging-env.mjs`
-3. `npm run ci:package` — `electron-forge package` (Vite + packager via Forge)
+3. `npm run ci:package:win` — `electron-forge package` via [`ci-forge-package-windows.mjs`](../scripts/ci-forge-package-windows.mjs) (fails fast if forge exits 0 without `out/`)
 4. `node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64`
 5. `npm run ci:installers` — `electron-forge make --skip-package` (Squirrel `.exe` / `.nupkg`)
 6. `node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64`
@@ -48,11 +48,11 @@ gh workflow run release.yml --ref main -f packaging_debug=true
 
 Watch the `build-windows` job for Forge packaging steps and `[packageAfterPrune] done`.
 
-## Escalation (if Forge path still fails)
+## Escalation (if poller still fails)
 
 Try **one change per GHA run**:
 
-1. **`npm run ci:package:win`** — [`scripts/ci-forge-package-windows.mjs`](../scripts/ci-forge-package-windows.mjs) polls until `out/Atlarix-win32-x64` exists (guards forge exit 0 without `out/`). Inherits workflow `NODE_OPTIONS` (8GB heap).
+1. **`npm run ci:package`** — direct Forge package (same as macOS/Linux) if the poller adds no value.
 2. **`npm run make` only** (v9.0.0 style) — single Forge make on Windows; keep macOS/Linux on split `ci:package` + `ci:installers`:
 
 ```yaml

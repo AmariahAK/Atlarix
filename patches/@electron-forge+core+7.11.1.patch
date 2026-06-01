@@ -7,7 +7,7 @@ index c177a77..a954a56 100644
          },
          silentRendererCondition: !interactive,
 -        fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
-+        fallbackRendererCondition: Boolean(process.env.DEBUG),
++        fallbackRendererCondition: Boolean(process.env.DEBUG) || (process.platform === 'win32' && Boolean(process.env.CI)),
      };
      const runner = new listr2_1.Listr([
          {
@@ -46,7 +46,7 @@ index 8fb0bea..df64dd8 100644
          concurrent: false,
          silentRendererCondition: !interactive,
 -        fallbackRendererCondition: Boolean(process.env.DEBUG) || Boolean(process.env.CI),
-+        fallbackRendererCondition: Boolean(process.env.DEBUG),
++        fallbackRendererCondition: Boolean(process.env.DEBUG) || (process.platform === 'win32' && Boolean(process.env.CI)),
          rendererOptions: {
              collapseSubtasks: false,
              collapseErrors: false,

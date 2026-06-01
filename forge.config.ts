@@ -533,6 +533,14 @@ const config: ForgeConfig = {
       });
       const fs = await import("node:fs/promises");
 
+      // Pruned trees can still carry vitest; npm may resolve vitest@3.2.5 → missing vite-node@3.2.5.
+      for (const pkg of ["vitest", "vite-node", "@vitest"]) {
+        await fs.rm(path.join(buildPath, "node_modules", pkg), {
+          recursive: true,
+          force: true,
+        });
+      }
+
       if (toInstall.length > 0) {
         // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
         const commands = [

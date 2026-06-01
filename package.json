@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "9.1.6",
+  "version": "9.1.7",
   "description": "The Private Sovereign AI IDE",
   "main": ".vite/build/main.js",
   "repository": {
@@ -107,7 +107,7 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vitejs/plugin-react": "^5.0.2",
-    "@vitest/ui": "^3.1.1",
+    "@vitest/ui": "3.2.4",
     "cross-env": "^7.0.3",
     "drizzle-kit": "^0.30.6",
     "electron": "^38.2.2",
@@ -123,7 +123,7 @@
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3",
     "vite": "^5.4.17",
-    "vitest": "^3.1.1"
+    "vitest": "3.2.4"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.15",
@@ -266,7 +266,9 @@
   "overrides": {
     "@vercel/sdk": {
       "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk"
-    }
+    },
+    "vite-node": "3.2.4",
+    "vitest": "3.2.4"
   },
   "build": {
     "publish": [

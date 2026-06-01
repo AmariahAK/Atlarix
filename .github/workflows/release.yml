@@ -513,7 +513,7 @@ jobs:
           npm run clean
           node scripts/log-packaging-env.mjs
           if ($env:ATLARIX_PACKAGING_DEBUG -eq '1') { $env:DEBUG = 'electron-packager:*' }
-          npm run ci:package
+          npm run ci:package:win
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           if (-not $?) { exit $LASTEXITCODE }
