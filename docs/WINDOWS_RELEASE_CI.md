@@ -1,33 +1,32 @@
 # Windows release CI
 
-GitHub Actions builds Windows installers on `windows-latest` using a **split Node process** flow so Vite does not share a heap with `electron-packager` (avoids ~3GB retained heap and early process abort on GHA).
+GitHub Actions builds Windows installers on `windows-latest` using the **same Electron Forge flow as macOS/Linux**: `ci:package` + `ci:installers`, with the `@electron-forge/core` patch (await packaging listr, validate `out/` paths, silent listr on CI).
 
 ## CI flow (default)
 
 1. `npm run clean`
-2. `node scripts/ci-win-release.mjs`
-   - `win-ci-vite.mjs` — Forge prePackage / production Vite bundles
-   - `win-ci-package.mjs` — `@electron/packager`, `packageAfterPrune`, `electron-forge make --skip-package`
-3. `verify-ci-package-out.mjs` (package + make stages)
+2. `node scripts/log-packaging-env.mjs`
+3. `npm run ci:package` — `electron-forge package` (Vite + packager via Forge)
+4. `node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64`
+5. `npm run ci:installers` — `electron-forge make --skip-package` (Squirrel `.exe` / `.nupkg`)
+6. `node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64`
 
 Environment on `build-windows`:
 
 - `NODE_OPTIONS=--max-old-space-size=8192`
 - `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp`
 - Pre-step clears `%RUNNER_TEMP%\electron-packager`
+- Node **24** (better-sqlite3 native build on `windows-latest`)
 
-Entrypoint: `npm run ci:make:win` → `scripts/ci-win-release.mjs`.
+Manual workflow debug: enable **Packaging debug** — sets `ATLARIX_PACKAGING_DEBUG=1` and `DEBUG=electron-packager:*` only (never `electron-forge:*`, which triggers listr fallback and can exit before packaging finishes).
 
-## Local Windows
+### Success signals
 
-```bash
-npm ci
-npm run clean
-node scripts/win-ci-build.mjs
-# or the same two steps as CI:
-node scripts/win-ci-vite.mjs
-node scripts/win-ci-package.mjs
-```
+| Signal | Bad | Good |
+|--------|-----|------|
+| Job duration | ~6–8 min | ~20–40 min |
+| Log | Stops after “Packaging app for platform win32” | `[packageAfterPrune] done`, Squirrel make steps |
+| Artifacts | No `out/` | `out/Atlarix-win32-x64/atlarix.exe`, `out/make/**/*.exe` |
 
 ## Debugging on macOS
 
@@ -37,29 +36,24 @@ You **cannot** produce a real `win32-x64` binary on macOS — Electron Forge/Pac
 |----------|------------|
 | `node scripts/simulate-ci-make.mjs --profile=fixed --platform=darwin --arch=arm64` | macOS split package + installers + verify (hooks, not Windows packager) |
 | `NODE_OPTIONS=--max-old-space-size=8192 npm run package` | macOS packaging stress / memory |
-| Push branch + `gh workflow run release.yml` | Real Windows CI |
+| `gh workflow run release.yml -f packaging_debug=true` | Real Windows CI with packager verbose logs |
 | Tag `v*` push | Full release pipeline |
-| **UTM / Parallels** Windows 11 VM, Node 24 | Full local reproduce of `win-ci-vite` + `win-ci-package` |
-
-Optional debug on manual workflow runs: enable **Packaging debug** input (`ATLARIX_PACKAGING_DEBUG=1`, `DEBUG=electron-packager:*`).
+| **UTM / Parallels** Windows 11 VM, Node 24 | Full local reproduce of `npm run ci:package` + `ci:installers` |
 
 ### Example: trigger Windows build from Mac
 
 ```bash
 gh workflow run release.yml --ref main -f packaging_debug=true
-# Or push a tag after bumping package.json version to match vX.Y.Z
 ```
 
-Watch the `build-windows` job for:
+Watch the `build-windows` job for Forge packaging steps and `[packageAfterPrune] done`.
 
-- `[win-ci-vite] OK`
-- `[win-ci-package] memory at start` with heap **well under 500 MiB**
-- `[packageAfterPrune] done`
-- Job duration **~20–40 minutes** (not ~6–8 minutes)
+## Escalation (if Forge path still fails)
 
-## Fallback: single `npm run make` (v9.0.0 style)
+Try **one change per GHA run**:
 
-If split-process still fails, temporarily change **Build for Windows** in [`.github/workflows/release.yml`](../.github/workflows/release.yml) to:
+1. **`npm run ci:package:win`** — [`scripts/ci-forge-package-windows.mjs`](../scripts/ci-forge-package-windows.mjs) polls until `out/Atlarix-win32-x64` exists (guards forge exit 0 without `out/`). Inherits workflow `NODE_OPTIONS` (8GB heap).
+2. **`npm run make` only** (v9.0.0 style) — single Forge make on Windows; keep macOS/Linux on split `ci:package` + `ci:installers`:
 
 ```yaml
 - name: Build for Windows
@@ -71,15 +65,30 @@ If split-process still fails, temporarily change **Build for Windows** in [`.git
     TEMP: ${{ github.workspace }}/.cache/packager-tmp
 ```
 
-Keep macOS/Linux on `ci:package` + `ci:installers`. This matched working releases around **v9.0.0** (~30 min Windows job).
+3. **Squirrel-only** (package OK, `out/make` empty): confirm `author` / `description` in `package.json`; ensure `electron-winstaller` postinstall ran under npm ([Forge #3892](https://github.com/electron-userland/electron-forge/issues/3892)).
+
+## Local / VM debug (legacy split-process)
+
+The `win-ci-*` scripts bypass Forge listr and split Vite from packager. Useful on a Windows VM when isolating heap vs packager issues; **not** used in GHA by default.
+
+```bash
+npm ci
+npm run clean
+node scripts/win-ci-build.mjs
+# or:
+node scripts/win-ci-vite.mjs
+node scripts/win-ci-package.mjs
+```
 
 ## Related scripts
 
 | Script | Role |
 |--------|------|
-| `scripts/win-ci-lib.mjs` | Shared packager/hook logic |
-| `scripts/win-ci-vite.mjs` | Vite-only step |
-| `scripts/win-ci-package.mjs` | Packager + Squirrel make |
-| `scripts/ci-win-release.mjs` | CI orchestrator |
-| `scripts/ci-forge-package-windows.mjs` | Legacy forge `package` poller (debug) |
+| `scripts/log-packaging-env.mjs` | CI runner context before package |
 | `scripts/verify-ci-package-out.mjs` | Fail fast if `out/` missing |
+| `scripts/verify-forge-patch.mjs` | Ensures patch applied after `npm ci` |
+| `scripts/ci-forge-package-windows.mjs` | Optional forge `package` poller (`ci:package:win`) |
+| `scripts/win-ci-lib.mjs` | Shared packager/hook logic (local debug) |
+| `scripts/win-ci-vite.mjs` | Vite-only step (local debug) |
+| `scripts/win-ci-package.mjs` | Packager + make (local debug) |
+| `scripts/ci-win-release.mjs` | Split-process orchestrator (`ci:make:win`, local debug) |

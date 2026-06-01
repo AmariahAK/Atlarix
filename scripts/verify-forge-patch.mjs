@@ -24,12 +24,21 @@ const checks = [
   [pkg, "packager output missing at", "package.js: output path verification"],
   [pkg, "await packagingRunner.run()", "package.js: await packaging listr run"],
   [pkg, "const packagingRunner = (0, tracer_1.delayTraceTillSignal)", "package.js: packaging listr runner"],
-  [
-    make,
-    "process.platform === 'win32' && Boolean(process.env.CI)",
-    "make.js: win32 CI listr fallback",
-  ],
+  [pkg, "fallbackRendererCondition: Boolean(process.env.DEBUG),", "package.js: listr fallback DEBUG only"],
+  [make, "fallbackRendererCondition: Boolean(process.env.DEBUG),", "make.js: listr fallback DEBUG only"],
 ];
+
+const forbidden = [
+  [pkg, "process.platform === 'win32' && Boolean(process.env.CI)", "package.js: win32 CI listr fallback"],
+  [make, "process.platform === 'win32' && Boolean(process.env.CI)", "make.js: win32 CI listr fallback"],
+];
+
+for (const [text, needle, label] of forbidden) {
+  if (text.includes(needle)) {
+    console.error(`::error::Forge patch must not include (${label})`);
+    process.exit(1);
+  }
+}
 
 for (const [text, needle, label] of checks) {
   if (!text.includes(needle)) {

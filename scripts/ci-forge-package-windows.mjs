@@ -2,8 +2,8 @@
 /**
  * Windows CI: run electron-forge package and block until out/Atlarix-win32-x64 exists.
  *
- * Prefer `npm run ci:package` in release.yml (same as macOS/Linux). This wrapper remains
- * for local debugging when listr exits before packager finishes.
+ * Prefer `npm run ci:package` in release.yml (same as macOS/Linux). Use this wrapper
+ * (npm run ci:package:win) only as escalation if forge exits 0 without out/ on GHA.
  */
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -45,9 +45,9 @@ function packageReady() {
 function startForgePackage() {
   const env = {
     ...process.env,
-    // Stay under ~16GB runner RAM during packager finalize + asar.
-    NODE_OPTIONS: "--max-old-space-size=4096",
-    // GHA sets CI=true; silent listr renderer (see patches/@electron-forge+core+7.11.1.patch).
+    // Inherit workflow NODE_OPTIONS (e.g. 8192 on GHA); default only when unset.
+    NODE_OPTIONS:
+      process.env.NODE_OPTIONS ?? "--max-old-space-size=8192",
     GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
   };
 

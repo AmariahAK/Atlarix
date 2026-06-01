@@ -511,9 +511,13 @@ jobs:
         shell: pwsh
         run: |
           npm run clean
-          node scripts/ci-win-release.mjs
+          node scripts/log-packaging-env.mjs
+          if ($env:ATLARIX_PACKAGING_DEBUG -eq '1') { $env:DEBUG = 'electron-packager:*' }
+          npm run ci:package
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
+          if (-not $?) { exit $LASTEXITCODE }
+          npm run ci:installers
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:

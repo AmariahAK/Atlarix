@@ -2,7 +2,7 @@
 /**
  * Fail fast when Electron Forge did not produce expected output (CI release builds).
  *
- * Windows CI uses npm run ci:make:win → scripts/ci-win-release.mjs (polls win-ci-build).
+ * Windows CI uses ci:package + ci:installers (same as macOS/Linux); see docs/WINDOWS_RELEASE_CI.md.
  *
  * Usage:
  *   node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64
