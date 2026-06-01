@@ -1,93 +1,37 @@
 # Windows release CI
 
-GitHub Actions builds Windows installers on `windows-latest` using **direct `@electron/packager`** (no Forge `package` listr on Windows), then **`electron-forge make --skip-package`**.
-
-## CI flow (default, v9.1.9+)
+GitHub Actions builds Windows installers on `windows-latest` using the **same flow as Linux**:
 
 1. `npm run clean`
-2. `node scripts/log-packaging-env.mjs` (env summary + light probes)
-3. `node scripts/dump-windows-packaging-state.mjs --label post-clean`
-4. `npm run ci:build:win` — `win-ci-vite.mjs` (Vite/prePackage) then `win-ci-package.mjs` (packager + Squirrel make)
-5. `dump-windows-packaging-state --label post-build` + PowerShell `Test-Path` probes
-6. `verify-ci-package-out` (package + make)
+2. `npm run ci:package`
+3. `verify-ci-package-out` (package)
+4. `npm run ci:installers`
+5. `verify-ci-package-out` (make)
 
-On failure, GHA runs **`dump-windows-packaging-state --label post-mortem`**.
+Environment (see `.github/workflows/release.yml` `build-windows`):
 
-### Why not `electron-forge package` on Windows?
-
-Forge’s listr **fallback renderer** on `win32` + `CI` caused the CLI to exit **0** ~0.35s after `Packaging app for platform win32` while `out/` was never written. The `@electron-forge/core` patch awaits `packagerPromise`, but the process still exited early. **Bypass:** call `@electron/packager` in-process via [`scripts/win-ci-lib.mjs`](../scripts/win-ci-lib.mjs) (`packageAppDirect`).
-
-Escalation / local debug: `npm run ci:package:win` (Forge poller) — see [`scripts/ci-forge-package-windows.mjs`](../scripts/ci-forge-package-windows.mjs).
-
-## Deep debugging (Windows only)
-
-Always enabled on **`build-windows`** (macOS/Linux unchanged):
-
-| Env | Purpose |
-|-----|---------|
-| `ATLARIX_WINDOWS_PACKAGING_DEBUG=1` | Full snapshots, hypothesis checklist, directory trees |
-| `ATLARIX_PACKAGING_DEBUG=1` | `[packaging-diag]` memory / hook logs |
-
-Do **not** set `DEBUG=electron-forge:*` on Windows package steps (listr). `win-ci-lib` may set `electron-packager:*` when `ATLARIX_PACKAGING_DEBUG=1`.
-
-### Log prefixes to search in GHA
-
-| Prefix | Source |
-|--------|--------|
-| `[win-packaging-debug]` | [`scripts/windows-packaging-debug.mjs`](../scripts/windows-packaging-debug.mjs) |
-| `[win-ci-vite]` / `[win-ci-package]` | Direct packager path |
-| `[packageAfterPrune]` | Forge hook during packager finalize |
-| `[ci-forge-package-windows]` | Legacy Forge poller only |
-
-### Hypothesis checklist (in every snapshot)
-
-Labels drive **phase** (`pre` / `mid` / `post`):
-
-- **pre** (`pre-build`, `post-clean`): Vite and `out/` show **N/A**
-- **post** (`post-build`, `post-package`, `post-mortem`): Vite **OK**, `out/…/atlarix.exe` **OK**
-
-### Local (Windows VM)
-
-```powershell
-$env:ATLARIX_WINDOWS_PACKAGING_DEBUG = "1"
-npm run clean
-npm run dump:windows-packaging -- --label pre-build
-npm run ci:build:win
-npm run dump:windows-packaging -- --label post-build
-```
-
-### Workflow snapshots
-
-- `pre-build` — after temp prep, before clean
-- `post-clean` — before `ci:build:win`
-- `post-build` — after `ci:build:win`
-- `post-package` — after verify
-- `post-mortem` — on job failure
-
-Environment on `build-windows`:
-
+- Node **24**
 - `NODE_OPTIONS=--max-old-space-size=8192`
 - `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp`
-- Node **24**
+- No `DEBUG` (avoids listr fallback side effects)
 
-### Success signals
+## Forge patch
 
-| Signal | Bad | Good |
-|--------|-----|------|
-| Job duration | ~6–8 min | ~20–40 min |
-| Log | Stops after “Packaging app for platform win32” with no `[packageAfterPrune]` | `[win-ci-package] OK packaged app`, Squirrel make |
-| Artifacts | No `out/` | `out/Atlarix-win32-x64/atlarix.exe` |
+`patches/@electron-forge+core+7.11.1.patch` awaits the packaging listr + `packagerPromise`, validates `out/` paths, and **does not** enable listr CI fallback on `win32` for `package.js` (mac/linux CI unchanged).
 
-## Debugging on macOS
+Verified in CI via `node scripts/verify-forge-patch.mjs` after `npm ci`.
 
-You **cannot** produce a real `win32-x64` binary on macOS. Use `gh workflow run release.yml` or a Windows VM.
+## Local / escalation
 
-## Related scripts
+| Command | When |
+|---------|------|
+| `npm run make` | Full local Windows release (clean + package + installers) |
+| `npm run ci:build:win` | Split Vite + direct packager (optional; not used in GHA) |
+| `npm run ci:package:win` | Forge package poller (legacy debug) |
+| `npm run dump:windows-packaging` | Manual state dump |
 
-| Script | Role |
-|--------|------|
-| `scripts/win-ci-vite.mjs` | Production Vite / prePackage |
-| `scripts/win-ci-package.mjs` | Direct packager + `make --skip-package` |
-| `scripts/win-ci-lib.mjs` | Shared packager hooks |
-| `scripts/ci-forge-package-windows.mjs` | Legacy Forge poller |
-| `scripts/windows-packaging-debug.mjs` | Snapshots / checklist |
+## Success signals
+
+- Logs include `[packageAfterPrune]` and Squirrel make output
+- `out/Atlarix-win32-x64/atlarix.exe` exists
+- Job duration ~20–40 minutes (not ~6–8 min with empty `out/`)

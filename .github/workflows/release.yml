@@ -507,43 +507,21 @@ jobs:
           if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/.cache/packager-tmp" | Out-Null
 
-      - name: Windows packaging debug (pre-build snapshot)
-        shell: pwsh
-        run: node scripts/dump-windows-packaging-state.mjs --label pre-build
-        env:
-          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
-
       - name: Build for Windows
         shell: pwsh
         run: |
           npm run clean
-          node scripts/log-packaging-env.mjs
-          node scripts/dump-windows-packaging-state.mjs --label post-clean
-          npm run ci:build:win
+          npm run ci:package
           if (-not $?) { exit $LASTEXITCODE }
-          node scripts/dump-windows-packaging-state.mjs --label post-build
-          Write-Host "--- Test-Path probes (post ci:build:win) ---"
-          Write-Host "main.js: $(Test-Path '.vite/build/main.js')"
-          Write-Host "preload.js: $(Test-Path '.vite/build/preload.js')"
-          Write-Host "package dir: $(Test-Path 'out/Atlarix-win32-x64')"
-          Write-Host "atlarix.exe: $(Test-Path 'out/Atlarix-win32-x64/atlarix.exe')"
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           if (-not $?) { exit $LASTEXITCODE }
-          node scripts/dump-windows-packaging-state.mjs --label post-package
+          npm run ci:installers
+          if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
-          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
-          ATLARIX_PACKAGING_DEBUG: "1"
-
-      - name: Windows packaging debug (post-mortem)
-        if: failure()
-        shell: pwsh
-        run: node scripts/dump-windows-packaging-state.mjs --label post-mortem
-        env:
-          ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
 
       - name: Upload Windows assets to release
         if: success()
