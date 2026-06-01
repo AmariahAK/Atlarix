@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "9.1.11",
+  "version": "9.1.12",
   "description": "The Private Sovereign AI IDE",
   "main": ".vite/build/main.js",
   "repository": {

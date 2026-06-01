@@ -202,7 +202,8 @@ export async function packageAppDirect(tag) {
   const packageOpts = {
     overwrite: true,
     ignore: [/^\/out\//g],
-    quiet: process.env.GITHUB_ACTIONS !== "true",
+    // Keep logs on GHA — quiet mode plus early Node exit made failures hard to diagnose.
+    quiet: false,
     tmpdir: PACKAGER_TMP,
     ...forgeConfig.packagerConfig,
     dir,
