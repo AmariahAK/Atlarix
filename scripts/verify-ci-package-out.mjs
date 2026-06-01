@@ -100,14 +100,6 @@ function dumpPackagingDiagnostics(context) {
 
 async function fail(msg, context) {
   dumpPackagingDiagnostics(context);
-  if (process.platform === "win32") {
-    try {
-      const { dumpFullWindowsPackagingState } = await import("./windows-packaging-debug.mjs");
-      dumpFullWindowsPackagingState(`verify-fail-${context}`, { detail: msg });
-    } catch (e) {
-      console.error(`[verify-ci-package-out] windows debug dump failed: ${e?.message ?? e}`);
-    }
-  }
   console.error(`::error::${msg}`);
   process.exit(1);
 }
@@ -124,7 +116,7 @@ async function main() {
 
   if (!fs.existsSync(outDir)) {
     await fail(
-      `Missing out/ after ${stage}. Search logs for [win-ci-build], [packageAfterPrune], or electron-forge Finalizing package.`,
+      `Missing out/ after ${stage}. Search logs for [packageAfterPrune], [win-ci-package], or electron-forge Finalizing package.`,
       "missing-out-dir",
     );
   }

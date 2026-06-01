@@ -507,15 +507,20 @@ jobs:
           if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/.cache/packager-tmp" | Out-Null
 
-      - name: Build for Windows
+      - name: Build for Windows (Vite)
         shell: pwsh
         run: |
           npm run clean
-          npm run ci:package
+          node scripts/win-ci-vite.mjs
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+      - name: Build for Windows (package + installers)
+        shell: pwsh
+        run: |
+          node scripts/win-ci-package.mjs
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
-          if (-not $?) { exit $LASTEXITCODE }
-          npm run ci:installers
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:

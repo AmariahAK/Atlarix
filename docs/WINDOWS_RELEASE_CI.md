@@ -1,37 +1,45 @@
 # Windows release CI
 
-GitHub Actions builds Windows installers on `windows-latest` using the **same flow as Linux**:
+Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA) because Forge’s package listr exits before `out/` is written on `windows-latest`.
+
+## CI flow (v9.1.11+)
 
 1. `npm run clean`
-2. `npm run ci:package`
-3. `verify-ci-package-out` (package)
-4. `npm run ci:installers`
-5. `verify-ci-package-out` (make)
+2. **`node scripts/win-ci-vite.mjs`** — production Vite / Forge prePackage
+3. **`node scripts/win-ci-package.mjs`** — `@electron/packager` + hooks + `electron-forge make --skip-package`
+4. `verify-ci-package-out` (package, then make)
 
-Environment (see `.github/workflows/release.yml` `build-windows`):
+Each step is a **separate GHA job step** (not `npm run … && …`) so the runner waits for packager to finish.
+
+Environment on package/make step:
 
 - Node **24**
 - `NODE_OPTIONS=--max-old-space-size=8192`
 - `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp`
-- No `DEBUG` (avoids listr fallback side effects)
 
-## Forge patch
+macOS/Linux still use `ci:package` + `ci:installers`.
 
-`patches/@electron-forge+core+7.11.1.patch` awaits the packaging listr + `packagerPromise`, validates `out/` paths, and **does not** enable listr CI fallback on `win32` for `package.js` (mac/linux CI unchanged).
+## Local
 
-Verified in CI via `node scripts/verify-forge-patch.mjs` after `npm ci`.
+```powershell
+npm run clean
+node scripts/win-ci-vite.mjs
+node scripts/win-ci-package.mjs
+```
 
-## Local / escalation
+Or full Forge: `npm run make` (local Windows VM).
 
-| Command | When |
-|---------|------|
-| `npm run make` | Full local Windows release (clean + package + installers) |
-| `npm run ci:build:win` | Split Vite + direct packager (optional; not used in GHA) |
-| `npm run ci:package:win` | Forge package poller (legacy debug) |
-| `npm run dump:windows-packaging` | Manual state dump |
+## Escalation / legacy
+
+| Script | Role |
+|--------|------|
+| `npm run ci:package` + `ci:installers` | Same as Linux (fails on GHA win32 today) |
+| `npm run ci:package:win` | Forge package poller |
+| `npm run dump:windows-packaging` | Manual debug dump |
 
 ## Success signals
 
-- Logs include `[packageAfterPrune]` and Squirrel make output
-- `out/Atlarix-win32-x64/atlarix.exe` exists
-- Job duration ~20–40 minutes (not ~6–8 min with empty `out/`)
+- `[win-ci-package] OK packaged app at …\out\Atlarix-win32-x64`
+- `[packageAfterPrune]` in logs
+- `out/make` contains Squirrel installer artifacts
+- Job ~20–40 minutes
