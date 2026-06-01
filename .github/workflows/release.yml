@@ -516,6 +516,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
 
       - name: Build for Windows (package + installers)
+        timeout-minutes: 55
         shell: pwsh
         run: |
           node scripts/win-ci-package.mjs
@@ -527,6 +528,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
+          DEBUG: "electron-packager:*"
 
       - name: Upload Windows assets to release
         if: success()

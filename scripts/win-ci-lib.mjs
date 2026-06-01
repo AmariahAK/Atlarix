@@ -10,6 +10,12 @@ import { createRequire } from "node:module";
 import { runForgePrePackageBuilds } from "./forge-packaging-hooks.mjs";
 import { loadForgeConfig, resolveCjsDefault } from "./forge-config-load.mjs";
 import { logPackagingStep } from "./packaging-diagnostics.mjs";
+import { createFastPackagerIgnore } from "./win-ci-packager-ignore.mjs";
+import { logPackagerHeartbeat } from "./win-ci-packager-progress.mjs";
+
+/** Windows CI: fail if packager produces no out/ within this window. */
+export const PACKAGER_TIMEOUT_MS = 50 * 60 * 1000;
+const HEARTBEAT_MS = 60_000;
 
 const require = createRequire(import.meta.url);
 const { runHook } = require("@electron-forge/core/dist/util/hook.js");
@@ -135,6 +141,9 @@ export async function packageAppDirect(tag) {
   const afterCopyHooks = [
     async (buildPath, ev, pPlatform, pArch, done) => {
       try {
+        if (process.env.GITHUB_ACTIONS === "true") {
+          console.log(`[${tag}] hook afterCopy: strip .bin symlinks`);
+        }
         const bins = await fg(path.join(buildPath, "**/.bin/**/*"));
         for (const bin of bins) {
           await fsExtra.remove(bin);
@@ -191,6 +200,9 @@ export async function packageAppDirect(tag) {
   const afterPruneHooks = [
     async (buildPath, ev, pPlatform, pArch, done) => {
       try {
+        if (process.env.GITHUB_ACTIONS === "true") {
+          console.log(`[${tag}] hook afterPrune → packageAfterPrune`);
+        }
         await runHook(forgeConfig, "packageAfterPrune", buildPath, ev, pPlatform, pArch);
         done();
       } catch (err) {
@@ -199,13 +211,19 @@ export async function packageAppDirect(tag) {
     },
   ];
 
+  const forgeIgnore = forgeConfig.packagerConfig?.ignore;
+  const useFastIgnore =
+    process.platform === "win32" &&
+    process.env.GITHUB_ACTIONS === "true" &&
+    typeof forgeIgnore === "function";
+
   const packageOpts = {
     overwrite: true,
     ignore: [/^\/out\//g],
-    // Keep logs on GHA — quiet mode plus early Node exit made failures hard to diagnose.
     quiet: false,
     tmpdir: PACKAGER_TMP,
     ...forgeConfig.packagerConfig,
+    ignore: useFastIgnore ? createFastPackagerIgnore(forgeIgnore) : forgeIgnore,
     dir,
     arch: ARCH,
     platform: PLATFORM,
@@ -225,20 +243,35 @@ export async function packageAppDirect(tag) {
     electronVersion,
   };
 
+  if (
+    process.env.GITHUB_ACTIONS === "true" &&
+    !process.env.DEBUG?.includes("electron-packager")
+  ) {
+    process.env.DEBUG = "electron-packager:*";
+  }
   if (process.env.ATLARIX_PACKAGING_DEBUG === "1") {
     process.env.DEBUG = process.env.DEBUG ?? "electron-packager:*";
   }
 
   console.log(`[${tag}] running @electron/packager (direct, no listr)`);
-  console.log(`[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP}`);
+  console.log(
+    `[${tag}] out=${calculatedOutDir} tmpdir=${PACKAGER_TMP} fastIgnore=${useFastIgnore}`,
+  );
 
   let outputPaths;
   logPackagingStep(`${tag}:packager-start`, { detail: `tmpdir=${PACKAGER_TMP}` });
-  // GHA win32: packager can spawn work without keeping the Node event loop alive.
-  const needsKeepAlive =
+  const packagerStartedAt = Date.now();
+  const heartbeatCtx = {
+    outDir: calculatedOutDir,
+    packagerTmp: PACKAGER_TMP,
+    packageDir: PACKAGE_DIR,
+    startedAt: packagerStartedAt,
+    maxMs: PACKAGER_TIMEOUT_MS,
+  };
+  const onGhaWin =
     process.platform === "win32" && process.env.GITHUB_ACTIONS === "true";
-  const keepAlive = needsKeepAlive
-    ? setInterval(() => {}, 60_000)
+  const keepAlive = onGhaWin
+    ? setInterval(() => logPackagerHeartbeat(tag, heartbeatCtx), HEARTBEAT_MS)
     : null;
   try {
     outputPaths = await packager(packageOpts);
@@ -249,6 +282,7 @@ export async function packageAppDirect(tag) {
   } finally {
     if (keepAlive) clearInterval(keepAlive);
   }
+  logPackagerHeartbeat(tag, heartbeatCtx);
   logPackagingStep(`${tag}:packager-done`, { detail: `paths=${outputPaths?.length ?? 0}` });
 
   console.log(`[${tag}] packager returned: ${JSON.stringify(outputPaths)}`);
