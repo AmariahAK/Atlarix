@@ -129,21 +129,17 @@ if (!verifyOnly) {
     let exit = run("npm", ["run", "clean"], env, "npm run clean");
     if (exit !== 0) process.exit(exit);
 
-    const packageScript =
-      platform === "win32" ? "ci:package:win" : "ci:package";
-    exit = run("npm", ["run", packageScript, ...archArgs], env, `npm run ${packageScript}`);
+    exit = run("npm", ["run", "ci:package", ...archArgs], env, "npm run ci:package");
     if (exit !== 0) process.exit(exit);
 
     exit = verify(env, "package", platform, arch);
     if (exit !== 0) process.exit(exit);
 
-    const installersScript =
-      platform === "win32" ? "ci:installers:win" : "ci:installers";
     exit = run(
       "npm",
-      ["run", installersScript, ...archArgs],
+      ["run", "ci:installers", ...archArgs],
       env,
-      `npm run ${installersScript}`,
+      "npm run ci:installers",
     );
     if (exit !== 0) process.exit(exit);
   }
