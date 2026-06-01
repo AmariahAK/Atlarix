@@ -26,8 +26,8 @@ const checks = [
   [pkg, "const packagingRunner = (0, tracer_1.delayTraceTillSignal)", "package.js: packaging listr runner"],
   [
     pkg,
-    "process.platform === 'win32' && Boolean(process.env.CI)",
-    "package.js: win32 CI listr fallback",
+    "process.platform !== 'win32' && Boolean(process.env.CI)",
+    "package.js: no win32 CI listr fallback",
   ],
   [
     make,

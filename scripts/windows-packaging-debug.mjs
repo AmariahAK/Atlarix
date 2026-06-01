@@ -139,35 +139,201 @@ export function walkTree(root, opts = {}) {
   return lines;
 }
 
-export function dumpHypothesisChecklist() {
-  section("HYPOTHESIS CHECKLIST (what logs prove)");
-  const checks = [
-    ["Vite prePackage", ".vite/build/main.js exists"],
-    ["Forge patch", "await packagingRunner.run + packagerPromise validation"],
-    ["Listr win32+CI", "fallback renderer only on Windows when CI=true"],
-    ["electron-packager started", 'log line "Packaging app for platform win32"'],
-    ["packageAfterPrune ran", "[packageAfterPrune] start in logs"],
-    ["out/ written", `out/${APP}-${PLATFORM}-${ARCH}/atlarix.exe`],
-    ["Temp → out copy", "electron-packager temp has template; out/ populated"],
-    ["Early exit 0", "forge exit 0 before out/ — listr or packager silent fail"],
+/** @param {string} [snapshotLabel] */
+function inferSnapshotPhase(snapshotLabel = "") {
+  const label = snapshotLabel.toLowerCase();
+  if (/pre-clean|post-clean|pre-build|wrapper-start|log-packaging-env/.test(label)) {
+    return "pre";
+  }
+  if (/post-package|post-build|post-make|wrapper-success|post-mortem/.test(label)) {
+    return "post";
+  }
+  if (/wrapper-forge-exit|wrapper-waiting|wrapper-grace|wrapper-timeout/.test(label)) {
+    return "mid";
+  }
+  return "unknown";
+}
+
+function fileProbe(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return { exists: false, size: 0, readable: false };
+  }
+  try {
+    const st = fs.statSync(filePath);
+    fs.accessSync(filePath, fs.constants.R_OK);
+    return { exists: true, size: st.size, readable: true };
+  } catch {
+    return { exists: true, size: 0, readable: false };
+  }
+}
+
+export function dumpViteBuildArtifacts() {
+  section("VITE BUILD ARTIFACTS (packager inputs)");
+  const root = process.cwd();
+  const files = [
+    [".vite/build/main.js", "main process bundle"],
+    [".vite/build/preload.js", "preload bundle"],
+    [".vite/build/renderer/main_window/index.html", "renderer entry"],
   ];
+  for (const [rel, desc] of files) {
+    const full = path.join(root, rel);
+    const p = fileProbe(full);
+    if (!p.exists) {
+      line(`MISSING  ${rel}  (${desc})`);
+      continue;
+    }
+    line(
+      `${p.readable ? "OK" : "NO_READ"}  ${rel}  ${formatBytes(p.size)}  (${desc})`,
+    );
+  }
+  const buildDir = path.join(root, ".vite", "build");
+  if (fs.existsSync(buildDir)) {
+    try {
+      const names = fs.readdirSync(buildDir);
+      line(`vite/build top-level (${names.length}): ${names.slice(0, 20).join(", ") || "(empty)"}`);
+    } catch (e) {
+      line(`cannot list .vite/build: ${e.message}`);
+    }
+  }
+}
+
+export function dumpPackageDirResolution() {
+  section("PACKAGE DIR RESOLUTION (win-ci / verify)");
+  const root = process.cwd();
+  const packageDir = path.join(root, "out", `${APP}-${PLATFORM}-${ARCH}`);
+  const exe = path.join(packageDir, "atlarix.exe");
+  line(`process.cwd()=${root}`);
+  line(`expected PACKAGE_DIR=${packageDir}`);
+  line(`expected exe=${exe}`);
+  line(`packageDir exists=${fs.existsSync(packageDir)}`);
+  line(`atlarix.exe exists=${fs.existsSync(exe)}`);
+  if (fs.existsSync(path.join(root, "out"))) {
+    try {
+      line(`out/ entries: ${fs.readdirSync(path.join(root, "out")).join(", ") || "(empty)"}`);
+    } catch (e) {
+      line(`out/ not listable: ${e.message}`);
+    }
+  }
+}
+
+export function dumpPackagerTempDetail() {
+  section("PACKAGER TEMP DETAIL");
+  const root = process.cwd();
+  const ep = path.join(root, ".cache", "packager-tmp", "electron-packager");
+  if (!fs.existsSync(ep)) {
+    line(`(missing) ${ep}`);
+    return;
+  }
+  let templates = [];
+  try {
+    templates = fs.readdirSync(ep).filter((n) => n.includes("template"));
+  } catch (e) {
+    line(`cannot read electron-packager dir: ${e.message}`);
+    return;
+  }
+  if (templates.length === 0) {
+    line(`no *template* dirs under ${ep}`);
+    return;
+  }
+  for (const name of templates) {
+    const full = path.join(ep, name);
+    const size = formatBytes(dirSizeBytes(full));
+    let children = "";
+    try {
+      const entries = fs.readdirSync(full);
+      children = entries.slice(0, 12).join(", ");
+      if (entries.length > 12) children += ` … +${entries.length - 12}`;
+    } catch {
+      children = "(unreadable)";
+    }
+    line(`template ${name}  size=${size}  children=[${children}]`);
+  }
+}
+
+export function dumpOutWriteProbe() {
+  section("out/ WRITE PROBE");
+  const root = process.cwd();
+  const outDir = path.join(root, "out");
+  if (!fs.existsSync(outDir)) {
+    line("out/ missing — skip write probe (packager has not created it yet)");
+    return;
+  }
+  const probe = path.join(outDir, ".atlatrix-packaging-probe");
+  try {
+    fs.writeFileSync(probe, `probe ${new Date().toISOString()}\n`);
+    fs.unlinkSync(probe);
+    line(`OK wrote and deleted ${probe}`);
+  } catch (e) {
+    line(`FAIL write probe: ${e.message}`);
+  }
+}
+
+/**
+ * @param {string} [snapshotLabel]
+ */
+export function dumpHypothesisChecklist(snapshotLabel = "") {
+  const phase = inferSnapshotPhase(snapshotLabel);
+  section(`HYPOTHESIS CHECKLIST (phase=${phase}, label=${snapshotLabel || "?"})`);
   const root = process.cwd();
   const viteMain = path.join(root, ".vite", "build", "main.js");
   const packageDir = path.join(root, "out", `${APP}-${PLATFORM}-${ARCH}`);
   const exe = path.join(packageDir, "atlarix.exe");
   const state = {
     viteMain: fs.existsSync(viteMain),
-    outDir: fs.existsSync(path.join(root, "out")),
     packageDir: fs.existsSync(packageDir),
     exe: fs.existsSync(exe),
     packagerTmp: fs.existsSync(path.join(root, ".cache", "packager-tmp", "electron-packager")),
   };
-  for (const [name, criterion] of checks) {
-    let status = "UNKNOWN (check logs)";
-    if (name === "Vite prePackage") status = state.viteMain ? "OK" : "FAIL";
-    if (name === "out/ written") status = state.exe ? "OK" : state.packageDir ? "PARTIAL" : "FAIL";
-    if (name === "packageAfterPrune ran") status = "(see logs for [packageAfterPrune])";
-    line(`${status.padEnd(8)} ${name} — ${criterion}`);
+
+  const rows = [
+    {
+      name: "Vite prePackage",
+      criterion: ".vite/build/main.js exists",
+      eval: () => {
+        if (phase === "pre") return "N/A     (before ci:package:win — expected missing)";
+        return state.viteMain ? "OK" : "FAIL";
+      },
+    },
+    {
+      name: "out/ written",
+      criterion: `out/${APP}-${PLATFORM}-${ARCH}/atlarix.exe`,
+      eval: () => {
+        if (phase === "pre") return "N/A     (before packaging — expected missing)";
+        if (state.exe) return "OK";
+        if (state.packageDir) return "PARTIAL (dir only)";
+        return "FAIL";
+      },
+    },
+    {
+      name: "packageAfterPrune",
+      criterion: "[packageAfterPrune] start in logs",
+      eval: () =>
+        phase === "pre"
+          ? "N/A     (search logs after packager runs)"
+          : "(grep logs — hook runs inside packager finalize)",
+    },
+    {
+      name: "electron-packager temp",
+      criterion: ".cache/packager-tmp/electron-packager populated",
+      eval: () => {
+        if (phase === "pre") return "N/A";
+        return state.packagerTmp ? "OK" : "MISSING";
+      },
+    },
+    {
+      name: "Forge package.js patch",
+      criterion: "await packagingRunner.run + output path checks",
+      eval: () => "(see FORGE PATCH section — package.js only)",
+    },
+    {
+      name: "Listr win32+CI",
+      criterion: "fallback when CI=true on Windows",
+      eval: () => (process.env.CI === "true" ? "active on GHA" : "off locally"),
+    },
+  ];
+
+  for (const row of rows) {
+    line(`${row.eval().padEnd(36)} ${row.name} — ${row.criterion}`);
   }
 }
 
@@ -203,28 +369,30 @@ export function dumpEnvironment() {
 }
 
 export function dumpForgePatch() {
-  section("FORGE PATCH");
+  section("FORGE PATCH (ci:package uses package.js)");
   const root = process.cwd();
   const packageApi = path.join(root, "node_modules/@electron-forge/core/dist/api/package.js");
   const makeApi = path.join(root, "node_modules/@electron-forge/core/dist/api/make.js");
-  for (const [name, file] of [
-    ["package.js", packageApi],
-    ["make.js", makeApi],
-  ]) {
-    if (!fs.existsSync(file)) {
-      line(`${name}: MISSING`);
-      continue;
+  const packageNeedles = [
+    "await packagingRunner.run()",
+    "packager output missing at",
+    "process.platform === 'win32' && Boolean(process.env.CI)",
+    "ctx.packagerPromise = (0, packager_1.packager)",
+  ];
+  if (!fs.existsSync(packageApi)) {
+    line("package.js: MISSING");
+  } else {
+    const text = fs.readFileSync(packageApi, "utf8");
+    for (const n of packageNeedles) {
+      line(`package.js ${text.includes(n) ? "OK" : "MISSING"}: ${n}`);
     }
-    const text = fs.readFileSync(file, "utf8");
-    const needles = [
-      "await packagingRunner.run()",
-      "packager output missing at",
-      "process.platform === 'win32' && Boolean(process.env.CI)",
-      "ctx.packagerPromise = (0, packager_1.packager)",
-    ];
-    for (const n of needles) {
-      line(`${name} ${text.includes(n) ? "OK" : "MISSING"}: ${n}`);
-    }
+  }
+  line("(make.js listr patch only — not used by electron-forge package; OK if MISSING below)");
+  if (fs.existsSync(makeApi)) {
+    const makeText = fs.readFileSync(makeApi, "utf8");
+    line(
+      `make.js win32 CI fallback: ${makeText.includes("process.platform === 'win32' && Boolean(process.env.CI)") ? "OK" : "MISSING"}`,
+    );
   }
 }
 
@@ -310,9 +478,13 @@ export function dumpFullWindowsPackagingState(label, opts = {}) {
   if (opts.detail) line(`detail=${opts.detail}`);
   if (opts.elapsedMs != null) line(`elapsed=${(opts.elapsedMs / 1000).toFixed(1)}s`);
   dumpEnvironment();
-  dumpHypothesisChecklist();
+  dumpHypothesisChecklist(label);
+  dumpViteBuildArtifacts();
+  dumpPackageDirResolution();
   dumpForgePatch();
   dumpDiskAndPaths();
+  dumpPackagerTempDetail();
+  dumpOutWriteProbe();
   dumpOutAndTempTrees();
   dumpProcesses(opts.forgePid != null ? [opts.forgePid] : []);
   section(`END SNAPSHOT: ${label}`);

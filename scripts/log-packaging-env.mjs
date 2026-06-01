@@ -43,10 +43,15 @@ for (const key of envKeys) {
   const v = process.env[key];
   console.log(`env.${key}=${v === undefined ? "(unset)" : v === "" ? "(empty)" : v}`);
 }
-if (process.env.DEBUG) {
+if (
+  process.env.DEBUG?.includes("electron-forge:") &&
+  !process.env.DEBUG.includes("async-ora")
+) {
   console.warn(
-    "WARNING: DEBUG is set — electron-forge may use listr fallback and exit before packaging completes. Unset DEBUG during npm run make (see release.yml).",
+    "WARNING: DEBUG includes electron-forge:* — can change listr on Windows CI. release.yml uses electron-packager:* and @electron-forge/core:* only.",
   );
+} else if (process.env.DEBUG) {
+  console.log(`DEBUG namespaces: ${process.env.DEBUG}`);
 }
 
 if (process.platform === "darwin") {
@@ -75,11 +80,9 @@ if (fs.existsSync(viteDir)) {
 }
 console.log("=== end packaging environment ===");
 
-if (
-  process.platform === "win32" &&
-  (process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1" ||
-    process.env.GITHUB_ACTIONS === "true")
-) {
-  const { dumpFullWindowsPackagingState } = await import("./windows-packaging-debug.mjs");
-  dumpFullWindowsPackagingState("log-packaging-env-after-summary");
+if (process.platform === "win32") {
+  const viteMain = path.join(root, ".vite", "build", "main.js");
+  console.log(`probe .vite/build/main.js: ${fs.existsSync(viteMain) ? "exists" : "missing (expected after clean)"}`);
+  const pkgDir = path.join(root, "out", "Atlarix-win32-x64");
+  console.log(`probe out/Atlarix-win32-x64: ${fs.existsSync(pkgDir) ? "exists" : "missing (expected after clean)"}`);
 }

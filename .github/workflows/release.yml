@@ -519,13 +519,17 @@ jobs:
           npm run clean
           node scripts/log-packaging-env.mjs
           node scripts/dump-windows-packaging-state.mjs --label post-clean
-          npm run ci:package:win
+          npm run ci:build:win
           if (-not $?) { exit $LASTEXITCODE }
+          node scripts/dump-windows-packaging-state.mjs --label post-build
+          Write-Host "--- Test-Path probes (post ci:build:win) ---"
+          Write-Host "main.js: $(Test-Path '.vite/build/main.js')"
+          Write-Host "preload.js: $(Test-Path '.vite/build/preload.js')"
+          Write-Host "package dir: $(Test-Path 'out/Atlarix-win32-x64')"
+          Write-Host "atlarix.exe: $(Test-Path 'out/Atlarix-win32-x64/atlarix.exe')"
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/dump-windows-packaging-state.mjs --label post-package
-          npm run ci:installers
-          if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
@@ -533,8 +537,6 @@ jobs:
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
           ATLARIX_WINDOWS_PACKAGING_DEBUG: "1"
           ATLARIX_PACKAGING_DEBUG: "1"
-          # Packager + Forge core API (avoid bare electron-forge:* — changes listr on Windows CI)
-          DEBUG: "electron-packager:*,@electron-forge/core:*"
 
       - name: Windows packaging debug (post-mortem)
         if: failure()
