@@ -254,6 +254,10 @@ const ignore = (file: string) => {
   if (file === "/out" || file.startsWith("/out/")) {
     return true;
   }
+  // Required for validateElectronApp; Vite plugin also writes this in packageAfterCopy.
+  if (file === "/package.json") {
+    return false;
+  }
   if (file === "/node_modules") {
     return false;
   }

@@ -34,7 +34,7 @@ Environment on package/make step:
 - `ELECTRON_CACHE` → `${{ github.workspace }}/.cache/electron` (packager `download.cacheRoot`)
 - `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp` (general temp; not packager staging)
 - Packager `tmpdir` on GHA → `$RUNNER_TEMP/atlarix-electron-packager` (outside repo — avoids copying `.cache` into itself)
-- `forge.config` / fast ignore exclude `/.cache` and `/out` from the app copy
+- `forge.config` / fast ignore exclude `/.cache` and `/out` from the app copy; **`/package.json` is always included**
 
 Workflow also runs `node scripts/win-ci-electron-zip.mjs --verify` after `electron/install.js`.
 

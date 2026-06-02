@@ -41,6 +41,10 @@ function isWorkspaceMetaPath(file) {
   return false;
 }
 
+function isRequiredAppRootFile(file) {
+  return file === "/package.json";
+}
+
 /**
  * @param {(file: string) => boolean} forgeIgnore from forge.config packagerConfig.ignore
  * @returns {(file: string) => boolean}
@@ -49,6 +53,7 @@ export function createFastPackagerIgnore(forgeIgnore) {
   return (file) => {
     if (!file) return false;
     if (isWorkspaceMetaPath(file)) return true;
+    if (isRequiredAppRootFile(file)) return false;
     if (file.startsWith("/node_modules")) {
       if (!isAllowedNodeModulesPath(file)) return true;
       return forgeIgnore(file);
@@ -66,6 +71,7 @@ export function wrapPackagerIgnore(ignore) {
     return (file) => {
       if (!file) return false;
       if (isWorkspaceMetaPath(file)) return true;
+      if (isRequiredAppRootFile(file)) return false;
       return ignore(file);
     };
   }

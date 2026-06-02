@@ -174,7 +174,7 @@ export async function packageAppDirect(tag) {
   fs.mkdirSync(PACKAGER_TMP, { recursive: true });
 
   const afterCopySubHooks = [
-    async (buildPath, ev, pPlatform, pArch, done) => {
+    async (buildPath, ev, pPlatform, pArch) => {
       phases.start("afterCopy:strip-bin-symlinks", { buildPath });
       try {
         const bins = await fg(path.join(buildPath, "**/.bin/**/*"));
@@ -183,24 +183,22 @@ export async function packageAppDirect(tag) {
           await fsExtra.remove(bin);
         }
         phases.end("afterCopy:strip-bin-symlinks", { detail: `removed=${bins.length}` });
-        done();
       } catch (err) {
         phases.end("afterCopy:strip-bin-symlinks", { detail: `error=${err.message}` });
-        done(err);
+        throw err;
       }
     },
-    async (buildPath, ev, pPlatform, pArch, done) => {
+    async (buildPath, ev, pPlatform, pArch) => {
       phases.start("afterCopy:packageAfterCopy", { buildPath });
       try {
         await runHook(forgeConfig, "packageAfterCopy", buildPath, ev, pPlatform, pArch);
         phases.end("afterCopy:packageAfterCopy");
-        done();
       } catch (err) {
         phases.end("afterCopy:packageAfterCopy", { detail: `error=${err.message}` });
-        done(err);
+        throw err;
       }
     },
-    async (buildPath, ev, pPlatform, pArch, done) => {
+    async (buildPath, ev, pPlatform, pArch) => {
       phases.start("afterCopy:native-rebuild", { buildPath });
       try {
         if (process.env.GITHUB_ACTIONS !== "true") {
@@ -217,13 +215,12 @@ export async function packageAppDirect(tag) {
           console.log(`[${tag}] skipping afterCopy rebuild on GHA (packageAfterPrune rebuilds)`);
         }
         phases.end("afterCopy:native-rebuild", { detail: "skipped-on-gha" });
-        done();
       } catch (err) {
         phases.end("afterCopy:native-rebuild", { detail: `error=${err.message}` });
-        done(err);
+        throw err;
       }
     },
-    async (buildPath, ev, pPlatform, pArch, done) => {
+    async (buildPath, ev, pPlatform, pArch) => {
       phases.start("afterCopy:write-package-json", { buildPath });
       try {
         const copiedPackageJSON = await readMutatedPackageJson(buildPath, forgeConfig);
@@ -235,26 +232,24 @@ export async function packageAppDirect(tag) {
         });
         phases.end("afterCopy:write-package-json");
         logPackagerWorkDirSnapshot(`${tag}-after-copy`, packagerTmpdir);
-        done();
       } catch (err) {
         phases.end("afterCopy:write-package-json", { detail: `error=${err.message}` });
-        done(err);
+        throw err;
       }
     },
   ];
 
   const afterPruneHooks = [
-    async (buildPath, ev, pPlatform, pArch, done) => {
+    async (buildPath, ev, pPlatform, pArch) => {
       phases.start("afterPrune:packageAfterPrune", { buildPath });
       try {
         console.log(`[${tag}] hook afterPrune → packageAfterPrune`);
         await runHook(forgeConfig, "packageAfterPrune", buildPath, ev, pPlatform, pArch);
         phases.end("afterPrune:packageAfterPrune");
         logPackagerWorkDirSnapshot(`${tag}-after-prune`, packagerTmpdir);
-        done();
       } catch (err) {
         phases.end("afterPrune:packageAfterPrune", { detail: `error=${err.message}` });
-        done(err);
+        throw err;
       }
     },
   ];
@@ -286,34 +281,31 @@ export async function packageAppDirect(tag) {
     arch: ARCH,
     platform: PLATFORM,
     beforeCopy: serialHooks([
-      async (buildPath, ev, pPlatform, pArch, done) => {
+      async (buildPath) => {
         phases.start("copy-walk", {
           buildPath,
           detail: "fs.copy repo→resources/app (ends when first afterCopy runs)",
         });
         logPackagerWorkDirSnapshot(`${tag}-before-copy`, packagerTmpdir);
-        done();
       },
     ]),
     afterCopy: serialHooks([
-      async (buildPath, ev, pPlatform, pArch, done) => {
+      async (buildPath) => {
         phases.end("copy-walk", { detail: "copy+prune filter walk finished" });
-        done();
       },
       ...afterCopySubHooks,
     ]),
     afterPrune: serialHooks(afterPruneHooks),
     afterExtract: serialHooks([
-      async (buildPath, ev, pPlatform, pArch, done) => {
+      async (buildPath, ev, pPlatform, pArch) => {
         phases.start("afterExtract", { buildPath });
         try {
           await runHook(forgeConfig, "packageAfterExtract", buildPath, ev, pPlatform, pArch);
           phases.end("afterExtract");
           logPackagerWorkDirSnapshot(`${tag}-after-extract`, packagerTmpdir);
-          done();
         } catch (err) {
           phases.end("afterExtract", { detail: `error=${err.message}` });
-          done(err);
+          throw err;
         }
       },
     ]),
