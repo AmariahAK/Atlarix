@@ -13,7 +13,9 @@ Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA
 
 - Child process + event-loop keep-alive
 - **`fastIgnore`** on GHA: skip most `node_modules` without running full `forge.config` ignore on every file
-- **Electron zip** (`scripts/win-ci-electron-zip.mjs`): verify zip size before packager; on GHA win32 **bypass `extract-zip`** with PowerShell `Expand-Archive` (fixes stuck ~528 KiB partial template)
+- **`sequentialPackagerHooks`** — Forge-compatible callback hooks so `packageAfterCopy` / **`packageAfterPrune`** run (not broken `serialHooks` + async)
+- **Electron zip** (`scripts/win-ci-electron-zip.mjs`): verify zip size before packager; on GHA win32 **bypass `extract-zip`** with PowerShell `Expand-Archive`
+- **`verify-ci-package-out`** on win32: `resources/app.asar`, `resources/ast-grep-grammars/**/parser.so`, Setup.exe ≥ 200 MiB
 - **Instrumentation** (`scripts/win-ci-packager-instrumentation.mjs`):
   - **`[win-packager-phase]`** — timed boundaries: `afterExtract`, `copy-walk` (until first `afterCopy`), each `afterCopy` hook, `afterPrune`, `packager-await`
   - **`[win-packager-snapshot]`** — sizes for `electron-packager/tmp-*` staging, `resources/app`, `app.asar` (not only abandoned `template-*` dirs)

@@ -98,6 +98,63 @@ function dumpPackagingDiagnostics(context) {
   console.error("=== end diagnostics ===");
 }
 
+function formatBytes(n) {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GiB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MiB`;
+  return `${n} B`;
+}
+
+/** v9.0.0 Setup.exe ~360 MiB; v9.1.18 without packageAfterPrune ~145 MiB. */
+const MIN_WIN_SETUP_BYTES = 200 * 1024 * 1024;
+
+function findFilesNamed(dir, name, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) findFilesNamed(full, name, out);
+    else if (entry.isFile() && entry.name === name) out.push(full);
+  }
+  return out;
+}
+
+function verifyWindowsPackagedResources(packageDir) {
+  const resourcesDir = path.join(packageDir, "resources");
+  const appAsar = path.join(resourcesDir, "app.asar");
+  if (!fs.existsSync(appAsar)) {
+    return `missing ${path.relative(process.cwd(), appAsar)}`;
+  }
+  const grammarsDir = path.join(resourcesDir, "ast-grep-grammars");
+  if (!fs.existsSync(grammarsDir)) {
+    return `missing ${path.relative(process.cwd(), grammarsDir)} (packageAfterPrune may not have run)`;
+  }
+  const parserFiles = findFilesNamed(grammarsDir, "parser.so");
+  if (parserFiles.length === 0) {
+    return `no parser.so under ${path.relative(process.cwd(), grammarsDir)}`;
+  }
+  console.log(
+    `OK: win32 resources app.asar + ast-grep-grammars (${parserFiles.length} parser.so)`,
+  );
+  return null;
+}
+
+function verifyWindowsSetupSize(makeFiles) {
+  const setup = makeFiles.find(
+    (f) => f.toLowerCase().endsWith(".exe") && path.basename(f).includes("Setup"),
+  );
+  if (!setup) {
+    return "no Setup.exe under out/make";
+  }
+  const bytes = fs.statSync(setup).size;
+  console.log(`OK: ${path.basename(setup)} size=${formatBytes(bytes)}`);
+  if (bytes < MIN_WIN_SETUP_BYTES) {
+    return (
+      `${path.basename(setup)} too small (${formatBytes(bytes)} < ${formatBytes(MIN_WIN_SETUP_BYTES)}); ` +
+      "packageAfterPrune likely skipped — compare with v9.0.0 ~360 MiB"
+    );
+  }
+  return null;
+}
+
 async function fail(msg, context) {
   dumpPackagingDiagnostics(context);
   console.error(`::error::${msg}`);
@@ -141,6 +198,13 @@ async function main() {
     }
   }
 
+  if (platform === "win32") {
+    const resourceErr = verifyWindowsPackagedResources(packageDir);
+    if (resourceErr) {
+      await fail(resourceErr, "win32-missing-packaged-resources");
+    }
+  }
+
   if (stage === "make") {
     const makeDir = path.join(outDir, "make");
     if (!fs.existsSync(makeDir)) {
@@ -158,6 +222,13 @@ async function main() {
       console.log(`  - ${path.relative(root, f)}`);
     }
     if (files.length > 8) console.log(`  ... and ${files.length - 8} more`);
+
+    if (platform === "win32") {
+      const sizeErr = verifyWindowsSetupSize(files);
+      if (sizeErr) {
+        await fail(sizeErr, "win32-setup-too-small");
+      }
+    }
   }
 
   console.log(`OK: packaged app at ${packageDir}`);

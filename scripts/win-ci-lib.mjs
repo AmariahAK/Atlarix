@@ -27,6 +27,7 @@ import {
   installWindowsCiElectronExtractPatch,
   resolveElectronCacheRoot,
 } from "./win-ci-electron-zip.mjs";
+import { sequentialPackagerHooks } from "./win-ci-packager-hooks.mjs";
 
 /** Windows CI: fail if packager produces no out/ within this window. */
 export const PACKAGER_TIMEOUT_MS = 50 * 60 * 1000;
@@ -39,7 +40,6 @@ const { readMutatedPackageJson } = require("@electron-forge/core/dist/util/read-
 const { getElectronVersion } = require("@electron-forge/core-utils/dist/electron-version.js");
 const outDirFn = resolveCjsDefault("@electron-forge/core/dist/util/out-dir.js");
 const { packager } = require("@electron/packager");
-const { serialHooks } = require("@electron/packager/dist/hooks.js");
 const { rebuild } = require("@electron/rebuild");
 
 export const PLATFORM = "win32";
@@ -280,7 +280,7 @@ export async function packageAppDirect(tag) {
     dir,
     arch: ARCH,
     platform: PLATFORM,
-    beforeCopy: serialHooks([
+    beforeCopy: sequentialPackagerHooks([
       async (buildPath) => {
         phases.start("copy-walk", {
           buildPath,
@@ -289,14 +289,14 @@ export async function packageAppDirect(tag) {
         logPackagerWorkDirSnapshot(`${tag}-before-copy`, packagerTmpdir);
       },
     ]),
-    afterCopy: serialHooks([
+    afterCopy: sequentialPackagerHooks([
       async (buildPath) => {
         phases.end("copy-walk", { detail: "copy+prune filter walk finished" });
       },
       ...afterCopySubHooks,
     ]),
-    afterPrune: serialHooks(afterPruneHooks),
-    afterExtract: serialHooks([
+    afterPrune: sequentialPackagerHooks(afterPruneHooks),
+    afterExtract: sequentialPackagerHooks([
       async (buildPath, ev, pPlatform, pArch) => {
         phases.start("afterExtract", { buildPath });
         try {
