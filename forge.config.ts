@@ -366,8 +366,15 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
       }
     }
   }
-  // Production Vite builds disable sourcemaps; avoid walking all of node_modules on CI (high RAM).
+  // Vite build has no sourcemaps; hook `npm install` still drops ~10k+ `.map` files under node_modules.
   await walk(path.join(buildPath, ".vite", "build"));
+  const nm = path.join(buildPath, "node_modules");
+  try {
+    await fs.access(nm);
+    await walk(nm);
+  } catch {
+    /* no node_modules yet */
+  }
   if (removed > 0) {
     console.log(`[packageAfterPrune] removed ${removed} .map file(s)`);
   }
