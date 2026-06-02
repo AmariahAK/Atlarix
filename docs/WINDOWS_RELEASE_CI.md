@@ -2,7 +2,7 @@
 
 Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA) because Forge’s package listr exits before `out/` is written on `windows-latest`.
 
-## CI flow (v9.1.14+)
+## CI flow
 
 1. `npm run clean`
 2. **`node scripts/win-ci-vite.mjs`** — production Vite / Forge prePackage
@@ -13,34 +13,22 @@ Windows uses **direct `@electron/packager`** (no `electron-forge package` on GHA
 
 - Child process + event-loop keep-alive
 - **`fastIgnore`** on GHA: skip most `node_modules` without running full `forge.config` ignore on every file
-- **`sequentialPackagerHooks`** — Forge-compatible callback hooks so `packageAfterCopy` / **`packageAfterPrune`** run (not broken `serialHooks` + async)
+- **`sequentialPackagerHooks`** — Forge-compatible callback hooks so `packageAfterCopy` / **`packageAfterPrune`** run
 - **Electron zip** (`scripts/win-ci-electron-zip.mjs`): verify zip size before packager; on GHA win32 **bypass `extract-zip`** with PowerShell `Expand-Archive`
 - **`verify-ci-package-out`** on win32: `resources/app.asar`, `resources/ast-grep-grammars/**/parser.so`, Setup.exe ≥ 200 MiB
-- **Instrumentation** (`scripts/win-ci-packager-instrumentation.mjs`):
-  - **`[win-packager-phase]`** — timed boundaries: `afterExtract`, `copy-walk` (until first `afterCopy`), each `afterCopy` hook, `afterPrune`, `packager-await`
-  - **`[win-packager-snapshot]`** — sizes for `electron-packager/tmp-*` staging, `resources/app`, `app.asar` (not only abandoned `template-*` dirs)
-  - **`[win-packager-heartbeat]`** every 60s on GHA win32: current phase, staging/resources/app bytes + Δ since last tick, memory; stall warning if no growth 3+ min
-  - Failure / timeout dumps call the same snapshot helpers
-- **50 min** in-process timeout; GHA step **55 min** `timeout-minutes`
-- `DEBUG=electron-packager:*` on the package step
-
-### `packageAfterPrune`
-
-- Light logs on GHA (`logTopNodeModules`, `npm install` count)
-- Full `dump-windows-packaging-state` only when `ATLARIX_WINDOWS_PACKAGING_DEBUG=1`
 
 Environment on package/make step:
 
 - Node **24**
 - `NODE_OPTIONS=--max-old-space-size=8192`
-- `ELECTRON_CACHE` → `${{ github.workspace }}/.cache/electron` (packager `download.cacheRoot`)
-- `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp` (general temp; not packager staging)
-- Packager `tmpdir` on GHA → `$RUNNER_TEMP/atlarix-electron-packager` (outside repo — avoids copying `.cache` into itself)
+- `ELECTRON_CACHE` → `${{ github.workspace }}/.cache/electron`
+- `TMP` / `TEMP` → `${{ github.workspace }}/.cache/packager-tmp`
+- Packager `tmpdir` on GHA → `$RUNNER_TEMP/atlarix-electron-packager`
 - `forge.config` / fast ignore exclude `/.cache` and `/out` from the app copy; **`/package.json` is always included**
 
 Workflow also runs `node scripts/win-ci-electron-zip.mjs --verify` after `electron/install.js`.
 
-macOS/Linux still use `ci:package` + `ci:installers`.
+macOS/Linux use `ci:package` + `ci:installers`.
 
 ## Local
 
@@ -50,17 +38,11 @@ node scripts/win-ci-vite.mjs
 node scripts/win-ci-package.mjs
 ```
 
+Or: `npm run ci:build:win` after Vite prerequisites are met.
+
 ## Success signals
 
-- Heartbeats show **staging `tmp-*` and `resources/app` growing**, then `packageDir=true exe=true`
-- `[win-packager-phase] end beforeCopy` then later `end afterCopy:*` and `end afterPrune:packageAfterPrune`
-- `[packageAfterPrune] start` / `done`
-- `[win-ci-package] OK packaged app at …\out\Atlarix-win32-x64`
+- `[packageAfterPrune] start` / `done` and `removed N .map file(s)`
+- `[win-ci-packager-worker] OK packaged app at …\out\Atlarix-win32-x64`
+- `verify-ci-package-out` OK for package and make stages
 - `out/make` Squirrel artifacts
-
-## Escalation
-
-| Script | Role |
-|--------|------|
-| `npm run make` | Full local / fallback Forge make |
-| `npm run dump:windows-packaging` | Manual debug dump |

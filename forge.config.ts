@@ -409,9 +409,6 @@ const config: ForgeConfig = {
             }),
           },
     osxNotarize: undefined,
-    // Forge defaults quiet:true; on CI surface packager/asar stderr (see electron-forge packageOpts).
-    // @ts-expect-error quiet is forwarded to electron-packager
-    quiet: process.env.GITHUB_ACTIONS !== "true",
     asar: true,
     asarUnpack: [
       "**/@ast-grep/napi-darwin-*/**",
@@ -499,26 +496,6 @@ const config: ForgeConfig = {
       console.log(
         `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
       );
-      if (process.env.GITHUB_ACTIONS === "true") {
-        try {
-          const { logTopNodeModules } = await import("./scripts/packaging-diagnostics.mjs");
-          logTopNodeModules(buildPath, 15);
-        } catch (e) {
-          console.warn("[packageAfterPrune] logTopNodeModules failed:", e);
-        }
-      }
-      if (process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1") {
-        try {
-          const { dumpFullWindowsPackagingState } = await import(
-            "./scripts/windows-packaging-debug.mjs"
-          );
-          dumpFullWindowsPackagingState("packageAfterPrune-start", {
-            detail: buildPath,
-          });
-        } catch (e) {
-          console.warn("[packageAfterPrune] windows debug import failed:", e);
-        }
-      }
 
       const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
       const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
@@ -580,10 +557,6 @@ const config: ForgeConfig = {
       }
 
       if (toInstall.length > 0) {
-        if (process.env.GITHUB_ACTIONS === "true") {
-          const { logToInstallSummary } = await import("./scripts/packaging-diagnostics.mjs");
-          logToInstallSummary(toInstall);
-        }
         console.log(
           `[packageAfterPrune] npm install (${toInstall.length} roots) — may take several minutes on Windows CI`,
         );
@@ -673,18 +646,6 @@ const config: ForgeConfig = {
 
       await stripSourceMapsFromBuild(buildPath);
       console.log(`[packageAfterPrune] done buildPath=${buildPath}`);
-      if (process.env.ATLARIX_WINDOWS_PACKAGING_DEBUG === "1") {
-        try {
-          const { dumpFullWindowsPackagingState } = await import(
-            "./scripts/windows-packaging-debug.mjs"
-          );
-          dumpFullWindowsPackagingState("packageAfterPrune-done", {
-            detail: buildPath,
-          });
-        } catch {
-          /* ignore */
-        }
-      }
       } catch (err) {
         console.error("[packageAfterPrune] FATAL ERROR:", err);
         if (err instanceof Error && err.stack) {

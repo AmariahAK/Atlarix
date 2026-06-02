@@ -13,10 +13,6 @@ on:
       version:
         description: "Version tag (e.g., v1.0.0)"
         required: false
-      packaging_debug:
-        description: "Extra Windows packaging logs (always on for build-windows; enables workflow_dispatch-only overrides)"
-        type: boolean
-        default: true
 
 # Retagging the same version cancels in-progress runs by default; that often aborts
 # build-windows during setup-node npm cache restore (no error line, step shows failure).
@@ -537,7 +533,6 @@ jobs:
           ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
-          DEBUG: "electron-packager:*"
 
       - name: Upload Windows assets to release
         if: success()

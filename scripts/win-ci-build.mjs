@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * Windows release build (local): Vite then packager in separate Node processes.
- * CI uses ci-win-release.mjs which runs win-ci-vite.mjs + win-ci-package.mjs the same way.
+ * Same steps as CI: win-ci-vite.mjs then win-ci-package.mjs.
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dumpFailureDiagnostics, registerFatalHandlers } from "./win-ci-lib.mjs";
+import { logFailureContext, registerFatalHandlers } from "./win-ci-lib.mjs";
 
 const TAG = "win-ci-build";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,7 @@ function runNodeScript(label, scriptPath) {
   });
   if (result.status !== 0) {
     console.error(`::error::[${TAG}] ${label} failed (exit ${result.status ?? "?"})`);
-    dumpFailureDiagnostics(TAG);
+    logFailureContext(TAG);
     process.exit(result.status ?? 1);
   }
 }

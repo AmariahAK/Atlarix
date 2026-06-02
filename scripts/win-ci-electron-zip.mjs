@@ -7,9 +7,79 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { directoryStats, formatBytes } from "./win-ci-packager-instrumentation.mjs";
-
 const PREFIX = "[win-ci-electron-zip]";
+
+function formatBytes(n) {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GiB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MiB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  return `${n} B`;
+}
+
+function directoryStats(target, opts = {}) {
+  const maxFiles = opts.maxFiles ?? 80_000;
+  const started = Date.now();
+  let bytes = 0;
+  let files = 0;
+  let dirs = 0;
+  let truncated = false;
+
+  if (!fs.existsSync(target)) {
+    return { bytes: 0, files: 0, dirs: 0, truncated: false, exists: false, walkMs: 0 };
+  }
+
+  const st = fs.statSync(target);
+  if (!st.isDirectory()) {
+    return {
+      bytes: st.size,
+      files: 1,
+      dirs: 0,
+      truncated: false,
+      exists: true,
+      walkMs: Date.now() - started,
+    };
+  }
+
+  const stack = [target];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (files >= maxFiles) {
+        truncated = true;
+        break;
+      }
+      const full = path.join(dir, e.name);
+      try {
+        if (e.isSymbolicLink()) continue;
+        if (e.isDirectory()) {
+          dirs++;
+          stack.push(full);
+        } else if (e.isFile()) {
+          bytes += fs.statSync(full).size;
+          files++;
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    if (truncated) break;
+  }
+
+  return {
+    bytes,
+    files,
+    dirs,
+    truncated,
+    exists: true,
+    walkMs: Date.now() - started,
+  };
+}
 
 /** electron-v38.x win32-x64.zip is ~110MB+; reject truncated cache artifacts. */
 export const MIN_ELECTRON_ZIP_BYTES = 80 * 1024 * 1024;

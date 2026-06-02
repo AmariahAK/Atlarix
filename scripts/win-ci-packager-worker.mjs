@@ -5,7 +5,7 @@
  */
 import {
   assertMainJs,
-  dumpFailureDiagnostics,
+  logFailureContext,
   packageAppDirect,
   registerFatalHandlers,
 } from "./win-ci-lib.mjs";
@@ -25,6 +25,6 @@ main()
   })
   .catch((err) => {
     console.error(`[${TAG}] fatal:`, err);
-    dumpFailureDiagnostics(TAG);
+    logFailureContext(TAG);
     process.exit(1);
   });

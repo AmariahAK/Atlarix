@@ -5,10 +5,9 @@
  */
 import {
   buildProductionViteBundles,
-  dumpFailureDiagnostics,
+  logFailureContext,
   registerFatalHandlers,
 } from "./win-ci-lib.mjs";
-import { logPackagingStep } from "./packaging-diagnostics.mjs";
 
 const TAG = "win-ci-vite";
 
@@ -16,14 +15,12 @@ registerFatalHandlers(TAG);
 
 async function main() {
   console.log(`[${TAG}] production Vite build (Forge prePackage)`);
-  logPackagingStep(`${TAG}:start`);
   await buildProductionViteBundles(TAG);
-  logPackagingStep(`${TAG}:done`);
   console.log(`[${TAG}] OK: .vite/build ready`);
 }
 
 main().catch((err) => {
   console.error(`[${TAG}] fatal:`, err);
-  dumpFailureDiagnostics(TAG);
+  logFailureContext(TAG);
   process.exit(1);
 });

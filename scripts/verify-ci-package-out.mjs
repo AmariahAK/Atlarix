@@ -8,9 +8,7 @@
  *   node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64
  *   node scripts/verify-ci-package-out.mjs --stage package --platform linux --arch x64
  */
-import { execSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 function parseArgs(argv) {
@@ -33,69 +31,6 @@ function listFilesRecursive(dir) {
     else if (entry.isFile()) out.push(full);
   }
   return out;
-}
-
-function runSafe(cmd) {
-  try {
-    return execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  } catch {
-    return "(unavailable)";
-  }
-}
-
-function dumpPackagingDiagnostics(context) {
-  const root = process.cwd();
-  const outDir = path.join(root, "out");
-  console.error("=== verify-ci-package-out diagnostics ===");
-  console.error(`context: ${context}`);
-  console.error(`cwd: ${root}`);
-  console.error(`time: ${new Date().toISOString()}`);
-  console.error(`node: ${process.version} ${process.arch} ${process.platform}`);
-  if (process.env.GITHUB_ACTIONS === "true") {
-    console.error(`github.run_id: ${process.env.GITHUB_RUN_ID ?? "?"}`);
-    console.error(`github.job: ${process.env.GITHUB_JOB ?? "?"}`);
-  }
-  console.error(`env.CI=${process.env.CI ?? "(unset)"}`);
-  console.error(`env.ATLARIX_PACKAGING_DEBUG=${process.env.ATLARIX_PACKAGING_DEBUG ?? "(unset)"}`);
-  console.error(`env.DEBUG=${process.env.DEBUG ?? "(unset)"}`);
-  if (fs.existsSync(outDir)) {
-    console.error(`out/ tree:\n${runSafe(`find "${outDir}" -maxdepth 3 -type d 2>/dev/null | head -40`)}`);
-    console.error(`out/ files (max 30):\n${runSafe(`find "${outDir}" -type f 2>/dev/null | head -30`)}`);
-  } else {
-    console.error("out/ is missing entirely");
-    console.error(
-      `repo root entries: ${fs.readdirSync(root).filter((e) => !e.startsWith(".")).join(", ")}`,
-    );
-  }
-  const viteBuild = path.join(root, ".vite", "build");
-  console.error(`.vite/build exists: ${fs.existsSync(viteBuild)}`);
-  if (process.platform === "win32") {
-    const workspaceTmp = path.join(root, ".cache", "packager-tmp");
-    console.error(`workspace .cache/packager-tmp exists: ${fs.existsSync(workspaceTmp)}`);
-    if (fs.existsSync(workspaceTmp)) {
-      try {
-        const entries = fs.readdirSync(workspaceTmp);
-        console.error(
-          `packager-tmp entries (max 15): ${entries.slice(0, 15).join(", ") || "(empty)"}`,
-        );
-      } catch {
-        /* ignore */
-      }
-    }
-    const tempRoot = path.join(os.tmpdir(), "electron-packager");
-    console.error(`temp ${tempRoot} exists: ${fs.existsSync(tempRoot)}`);
-    if (fs.existsSync(tempRoot)) {
-      try {
-        const entries = fs.readdirSync(tempRoot);
-        console.error(
-          `electron-packager temp entries (max 15): ${entries.slice(0, 15).join(", ") || "(empty)"}`,
-        );
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  console.error("=== end diagnostics ===");
 }
 
 function formatBytes(n) {
@@ -155,8 +90,7 @@ function verifyWindowsSetupSize(makeFiles) {
   return null;
 }
 
-async function fail(msg, context) {
-  dumpPackagingDiagnostics(context);
+async function fail(msg) {
   console.error(`::error::${msg}`);
   process.exit(1);
 }
@@ -174,7 +108,6 @@ async function main() {
   if (!fs.existsSync(outDir)) {
     await fail(
       `Missing out/ after ${stage}. Search logs for [packageAfterPrune], [win-ci-package], or electron-forge Finalizing package.`,
-      "missing-out-dir",
     );
   }
 
@@ -183,7 +116,6 @@ async function main() {
     const entries = fs.readdirSync(outDir);
     await fail(
       `Missing packaged app at ${packageDir}. Found under out/: ${entries.join(", ") || "(empty)"}`,
-      "missing-package-dir",
     );
   }
 
@@ -193,7 +125,6 @@ async function main() {
       const entries = fs.readdirSync(packageDir);
       await fail(
         `Missing ${appName}.app under ${packageDir}. Found: ${entries.join(", ") || "(empty)"}`,
-        "missing-darwin-app-bundle",
       );
     }
   }
@@ -201,7 +132,7 @@ async function main() {
   if (platform === "win32") {
     const resourceErr = verifyWindowsPackagedResources(packageDir);
     if (resourceErr) {
-      await fail(resourceErr, "win32-missing-packaged-resources");
+      await fail(resourceErr);
     }
   }
 
@@ -210,12 +141,11 @@ async function main() {
     if (!fs.existsSync(makeDir)) {
       await fail(
         `Missing out/make after make (packaged dir exists at ${packageDir}). Makers did not run — check hook.postMake in logs.`,
-        "missing-out-make",
       );
     }
     const files = listFilesRecursive(makeDir);
     if (files.length === 0) {
-      await fail("out/make exists but contains no distributable files", "empty-out-make");
+      await fail("out/make exists but contains no distributable files");
     }
     console.log(`OK: ${files.length} file(s) under out/make`);
     for (const f of files.slice(0, 8)) {
@@ -226,7 +156,7 @@ async function main() {
     if (platform === "win32") {
       const sizeErr = verifyWindowsSetupSize(files);
       if (sizeErr) {
-        await fail(sizeErr, "win32-setup-too-small");
+        await fail(sizeErr);
       }
     }
   }
