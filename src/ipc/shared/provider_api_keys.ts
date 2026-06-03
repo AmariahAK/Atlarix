@@ -1,6 +1,10 @@
 import { db } from "@/db";
 import { providerApiKeys } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import {
+    deserializeApiKeyFromDb,
+    serializeApiKeyForDb,
+} from "@/lib/security/db-secrets";
 
 /**
  * Get API key for a provider from local database
@@ -14,7 +18,7 @@ export async function getProviderApiKey(providerId: string): Promise<string | un
         .where(eq(providerApiKeys.providerId, providerId))
         .get();
 
-    return result?.apiKey;
+    return deserializeApiKeyFromDb(result?.apiKey);
 }
 
 /**
@@ -34,7 +38,7 @@ export async function setProviderApiKey(providerId: string, apiKey: string): Pro
         await db
             .update(providerApiKeys)
             .set({
-                apiKey,
+                apiKey: serializeApiKeyForDb(apiKey),
                 updatedAt: new Date()
             })
             .where(eq(providerApiKeys.providerId, providerId));
@@ -42,7 +46,7 @@ export async function setProviderApiKey(providerId: string, apiKey: string): Pro
         // Insert new key
         await db.insert(providerApiKeys).values({
             providerId,
-            apiKey,
+            apiKey: serializeApiKeyForDb(apiKey),
         });
     }
     // PASS8 F2: configured-providers cache must be busted whenever the set changes.

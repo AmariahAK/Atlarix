@@ -10,32 +10,13 @@
 
 import { ipcMain } from "electron";
 import * as fs from "fs/promises";
-import * as path from "path";
-import { db } from "@/db";
-import { apps } from "@/db/schema";
-import {
-  assertIpcReadableFilePath,
-  PATH_ESCAPE_BLOCK_MESSAGE,
-} from "@/lib/security/env-secret-paths";
+import * as path from "node:path";
+import { assertFileUnderRegisteredWorkspace } from "@/lib/security/workspace-path";
 
 const logger = {
   log: (...args: unknown[]) => console.log("[FileHandlers]", ...args),
   error: (...args: unknown[]) => console.error("[FileHandlers]", ...args),
 };
-
-async function assertFileUnderRegisteredWorkspace(filePath: string): Promise<void> {
-  assertIpcReadableFilePath(filePath);
-  const resolved = path.resolve(filePath);
-  const rows = await db.select({ path: apps.path }).from(apps);
-  const allowed = rows.some((row) => {
-    if (!row.path) return false;
-    const root = path.resolve(row.path);
-    return resolved === root || resolved.startsWith(root + path.sep);
-  });
-  if (!allowed) {
-    throw new Error(PATH_ESCAPE_BLOCK_MESSAGE);
-  }
-}
 
 /**
  * Register file-related IPC handlers

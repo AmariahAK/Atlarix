@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { ExternalLink, KeyRound, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { showError, showSuccess } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
@@ -163,6 +163,10 @@ export function McpMarketplaceTab({
   }, [filtered, page, totalPages]);
 
   const onConnect = useCallback((entry: McpRegistryEntry) => {
+    if (entry.authType === "oauth") {
+      setInstallDialog({ entry, env: {} });
+      return;
+    }
     const initialEnv: Record<string, string> = {};
     for (const v of entry.envVars ?? []) initialEnv[v.key] = "";
     setInstallDialog({ entry, env: initialEnv });
@@ -186,6 +190,21 @@ export function McpMarketplaceTab({
       setInstallDialog(null);
       await refreshInstalled();
       onChanged?.();
+      if (res.needsOAuth && res.serverId != null) {
+        try {
+          await ipc.startMcpOAuth({
+            serverId: res.serverId,
+            scopes: entry.oauthScopes,
+          });
+          showSuccess(`Opening browser to sign in to ${entry.name}…`);
+        } catch (e) {
+          setFetchError(
+            e instanceof Error ? e.message : "Failed to start OAuth sign-in",
+          );
+        }
+      } else {
+        showSuccess(`Connected ${entry.name}`);
+      }
     } finally {
       setInstalling(false);
     }
@@ -312,6 +331,9 @@ export function McpMarketplaceTab({
                       {entry.authType === "env" && (
                         <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
+                      {entry.authType === "oauth" && (
+                        <KeyRound className="h-3.5 w-3.5 text-muted-foreground" aria-label="OAuth" />
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {entry.description}
@@ -386,7 +408,8 @@ export function McpMarketplaceTab({
                 Installing into workspace: <strong>{workspaceName}</strong>
               </p>
 
-              {(installDialog.entry.envVars ?? []).length > 0 && (
+              {(installDialog.entry.envVars ?? []).length > 0 &&
+                installDialog.entry.authType !== "oauth" && (
                 <div className="space-y-2">
                   <div className="text-xs text-muted-foreground">
                     Required environment variables — stored locally, never sent to Atlarix servers.
@@ -424,6 +447,13 @@ export function McpMarketplaceTab({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {installDialog.entry.authType === "oauth" && (
+                <p className="text-xs text-muted-foreground">
+                  After install, your browser will open to sign in to this remote MCP
+                  server. Credentials are stored locally on this device.
+                </p>
               )}
             </div>
 

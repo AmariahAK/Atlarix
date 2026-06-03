@@ -1,6 +1,6 @@
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
+import { ThemeProvider } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
@@ -31,12 +31,9 @@ import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import {
-  rightPanelVisibleAtom,
   leftPanelVisibleAtom,
   sourceListAtom,
   selectedSourceAtom,
-  diagramStalenessAtom,
-  diagramStateAtom,
   rightPanelSuppressAutoOpenAtom,
   pinnedPanelAtom,
   previewTabAtom,
@@ -73,16 +70,13 @@ function PersistentChatContainer() {
   const currentApp = useAtomValue(currentAppAtom);
   const { visible: rightPanelVisible, toggle: toggleRightPanel, show: showRightPanel } =
     useRightPanelUserPreference();
-  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setSuppressAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const sources = useAtomValue(sourceListAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setSelectedSource = useSetAtom(selectedSourceAtom);
-  const setDiagramState = useSetAtom(diagramStateAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
-  const { isDarkMode } = useTheme();
   const { isAuthenticated, loading: authLoading } = useAuth();
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const setPendingWorkspaceAppId = useSetAtom(pendingWorkspaceAppIdAtom);
@@ -260,7 +254,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const navigate = useNavigate();
-  const currentApp = useAtomValue(currentAppAtom);
   const { visible: rightPanelVisible, toggle: toggleRightPanel } = useRightPanelUserPreference();
   const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
   const setLeftPanelVisible = useSetAtom(leftPanelVisibleAtom);
@@ -289,9 +282,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
   const showWorkspaceChrome = selectedAppId != null;
-  const showWorkspacePanel = currentApp?.pathExists !== false;
 
-  // Load diagram when workspace is selected (even before first prompt)
+  // Load app when workspace is selected (even before first prompt)
   useLoadApp(selectedAppId);
 
   useEffect(() => {
@@ -386,21 +378,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     setChatInput("");
     setSelectedComponentsPreview([]);
   }, [selectedAppId]);
-
-  // Listen for diagram staleness events from main process
-  const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
-  useEffect(() => {
-    const unsubscribe = IpcClient.getInstance().onDiagramStalenessDetected((data) => {
-      setDiagramStaleness({
-        diagramId: data.diagramId,
-        isStale: data.isStale,
-        severity: data.severity as 'none' | 'minor' | 'moderate' | 'major',
-        reason: data.reason,
-        recommendation: data.recommendation as 'keep' | 'suggest-refresh' | 'force-refresh',
-      });
-    });
-    return () => unsubscribe();
-  }, [setDiagramStaleness]);
 
   // Fix: Finding 4 — models.dev background refresh (non-blocking notice)
   useEffect(() => {

@@ -23,6 +23,12 @@ import type {
   StoredFileAttachment,
 } from "../ipc_types";
 import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
+import {
+  createEphemeralWorkspaceChat,
+  getEphemeralChat,
+  getEphemeralChatAppId,
+  isEphemeralChatId,
+} from "@/lib/ephemeral-chat";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
@@ -80,6 +86,78 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
   };
 }
 
+/**
+ * Pure ordinal mapping for a session edit: given the session's full row list in
+ * chronological order, locate the DB row for the ephemeral message at `ephIdx`
+ * (among visible user/assistant, non-plan rows, offset by the load window) and
+ * the tail rows to delete. Extracted for unit testing.
+ */
+export function computeSessionEditTarget(
+  allRows: { id: string; role: string; kind: string | null }[],
+  ephIdx: number,
+  ephCount: number,
+): { targetId: string; deleteIds: string[] } | null {
+  if (ephIdx < 0) return null;
+  const visible = allRows.filter(
+    (r) => (r.role === "user" || r.role === "assistant") && r.kind !== "plan",
+  );
+  const dbOrdinal = visible.length - ephCount + ephIdx;
+  if (dbOrdinal < 0 || dbOrdinal >= visible.length) return null;
+  const target = visible[dbOrdinal]!;
+  const targetPos = allRows.findIndex((r) => r.id === target.id);
+  const deleteIds = allRows.slice(targetPos + 1).map((r) => r.id);
+  return { targetId: target.id, deleteIds };
+}
+
+/**
+ * Persist a user-message edit to the saved session: update the edited row's
+ * content and delete the (regenerated) tail after it. Maps the in-memory
+ * ephemeral message to its DB row by ordinal (ids don't correlate across the
+ * ephemeral/persisted stores), accounting for the SESSION_LOAD_MESSAGE_LIMIT
+ * load offset.
+ *
+ * @param chatId   numeric ephemeral/stream chat id (chatSessions.streamChatId)
+ * @param ephIdx   index of the edited message among ephemeral messages (pre-truncation)
+ * @param ephCount total ephemeral message count (pre-truncation)
+ */
+export async function persistEditedSessionMessage(
+  chatId: number,
+  ephIdx: number,
+  ephCount: number,
+  newContent: string,
+): Promise<void> {
+  if (ephIdx < 0) return;
+  const session = await db.query.chatSessions.findFirst({
+    where: eq(chatSessions.streamChatId, chatId),
+  });
+  if (!session) return; // not a persisted workspace session — nothing to update
+
+  const allRows = await db
+    .select()
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, session.id))
+    .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
+
+  const target = computeSessionEditTarget(allRows, ephIdx, ephCount);
+  if (!target) return; // can't map (offset edge) — leave the DB untouched
+
+  await db
+    .update(sessionMessages)
+    .set({ content: newContent })
+    .where(eq(sessionMessages.id, target.targetId));
+
+  if (target.deleteIds.length > 0) {
+    await db
+      .delete(sessionMessages)
+      .where(inArray(sessionMessages.id, target.deleteIds));
+  }
+
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: new Date() })
+    .where(eq(chatSessions.id, session.id));
+}
+
 async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
   const rows = await db
     .select({ id: sessionMessages.id })
@@ -124,6 +202,101 @@ export async function persistWorkspaceSessionUserMessage(
   return mapMessage(message);
 }
 
+/**
+ * Resolve workspace session id for an ephemeral transport chat.
+ * Uses DB stream_chat_id, then binds an unmapped transport to the latest session for the workspace.
+ */
+export async function resolveOrBindWorkspaceSessionForStream(input: {
+  workspaceSessionId?: string | null;
+  chatId: number;
+  workspaceAppId?: number | null;
+}): Promise<string> {
+  const provided = input.workspaceSessionId?.trim();
+  if (provided) return provided;
+
+  if (!isEphemeralChatId(input.chatId)) {
+    throw new Error("workspaceSessionId is required for workspace chat streams");
+  }
+
+  const byTransport = await db.query.chatSessions.findFirst({
+    where: eq(chatSessions.streamChatId, input.chatId),
+  });
+  if (byTransport) return byTransport.id;
+
+  const appId =
+    input.workspaceAppId ?? getEphemeralChatAppId(input.chatId);
+  if (appId == null || !getEphemeralChat(input.chatId)) {
+    throw new Error("workspaceSessionId is required for workspace chat streams");
+  }
+
+  const latest = await db.query.chatSessions.findFirst({
+    where: eq(chatSessions.workspaceId, appId),
+    orderBy: [desc(chatSessions.updatedAt)],
+  });
+
+  if (latest) {
+    const stored = latest.streamChatId;
+    if (
+      stored == null ||
+      (isEphemeralChatId(stored) && !getEphemeralChat(stored))
+    ) {
+      await persistSessionStreamChatId(latest.id, input.chatId);
+      logger.warn(
+        `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
+      );
+      return latest.id;
+    }
+  }
+
+  const session = await insertWorkspaceSession(appId);
+  await persistSessionStreamChatId(session.id, input.chatId);
+  logger.info(
+    `Created session ${session.id} for transport chat ${input.chatId} (workspace ${appId})`,
+  );
+  return session.id;
+}
+
+/** Create session row + ephemeral transport (shared by IPC and import). */
+export async function startWorkspaceSession(workspaceId: number): Promise<{
+  sessionId: string;
+  chatId: number;
+  session: ChatSessionRow;
+}> {
+  const session = await insertWorkspaceSession(workspaceId);
+  const chatId = createEphemeralWorkspaceChat(workspaceId);
+  await persistSessionStreamChatId(session.id, chatId);
+  return { sessionId: session.id, chatId, session };
+}
+
+async function insertWorkspaceSession(
+  workspaceId: number,
+): Promise<ChatSessionRow> {
+  const now = new Date();
+  const id = randomUUID();
+  const [row] = await db
+    .insert(chatSessions)
+    .values({
+      id,
+      workspaceId,
+      title: "Untitled",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  return mapSession(row);
+}
+
+/** Bind in-memory stream transport to a persisted session (optional column). */
+async function persistSessionStreamChatId(
+  sessionId: string,
+  chatId: number,
+): Promise<void> {
+  await db
+    .update(chatSessions)
+    .set({ streamChatId: chatId, updatedAt: new Date() })
+    .where(eq(chatSessions.id, sessionId));
+}
+
 export function registerWorkspaceSessionHandlers(): void {
   handle("sessions:list", async (_event, workspaceId: number) => {
     const rows = await db
@@ -134,20 +307,49 @@ export function registerWorkspaceSessionHandlers(): void {
     return rows.map(mapSession);
   });
 
+  handle(
+    "sessions:resolve-for-transport",
+    async (
+      _event,
+      payload: { chatId: number; workspaceId?: number },
+    ) => {
+      return resolveOrBindWorkspaceSessionForStream({
+        chatId: payload.chatId,
+        workspaceAppId: payload.workspaceId,
+      });
+    },
+  );
+
+  handle("sessions:start", async (_event, workspaceId: number) => {
+    const started = await startWorkspaceSession(workspaceId);
+    logger.info(
+      `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
+    );
+    return started;
+  });
+
+  handle("sessions:allocate-transport", async (_event, sessionId: string) => {
+    const session = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+    });
+    if (!session) throw new Error("Session not found");
+
+    const stored = session.streamChatId;
+    if (
+      stored != null &&
+      isEphemeralChatId(stored) &&
+      getEphemeralChat(stored)?.appId === session.workspaceId
+    ) {
+      return { chatId: stored };
+    }
+
+    const chatId = createEphemeralWorkspaceChat(session.workspaceId);
+    await persistSessionStreamChatId(sessionId, chatId);
+    return { chatId };
+  });
+
   handle("sessions:create", async (_event, workspaceId: number) => {
-    const now = new Date();
-    const id = randomUUID();
-    const [row] = await db
-      .insert(chatSessions)
-      .values({
-        id,
-        workspaceId,
-        title: "Untitled",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return mapSession(row);
+    return insertWorkspaceSession(workspaceId);
   });
 
   handle(
@@ -194,7 +396,6 @@ export function registerWorkspaceSessionHandlers(): void {
         .orderBy(desc(sessionMessages.createdAt))
         .limit(limit);
 
-      // Plan artifacts (kind=plan) are shown via markers + Plan panel — not as chat bubbles.
       const messages = [...recent]
         .reverse()
         .map(mapMessage)
@@ -252,7 +453,6 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
-  /** Generate a short title from the first user + assistant exchange (summarization model). */
   handle("sessions:generate-title", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({
       where: eq(chatSessions.id, sessionId),

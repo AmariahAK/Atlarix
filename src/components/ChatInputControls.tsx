@@ -13,7 +13,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import {
   pendingWorkspaceAppIdAtom,
   selectedAppIdAtom,

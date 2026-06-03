@@ -21,15 +21,10 @@ import {
     Monitor,
     Maximize2,
     Code2,
-    Terminal,
-    Play,
-    Square,
     AlertTriangle,
     Trash2,
     Shield,
-    ExternalLink as LinkIcon,
     Sparkles,
-    History,
     Lightbulb,
     Check
 } from 'lucide-react';
@@ -41,9 +36,7 @@ import {
     dismissedErrorSignaturesAtom,
     visibleBrowserErrorsAtom,
     getErrorSignature,
-    diagramStateAtom,
     selectedErrorForCodeAtom,
-    previewTabAtom,
 } from '@/atoms/sourceAtoms';
 import { currentAppAtom } from '@/atoms/appAtoms';
 import { WorkspaceFileTree } from '@/components/workspace/WorkspaceFileTree';
@@ -62,6 +55,7 @@ interface CodePreviewPanelProps {
         errors?: ParsedError[];
         chatId?: number;         // For permissions tab
         workspacePath?: string;  // For live code editor
+        appId?: number | null;
     } | null;
     activeTab: string;
     onClearErrors?: () => void;
@@ -86,12 +80,10 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
     const visibleErrors = useAtomValue(visibleBrowserErrorsAtom);
-    const currentAppId = (data as { appId?: number })?.appId ?? null;
+    const currentAppId = data?.appId ?? currentApp?.id ?? null;
     const previewUrl = data?.url;
     const currentFile = data?.file;
-    const terminalData = data?.terminal;
     const errorsData = data?.errors !== undefined ? visibleErrors : (data?.errors || []);
-    const chatId = data?.chatId;
     const workspacePath = data?.workspacePath || '';
 
     return (
@@ -175,7 +167,6 @@ function PreviewTab({ url }: { url?: string }) {
     const [viewport, setViewport] = useState<ViewportSize>('full');
     const [key, setKey] = useState(0); // For refresh
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const setErrors = useSetAtom(browserErrorsAtom);
 
     // Inject error capture script into iframe on load
     useEffect(() => {
@@ -273,7 +264,7 @@ function PreviewTab({ url }: { url?: string }) {
                 }, true);
 
                 console.log('[PreviewTab] Error capture successfully injected');
-            } catch (e) {
+            } catch {
                 // Cross-origin iframe - can't inject directly
                 // Rely on proxy injection or postMessage from the page itself
                 console.debug('[PreviewTab] Cannot inject into cross-origin iframe, relying on postMessage');
@@ -851,8 +842,6 @@ function ErrorsTab({
                         <div className="space-y-2">
                             {errorsByFile[file].map(error => {
                                 const isExpanded = expandedIds.has(error.id);
-                                // Check for rawOutput or stack or file for details
-                                const hasDetails = error.rawOutput || error.stack || error.file;
 
                                 return (
                                     <div

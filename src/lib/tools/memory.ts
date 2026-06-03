@@ -15,10 +15,8 @@ import {
     stringParam,
 } from "./registry";
 import { db } from "../../db";
-import { dailyLogs, apps } from "../../db/schema";
+import { dailyLogs } from "../../db/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
-import { getAtlarixAppPath } from "../../paths/paths";
-import { listDiagramSnapshotTimeline } from "../snapshot/snapshot-manager";
 import {
     listProjectSnapshots,
     listProjectMemoryKeys,
@@ -52,33 +50,18 @@ async function runRecall(args: {
             microChanges: dailyLogs.microChanges,
             significantActions: dailyLogs.significantActions,
             filesTouched: dailyLogs.filesTouched,
-            diagramChanged: dailyLogs.diagramChanged,
         })
         .from(dailyLogs)
         .where(and(eq(dailyLogs.workspaceId, workspaceId), gte(dailyLogs.date, threshold)))
         .orderBy(desc(dailyLogs.date))
         .limit(limit);
 
-    const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
-
-    let diagramChanges: { timestamp: Date; label: string }[] = [];
-    if (app) {
-        const timeline = await listDiagramSnapshotTimeline(getAtlarixAppPath(app.path));
-        diagramChanges = timeline
-            .filter((e) => new Date(e.timestamp) >= threshold)
-            .map((e) => ({
-                timestamp: new Date(e.timestamp),
-                label: e.isInitial ? "Initial diagram snapshot" : e.prompt?.trim() || `Snapshot ${e.turnId}`,
-            }))
-            .slice(0, limit);
-    }
-
-    if (logs.length === 0 && diagramChanges.length === 0) {
+    if (logs.length === 0) {
         return `📚 No activity found for workspace ${workspaceId} in the last ${timeRange}.`;
     }
 
     let result = `📚 **Workspace Activity (${timeRange})**\n\n`;
-    result += `Found ${logs.length} day(s) of activity and ${diagramChanges.length} architectural change(s).\n\n`;
+    result += `Found ${logs.length} day(s) of activity.\n\n`;
 
     if (logs.length > 0) {
         result += `## Daily Activity\n`;
@@ -96,15 +79,6 @@ async function runRecall(args: {
                 if (log.filesTouched.length > 5) result += ` (+${log.filesTouched.length - 5} more)`;
                 result += `\n`;
             }
-            if (log.diagramChanged) result += `🔄 Architecture diagram was updated\n`;
-        });
-    }
-
-    if (diagramChanges.length > 0) {
-        result += `\n## Architectural Evolution\n`;
-        diagramChanges.forEach((change) => {
-            const timeStr = change.timestamp.toLocaleDateString();
-            result += `\n- **${timeStr}**: ${change.label}\n`;
         });
     }
     return result;
@@ -142,23 +116,6 @@ async function runSearch(args: { workspaceId: number; query: string; limit?: num
         }
     });
 
-    const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
-    if (appRow) {
-        const timeline = await listDiagramSnapshotTimeline(getAtlarixAppPath(appRow.path));
-        const q = query.toLowerCase();
-        timeline.forEach((e) => {
-            const searchText = `${e.prompt || ""} ${e.turnId}`.toLowerCase();
-            if (searchText.includes(q)) {
-                const dateStr = new Date(e.timestamp).toLocaleDateString();
-                results.push({
-                    type: "architecture",
-                    date: dateStr,
-                    content: e.prompt?.trim() || `Snapshot ${e.turnId}`,
-                });
-            }
-        });
-    }
-
     if (results.length === 0) {
         return `🔍 No results found for: "${query}"\n\nTry different keywords or check if the workspace has tracked activity.`;
     }
@@ -167,17 +124,10 @@ async function runSearch(args: { workspaceId: number; query: string; limit?: num
     response += `Found ${results.length} match(es)\n\n`;
 
     const activityResults = results.filter((r) => r.type === "activity").slice(0, limit);
-    const archResults = results.filter((r) => r.type === "architecture").slice(0, limit);
 
     if (activityResults.length > 0) {
         response += `## Daily Activity Matches\n`;
         activityResults.forEach((r) => {
-            response += `- **${r.date}**: ${r.content}\n`;
-        });
-    }
-    if (archResults.length > 0) {
-        response += `\n## Architecture Change Matches\n`;
-        archResults.forEach((r) => {
             response += `- **${r.date}**: ${r.content}\n`;
         });
     }
@@ -187,7 +137,7 @@ async function runSearch(args: { workspaceId: number; query: string; limit?: num
 ToolRegistry.register({
     name: "memory",
     description:
-        "Query session-scoped workspace memory (daily activity + diagram snapshot timeline). " +
+        "Query session-scoped workspace memory (daily activity timeline). " +
         "operation=recall lists recent activity by timeRange; operation=search runs a keyword query.",
     category: ToolCategory.MEMORY,
     cost: 1,
@@ -245,7 +195,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "get_project_history",
     description:
-        "List recent project snapshots (plan + diagram checkpoints) and stored memory keys for this workspace. To request a revert, pass revert_to: { snapshotId, reason } (user approval) instead of a separate tool.",
+        "List recent project snapshots (plan checkpoints) and stored memory keys for this workspace. To request a revert, pass revert_to: { snapshotId, reason } (user approval) instead of a separate tool.",
     category: ToolCategory.MEMORY,
     cost: 1,
     requiresWorkspace: true,

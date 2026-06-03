@@ -4,9 +4,10 @@
  * Main chat area with messages and tool visualizations
  */
 
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { ToolCallCard } from './ToolCallCard';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 interface Message {
     id: string;
@@ -148,6 +149,18 @@ function SuggestionChip({ text }: { text: string }) {
     );
 }
 
+function AssistantMessageHtml({ content }: { content: string }) {
+    const safeHtml = useMemo(() => {
+        const raw =
+            typeof content === "string"
+                ? (marked.parse(content) as string)
+                : String(content);
+        return DOMPurify.sanitize(raw);
+    }, [content]);
+
+    return <div dangerouslySetInnerHTML={{ __html: safeHtml }} />;
+}
+
 function MessageBubble({ message }: { message: Message }) {
     const isUser = message.role === 'user';
 
@@ -189,11 +202,7 @@ function MessageBubble({ message }: { message: Message }) {
                 {isUser ? (
                     message.content
                 ) : (
-                    <div
-                        dangerouslySetInnerHTML={{
-                            __html: typeof message.content === "string" ? (marked(message.content) as string) : String(message.content),
-                        }}
-                    />
+                    <AssistantMessageHtml content={message.content} />
                 )}
             </div>
 

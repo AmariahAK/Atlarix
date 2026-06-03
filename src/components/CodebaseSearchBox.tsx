@@ -8,7 +8,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAtom } from "jotai";
 import { recentCodeSearchesAtom } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
-import { Search, Loader2, ChevronDown, X } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const MAX_RECENT = 10;

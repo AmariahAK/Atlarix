@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import {
   activeChatIdAtom,
@@ -47,6 +47,7 @@ import {
   type StreamThreadToolStatus,
   type SubAgentRunEntry,
 } from "@/lib/chat/stream-thread";
+import { isToolExpandable as isToolExpandViewExpandable } from "@/lib/chat/tool-expand-view";
 import { CollapsedScrollSection } from "./CollapsedScrollSection";
 import { SubAgentCard } from "./subagent/SubAgentCard";
 import { SubAgentsRoundPanel } from "./subagent/SubAgentsRoundPanel";
@@ -238,14 +239,10 @@ export function AssistantMessageBody({
 
   const useInterleavedTimeline = contentDrivenThread || isStructured;
 
-  const useHydratedCompletedDisplay =
-    !isStreaming && displayCompletedThread.length > 0;
-
   const showTrailingAnswer =
     trailingAnswer.length > 0 &&
     !hasMarkdownPart &&
-    !proseAlreadyRendered(trailingAnswer, parts) &&
-    !(useHydratedCompletedDisplay && useInterleavedTimeline);
+    !proseAlreadyRendered(trailingAnswer, parts);
 
   const citationSources = useMemo(() => {
     if (assistantMessageId != null) {
@@ -258,14 +255,6 @@ export function AssistantMessageBody({
   const interleavedParts = useMemo(
     () => filterDelegateToolParts(parts, suppressDelegateTools),
     [parts, suppressDelegateTools],
-  );
-
-  const hydratedMarkdownParts = useMemo(
-    () =>
-      interleavedParts.filter(
-        (p) => p.type === "markdown" || p.type === "plan_artifact",
-      ),
-    [interleavedParts],
   );
 
   const hasThoughtInInterleavedParts = useMemo(
@@ -298,6 +287,20 @@ export function AssistantMessageBody({
     );
   }, [isStreaming, liveThread, interleavedParts, inlineSubagentRound]);
 
+  const postStreamThreadTail = useMemo(() => {
+    if (isStreaming || displayCompletedThread.length === 0) return [];
+    return completedThreadTailItems(
+      displayCompletedThread,
+      interleavedParts,
+      Boolean(inlineSubagentRound),
+    );
+  }, [
+    isStreaming,
+    displayCompletedThread,
+    interleavedParts,
+    inlineSubagentRound,
+  ]);
+
   const postStreamSubagentItems = useMemo(() => {
     if (isStreaming || inlineSubagentRound) return [];
     const fromThread = displayCompletedThread.filter(
@@ -317,24 +320,8 @@ export function AssistantMessageBody({
     [parts, suppressDelegateTools],
   );
 
-  const useCompletedThread =
-    !useInterleavedTimeline &&
-    !isStreaming &&
-    displayCompletedThread.length > 0;
-
-  const completedBodyParts = useMemo(() => {
-    if (!useCompletedThread) return displayParts;
-    const skipThoughtFromParts = Boolean(frozenThoughtContent);
-    return displayParts.filter(
-      (p) =>
-        p.type !== "tool" &&
-        (!skipThoughtFromParts || p.type !== "thought"),
-    );
-  }, [useCompletedThread, displayParts, frozenThoughtContent]);
-
   const postStreamThoughtFromParts = useMemo(() => {
     if (useInterleavedTimeline || isStreaming || frozenThoughtContent) return null;
-    if (useCompletedThread) return null;
     const thoughts = displayParts.filter(
       (p): p is Extract<AssistantMessagePart, { type: "thought" }> =>
         p.type === "thought",
@@ -345,53 +332,10 @@ export function AssistantMessageBody({
     useInterleavedTimeline,
     isStreaming,
     frozenThoughtContent,
-    useCompletedThread,
     displayParts,
   ]);
 
   if (useInterleavedTimeline) {
-    if (useHydratedCompletedDisplay) {
-      return (
-        <div className={isStreaming ? "min-h-[4rem] w-full" : "w-full"}>
-          {frozenThoughtContent ? (
-            <InlineThoughtBlock
-              content={frozenThoughtContent}
-              isStreaming={false}
-            />
-          ) : null}
-          {displayCompletedThread.map((item) => (
-            <StreamThreadItemView
-              key={`hydrated-${threadItemKey(item)}`}
-              item={item}
-              isStreaming={false}
-              chatId={chatId}
-              onPlanArtifactBuild={onPlanArtifactBuild}
-              planArtifactBuildDisabled={planArtifactBuildDisabled}
-            />
-          ))}
-          {hydratedMarkdownParts.map((part, index) => (
-            <AssistantMessagePartView
-              key={partKey(part, index)}
-              part={part}
-              isStreaming={false}
-              chatId={chatId}
-              citationSources={citationSources}
-              suppressDelegateTools={suppressDelegateTools}
-              onPlanArtifactBuild={onPlanArtifactBuild}
-              planArtifactBuildDisabled={planArtifactBuildDisabled}
-            />
-          ))}
-          {showTrailingAnswer ? (
-            <AtlarixMarkdownSegment
-              content={trailingAnswer}
-              isStreaming={false}
-              citationSources={citationSources}
-            />
-          ) : null}
-        </div>
-      );
-    }
-
     return (
       <div className={isStreaming ? "min-h-[4rem] w-full" : "w-full"}>
         {frozenThoughtContent ? (
@@ -436,6 +380,16 @@ export function AssistantMessageBody({
             key={`tail-${threadItemKey(item)}`}
             item={item}
             isStreaming={isStreaming}
+            chatId={chatId}
+            onPlanArtifactBuild={onPlanArtifactBuild}
+            planArtifactBuildDisabled={planArtifactBuildDisabled}
+          />
+        ))}
+        {postStreamThreadTail.map((item) => (
+          <StreamThreadItemView
+            key={`completed-tail-${threadItemKey(item)}`}
+            item={item}
+            isStreaming={false}
             chatId={chatId}
             onPlanArtifactBuild={onPlanArtifactBuild}
             planArtifactBuildDisabled={planArtifactBuildDisabled}
@@ -491,32 +445,28 @@ export function AssistantMessageBody({
             />
           ))
         : null}
-      {useCompletedThread
-        ? displayCompletedThread.map((item) => (
-            <StreamThreadItemView
-              key={threadItemKey(item)}
-              item={item}
-              isStreaming={false}
-              chatId={chatId}
-              onPlanArtifactBuild={onPlanArtifactBuild}
-              planArtifactBuildDisabled={planArtifactBuildDisabled}
-            />
-          ))
-        : null}
-      {(useCompletedThread ? completedBodyParts : displayParts).map(
-        (part, index) => (
-          <AssistantMessagePartView
-            key={partKey(part, index)}
-            part={part}
-            isStreaming={isStreaming}
-            chatId={chatId}
-            citationSources={citationSources}
-            suppressDelegateTools={suppressDelegateTools}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ),
-      )}
+      {displayParts.map((part, index) => (
+        <AssistantMessagePartView
+          key={partKey(part, index)}
+          part={part}
+          isStreaming={isStreaming}
+          chatId={chatId}
+          citationSources={citationSources}
+          suppressDelegateTools={suppressDelegateTools}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
+      ))}
+      {postStreamThreadTail.map((item) => (
+        <StreamThreadItemView
+          key={`legacy-tail-${threadItemKey(item)}`}
+          item={item}
+          isStreaming={false}
+          chatId={chatId}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
+      ))}
       {showTrailingAnswer ? (
         <AtlarixMarkdownSegment content={trailingAnswer} isStreaming={isStreaming} />
       ) : null}
@@ -552,6 +502,43 @@ function ipcTimelineTailItems(
       if (item.status === "running" && !inParts.has(item.toolName)) {
         return true;
       }
+      return false;
+    }
+    return false;
+  });
+}
+
+/** Completed-thread rows not already covered by tag-parsed interleaved parts. */
+function completedThreadTailItems(
+  thread: StreamThreadItem[],
+  parts: AssistantMessagePart[],
+  excludeSubagentRound = false,
+): StreamThreadItem[] {
+  const partTools = parts.filter(
+    (p): p is Extract<AssistantMessagePart, { type: "tool" }> =>
+      p.type === "tool",
+  );
+  const hasThoughtInParts = parts.some((p) => p.type === "thought");
+  const toolNameIndex = new Map<string, number>();
+
+  const partForTool = (toolName: string) => {
+    const idx = toolNameIndex.get(toolName) ?? 0;
+    toolNameIndex.set(toolName, idx + 1);
+    return partTools.filter((p) => p.toolName === toolName)[idx];
+  };
+
+  return thread.filter((item) => {
+    if (item.kind === "subagent_round") return !excludeSubagentRound;
+    if (item.kind === "subagent" || item.kind === "tool_group") return false;
+    if (item.kind === "thought") return !hasThoughtInParts;
+    if (item.kind === "background" || item.kind === "plan") return true;
+    if (item.kind === "tool") {
+      const part = partForTool(item.toolName);
+      if (!part) return true;
+      const partHasResult = Boolean(part.resultText?.trim());
+      const threadExpandable =
+        item.expand != null && isToolExpandViewExpandable(item.expand);
+      if (!partHasResult && threadExpandable) return true;
       return false;
     }
     return false;
@@ -653,6 +640,21 @@ function StreamThreadItemView({
                 : "done"
           }
         />
+      );
+    case "counsel":
+      return (
+        <CollapsedScrollSection
+          summary={item.label}
+          status={item.status === "running" ? "running" : "done"}
+          defaultCollapsed={item.status !== "running"}
+          maxBodyHeightClass="max-h-48"
+        >
+          {item.detail ? (
+            <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words">
+              {item.detail}
+            </pre>
+          ) : null}
+        </CollapsedScrollSection>
       );
     default:
       return null;

@@ -188,7 +188,7 @@ export default function AppDetailsPage() {
       setSelectedAppId(appId);
       await invalidateAppQuery(queryClient, { appId });
       await refreshApps();
-      await IpcClient.getInstance().createChat(appId);
+      await IpcClient.getInstance().startWorkspaceConversation(appId);
       setIsCopyDialogOpen(false);
       navigate({ to: "/app-details", search: { appId } });
     },
@@ -331,7 +331,7 @@ export default function AppDetailsPage() {
                 console.error("No app id found");
                 return;
               }
-              navigate({ to: "/chat" });
+              navigate({ to: "/" });
             }}
             className="cursor-pointer w-full py-5 flex justify-center items-center gap-2"
             size="lg"

@@ -2,7 +2,7 @@
  * DB Extension — Introspect schema (tables, columns, indexes, FK) from active connection.
  */
 
-import type { DBConnection, DBConnectionType } from "./connection-manager";
+import type { DBConnection } from "./connection-manager";
 
 export interface ColumnInfo {
   name: string;

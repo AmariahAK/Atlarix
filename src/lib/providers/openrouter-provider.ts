@@ -7,8 +7,7 @@
 
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
-import type { LanguageModelV2 } from "@ai-sdk/provider";
-import { BaseProvider, type Tool, type ToolResult } from "./base-provider";
+import { BaseProvider, type Tool } from "./base-provider";
 
 // ═══════════════════════════════════════════════════════════
 // OPENROUTER PROVIDER

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearch } from "@tanstack/react-router";
 import { workspacePlanPanelAtom, pendingProposalsAtom } from "@/atoms/sourceAtoms";
@@ -49,7 +49,11 @@ function resolveChanges(
 
 function applyPayloadToPanel(
   payload: PlanArtifactPayload,
-  setPanel: ReturnType<typeof useAtom<typeof workspacePlanPanelAtom>>[1],
+  setPanel: (
+    update: import("react").SetStateAction<
+      import("jotai").ExtractAtomValue<typeof workspacePlanPanelAtom>
+    >,
+  ) => void,
   changes: PlanChangesPayload | null,
 ): void {
   setPanel({
@@ -80,19 +84,11 @@ export function useWorkspacePlanPanel(): void {
 
   const messages =
     chatId != null && !Number.isNaN(chatId)
-      ? (messagesByChatId[chatId] ?? []).map((m) => ({
+      ? (messagesByChatId.get(chatId) ?? []).map((m) => ({
           role: m.role,
           content: String(m.content ?? ""),
         }))
       : [];
-
-  const syncChanges = useCallback(
-    (content: string | null) => {
-      const changes = resolveChanges(messages, content, proposals);
-      setPanel((prev) => ({ ...prev, changes: changes ?? prev.changes }));
-    },
-    [messages, proposals, setPanel],
-  );
 
   useEffect(() => {
     const onActivated = (payload: PlanArtifactPayload) => {

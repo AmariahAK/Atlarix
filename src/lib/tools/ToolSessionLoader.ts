@@ -65,6 +65,15 @@ export class ToolSessionLoader {
     return new Set(this.loadedTools);
   }
 
+  /** Pre-register tool names so they appear in the model's function list without a prior call. */
+  ensureLoaded(toolNames: Iterable<string>): void {
+    for (const name of toolNames) {
+      if (this.getToolMetadata(name)) {
+        this.loadedTools.add(name);
+      }
+    }
+  }
+
   reset(): void {
     this.loadedTools = new Set(CORE_TOOL_NAMES);
   }

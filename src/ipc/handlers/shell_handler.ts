@@ -1,6 +1,7 @@
 import { shell } from "electron";
 import log from "electron-log";
 import { validateOpenExternalUrl } from "../../lib/external_url";
+import { assertFileUnderRegisteredWorkspace } from "@/lib/security/workspace-path";
 import { createLoggedHandler } from "./safe_handle";
 
 const logger = log.scope("shell_handlers");
@@ -14,9 +15,15 @@ export function registerShellHandlers() {
   });
 
   handle("show-item-in-folder", async (_event, fullPath: string) => {
-    // Validate that a path was provided
     if (!fullPath) {
       throw new Error("No file path provided.");
+    }
+
+    try {
+      await assertFileUnderRegisteredWorkspace(fullPath);
+    } catch (err) {
+      logger.warn("show-item-in-folder rejected path:", fullPath, err);
+      throw err;
     }
 
     shell.showItemInFolder(fullPath);

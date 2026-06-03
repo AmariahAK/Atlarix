@@ -4,8 +4,8 @@
  */
 
 import { db } from "./index";
-import { chats, workspaceModifications, cleanupLog, apps } from "./schema";
-import { lt, and, eq, isNull, inArray } from "drizzle-orm";
+import { chatSessions, workspaceModifications, cleanupLog } from "./schema";
+import { lt, and, eq, inArray } from "drizzle-orm";
 import log from "electron-log";
 import { schedule } from "node-cron";
 
@@ -14,25 +14,20 @@ const logger = log.scope("cleanup-jobs");
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Delete chat sessions not used in 30 days (regular chats only, not workspace)
+ * Delete workspace chat sessions not updated in 30 days.
  */
 async function cleanupOldSessions(): Promise<number> {
     const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_MS);
 
     try {
         const result = await db
-            .delete(chats)
-            .where(
-                and(
-                    lt(chats.lastUsedAt, thirtyDaysAgo),
-                    isNull(chats.appId) // Only regular chats, not workspace chats
-                )
-            )
+            .delete(chatSessions)
+            .where(lt(chatSessions.updatedAt, thirtyDaysAgo))
             .run();
 
         const deleted = result.changes || 0;
         if (deleted > 0) {
-            logger.info(`Deleted ${deleted} old chat sessions`);
+            logger.info(`Deleted ${deleted} old workspace sessions`);
         }
         return deleted;
     } catch (error) {

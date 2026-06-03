@@ -1,36 +1,34 @@
 import { ipcMain } from "electron";
 import { db } from "../../db";
-import { chats, messages } from "../../db/schema";
+import { chatSessions, sessionMessages } from "../../db/schema";
 import { eq, and, or, like, desc } from "drizzle-orm";
 import type { SecurityReviewResult, SecurityFinding } from "../ipc_types";
 
 export function registerSecurityHandlers() {
-  ipcMain.handle("get-latest-security-review", async (event, appId: number) => {
+  ipcMain.handle("get-latest-security-review", async (_event, appId: number) => {
     if (!appId) {
       throw new Error("App ID is required");
     }
 
-    // Query for the most recent message with security findings
-    // Use database filtering instead of loading all data into memory
     const result = await db
       .select({
-        content: messages.content,
-        createdAt: messages.createdAt,
-        chatId: messages.chatId,
+        content: sessionMessages.content,
+        createdAt: sessionMessages.createdAt,
+        sessionId: sessionMessages.sessionId,
       })
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .from(sessionMessages)
+      .innerJoin(chatSessions, eq(sessionMessages.sessionId, chatSessions.id))
       .where(
         and(
-          eq(chats.appId, appId),
-          eq(messages.role, "assistant"),
+          eq(chatSessions.workspaceId, appId),
+          eq(sessionMessages.role, "assistant"),
           or(
-            like(messages.content, "%<dyad-security-finding%"),
-            like(messages.content, "%<atlarix-security-finding%"),
+            like(sessionMessages.content, "%<dyad-security-finding%"),
+            like(sessionMessages.content, "%<atlarix-security-finding%"),
           ),
         ),
       )
-      .orderBy(desc(messages.createdAt))
+      .orderBy(desc(sessionMessages.createdAt))
       .limit(1);
 
     if (result.length === 0) {
@@ -47,31 +45,23 @@ export function registerSecurityHandlers() {
     return {
       findings,
       timestamp: message.createdAt.toISOString(),
-      chatId: message.chatId,
-    } satisfies SecurityReviewResult;
+      chatId: null,
+      sessionId: message.sessionId,
+    } satisfies SecurityReviewResult & { sessionId: string };
   });
 }
 
 function parseSecurityFindings(content: string): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
-
-  // Regex for legacy dyad-security-finding and atlarix-security-finding tags
-  const patterns = [
-    /<dyad-security-finding\s+title="([^"]+)"\s+level="(critical|high|medium|low)">([\s\S]*?)<\/dyad-security-finding>/g,
-    /<atlarix-security-finding\s+title="([^"]+)"\s+level="(critical|high|medium|low)">([\s\S]*?)<\/atlarix-security-finding>/g,
-  ];
-
-  for (const regex of patterns) {
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-      const [, title, level, description] = match;
-      findings.push({
-        title: title.trim(),
-        level: level as "critical" | "high" | "medium" | "low",
-        description: description.trim(),
-      });
-    }
+  const tagRegex =
+    /<(?:dyad|atlarix)-security-finding\s+level="([^"]+)"\s+title="([^"]+)">([\s\S]*?)<\/(?:dyad|atlarix)-security-finding>/g;
+  let match;
+  while ((match = tagRegex.exec(content)) !== null) {
+    findings.push({
+      level: match[1] as SecurityFinding["level"],
+      title: match[2],
+      description: match[3].trim(),
+    });
   }
-
   return findings;
 }

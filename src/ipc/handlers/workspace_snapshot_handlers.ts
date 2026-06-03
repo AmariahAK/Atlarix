@@ -45,7 +45,6 @@ export function registerWorkspaceSnapshotHandlers() {
           params.appId,
           params.name,
           appPath,
-          params.appId,
           params.chatMessages
         );
         return { success: true, snapshotId: id };

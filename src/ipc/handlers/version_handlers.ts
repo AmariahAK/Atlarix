@@ -1,6 +1,6 @@
 import { db } from "../../db";
-import { apps, messages, versions } from "../../db/schema";
-import { desc, eq, and, gt } from "drizzle-orm";
+import { apps, versions } from "../../db/schema";
+import { eq, and, gt } from "drizzle-orm";
 import type {
   Version,
   BranchResult,
@@ -216,43 +216,7 @@ export function registerVersionHandlers() {
           message: `Reverted all changes back to version ${previousVersionId}`,
         });
 
-        // Find the chat and message associated with the commit hash
-        const messageWithCommit = await db.query.messages.findFirst({
-          where: eq(messages.commitHash, previousVersionId),
-          with: {
-            chat: true,
-          },
-        });
-
-        // If we found a message with this commit hash, delete all subsequent messages (but keep this message)
-        if (messageWithCommit) {
-          const chatId = messageWithCommit.chatId;
-
-          // Find all messages in this chat with IDs > the one with our commit hash
-          const messagesToDelete = await db.query.messages.findMany({
-            where: and(
-              eq(messages.chatId, chatId),
-              gt(messages.id, messageWithCommit.id),
-            ),
-            orderBy: desc(messages.id),
-          });
-
-          logger.log(
-            `Deleting ${messagesToDelete.length} messages after commit ${previousVersionId} from chat ${chatId}`,
-          );
-
-          // Delete the messages
-          if (messagesToDelete.length > 0) {
-            await db
-              .delete(messages)
-              .where(
-                and(
-                  eq(messages.chatId, chatId),
-                  gt(messages.id, messageWithCommit.id),
-                ),
-              );
-          }
-        }
+        // Legacy DB message truncation removed with workspace-only chats.
 
         if (app.neonProjectId && app.neonDevelopmentBranchId) {
           const version = await db.query.versions.findFirst({

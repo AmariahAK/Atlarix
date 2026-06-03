@@ -45,6 +45,7 @@ export const mainRollupExternals: readonly string[] = [
   "better-sqlite3",
   "keytar",
   "mysql2",
+  "pg",
   "@lydell/node-pty",
   "@ast-grep/napi",
   "ai",
@@ -87,6 +88,11 @@ export default defineConfig({
     // elkjs remains bundled (lazy import). OpenTelemetry is bundled for packaged resolution.
     rollupOptions: {
       external: [...mainRollupExternals],
+      // Single main bundle — avoids "Cannot find module './chat_only_handlers-<hash>.js'"
+      // when Electron keeps an old main chunk after Vite rebuilds dynamic-import splits.
+      output: {
+        inlineDynamicImports: true,
+      },
     },
   },
   plugins: [

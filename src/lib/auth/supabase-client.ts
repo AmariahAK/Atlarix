@@ -487,13 +487,16 @@ async function fetchPlanRowForUser(
     userId: string,
 ): Promise<{ data: PlanRowInput | null; error: Error | null }> {
     let data: PlanRowInput | null = null;
-    let { data: row1, error } = await supabase
-        .from('users')
-        .select(PLAN_ROW_SELECT_WITH_VARIANT)
-        .eq('id', userId)
-        .maybeSingle();
-
-    data = row1 as PlanRowInput | null;
+    let error: unknown = null;
+    {
+        const r1 = await supabase
+            .from('users')
+            .select(PLAN_ROW_SELECT_WITH_VARIANT)
+            .eq('id', userId)
+            .maybeSingle();
+        data = r1.data as PlanRowInput | null;
+        error = r1.error;
+    }
 
     if (error) {
         const r2 = await supabase

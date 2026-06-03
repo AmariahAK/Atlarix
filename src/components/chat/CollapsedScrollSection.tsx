@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
+import { ToolStatusIcon } from "./ToolStatusIcon";
+import { TextShimmer } from "./TextShimmer";
 import {
   streamToolCardButton,
   streamToolCardChevron,
@@ -25,20 +27,12 @@ export function CollapsedScrollSection({
   const [open, setOpen] = useState(!defaultCollapsed);
   const hasBody = children != null;
 
-  const StatusIcon =
-    status === "running"
-      ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-500" />
-      : status === "error"
-        ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-        : () => (
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
-          );
-
   return (
     <div className={streamToolCardShell}>
       <button
         type="button"
         onClick={() => hasBody && setOpen((o) => !o)}
+        aria-expanded={hasBody ? open : undefined}
         className={cn(
           streamToolCardButton,
           hasBody && "cursor-pointer",
@@ -54,8 +48,10 @@ export function CollapsedScrollSection({
         ) : (
           <span className="w-3.5 shrink-0" />
         )}
-        <StatusIcon />
-        <span className={streamToolCardSummary}>{summary}</span>
+        <ToolStatusIcon status={status} />
+        <span className={streamToolCardSummary}>
+          {status === "running" ? <TextShimmer>{summary}</TextShimmer> : summary}
+        </span>
       </button>
       {open && hasBody ? (
         <div

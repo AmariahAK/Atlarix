@@ -9,6 +9,9 @@ src/lib/monaco/grammars/*
 scripts/.outreach-sent.log.json
 scripts/.feedback-outreach-v85-sent.jsonl
 
+# Supabase local audit dumps (not committed)
+supabase/audit/
+
 # Logs
 logs
 *.log

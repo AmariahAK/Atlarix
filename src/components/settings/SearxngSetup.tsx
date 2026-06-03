@@ -4,7 +4,7 @@
  * One-click setup UI for SearxNG via Docker
  */
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Loader2,
@@ -65,7 +65,7 @@ export function SearxngSetup() {
                             url: "http://127.0.0.1:8080",
                             enabled: true,
                         });
-                    } catch (e) {
+                    } catch {
                         // DB might not have table yet, but in-memory config will work
                         console.log("[SearxngSetup] Config sync skipped (migration pending)");
                     }
@@ -98,7 +98,7 @@ export function SearxngSetup() {
                             url: result.url,
                             enabled: true,
                         });
-                    } catch (e) {
+                    } catch {
                         console.log("[SearxngSetup] Config sync skipped");
                     }
                 }
@@ -132,7 +132,7 @@ export function SearxngSetup() {
                         url: null,
                         enabled: false,
                     });
-                } catch (e) {
+                } catch {
                     console.log("[SearxngSetup] Config sync skipped");
                 }
             } else {

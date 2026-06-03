@@ -28,7 +28,7 @@ export function extractAtlarixChatSummary(content: string): string | null {
 
 function setSessionTitleGenerating(sessionId: string, generating: boolean): void {
   const store = getDefaultStore();
-  store.set(workspaceSessionTitleGeneratingAtom, (prev) => {
+  store.set(workspaceSessionTitleGeneratingAtom, (prev: Set<string>) => {
     const next = new Set(prev);
     if (generating) next.add(sessionId);
     else next.delete(sessionId);

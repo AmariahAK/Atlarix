@@ -82,7 +82,7 @@ export class MatcherEngine {
         const seenKeys = new Set<string>();
         const lines = output.split('\n');
 
-        for (const [owner, matcher] of this.registry) {
+        for (const [, matcher] of this.registry) {
             const matcherErrors = this.applyMatcher(lines, matcher);
 
             for (const error of matcherErrors) {

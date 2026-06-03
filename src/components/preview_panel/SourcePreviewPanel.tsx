@@ -7,9 +7,8 @@
  * - Tool execution timeline
  */
 
-import { useState, useCallback } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
-import { selectedSourceAtom, sourceListAtom, toolTimelineAtom, type SourceItem } from '@/atoms/sourceAtoms';
+import { useAtom } from 'jotai';
+import { selectedSourceAtom, type SourceItem } from '@/atoms/sourceAtoms';
 import { cn } from '@/lib/utils';
 import { ExternalLink, Clock, CheckCircle2, AlertCircle, Loader2, Globe } from 'lucide-react';
 

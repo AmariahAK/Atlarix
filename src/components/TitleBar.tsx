@@ -4,7 +4,6 @@
  * Draggable title bar with workspace, model, and user info (legacy /chat layout).
  */
 
-import React from "react";
 import { useAtomValue } from "jotai";
 import { currentAppAtom } from "@/atoms/appAtoms";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";

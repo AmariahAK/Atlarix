@@ -20,7 +20,8 @@ export interface SecurityFinding {
 export interface SecurityReviewResult {
   findings: SecurityFinding[];
   timestamp: string;
-  chatId: number;
+  /** null for workspace-session reviews (keyed by sessionId, not a numeric chat). */
+  chatId: number | null;
 }
 
 export interface RespondToAppInputParams {
@@ -784,6 +785,8 @@ export interface McpServer {
   enabled: boolean;
   scope?: "global" | "workspace";
   appId?: number | null;
+  authType?: "none" | "env" | "api_key" | "oauth";
+  oauthConnected?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -800,6 +803,12 @@ export interface McpTool {
   name: string;
   description?: string | null;
   consent: McpToolConsentType;
+}
+
+export interface McpListToolsResult {
+  tools: McpTool[];
+  error?: string;
+  needsOAuth?: boolean;
 }
 
 export interface McpToolConsent {
@@ -906,8 +915,6 @@ export interface GithubRepository {
 export type CloneRepoReturnType =
   | {
     app: App;
-    /** Initial chat row created with the cloned workspace */
-    chatId?: number;
     /** Initial chat row created with the cloned workspace */
     chatId?: number;
   }

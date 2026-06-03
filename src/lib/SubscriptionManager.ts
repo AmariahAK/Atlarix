@@ -12,7 +12,6 @@ import { apps } from '../db/schema';
 import log from 'electron-log';
 import {
     getSession,
-    getUser,
     getUserPlan,
     getEffectiveTier,
     getHasDbStudioLegacy,
@@ -22,7 +21,7 @@ import {
     handleAuthCallback,
     type OAuthProvider,
 } from './auth/supabase-client';
-import type { Session, User } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 
 const logger = log.scope('subscription');
 
@@ -430,21 +429,15 @@ export class SubscriptionManager {
     static async getCurrentWorkspaceDetails(): Promise<{
         id: number;
         name: string;
-        diagramCount: number;
     } | null> {
         try {
-            const workspace = await db.query.apps.findFirst({
-                with: {
-                    workspaceDiagrams: true,
-                },
-            });
+            const workspace = await db.query.apps.findFirst();
 
             if (!workspace) return null;
 
             return {
                 id: workspace.id,
                 name: workspace.name,
-                diagramCount: (workspace as any).workspaceDiagrams?.length || 0,
             };
         } catch (error) {
             logger.error('[SubscriptionManager] Failed to get workspace details:', error);

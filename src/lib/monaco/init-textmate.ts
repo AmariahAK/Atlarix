@@ -23,6 +23,22 @@ function stubGrammarDefinition(scopeName: string): object {
 }
 
 /** Scopes Monaco/TextMate may request that we do not bundle (avoid throw + Sentry noise). */
+/**
+ * Languages Monaco already tokenizes well — do not wire TextMate over them
+ * (avoids broken/plain highlighting for .ts/.tsx/.js/.json/.css/.html).
+ */
+export const MONACO_BUILTIN_LANGUAGE_IDS = new Set([
+  "typescript",
+  "javascript",
+  "json",
+  "css",
+  "scss",
+  "less",
+  "html",
+  "handlebars",
+  "razor",
+]);
+
 const PRECOMMON_STUB_SCOPES = [
   "source.lua",
   "source.sql",
@@ -57,6 +73,18 @@ export function isTextMateGrammarsReady(): boolean {
   return textMateReady;
 }
 
+/** True when highlighting comes from bundled TextMate JSON (markdown, python, yaml, …). */
+export function languageUsesTextMate(monacoId: string): boolean {
+  if (MONACO_BUILTIN_LANGUAGE_IDS.has(monacoId)) return false;
+  if (monacoId === "plaintext" || monacoId === "atlarix-text") return false;
+  return MONACO_LANGUAGE_MANIFEST.some((e) => e.monacoId === monacoId);
+}
+
+export async function ensureTextMateReady(): Promise<boolean> {
+  if (textMateReady) return true;
+  return initTextMateGrammars();
+}
+
 export async function initTextMateGrammars(): Promise<boolean> {
   registerManifestLanguages();
 
@@ -67,6 +95,7 @@ export async function initTextMateGrammars(): Promise<boolean> {
   const languages: { id: string; scope: string }[] = [];
 
   for (const entry of MONACO_LANGUAGE_MANIFEST) {
+    if (MONACO_BUILTIN_LANGUAGE_IDS.has(entry.monacoId)) continue;
     const grammarId = entry.grammarId ?? entry.monacoId;
     const grammar = grammarById(grammarId);
     if (!grammar?.scopeName) continue;

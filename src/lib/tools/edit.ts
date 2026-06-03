@@ -18,6 +18,7 @@ import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isWorkspaceAtlarixMdPath } from "../project-memory";
+import { debugWriteHandlerDenied } from "../debug/debug-write-handler-gate";
 
 const logger = log.scope("edit-tools");
 
@@ -492,6 +493,11 @@ Prefer "replace" for code changes — it requires matching the existing content 
 
     if (chatMode === "ask") {
       return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
+    }
+
+    const debugDenied = debugWriteHandlerDenied(chatMode, _chatSessionId, rawArgs);
+    if (debugDenied) {
+      return { ...debugDenied, operation: "edit_file" };
     }
 
     if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };

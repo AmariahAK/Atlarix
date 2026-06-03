@@ -203,6 +203,19 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "workspace_command_permissions");
     case "0057_workspace_file_permissions":
       return tableExists(sqlite, "workspace_file_permissions");
+    case "0058_session_stream_and_drop_legacy_chats":
+      return (
+        columnExists(sqlite, "chat_sessions", "stream_chat_id") &&
+        !tableExists(sqlite, "chats") &&
+        !tableExists(sqlite, "messages")
+      );
+    case "0059_mcp_oauth_columns":
+      return (
+        columnExists(sqlite, "mcp_servers", "auth_type") &&
+        columnExists(sqlite, "mcp_servers", "oauth_tokens_json") &&
+        columnExists(sqlite, "mcp_servers", "oauth_client_json") &&
+        columnExists(sqlite, "mcp_servers", "oauth_discovery_json")
+      );
     case "0053_message_paste_attachments":
       return columnExists(sqlite, "messages", "paste_attachments");
     case "0054_message_file_attachments":

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, FolderOpen, AppWindow } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, AppWindow } from "lucide-react";
 import { Trash2 } from "lucide-react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
@@ -55,7 +55,7 @@ export function AppList({ show }: { show?: boolean }) {
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
-  const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
+  const [, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
@@ -89,7 +89,17 @@ export function AppList({ show }: { show?: boolean }) {
       const workspacesWithChats = await Promise.all(
         apps.map(async (app) => {
           try {
-            const chats = await IpcClient.getInstance().getChats(app.id);
+            const sessions = await IpcClient.getInstance().listWorkspaceSessions(
+              app.id,
+            );
+            const chats = sessions.map(
+              (s: { id: string; title: string | null; createdAt: Date }) => ({
+                id: s.id as unknown as number,
+                title: s.title,
+                createdAt: s.createdAt,
+                appId: app.id,
+              }),
+            );
             const workspaceStatus =
               app.status ?? (app.pathExists === false ? "missing" : "active");
             return {

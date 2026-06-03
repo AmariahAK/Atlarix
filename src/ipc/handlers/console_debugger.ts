@@ -7,7 +7,7 @@
  * that doesn't require script injection into iframes.
  */
 
-import { BrowserWindow, WebContents } from 'electron';
+import { BrowserWindow } from 'electron';
 import log from 'electron-log';
 
 const logger = log.scope('console-debugger');
@@ -100,7 +100,7 @@ export function attachConsoleDebugger(win: BrowserWindow): void {
     });
 
     // Listen for debugger messages
-    webContents.debugger.on('message', (event, method, params) => {
+    webContents.debugger.on('message', (_event, method, params) => {
         // Handle console messages
         if (method === 'Console.messageAdded') {
             const message = params.message as CDPConsoleMessage;
@@ -155,7 +155,7 @@ export function attachConsoleDebugger(win: BrowserWindow): void {
     });
 
     // Handle debugger detachment
-    webContents.debugger.on('detach', (event, reason) => {
+    webContents.debugger.on('detach', (_event, reason) => {
         logger.log(`Debugger detached from webContents ${webContents.id}: ${reason}`);
         attachedWebContents.delete(webContents.id);
     });

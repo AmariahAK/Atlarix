@@ -3,24 +3,11 @@
  * Never touches activeSkill or other protected sections (caller must skip or filter protected names).
  */
 
-import { estimateTokens } from "@/ipc/utils/token_utils";
+import { truncateToTokens } from "@/lib/truncate";
 import type { ContextSection, ContextSectionName } from "@/lib/context/ContextAssembler";
 import type { ContextBudgetHealth } from "@/lib/context/context-budget-tracker";
 
 const PROTECTED_NAMES = new Set<ContextSectionName>(["activeSkill", "repoSkills"]);
-
-function truncateToTokens(content: string, maxTokens: number): string {
-  if (estimateTokens(content) <= maxTokens) return content;
-  let lo = 0;
-  let hi = content.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1) / 2);
-    const slice = content.slice(0, mid);
-    if (estimateTokens(slice) <= maxTokens) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${content.slice(0, Math.max(0, lo))}\n\n...(trimmed)`;
-}
 
 /** Keep last K numbered exchanges in Session Context block (formatted by SessionMemory). */
 function trimSessionMemoryContent(content: string, maxExchanges: number): string {
@@ -66,39 +53,6 @@ function firstParagraph(text: string): string {
   const t = text.trim();
   const parts = t.split(/\n\n+/);
   return parts[0]?.trim() ?? t;
-}
-
-/** Critical: keep compact workspace lines + cap path-heavy lines. */
-function trimWorkspaceAnalysisModerate(content: string): string {
-  const lines = content.split("\n");
-  const kept: string[] = [];
-  let pathLike = 0;
-  for (const line of lines) {
-    const L = line.trim();
-    if (
-      L.startsWith("[WORKSPACE:") ||
-      L.startsWith("Structure:") ||
-      L.startsWith("Entry:") ||
-      L.startsWith("Key:") ||
-      L.startsWith("#") ||
-      L.includes("WORKSPACE")
-    ) {
-      kept.push(line);
-      continue;
-    }
-    if (L.includes("/") || L.includes("\\")) {
-      pathLike++;
-      if (pathLike <= 20) kept.push(line);
-      continue;
-    }
-    kept.push(line);
-  }
-  return kept.join("\n").trim();
-}
-
-function workspaceSummaryOnly(content: string, maxTokens: number): string {
-  const line = content.split("\n").find((l) => l.includes("[WORKSPACE:")) ?? content.slice(0, 200);
-  return truncateToTokens(line.trim(), maxTokens);
 }
 
 /**

@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest";
 import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import { groupAssistantDisplayParts } from "@/lib/chat/display-parts-group";
 import { splitContentByPlanMarkers } from "@/lib/plan-cards/plan-card-renderer";
-import { proseAlreadyRendered } from "@/lib/chat/stream-thread";
+import {
+  buildCompletedStreamThreadFromAssistantContent,
+  enrichStreamThreadFromAssistantContent,
+  proseAlreadyRendered,
+} from "@/lib/chat/stream-thread";
 import { extractVisibleAnswerMarkdown } from "@/lib/chat/answer-display";
+import {
+  getPersistedToolExpandView,
+  persistedToolPartToStreamCard,
+} from "@/lib/chat/persisted-tool-card";
+import { isToolExpandable } from "@/lib/chat/tool-expand-view";
 
 describe("parseAssistantMessageParts", () => {
   it("orders tool before plan marker before answer markdown", () => {
@@ -201,5 +210,55 @@ describe("parseAssistantMessageParts", () => {
     const parts = parseAssistantMessageParts(content, false);
     expect(parts.some((p) => p.type === "tool")).toBe(false);
     expect(parts.some((p) => p.type === "plan_artifact")).toBe(true);
+  });
+
+  it("persisted tool card is expandable when resultText is present", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{"path":"src/a.ts"}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">export const x = 1;</atlarix-tool-result>',
+    ].join("\n");
+    const parts = parseAssistantMessageParts(content, false);
+    const tool = parts.find((p) => p.type === "tool");
+    expect(tool && tool.type === "tool" ? tool.resultText : "").toContain("export const");
+    if (!tool || tool.type !== "tool") return;
+    const expand = getPersistedToolExpandView(tool);
+    expect(isToolExpandable(expand)).toBe(true);
+    const card = persistedToolPartToStreamCard(tool);
+    expect(isToolExpandable(card.expand)).toBe(true);
+  });
+
+  it("buildCompletedStreamThreadFromAssistantContent preserves tool expand", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">line one\nline two</atlarix-tool-result>',
+    ].join("\n");
+    const thread = buildCompletedStreamThreadFromAssistantContent(content);
+    const tool = thread.find((i) => i.kind === "tool");
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool") return;
+    expect(tool.expand?.kind).not.toBe("none");
+  });
+
+  it("enrichStreamThreadFromAssistantContent copies expand from content onto IPC tool", () => {
+    const content = [
+      '<atlarix-tool-call tool="read_file" status="running">{}</atlarix-tool-call>',
+      '<atlarix-tool-result tool="read_file" status="success">detailed file body</atlarix-tool-result>',
+    ].join("\n");
+    const ipcOnly = [
+      {
+        kind: "tool" as const,
+        id: "read_file",
+        toolName: "read_file",
+        summary: "Read file",
+        status: "done" as const,
+        ts: 1,
+      },
+    ];
+    const enriched = enrichStreamThreadFromAssistantContent(ipcOnly, content);
+    const tool = enriched.find((i) => i.kind === "tool");
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool") return;
+    expect(tool.detail).toContain("detailed file body");
+    expect(tool.expand?.kind).not.toBe("none");
   });
 });

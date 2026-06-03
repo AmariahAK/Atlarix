@@ -6,7 +6,6 @@ import { StreamToolCallCard } from "./StreamToolCallCard";
 /** Persisted / post-stream tool row — same UX as live stream cards. */
 export function InlineToolPartCard({
   part,
-  suppressDelegateTools = false,
 }: {
   part: Extract<AssistantMessagePart, { type: "tool" }>;
   /** @deprecated collapse is status-driven */

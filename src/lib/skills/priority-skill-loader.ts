@@ -67,7 +67,7 @@ function parseFrontmatter(raw: string): ParsedFrontmatter {
       continue;
     }
 
-    const kv = line.match(/^([A-Za-z0-9_\-]+)\s*:\s*(.*)$/);
+    const kv = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
     if (!kv) {
       i++;
       continue;
@@ -96,7 +96,7 @@ function parseFrontmatter(raw: string): ParsedFrontmatter {
     }
 
     // Inline JSON array: `key: ["a", "b"]`
-    if (/^\[/.test(rest.trim())) {
+    if (rest.trim().startsWith('[')) {
       try {
         const arr = JSON.parse(rest.trim().replace(/'/g, '"'));
         if (Array.isArray(arr)) {

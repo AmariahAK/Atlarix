@@ -194,7 +194,7 @@ export function CompactModelSearch({
             </p>
           ) : (
             <div className="space-y-0.5">
-              {filteredOptions.map(({ providerId, providerName, model, primary, secondary }) => (
+              {filteredOptions.map(({ providerId, model, primary, secondary }) => (
                 <button
                   key={`${providerId}:${model.apiName}`}
                   type="button"

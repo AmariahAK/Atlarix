@@ -29,11 +29,9 @@ import {
   chatMessagesByIdAtom,
   selectedChatIdAtom,
   forceDeepThinkNextAtom,
-  streamLastActivityAtByChatIdAtom,
-  streamSlowWarningByChatIdAtom,
   streamReconnectByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { useAtom, useSetAtom, useAtomValue, getDefaultStore } from "jotai";
+import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { Button } from "@/components/ui/button";

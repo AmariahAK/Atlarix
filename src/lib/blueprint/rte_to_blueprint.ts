@@ -5,7 +5,7 @@
 
 import * as path from "path";
 import type { Blueprint, BlueprintRoom, BlueprintFunction, BlueprintEdge, BlueprintFunctionKind } from "@/shared/blueprint-types";
-import type { BlueprintNode, RTEBlueprintEdge, RTEParseResult } from "./rte/parsers/types";
+import type { RTEBlueprintEdge, RTEParseResult } from "./rte/parsers/types";
 
 const RTE_KIND_TO_BLUEPRINT: Record<string, BlueprintFunctionKind> = {
   api: "api",
@@ -63,12 +63,10 @@ export function rteResultToBlueprint(result: RTEParseResult, projectRoot?: strin
     roomKeys.add(getKey(n));
   }
   const keyToRoomId = new Map<string, string>();
-  const roomIdToKey = new Map<string, string>();
   let idx = 0;
   for (const k of roomKeys) {
     const id = `room_${k.replace(/[^a-zA-Z0-9_-]/g, "_")}_${idx++}`;
     keyToRoomId.set(k, id);
-    roomIdToKey.set(id, k);
   }
 
   const nodeToRoomId = new Map<string, string>();

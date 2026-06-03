@@ -67,7 +67,7 @@ export function WelcomeCloneDialog({
     setLoadingRepos(true);
     try {
       setRepos(await IpcClient.getInstance().listGithubRepos());
-    } catch (e) {
+    } catch {
       setRepos([]);
     } finally {
       setLoadingRepos(false);

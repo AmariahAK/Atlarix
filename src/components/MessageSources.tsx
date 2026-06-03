@@ -7,7 +7,8 @@
  */
 
 import { useState } from "react";
-import { File, ExternalLink, X } from "lucide-react";
+import { extractDomain as getDomain } from "@/lib/format-url";
+import { File, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -45,14 +46,6 @@ export function MessageSources({ sources }: MessageSourcesProps) {
             // Otherwise show preview
             setSelectedSource(source);
             setIsPreviewOpen(true);
-        }
-    };
-
-    const getDomain = (url: string) => {
-        try {
-            return new URL(url).hostname.replace(/^www\\./, "");
-        } catch {
-            return url;
         }
     };
 

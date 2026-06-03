@@ -1,6 +1,7 @@
 import { db } from "../../db";
-import { chats, messages } from "../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { apps } from "../../db/schema";
+import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { getAtlarixAppPath } from "../../paths/paths";
 import path from "node:path";
@@ -110,25 +111,19 @@ export async function processFullResponseActions(
   const fileUploadsMap = fileUploadsState.getFileUploadsForChat(chatId);
   fileUploadsState.clear(chatId);
   logger.log("processFullResponseActions for chatId", chatId);
-  // Get the app associated with the chat
-  const chatWithApp = await db.query.chats.findFirst({
-    where: eq(chats.id, chatId),
-    with: {
-      app: true,
-    },
-  });
-  if (!chatWithApp || !chatWithApp.app) {
-    logger.error(`No app found for chat ID: ${chatId}`);
+  const appId = getEphemeralChatAppId(chatId);
+  const app = appId
+    ? await db.query.apps.findFirst({ where: eq(apps.id, appId) })
+    : null;
+  if (!app) {
+    logger.error(`No app found for chat transport ID: ${chatId}`);
     return {};
   }
 
-  if (
-    chatWithApp.app.neonProjectId &&
-    chatWithApp.app.neonDevelopmentBranchId
-  ) {
+  if (app.neonProjectId && app.neonDevelopmentBranchId) {
     try {
       await storeDbTimestampAtCurrentVersion({
-        appId: chatWithApp.app.id,
+        appId: app.id,
       });
     } catch (error) {
       logger.error("Error creating Neon branch at current version:", error);
@@ -140,7 +135,7 @@ export async function processFullResponseActions(
   }
 
   const settings: UserSettings = readSettings();
-  const appPath = getAtlarixAppPath(chatWithApp.app.path);
+  const appPath = getAtlarixAppPath(app.path);
   const writtenFiles: string[] = [];
   const renamedFiles: string[] = [];
   const deletedFiles: string[] = [];
@@ -150,26 +145,23 @@ export async function processFullResponseActions(
 
   const warnings: Output[] = [];
   const errors: Output[] = [];
+  const ephemeralChat = getEphemeralChat(chatId);
 
   try {
     // Extract all tags
     const atlarixWriteTags = getAtlarixWriteTags(fullResponse);
     const atlarixRenameTags = getAtlarixRenameTags(fullResponse);
     const atlarixDeletePaths = getAtlarixDeleteTags(fullResponse);
-    const atlarixExecuteSqlQueries = chatWithApp.app.supabaseProjectId
+    const atlarixExecuteSqlQueries = app.supabaseProjectId
       ? getAtlarixExecuteSqlTags(fullResponse)
       : [];
 
-    const message = await db.query.messages.findFirst({
-      where: and(
-        eq(messages.id, messageId),
-        eq(messages.role, "assistant"),
-        eq(messages.chatId, chatId),
-      ),
-    });
+    const message = ephemeralChat?.messages.find(
+      (m) => m.id === messageId && m.role === "assistant",
+    );
 
     if (!message) {
-      logger.error(`No message found for ID: ${messageId}`);
+      logger.error(`No ephemeral message found for ID: ${messageId}`);
       return {};
     }
 
@@ -178,7 +170,7 @@ export async function processFullResponseActions(
       for (const query of atlarixExecuteSqlQueries) {
         try {
           await executeSupabaseSql({
-            supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+            supabaseProjectId: app.supabaseProjectId!,
             query: query.content,
           });
 
@@ -267,7 +259,7 @@ export async function processFullResponseActions(
       if (isServerFunction(filePath)) {
         try {
           await deleteSupabaseFunction({
-            supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+            supabaseProjectId: app.supabaseProjectId!,
             functionName: extractFunctionNameFromPath(filePath),
           });
         } catch (error) {
@@ -314,7 +306,7 @@ export async function processFullResponseActions(
       if (isServerFunction(tag.from)) {
         try {
           await deleteSupabaseFunction({
-            supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+            supabaseProjectId: app.supabaseProjectId!,
             functionName: extractFunctionNameFromPath(tag.from),
           });
         } catch (error) {
@@ -328,7 +320,7 @@ export async function processFullResponseActions(
       if (isServerFunction(tag.to) && !sharedModulesChanged) {
         try {
           await deploySupabaseFunction({
-            supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+            supabaseProjectId: app.supabaseProjectId!,
             functionName: extractFunctionNameFromPath(tag.to),
             appPath,
           });
@@ -375,7 +367,7 @@ export async function processFullResponseActions(
         if (isServerFunction(filePath) && !sharedModulesChanged) {
           try {
             await deploySupabaseFunction({
-              supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+              supabaseProjectId: app.supabaseProjectId!,
               functionName: extractFunctionNameFromPath(filePath),
               appPath,
             });
@@ -445,7 +437,7 @@ export async function processFullResponseActions(
       ) {
         try {
           await deploySupabaseFunction({
-            supabaseProjectId: chatWithApp.app.supabaseProjectId!,
+            supabaseProjectId: app.supabaseProjectId!,
             functionName: extractFunctionNameFromPath(filePath),
             appPath,
           });
@@ -459,14 +451,14 @@ export async function processFullResponseActions(
     }
 
     // If shared modules changed, redeploy all functions
-    if (sharedModulesChanged && chatWithApp.app.supabaseProjectId) {
+    if (sharedModulesChanged && app.supabaseProjectId) {
       try {
         logger.info(
           "Shared modules changed, redeploying all Supabase functions",
         );
         const deployErrors = await deployAllSupabaseFunctions({
           appPath,
-          supabaseProjectId: chatWithApp.app.supabaseProjectId,
+          supabaseProjectId: app.supabaseProjectId,
         });
         if (deployErrors.length > 0) {
           for (const err of deployErrors) {
@@ -549,22 +541,12 @@ export async function processFullResponseActions(
         }
       }
 
-      // Save the commit hash to the message
-      await db
-        .update(messages)
-        .set({
-          commitHash: commitHash,
-        })
-        .where(eq(messages.id, messageId));
+      if (commitHash) {
+        (message as unknown as { commitHash?: string }).commitHash = commitHash;
+      }
     }
     logger.log("mark as approved: hasChanges", hasChanges);
-    // Update the message to approved
-    await db
-      .update(messages)
-      .set({
-        approvalState: "approved",
-      })
-      .where(eq(messages.id, messageId));
+    message.approvalState = "approved";
 
     return {
       updatedFiles: hasChanges,
@@ -589,13 +571,11 @@ export async function processFullResponseActions(
         )
         .join("\n")}
     `;
-    if (appendedContent.length > 0) {
-      await db
-        .update(messages)
-        .set({
-          content: fullResponse + "\n\n" + appendedContent,
-        })
-        .where(eq(messages.id, messageId));
+    if (appendedContent.length > 0 && ephemeralChat) {
+      const target = ephemeralChat.messages.find((m) => m.id === messageId);
+      if (target) {
+        target.content = fullResponse + "\n\n" + appendedContent;
+      }
     }
   }
 }

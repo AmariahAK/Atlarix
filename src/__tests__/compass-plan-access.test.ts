@@ -10,11 +10,11 @@ import {
   COMPASS_TIER_THINKING,
 } from "@/ipc/shared/compass_constants";
 
-const models: LanguageModel[] = [
+const models = [
   { apiName: COMPASS_TIER_FAST, displayName: "A", type: "cloud" },
   { apiName: COMPASS_TIER_BALANCED, displayName: "B", type: "cloud" },
   { apiName: COMPASS_TIER_THINKING, displayName: "C", type: "cloud" },
-];
+] as unknown as LanguageModel[];
 
 describe("compass-plan-access", () => {
   it("filters to one model for free plan", () => {

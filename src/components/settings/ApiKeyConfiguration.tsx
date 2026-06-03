@@ -36,14 +36,14 @@ export function ApiKeyConfiguration({
   providerDisplayName,
   settings,
   envVars,
-  envVarName,
+  envVarName: _envVarName,
   isSaving,
   saveError,
   apiKeyInput,
   onApiKeyInputChange,
   onSaveKey,
   onDeleteKey,
-  isAtlarix,
+  isAtlarix: _isAtlarix,
   updateSettings,
 }: ApiKeyConfigurationProps) {
   // Special handling for Azure OpenAI which requires environment variables

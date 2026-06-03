@@ -4,11 +4,11 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { findInFiles, Lang, type NapiConfig, type NapiLang } from "@ast-grep/napi";
+import { findInFiles, Lang, type NapiConfig } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi/types/sgnode";
 import type { RTEBlueprintEdge } from "../parsers/types";
 import type { SymbolRecord } from "@/lib/index/symbol-types";
-import { langForExtension } from "./lang-map";
+import { langForExtension, type NapiLang } from "./lang-map";
 import { ensureAstGrepDynamicLangs } from "./register-dynamic-langs";
 import { nodeIdForFileLine, resolveRelativeImport } from "./resolve-edges";
 import { importPatterns, IMPORT_CAPTURE } from "./rules/imports";

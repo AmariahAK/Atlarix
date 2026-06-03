@@ -13,7 +13,6 @@ import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import {
   rightPanelVisibleAtom,
   rightPanelSuppressAutoOpenAtom,
-  diagramStateAtom,
   sourceListAtom,
   selectedSourceAtom,
 } from "@/atoms/sourceAtoms";
@@ -31,7 +30,6 @@ export function EmbeddedChatTab() {
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
-  const setDiagramState = useSetAtom(diagramStateAtom);
   const setSourceList = useSetAtom(sourceListAtom);
   const setSelectedSource = useSetAtom(selectedSourceAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
@@ -72,7 +70,6 @@ export function EmbeddedChatTab() {
           setSourceList([]);
           setSelectedSource(null);
           setSuppressRightAutoOpen(true);
-          setDiagramState(null);
         }
       });
       return;
@@ -82,7 +79,6 @@ export function EmbeddedChatTab() {
     setSelectedSource(null);
     setSuppressRightAutoOpen(true);
     setRightPanelVisible(false);
-    setDiagramState(null);
   }, [
     selectedAppId,
     navigate,
@@ -91,7 +87,6 @@ export function EmbeddedChatTab() {
     setSelectedSource,
     setSuppressRightAutoOpen,
     setRightPanelVisible,
-    setDiagramState,
   ]);
 
   if (activeChatId == null) {

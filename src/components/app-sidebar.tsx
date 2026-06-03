@@ -11,8 +11,7 @@ import { AtlarixSignInHero } from "@/components/atlarix/AtlarixSignInHero";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef, useCallback } from "react";
-import { IpcClient } from "@/ipc/ipc_client";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
 
@@ -28,7 +27,6 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 // ChatList removed - unified into home page
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
@@ -320,7 +318,7 @@ export function AppSidebar() {
                 {showAuthMenu && (
                   <div className="absolute bottom-full left-0 mb-2 w-56 bg-popover border border-border rounded-lg shadow-lg p-3 z-50">
                     <AtlarixSignInHero
-                      size="xs"
+                      size="sm"
                       onSignIn={() => handleSignIn(signInWithGoogle)}
                     />
                   </div>

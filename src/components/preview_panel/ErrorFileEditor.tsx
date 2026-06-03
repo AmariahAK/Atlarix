@@ -44,7 +44,7 @@ interface FileWithErrors {
     errors: ParsedError[];
 }
 
-export function ErrorFileEditor({ errors, workspacePath, onErrorResolved, initialFilePath, initialLine, onInitialFilePathConsumed }: ErrorFileEditorProps) {
+export function ErrorFileEditor({ errors, workspacePath, initialFilePath, initialLine, onInitialFilePathConsumed }: ErrorFileEditorProps) {
     const [filesExpanded, setFilesExpanded] = useState(true);
     const [selectedFile, setSelectedFile] = useState<FileWithErrors | null>(null);
     const [fileContent, setFileContent] = useState<string>('');

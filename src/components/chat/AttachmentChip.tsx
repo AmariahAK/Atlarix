@@ -59,14 +59,12 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    let previewKind: "text" | "blob" = "blob";
     if (isText) {
       try {
         const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
         setTextPreview(decoded.slice(0, 200_000));
         setPreviewUrl(null);
         setShowPreview(true);
-        previewKind = "text";
       } catch {
         // fall back to blob preview if decoding fails
         const blob = new Blob([bytes], { type: attachment.mimeType });
@@ -74,7 +72,6 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
         setPreviewUrl(url);
         setTextPreview(null);
         setShowPreview(true);
-        previewKind = "blob";
       }
     } else {
       const blob = new Blob([bytes], { type: attachment.mimeType });
@@ -82,7 +79,6 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
       setPreviewUrl(url);
       setTextPreview(null);
       setShowPreview(true);
-      previewKind = "blob";
     }
   };
 

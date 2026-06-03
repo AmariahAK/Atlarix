@@ -24,21 +24,25 @@ export async function ensureWorkspaceSessionForChat(
     return existing;
   }
 
-  const session = await IpcClient.getInstance().createWorkspaceSession(workspaceAppId);
+  const sessionId =
+    await IpcClient.getInstance().resolveWorkspaceSessionForTransport(
+      chatId,
+      workspaceAppId,
+    );
   store.set(chatIdToSessionIdAtom, (prev) => {
     const next = new Map(prev);
-    next.set(chatId, session.id);
+    next.set(chatId, sessionId);
     return next;
   });
   store.set(sessionIdToChatIdAtom, (prev) => {
     const next = new Map(prev);
-    next.set(session.id, chatId);
+    next.set(sessionId, chatId);
     return next;
   });
   if (store.get(activeChatIdAtom) === chatId) {
-    store.set(activeWorkspaceSessionIdAtom, session.id);
+    store.set(activeWorkspaceSessionIdAtom, sessionId);
     store.set(loadedSessionResumeAtom, false);
   }
   store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
-  return session.id;
+  return sessionId;
 }

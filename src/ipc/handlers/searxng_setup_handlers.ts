@@ -312,7 +312,7 @@ export async function autoStartSearxng(): Promise<void> {
  * This prevents the Docker container from running after Atlarix closes
  */
 export function registerSearxngAutoStop(): void {
-    app.on("will-quit", async (event) => {
+    app.on("will-quit", async (_event) => {
         // Check if SearxNG is running
         const status = await checkSearxngRunning();
         if (status.running) {

@@ -7,7 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { LANGUAGE_REGISTRY, type LanguageRequirement } from './language_registry';
+import { LANGUAGE_REGISTRY } from './language_registry';
 
 export interface DetectedLanguage {
     name: string;

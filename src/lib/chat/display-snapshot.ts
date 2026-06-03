@@ -15,16 +15,24 @@ export function serializeDisplaySnapshot(
   return JSON.stringify(snapshot);
 }
 
+function isDisplaySnapshotV1(value: unknown): value is DisplaySnapshotV1 {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as DisplaySnapshotV1).version === 1 &&
+    Array.isArray((value as DisplaySnapshotV1).completedThread)
+  );
+}
+
 export function parseDisplaySnapshot(
-  raw: string | null | undefined,
+  raw: string | DisplaySnapshotV1 | null | undefined,
 ): DisplaySnapshotV1 | null {
-  if (!raw?.trim()) return null;
+  if (raw == null) return null;
+  if (isDisplaySnapshotV1(raw)) return raw;
+  if (typeof raw !== "string" || !raw.trim()) return null;
   try {
-    const parsed = JSON.parse(raw) as DisplaySnapshotV1;
-    if (parsed?.version !== 1 || !Array.isArray(parsed.completedThread)) {
-      return null;
-    }
-    return parsed;
+    const parsed = JSON.parse(raw) as unknown;
+    return isDisplaySnapshotV1(parsed) ? parsed : null;
   } catch {
     return null;
   }

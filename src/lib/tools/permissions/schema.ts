@@ -49,6 +49,8 @@ export const CommandOperationPreviewSchema = z.object({
     timeout_ms: z.number().optional(),
     /** Max UTF-8 bytes for formatted output returned to the model. */
     max_output_bytes: z.number().optional(),
+    /** Set by main when user checked "I understand" for dangerous commands. */
+    danger_acknowledged: z.boolean().optional(),
 });
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
@@ -61,19 +63,6 @@ export const WorkforceActionPreviewSchema = z.object({
 });
 
 export type WorkforceActionPreview = z.infer<typeof WorkforceActionPreviewSchema>;
-
-// ════════════════════════════════════════════════════════════════════════════
-// DIAGRAM UPDATE PREVIEW
-// ════════════════════════════════════════════════════════════════════════════
-
-export const DiagramUpdatePreviewSchema = z.object({
-    type: z.enum(["minor", "major", "new_component"]).describe("Update severity"),
-    components: z.array(z.string()).describe("Affected components"),
-    description: z.string().describe("What changed architecturally"),
-    focus: z.string().optional().describe("Which part to focus on"),
-});
-
-export type DiagramUpdatePreview = z.infer<typeof DiagramUpdatePreviewSchema>;
 
 export const ProjectRevertPreviewSchema = z.object({
     snapshotId: z.coerce.number().int().positive(),
@@ -112,9 +101,7 @@ export const PermissionOperationType = z.enum([
     "replace_code",
     "insert_code",
     "delete_lines",
-    // AI-controlled diagram update
-    "update_diagram",
-    // Restore plan + diagram from SQLite snapshot (v5.0 project memory)
+    // Restore plan from SQLite snapshot (v5.0 project memory)
     "revert_project_snapshot",
 ]);
 
@@ -143,7 +130,6 @@ export const PermissionRequestSchema = z.object({
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
         WorkforceActionPreviewSchema,
-        DiagramUpdatePreviewSchema,
         BatchPlanPreviewSchema,
         ProjectRevertPreviewSchema,
     ]),

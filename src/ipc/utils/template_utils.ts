@@ -91,7 +91,7 @@ async function loadCacheFromDisk(): Promise<TemplateCache | null> {
       logger.info("Cache expired, will fetch fresh templates");
       return null;
     }
-  } catch (error) {
+  } catch {
     logger.info("No valid cache found on disk");
     return null;
   }

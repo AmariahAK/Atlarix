@@ -108,6 +108,11 @@ export const MONACO_LANGUAGE_MANIFEST: MonacoLanguageEntry[] = [
     monacoId: "shell",
     extensions: ["sh", "bash", "zsh"],
   },
+  {
+    /** Monarch tokenizer in monaco.ts — comments / log levels for plain text */
+    monacoId: "atlarix-text",
+    extensions: ["txt", "log"],
+  },
 ];
 
 const extMap = new Map<string, MonacoLanguageEntry>();
@@ -134,6 +139,13 @@ export function getManifestEntryForPath(filePath: string): MonacoLanguageEntry |
 
 /** Monaco editor language id for a file path */
 export function getMonacoLanguageForPath(filePath: string): string {
+  const base = filePath.split(/[/\\]/).pop() ?? filePath;
+  const dot = base.lastIndexOf(".");
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
+  // Monaco built-in TS language handles JSX in .tsx/.jsx (see monaco.ts compilerOptions)
+  if (ext === "tsx" || ext === "jsx") return "typescript";
+  if (ext === "js" || ext === "mjs" || ext === "cjs") return "javascript";
+  if (ext === "txt" || ext === "log") return "atlarix-text";
   return getManifestEntryForPath(filePath)?.monacoId ?? "plaintext";
 }
 

@@ -77,10 +77,36 @@ vi.mock("../paths/paths", () => ({
 
 const { mockAppFile } = pathMocks;
 
+// Mock ephemeral chat transport → workspace binding
+vi.mock("@/lib/ephemeral-chat", () => {
+  const store = new Map<number, { messages: { id: number; role: string; content: string; approvalState?: string; commitHash?: string }[] }>();
+  return {
+    getEphemeralChatAppId: vi.fn(() => 1),
+    getEphemeralChat: vi.fn((chatId: number) => {
+      if (!store.has(chatId)) {
+        store.set(chatId, {
+          messages: [
+            {
+              id: 1,
+              role: "assistant",
+              content: "",
+            },
+          ],
+        });
+      }
+      return { id: chatId, messages: store.get(chatId)!.messages, title: "Test", createdAt: new Date(), appId: 1 };
+    }),
+    isEphemeralChatId: vi.fn((chatId: number) => chatId < 0 || store.has(chatId)),
+  };
+});
+
 // Mock db
 vi.mock("../db", () => ({
   db: {
     query: {
+      apps: {
+        findFirst: vi.fn(),
+      },
       chats: {
         findFirst: vi.fn(),
       },
@@ -615,23 +641,15 @@ describe("processFullResponse", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock db query response
-    vi.mocked(db.query.chats.findFirst).mockResolvedValue({
+    vi.mocked(db.query.apps.findFirst).mockResolvedValue({
       id: 1,
-      appId: 1,
-      title: "Test Chat",
+      name: "Mock App",
+      path: "mock-app-path",
       createdAt: new Date(),
-      app: {
-        id: 1,
-        name: "Mock App",
-        path: "mock-app-path",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      messages: [],
+      updatedAt: new Date(),
     } as any);
 
-    vi.mocked(db.query.messages.findFirst).mockResolvedValue({
+    vi.mocked((db.query as any).messages.findFirst).mockResolvedValue({
       id: 1,
       chatId: 1,
       role: "assistant",

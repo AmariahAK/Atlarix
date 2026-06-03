@@ -7,7 +7,6 @@
 import { atom } from 'jotai';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
-import type { PlanUpdatePayload } from '@/ipc/ipc_types';
 
 // ═══════════════════════════════════════════════════════════
 // PANEL TYPES
@@ -16,15 +15,14 @@ import type { PlanUpdatePayload } from '@/ipc/ipc_types';
 export type PanelType =
     | 'web-search'      // Source cards + iframe preview
     | 'code-preview'    // Live preview iframe (frontend)
-    | 'diagram'         // Architecture diagram (backend)
     | 'terminal'        // Command output
     | 'file-diff'       // File changes + approval
     | 'files'           // File explorer (default)
-    | 'timeline'        // Diagram timeline (project evolution)
+    | 'tools'           // Tool execution activity
     | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'diagram' | 'logs' | 'files' | 'diff' | 'approve' | 'timeline' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'diff' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
 
 export interface PanelContext {
     type: PanelType;
@@ -46,9 +44,7 @@ export type AIPanelIntent =
     | 'show-permissions'    // Show file/command approval UI → maps to 'file-diff'
     | 'show-file-changes'   // Show file diff viewer → maps to 'file-diff'
     | 'show-web-search'     // Show web search results → maps to 'web-search'
-    | 'show-diagram'        // Show architecture diagram → maps to 'diagram'
     | 'show-terminal'       // Show command output → maps to 'terminal'
-    | 'show-timeline'       // Show diagram history → maps to 'timeline'
     | 'show-plan'           // Show ATLARIX plan execution panel → maps to 'plan'
     | 'show-files'          // Show file explorer → maps to 'files'
     | 'show-preview'        // Show dev server preview → maps to 'code-preview'
@@ -60,7 +56,6 @@ export interface AIPanelIntentState {
     context?: {
         operationId?: string;    // For file-diff or permission
         searchId?: string;       // For web-search
-        diagramId?: string;      // For diagram
         commandId?: string;      // For terminal
         chatId?: number;         // For permission queue panel
         message?: string;        // User-facing explanation
@@ -88,14 +83,8 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
         case 'show-web-search':
             return 'web-search';
 
-        case 'show-diagram':
-            return 'code-preview';
-
         case 'show-terminal':
             return 'terminal';
-
-        case 'show-timeline':
-            return 'timeline';
 
         case 'show-files':
             return 'files';
@@ -218,10 +207,6 @@ export interface ActivityStreamItem {
   cost?: number;
   timestamp: number;
   detail?: string;
-  /** Full tool result JSON for chat expand panels (diff, search links, terminal output). */
-  resultText?: string;
-  /** Tool invocation args when available (for expand path/command preview). */
-  toolArgs?: Record<string, unknown>;
   /** Full tool result JSON for chat expand panels (diff, search links, terminal output). */
   resultText?: string;
   /** Tool invocation args when available (for expand path/command preview). */
@@ -357,86 +342,7 @@ export const approvalStateAtom = atom<{
     rejected: string[];
 }>({ approved: [], rejected: [] });
 
-// ═══════════════════════════════════════════════════════════
-// DIAGRAM ATOMS
-// ═══════════════════════════════════════════════════════════
-
-export interface DiagramState {
-    id?: number;
-    code: string;
-    type: 'graph' | 'architecture' | 'sequence' | 'class' | 'flowchart';
-    compareMode: 'current' | 'before' | 'after' | 'side-by-side';
-    beforeCode?: string;
-    afterCode?: string;
-    title?: string;
-    /** Workspace this diagram belongs to (for selector sync) */
-    workspaceId?: number | null;
-    /** PASS6: main diagram vs auxiliary reference slices from get_diagram(role:"reference") */
-    role?: 'main' | 'reference';
-}
-
-/** Secondary diagram slices (e.g. scoped class diagrams) shown as chips next to the main panel diagram */
-export interface DiagramReferenceEntry {
-    id: string;
-    title?: string;
-    code: string;
-    type: DiagramState['type'];
-}
-
-export const diagramReferencesAtom = atom<DiagramReferenceEntry[]>([]);
-
-/** AI-pushed blueprint graph for the Diagram tab (single active canvas). */
-export interface BlueprintPanelRoom {
-  id: string;
-  name: string;
-  files?: string[];
-  functions?: string[];
-}
-
-export interface BlueprintPanelEdge {
-  from: string;
-  to: string;
-  type?: string;
-}
-
-export interface BlueprintPanelState {
-  workspaceId?: number | null;
-  title?: string;
-  rooms: BlueprintPanelRoom[];
-  edges: BlueprintPanelEdge[];
-  updatedAt: number;
-}
-
-export const blueprintStateAtom = atom<BlueprintPanelState | null>(null);
-
-/** Current diagram state */
-export const diagramStateAtom = atom<DiagramState | null>(null);
-
-/** Diagram staleness warning - shown when external changes detected */
-/** Git-based decision for Update vs Regenerate (when workspace is git) */
-export interface GitDiagramDecision {
-    action: 'none' | 'update' | 'regenerate';
-    reason: string;
-    confidence: number;
-    totalFiles: number;
-    linesAdded: number;
-    linesDeleted: number;
-}
-
-export interface DiagramStalenessWarning {
-    diagramId: number;
-    isStale: boolean;
-    severity: 'none' | 'minor' | 'moderate' | 'major';
-    reason: string;
-    recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
-    /** When workspace is git: whether to update existing diagram or regenerate */
-    gitDecision?: GitDiagramDecision;
-}
-
-export const diagramStalenessAtom = atom<DiagramStalenessWarning | null>(null);
-
-// Pass 7: Legacy Blueprint editor atoms removed (`diagramViewModeAtom`, `blueprintAiEditingAtom`).
-// `blueprintStateAtom` — legacy panel state; primary architecture viz is inline markmap/graph in chat.
+// Diagram atoms removed with the diagram subsystem — architecture viz is inline markmap/graph in chat.
 
 // ═══════════════════════════════════════════════════════════
 // TERMINAL ATOMS

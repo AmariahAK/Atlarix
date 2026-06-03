@@ -24,4 +24,6 @@ export const loadedSessionTruncatedAtom = atom<boolean>(false);
 export const workspaceSessionsRefreshAtom = atom(0);
 
 /** Session ids currently awaiting AI-generated titles. */
-export const workspaceSessionTitleGeneratingAtom = atom<Set<string>>(new Set());
+export const workspaceSessionTitleGeneratingAtom = atom<Set<string>>(
+  new Set<string>(),
+);

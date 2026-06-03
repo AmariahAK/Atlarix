@@ -116,7 +116,6 @@ export async function findProjects(workspacePath: string): Promise<ProjectCandid
   return candidates;
 }
 
-const EXCLUDE_FOR_ACTIVITY = new Set(["node_modules", ".git", "dist", "build", "__pycache__", "venv", ".venv", "target"]);
 
 export interface ActivityScore {
   editsLast7Days: number;

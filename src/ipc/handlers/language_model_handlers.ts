@@ -37,7 +37,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "create-custom-language-model-provider",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: CreateCustomLanguageModelProviderParams,
     ): Promise<LanguageModelProvider> => {
       const { id, name, apiBaseUrl, envVarName } = params;
@@ -89,7 +89,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "create-custom-language-model",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: CreateCustomLanguageModelParams,
     ): Promise<void> => {
       const {
@@ -134,7 +134,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "edit-custom-language-model-provider",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: CreateCustomLanguageModelProviderParams,
     ): Promise<LanguageModelProvider> => {
       const { id, name, apiBaseUrl, envVarName } = params;
@@ -196,7 +196,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "delete-custom-language-model",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: { modelId: string },
     ): Promise<void> => {
       const { modelId: apiName } = params;
@@ -281,7 +281,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "delete-custom-language-model-provider",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: { providerId: string },
     ): Promise<void> => {
       const { providerId } = params;
@@ -347,7 +347,7 @@ export function registerLanguageModelHandlers() {
   handle(
     "get-language-models",
     async (
-      event: IpcMainInvokeEvent,
+      _event: IpcMainInvokeEvent,
       params: { providerId: string },
     ): Promise<LanguageModel[]> => {
       if (!params || typeof params.providerId !== "string") {

@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMcp, type Transport } from "@/hooks/useMcp";
+import { McpOAuthServerActions } from "@/components/McpOAuthPrompt";
 import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
 import {
@@ -30,6 +31,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UrlInputField, UrlReadOnlyRow } from "@/components/settings/UrlDisplayField";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useSettings } from "@/hooks/useSettings";
 import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
 import { AddMcpServerDeepLinkData } from "@/ipc/deep_link_data";
@@ -317,6 +319,7 @@ export function ToolsMcpSettings({
   const {
     servers,
     toolsByServer,
+    toolsErrorsByServer,
     consentsMap,
     createServer,
     toggleEnabled: toggleServerEnabled,
@@ -328,9 +331,15 @@ export function ToolsMcpSettings({
     refetchAll,
   } = useMcp(filter);
   const { status: authStatus, loading: authLoading } = useAuth();
+  const { settings, updateSettings } = useSettings();
   const { handleUpgrade } = useUpgrade();
+  const [sandboxDiag, setSandboxDiag] = useState<{
+    platform: string;
+    firejailFound: boolean;
+    firejailPath: string | null;
+    sandboxWouldBeActive: boolean;
+  } | null>(null);
   const plan = authStatus?.plan;
-  const isPro = plan === "pro" || plan === "workforce";
   // Only enforce the free-tier limit when we know the user is on the free plan.
   const mcpAtFreeLimit = !authLoading && plan === "free" && servers.length >= 1;
   const atMaxServers = maxServers != null && servers.length >= maxServers;
@@ -343,6 +352,7 @@ export function ToolsMcpSettings({
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState<string>("");
   const [url, setUrl] = useState("");
+  const [httpAuthMode, setHttpAuthMode] = useState<"api_key" | "oauth">("api_key");
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -386,6 +396,13 @@ export function ToolsMcpSettings({
     setConsents(consentsMap);
   }, [consentsMap]);
 
+  useEffect(() => {
+    void IpcClient.getInstance()
+      .getMcpSandboxDiagnostics()
+      .then(setSandboxDiag)
+      .catch(() => setSandboxDiag(null));
+  }, [settings?.sandboxMcpStdio, settings?.mcpStdioFirejail?.customBinaryPath]);
+
   const onCreate = async () => {
     if (mcpAtFreeLimit) {
       showError("Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited.");
@@ -407,13 +424,18 @@ export function ToolsMcpSettings({
       return trimmed.split(" ").filter(Boolean);
     })();
     try {
-      await createServer({
+      const created = await createServer({
         name,
         transport,
         command: command || null,
         args: parsedArgs,
         url: url || null,
-        apiKey: apiKey.trim() || null,
+        apiKey:
+          transport === "http" && httpAuthMode === "oauth"
+            ? null
+            : apiKey.trim() || null,
+        authType:
+          transport === "http" && httpAuthMode === "oauth" ? "oauth" : undefined,
         enabled,
         scope: "workspace",
         appId: appId ?? null,
@@ -424,8 +446,21 @@ export function ToolsMcpSettings({
       setUrl("");
       setApiKey("");
       setShowApiKey(false);
+      if (
+        transport === "http" &&
+        httpAuthMode === "oauth" &&
+        created &&
+        typeof created === "object" &&
+        "id" in created
+      ) {
+        await IpcClient.getInstance().startMcpOAuth({
+          serverId: (created as { id: number }).id,
+        });
+        showInfo("Opening browser to sign in to your MCP server…");
+      } else {
+        showSuccess("MCP server added");
+      }
       setEnabled(true);
-      showSuccess("MCP server added. Use \"Test connection\" to verify.");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showError(msg);
@@ -492,6 +527,71 @@ export function ToolsMcpSettings({
           MCP servers: <span className="text-foreground">{countLabel}</span>
         </div>
       )}
+
+      <div className="rounded-lg border border-border/60 p-4 space-y-3">
+        <div className="text-sm font-medium">Stdio MCP sandbox (Linux)</div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="sandbox-mcp-stdio" className="text-sm text-muted-foreground">
+            Wrap stdio MCP servers in firejail when available
+          </Label>
+          <Switch
+            id="sandbox-mcp-stdio"
+            checked={settings?.sandboxMcpStdio === true}
+            onCheckedChange={(checked) => updateSettings({ sandboxMcpStdio: checked })}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="firejail-net" className="text-sm text-muted-foreground">
+            Allow network inside sandbox
+          </Label>
+          <Switch
+            id="firejail-net"
+            disabled={!settings?.sandboxMcpStdio}
+            checked={settings?.mcpStdioFirejail?.allowNetwork === true}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                mcpStdioFirejail: {
+                  ...settings?.mcpStdioFirejail,
+                  allowNetwork: checked,
+                },
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="firejail-path" className="text-xs text-muted-foreground">
+            Custom firejail binary path (optional)
+          </Label>
+          <Input
+            id="firejail-path"
+            disabled={!settings?.sandboxMcpStdio}
+            placeholder="/usr/bin/firejail"
+            value={settings?.mcpStdioFirejail?.customBinaryPath ?? ""}
+            onChange={(e) =>
+              updateSettings({
+                mcpStdioFirejail: {
+                  ...settings?.mcpStdioFirejail,
+                  customBinaryPath: e.target.value || undefined,
+                },
+              })
+            }
+          />
+        </div>
+        {sandboxDiag ? (
+          <p className="text-xs text-muted-foreground">
+            {sandboxDiag.platform !== "linux"
+              ? "Firejail sandbox applies on Linux only; stdio spawns are unchanged on this platform."
+              : sandboxDiag.sandboxWouldBeActive
+                ? `Sandbox active (firejail: ${sandboxDiag.firejailPath}).`
+                : settings?.sandboxMcpStdio
+                  ? sandboxDiag.firejailFound
+                    ? "Firejail found but sandbox is off — enable the toggle above."
+                    : "Firejail not found. Install with your package manager (e.g. apt install firejail)."
+                  : "Sandbox disabled."}
+          </p>
+        ) : null}
+      </div>
+
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -534,15 +634,31 @@ export function ToolsMcpSettings({
             </>
           )}
           {transport === "http" && (
-            <div className="col-span-2 space-y-1.5">
-              <Label>URL</Label>
-              <UrlInputField
-                value={url}
-                onChange={setUrl}
-                placeholder="https://example.com/mcp"
-              />
-            </div>
+            <>
+              <div className="col-span-2 space-y-1.5">
+                <Label>URL</Label>
+                <UrlInputField
+                  value={url}
+                  onChange={setUrl}
+                  placeholder="https://example.com/mcp"
+                />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>HTTP authentication</Label>
+                <select
+                  value={httpAuthMode}
+                  onChange={(e) =>
+                    setHttpAuthMode(e.target.value as "api_key" | "oauth")
+                  }
+                  className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
+                >
+                  <option value="api_key">API key (Bearer token)</option>
+                  <option value="oauth">OAuth (browser sign-in)</option>
+                </select>
+              </div>
+            </>
           )}
+          {!(transport === "http" && httpAuthMode === "oauth") && (
           <div className="col-span-2 space-y-1.5">
             <Label>API Key (optional)</Label>
             <div className="relative">
@@ -572,6 +688,7 @@ export function ToolsMcpSettings({
               locally on your machine.
             </p>
           </div>
+          )}
           <div className="flex items-center gap-2">
             <Switch checked={enabled} onCheckedChange={setEnabled} />
             <Label>Enabled</Label>
@@ -665,6 +782,16 @@ export function ToolsMcpSettings({
             </div>
             {isExpanded ? (
               <>
+            {s.authType === "oauth" && (
+              <div className="mt-3">
+                <McpOAuthServerActions
+                  serverId={s.id}
+                  serverName={s.name}
+                  oauthConnected={s.oauthConnected}
+                  onChanged={() => void refetchAll()}
+                />
+              </div>
+            )}
             {s.transport === "stdio" && (
               <div className="mt-3">
                 <div className="text-sm font-medium mb-2">
@@ -718,7 +845,11 @@ export function ToolsMcpSettings({
               ))}
               {(toolsByServer[s.id] || []).length === 0 && (
                 <div className="text-xs text-muted-foreground">
-                  No tools discovered.
+                  {toolsErrorsByServer[s.id]?.needsOAuth
+                    ? "Sign-in required — use Connect above to authorize this server."
+                    : toolsErrorsByServer[s.id]?.error
+                      ? toolsErrorsByServer[s.id].error
+                      : "No tools discovered."}
                 </div>
               )}
                 </div>

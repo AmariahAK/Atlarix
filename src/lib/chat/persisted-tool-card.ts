@@ -1,6 +1,7 @@
 import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
 import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
 import {
+  formatToolResultPreview,
   getToolCompletedSummary,
   getToolRunningSummary,
 } from "@/lib/chat/stream-tool-display";
@@ -38,8 +39,24 @@ export function getPersistedToolSummary(
       hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;
     return `${base} · ${short}`;
   }
+  // For result-count tools (MCP / web), surface a concise count from the result
+  // text so reloaded cards match the live summary (e.g. "3 MCP servers · 12 tools").
+  if (COUNT_SUMMARY_TOOLS.has(part.toolName) && part.resultText?.trim()) {
+    const preview = formatToolResultPreview(part.toolName, part.resultText, "done");
+    if (preview && preview !== "Done" && !preview.includes("\n")) {
+      const short = preview.length > 64 ? `${preview.slice(0, 63)}…` : preview;
+      return `${base} · ${short}`;
+    }
+  }
   return base;
 }
+
+const COUNT_SUMMARY_TOOLS = new Set([
+  "list_available_mcps",
+  "mcp_call",
+  "web_search",
+  "deep_research",
+]);
 
 /** Structured expand panel for persisted tool parts (never raw JSON). */
 export function getPersistedToolExpandView(

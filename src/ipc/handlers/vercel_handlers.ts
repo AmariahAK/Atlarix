@@ -192,7 +192,7 @@ async function detectFramework(
 // --- IPC Handlers ---
 
 async function handleSaveVercelToken(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { token }: SaveVercelAccessTokenParams,
 ): Promise<void> {
   logger.debug("Saving Vercel access token");
@@ -251,7 +251,7 @@ async function handleListVercelProjects(): Promise<VercelProject[]> {
 
 // --- Vercel Project Availability Handler ---
 async function handleIsProjectAvailable(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { name }: IsVercelProjectAvailableParams,
 ): Promise<{ available: boolean; error?: string }> {
   try {
@@ -286,7 +286,7 @@ async function handleIsProjectAvailable(
 
 // --- Vercel Create Project Handler ---
 async function handleCreateProject(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { name, appId }: CreateVercelProjectParams,
 ): Promise<void> {
   const settings = readSettings();
@@ -390,7 +390,7 @@ async function handleCreateProject(
 
 // --- Vercel Connect to Existing Project Handler ---
 async function handleConnectToExistingProject(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { projectId, appId }: ConnectToExistingVercelProjectParams,
 ): Promise<void> {
   try {
@@ -440,7 +440,7 @@ async function handleConnectToExistingProject(
 
 // --- Vercel Get Deployments Handler ---
 async function handleGetVercelDeployments(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { appId }: GetVercelDeploymentsParams,
 ): Promise<VercelDeployment[]> {
   try {
@@ -487,7 +487,7 @@ async function handleGetVercelDeployments(
 }
 
 async function handleDisconnectVercelProject(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { appId }: DisconnectVercelProjectParams,
 ): Promise<void> {
   logger.log(`Disconnecting Vercel project for appId: ${appId}`);

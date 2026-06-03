@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronUp, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlanCard } from "./PlanCard";

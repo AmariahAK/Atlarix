@@ -13,6 +13,7 @@ import {
   MutationCache,
 } from "@tanstack/react-query";
 import { showError, showMcpConsentToast } from "./lib/toast";
+import { McpOAuthPrompt } from "./components/McpOAuthPrompt";
 import { IpcClient } from "./ipc/ipc_client";
 import { DevServerProvider } from "./components/DevServerProvider";
 import { AppLoadingScreen } from "./components/AppLoadingScreen";
@@ -207,6 +208,7 @@ function App() {
   return (
     <>
       <RouterProvider router={router} />
+      <McpOAuthPrompt />
       <PerfDevOverlayHost />
     </>
   );

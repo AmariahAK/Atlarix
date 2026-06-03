@@ -1,10 +1,7 @@
-import type { IpcRenderer } from "electron";
 import {
   type ChatSummary,
-  ChatSummariesSchema,
   type UserSettings,
   type ContextPathResults,
-  ChatSearchResultsSchema,
   AppSearchResultsSchema,
 } from "../lib/schemas";
 import type {
@@ -21,7 +18,6 @@ import type {
   Message,
   Version,
   SystemDebugInfo,
-  LocalModel,
   LocalModelListResponse,
   TokenCountParams,
   TokenCountResult,
@@ -41,7 +37,6 @@ import type {
   App,
   ComponentSelection,
   AppUpgrade,
-  ProblemReport,
   EditAppFileReturnType,
   GetAppEnvVarsParams,
   SetAppEnvVarsParams,
@@ -64,7 +59,6 @@ import type {
   RevertVersionResponse,
   RevertVersionParams,
   RespondToAppInputParams,
-  PromptDto,
   McpServerUpdate,
   CreateMcpServer,
   CloneRepoParams,
@@ -83,14 +77,12 @@ import type {
   CounselCompleteIpcPayload,
   PlanUpdatePayload,
   SkillRegistryIndex,
-  SkillManifestEntry,
   InstallSkillParams,
   UninstallSkillParams,
   InstalledSkillRow,
   ActiveSkillContent,
   ListRepoSkillsResult,
 } from "./ipc_types";
-import type { Question } from "./ipc_types";
 import type { Template } from "../shared/templates";
 import type {
   AppChatContext,
@@ -224,9 +216,22 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
   };
 }
 
+/**
+ * Shape of the preload-exposed `electron.ipcRenderer` wrapper. Its `on` strips the
+ * Electron event and forwards only the payload to listeners, so listeners are
+ * `(payload) => void` (not Electron's `(event, ...args) => void`).
+ */
+interface PreloadIpcRenderer {
+  invoke(channel: string, ...args: any[]): Promise<any>;
+  on(channel: string, listener: (...args: any[]) => void): (() => void) | void;
+  send(channel: string, ...args: any[]): void;
+  removeListener(channel: string, listener: (...args: any[]) => void): void;
+  removeAllListeners(channel: string): void;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
-  private ipcRenderer: IpcRenderer;
+  private ipcRenderer: PreloadIpcRenderer;
   private chatStreams: Map<number, ChatStreamCallbacks>;
   private appStreams: Map<number, AppStreamCallbacks>;
   private helpStreams: Map<
@@ -249,12 +254,23 @@ export class IpcClient {
   >;
   private userQuestionHandlers: Map<number, (payload: any) => void>;
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
-  private diagramHandlers: Map<number, (payload: any) => void>;
   private terminalHandlers: Map<number, (payload: any) => void>;
   private toolStartHandlers: Set<
-    (payload: { chatId: number; toolName: string; toolId?: string }) => void
+    (payload: {
+      chatId: number;
+      toolName: string;
+      toolId?: string;
+      toolArgs?: Record<string, unknown>;
+    }) => void
   > = new Set();
-  private toolEndHandlers: Set<(payload: { chatId: number }) => void> = new Set();
+  private toolEndHandlers: Set<
+    (payload: {
+      chatId: number;
+      toolId?: string;
+      toolName?: string;
+      status?: "success" | "error";
+    }) => void
+  > = new Set();
   private streamPhaseHandlers: Set<
     (payload: { chatId: number; phase: string; label: string }) => void
   > = new Set();
@@ -282,7 +298,7 @@ export class IpcClient {
     (payload: { workspacePath: string; mtime: number | null }) => void
   >();
   private constructor() {
-    this.ipcRenderer = (window as any).electron.ipcRenderer as IpcRenderer;
+    this.ipcRenderer = (window as any).electron.ipcRenderer as PreloadIpcRenderer;
     this.chatStreams = new Map();
     this.appStreams = new Map();
     this.helpStreams = new Map();
@@ -291,7 +307,6 @@ export class IpcClient {
     this.commandPermissionBlockedHandlers = new Map();
     this.filePermissionBlockedHandlers = new Map();
     this.userQuestionHandlers = new Map();
-    this.diagramHandlers = new Map();
     this.terminalHandlers = new Map();
     // Set up listeners for stream events
     this.ipcRenderer.on("chat:response:chunk", (data) => {
@@ -552,17 +567,6 @@ export class IpcClient {
       }
     });
 
-    // Workspace diagram from main (diagram tool results)
-    this.ipcRenderer.on("chat:workspace-diagram", (payload: any) => {
-      if (payload && typeof payload === "object" && "chatId" in payload) {
-        const { chatId } = payload;
-        const handler = this.diagramHandlers.get(chatId);
-        if (handler) {
-          handler(payload);
-        }
-      }
-    });
-
     // Terminal output from main (command execution)
     this.ipcRenderer.on("terminal-output", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
@@ -700,7 +704,7 @@ export class IpcClient {
     return this.ipcRenderer.invoke("autonomous:accept-all", params);
   }
 
-  /** Restore workspace files + diagram from `.atlarix/snapshots/<turnId>/`; cancels task ledger for that turn. */
+  /** Restore workspace files from `.atlarix/snapshots/<turnId>/`; cancels task ledger for that turn. */
   public async revertSnapshot(
     chatId: number,
     turnId: string,
@@ -878,6 +882,7 @@ export class IpcClient {
     onEnd: (payload: {
       chatId: number;
       toolId?: string;
+      toolName?: string;
       status?: "success" | "error";
     }) => void,
   ): () => void {
@@ -1009,29 +1014,26 @@ export class IpcClient {
       .catch(() => {});
   }
 
-  // Get all chats
+  /** @deprecated Legacy DB chats removed — use listWorkspaceSessions. */
   public async getChats(appId?: number): Promise<ChatSummary[]> {
-    try {
-      const data = await this.ipcRenderer.invoke("get-chats", appId);
-      return ChatSummariesSchema.parse(data);
-    } catch (error) {
-      showError(error);
-      throw error;
-    }
+    if (appId == null) return [];
+    const sessions = await this.listWorkspaceSessions(appId);
+    return sessions.map(
+      (s: { id: string; title: string | null; createdAt: Date }) => ({
+        id: s.id as unknown as number,
+        title: s.title,
+        createdAt: s.createdAt,
+        appId,
+      }),
+    );
   }
 
-  // search for chats
+  /** @deprecated Legacy DB chat search removed. */
   public async searchChats(
-    appId: number,
-    query: string,
+    _appId: number,
+    _query: string,
   ): Promise<ChatSearchResult[]> {
-    try {
-      const data = await this.ipcRenderer.invoke("search-chats", appId, query);
-      return ChatSearchResultsSchema.parse(data);
-    } catch (error) {
-      showError(error);
-      throw error;
-    }
+    return [];
   }
 
   // Get all apps
@@ -1198,9 +1200,37 @@ export class IpcClient {
     return this.ipcRenderer.invoke("chat:stream:reconnect", { chatId });
   }
 
-  // Create a new chat for an app
-  public async createChat(appId: number): Promise<number> {
-    return this.ipcRenderer.invoke("create-chat", appId);
+  /** New workspace session row + ephemeral stream transport. */
+  public async startWorkspaceConversation(workspaceId: number): Promise<{
+    sessionId: string;
+    chatId: number;
+    session: {
+      id: string;
+      workspaceId: number;
+      title: string;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+  }> {
+    return this.ipcRenderer.invoke("sessions:start", workspaceId);
+  }
+
+  /** Ephemeral transport for an existing session (reuses stored stream_chat_id when valid). */
+  public async allocateSessionTransport(sessionId: string): Promise<{
+    chatId: number;
+  }> {
+    return this.ipcRenderer.invoke("sessions:allocate-transport", sessionId);
+  }
+
+  /** Resolve or bind persisted session for an ephemeral transport chat id. */
+  public async resolveWorkspaceSessionForTransport(
+    chatId: number,
+    workspaceId: number,
+  ): Promise<string> {
+    return this.ipcRenderer.invoke("sessions:resolve-for-transport", {
+      chatId,
+      workspaceId,
+    });
   }
 
   public async clearEphemeralChatMessages(chatId: number): Promise<void> {
@@ -1292,16 +1322,16 @@ export class IpcClient {
     );
   }
 
-  public async updateChat(params: UpdateChatParams): Promise<void> {
-    return this.ipcRenderer.invoke("update-chat", params);
+  public async updateChat(_params: UpdateChatParams): Promise<void> {
+    throw new Error("Legacy chat rename removed; use renameWorkspaceSession");
   }
 
-  public async deleteChat(chatId: number): Promise<void> {
-    await this.ipcRenderer.invoke("delete-chat", chatId);
+  public async deleteChat(_chatId: number): Promise<void> {
+    throw new Error("Legacy chat delete removed; use deleteWorkspaceSession");
   }
 
   public async deleteMessages(chatId: number): Promise<void> {
-    await this.ipcRenderer.invoke("delete-messages", chatId);
+    await this.clearEphemeralChatMessages(chatId);
   }
 
   // Open an external URL using the default browser
@@ -1740,6 +1770,15 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:test-connection", serverId);
   }
 
+  public async getMcpSandboxDiagnostics(): Promise<{
+    platform: NodeJS.Platform;
+    firejailFound: boolean;
+    firejailPath: string | null;
+    sandboxWouldBeActive: boolean;
+  }> {
+    return this.ipcRenderer.invoke("mcp:sandbox-diagnostics");
+  }
+
   /**
    * Pass 7 — Fetch the public MCP marketplace registry. Returns the parsed
    * JSON index when successful. If `url` is omitted the default Atlarix
@@ -1765,8 +1804,94 @@ export class IpcClient {
     env: Record<string, string>;
     scope?: "global" | "workspace";
     appId?: number | null;
-  }): Promise<{ success: boolean; serverId?: number; error?: string }> {
+  }): Promise<{
+    success: boolean;
+    serverId?: number;
+    needsOAuth?: boolean;
+    error?: string;
+  }> {
     return this.ipcRenderer.invoke("mcps:install-from-registry", params);
+  }
+
+  public async startMcpOAuth(params: {
+    serverId: number;
+    scopes?: string[];
+  }): Promise<{ status: "authorized" | "redirect" }> {
+    return this.ipcRenderer.invoke("mcp:start-oauth", params);
+  }
+
+  public async cancelMcpOAuth(serverId: number): Promise<{ ok: true }> {
+    return this.ipcRenderer.invoke("mcp:cancel-oauth", serverId);
+  }
+
+  public async getMcpOAuthStatus(serverId: number): Promise<{
+    connected: boolean;
+    serverId: number;
+    inProgress: boolean;
+  }> {
+    return this.ipcRenderer.invoke("mcp:oauth-status", serverId);
+  }
+
+  public async revokeMcpOAuth(serverId: number): Promise<{ ok: true }> {
+    return this.ipcRenderer.invoke("mcp:revoke-oauth", serverId);
+  }
+
+  public onMcpOAuthRedirect(
+    listener: (payload: {
+      serverId: number;
+      serverName: string;
+      authorizationUrl: string;
+    }) => void,
+  ): () => void {
+    this.ipcRenderer.on("mcp:oauth-redirect", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mcp:oauth-redirect", listener);
+    };
+  }
+
+  public onMcpOAuthSuccess(
+    listener: (payload: { serverId: number; serverName: string }) => void,
+  ): () => void {
+    this.ipcRenderer.on("mcp:oauth-success", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mcp:oauth-success", listener);
+    };
+  }
+
+  public onMcpOAuthError(
+    listener: (payload: {
+      serverId: number;
+      serverName: string;
+      error: string;
+    }) => void,
+  ): () => void {
+    this.ipcRenderer.on("mcp:oauth-error", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mcp:oauth-error", listener);
+    };
+  }
+
+  public onMcpOAuthRequired(
+    listener: (payload: { serverId: number }) => void,
+  ): () => void {
+    this.ipcRenderer.on("mcp:oauth-required", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mcp:oauth-required", listener);
+    };
+  }
+
+  public onMcpAuthRequired(
+    listener: (payload: {
+      serverId: number;
+      serverName: string;
+      authType: "none" | "env" | "api_key" | "oauth";
+      reason?: "missing" | "invalid";
+    }) => void,
+  ): () => void {
+    this.ipcRenderer.on("mcp:auth-required", listener);
+    return () => {
+      this.ipcRenderer.removeListener("mcp:auth-required", listener);
+    };
   }
 
   // Removed: upsertMcpTools and setMcpToolActive – tools are fetched dynamically at runtime
@@ -2154,6 +2279,7 @@ export class IpcClient {
     operationId,
     approvalMode = "once",
     appId,
+    dangerAcknowledged,
   }: {
     chatId: number;
     operationId: string;
@@ -2165,12 +2291,14 @@ export class IpcClient {
       | "always_allow_directory"
       | "always_allow_extension";
     appId?: number | null;
+    dangerAcknowledged?: boolean;
   }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
     return this.ipcRenderer.invoke("execute-permission", {
       chatId,
       operationId,
       approvalMode,
       appId,
+      dangerAcknowledged,
     });
   }
 
@@ -2379,26 +2507,6 @@ export class IpcClient {
     } catch {
       /* non-fatal */
     }
-  }
-
-  /**
-   * Register a handler for workspace diagram events for a specific chat
-   * Returns unsubscribe function
-   */
-  public onWorkspaceDiagram(
-    chatId: number,
-    handler: (payload: {
-      chatId: number;
-      type: string;
-      title: string;
-      graphCode: string;
-      snapshotId: number;
-    }) => void
-  ): () => void {
-    this.diagramHandlers.set(chatId, handler);
-    return () => {
-      this.diagramHandlers.delete(chatId);
-    };
   }
 
   /**
@@ -2619,26 +2727,6 @@ export class IpcClient {
     this.ipcRenderer.on("db-ready", callback);
     return () => {
       this.ipcRenderer.removeListener("db-ready", callback);
-    };
-  }
-
-  // Listen for diagram staleness detected events
-  // Fired when project changes significantly (50%+) and diagram needs refresh
-  public onDiagramStalenessDetected(
-    callback: (data: {
-      diagramId: number;
-      isStale: boolean;
-      severity: 'minor' | 'moderate' | 'major';
-      reason: string;
-      recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
-    }) => void,
-  ): () => void {
-    const listener = (data: any) => {
-      callback(data);
-    };
-    this.ipcRenderer.on("diagram:staleness-detected", listener);
-    return () => {
-      this.ipcRenderer.removeListener("diagram:staleness-detected", listener);
     };
   }
 
@@ -2965,7 +3053,9 @@ export class IpcClient {
   }
 
   // Provider API Key Management
-  public async getProviderApiKey(providerId: string): Promise<string | undefined> {
+  public async getProviderApiKey(
+    providerId: string,
+  ): Promise<{ configured: boolean; preview?: string }> {
     return this.ipcRenderer.invoke("provider:get-api-key", { providerId });
   }
 
@@ -3047,119 +3137,6 @@ export class IpcClient {
   // Delete SearxNG config
   public async deleteSearxngConfig(): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("searxng:delete-config");
-  }
-
-  // ============================================
-  // DIAGRAM METHODS
-  // ============================================
-
-  public async generateDiagram(input: {
-    workspaceId?: number;
-    chatId?: number;
-    type: "graph" | "architecture" | "sequence" | "class" | "flowchart";
-    title: string;
-    content: string;
-    metadata?: { files?: string[]; entities?: string[]; focus?: string };
-  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:generate", input);
-  }
-
-  public async generateAiDiagram(input: {
-    workspaceId: number;
-    title?: string;
-  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:generate-ai", input);
-  }
-
-  public async listDiagrams(params: { workspaceId?: number }): Promise<{
-    success: boolean;
-    diagrams: any[];
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("diagram:list", params);
-  }
-
-  public async getDiagram(id: number): Promise<{
-    success: boolean;
-    diagram?: any;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("diagram:get", { id });
-  }
-
-  public async updateDiagram(params: {
-    id: number;
-    content: string;
-    changeDescription?: string;
-  }): Promise<{ success: boolean; diagram?: any; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:update", params);
-  }
-
-  public async deleteDiagram(id: number): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:delete", { id });
-  }
-
-  public async getDiagramSnapshotTimeline(workspaceId: number): Promise<{
-    success: boolean;
-    entries: Array<{
-      turnId: string;
-      timestamp: string;
-      prompt?: string;
-      isInitial?: boolean;
-    }>;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("snapshots:diagram-timeline", { workspaceId });
-  }
-
-  public async revertDiagramSnapshot(params: {
-    workspaceId: number;
-    turnId: string;
-  }): Promise<{ success: boolean; error?: string; restoredFiles?: number }> {
-    return this.ipcRenderer.invoke("snapshots:revert-diagram", params);
-  }
-
-  public async exportDiagram(params: {
-    id: number;
-    format: "svg" | "png" | "code";
-  }): Promise<{ success: boolean; data?: string; error?: string }> {
-    return this.ipcRenderer.invoke("diagram:export", params);
-  }
-
-  public async checkDiagramStaleness(params: {
-    diagramId: number;
-    workspacePath: string;
-  }): Promise<{
-    success: boolean;
-    staleness?: {
-      isStale: boolean;
-      severity: 'none' | 'minor' | 'moderate' | 'major';
-      reason: string;
-      changes: {
-        filesAdded: number;
-        filesRemoved: number;
-        fileCountChange: number;
-        percentChange: number;
-      };
-      recommendation: 'keep' | 'suggest-refresh' | 'force-refresh';
-    };
-    /** When workspace is git: update vs regenerate decision */
-    gitDecision?: {
-      action: 'none' | 'update' | 'regenerate';
-      reason: string;
-      confidence: number;
-      totalFiles: number;
-      linesAdded: number;
-      linesDeleted: number;
-    };
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("diagram:check-staleness", params);
-  }
-
-  /** Mark diagram as stale (e.g. after workflow codegen) so user sees refresh banner */
-  public async markDiagramStale(params: { workspaceId: number }): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("diagram:mark-stale", params);
   }
 
   // PASS6: Blueprint (Phase 7 Additive Blueprint) — client methods restored.
@@ -3399,19 +3376,6 @@ export class IpcClient {
     const handler = (_: unknown, payload: { workspaceId: number; running: boolean }) => listener(payload);
     this.ipcRenderer.on("blueprint:rte-running", handler);
     return () => this.ipcRenderer.removeListener("blueprint:rte-running", handler);
-  }
-
-  /** Get diagram timeline (workspace snapshots for version history) */
-  public async getDiagramTimeline(params: {
-    appId: number;
-    timeRange: "today" | "week" | "month" | "all";
-  }): Promise<{ snapshots: any[]; totalCount: number }> {
-    return this.ipcRenderer.invoke("diagram:get-timeline", params);
-  }
-
-  /** Get single diagram snapshot by ID */
-  public async getDiagramSnapshot(snapshotId: number): Promise<{ architecture: string } | null> {
-    return this.ipcRenderer.invoke("diagram:get-snapshot", snapshotId);
   }
 
   // --- Workspace Snapshots (Pro) ---

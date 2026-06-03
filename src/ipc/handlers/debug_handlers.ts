@@ -9,7 +9,8 @@ import fs from "fs";
 import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
 import { extractCodebaseCached } from "../../utils/codebase";
 import { db } from "../../db";
-import { chats, apps } from "../../db/schema";
+import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { LargeLanguageModel } from "@/lib/schemas";
@@ -139,25 +140,15 @@ export function registerDebugHandlers() {
           level: "info",
         });
 
-        // Get chat data from database
-        const chatRecord = await db.query.chats.findFirst({
-          where: eq(chats.id, chatId),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-            },
-          },
-        });
-
-        if (!chatRecord) {
-          throw new Error(`Chat with ID ${chatId} not found`);
+        const ephemeral = getEphemeralChat(chatId);
+        if (!ephemeral) {
+          throw new Error(`Active chat transport ${chatId} not found`);
         }
 
-        // Format the chat to match the Chat interface
         const chat = {
-          id: chatRecord.id,
-          title: chatRecord.title || "Untitled Chat",
-          messages: chatRecord.messages.map((msg) => ({
+          id: chatId,
+          title: ephemeral.title || "Workspace chat",
+          messages: ephemeral.messages.map((msg) => ({
             id: msg.id,
             role: msg.role,
             content: msg.content,
@@ -166,15 +157,16 @@ export function registerDebugHandlers() {
         };
 
         // Get app data from database
-        if (chatRecord.appId == null) {
-          throw new Error("Chat has no app ID");
+        const transportAppId = getEphemeralChatAppId(chatId);
+        if (transportAppId == null) {
+          throw new Error("Chat has no workspace");
         }
         const app = await db.query.apps.findFirst({
-          where: eq(apps.id, chatRecord.appId),
+          where: eq(apps.id, transportAppId),
         });
 
         if (!app) {
-          throw new Error(`App with ID ${chatRecord.appId} not found`);
+          throw new Error(`App with ID ${transportAppId} not found`);
         }
 
         // Extract codebase

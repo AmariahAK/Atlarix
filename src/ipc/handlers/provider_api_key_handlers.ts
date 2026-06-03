@@ -6,6 +6,10 @@ import {
     deleteProviderApiKey,
     getConfiguredProviders,
 } from "../shared/provider_api_keys";
+import {
+    toProviderApiKeyStatus,
+    type ProviderApiKeyStatus,
+} from "../shared/provider_api_key_mask";
 
 const logger = log.scope("provider_api_key_handlers");
 const handle = createLoggedHandler(logger);
@@ -13,11 +17,11 @@ const handle = createLoggedHandler(logger);
 export function registerProviderApiKeyHandlers() {
     handle(
         "provider:get-api-key",
-        async (_, params: { providerId: string }): Promise<string | undefined> => {
+        async (_, params: { providerId: string }): Promise<ProviderApiKeyStatus> => {
             logger.log(`Getting API key for provider: ${params.providerId}`);
             const result = await getProviderApiKey(params.providerId);
             logger.log(`API key ${result ? 'found' : 'not found'} for: ${params.providerId}`);
-            return result;
+            return toProviderApiKeyStatus(result);
         }
     );
 

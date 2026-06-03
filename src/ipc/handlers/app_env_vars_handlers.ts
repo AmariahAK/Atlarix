@@ -26,7 +26,7 @@ export function registerAppEnvVarsHandlers() {
   // Handler to get app environment variables (safe when DB not yet initialized in packaged app)
   ipcMain.handle(
     "get-app-env-vars",
-    async (event, { appId }: GetAppEnvVarsParams) => {
+    async (_event, { appId }: GetAppEnvVarsParams) => {
       if (!isDbInitialized()) {
         return [];
       }
@@ -65,7 +65,7 @@ export function registerAppEnvVarsHandlers() {
   // Handler to set app environment variables (no-op when DB not yet initialized)
   ipcMain.handle(
     "set-app-env-vars",
-    async (event, { appId, envVars }: SetAppEnvVarsParams) => {
+    async (_event, { appId, envVars }: SetAppEnvVarsParams) => {
       if (!isDbInitialized()) {
         throw new Error(
           "Database not ready. Please wait for the app to finish starting.",

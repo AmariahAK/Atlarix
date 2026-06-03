@@ -32,7 +32,6 @@ import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
-import { ATLARIX_CORE_CATEGORY_LABEL } from "@/shared/compass_product_copy";
 import {
   Tooltip,
   TooltipContent,

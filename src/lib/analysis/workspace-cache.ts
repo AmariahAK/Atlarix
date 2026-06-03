@@ -94,7 +94,7 @@ async function getRelevantFiles(dir: string): Promise<string[]> {
                     }
                 }
             }
-        } catch (error) {
+        } catch {
             // Ignore permission errors
         }
     }

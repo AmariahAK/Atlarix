@@ -12,7 +12,6 @@ import { estimateTokens } from "../utils/token_utils";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
 import { getAtlarixAppPath } from "@/paths/paths";
-import { extractCodebase } from "@/utils/codebase";
 import { validateChatContext } from "../utils/context_paths_utils";
 
 const logger = log.scope("context_paths_handlers");

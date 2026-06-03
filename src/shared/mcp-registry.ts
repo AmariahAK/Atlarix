@@ -31,7 +31,7 @@ export interface McpRegistryEnvVar {
   placeholder?: string;
 }
 
-export type McpRegistryAuthType = "none" | "env";
+export type McpRegistryAuthType = "none" | "env" | "oauth";
 export type McpRegistryTier = "free" | "workforce";
 
 export interface McpRegistryEntry {
@@ -46,8 +46,13 @@ export interface McpRegistryEntry {
   /**
    * Command Atlarix will run to launch the MCP. Most entries are
    * `npx @modelcontextprotocol/server-<name>`; can include extra args.
+   * Not used when `authType === "oauth"` (remote HTTP server).
    */
-  installUrl: string;
+  installUrl?: string;
+  /** Remote HTTP MCP endpoint — required when `authType === "oauth"`. */
+  url?: string;
+  /** Optional OAuth scopes for authorization request (HTTP OAuth MCPs). */
+  oauthScopes?: string[];
   authType: McpRegistryAuthType;
   envVars: McpRegistryEnvVar[];
   tags?: string[];
@@ -75,4 +80,21 @@ export function parseInstallUrl(installUrl: string): {
   const parts = trimmed.split(/\s+/);
   const [command, ...args] = parts;
   return { command, args };
+}
+
+/** Validate registry entry shape for OAuth HTTP MCPs. */
+export function validateMcpRegistryEntry(entry: McpRegistryEntry): string | null {
+  if (entry.authType === "oauth") {
+    if (!entry.url?.trim()) {
+      return "OAuth MCP registry entries require a url (HTTP endpoint).";
+    }
+    try {
+      new URL(entry.url.trim());
+    } catch {
+      return "OAuth MCP registry entry url is not a valid URL.";
+    }
+  } else if (!entry.installUrl?.trim()) {
+    return "MCP registry entries require installUrl unless authType is oauth.";
+  }
+  return null;
 }

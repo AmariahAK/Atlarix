@@ -96,4 +96,161 @@ describe("buildToolExpandView", () => {
       expect(view.body).not.toContain('"success"');
     }
   });
+
+  it("formats web_search sources as search_results with links", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        text: "…",
+        sources: [
+          { title: "React Hooks", url: "https://react.dev/hooks", content: "intro" },
+          { title: "MDN", url: "https://developer.mozilla.org" },
+        ],
+      },
+    });
+    const view = buildToolExpandView(
+      "web_search",
+      { query: "react hooks" },
+      raw,
+      "done",
+    );
+    expect(view.kind).toBe("search_results");
+    if (view.kind === "search_results") {
+      expect(view.query).toBe("react hooks");
+      expect(view.results).toHaveLength(2);
+      expect(view.results[0]!.url).toBe("https://react.dev/hooks");
+    }
+  });
+
+  it("formats list_available_mcps as mcp_servers", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        servers: [
+          {
+            id: 1,
+            name: "github",
+            transport: "stdio",
+            scope: "global",
+            tools: [
+              { name: "search_issues", description: "Search issues" },
+              { name: "create_pr" },
+            ],
+          },
+        ],
+        usage: "Call mcp_call(...) to invoke a tool.",
+      },
+    });
+    const view = buildToolExpandView("list_available_mcps", {}, raw, "done");
+    expect(view.kind).toBe("mcp_servers");
+    if (view.kind === "mcp_servers") {
+      expect(view.servers).toHaveLength(1);
+      expect(view.servers[0]!.name).toBe("github");
+      expect(view.servers[0]!.tools).toHaveLength(2);
+      expect(view.usage).toContain("mcp_call");
+    }
+  });
+
+  it("renders empty list_available_mcps with a friendly message", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { servers: [], message: "No MCP servers configured." },
+    });
+    const view = buildToolExpandView("list_available_mcps", {}, raw, "done");
+    expect(view.kind).toBe("mcp_servers");
+    if (view.kind === "mcp_servers") {
+      expect(view.servers).toHaveLength(0);
+      expect(view.message).toContain("No MCP servers configured");
+    }
+  });
+
+  it("surfaces list_available_mcps error as error text", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { error: "MCP manager unavailable" },
+    });
+    const view = buildToolExpandView("list_available_mcps", {}, raw, "done");
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.isError).toBe(true);
+      expect(view.body).toContain("MCP manager unavailable");
+    }
+  });
+
+  it("formats mcp_call success as mcp_result", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        server: "github",
+        tool: "search_issues",
+        result: JSON.stringify({ items: [{ id: 1 }] }),
+      },
+    });
+    const view = buildToolExpandView("mcp_call", {}, raw, "done");
+    expect(view.kind).toBe("mcp_result");
+    if (view.kind === "mcp_result") {
+      expect(view.server).toBe("github");
+      expect(view.tool).toBe("search_issues");
+      // JSON string result is pretty-printed
+      expect(view.body).toContain("items");
+      expect(view.body).toContain("\n");
+    }
+  });
+
+  it("surfaces mcp_call error as error text", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { error: "User declined running MCP tool github/search_issues." },
+    });
+    const view = buildToolExpandView("mcp_call", {}, raw, "done");
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.isError).toBe(true);
+      expect(view.body).toContain("declined");
+    }
+  });
+
+  it("renders mcp_call needs-auth as an mcp_auth view (oauth)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        error: 'MCP server "spacinsider" requires sign-in.',
+        needsOAuth: true,
+        authRequired: {
+          serverId: 7,
+          serverName: "spacinsider",
+          authType: "oauth",
+          reason: "missing",
+        },
+      },
+    });
+    const view = buildToolExpandView("mcp_call", {}, raw, "done");
+    expect(view.kind).toBe("mcp_auth");
+    if (view.kind === "mcp_auth") {
+      expect(view.serverId).toBe(7);
+      expect(view.serverName).toBe("spacinsider");
+      expect(view.authType).toBe("oauth");
+    }
+  });
+
+  it("renders mcp_call needs-auth as an mcp_auth view (api_key)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        error: 'MCP server "linear" is not authenticated.',
+        authRequired: {
+          serverId: 9,
+          serverName: "linear",
+          authType: "api_key",
+          reason: "invalid",
+        },
+      },
+    });
+    const view = buildToolExpandView("mcp_call", {}, raw, "done");
+    expect(view.kind).toBe("mcp_auth");
+    if (view.kind === "mcp_auth") {
+      expect(view.authType).toBe("api_key");
+      expect(view.reason).toBe("invalid");
+    }
+  });
 });

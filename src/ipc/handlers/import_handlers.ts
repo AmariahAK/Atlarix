@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
-import { apps, chats } from "@/db/schema";
+import { apps } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 

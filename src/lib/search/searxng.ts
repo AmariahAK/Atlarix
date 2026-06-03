@@ -368,7 +368,7 @@ export async function searchPublicSearxng(
             if (results.length > 0) {
                 return results;
             }
-        } catch (e) {
+        } catch {
             console.log(`[SearxNG] Public instance ${instance} failed, trying next...`);
         }
     }

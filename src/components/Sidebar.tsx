@@ -4,9 +4,9 @@
  * Modified sidebar with Help and Web sections and OAuth login
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/lib/auth/useAuth';
-import { LogIn, LogOut, User } from 'lucide-react';
+import { LogIn, LogOut } from 'lucide-react';
 import { AtlarixSignInHero } from '@/components/atlarix/AtlarixSignInHero';
 
 type SidebarTab = 'help' | 'web';
@@ -153,7 +153,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                             <span>Sign in to sync</span>
                         </div>
                         <AtlarixSignInHero
-                            size="xs"
+                            size="sm"
                             onSignIn={() => void signInWithGoogle()}
                         />
                     </div>

@@ -5,9 +5,6 @@
  */
 
 import { generateText } from "ai";
-import { db } from "../db";
-import { chatContextSummaries, messages } from "../db/schema";
-import { eq } from "drizzle-orm";
 import { readSettings } from "../main/settings";
 import { getModelClient } from "../ipc/utils/get_model_client";
 import { getCompactionSummarizationModel } from "./summarization_model";
@@ -17,7 +14,7 @@ import {
   buildCompactionUserPromptPrefix,
 } from "../prompts/context_compaction_prompt";
 import log from "electron-log";
-import { getLedger, getLedgerStateString } from "./tasks/task-ledger";
+import { getLedger } from "./tasks/task-ledger";
 import { getCachedOpenRouterModelRow } from "./routing/tier-context-limits";
 
 const logger = log.scope("context-compaction");
@@ -63,16 +60,6 @@ const MAX_PRESERVE_RECENT_TOKENS = 8_000;
 // ═══════════════════════════════════════════════════════════════
 // OPENCODE-STYLE USABLE FUNCTION
 // ═══════════════════════════════════════════════════════════════
-
-interface ModelLimit {
-  context: number;
-  input?: number;
-  output?: number;
-}
-
-interface ModelWithLimits {
-  limit: ModelLimit;
-}
 
 /**
  * Calculate usable context tokens (OpenCode-style).
@@ -269,7 +256,6 @@ export async function shouldCompact(params: {
   const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
   const { budget } = await getEffectiveBudget(pid);
   const usableBudget = Math.floor(budget * (1 - OUTPUT_RESERVE_RATIO));
-  const tokenRatio = budget > 0 ? total / usableBudget : 0;
 
   const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
   return total > usableBudget * threshold;
@@ -536,12 +522,9 @@ export async function runCompaction(params: {
   const {
     chatId,
     chatMessages,
-    systemPromptTokens,
-    inputTokens = 0,
     providerId,
     sessionStats,
     turnId,
-    insertSyntheticContinuation,
   } = params;
 
   if (chatId < 0 || chatMessages.length < 4) {
@@ -590,76 +573,26 @@ export async function runCompaction(params: {
     summaryText,
   );
 
-  try {
-    // Upsert summary
-    await db
-      .insert(chatContextSummaries)
-      .values({
-        chatId,
-        summaryText: merged.text,
-        lastMessageId,
-        compactionGeneration: merged.generation,
-      })
-      .onConflictDoUpdate({
-        target: chatContextSummaries.chatId,
-        set: {
-          summaryText: merged.text,
-          lastMessageId,
-          compactionGeneration: merged.generation,
-        },
-      });
-
-    if (insertSyntheticContinuation) {
-      let syn =
-        "Continue from the session summary. Earlier messages were compacted into the summary; keep working toward the user’s goals.";
-      if (turnId) {
-        const ledger = getLedgerStateString(turnId);
-        if (ledger?.trim()) {
-          syn += `\n\n--- Task ledger (carry forward) ---\n${ledger.trim()}`;
-        }
-      }
-      await db.insert(messages).values({
-        chatId,
-        role: "user",
-        content: syn,
-        isSynthetic: true,
-      });
-    }
-
-    logger.info(`Compaction done for chat ${chatId}: summarized ${toSummarize.length} messages`);
-
-    return {
-      status: "completed",
-      summaryText: merged.text,
-      lastMessageId,
-      messagesAfterSummary,
-    };
-  } catch (error) {
-    logger.error("Compaction failed:", error);
-    return { status: "noop", reason: "db_error" };
-  }
+  logger.info(
+    `Compaction summarized ${toSummarize.length} messages for transport ${chatId} (in-memory only; legacy DB tables removed)`,
+  );
+  return {
+    status: "completed",
+    summaryText: merged.text,
+    lastMessageId,
+    messagesAfterSummary,
+  };
 }
 
 /**
  * Get existing summary for a chat (if any)
  */
-export async function getContextSummary(chatId: number): Promise<{
+export async function getContextSummary(_chatId: number): Promise<{
   summaryText: string;
   lastMessageId: number;
   compactionGeneration: number;
 } | null> {
-  if (chatId < 0) return null;
-  const [row] = await db
-    .select()
-    .from(chatContextSummaries)
-    .where(eq(chatContextSummaries.chatId, chatId))
-    .limit(1);
-  if (!row) return null;
-  return {
-    summaryText: row.summaryText,
-    lastMessageId: row.lastMessageId,
-    compactionGeneration: row.compactionGeneration ?? 0,
-  };
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -730,11 +663,9 @@ async function runPostTurnCompactionAttempt(args: {
 
   logger.info(`Post-turn compaction triggered for chat ${chatId} (${totalTokensUsed} tokens)`);
 
-  const chatMsgs = await db.query.messages.findMany({
-    where: eq(messages.chatId, chatId),
-    orderBy: (m, { asc }) => [asc(m.createdAt)],
-    columns: { id: true, role: true, content: true },
-  });
+  // Unreachable for workspace chats (chatId < 0 returns above); the legacy
+  // `messages` table was removed, so this path no longer has rows to compact.
+  const chatMsgs: { id: number; role: string; content: string | null }[] = [];
 
   const msgList = chatMsgs.map((m) => ({
     id: m.id,
@@ -833,7 +764,6 @@ export function pruneToolOutputsInMessages<T extends { role: string; content: st
     content.includes("tool=\"") ||
     (content.length > 3000 && content.includes("output"));
 
-  let toolResultCount = 0;
   return msgs.map((msg, idx) => {
     if (msg.role !== "user" && msg.role !== "assistant") return msg;
     if (!isToolResultLike(msg.content)) return msg;
@@ -841,7 +771,6 @@ export function pruneToolOutputsInMessages<T extends { role: string; content: st
     const fromEnd = msgs.length - 1 - idx;
     if (fromEnd < KEEP_RECENT_TOOL_MESSAGES) return msg; // Keep recent
 
-    toolResultCount++;
     if (msg.content.length <= TOOL_OUTPUT_MAX_CHARS) return msg;
 
     const truncated = msg.content.slice(0, TOOL_OUTPUT_MAX_CHARS) +

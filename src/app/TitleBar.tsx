@@ -1,11 +1,6 @@
-import { useAtom } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { useLoadApps } from "@/hooks/useLoadApps";
-import { useRouter, useLocation } from "@tanstack/react-router";
+import { useRouter } from "@tanstack/react-router";
 import { useSettings } from "@/hooks/useSettings";
 import { Button } from "@/components/ui/button";
-// @ts-ignore
-import logo from "../../assets/logo.svg?url";
 import { providerSettingsRoute } from "@/routes/settings/providers/$provider";
 import { cn } from "@/lib/utils";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
@@ -13,7 +8,6 @@ import { useEffect, useState } from "react";
 import { AtlarixProSuccessDialog } from "@/components/AtlarixProSuccessDialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { UserBudgetInfo } from "@/ipc/ipc_types";
 import {
   Tooltip,
@@ -23,10 +17,7 @@ import {
 
 
 export const TitleBar = () => {
-  const [selectedAppId] = useAtom(selectedAppIdAtom);
-  const { apps } = useLoadApps();
-  const { navigate } = useRouter();
-  const location = useLocation();
+
   const { settings, refreshSettings } = useSettings();
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
   const [showWindowControls, setShowWindowControls] = useState(false);
@@ -68,18 +59,6 @@ export const TitleBar = () => {
     };
     handleDeepLink();
   }, [lastDeepLink?.timestamp]);
-
-  // Get selected app name
-  const selectedApp = apps.find((app) => app.id === selectedAppId);
-  const displayText = selectedApp
-    ? `App: ${selectedApp.name}`
-    : "(no app selected)";
-
-  const handleAppClick = () => {
-    if (selectedApp) {
-      navigate({ to: "/app-details", search: { appId: selectedApp.id } });
-    }
-  };
 
   const isAtlarixPro = !!settings?.providerSettings?.auto?.apiKey?.value;
   const isAtlarixProEnabled = Boolean(settings?.enableAtlarixPro);

@@ -225,8 +225,6 @@ export default function AtlarixAnimation({
       ctx.globalAlpha = alpha;
       const ht = size*0.95, hb=size*0.65, hw=size*0.52;
       const mp = clamp(morphProgress,0,1);
-      const leftAngle = mp * (-Math.atan2(hw, ht+hb));
-      const rightAngle= mp * ( Math.atan2(hw, ht+hb));
       const lx0=cx, ly0=cy-ht;
       const lx1=cx-hw*mp, ly1=cy+hb;
       const lx2=cx-hw*0.52*mp, ly2=cy+hb;

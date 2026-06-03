@@ -25,7 +25,12 @@ describe("terminal-paste-attachment", () => {
       { prefix: "[You]", text: "a", kind: "output" as const },
       { prefix: "[You]", text: "b", kind: "output" as const },
     ];
-    expect(terminalSelectionLineRange(lines, "a\nb")).toEqual({
+    expect(
+      terminalSelectionLineRange(
+        lines as Parameters<typeof terminalSelectionLineRange>[0],
+        "a\nb",
+      ),
+    ).toEqual({
       start: 2,
       end: 3,
     });

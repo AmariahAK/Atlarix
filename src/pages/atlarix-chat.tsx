@@ -4,7 +4,7 @@
  * New integrated chat with AI and tools
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ChatHandler } from '@/lib/chat-handler';
 import type { Message } from '@/types';
 import { TitleBar } from '@/components/TitleBar';

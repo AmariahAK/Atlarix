@@ -19,22 +19,20 @@ import { useSearch } from '@tanstack/react-router';
 import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
-import FileDiffPanel from './preview_panel/FileDiffPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
-import { TimelineView } from './DiagramTimeline';
 import { InlinePermissionsHint } from './chat/InlinePermissionsHint';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
 import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
-    Search, Code, Workflow, Eye,
+    Search, Eye,
     AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree,
 } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
-import { ToolCallCard, ToolCallData, ToolStatus } from './ToolCallCard';
-import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { ToolCallCard, ToolStatus } from './ToolCallCard';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import {
     Tooltip,
     TooltipContent,
@@ -59,8 +57,8 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     files: { icon: FileText, label: 'Files' },
     diff: { icon: Code2, label: 'Diff' },
     approve: { icon: Shield, label: 'Approve' },
-    timeline: { icon: Workflow, label: 'Timeline' },
     permission: { icon: Shield, label: 'Permission' },
+    plan: { icon: ListTree, label: 'Plan' },
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
     activity: { icon: ListTree, label: 'Activity' },
@@ -78,8 +76,7 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'file-diff': 'code',
     'files': 'code',
     'tools': 'tools',
-    'timeline': 'code',
-    'permission': 'code',  // Permission requests appear in Code mode
+    'plan': 'code',
     'empty': 'search',
 };
 
@@ -90,7 +87,7 @@ export function RightPanel() {
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
-    const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
+    const [_pinnedPanel, _setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [chatInputValue, setChatInput] = useAtom(chatInputValueAtom);
 
     // Get chatId from URL route as fallback for PermissionQueuePanel
@@ -171,25 +168,13 @@ Please fix these errors in priority order (structural/build errors first, then r
         setChatInput(prompt.trim());
     }, [setChatInput]);
 
-    // Track which primary mode is selected
-    const currentMode = PANEL_TYPE_TO_MODE[context.type] || 'search';
+    // Track which primary mode is selected (unused but kept for reference)
+    const _currentMode = PANEL_TYPE_TO_MODE[context.type] || 'search';
 
     // Drag resize state
     const [isDragging, setIsDragging] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
 
-    // Handle primary mode click - pins to appropriate panel type
-    const handleModeClick = useCallback((mode: PrimaryMode) => {
-        // Map mode back to panel type
-        const modeToPanel: Record<PrimaryMode, PanelType> = {
-            'search': 'web-search',
-            'code': 'file-diff',
-            'diagrams': 'code-preview',
-            'preview': 'code-preview',
-            'tools': 'tools',
-        };
-        setPinnedPanel(modeToPanel[mode]);
-    }, [setPinnedPanel]);
 
     // Handle drag resize
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -226,8 +211,7 @@ Please fix these errors in priority order (structural/build errors first, then r
         return null;
     }
 
-    const iconSize = 18;
-
+    
     return (
         <div
             ref={panelRef}
@@ -355,8 +339,8 @@ function PanelContent({
     onSolveWithAI,
     onSolveAllWithAI,
     onSwitchToCode,
-    setActiveTab,
-    fallbackChatId
+    setActiveTab: _setActiveTab,
+    fallbackChatId: _fallbackChatId,
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
@@ -370,8 +354,8 @@ function PanelContent({
         return <EmbeddedChatTab />;
     }
 
-    // For file-diff and permission types, route based on activeTab
-    if (context.type === 'file-diff' || context.type === 'permission') {
+    // For file-diff types, route based on activeTab
+    if (context.type === 'file-diff') {
         switch (context.activeTab) {
             case 'permissions':
             case 'permission':
@@ -390,7 +374,6 @@ function PanelContent({
                         onSwitchToCode={onSwitchToCode}
                     />
                 );
-            case 'diagram':
             case 'activity':
                 return <ActivityPanel />;
             case 'terminal':
@@ -425,15 +408,8 @@ function PanelContent({
                 />
             );
 
-        case 'diagram':
-            return <ActivityPanel />;
-
         case 'terminal':
             return <TerminalPanel />;
-
-        case 'timeline':
-            // Timeline panel for workspace diagram snapshots
-            return <TimelineView appId={context.data?.appId || 0} />;
 
         case 'tools':
             // Tool execution activity panel
@@ -522,48 +498,3 @@ function ToolsPanel({ data }: { data: any }) {
     );
 }
 
-/**
- * Permission Panel - Display pending permission requests
- * Shows tool operations awaiting user approval
- */
-function PermissionPanel({ data }: { data: any }) {
-    const operationId = data?.operationId;
-    const message = data?.message;
-
-    // If no specific operation, show empty state
-    if (!operationId && !message) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <div className="w-16 h-16 mb-4 rounded-full bg-muted/50 flex items-center justify-center">
-                    <Wrench className="w-8 h-8 opacity-50" />
-                </div>
-                <p className="text-sm font-medium mb-2">No Pending Permissions</p>
-                <p className="text-xs text-center">
-                    Permission requests will appear here when the AI needs approval
-                </p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col h-full bg-background">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-                <Wrench className="w-4 h-4 text-amber-400" />
-                <span className="text-sm font-medium">Permission Required</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-                {message && (
-                    <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <p className="text-sm text-amber-700 dark:text-amber-300">{message}</p>
-                    </div>
-                )}
-                <div className="text-xs text-muted-foreground">
-                    <p>Operation ID: {operationId || 'N/A'}</p>
-                    <p className="mt-2">
-                        Use the permission panel in the chat input area to approve or reject this operation.
-                    </p>
-                </div>
-            </div>
-        </div>
-    );
-}

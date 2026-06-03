@@ -22,7 +22,7 @@ function fileTreeRoom(id: string, label: string, files: string[]): BlueprintRoom
     id,
     label,
     path: `/proj/${label}`,
-    functions: files.map((f, i) => ({
+    functions: files.map((f) => ({
       id: `${id}::${f.split("/").pop()}`,
       name: f.split("/").pop()!.replace(/\.\w+$/, ""),
       kind: "function" as const,

@@ -1,9 +1,0 @@
-import { createRoute } from '@tanstack/react-router';
-import { rootRoute } from './root';
-import { TemplatesPage } from '../pages/templates';
-
-export const templatesRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/templates',
-    component: TemplatesPage,
-});

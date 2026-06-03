@@ -7,8 +7,8 @@ import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import {
   ensureSymbolIndexForWorkspaceId,
   findSymbolsByName,
-  type SymbolIndexCache,
 } from "@/lib/index/ctags-index";
+import type { SymbolIndexCache } from "@/lib/index/symbol-types";
 import { ensureBlueprintParsed } from "@/lib/blueprint/lazy-parse";
 import {
   filterBlueprintByTopic,

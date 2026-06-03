@@ -17,6 +17,31 @@ import { ToolRegistry, ToolCategory } from "./registry";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
 import { and, eq, or } from "drizzle-orm";
+import {
+  McpNeedsAuthError,
+  McpNeedsOAuthError,
+} from "../../ipc/utils/mcp_manager";
+import type { McpAuthType } from "../mcp/oauth-constants";
+
+export interface McpAuthRequired {
+  serverId: number;
+  serverName: string;
+  authType: McpAuthType;
+  reason: "missing" | "invalid";
+}
+
+/** Injected per-call by the agent stream so MCP tools can pause for user action. */
+export interface McpInvocationContext {
+  requireConsent?: (info: {
+    serverId: number;
+    serverName: string;
+    toolName: string;
+    toolDescription?: string;
+    inputPreview: string;
+  }) => Promise<boolean>;
+  /** Prompt the user to authenticate the server, then resolve true once connected. */
+  requireAuth?: (info: McpAuthRequired) => Promise<boolean>;
+}
 
 interface ListedMcpServer {
   id: number;
@@ -26,6 +51,26 @@ interface ListedMcpServer {
   transport: string;
   tools: Array<{ name: string; description?: string }>;
   error?: string;
+  needsOAuth?: boolean;
+}
+
+function formatMcpError(
+  err: unknown,
+  _serverName: string,
+): { error: string; needsOAuth?: boolean; authRequired?: McpAuthRequired } {
+  if (err instanceof McpNeedsAuthError) {
+    return {
+      error: err.message,
+      ...(err instanceof McpNeedsOAuthError ? { needsOAuth: true } : {}),
+      authRequired: {
+        serverId: err.serverId,
+        serverName: err.serverName,
+        authType: err.authType,
+        reason: err.reason,
+      },
+    };
+  }
+  return { error: err instanceof Error ? err.message : String(err) };
 }
 
 async function listConfiguredMcps(workspaceId: number | null | undefined): Promise<ListedMcpServer[]> {
@@ -54,13 +99,15 @@ async function listConfiguredMcps(workspaceId: number | null | undefined): Promi
         tools: Object.entries(toolSet).map(([name, t]) => ({ name, description: t?.description })),
       });
     } catch (err) {
+      const formatted = formatMcpError(err, s.name);
       out.push({
         id: s.id,
         name: s.name,
         scope: s.scope,
         transport: s.transport,
         tools: [],
-        error: err instanceof Error ? err.message : String(err),
+        error: formatted.error,
+        ...(formatted.needsOAuth ? { needsOAuth: true } : {}),
       });
     }
   }
@@ -106,6 +153,7 @@ ToolRegistry.register({
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
+  allowInAskMode: true,
   description:
     "Invoke a specific MCP tool by server name and tool name. Use list_available_mcps first to discover which servers and tools are available. The user is prompted for consent on first use of each tool.",
   parameters: {
@@ -125,52 +173,54 @@ ToolRegistry.register({
     tool?: string;
     arguments?: any;
     workspaceId?: number;
-    _mcpInvocationContext?: any;
+    _mcpInvocationContext?: McpInvocationContext;
   }) => {
     if (!args.server || !args.tool) {
       return { error: "mcp_call requires { server, tool }. Use list_available_mcps to discover both." };
     }
 
-    try {
-      const enabled = eq(mcpServers.enabled, true as any);
-      const where =
-        args.workspaceId != null
-          ? and(
-              enabled,
-              eq(mcpServers.name, args.server),
-              or(
-                eq(mcpServers.scope, "global"),
-                and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, args.workspaceId))
-              )
+    const enabled = eq(mcpServers.enabled, true as any);
+    const where =
+      args.workspaceId != null
+        ? and(
+            enabled,
+            eq(mcpServers.name, args.server),
+            or(
+              eq(mcpServers.scope, "global"),
+              and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, args.workspaceId))
             )
-          : and(enabled, eq(mcpServers.scope, "global"), eq(mcpServers.name, args.server));
+          )
+        : and(enabled, eq(mcpServers.scope, "global"), eq(mcpServers.name, args.server));
 
-      const [server] = await db.select().from(mcpServers).where(where).limit(1);
-      if (!server) {
-        return {
-          error: `MCP server "${args.server}" not found or not enabled. Call list_available_mcps to see what is configured.`,
-        };
-      }
+    const [server] = await db.select().from(mcpServers).where(where).limit(1);
+    if (!server) {
+      return {
+        error: `MCP server "${args.server}" not found or not enabled. Call list_available_mcps to see what is configured.`,
+      };
+    }
 
-      const { mcpManager } = await import("../../ipc/utils/mcp_manager");
+    const ctx = args._mcpInvocationContext;
+    const { mcpManager } = await import("../../ipc/utils/mcp_manager");
+
+    // Single invocation attempt (may throw McpNeedsAuthError before the call).
+    const runCall = async (): Promise<Record<string, unknown>> => {
       const client = await mcpManager.getClient(server.id);
       const toolSet = (await client.tools()) as unknown as Record<
         string,
         { description?: string; execute?: (a: unknown, c?: unknown) => Promise<unknown> }
       >;
-      const tool = toolSet[args.tool];
+      const tool = toolSet[args.tool!];
       if (!tool || typeof tool.execute !== "function") {
         return {
           error: `Tool "${args.tool}" not found on MCP server "${args.server}". Available tools: ${Object.keys(toolSet).join(", ") || "(none)"}.`,
         };
       }
 
-      const ctx = args._mcpInvocationContext;
       if (ctx?.requireConsent) {
         const ok = await ctx.requireConsent({
           serverId: server.id,
           serverName: server.name,
-          toolName: args.tool,
+          toolName: args.tool!,
           toolDescription: tool.description,
           inputPreview: JSON.stringify(args.arguments ?? {}).slice(0, 500),
         });
@@ -185,8 +235,44 @@ ToolRegistry.register({
         tool: args.tool,
         result: typeof result === "string" ? result : JSON.stringify(result),
       };
+    };
+
+    const toErrorResult = (err: unknown): Record<string, unknown> => {
+      const formatted = formatMcpError(err, args.server ?? "MCP");
+      return {
+        error: formatted.error,
+        ...(formatted.needsOAuth ? { needsOAuth: true } : {}),
+        ...(formatted.authRequired ? { authRequired: formatted.authRequired } : {}),
+      };
+    };
+
+    try {
+      return await runCall();
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      // Auth-and-retry: if the server isn't authenticated, prompt the user to
+      // connect/configure, wait, then retry the call once.
+      if (err instanceof McpNeedsAuthError && ctx?.requireAuth) {
+        let authed = false;
+        try {
+          authed = await ctx.requireAuth({
+            serverId: err.serverId,
+            serverName: err.serverName,
+            authType: err.authType,
+            reason: err.reason,
+          });
+        } catch {
+          authed = false;
+        }
+        if (authed) {
+          try {
+            mcpManager.dispose(server.id);
+            return await runCall();
+          } catch (retryErr) {
+            return toErrorResult(retryErr);
+          }
+        }
+      }
+      return toErrorResult(err);
     }
   },
 });

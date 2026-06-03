@@ -42,6 +42,7 @@ const CustomMenuItem = forwardRef<
   const type = (item as any)?.data?.type ?? (item as any)?.type;
   const isApp = type === "app";
   const isMcp = type === "mcp";
+  const isPrompt = type === "prompt";
   const label = isApp ? "App" : isMcp ? "MCP" : "File";
   const value = (item as any)?.value;
   return (

@@ -55,16 +55,13 @@ export function registerAuthHandlers() {
 
                 // Manually delete dependent records to avoid FK constraints issues
                 // (Prompts specifically might not have cascade set up correctly in all DBs)
-                const { chats, diagrams } = await import("@/db/schema");
+                const { chatSessions } = await import("@/db/schema");
                 const { inArray } = await import("drizzle-orm");
 
                 if (allWorkspaces.length > 0) {
                     const workspaceIds = allWorkspaces.map(a => a.id);
                     logger.log(`[AuthHandlers] Cleaning up dependent records for workspaces: ${workspaceIds.join(',')}`);
-
-                    try { db.delete(diagrams).where(inArray(diagrams.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting diagrams:', e); }
-
-                    try { db.delete(chats).where(inArray(chats.appId, workspaceIds)).run(); } catch (e) { console.error('Error deleting chats:', e); }
+                    try { db.delete(chatSessions).where(inArray(chatSessions.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting sessions:', e); }
 
                     // Finally delete apps
                     db.delete(apps).run();
@@ -389,7 +386,7 @@ export function registerAuthHandlers() {
 
             // Update local database - keep plan as 'pro' until ends_at, just update status
             logger.log(`[AuthHandlers] Updating Supabase for email: ${currentUser.email}`);
-            const { data: updateData, error: updateError, count } = await supabase
+            const { data: updateData, error: updateError } = await supabase
                 .from('users')
                 .update({
                     // Keep plan as 'pro' - LemonSqueezy webhook will set to 'free' when it actually expires

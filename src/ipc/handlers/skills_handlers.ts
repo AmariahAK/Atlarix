@@ -1,4 +1,3 @@
-import { app } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import * as fs from "node:fs/promises";
@@ -10,7 +9,10 @@ import { apps, installedSkills } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import { loadPrioritySkillsForWorkspace } from "../../lib/skills/priority-skill-loader";
-import { getAtlarixAppPath } from "../../paths/paths";
+import {
+  getAtlarixAppPath,
+  normalizeSkillWorkspacePath,
+} from "../../paths/paths";
 
 const logger = log.scope("skills_handlers");
 const handle = createLoggedHandler(logger);
@@ -90,16 +92,61 @@ async function fetchJsonWithTimeout(url: string): Promise<any> {
 }
 
 async function countSkillsForWorkspace(workspacePath: string) {
+  const normalized = normalizeSkillWorkspacePath(workspacePath);
   const rows = await db
     .select()
     .from(installedSkills)
-    .where(
-      and(
-        eq(installedSkills.scope, "workspace"),
-        eq(installedSkills.workspacePath, workspacePath),
-      ),
-    );
-  return rows.length;
+    .where(eq(installedSkills.scope, "workspace"));
+  return rows.filter((row) =>
+    row.workspacePath
+      ? normalizeSkillWorkspacePath(row.workspacePath) === normalized
+      : false,
+  ).length;
+}
+
+async function migrateSkillWorkspacePathRows(): Promise<void> {
+  const rows = await db
+    .select()
+    .from(installedSkills)
+    .where(eq(installedSkills.scope, "workspace"));
+  for (const row of rows) {
+    if (!row.workspacePath?.trim()) continue;
+    const normalized = normalizeSkillWorkspacePath(row.workspacePath);
+    if (normalized === row.workspacePath) continue;
+    const conflict = await db
+      .select({ id: installedSkills.id })
+      .from(installedSkills)
+      .where(
+        and(
+          eq(installedSkills.id, row.id),
+          eq(installedSkills.scope, "workspace"),
+          eq(installedSkills.workspacePath, normalized),
+        ),
+      )
+      .limit(1);
+    if (conflict.length > 0) continue;
+    await db
+      .update(installedSkills)
+      .set({ workspacePath: normalized })
+      .where(
+        and(
+          eq(installedSkills.id, row.id),
+          eq(installedSkills.scope, "workspace"),
+          eq(installedSkills.workspacePath, row.workspacePath),
+        ),
+      );
+  }
+}
+
+function filterSkillsByWorkspacePath<
+  T extends { workspacePath: string | null },
+>(rows: T[], workspacePath: string): T[] {
+  const normalized = normalizeSkillWorkspacePath(workspacePath);
+  return rows.filter((row) =>
+    row.workspacePath
+      ? normalizeSkillWorkspacePath(row.workspacePath) === normalized
+      : false,
+  );
 }
 
 export function registerSkillsHandlers() {
@@ -120,17 +167,14 @@ export function registerSkillsHandlers() {
       if (!wsPath) {
         return [];
       }
+      await migrateSkillWorkspacePathRows();
       const rows = await db
         .select()
         .from(installedSkills)
-        .where(
-          and(
-            eq(installedSkills.scope, "workspace"),
-            eq(installedSkills.workspacePath, wsPath),
-          ),
-        );
+        .where(eq(installedSkills.scope, "workspace"));
+      const filtered = filterSkillsByWorkspacePath(rows, wsPath);
 
-      return rows.map((r) => ({
+      return filtered.map((r) => ({
         ...r,
         tags: safeParseJsonArray(r.tags),
         compatibleModes: safeParseJsonArray(r.compatibleModes),
@@ -162,7 +206,7 @@ export function registerSkillsHandlers() {
     requirePaidSkills();
     assertValidInstallParams(params);
     const { skill } = params;
-    const workspacePath = params.workspacePath?.trim();
+    const workspacePath = normalizeSkillWorkspacePath(params.workspacePath?.trim() ?? "");
     if (!workspacePath) {
       throw new Error("workspacePath is required to install a skill.");
     }
@@ -322,16 +366,16 @@ export function registerSkillsHandlers() {
     async (_event: IpcMainInvokeEvent, params?: { workspacePath?: string }) => {
       requirePaidSkills();
       const workspacePath = params?.workspacePath?.trim();
-      const workspaceRows = workspacePath
+      await migrateSkillWorkspacePathRows();
+      const allWorkspaceRows = workspacePath
         ? await db
             .select()
             .from(installedSkills)
-            .where(
-              and(
-                eq(installedSkills.scope, "workspace"),
-                eq(installedSkills.workspacePath, workspacePath),
-              ),
-            )
+            .where(eq(installedSkills.scope, "workspace"))
+        : [];
+
+      const workspaceRows = workspacePath
+        ? filterSkillsByWorkspacePath(allWorkspaceRows, workspacePath)
         : [];
 
       const merged = workspaceRows.slice(0, SKILLS_WORKSPACE_MAX);

@@ -37,7 +37,7 @@ export function useUpgrade() {
             }
 
             return result;
-        } catch (error) {
+        } catch {
             const errorMessage = 'Failed to open upgrade page. Please try again.';
             showError(errorMessage);
             return { success: false, error: errorMessage };
@@ -73,7 +73,7 @@ export async function triggerUpgrade(): Promise<UpgradeResult> {
         }
 
         return result;
-    } catch (error) {
+    } catch {
         const errorMessage = 'Failed to open upgrade page. Please try again.';
         showError(errorMessage);
         return { success: false, error: errorMessage };
@@ -91,7 +91,7 @@ export async function triggerUpgradeWorkforce(): Promise<UpgradeResult> {
         const result = await ipcRenderer.invoke('auth:upgrade-workforce') as UpgradeResult;
         if (!result.success && result.error) showError(result.error);
         return result;
-    } catch (error) {
+    } catch {
         showError('Failed to open upgrade page. Please try again.');
         return { success: false, error: 'Failed to open upgrade page' };
     }

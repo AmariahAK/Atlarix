@@ -6,9 +6,6 @@
  */
 
 import { generateText } from "ai";
-import { db } from "../../db";
-import { chatContextSummaries, messages } from "../../db/schema";
-import { eq } from "drizzle-orm";
 import { readSettings } from "../../main/settings";
 import { getModelClient } from "../../ipc/utils/get_model_client";
 import { getCompactionSummarizationModel } from "../summarization_model";
@@ -18,7 +15,6 @@ import {
   buildCompactionUserPromptPrefix,
 } from "../../prompts/context_compaction_prompt";
 import log from "electron-log";
-import { getLedger, getLedgerStateString } from "../tasks/task-ledger";
 import { getCachedOpenRouterModelRow } from "../routing/tier-context-limits";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
 
@@ -35,7 +31,6 @@ const COMPACTION_THRESHOLD = 0.75;
 const PRUNE_THRESHOLD = 0.60;
 const TOOL_OUTPUT_MAX_CHARS = 2_000;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
-const COMPACTION_BUFFER = 20_000;
 const MODEL_CONTEXT_SAFETY = 0.8;
 
 interface MessageForCompaction {
@@ -50,45 +45,6 @@ interface MessageForCompaction {
 // SUMMARY TEMPLATE (OpenCode pattern with Resume From)
 // ═══════════════════════════════════════════════════════════════
 
-const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
-<template>
-## Goal
-- [single-sentence task summary]
-
-## Constraints & Preferences
-- [user constraints, preferences, specs, or "(none)"]
-
-## Progress
-### Done
-- [completed work or "(none)"]
-
-### In Progress
-- [current work or "(none)"]
-
-### Blocked
-- [blockers or "(none)"]
-
-## Key Decisions
-- [decision and why, or "(none)"]
-
-## Next Steps
-- [ordered next actions or "(none)"]
-
-## Critical Context
-- [important technical facts, errors, open questions, or "(none)"]
-
-## Relevant Files
-- [file or directory path: why it matters, or "(none)"]
-
-## Resume From
-"Continue [specific task]. Next action: [exact next step]."
-</template>
-
-Rules:
-- Keep every section, even when empty.
-- Use terse bullets, not prose paragraphs.
-- Preserve exact file paths, commands, error strings, and identifiers when known.
-- Do not mention the summary process or that context was compacted.`;
 
 // ═══════════════════════════════════════════════════════════════
 // TIER CONTEXT LIMIT
@@ -99,7 +55,6 @@ const DEFAULT_MODEL_CONTEXT_FALLBACK = 128_000;
 export function getUsableTokens(modelContextLength: number, maxOutputTokens: number = 4000): number {
   const context = modelContextLength;
   if (context === 0) return 0;
-  const reserved = Math.min(COMPACTION_BUFFER, maxOutputTokens);
   return Math.max(0, context - maxOutputTokens);
 }
 
@@ -506,7 +461,7 @@ export async function runSteppedCompaction(
 // ═══════════════════════════════════════════════════════════════
 
 async function getContextSummaryForProvider(
-  providerId?: string,
+  _providerId?: string,
 ): Promise<{ summaryText: string; compactionGeneration: number } | null> {
   return null;
 }
@@ -523,8 +478,8 @@ export interface CompressContextParams {
 export async function compressContext(
   messages: MessageForCompaction[],
   params: CompressContextParams,
-  tierLimit: number,
-  providerId?: string,
+  _tierLimit: number,
+  _providerId?: string,
 ): Promise<{ compressed: number; tokensSaved: number; summary: string }> {
   let toCompress: MessageForCompaction[] = [];
 

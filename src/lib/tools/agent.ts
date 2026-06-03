@@ -52,7 +52,6 @@ import { getDelegationConfig } from "../agents/agent-runtime";
 import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
 import { drainAgentCorrections } from "../agents/agent-corrections";
 import { buildGroupHandoffDigest } from "@/lib/chat/group-handoff-digest";
-import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import {
   formatToolResultPreview,
   formatToolStartPreview,

@@ -9,7 +9,6 @@ import { getUserDataPath } from "../paths/paths";
 import {
   getAtlarixMdPath,
   readAtlarixMd,
-  writeAtlarixMd,
   migrateLegacyAtlarixFiles,
 } from "./project-memory";
 import log from "electron-log";

@@ -18,6 +18,7 @@ import {
 } from "@/lib/visual-artifacts/graph-spec";
 import { buildGraphEChartsOption } from "@/lib/visual-artifacts/graph-echarts-config";
 import { AlertCircle, RefreshCw, Code, ChevronDown, ChevronUp } from "lucide-react";
+import { ArtifactStreamingOverlay } from "@/components/chat/ArtifactStreamingOverlay";
 
 echarts.use([GraphChart, TooltipComponent, GridComponent, CanvasRenderer]);
 
@@ -52,6 +53,7 @@ export function GraphRenderer({
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [renderKey, setRenderKey] = useState(0);
+  const [hasRendered, setHasRendered] = useState(false);
 
   const renderGraph = useCallback(
     (spec: GraphSpec) => {
@@ -64,10 +66,15 @@ export function GraphRenderer({
       }
       chartRef.current.setOption(buildGraphEChartsOption(spec, isDarkMode), true);
       chartRef.current.resize();
+      setHasRendered(true);
       onRender?.();
     },
     [isDarkMode, onRender],
   );
+
+  useEffect(() => {
+    if (isStreaming) setHasRendered(false);
+  }, [isStreaming, code]);
 
   useEffect(() => {
     if (!code?.trim()) return;
@@ -124,19 +131,14 @@ export function GraphRenderer({
   }, [isDarkMode, code, error, renderGraph]);
 
   const minH = embedded ? "min-h-[280px]" : "min-h-[360px]";
-  const loading =
-    isStreaming && looksRenderableGraphSource(code ?? "") && !error;
+  const loading = isStreaming && !error && !hasRendered;
 
   return (
     <div className={`relative flex flex-col ${className}`}>
       <div
         className={`relative w-full flex-1 ${minH} rounded-md overflow-hidden bg-muted/20`}
       >
-        {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 text-xs text-muted-foreground">
-            Building graph…
-          </div>
-        )}
+        {loading ? <ArtifactStreamingOverlay label="Building graph…" /> : null}
         {error && !loading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-4 text-center">
             <AlertCircle className="h-8 w-8 text-amber-500" />

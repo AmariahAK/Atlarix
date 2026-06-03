@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { estimateTokens } from "@/ipc/utils/token_utils";
+import { truncateToTokens as truncateToTokensShared } from "@/lib/truncate";
 import type { WorkMode } from "@/lib/schemas";
 import { getContextAssemblyCache, setContextAssemblyCache } from "./context-assembly-cache";
 
@@ -18,7 +19,9 @@ export type ContextSectionName =
   | "counsel"
   | "counselDeepThinkSubstitute"
   | "parallelPrefetch"
-  | "lspDiagnostics";
+  | "lspDiagnostics"
+  | "workspaceCapabilities"
+  | "activePlan";
 
 export type ContextSection = {
   name: ContextSectionName;
@@ -46,19 +49,6 @@ export type ContextAssemblerOutput = {
 
 const ACTIVE_SKILL_TOKEN_CEILING = 8000;
 
-function truncateToTokens(content: string, maxTokens: number): string {
-  if (estimateTokens(content) <= maxTokens) return content;
-  let lo = 0;
-  let hi = content.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1) / 2);
-    const slice = content.slice(0, mid);
-    if (estimateTokens(slice) <= maxTokens) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${content.slice(0, Math.max(0, lo))}\n\n...(trimmed to fit context cap)`;
-}
-
 export function assembleContextSections(input: ContextAssemblerInput): ContextAssemblerOutput {
   const normalizedSections = [...input.sections]
     .filter((s) => s.content.trim().length > 0)
@@ -72,7 +62,7 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
 
   let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
   if (activeSkillAddition && estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
-    activeSkillAddition = truncateToTokens(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING);
+    activeSkillAddition = truncateToTokensShared(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING, "\n\n...(trimmed to fit context cap)");
   }
 
   let sessionMemoryAddition = sessionMemorySections.map((s) => s.content.trim()).join("\n\n");
@@ -154,7 +144,7 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
       continue;
     }
 
-    const truncated = truncateToTokens(section.content, remaining);
+    const truncated = truncateToTokensShared(section.content, remaining, "\n\n...(trimmed to fit context cap)");
     const truncatedTokens = estimateTokens(truncated);
     if (truncatedTokens > 0) {
       includedBlocks.push(truncated);

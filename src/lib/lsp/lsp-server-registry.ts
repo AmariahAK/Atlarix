@@ -2,10 +2,13 @@ import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
-import log from "electron-log";
 import { getEnvVar } from "@/ipc/utils/read_env";
+import { getMonacoLanguageForPath } from "@/lib/monaco/language-manifest";
+export {
+  isLspLanguageSupported,
+  LSP_SUPPORTED_LANGUAGES,
+} from "@/lib/lsp/lsp-supported-languages";
 
-const logger = log.scope("lsp-server-registry");
 
 export interface LspServerConfig {
   id: string;
@@ -346,52 +349,5 @@ export const LSP_SERVERS: LspServerConfig[] = [
 ];
 
 export function getLanguageFromFile(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  const langMap: Record<string, string> = {
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".mts": "typescript",
-    ".cts": "typescript",
-    ".py": "python",
-    ".rs": "rust",
-    ".go": "go",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".scala": "java",
-    ".c": "c",
-    ".cpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".h": "c",
-    ".hpp": "cpp",
-    ".cs": "csharp",
-    ".rb": "ruby",
-    ".php": "php",
-    ".swift": "swift",
-    ".lua": "lua",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".zsh": "bash",
-    ".html": "html",
-    ".htm": "html",
-    ".css": "css",
-    ".scss": "css",
-    ".sass": "css",
-    ".less": "css",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".toml": "toml",
-    ".graphql": "graphql",
-    ".gql": "graphql",
-    ".dockerfile": "dockerfile",
-    ".vue": "vue",
-    ".svelte": "svelte",
-  };
-  return langMap[ext] || "plaintext";
+  return getMonacoLanguageForPath(filePath);
 }

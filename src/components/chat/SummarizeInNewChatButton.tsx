@@ -1,11 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useAtomValue } from "jotai";
+import { getDefaultStore, useAtomValue } from "jotai";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
-import { IpcClient } from "@/ipc/ipc_client";
 import { showError } from "@/lib/toast";
-import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
+import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 
 export function useSummarizeInNewChat() {
   const chatId = useAtomValue(selectedChatIdAtom);
@@ -23,13 +23,17 @@ export function useSummarizeInNewChat() {
       return;
     }
     try {
-      const newChatId = await IpcClient.getInstance().createChat(appId);
-      resetTerminalInstancesForNewChat();
-      // navigate to new chat
-      await navigate({ to: "/chat", search: { id: newChatId } });
+      const priorChatId = chatId;
+      const newChatId = await startNewWorkspaceConversation({
+        workspaceId: appId,
+        navigate,
+      });
+      if (newChatId == null) return;
+      const newSessionId = getDefaultStore().get(activeWorkspaceSessionIdAtom);
       await streamMessage({
-        prompt: "Summarize from chat-id=" + chatId,
+        prompt: "Summarize from chat-id=" + priorChatId,
         chatId: newChatId,
+        workspaceSessionId: newSessionId ?? undefined,
       });
     } catch (err) {
       showError(err);

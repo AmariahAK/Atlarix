@@ -5,6 +5,7 @@ import type {
   McpServer,
   McpServerUpdate,
   McpTool,
+  McpListToolsResult,
   McpToolConsent,
   CreateMcpServer,
 } from "@/ipc/ipc_types";
@@ -32,15 +33,38 @@ export function useMcp(filter?: McpListFilter) {
     [serversQuery.data],
   );
 
-  const toolsByServerQuery = useQuery<Record<number, McpTool[]>, Error>({
+  const toolsByServerQuery = useQuery<
+    {
+      toolsByServer: Record<number, McpTool[]>;
+      toolsErrorsByServer: Record<
+        number,
+        { error?: string; needsOAuth?: boolean }
+      >;
+    },
+    Error
+  >({
     queryKey: ["mcp", "tools-by-server", serverIds],
     enabled: serverIds.length > 0,
     queryFn: async () => {
       const ipc = IpcClient.getInstance();
-      const entries = await Promise.all(
-        serverIds.map(async (id) => [id, await ipc.listMcpTools(id)] as const),
+      const toolsByServer: Record<number, McpTool[]> = {};
+      const toolsErrorsByServer: Record<
+        number,
+        { error?: string; needsOAuth?: boolean }
+      > = {};
+      await Promise.all(
+        serverIds.map(async (id) => {
+          const result = (await ipc.listMcpTools(id)) as McpListToolsResult;
+          toolsByServer[id] = result.tools ?? [];
+          if (result.error || result.needsOAuth) {
+            toolsErrorsByServer[id] = {
+              error: result.error,
+              needsOAuth: result.needsOAuth,
+            };
+          }
+        }),
       );
-      return Object.fromEntries(entries) as Record<number, McpTool[]>;
+      return { toolsByServer, toolsErrorsByServer };
     },
     meta: { showErrorToast: true },
   });
@@ -172,7 +196,8 @@ export function useMcp(filter?: McpListFilter) {
 
   return {
     servers: serversQuery.data || [],
-    toolsByServer: toolsByServerQuery.data || {},
+    toolsByServer: toolsByServerQuery.data?.toolsByServer || {},
+    toolsErrorsByServer: toolsByServerQuery.data?.toolsErrorsByServer || {},
     consentsList: consentsQuery.data || [],
     consentsMap,
     isLoading:

@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 
 const LEFT_PANEL_STORAGE_KEY = "atlarix-left-panel-width";
 const MIN_WIDTH = 200;
-const DEFAULT_WIDTH = 280;
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Database,
@@ -24,8 +23,6 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   CheckSquare,
   ScrollText,
 };
-
-const MAX_TABS = 5;
 
 export function LeftPanel() {
   const activeIds = useAtomValue(activeExtensionIdsAtom);

@@ -11,6 +11,16 @@ export function chatModeForWorkMode(mode: WorkMode): "ask" | "build" {
   return mode === "build" ? "build" : "ask";
 }
 
+/** Tool handler chatMode (file write gates, plan/debug rules). */
+export function toolExecutionChatMode(
+  workMode: WorkMode,
+): "ask" | "plan" | "build" | "debug" {
+  if (workMode === "plan") return "plan";
+  if (workMode === "build") return "build";
+  if (workMode === "debug") return "debug";
+  return "ask";
+}
+
 /** Apply a manual work mode to settings fields (caller sets intentMode separately for Auto). */
 export function settingsPatchForWorkMode(mode: WorkMode): {
   workModePreference: WorkMode;

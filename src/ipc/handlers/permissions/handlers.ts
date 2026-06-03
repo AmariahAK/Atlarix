@@ -140,11 +140,13 @@ ipcMain.handle(
             operationId,
             approvalMode = "once",
             appId,
+            dangerAcknowledged,
         }: {
             chatId: number;
             operationId: string;
             approvalMode?: PermissionApprovalMode;
             appId?: number | null;
+            dangerAcknowledged?: boolean;
         },
     ): Promise<PermissionResult> => {
         logger.log(
@@ -203,7 +205,9 @@ ipcMain.handle(
             }
         }
 
-        return interceptor.executeOperation(operationId);
+        return interceptor.executeOperation(operationId, {
+            dangerAcknowledged: dangerAcknowledged === true,
+        });
     },
 );
 

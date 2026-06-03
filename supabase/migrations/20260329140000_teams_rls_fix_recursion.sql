@@ -47,6 +47,14 @@ REVOKE ALL ON FUNCTION public._teams_is_active_member(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public._teams_is_active_member(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public._teams_is_active_member(uuid, uuid) TO service_role;
 
+DROP POLICY IF EXISTS "teams_owner_all" ON public.teams;
+CREATE POLICY "teams_owner_all"
+  ON public.teams
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = owner_user_id)
+  WITH CHECK (auth.uid() = owner_user_id);
+
 DROP POLICY IF EXISTS "teams_member_read" ON public.teams;
 CREATE POLICY "teams_member_read"
   ON public.teams

@@ -16,7 +16,9 @@ import {
     createParameters,
     stringParam,
 } from "./registry";
-import { smartSearch, isSearxngEnabled } from "../search";
+import { smartSearch } from "../search";
+import { extractDomain } from "@/lib/format-url";
+import { safeFetch } from "../security/url-policy";
 import createBm25Engine from "wink-bm25-text-search";
 
 const WEB_SEARCH_SETUP_HINT =
@@ -75,15 +77,6 @@ function decodeHtmlEntities(str: string): string {
         .replace(/&#x2F;/g, '/');
 }
 
-function extractDomain(url: string): string {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname.replace(/^www\./, '');
-    } catch {
-        return url;
-    }
-}
-
 interface SearchResult {
     source: string;
     title: string;
@@ -98,12 +91,12 @@ async function fetchUrlContent(
     maxLength: number
 ): Promise<{ ok: true; title: string; content: string } | { ok: false; error: string }> {
     try {
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
             headers: {
                 'User-Agent': 'Atlarix/1.0 (Web Reader)',
                 'Accept': 'text/html,application/xhtml+xml,text/plain',
             },
-        });
+        }, { timeoutMs: 15_000 });
 
         if (!response.ok) {
             return { ok: false, error: `Failed to fetch URL: ${response.status} ${response.statusText}` };

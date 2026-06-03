@@ -12,9 +12,10 @@
 import { ToolRegistry, ToolCategory } from "./registry";
 import { db } from "../../db";
 import { installedSkills } from "../../db/schema";
-import { and, eq, or } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { loadInstalledSkillsForSession } from "../skills/installed-skills";
 import { loadBuiltinGuides } from "../skills/builtin-guides";
+import { normalizeSkillWorkspacePath } from "@/paths/paths";
 
 function safeParseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -108,15 +109,31 @@ ToolRegistry.register({
   handler: async (args: { workspace?: string }) => {
     try {
       const wsPath = args.workspace?.trim() || null;
-      const where = wsPath
-        ? or(
-            eq(installedSkills.scope, "global"),
-            and(eq(installedSkills.scope, "workspace"), eq(installedSkills.workspacePath, wsPath))
-          )
-        : eq(installedSkills.scope, "global");
+      const rows = wsPath
+        ? await db
+            .select()
+            .from(installedSkills)
+            .where(
+              or(
+                eq(installedSkills.scope, "global"),
+                eq(installedSkills.scope, "workspace"),
+              ),
+            )
+        : await db
+            .select()
+            .from(installedSkills)
+            .where(eq(installedSkills.scope, "global"));
 
-      const rows = await db.select().from(installedSkills).where(where);
-      const skills = rows.map((r) => ({
+      const filtered = wsPath
+        ? rows.filter(
+            (r) =>
+              r.scope === "global" ||
+              (r.workspacePath != null &&
+                normalizeSkillWorkspacePath(r.workspacePath) ===
+                  normalizeSkillWorkspacePath(wsPath)),
+          )
+        : rows;
+      const skills = filtered.map((r) => ({
         id: r.id,
         name: r.name,
         scope: r.scope,

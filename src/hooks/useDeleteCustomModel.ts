@@ -26,7 +26,7 @@ export function useDeleteCustomModel({
       // This method will be added to IpcClient next
       await ipcClient.deleteCustomModel(params);
     },
-    onSuccess: (data, params: DeleteCustomModelParams) => {
+    onSuccess: (_data, params: DeleteCustomModelParams) => {
       // Invalidate queries related to language models for the specific provider
       queryClient.invalidateQueries({
         queryKey: ["language-models", params.providerId],

@@ -1,6 +1,5 @@
 import {
     type Template,
-    localTemplatesData,
 } from "../../shared/templates";
 import log from "electron-log";
 
@@ -136,7 +135,7 @@ export async function fetchVercelExamples(): Promise<Template[]> {
  */
 function convertGitHubRepoToTemplate(repo: any): Template {
     // Extract owner/repo from full_name
-    const [owner, name] = repo.full_name.split('/');
+    const [owner] = repo.full_name.split('/');
 
     // Determine category from topics/language
     const category = determineCategory(repo.topics || [], repo.language);

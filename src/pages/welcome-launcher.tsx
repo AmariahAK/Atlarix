@@ -35,7 +35,7 @@ export default function WelcomeLauncher() {
     "there";
 
   const tierLabel = formatCompassSubscriptionTier(
-    status?.plan ?? status?.effectiveTier ?? "free",
+    status?.plan ?? "free",
   );
 
   const recentApps = useMemo(() => {

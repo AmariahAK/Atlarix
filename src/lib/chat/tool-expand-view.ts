@@ -35,6 +35,10 @@ const WEB_SEARCH_TOOLS = new Set(["web_search", "deep_research"]);
 
 const RUN_COMMAND_TOOLS = new Set(["run_command", "run_shell_command"]);
 
+const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
+
+const MCP_CALL_TOOLS = new Set(["mcp_call"]);
+
 const MAX_FILE_ROWS = 50;
 const MAX_READ_LINES = 40;
 const DIFF_CONTENT_MAX = 120_000;
@@ -92,6 +96,34 @@ export type ToolExpandView =
       kind: "search_results";
       query: string;
       results: { title: string; url: string; snippet?: string }[];
+    }
+  | {
+      kind: "mcp_servers";
+      servers: {
+        id?: number;
+        name: string;
+        transport?: string;
+        scope?: string;
+        tools: { name: string; description?: string }[];
+        error?: string;
+        needsOAuth?: boolean;
+      }[];
+      usage?: string;
+      message?: string;
+    }
+  | {
+      kind: "mcp_result";
+      server: string;
+      tool: string;
+      body: string;
+    }
+  | {
+      kind: "mcp_auth";
+      serverId: number;
+      serverName: string;
+      authType: "none" | "env" | "api_key" | "oauth";
+      reason: "missing" | "invalid";
+      message: string;
     };
 
 export function splitPathForDisplay(fullPath: string): {
@@ -495,6 +527,117 @@ function buildReadSnippetView(
   };
 }
 
+function prettyMaybeJson(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return trimmed;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return trimmed;
+  }
+}
+
+function buildMcpServersView(
+  payload: Record<string, unknown>,
+): Extract<ToolExpandView, { kind: "mcp_servers" }> | null {
+  const rawServers = payload.servers;
+  if (!Array.isArray(rawServers)) return null;
+
+  const servers: Extract<ToolExpandView, { kind: "mcp_servers" }>["servers"] = [];
+  for (const s of rawServers) {
+    if (!s || typeof s !== "object") continue;
+    const o = s as Record<string, unknown>;
+    const name = typeof o.name === "string" ? o.name.trim() : "";
+    if (!name) continue;
+
+    const tools: { name: string; description?: string }[] = [];
+    if (Array.isArray(o.tools)) {
+      for (const t of o.tools) {
+        if (!t || typeof t !== "object") continue;
+        const to = t as Record<string, unknown>;
+        const tn = typeof to.name === "string" ? to.name.trim() : "";
+        if (!tn) continue;
+        tools.push({
+          name: tn,
+          description:
+            typeof to.description === "string" && to.description.trim()
+              ? to.description.trim()
+              : undefined,
+        });
+      }
+    }
+
+    servers.push({
+      id: typeof o.id === "number" ? o.id : undefined,
+      name,
+      transport: typeof o.transport === "string" ? o.transport : undefined,
+      scope: typeof o.scope === "string" ? o.scope : undefined,
+      tools,
+      error: typeof o.error === "string" && o.error.trim() ? o.error.trim() : undefined,
+      needsOAuth: o.needsOAuth === true,
+    });
+  }
+
+  const message =
+    typeof payload.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : undefined;
+  if (servers.length === 0 && !message) return null;
+
+  return {
+    kind: "mcp_servers",
+    servers,
+    usage:
+      typeof payload.usage === "string" && payload.usage.trim()
+        ? payload.usage.trim()
+        : undefined,
+    message,
+  };
+}
+
+function buildMcpAuthView(
+  payload: Record<string, unknown>,
+): Extract<ToolExpandView, { kind: "mcp_auth" }> | null {
+  const ar = payload.authRequired;
+  if (!ar || typeof ar !== "object") return null;
+  const o = ar as Record<string, unknown>;
+  const serverId = typeof o.serverId === "number" ? o.serverId : null;
+  const serverName = typeof o.serverName === "string" ? o.serverName : "";
+  if (serverId == null || !serverName) return null;
+  const authType =
+    o.authType === "oauth" || o.authType === "api_key" || o.authType === "env"
+      ? o.authType
+      : "none";
+  const reason = o.reason === "invalid" ? "invalid" : "missing";
+  const message =
+    typeof payload.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : `${serverName} needs authentication.`;
+  return { kind: "mcp_auth", serverId, serverName, authType, reason, message };
+}
+
+function buildMcpResultView(
+  payload: Record<string, unknown>,
+): Extract<ToolExpandView, { kind: "mcp_result" }> | null {
+  const server = typeof payload.server === "string" ? payload.server.trim() : "";
+  const tool = typeof payload.tool === "string" ? payload.tool.trim() : "";
+
+  const rawResult = payload.result;
+  let body = "";
+  if (typeof rawResult === "string") {
+    body = prettyMaybeJson(rawResult);
+  } else if (rawResult != null) {
+    try {
+      body = JSON.stringify(rawResult, null, 2);
+    } catch {
+      body = String(rawResult);
+    }
+  }
+
+  if (!server && !tool && !body.trim()) return null;
+  return { kind: "mcp_result", server: server || "mcp", tool, body: body.trim() };
+}
+
 export function buildToolExpandView(
   toolName: string,
   args: unknown,
@@ -554,6 +697,24 @@ export function buildToolExpandView(
   if (RUN_COMMAND_TOOLS.has(toolName)) {
     const cmd = buildCommandOutputView(payload, plain);
     if (cmd) return cmd;
+  }
+
+  if (MCP_LIST_TOOLS.has(toolName)) {
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return { kind: "text", body: payload.error.trim(), isError: true };
+    }
+    const servers = buildMcpServersView(payload);
+    if (servers) return servers;
+  }
+
+  if (MCP_CALL_TOOLS.has(toolName)) {
+    const authView = buildMcpAuthView(payload);
+    if (authView) return authView;
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return { kind: "text", body: payload.error.trim(), isError: true };
+    }
+    const mcpResult = buildMcpResultView(payload);
+    if (mcpResult) return mcpResult;
   }
 
   const preview = formatToolResultPreview(toolName, resultText, streamStatus);

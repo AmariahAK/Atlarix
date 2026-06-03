@@ -14,7 +14,7 @@
  * - Backwards compatible (heuristics catch forgotten intents)
  */
 
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import {
     type PanelContext,
@@ -26,7 +26,6 @@ import {
     pendingProposalsAtom,
     toolTimelineAtom,
     terminalOutputsAtom,
-    diagramStateAtom,
     pinnedPanelAtom,
     previewTabAtom,
     devServerUrlAtom,
@@ -41,17 +40,16 @@ import {
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 
-// Tab configurations for each panel type (diagram: single tab when showing diagram for a workspace)
+// Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
     'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors'],
-    'diagram': ['activity'],
     'terminal': ['terminal', 'activity'],
     'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'diff'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
-    'timeline': ['timeline'],
-    'permission': ['preview', 'code', 'terminal', 'activity', 'errors', 'diff'],
+    'plan': ['plan'],
+    'empty': [],
 };
 
 export interface RightPanelContextResult {
@@ -83,25 +81,11 @@ export function useRightPanelContext(): RightPanelContextResult {
         // Sort by startTime descending and take the most recent
         return outputs.sort((a, b) => b.startTime - a.startTime)[0] || null;
     }, [terminalOutputs]);
-    const diagramState = useAtomValue(diagramStateAtom);
     const devServerUrl = useAtomValue(devServerUrlAtom);
     const browserErrors = useAtomValue(browserErrorsAtom);
     const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
     const [activeTab, setActiveTab] = useAtom(previewTabAtom);
 
-    // Diagram tab removed — migrate legacy selection
-    useEffect(() => {
-        if (activeTab === 'diagram') {
-            setActiveTab('activity');
-        }
-    }, [activeTab, setActiveTab]);
-
-    useEffect(() => {
-        if (pinnedPanel === 'diagram') {
-            setPinnedPanel('code-preview');
-            setActiveTab('activity');
-        }
-    }, [pinnedPanel, setPinnedPanel, setActiveTab]);
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
     const currentApp = useAtomValue(currentAppAtom);
@@ -172,7 +156,7 @@ export function useRightPanelContext(): RightPanelContextResult {
         }
 
         return 'empty';
-    }, [sources, proposals, lastToolCall, diagramState, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
+    }, [sources, proposals, lastToolCall, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
 
     // ═══════════════════════════════════════════════════════════
     // LAYER 1: AI Intent Mapping
@@ -204,9 +188,7 @@ export function useRightPanelContext(): RightPanelContextResult {
         if (chatAreaHidden && !tabs.includes('chat')) {
             tabs = ['chat', ...tabs];
         }
-        const normalizedTab =
-            activeTab === "diagram" ? "activity" : activeTab;
-        const validTab = tabs.includes(normalizedTab) ? normalizedTab : tabs[0];
+        const validTab = tabs.includes(activeTab) ? activeTab : tabs[0];
 
         return {
             type: effectiveType,
@@ -215,7 +197,6 @@ export function useRightPanelContext(): RightPanelContextResult {
             data: getDataForType(effectiveType, {
                 sources,
                 proposals,
-                diagramState,
                 terminalOutput,
                 terminalOutputs,
                 toolTimeline,
@@ -227,7 +208,7 @@ export function useRightPanelContext(): RightPanelContextResult {
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, diagramState, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
+    }, [effectiveType, activeTab, sources, proposals, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
@@ -268,7 +249,6 @@ function getDataForType(
     state: {
         sources: any[];
         proposals: any[];
-        diagramState: any;
         terminalOutput: any;
         terminalOutputs: Map<string, any>;
         toolTimeline: any[];
@@ -298,7 +278,6 @@ function getDataForType(
         case 'web-search':
             return { sources: state.sources, timeline: state.toolTimeline, ...state.aiContext };
         case 'file-diff':
-        case 'permission':
             // Include ALL data so tabs work when switching
             return {
                 proposals: state.proposals,
@@ -308,15 +287,12 @@ function getDataForType(
                 terminalOutputs: state.terminalOutputs,
                 output: state.terminalOutput?.output,
                 status: state.terminalOutput?.status,
-                ...state.diagramState,
                 errors: state.browserErrors,
                 sources: state.sources,
                 workspacePath: state.workspacePath,
                 appId: state.appId,
                 ...state.aiContext
             };
-        case 'diagram':
-            return { ...state.diagramState, ...state.aiContext };
         case 'terminal':
             return { ...state.terminalOutput, ...state.aiContext };
         case 'tools':
@@ -330,7 +306,6 @@ function getDataForType(
                 sources: state.sources,
                 workspacePath: state.workspacePath,
                 appId: state.appId,
-                ...state.diagramState,
                 ...state.aiContext
             };
         default:

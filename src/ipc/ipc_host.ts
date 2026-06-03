@@ -36,13 +36,13 @@ import { registerTemplateHandlers } from "./handlers/template_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
 import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
+import { registerMcpOAuthHandlers } from "./handlers/mcp_oauth_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
 import { registerSecurityHandlers } from "./handlers/security_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
-import { registerDiagramTimelineHandlers } from "./handlers/diagram_timeline_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
 import { registerLspHandlers } from "./handlers/lsp_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
@@ -65,8 +65,6 @@ import { registerCommandPermissionHandlers } from "./handlers/command_permission
 import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
-import "./handlers/diagram_handlers"; // Auto-registers on import
-import { registerFsDiagramSnapshotHandlers } from "./handlers/fs_diagram_snapshot_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
 export function registerIpcHandlers() {
@@ -110,6 +108,7 @@ export function registerIpcHandlers() {
   registerPortalHandlers();
   registerHelpBotHandlers();
   registerMcpHandlers();
+  registerMcpOAuthHandlers();
   registerSkillsHandlers();
   registerSecurityHandlers();
   registerVisualEditingHandlers();
@@ -118,13 +117,11 @@ export function registerIpcHandlers() {
   registerSearxngHandlers();
   registerSearxngSetupHandlers();
   registerSearxngAutoStop(); // Auto-stop Docker container when app quits
-  registerDiagramTimelineHandlers(); // Diagram timeline system
   registerFileHandlers(); // File read/write for live code editor
   registerLspHandlers(); // LSP → Monaco diagnostics in Code tab
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
-  registerFsDiagramSnapshotHandlers(); // `.atlarix/snapshots/` diagram timeline + revert
   // PASS6: Blueprint subsystem restored.
   registerBlueprintHandlers();
   registerPivotAnalysisHandlers();

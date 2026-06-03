@@ -20,9 +20,7 @@ const VALID_INTENTS: AIPanelIntent[] = [
     'show-permissions',
     'show-file-changes',
     'show-web-search',
-    'show-diagram',
     'show-terminal',
-    'show-timeline',
     'show-files',
     'show-preview',  // Dev server preview
     'hide',
@@ -91,9 +89,7 @@ export function useAIPanelListener() {
                     'permission': 'show-permissions',
                     'file-diff': 'show-file-changes',
                     'web-search': 'show-web-search',
-                    'diagram': 'show-diagram',
                     'terminal': 'show-terminal',
-                    'timeline': 'show-timeline',
                     'files': 'show-files',
                     'empty': 'empty',
                 };

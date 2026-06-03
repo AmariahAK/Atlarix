@@ -2,7 +2,6 @@ import { createMessageConnection, StreamMessageReader, StreamMessageWriter } fro
 import type { Diagnostic } from "vscode-languageserver-types";
 import { ChildProcess, spawn } from "child_process";
 import type { WebContents } from "electron";
-import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import {
@@ -17,11 +16,6 @@ const logger = log.scope("lsp-client");
 
 const DIAGNOSTICS_DEBOUNCE_MS = 150;
 const DIAGNOSTICS_DOCUMENT_WAIT_TIMEOUT_MS = 5_000;
-const INITIALIZE_TIMEOUT_MS = 45_000;
-
-const FILE_CHANGE_CREATED = 1;
-const FILE_CHANGE_CHANGED = 2;
-const TEXT_DOCUMENT_SYNC_INCREMENTAL = 2;
 
 interface LspClient {
   serverId: string;
@@ -39,11 +33,6 @@ export type { LspClient };
 export const LspEvent = {
   Diagnostics: "lsp.client.diagnostics",
 } as const;
-
-type DiagnosticsPayload = {
-  serverID: string;
-  path: string;
-};
 
 const lspClients = new Map<string, LspClient>();
 const spawning = new Map<string, Promise<LspClient | null>>();
@@ -97,22 +86,6 @@ function getFilePath(uri: string): string | undefined {
   }
 }
 
-function dedupeDiagnostics(items: Diagnostic[]): Diagnostic[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = JSON.stringify({
-      code: item.code,
-      severity: item.severity,
-      message: item.message,
-      source: item.source,
-      range: item.range,
-    });
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function shouldSeedDiagnosticsOnFirstPush(serverID: string): boolean {
   return serverID === "typescript";
 }
@@ -124,7 +97,15 @@ export async function getOrCreateClient(
 ): Promise<LspClient | null> {
   const config = await findServerForWorkspace(workspaceRoot, language);
   if (!config) {
-    logger.info(`No LSP server found for language: ${language}`);
+    const quiet =
+      language === "plaintext" ||
+      language === "markdown" ||
+      language === "atlarix-text";
+    if (quiet) {
+      logger.debug(`No LSP server for language: ${language}`);
+    } else {
+      logger.info(`No LSP server found for language: ${language}`);
+    }
     return null;
   }
 
@@ -254,7 +235,7 @@ async function createClient(
   try {
     const rootPath = findNearestRoot(filePath, workspaceRoot, config.rootMarkers);
 
-    const initializeResult = await connection.sendRequest("initialize", {
+    await connection.sendRequest("initialize", {
       processId: process.pid,
       rootUri: `file://${rootPath}`,
       rootPath: rootPath,

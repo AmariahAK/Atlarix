@@ -21,21 +21,20 @@ import {
 } from "../lib/model-identity-prompt";
 import type { LargeLanguageModel } from "../lib/schemas";
 import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
+import {
+    MODE_SYSTEM_TOOL_LISTS,
+    type ModeRegistryKey,
+} from "../lib/tools/mode-tool-registry";
+import {
+    renderModePromptBundle,
+    GIT_VIA_TERMINAL_NOTE,
+    getActiveModeHeaderBlock,
+    modeAllowlistIncludesWebResearch,
+    modeAllowlistIncludesVisualTools,
+} from "../lib/tools/mode-prompt-bundle";
+import { getAppVersion } from "../lib/app-version";
 
 const logger = log.scope("system_prompt");
-
-/** Injected into system prompt so the model can answer "what version" / who built Atlarix accurately */
-function getElectronAppVersion(): string {
-    try {
-        const electron = require("electron") as { app?: { getVersion?: () => string } };
-        if (electron.app?.getVersion) {
-            return electron.app.getVersion();
-        }
-    } catch {
-        /* not in Electron */
-    }
-    return "unknown";
-}
 
 // ═══════════════════════════════════════════════════════════
 // AGENTS.MD LOADING
@@ -115,115 +114,8 @@ export const BUILD_SYSTEM_POSTFIX = "\n---\n";
 // ═══════════════════════════════════════════════════════════
 // PASS 7 — MODE SYSTEM DECLARATION
 // ═══════════════════════════════════════════════════════════
-// Tool lists below MUST stay in sync with `modeAllowlist` in
-// `src/ipc/handlers/chat_stream_handlers.ts`. A smoke test asserts this.
-// Order: each set is sorted alphabetically.
-
-export const MODE_SYSTEM_TOOL_LISTS = {
-  // PASS8 B2: get_workspace_overview removed — referenced in prose but never
-  // registered in src/lib/tools/. The mode_system_consistency test asserts these
-  // lists mirror modeAllowlist in chat_stream_handlers.ts exactly.
-  ask: [
-    "ask_user",
-    "compress_context",
-    "deep_research",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_attachments",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "memory",
-    "read_attachment",
-    "read_file",
-    "read_url",
-    "run_command",
-    "search",
-    "web_search",
-  ],
-  plan: [
-    "ask_user",
-    "compress_context",
-    "edit_file",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_plan_scope",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "memory",
-    "read_file",
-    "read_implementation_plan",
-    "run_command",
-    "search",
-    "update_plan_status",
-    "write_file",
-    "write_implementation_plan",
-  ],
-  build: ["*"],
-  debug: [
-    "ask_user",
-    "diagnose_issue",
-    "edit_file",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "lsp_definitions",
-    "lsp_diagnostics",
-    "lsp_hover",
-    "lsp_references",
-    "mcp_call",
-    "memory",
-    "read_file",
-    "run_command",
-    "search",
-    "stream_terminal_output",
-    "write_file",
-  ],
-  review: [
-    "ask_user",
-    "diagnose_issue",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "lsp_definitions",
-    "lsp_diagnostics",
-    "lsp_hover",
-    "lsp_references",
-    "memory",
-    "read_file",
-    "run_command",
-    "search",
-  ],
-} as const;
-
-export type ModeSystemKey = keyof typeof MODE_SYSTEM_TOOL_LISTS;
+export { MODE_SYSTEM_TOOL_LISTS };
+export type ModeSystemKey = ModeRegistryKey;
 
 /** Mode-scoped bundle — omits multi-mode summaries (active mode is in `<mode_system>` only). */
 export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
@@ -234,113 +126,23 @@ const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
   plan: "Author session plan artifacts (write_implementation_plan) and .atlarix/atlarix.md before production code changes.",
   build: "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
-  debug: "Debug mode — investigate and fix bugs. Read tools + run_command + edit_file. Prefer **lsp_diagnostics** on touched files (language-server errors) before claiming success; use **diagnose_issue** when LSP is unavailable or for runtime/terminal failures.",
+  debug: "Debug mode — hypothesis-first fixes. Call **record_debug_hypothesis** before write_file, edit_file, delete_file, rename_file, or write_multiple_files; apply minimal changes that test the hypothesis. Prefer **lsp_diagnostics** after edits; use **diagnose_issue** for runtime/tooling signals.",
   review: "Read-only review. Inspect changes, surface findings; do not mutate files. Use **lsp_diagnostics** / **lsp_hover** when IDE-grade signals help.",
 };
 
-/** Shown in tool context — git is terminal-only (no dedicated git tools). */
-export const GIT_VIA_TERMINAL_NOTE =
-  "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
+export { GIT_VIA_TERMINAL_NOTE };
 
-/**
- * Render `<mode_system>` block — declares which tools are available per work mode.
- * Pass 7: replaces ad-hoc descriptions with a structured, machine-checkable list.
- * PASS8 A2: When `activeMode` is provided, only that mode's block is emitted (the
- * other four modes were ~150 tokens of dead context per dispatch). When omitted,
- * all five blocks render — used by token_count_handlers and other static callers
- * that do not know the live work mode at call time.
- */
-/** Mode-specific system context — only the active mode (no other modes, no mode-switch tool). */
+/** Active-mode header only (legacy callers). */
 export function getModeSystemBlock(mode: ModeSystemKey): string {
-  const blocks: Record<ModeSystemKey, string> = {
-    ask: `## Current mode: Explore
-
-You are in Explore mode. This is a read-only investigation mode.
-
-You CAN:
-- Read files and search the codebase
-- Use **run_command** for read-only shell/git (git status, git log, git diff, ls, cat) — this tool is registered and available
-- Use get_blueprint, search
-- Answer questions about the codebase
-- Look up documentation via web search
-
-You CANNOT:
-- Write or edit files
-- Run mutating commands via run_command (npm install, git commit, rm, etc.) — blocked at runtime
-- Use the approval queue (no writes to approve)
-
-Do not claim run_command is unavailable. For git history/status, call run_command instead of reading .git/objects.
-
-Focus on understanding and explaining. If the user wants you to implement something, tell them to switch to Build mode in the UI.`,
-
-    plan: `## Current mode: Plan
-
-You are in Plan mode. This is a planning and architecture mode.
-
-You CAN:
-- Read files and search the codebase
-- Use **run_command** for read-only shell/git (git status, git log, git diff)
-- Create and update session plan artifacts; edit .atlarix/atlarix.md
-- Use get_blueprint
-- Write markdown documents, specs, and plans
-
-You CANNOT:
-- Write or edit source code files
-- Run build, install, or execution commands
-- Make changes that affect the running application
-
-Focus on producing clear, actionable plans. If the user wants implementation, tell them to switch to Build mode in the UI.`,
-
-    build: `## Current mode: Build
-
-You are in Build mode. This is the full implementation mode.
-
-You CAN:
-- Read and write any file (with approval queue for writes)
-- Run any terminal command including npm install, builds, and scripts
-- Use all available tools
-- Delegate to specialist agents (Architect, Builder, Reviewer, etc.)
-
-Focus on implementing correctly and completely. Every file write goes through the approval queue — do not ask the user to approve, just make the change and it will be queued automatically.`,
-
-    debug: `## Current mode: Debug
-
-You are in Debug mode. This is a targeted debugging and repair mode.
-
-You CAN:
-- Read and write files (with approval)
-- Use **run_command** for shell/git and test runners (mutating commands allowed when needed for the fix)
-- Run the test suite to verify fixes
-- Use search and get_blueprint to investigate
-
-You CANNOT:
-- Run broad installation or build commands unrelated to the fix
-- Refactor or restructure code beyond what is needed for the fix
-
-Focus on identifying the root cause and making the minimal correct change.`,
-
-    review: `## Current mode: Review
-
-You are in Review mode. This is a code review and quality assessment mode.
-
-You CAN:
-- Read all files
-- Use **run_command** for read-only shell/git and test runners
-- Search the codebase
-- Write review notes and comments
-
-You CANNOT:
-- Write or edit source code files
-- Run installation or build commands
-
-Focus on identifying issues, inconsistencies, and improvements. Produce clear, specific feedback.`,
-  };
-  return blocks[mode] ?? blocks.ask;
+  return getActiveModeHeaderBlock(mode);
 }
 
+/**
+ * Legacy all-modes block — avoid for live streams; pass effectiveWorkMode instead.
+ */
 export function renderModeSystemBlock(activeMode?: ModeSystemKey): string {
   if (activeMode) {
-    return `${getModeSystemBlock(activeMode)}\n\n${GIT_VIA_TERMINAL_NOTE}`;
+    return renderModePromptBundle(activeMode);
   }
   const lines: string[] = [];
   lines.push("<mode_system>");
@@ -383,6 +185,10 @@ export interface ConstructSystemPromptParams {
     modelDisplayName?: string;
     providerBrand?: string;
     labelWithProvider?: string;
+    /** Loaded native tool names for progressive-reveal registry split. */
+    registeredToolNames?: readonly string[];
+    /** When true, workspace MCP/skills lines are appended to tools_registry. */
+    hasWorkspace?: boolean;
 }
 
 /**
@@ -450,11 +256,14 @@ You are in **Plan** mode: read-only exploration plus session plan artifacts and 
 
 # Mode: Debug
 
-You are in **Debug** mode: targeted debugging with read/write tools and \`run_command\` for tests and repro steps.
+You are in **Debug** mode: hypothesis-first debugging with gated write tools.
 
-- Prefer minimal, root-cause fixes over broad refactors.
-- After edits, call **lsp_diagnostics** on touched files when a language server is available.
-- Use \`diagnose_issue\` only when LSP does not cover the failure (runtime logs, test output, tooling).
+1. Investigate (read, search, LSP, \`diagnose_issue\`, \`run_command\` for repro).
+2. Call **record_debug_hypothesis** with a clear root-cause hypothesis and likely files.
+3. Apply **minimal** \`edit_file\` / \`write_file\` / \`delete_file\` / \`rename_file\` changes that test only that hypothesis.
+4. Verify with **lsp_diagnostics** and targeted tests; revise the hypothesis if evidence contradicts it.
+
+Do not write or edit source files before step 2.
 `;
     }
     if (workMode === "review") {
@@ -513,26 +322,24 @@ If unsure, do NOT output <task_complete>. It's better to continue than stop prem
 `;
 };
 
-/** @deprecated Use `buildWorkModeInstruction` when `effectiveWorkMode` is known. */
-const buildModeSpecificInstruction = (chatMode: "build" | "ask"): string =>
-    buildWorkModeInstruction(chatMode === "build" ? "build" : "ask");
-
 /**
  * PASS8 A5: Construct the stable + dynamic parts of the system prompt.
  * Used by stream handlers to pass `stableHeader` as `system:` and prepend
  * `dynamicTail` as a system-role message in `messages` for cache friendliness.
  */
 export const constructSystemPromptParts = ({
-    chatMode = "build",
+    chatMode: _chatMode = "build",
     effectiveWorkMode,
     userPrompt,
     contextSize = 32000,
     optionalProjectInstructions,
-    hasAnsweredQuestions = false,
+    hasAnsweredQuestions: _hasAnsweredQuestions = false,
     activeModel,
     modelDisplayName,
     providerBrand,
     labelWithProvider,
+    registeredToolNames,
+    hasWorkspace,
 }: ConstructSystemPromptParams): SystemPromptParts => {
     const base =
         optionalProjectInstructions ??
@@ -564,20 +371,30 @@ You have \`web_search\` and \`deep_research\`. **RULE:** For any single research
 If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
 
 When \`web_search\` returns no results or errors, tell the user they can enable **SearxNG** (Settings → Search, Docker) or configure a **search MCP** for better coverage — Atlarix cannot enable these automatically.`;
-    const visualArtifactsGuide = loadVisualArtifactsGuide();
-    const inlineVizRules = `**Inline visualizations (Visual Artifacts skill)**
+
+    const includeWeb =
+        effectiveWorkMode == null || modeAllowlistIncludesWebResearch(effectiveWorkMode);
+    const includeViz =
+        effectiveWorkMode == null || modeAllowlistIncludesVisualTools(effectiveWorkMode);
+    const visualArtifactsGuide = includeViz ? loadVisualArtifactsGuide() : "";
+    const inlineVizRules = includeViz
+        ? `**Inline visualizations (Visual Artifacts skill)**
 
 Before emitting any **table**, **chart**, **graph**, or **markmap**, follow the Visual Artifacts skill below. Diagrams and charts render inline as collapsible artifact cards (no side panel). When a visual clearly helps, **include it in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary visual per answer unless the user asked for multiple views.
 
 You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_skills({ filter: "artifact" })\` for the same guidance.
 
-${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`;
+${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`
+        : "";
 
-    const modeBlock = renderModeSystemBlock(effectiveWorkMode);
-    const modeSpecific = effectiveWorkMode
-        ? buildWorkModeInstruction(effectiveWorkMode)
-        : buildModeSpecificInstruction(chatMode);
-    const appVersion = getElectronAppVersion();
+    const modeBundle =
+        effectiveWorkMode != null
+            ? renderModePromptBundle(effectiveWorkMode, {
+                  workspace: hasWorkspace,
+                  registeredNames: registeredToolNames,
+              })
+            : renderModeSystemBlock(undefined);
+    const appVersion = getAppVersion();
     const identity =
         activeModel != null
             ? resolveActiveModelIdentity(activeModel)
@@ -605,9 +422,8 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         toolContract,
         outputStyleRule,
         inlineVizRules,
-        modeBlock,
-        webResearchRules,
-        modeSpecific.trim(),
+        modeBundle,
+        includeWeb ? webResearchRules : "",
         runtimeIdentity,
     ].filter((s) => s.length > 0).join("\n\n");
 
@@ -663,8 +479,10 @@ export async function buildSystemPromptWithProjectInstructions(params: {
     modelDisplayName?: string;
     providerBrand?: string;
     labelWithProvider?: string;
+    hasWorkspace?: boolean;
+    registeredToolNames?: readonly string[];
 }): Promise<string> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider } = params;
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider, hasWorkspace, registeredToolNames } = params;
     const bundleContent = getAgentsMdForContextSize(contextSize);
     const layers = await loadInstructionLayers({
         workspacePath,
@@ -683,6 +501,8 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         modelDisplayName,
         providerBrand,
         labelWithProvider,
+        hasWorkspace: hasWorkspace ?? true,
+        registeredToolNames,
     });
 }
 
@@ -702,8 +522,10 @@ export async function buildSystemPromptPartsWithProjectInstructions(params: {
     modelDisplayName?: string;
     providerBrand?: string;
     labelWithProvider?: string;
+    hasWorkspace?: boolean;
+    registeredToolNames?: readonly string[];
 }): Promise<SystemPromptParts> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider } = params;
+    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider, hasWorkspace, registeredToolNames } = params;
     const bundleContent = getAgentsMdForContextSize(contextSize);
     const layers = await loadInstructionLayers({
         workspacePath,
@@ -722,6 +544,8 @@ export async function buildSystemPromptPartsWithProjectInstructions(params: {
         modelDisplayName,
         providerBrand,
         labelWithProvider,
+        hasWorkspace: hasWorkspace ?? true,
+        registeredToolNames,
     });
 }
 

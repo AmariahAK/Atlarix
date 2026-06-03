@@ -7,14 +7,27 @@ import { createLoggedHandler } from "./safe_handle";
 
 import { resolveConsent } from "../utils/mcp_consent";
 import { getStoredConsent } from "../utils/mcp_consent";
-import { mcpManager } from "../utils/mcp_manager";
-import { CreateMcpServer, McpServerUpdate, McpTool } from "../ipc_types";
+import { mcpManager, McpNeedsOAuthError } from "../utils/mcp_manager";
+import { notifyMcpAuthUpdated } from "@/lib/mcp/mcp-oauth-service";
+import {
+  CreateMcpServer,
+  McpListToolsResult,
+  McpServerUpdate,
+} from "../ipc_types";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import {
   DEFAULT_MCP_REGISTRY_URL,
   parseInstallUrl,
+  validateMcpRegistryEntry,
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
+import { serializeApiKeyForDb } from "@/lib/security/db-secrets";
+import {
+  sanitizeMcpServerForIpc,
+  sanitizeMcpServersForIpc,
+} from "@/lib/security/mcp-server-sanitize";
+import { readSettings } from "@/main/settings";
+import { getMcpSandboxDiagnostics } from "@/lib/mcp/firejail";
 
 const logger = log.scope("mcp_handlers");
 const handle = createLoggedHandler(logger);
@@ -38,7 +51,6 @@ export const MCP_WORKSPACE_MAX = 10;
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
 export function registerMcpHandlers() {
-  // List MCP servers (workspace-scoped; optional appId filter)
   handle(
     "mcp:list-servers",
     async (
@@ -46,7 +58,7 @@ export function registerMcpHandlers() {
       filter?: { scope?: "workspace"; appId?: number },
     ) => {
       if (filter?.appId != null) {
-        return await db
+        const rows = await db
           .select()
           .from(mcpServers)
           .where(
@@ -55,11 +67,13 @@ export function registerMcpHandlers() {
               eq(mcpServers.appId, filter.appId),
             ),
           );
+        return sanitizeMcpServersForIpc(rows);
       }
-      return await db
+      const rows = await db
         .select()
         .from(mcpServers)
         .where(eq(mcpServers.scope, "workspace"));
+      return sanitizeMcpServersForIpc(rows);
     },
   );
 
@@ -69,12 +83,13 @@ export function registerMcpHandlers() {
       .map((r) => r.id)
       .filter((id): id is number => typeof id === "number");
     if (appIds.length === 0) {
-      return await db
+      const rows = await db
         .select()
         .from(mcpServers)
         .where(eq(mcpServers.scope, "workspace"));
+      return sanitizeMcpServersForIpc(rows);
     }
-    return await db
+    const rows = await db
       .select()
       .from(mcpServers)
       .where(
@@ -86,6 +101,7 @@ export function registerMcpHandlers() {
           ),
         ),
       );
+    return sanitizeMcpServersForIpc(rows);
   });
 
   handle(
@@ -119,8 +135,15 @@ export function registerMcpHandlers() {
         );
       }
 
-      const { name, transport, command, args, envJson, url, apiKey, enabled } =
+      const { name, transport, command, args, envJson, url, apiKey, enabled, authType } =
         params;
+      const resolvedAuthType =
+        authType ??
+        (apiKey?.trim()
+          ? "api_key"
+          : envJson && Object.keys(envJson).length > 0
+            ? "env"
+            : "none");
       const result = await db
         .insert(mcpServers)
         .values({
@@ -130,27 +153,36 @@ export function registerMcpHandlers() {
           args: args || null,
           envJson: envJson || null,
           url: url || null,
-          apiKey: apiKey?.trim() || null,
+          apiKey: apiKey?.trim() ? serializeApiKeyForDb(apiKey.trim()) : null,
           enabled: !!enabled,
           scope,
           appId,
+          authType: resolvedAuthType,
         })
         .returning();
-      return result[0];
+      return sanitizeMcpServerForIpc(result[0]);
     },
   );
 
   handle(
     "mcp:test-connection",
-    async (_event: IpcMainInvokeEvent, serverId: number): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      _event: IpcMainInvokeEvent,
+      serverId: number,
+    ): Promise<{ ok: boolean; error?: string; needsOAuth?: boolean }> => {
       try {
+        mcpManager.dispose(serverId);
         const client = await mcpManager.getClient(serverId);
         await client.tools();
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         logMcpError("MCP test connection failed", e);
-        return { ok: false, error: message };
+        return {
+          ok: false,
+          error: message,
+          needsOAuth: e instanceof McpNeedsOAuthError,
+        };
       }
     },
   );
@@ -158,7 +190,7 @@ export function registerMcpHandlers() {
   handle(
     "mcp:update-server",
     async (_event: IpcMainInvokeEvent, params: McpServerUpdate) => {
-      const update: any = {};
+      const update: Record<string, unknown> = {};
       if (params.name !== undefined) update.name = params.name;
       if (params.transport !== undefined) update.transport = params.transport;
       if (params.command !== undefined) update.command = params.command;
@@ -167,21 +199,27 @@ export function registerMcpHandlers() {
       if (params.envJson !== undefined) update.envJson = params.envJson || null;
       if (params.url !== undefined) update.url = params.url;
       if (params.apiKey !== undefined) {
-        update.apiKey = params.apiKey?.trim() || null;
+        update.apiKey = params.apiKey?.trim()
+          ? serializeApiKeyForDb(params.apiKey.trim())
+          : null;
         mcpManager.dispose(params.id);
       }
       if (params.enabled !== undefined) update.enabled = !!params.enabled;
+
+      const authChanged =
+        params.apiKey !== undefined || params.envJson !== undefined;
 
       const result = await db
         .update(mcpServers)
         .set(update)
         .where(eq(mcpServers.id, params.id))
         .returning();
-      // If server config changed, dispose cached client to be recreated on next use
       try {
         mcpManager.dispose(params.id);
       } catch {}
-      return result[0];
+      // Unblock any agent tool waiting on this server's credentials.
+      if (authChanged) notifyMcpAuthUpdated(params.id);
+      return sanitizeMcpServerForIpc(result[0]);
     },
   );
 
@@ -220,37 +258,48 @@ export function registerMcpHandlers() {
     },
   );
 
-  // Tools listing (dynamic)
   handle(
     "mcp:list-tools",
     async (
       _event: IpcMainInvokeEvent,
       serverId: number,
-    ): Promise<McpTool[]> => {
+    ): Promise<McpListToolsResult> => {
       try {
-        // Avoid "HTTP MCP requires url" when server is HTTP but URL is not set
-        const [server] = await db.select().from(mcpServers).where(eq(mcpServers.id, serverId)).limit(1);
+        const [server] = await db
+          .select()
+          .from(mcpServers)
+          .where(eq(mcpServers.id, serverId))
+          .limit(1);
         if (server?.transport === "http" && !server?.url?.trim()) {
-          logger.debug("mcp:list-tools skipped – HTTP server has no URL configured");
-          return [];
+          logger.debug(
+            "mcp:list-tools skipped – HTTP server has no URL configured",
+          );
+          return { tools: [], error: "HTTP MCP server has no URL configured" };
         }
         const client = await mcpManager.getClient(serverId);
         const remoteTools = await client.tools();
         const tools = await Promise.all(
-          Object.entries(remoteTools).map(async ([name, tool]: [string, { description?: string }]) => ({
-            name,
-            description: tool.description ?? null,
-            consent: await getStoredConsent(serverId, name),
-          })),
+          Object.entries(remoteTools).map(
+            async ([name, tool]: [string, { description?: string }]) => ({
+              name,
+              description: tool.description ?? null,
+              consent: await getStoredConsent(serverId, name),
+            }),
+          ),
         );
-        return tools;
+        return { tools };
       } catch (e) {
         logMcpError("Failed to list MCP tools (connection may have closed)", e);
-        return [];
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          tools: [],
+          error: message,
+          needsOAuth: e instanceof McpNeedsOAuthError,
+        };
       }
     },
   );
-  // Consents
+
   handle("mcp:get-tool-consents", async () => {
     return await db.select().from(mcpToolConsents);
   });
@@ -286,36 +335,25 @@ export function registerMcpHandlers() {
           )
           .returning();
         return result[0];
-      } else {
-        const result = await db
-          .insert(mcpToolConsents)
-          .values({
-            serverId: params.serverId,
-            toolName: params.toolName,
-            consent: params.consent,
-          })
-          .returning();
-        return result[0];
       }
+      const result = await db
+        .insert(mcpToolConsents)
+        .values({
+          serverId: params.serverId,
+          toolName: params.toolName,
+          consent: params.consent,
+        })
+        .returning();
+      return result[0];
     },
   );
 
-  // Tool consent request/response handshake
-  // Receive consent response from renderer
   handle(
     "mcp:tool-consent-response",
     async (_event, data: { requestId: string; decision: ConsentDecision }) => {
       resolveConsent(data.requestId, data.decision);
     },
   );
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Pass 7 — MCP marketplace registry
-  //
-  // Fetch the curated `index.json` (no auth, public CDN) and install entries
-  // from it. We deliberately keep the fetch on the main process so the
-  // renderer never has to talk to the network for the registry.
-  // ────────────────────────────────────────────────────────────────────────
 
   handle(
     "mcps:fetch-registry",
@@ -360,12 +398,25 @@ export function registerMcpHandlers() {
         scope?: "global" | "workspace";
         appId?: number | null;
       },
-    ): Promise<{ success: boolean; serverId?: number; error?: string }> => {
+    ): Promise<{
+      success: boolean;
+      serverId?: number;
+      needsOAuth?: boolean;
+      error?: string;
+    }> => {
       try {
         const { entry, env, appId = null } = params;
         const scope = "workspace" as const;
         if (appId == null) {
-          return { success: false, error: "Select a workspace before installing an MCP." };
+          return {
+            success: false,
+            error: "Select a workspace before installing an MCP.",
+          };
+        }
+
+        const entryError = validateMcpRegistryEntry(entry);
+        if (entryError) {
+          return { success: false, error: entryError };
         }
 
         const isPro = SubscriptionManager.isPro();
@@ -387,13 +438,37 @@ export function registerMcpHandlers() {
         if (!isPro && workspaceCount.length >= MCP_FREE_TIER_LIMIT) {
           return {
             success: false,
-            error: "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
+            error:
+              "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
           };
         }
 
-        // Validate that every required env var was provided. We do not
-        // store secrets in plaintext anywhere else — they go straight into
-        // `mcp_servers.env_json` and the user can rotate from settings.
+        if (entry.authType === "oauth") {
+          const inserted = await db
+            .insert(mcpServers)
+            .values({
+              name: entry.name,
+              transport: "http",
+              command: null,
+              args: null,
+              envJson: null,
+              url: entry.url!.trim(),
+              enabled: true,
+              scope,
+              appId,
+              fromRegistry: true,
+              registryId: entry.id,
+              authType: "oauth",
+            })
+            .returning();
+
+          const created = inserted[0];
+          if (!created) {
+            return { success: false, error: "Insert returned no rows" };
+          }
+          return { success: true, serverId: created.id, needsOAuth: true };
+        }
+
         const missing = (entry.envVars ?? [])
           .filter((v) => !env[v.key]?.trim())
           .map((v) => v.key);
@@ -404,9 +479,12 @@ export function registerMcpHandlers() {
           };
         }
 
-        const { command, args } = parseInstallUrl(entry.installUrl);
+        const { command, args } = parseInstallUrl(entry.installUrl ?? "");
         if (!command) {
-          return { success: false, error: "Registry entry has empty installUrl" };
+          return {
+            success: false,
+            error: "Registry entry has empty installUrl",
+          };
         }
 
         const inserted = await db
@@ -423,6 +501,7 @@ export function registerMcpHandlers() {
             appId,
             fromRegistry: true,
             registryId: entry.id,
+            authType: entry.authType === "env" ? "env" : "none",
           })
           .returning();
 
@@ -438,4 +517,8 @@ export function registerMcpHandlers() {
       }
     },
   );
+
+  handle("mcp:sandbox-diagnostics", async () => {
+    return getMcpSandboxDiagnostics(readSettings());
+  });
 }

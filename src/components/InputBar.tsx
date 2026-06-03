@@ -4,7 +4,7 @@
  * Message input with file attachments and @ mentions
  */
 
-import React, { useState, useRef, KeyboardEvent } from 'react';
+import { useState, useRef, KeyboardEvent } from 'react';
 
 interface InputBarProps {
     onSendMessage: (message: string, attachments?: File[]) => void;

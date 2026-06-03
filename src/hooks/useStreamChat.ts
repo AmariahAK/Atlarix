@@ -27,7 +27,6 @@ import {
   askUserStreamFreezeBaselineByChatIdAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
-  completedTurnArtifactsByAssistantMessageIdAtom,
   completedTurnThinkingByAssistantMessageIdAtom,
   emptyToolIndicatorState,
   summarizationProgressAtom,
@@ -36,11 +35,9 @@ import {
   streamThreadByChatIdAtom,
   completedStreamThreadByAssistantMessageIdAtom,
   sourcesByAssistantMessageIdAtom,
-  type CompletedTurnArtifacts,
 } from "@/atoms/chatAtoms";
 import {
   extractThoughtContentFromAssistantRaw,
-  frozenThoughtContentForTurn,
   pickBestThoughtContent,
 } from "@/lib/chat/frozen-turn-display";
 import {
@@ -65,7 +62,6 @@ import {
   rightPanelVisibleAtom,
   rightPanelSuppressAutoOpenAtom,
   pendingProposalsAtom,
-  diagramStateAtom,
   previewTabAtom,
   workspacePlanPanelAtom,
   aiPanelIntentAtom,
@@ -73,21 +69,17 @@ import {
   activityStreamItemsAtom,
   type SourceItem,
   type FileProposal,
-  type DiagramState,
   type TerminalOutput,
-  type ActivityStreamItem,
 } from "@/atoms/sourceAtoms";
 import {
   permissionQueueAtom,
   updateOperationStatus,
-  addOperation,
   type QueuedOperation,
 } from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
 import { compassUsageBumpAtom, isPreviewOpenAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChats } from "./useChats";
 import { invalidateAppQuery } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
@@ -95,8 +87,13 @@ import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import { applyAIWorkspaceSessionTitle } from "@/lib/workspace-session-title";
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
-import { workspaceSessionsRefreshAtom } from "@/atoms/sessionAtoms";
+import {
+  activeWorkspaceSessionIdAtom,
+  chatIdToSessionIdAtom,
+  workspaceSessionsRefreshAtom,
+} from "@/atoms/sessionAtoms";
 import { useVersions } from "./useVersions";
+import { useChats } from "./useChats";
 import { showExtraFilesToast, showError } from "@/lib/toast";
 import { useProposal } from "./useProposal";
 import { useRunApp } from "./useRunApp";
@@ -111,7 +108,6 @@ import {
   clearActivityForChatInStore,
   filterActivityForChat,
 } from "@/lib/chat/activity-stream";
-import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { showInfo } from "@/lib/toast";
 
 function stripAnsi(str: string): string {
@@ -145,39 +141,6 @@ function pushRing(buf: string[], lines: string[], max: number): string[] {
   return next.slice(next.length - max);
 }
 import { playNotify, playRemaining } from "@/lib/sounds";
-import type { WorkMode } from "@/lib/schemas";
-
-/**
- * Extract domain from URL
- */
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace('www.', '');
-  } catch {
-    return 'web';
-  }
-}
-
-/**
- * Extract actual domain from content (for GitHub Issues linking to external sites)
- * Looks for markdown links or URLs in the snippet
- */
-function extractActualDomain(snippet: string, fallbackUrl: string): string {
-  // Try markdown link format: [text](https://domain.com/...)
-  const markdownMatch = snippet.match(/\[([^\]]+)\]\((https?:\/\/([^/)]+))/);
-  if (markdownMatch && markdownMatch[3]) {
-    return markdownMatch[3].replace('www.', '');
-  }
-
-  // Try bare URL in content
-  const urlMatch = snippet.match(/https?:\/\/([^/\s)]+)/);
-  if (urlMatch && urlMatch[1]) {
-    return urlMatch[1].replace('www.', '');
-  }
-
-  // Fallback to source URL domain
-  return extractDomain(fallbackUrl);
-}
 
 export function getRandomNumberId() {
   return Math.floor(Math.random() * 1_000_000_000_000_000);
@@ -190,12 +153,8 @@ function trimRendererMessages(msgs: Message[]): Message[] {
   return msgs.slice(-MAX_RENDERER_MESSAGES);
 }
 
-function buildTurnArtifactsSnapshot(): CompletedTurnArtifacts | null {
-  return null;
-}
-
 function resolveThoughtContentForPersist(
-  chatId: number,
+  _chatId: number,
   rawFromRef: string | undefined,
   assistantContent: string | undefined,
 ): string | null {
@@ -208,12 +167,34 @@ function resolveThoughtContentForPersist(
   return pickBestThoughtContent(undefined, fromRaw, fromMessage);
 }
 
+function findLatestToolActivityResult(
+  chatId: number,
+  toolName: string,
+): { resultText?: string; detail?: string } {
+  const normalized = toolName.trim();
+  if (!normalized) return {};
+  const activities = getDefaultStore().get(activityStreamItemsAtom);
+  for (let i = activities.length - 1; i >= 0; i--) {
+    const item = activities[i]!;
+    if (item.chatId != null && item.chatId !== chatId) continue;
+    if (item.type !== "tool_use") continue;
+    const name = (item.toolName ?? item.label ?? "").trim();
+    if (name !== normalized) continue;
+    const resultText = item.resultText?.trim();
+    const detail = item.detail?.trim();
+    if (resultText || detail) return { resultText, detail };
+  }
+  return {};
+}
+
 function persistAndClearLiveStreamThread(
   chatId: number,
   assistantMessageId: number | undefined,
   thoughtContent?: string | null,
+  assistantContent?: string | null,
 ): void {
   const thought = thoughtContent?.trim() || null;
+  const content = assistantContent?.trim() || null;
   const pendingActivities = getDefaultStore()
     .get(activityStreamItemsAtom)
     .filter((i) => i.chatId == null || i.chatId === chatId);
@@ -224,7 +205,7 @@ function persistAndClearLiveStreamThread(
       pendingActivities,
       chatId,
     );
-    if (assistantMessageId != null && (cur.length || thought)) {
+    if (assistantMessageId != null && (cur.length || thought || content)) {
       getDefaultStore().set(
         completedStreamThreadByAssistantMessageIdAtom,
         (frozen) => ({
@@ -232,6 +213,7 @@ function persistAndClearLiveStreamThread(
           [assistantMessageId]: freezeStreamThreadForAssistantMessage(
             cur,
             thought,
+            content,
           ),
         }),
       );
@@ -242,7 +224,7 @@ function persistAndClearLiveStreamThread(
   });
 }
 
-function captureThinkingSnapshotForChat(chatId: number, messages: Message[]): void {
+function captureThinkingSnapshotForChat(_chatId: number, messages: Message[]): void {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
   if (!lastAssistant?.content) return;
   const snap = extractThinkingFromContent(lastAssistant.content);
@@ -289,7 +271,6 @@ export function useStreamChat({
     }
   };
   const setPendingProposals = useSetAtom(pendingProposalsAtom);
-  const setDiagramState = useSetAtom(diagramStateAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const setPermissionQueue = useSetAtom(permissionQueueAtom);
@@ -365,6 +346,8 @@ export function useStreamChat({
       forceThinkingTier?: boolean;
       /** Resend/edit: work mode for this stream turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
+      /** Persisted workspace session id for this stream turn. */
+      workspaceSessionId?: string | null;
     }) => {
       if (!chatId) return;
       const hasAttachments =
@@ -540,34 +523,6 @@ export function useStreamChat({
             });
 
             setRightPanelVisible(true);
-          }
-        );
-
-        // Register diagram handler for this chat
-        const unsubscribeDiagram = IpcClient.getInstance().onWorkspaceDiagram(
-          chatId,
-          (payload) => {
-            const code =
-              (payload as any).graphCode ??
-              (payload as any).mermaidCode ??
-              (payload as any).diagram ??
-              '';
-            const title =
-              (payload as any).title ??
-              ((payload as any).summary ? `Architecture - ${(payload as any).summary}` : 'Architecture Diagram');
-            const typeRaw = (payload as any).type;
-
-            // Set diagram state from workspace context
-            setDiagramState({
-              code,
-              type: typeRaw === 'class' ? 'class' :
-                typeRaw === 'sequence' ? 'sequence' :
-                  typeRaw === 'flowchart' ? 'flowchart' : 'graph',
-              compareMode: 'current',
-              title,
-              workspaceId: selectedAppId ?? undefined,
-            });
-            // PASS6: do not auto-open right panel for diagrams — user opens when needed.
           }
         );
 
@@ -751,7 +706,7 @@ export function useStreamChat({
                 item.parentDelegationId?.trim() || undefined;
               const isNestedTool =
                 parentDelegationId &&
-                (item.type === "tool_use" || item.type === "tool");
+                item.type === "tool_use";
               if (isNestedTool) {
                 getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
                   const n = new Map(prev);
@@ -782,6 +737,8 @@ export function useStreamChat({
                         toolName: item.toolName,
                         status: threadItem.status,
                         detail: item.detail,
+                        resultText: item.resultText ?? threadItem.resultText,
+                        expand: threadItem.expand,
                       });
                     } else {
                       next = upsertStreamThreadItem(cur, threadItem);
@@ -870,6 +827,14 @@ export function useStreamChat({
             } else {
               toolEndStackRef.current.set(chatId, stack);
             }
+            const registryName =
+              popped?.toolName?.trim() ||
+              end.toolName?.trim() ||
+              end.toolId?.trim() ||
+              "";
+            const activityResult = registryName
+              ? findLatestToolActivityResult(chatId, registryName)
+              : {};
             getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
               const n = new Map(prev);
               const cur = n.get(chatId) ?? [];
@@ -879,6 +844,8 @@ export function useStreamChat({
                   toolId: end.toolId ?? popped?.toolId,
                   toolName: popped?.toolName,
                   status: end.status === "error" ? "error" : "done",
+                  detail: activityResult.detail,
+                  resultText: activityResult.resultText,
                 }),
               );
               return n;
@@ -905,7 +872,6 @@ export function useStreamChat({
 
           unsubscribeUserQuestion?.();
           unsubscribePermission?.();
-          unsubscribeDiagram?.();
           unsubscribeTerminal?.();
           unsubscribeOperationStatus?.();
           unsubscribeChatActivity?.();
@@ -913,12 +879,6 @@ export function useStreamChat({
           unsubscribeToolIndicator?.();
         };
 
-        const intentMode =
-          settings?.intentMode ??
-          (settings?.selectedChatMode === "agent"
-            ? "build"
-            : settings?.selectedChatMode) ??
-          "build";
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
         const {
@@ -932,11 +892,19 @@ export function useStreamChat({
 
         const streamAppId = resolveStreamAppId(chatId);
         let workspaceSessionId: string | null = null;
-        if (streamAppId != null && !continueAfterQuestions && !redo && promptForModel.trim()) {
-          workspaceSessionId = await ensureWorkspaceSessionForChat(
-            streamAppId,
-            chatId,
-          );
+        if (streamAppId != null && !continueAfterQuestions && !redo) {
+          const store = getDefaultStore();
+          workspaceSessionId =
+            store.get(chatIdToSessionIdAtom).get(chatId) ??
+            (store.get(activeChatIdAtom) === chatId
+              ? store.get(activeWorkspaceSessionIdAtom)
+              : null);
+          if (!workspaceSessionId) {
+            workspaceSessionId = await ensureWorkspaceSessionForChat(
+              streamAppId,
+              chatId,
+            );
+          }
         }
 
         IpcClient.getInstance().streamMessage(promptForModel, {
@@ -1005,8 +973,6 @@ export function useStreamChat({
                   const score = src.score || 0;
                   if (isGitHubIssue && score <= 1.0) continue;
 
-                  // Extract actual domain from content (for GitHub Issues linking to external sites)
-                  const actualDomain = extractActualDomain(src.snippet || '', url);
 
                   allSources.push({
                     id: src.id || `${url}-${allSources.length}`,
@@ -1140,7 +1106,6 @@ export function useStreamChat({
               }));
             }
 
-            // Keep the same as below
             setIsStreamingById((prev) => {
               const next = new Map(prev);
               next.set(chatId, false);
@@ -1225,9 +1190,16 @@ export function useStreamChat({
                 label: undefined,
               });
             }
+            const thoughtForFreeze = resolveThoughtContentForPersist(
+              response.chatId,
+              rawFromRef,
+              lastAssistant?.content,
+            );
             persistAndClearLiveStreamThread(
               response.chatId,
               lastAssistant?.id,
+              thoughtForFreeze,
+              lastAssistant?.content,
             );
 
             const frozenThread =
@@ -1473,7 +1445,17 @@ export function useStreamChat({
                 label: undefined,
               });
             }
-            persistAndClearLiveStreamThread(chatId, lastAssistantErr?.id);
+            const thoughtErr = resolveThoughtContentForPersist(
+              chatId,
+              rawErr,
+              lastAssistantErr?.content,
+            );
+            persistAndClearLiveStreamThread(
+              chatId,
+              lastAssistantErr?.id,
+              thoughtErr,
+              lastAssistantErr?.content,
+            );
             clearActivityForChatInStore(chatId);
             toolEndStackRef.current.delete(chatId);
             setStreamLastActivityAtByChatId((prev) => {

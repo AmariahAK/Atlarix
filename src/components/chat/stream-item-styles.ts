@@ -8,6 +8,10 @@ export const streamToolCardShell =
 export const streamCardScrollBody =
   "min-h-0 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain pr-0.5";
 
+/** Standard clamp height + body text size for tool-expand result bodies. */
+export const toolBodyMaxH = "max-h-64";
+export const toolBodyText = "text-[11px] leading-relaxed";
+
 /** Single-line tool row header */
 export const streamToolCardButton =
   "w-full flex items-center gap-2 px-2.5 py-1.5 text-left min-h-[28px] text-foreground hover:bg-muted/80 dark:hover:bg-muted/40";

@@ -30,6 +30,8 @@ import "./skills";
 import "./visualize_graph";
 import "./db";
 import "./lsp-tools";
+import "./mode-tool-registry-tool";
+import "./debug-hypothesis-tool";
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

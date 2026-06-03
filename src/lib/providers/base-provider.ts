@@ -6,7 +6,6 @@
  * Port from StackSense base_agent.py
  */
 
-import type { LanguageModelV2 } from "@ai-sdk/provider";
 
 // ═══════════════════════════════════════════════════════════
 // TYPES

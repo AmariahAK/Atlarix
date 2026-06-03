@@ -87,13 +87,6 @@ function shellEscapePath(file: string): string {
   return `'${file.replace(/'/g, "'\\''")}'`;
 }
 
-function sudoUninstallCommand(file: string): string {
-  if (process.platform === "win32") {
-    return `del "${file.replace(/"/g, '\\"')}"`;
-  }
-  return `sudo rm -f ${shellEscapePath(file)}`;
-}
-
 function sudoInstallCommand(file: string, content: string): string {
   if (process.platform === "win32") {
     return `Copy atlarix.cmd to a folder on your PATH`;

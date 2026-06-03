@@ -1,6 +1,12 @@
 import { ipcMain, app } from "electron";
 import { db, getDatabasePath } from "../../db";
-import { apps, chats, messages, diagrams, workspaceDiagrams, dailyLogs } from "../../db/schema";
+import {
+  apps,
+  chatSessions,
+  sessionMessages,
+  dailyLogs,
+} from "../../db/schema";
+import { startWorkspaceSession } from "./workspace_session_handlers";
 import { desc, eq, like } from "drizzle-orm";
 import type {
   App,
@@ -605,32 +611,18 @@ export function registerAppHandlers() {
         })
         .returning();
 
-      // Create an initial chat for this app
-      const [chat] = await db
-        .insert(chats)
-        .values({
-          appId: app.id,
-        })
-        .returning();
+      const { chatId } = await startWorkspaceSession(app.id);
 
       await createFromTemplate({
         fullAppPath,
       });
 
-      const commitHash = await gitCommit({
+      await gitCommit({
         path: fullAppPath,
         message: "Init Atlarix app",
       });
-      if (commitHash) {
-        await db
-          .update(chats)
-          .set({
-            initialCommitHash: commitHash,
-          })
-          .where(eq(chats.id, chat.id));
-      }
 
-      return { app, chatId: chat.id };
+      return { app, chatId };
     },
   );
 
@@ -807,6 +799,9 @@ export function registerAppHandlers() {
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
       ...app,
+      remoteConnection: (app.remoteConnection ?? null) as
+        | Record<string, unknown>
+        | null,
       files: [],
       supabaseProjectName,
       vercelTeamSlug,
@@ -1223,18 +1218,6 @@ export function registerAppHandlers() {
 
         // Delete app from database (including related records)
         try {
-          const appDiagrams = await db
-            .select({ id: diagrams.id })
-            .from(diagrams)
-            .where(eq(diagrams.workspaceId, appId));
-
-          // Delete all diagrams associated with this app
-          await db.delete(diagrams).where(eq(diagrams.workspaceId, appId));
-          logger.info(`Deleted ${appDiagrams.length} diagrams for app ${appId}`);
-
-          // Delete workspace diagrams (timeline snapshots)
-          await db.delete(workspaceDiagrams).where(eq(workspaceDiagrams.appId, appId));
-
           // Delete daily logs
           await db.delete(dailyLogs).where(eq(dailyLogs.workspaceId, appId));
 
@@ -1689,17 +1672,17 @@ export function registerAppHandlers() {
         }),
       );
 
-      // 2) Apps whose chat title matches
+      // 2) Apps whose session title matches
       const chatTitleMatches = await db
         .select({
           id: apps.id,
           name: apps.name,
           createdAt: apps.createdAt,
-          matchedChatTitle: chats.title,
+          matchedChatTitle: chatSessions.title,
         })
         .from(apps)
-        .innerJoin(chats, eq(apps.id, chats.appId))
-        .where(like(chats.title, pattern))
+        .innerJoin(chatSessions, eq(apps.id, chatSessions.workspaceId))
+        .where(like(chatSessions.title, pattern))
         .orderBy(desc(apps.createdAt));
 
       const chatTitleMatchesResult: AppSearchResult[] = chatTitleMatches.map(
@@ -1712,19 +1695,22 @@ export function registerAppHandlers() {
         }),
       );
 
-      // 3) Apps whose chat message content matches
+      // 3) Apps whose session message content matches
       const chatMessageMatches = await db
         .select({
           id: apps.id,
           name: apps.name,
           createdAt: apps.createdAt,
-          matchedChatTitle: chats.title,
-          matchedChatMessage: messages.content,
+          matchedChatTitle: chatSessions.title,
+          matchedChatMessage: sessionMessages.content,
         })
         .from(apps)
-        .innerJoin(chats, eq(apps.id, chats.appId))
-        .innerJoin(messages, eq(chats.id, messages.chatId))
-        .where(like(messages.content, pattern))
+        .innerJoin(chatSessions, eq(apps.id, chatSessions.workspaceId))
+        .innerJoin(
+          sessionMessages,
+          eq(chatSessions.id, sessionMessages.sessionId),
+        )
+        .where(like(sessionMessages.content, pattern))
         .orderBy(desc(apps.createdAt));
 
       // Flatten and dedupe by app id

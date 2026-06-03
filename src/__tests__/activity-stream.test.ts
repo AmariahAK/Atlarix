@@ -12,7 +12,7 @@ function item(
 ): ActivityStreamItem {
   return {
     id,
-    type: "tool",
+    type: "tool_use",
     label: id,
     status: "done",
     timestamp: 1,

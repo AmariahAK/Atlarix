@@ -83,6 +83,62 @@ describe("formatToolResultPreview", () => {
     });
     expect(formatStreamToolResultPreview("explore_folder", raw, "done")).toMatch(/2 items/);
   });
+
+  it("summarizes list_available_mcps with server and tool counts (not Done)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        servers: [
+          { name: "github", tools: [{ name: "a" }, { name: "b" }] },
+          { name: "linear", tools: [{ name: "c" }] },
+        ],
+        usage: "Call mcp_call(...)",
+      },
+    });
+    const preview = formatToolResultPreview("list_available_mcps", raw, "done");
+    expect(preview).toBe("2 MCP servers · 3 tools");
+    expect(preview).not.toBe("Done");
+  });
+
+  it("summarizes empty list_available_mcps with the friendly message", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { servers: [], message: "No MCP servers configured." },
+    });
+    expect(formatToolResultPreview("list_available_mcps", raw, "done")).toBe(
+      "No MCP servers configured.",
+    );
+  });
+
+  it("summarizes mcp_call as server/tool", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { server: "github", tool: "search_issues", result: "{}" },
+    });
+    expect(formatToolResultPreview("mcp_call", raw, "done")).toBe(
+      "github/search_issues",
+    );
+  });
+
+  it("summarizes web_search as result count", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        text: "…",
+        sources: [
+          { title: "a", url: "https://a.com" },
+          { title: "b", url: "https://b.com" },
+          { title: "c", url: "https://c.com" },
+        ],
+      },
+    });
+    expect(formatToolResultPreview("web_search", raw, "done")).toBe("3 results");
+  });
+
+  it("only falls back to Done when there is no usable payload", () => {
+    const raw = JSON.stringify({ success: true, result: { ok: true } });
+    expect(formatToolResultPreview("unknown_tool", raw, "done")).toBe("Done");
+  });
 });
 
 describe("formatToolStartPreview", () => {

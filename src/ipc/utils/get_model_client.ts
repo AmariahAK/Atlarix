@@ -130,8 +130,6 @@ import {
   getCompassMasterApiKey,
   getOpenRouterModelIdForCompassTier,
 } from "../shared/compass_constants";
-import { SubscriptionManager } from "../../lib/SubscriptionManager";
-
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
@@ -158,7 +156,7 @@ const logger = log.scope("getModelClient");
 export async function getModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
-  options?: GetModelClientOptions,
+  _options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
   isEngineEnabled?: boolean;

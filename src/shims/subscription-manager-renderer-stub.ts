@@ -87,7 +87,6 @@ export class SubscriptionManager {
   static async getCurrentWorkspaceDetails(): Promise<{
     id: number;
     name: string;
-    diagramCount: number;
   } | null> {
     return null;
   }

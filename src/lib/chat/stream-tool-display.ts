@@ -23,6 +23,12 @@ const SEARCH_MATCH_TOOLS = new Set([
 
 const READ_FILE_TOOLS = new Set(["read_file", "read_url"]);
 
+const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
+
+const MCP_CALL_TOOLS = new Set(["mcp_call"]);
+
+const WEB_SEARCH_TOOLS = new Set(["web_search", "deep_research"]);
+
 const PREVIEW_MAX = 300;
 const READ_FILE_PREVIEW_MAX = 200;
 const ACTIVITY_DETAIL_MAX = 500;
@@ -271,6 +277,58 @@ function formatWritePreview(
   return "File saved";
 }
 
+function formatMcpListPreview(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.error === "string" && payload.error.trim()) {
+    return payload.error.trim();
+  }
+  const servers = payload.servers;
+  if (!Array.isArray(servers)) {
+    return extractShortField(payload);
+  }
+  if (servers.length === 0) {
+    return (
+      (typeof payload.message === "string" && payload.message.trim()) ||
+      "No MCP servers configured"
+    );
+  }
+  let toolCount = 0;
+  for (const s of servers) {
+    if (s && typeof s === "object" && Array.isArray((s as Record<string, unknown>).tools)) {
+      toolCount += ((s as Record<string, unknown>).tools as unknown[]).length;
+    }
+  }
+  const serverLabel = `${servers.length} MCP server${servers.length === 1 ? "" : "s"}`;
+  return toolCount > 0
+    ? `${serverLabel} · ${toolCount} tool${toolCount === 1 ? "" : "s"}`
+    : serverLabel;
+}
+
+function formatMcpCallPreview(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.error === "string" && payload.error.trim()) {
+    return payload.error.trim();
+  }
+  const server = typeof payload.server === "string" ? payload.server.trim() : "";
+  const tool = typeof payload.tool === "string" ? payload.tool.trim() : "";
+  if (server || tool) {
+    return tool ? `${server || "mcp"}/${tool}` : server;
+  }
+  return extractShortField(payload);
+}
+
+function formatWebSearchPreview(payload: Record<string, unknown>): string | undefined {
+  const sources = payload.sources;
+  if (Array.isArray(sources)) {
+    const n = sources.length;
+    return `${n} result${n === 1 ? "" : "s"}`;
+  }
+  const findings = payload.findings;
+  if (Array.isArray(findings)) {
+    const n = findings.length;
+    return `${n} finding${n === 1 ? "" : "s"}`;
+  }
+  return undefined;
+}
+
 /** Serialize tool result for expand panels (full JSON, not summarized). */
 export function toolResultTextForExpand(result: unknown): string | undefined {
   if (result == null) return undefined;
@@ -320,6 +378,21 @@ export function formatToolResultPreview(
 
   if (WRITE_TOOLS.has(registryName)) {
     return capPreview(formatWritePreview(payload, plain));
+  }
+
+  if (MCP_LIST_TOOLS.has(registryName)) {
+    const s = formatMcpListPreview(payload);
+    if (s) return capPreview(s);
+  }
+
+  if (MCP_CALL_TOOLS.has(registryName)) {
+    const s = formatMcpCallPreview(payload);
+    if (s) return capPreview(s);
+  }
+
+  if (WEB_SEARCH_TOOLS.has(registryName)) {
+    const s = formatWebSearchPreview(payload);
+    if (s) return capPreview(s);
   }
 
   const fallback = plain ?? extractShortField(payload);

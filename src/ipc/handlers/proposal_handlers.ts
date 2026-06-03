@@ -5,9 +5,12 @@ import type {
   ActionProposal,
 } from "../../lib/schemas";
 import { db } from "../../db";
-import { messages, chats } from "../../db/schema";
-import { desc, eq, and } from "drizzle-orm";
+import { apps } from "../../db/schema";
+import { eq } from "drizzle-orm";
+import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import type { Message } from "../ipc_types";
 import path from "node:path"; // Import path for basename
+import { isServerFunction } from "../../supabase_admin/supabase_utils";
 // Import tag parsers
 import { processFullResponseActions } from "../processors/response_processor";
 import {
@@ -20,18 +23,13 @@ import {
   getAtlarixSearchReplaceTags,
 } from "../utils/atlarix_tag_parser";
 import log from "electron-log";
-import { isServerFunction } from "../../supabase_admin/supabase_utils";
 import {
   estimateMessagesTokens,
-  estimateTokens,
   getContextWindow,
 } from "../utils/token_utils";
-import { extractCodebase } from "../../utils/codebase";
-import { getAtlarixAppPath } from "../../paths/paths";
 import { withLock } from "../utils/lock_utils";
 import { createLoggedHandler } from "./safe_handle";
 import { ApproveProposalResult } from "../ipc_types";
-import { validateChatContext } from "../utils/context_paths_utils";
 import { readSettings } from "@/main/settings";
 
 const logger = log.scope("proposal_handlers");
@@ -120,6 +118,24 @@ async function getCodebaseTokenCount(
   return DIAGRAM_CONTEXT_TOKENS;
 }
 
+function latestEphemeralAssistant(
+  chatId: number,
+): Pick<Message, "id" | "content" | "approvalState"> | undefined {
+  const chat = getEphemeralChat(chatId);
+  if (!chat?.messages?.length) return undefined;
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.role === "assistant") {
+      return {
+        id: m.id,
+        content: m.content,
+        approvalState: m.approvalState,
+      };
+    }
+  }
+  return undefined;
+}
+
 const getProposalHandler = async (
   _event: IpcMainInvokeEvent,
   { chatId }: { chatId: number },
@@ -128,16 +144,7 @@ const getProposalHandler = async (
     logger.log(`IPC: get-proposal called for chatId: ${chatId}`);
 
     try {
-      // Find the latest ASSISTANT message for the chat
-      const latestAssistantMessage = await db.query.messages.findFirst({
-        where: and(eq(messages.chatId, chatId), eq(messages.role, "assistant")),
-        orderBy: [desc(messages.createdAt)],
-        columns: {
-          id: true, // Fetch the ID
-          content: true, // Fetch the content to parse
-          approvalState: true,
-        },
-      });
+      const latestAssistantMessage = latestEphemeralAssistant(chatId);
 
       if (
         latestAssistantMessage?.content &&
@@ -266,31 +273,23 @@ const getProposalHandler = async (
         }
       }
 
-      // Get all chat messages to calculate token usage
-      const chat = await db.query.chats.findFirst({
-        where: eq(chats.id, chatId),
-        with: {
-          app: true,
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-          },
-        },
-      });
+      const ephemeral = getEphemeralChat(chatId);
+      const appId = getEphemeralChatAppId(chatId);
+      const app = appId
+        ? await db.query.apps.findFirst({ where: eq(apps.id, appId) })
+        : null;
 
-      if (latestAssistantMessage && chat) {
-        // Calculate total tokens from message history
-        const messagesTokenCount = estimateMessagesTokens(chat.messages);
+      if (latestAssistantMessage && ephemeral && app) {
+        const messagesTokenCount = estimateMessagesTokens(ephemeral.messages);
 
-        // Only calculate codebase tokens if there's an app (workspace)
         let codebaseTokenCount = 0;
-        if (chat.app?.path) {
-          // Use cached token count or calculate new one
+        if (app.path) {
           codebaseTokenCount = await getCodebaseTokenCount(
             chatId,
             latestAssistantMessage.id,
             latestAssistantMessage.content || "",
-            chat.app.path,
-            chat.app.chatContext,
+            app.path,
+            app.chatContext,
           );
         }
 
@@ -301,10 +300,9 @@ const getProposalHandler = async (
           }%)`,
         );
 
-        // If we're using more than 80% of the context window, suggest summarizing
-        if (totalTokens > contextWindow * 0.8 || chat.messages.length > 10) {
+        if (totalTokens > contextWindow * 0.8 || ephemeral.messages.length > 10) {
           logger.log(
-            `Token usage is high (${totalTokens}/${contextWindow}) OR long chat history (${chat.messages.length} messages), suggesting summarize action`,
+            `Token usage is high (${totalTokens}/${contextWindow}) OR long chat history (${ephemeral.messages.length} messages), suggesting summarize action`,
           );
           actions.push({
             id: "summarize-in-new-chat",
@@ -343,17 +341,10 @@ const approveProposalHandler = async (
       "Ask mode is not supported for proposal approval. Please switch to build mode.",
     );
   }
-  // 1. Fetch the specific assistant message
-  const messageToApprove = await db.query.messages.findFirst({
-    where: and(
-      eq(messages.id, messageId),
-      eq(messages.chatId, chatId),
-      eq(messages.role, "assistant"),
-    ),
-    columns: {
-      content: true,
-    },
-  });
+  const ephemeral = getEphemeralChat(chatId);
+  const messageToApprove = ephemeral?.messages.find(
+    (m) => m.id === messageId && m.role === "assistant",
+  );
 
   if (!messageToApprove?.content) {
     throw new Error(
@@ -393,15 +384,10 @@ const rejectProposalHandler = async (
     `IPC: reject-proposal called for chatId: ${chatId}, messageId: ${messageId}`,
   );
 
-  // 1. Verify the message exists and is an assistant message
-  const messageToReject = await db.query.messages.findFirst({
-    where: and(
-      eq(messages.id, messageId),
-      eq(messages.chatId, chatId),
-      eq(messages.role, "assistant"),
-    ),
-    columns: { id: true },
-  });
+  const ephemeral = getEphemeralChat(chatId);
+  const messageToReject = ephemeral?.messages.find(
+    (m) => m.id === messageId && m.role === "assistant",
+  );
 
   if (!messageToReject) {
     throw new Error(
@@ -409,13 +395,8 @@ const rejectProposalHandler = async (
     );
   }
 
-  // 2. Update the message's approval state to 'rejected'
-  await db
-    .update(messages)
-    .set({ approvalState: "rejected" })
-    .where(eq(messages.id, messageId));
-
-  logger.log(`Message ${messageId} marked as rejected.`);
+  messageToReject.approvalState = "rejected";
+  logger.log(`Message ${messageId} marked as rejected (in-memory).`);
 };
 
 // Function to register proposal-related handlers

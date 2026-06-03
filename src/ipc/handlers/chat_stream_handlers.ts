@@ -2,20 +2,15 @@ import { v4 as uuidv4 } from "uuid";
 import { ipcMain, IpcMainInvokeEvent, type WebContents } from "electron";
 import {
   ModelMessage,
-  TextPart,
-  ImagePart,
   streamText,
   generateText,
   ToolSet,
-  TextStreamPart,
   jsonSchema as aiJsonSchema,
-  zodSchema,
 } from "ai";
-import type { JSONSchema7 } from "json-schema";
 
 import { db } from "../../db";
-import { apps, chats, messages, diagrams } from "../../db/schema";
-import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { apps } from "../../db/schema";
+import { eq } from "drizzle-orm";
 import type { SmartContextMode, UserSettings, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
@@ -32,15 +27,7 @@ import {
 import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
-import {
-  CodebaseFile,
-  extractCodebase,
-  readFileWithCache,
-} from "../../utils/codebase";
-import {
-  dryRunSearchReplace,
-  processFullResponseActions,
-} from "../processors/response_processor";
+import type { CodebaseFile } from "../../utils/codebase";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
 import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, type GetModelClientOptions } from "../utils/get_model_client";
@@ -77,9 +64,10 @@ import {
   MAX_CHAT_TURNS_IN_CONTEXT,
   STREAM_TOOL_LOOP_DURATION_CAP_MS,
 } from "@/constants/settings_constants";
-import { validateChatContext } from "../utils/context_paths_utils";
-import { mcpServers } from "../../db/schema";
-import { requireMcpToolConsent } from "../utils/mcp_consent";
+import {
+  requireMcpAuth,
+  type RequireMcpAuthInfo,
+} from "../utils/mcp_auth_wait";
 
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
@@ -94,29 +82,23 @@ import {
   recordToolUseForTurn,
 } from "./turn-tool-tracking";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
+import {
+  getEphemeralChatAppId,
+  getEphemeralChat,
+  buildContinueAfterQuestionsPrompt,
+} from "@/lib/ephemeral-chat";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
-import { cleanFullResponse, stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
+import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
   removeThinkingTags,
   stripAssistantDisplayContent,
   stripTaskCompleteTags,
   stripThinkBlocks,
 } from "../utils/thinking_tags";
-import { AsyncVirtualFileSystem } from "../../../shared/VirtualFilesystem";
-import {
-  getAtlarixWriteTags,
-  getAtlarixDeleteTags,
-  getAtlarixRenameTags,
-} from "../utils/atlarix_tag_parser";
-import { fileExists } from "../utils/file_utils";
 import { FileUploadsState } from "../utils/file_uploads_state";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
-import { asc } from "drizzle-orm";
-import { mcpManager } from "../utils/mcp_manager";
-import { logMcpError } from "./mcp_handlers";
-import z from "zod";
 import type { ZodTypeAny } from "zod";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import {
@@ -148,9 +130,7 @@ import {
   hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
-import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
-import { getCurrentCommitHash } from "../utils/git_utils";
 import { createSnapshot } from "../../lib/workspace-snapshots";
 import { revertSnapshot, revertSnapshotFiles } from "../../lib/snapshot/snapshot-manager";
 import { atlasDir } from "../../lib/snapshot/workspace-hash";
@@ -159,22 +139,28 @@ import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
   VersionedFiles as VersionedFiles,
 } from "../utils/versioned_codebase_context";
-import {
-  generateSimpleChatName,
-  generateAIChatName,
-  shouldTriggerAINaming,
-} from "../../utils/chat_naming";
 import { ToolRegistry } from "../../lib/tools";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
-  attachmentInfoFromStoredFile,
   buildPasteAttachmentDirective,
   ensurePasteAttachmentIds,
-  hydrateAttachmentStoreFromMessages,
   pasteToAttachmentData,
 } from "../../lib/attachment-persistence";
 import type { StoredFileAttachment } from "../ipc_types";
-import { generateManifest, isCoreTool } from "../../lib/tools/ToolManifest";
+import {
+  generateProgressiveRevealNote,
+  isCoreTool,
+  isWorkspaceIntegrationTool,
+  WORKSPACE_INTEGRATION_TOOL_NAMES,
+} from "../../lib/tools/ToolManifest";
+import {
+  getModeToolAllowlist,
+  getModeToolAllowSets,
+  includeToolForSession,
+} from "../../lib/tools/mode-tool-registry";
+import { debugWriteGateResult } from "../../lib/debug/debug-hypothesis-gate";
+import { clearDebugHypothesis } from "../../lib/debug/debug-hypothesis-session";
+import { toolExecutionChatMode } from "../../lib/work-mode";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import {
   buildContinuationPrompt,
@@ -204,7 +190,6 @@ import {
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
-import { clearSelfCorrectionAttemptsForChat } from "./self_correction_followup";
 import {
   isTaskComplete as isLedgerTaskComplete,
   getRemainingSteps,
@@ -236,17 +221,15 @@ import {
   AuthRequiredError,
 } from "../../lib/auth/require_auth_session";
 import * as Sentry from "@sentry/electron/main";
-import { getWorkspaceContext } from "./chat_stream/workspace-context";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import { registerInterceptor } from "./permissions/handlers";
 import {
   appendAutonomousOp,
   autonomousOpFromPermissionExec,
-  appendAgentActivitySnapshot,
   getAutonomousSessionLog,
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
-import { getSessionMemory, clearSessionMemory } from "../../lib/session-memory";
+import { getSessionMemory } from "../../lib/session-memory";
 import { readAtlarixMd } from "../../lib/project-memory";
 import {
   getContextSummary,
@@ -282,8 +265,6 @@ import {
   applyFileScopePreflightInStream,
   enrichFilePermissionRequest,
 } from "./file_permission_preflight";
-
-type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -493,42 +474,6 @@ export function resolveModeChange(chatId: number, approve: boolean): void {
   }
 }
 
-/** Unwrap ToolRegistry.execute payload when the registry wraps `{ success, result, cost }`. */
-function unwrapRegistryToolResult(execResult: unknown): unknown {
-  if (!execResult || typeof execResult !== "object") return execResult;
-  const o = execResult as Record<string, unknown>;
-  if (o.__permission_required) {
-    return execResult;
-  }
-  if (o.success === true && o.result != null && typeof o.result === "object") {
-    return o.result;
-  }
-  return execResult;
-}
-
-function shouldEmitModeChangedAfterModeTool(inner: unknown): boolean {
-  if (!inner || typeof inner !== "object") return false;
-  const p = inner as Record<string, unknown>;
-  if (p.success === false || typeof p.error === "string") return false;
-  if (p.message === "Already in that mode.") return false;
-  return true;
-}
-
-function emitModeChangedIfApplied(
-  sender: WebContents,
-  chatId: number,
-  newMode: string | undefined,
-  inner: unknown,
-): void {
-  if (!shouldEmitModeChangedAfterModeTool(inner)) return;
-  const settingsSnapshot = readSettings();
-  safeSend(sender, "mode:changed", {
-    chatId,
-    newMode: (newMode ?? settingsSnapshot.workModePreference) as string,
-    settings: settingsSnapshot,
-  });
-}
-
 /** Abort reason when the task ledger shows all steps done — not a user cancel. */
 const TASK_COMPLETE_STREAM_STOP = "task_complete";
 
@@ -615,7 +560,6 @@ async function runAutonomousBuildVerificationAfterTaskComplete(params: {
     sender,
     chatId,
     streamStopWasTaskComplete,
-    agentMode,
     appPath,
     workspaceId,
     streamTurnIdForLedger,
@@ -880,6 +824,13 @@ async function runToolExecute(
     }
   }
 
+  // MCP auth-and-retry: let mcp_call pause for the user to authenticate, then retry.
+  if (toolName === "mcp_call") {
+    executeArgs._mcpInvocationContext = {
+      requireAuth: (info: RequireMcpAuthInfo) => requireMcpAuth(sender, info),
+    };
+  }
+
   const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
   if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
     const argHash = hashToolArgsForDedup(executeArgs);
@@ -1041,14 +992,6 @@ async function isTextFile(filePath: string): Promise<boolean> {
   return TEXT_FILE_EXTENSIONS.includes(ext);
 }
 
-function escapeXml(unsafe: string): string {
-  return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 // Ensure the temp directory exists
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -1110,7 +1053,7 @@ async function performFullRevert(params: {
   error?: string;
   restoredFiles?: number;
 }> {
-  const { chatId, turnId, assistantMessageId, workspacePath, workspaceId } =
+  const { chatId, turnId, assistantMessageId, workspacePath } =
     params;
   const skipMessageFlags = params.options?.skipMessageFlags ?? false;
   const filesFilter = params.options?.filesFilter;
@@ -1121,12 +1064,10 @@ async function performFullRevert(params: {
           workspacePath,
           turnId,
           relativePaths: filesFilter,
-          workspaceId,
         })
       : await revertSnapshot({
           workspacePath,
           turnId,
-          workspaceId,
         });
   if (!snap.success) {
     logger.warn("performFullRevert: snapshot restore failed:", snap.error);
@@ -1141,31 +1082,21 @@ async function performFullRevert(params: {
     };
   }
 
-  const chatMessages = await db
-    .select({ id: messages.id })
-    .from(messages)
-    .where(eq(messages.chatId, chatId))
-    .orderBy(asc(messages.createdAt));
-  const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
-  if (idx < 0) {
-    return {
-      success: false,
-      error: "Message not in chat",
-      restoredFiles: snap.restoredFiles,
-    };
+  const ec = getEphemeralChat(chatId);
+  if (ec) {
+    const idx = ec.messages.findIndex((m) => m.id === assistantMessageId);
+    if (idx < 0) {
+      return {
+        success: false,
+        error: "Message not in chat",
+        restoredFiles: snap.restoredFiles,
+      };
+    }
+    ec.messages = ec.messages.map((m, i) => ({
+      ...m,
+      isReverted: i >= idx ? true : false,
+    }));
   }
-  const idsToMark = chatMessages.slice(idx).map((m) => m.id);
-  await db.update(messages).set({ isReverted: false }).where(eq(messages.chatId, chatId));
-  if (idsToMark.length > 0) {
-    await db
-      .update(messages)
-      .set({ isReverted: true })
-      .where(inArray(messages.id, idsToMark));
-  }
-  await db
-    .update(chats)
-    .set({ hasAnsweredQuestions: false })
-    .where(eq(chats.id, chatId));
 
   return {
     success: snap.success,
@@ -1236,7 +1167,7 @@ export function registerChatStreamHandlers() {
         getEphemeralChat,
         insertAskUserAnswerUserMessage,
         chatOnlyStreamingAssistantDraftByChatId,
-      } = await import("./chat_only_handlers");
+      } = await import("@/lib/ephemeral-chat");
       const { resolveUserQuestionAnswer } = await import("./user_question_wait");
 
       const ok = resolveUserQuestionAnswer(payload.chatId, payload.questionId, payload.answer);
@@ -1273,58 +1204,7 @@ export function registerChatStreamHandlers() {
         return { success: true };
       }
 
-      const contAssistantId = askUserContinuationAssistantIdByChatId.get(payload.chatId);
-      let insertCreatedAt = new Date();
-      if (contAssistantId != null) {
-        const contRow = await db.query.messages.findFirst({
-          where: eq(messages.id, contAssistantId),
-        });
-        if (contRow?.createdAt) {
-          insertCreatedAt = new Date(contRow.createdAt.getTime() - 1);
-        }
-      } else {
-        const anchor = await db.query.messages.findFirst({
-          where: and(eq(messages.chatId, payload.chatId), eq(messages.role, "assistant")),
-          orderBy: [desc(messages.createdAt)],
-        });
-        if (anchor?.createdAt) {
-          insertCreatedAt = new Date(anchor.createdAt.getTime() + 1);
-        }
-      }
-
-      await db.insert(messages).values({
-        chatId: payload.chatId,
-        role: "user",
-        content,
-        createdAt: insertCreatedAt,
-      });
-
-      const rowsAfter = await db
-        .select()
-        .from(messages)
-        .where(eq(messages.chatId, payload.chatId))
-        .orderBy(asc(messages.createdAt));
-
-      const tail = partialResponses.get(payload.chatId) ?? "";
-      const chunkMsgs = rowsAfter.map((row) => {
-        const base = {
-          id: row.id,
-          chatId: row.chatId,
-          role: row.role as "user" | "assistant" | "system",
-          content: row.content ?? "",
-          createdAt: row.createdAt ?? new Date(),
-        };
-        if (contAssistantId != null && row.id === contAssistantId && tail.length > 0) {
-          return { ...base, content: tail };
-        }
-        return base;
-      });
-
-      safeSend(event.sender, "chat:response:chunk", {
-        chatId: payload.chatId,
-        messages: chunkMsgs as import("../ipc_types").Message[],
-      });
-      return { success: true };
+      return { success: false };
     },
   );
 
@@ -1476,8 +1356,24 @@ export function registerChatStreamHandlers() {
         const fileUploadsState = FileUploadsState.getInstance();
         let engineRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
-        // Check if this is an ephemeral (incognito) chat BEFORE querying database
-        const { isEphemeralChatId, getEphemeralChatAppId } = await import("./chat_only_handlers");
+        const { isEphemeralChatId, getEphemeralChatAppId } = await import("@/lib/ephemeral-chat");
+
+        if (!isEphemeralChatId(req.chatId)) {
+          const legacyMsg =
+            "Legacy database chats were removed. Open a workspace session from the sidebar.";
+          logger.warn(`Chat ${req.chatId} rejected: legacy positive chat id`);
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${legacyMsg}`,
+          });
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: false,
+          } satisfies ChatResponseEnd);
+          streamTerminated = true;
+          return;
+        }
 
         if (isEphemeralChatId(req.chatId)) {
           // Check if this ephemeral chat is associated with a workspace
@@ -1510,7 +1406,7 @@ export function registerChatStreamHandlers() {
       if (isEphemeralChatId(req.chatId)) {
         // Ephemeral workspace chat - get app from DB using the stored appId
         const ephemeralAppId = getEphemeralChatAppId(req.chatId);
-        const { getEphemeralChat } = await import("./chat_only_handlers");
+        const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
         const ephemeralChat = getEphemeralChat(req.chatId);
 
         appData = await db.query.apps.findFirst({
@@ -1534,41 +1430,16 @@ export function registerChatStreamHandlers() {
         };
 
         logger.log(`Ephemeral workspace chat loaded for app: ${appData.name} (${appData.path})`);
-      } else {
-        // Get the chat from database (for regular chats)
-        chat = await db.query.chats.findFirst({
-          where: eq(chats.id, req.chatId),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-            },
-            app: true, // Include app information
-          },
-        });
-
-        if (!chat) {
-          throw new Error(`Chat not found: ${req.chatId}`);
-        }
-
-        if (!chat.app) {
-          const noWorkspaceMsg =
-            "This chat has no workspace. Open a folder from the welcome screen or sidebar.";
-          logger.warn(`Chat ${req.chatId} rejected: DB chat without appId`);
-          safeSend(event.sender, "chat:response:error", {
-            chatId: req.chatId,
-            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${noWorkspaceMsg}`,
-          });
-          safeSend(event.sender, "chat:response:end", {
-            chatId: req.chatId,
-            updatedFiles: false,
-            hadToolCallsOrPermissions: false,
-          } satisfies ChatResponseEnd);
-          streamTerminated = true;
-          return;
-        }
-
-        appData = chat.app;
       }
+
+      const { resolveOrBindWorkspaceSessionForStream } = await import(
+        "./workspace_session_handlers"
+      );
+      req.workspaceSessionId = await resolveOrBindWorkspaceSessionForStream({
+        workspaceSessionId: req.workspaceSessionId,
+        chatId: req.chatId,
+        workspaceAppId: chat.app?.id ?? req.appId ?? null,
+      });
 
       if (!req.continueAfterQuestions) {
         try {
@@ -1612,12 +1483,8 @@ export function registerChatStreamHandlers() {
       let preExchangeSnapshotId: number | null = null;
       let filesWrittenInThisExchange: string[] = [];
 
-      // Handle redo option: remove the most recent messages if needed
       if (req.redo) {
-        // Get the most recent messages
         const chatMessages = [...chat.messages];
-
-        // Find the most recent user message
         let lastUserMessageIndex = chatMessages.length - 1;
         while (
           lastUserMessageIndex >= 0 &&
@@ -1625,23 +1492,11 @@ export function registerChatStreamHandlers() {
         ) {
           lastUserMessageIndex--;
         }
-
         if (lastUserMessageIndex >= 0) {
-          // Delete the user message
-          await db
-            .delete(messages)
-            .where(eq(messages.id, chatMessages[lastUserMessageIndex].id));
-
-          // If there's an assistant message after the user message, delete it too
-          if (
-            lastUserMessageIndex < chatMessages.length - 1 &&
-            chatMessages[lastUserMessageIndex + 1].role === "assistant"
-          ) {
-            await db
-              .delete(messages)
-              .where(
-                eq(messages.id, chatMessages[lastUserMessageIndex + 1].id),
-              );
+          chat.messages = chatMessages.slice(0, lastUserMessageIndex);
+          const ephemeral = getEphemeralChat(req.chatId);
+          if (ephemeral) {
+            ephemeral.messages = chat.messages;
           }
         }
       }
@@ -1649,34 +1504,13 @@ export function registerChatStreamHandlers() {
       // v3.9: Continue after clarifying questions — use last user message (already updated with Q/A block)
       let userPrompt: string = "";
       if (req.continueAfterQuestions) {
-        const {
-          isEphemeralChatId,
-          getEphemeralChat,
-          buildContinueAfterQuestionsPrompt,
-        } = await import("./chat_only_handlers");
-        if (isEphemeralChatId(req.chatId)) {
-          const ephemeral = getEphemeralChat(req.chatId);
-          if (!ephemeral) throw new Error("Chat not found");
-          const composed = buildContinueAfterQuestionsPrompt(ephemeral.messages);
-          if (!composed.trim()) {
-            throw new Error("Continue after questions: no user message content found");
-          }
-          userPrompt = prepareUserChatTurnInput(composed);
-        } else {
-          const freshChat = await db.query.chats.findFirst({
-            where: eq(chats.id, req.chatId),
-            with: {
-              messages: { orderBy: (messages, { asc }) => [asc(messages.createdAt)] },
-              app: true,
-            },
-          });
-          if (!freshChat) throw new Error("Chat not found");
-          const composed = buildContinueAfterQuestionsPrompt(freshChat.messages as { role: string; content?: string | null }[]);
-          if (!composed.trim()) {
-            throw new Error("Continue after questions: no user message content found");
-          }
-          userPrompt = prepareUserChatTurnInput(composed);
+        const ephemeral = getEphemeralChat(req.chatId);
+        if (!ephemeral) throw new Error("Chat not found");
+        const composed = buildContinueAfterQuestionsPrompt(ephemeral.messages);
+        if (!composed.trim()) {
+          throw new Error("Continue after questions: no user message content found");
         }
+        userPrompt = prepareUserChatTurnInput(composed);
       }
 
       // Process attachments if any (skip when continuing after questions)
@@ -1891,44 +1725,8 @@ ${componentSnippet}
         }
       }
 
-      // Only save user message to database for non-ephemeral chats (skip when continueAfterQuestions — user message already updated)
-      // Capture inserted user message id so we can attach session-only metadata (attachments) for renderer.
-      let insertedUserMessageId: number | null = null;
-      const workModeForUserMessage: WorkMode =
-        req.workModeOverride ??
-        (() => {
-          const s = readSettings();
-          const cm: "ask" | "build" =
-            s.selectedChatMode === "agent"
-              ? "build"
-              : s.selectedChatMode === "ask" || s.selectedChatMode === "build"
-                ? s.selectedChatMode
-                : "ask";
-          const intent = s.intentMode ?? cm;
-          if (intent === "auto") return cm === "build" ? "build" : "ask";
-          return s.workModePreference ?? (cm === "build" ? "build" : "ask");
-        })();
-      if (!isEphemeralWorkspace && !req.continueAfterQuestions) {
-        clearSelfCorrectionAttemptsForChat(req.chatId);
-        const inserted = await db
-          .insert(messages)
-          .values({
-            chatId: req.chatId,
-            role: "user",
-            content: userDisplayContent,
-            modelContent:
-              userPrompt !== userDisplayContent ? userPrompt : null,
-            pasteAttachments:
-              pasteAttachmentsForMessage && pasteAttachmentsForMessage.length > 0
-                ? pasteAttachmentsForMessage
-                : null,
-            fileAttachments:
-              storedFileAttachments.length > 0 ? storedFileAttachments : null,
-            workMode: workModeForUserMessage,
-          })
-          .returning();
-        insertedUserMessageId = inserted?.[0]?.id ?? null;
-      }
+      clearDebugHypothesis(req.chatId);
+
       const settingsBase = readSettings();
       let settings =
         req.streamChatModeOverride != null
@@ -1946,160 +1744,50 @@ ${componentSnippet}
       let placeholderAssistantMessage: any = { id: Date.now() }; // Default for ephemeral
       let updatedChat: any = chat; // Use the existing chat object for ephemeral
 
-      if (!isEphemeralWorkspace) {
-        // v3.9: 0-based exchange index = number of assistant messages before this one
-        const exchangeIndex =
-          chat.messages.filter((m: any) => m.role === "assistant").length;
-        // Regular DB chat - save to database
-        const [dbPlaceholder] = await db
-          .insert(messages)
-          .values({
-            chatId: req.chatId,
-            role: "assistant",
-            content: "", // Start with empty content
-            requestId: engineRequestId,
-            sourceCommitHash: await getCurrentCommitHash({
-              path: resolveAppPath(chat.app.path),
-            }),
-            exchangeIndex,
-          })
-          .returning();
-        placeholderAssistantMessage = dbPlaceholder;
+      const ephemeralChat = getEphemeralChat(req.chatId);
+      const existingMessages = ephemeralChat?.messages || [];
 
-        // Fetch updated chat data after possible deletions and additions
-        const fetchedChat = await db.query.chats.findFirst({
-          where: eq(chats.id, req.chatId),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-            },
-            app: true, // Include app information
-          },
-        });
+      const placeholderMessage = {
+        id: Date.now() + 1,
+        chatId: req.chatId,
+        role: "assistant",
+        content: "",
+        createdAt: new Date(),
+        sourceCommitHash: null,
+        commitHash: null,
+      };
 
-        if (!fetchedChat) {
-          throw new Error(`Chat not found: ${req.chatId}`);
-        }
-        updatedChat = fetchedChat;
-        hydrateAttachmentStoreFromMessages(updatedChat.messages as Parameters<
-          typeof hydrateAttachmentStoreFromMessages
-        >[0]);
-
-        // Session-only: attach file metadata when DB row lacks file_attachments (legacy rows).
-        if (attachmentInfosForMessage.length > 0 && insertedUserMessageId != null) {
-          const idx = (updatedChat.messages as any[]).findIndex(
-            (m) => m?.id === insertedUserMessageId,
-          );
-          if (idx >= 0) {
-            const cur = (updatedChat.messages as any[])[idx];
-            if (!cur.fileAttachments?.length) {
-              (updatedChat.messages as any[])[idx] = {
-                ...cur,
-                attachments: attachmentInfosForMessage,
-                fileAttachments: storedFileAttachments,
-                pasteAttachments: pasteAttachmentsForMessage,
-              };
-            }
-          }
-        }
-
-        // Update lastUsedAt timestamp for chat activity
-        await db
-          .update(chats)
-          .set({ lastUsedAt: new Date() })
-          .where(eq(chats.id, req.chatId));
-
-        // Hybrid Chat Naming Logic
-        const messageCount = updatedChat.messages.length;
-
-        // On first user message (2 messages total: user + assistant placeholder)
-        // Generate simple keyword-based name
-        if (messageCount === 2 && !chat.title) {
-          const firstUserMessage = updatedChat.messages.find((m: any) => m.role === "user");
-          if (firstUserMessage) {
-            const simpleName = generateSimpleChatName(firstUserMessage.content);
-            await db
-              .update(chats)
-              .set({ title: simpleName })
-              .where(eq(chats.id, req.chatId));
-            logger.info(`Generated simple chat name: "${simpleName}" for chat ${req.chatId}`);
-          }
-        }
-
-        // After 2 user-assistant exchanges (4+ messages), trigger AI naming
-        // This will replace the simple keyword-based name with an AI-generated one
-        if (shouldTriggerAINaming(messageCount)) {
-          try {
-            const currentTitle = chat.title || "New chat";
-            const conversationMessages = updatedChat.messages.map((m: any) => ({
-              role: m.role,
-              content: m.content,
-            }));
-
-            const aiName = await generateAIChatName(conversationMessages, currentTitle);
-
-            if (aiName !== currentTitle) {
-              await db
-                .update(chats)
-                .set({ title: aiName })
-                .where(eq(chats.id, req.chatId));
-              logger.info(`Updated chat ${req.chatId} with AI name: "${aiName}"`);
-            }
-          } catch (error) {
-            logger.error(`Failed to generate AI chat name: ${error}`);
-            // Fallback to keeping the simple keyword-based name
-          }
-        }
+      if (req.continueAfterQuestions) {
+        updatedChat.messages = [...existingMessages, placeholderMessage];
       } else {
-        // Ephemeral workspace chat - no DB operations
-        logger.log(`Ephemeral workspace chat ${req.chatId} - skipping DB operations`);
-        const { getEphemeralChat } = await import("./chat_only_handlers");
-        const ephemeralChat = getEphemeralChat(req.chatId);
-        const existingMessages = ephemeralChat?.messages || [];
-
-        const placeholderMessage = {
-          id: Date.now() + 1,
+        const newUserMessage = {
+          id: Date.now(),
           chatId: req.chatId,
-          role: "assistant",
-          content: "", // Empty - will be filled by streaming
+          role: "user",
+          content: userDisplayContent,
+          modelContent:
+            userPrompt !== userDisplayContent ? userPrompt : null,
+          pasteAttachments:
+            pasteAttachmentsForMessage && pasteAttachmentsForMessage.length > 0
+              ? pasteAttachmentsForMessage
+              : null,
           createdAt: new Date(),
           sourceCommitHash: null,
           commitHash: null,
+          attachments:
+            attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
+          fileAttachments:
+            storedFileAttachments.length > 0 ? storedFileAttachments : null,
         };
-
-        if (req.continueAfterQuestions) {
-          // Edit resend or Q&A continue — user row already in store; only append assistant placeholder.
-          updatedChat.messages = [...existingMessages, placeholderMessage];
-        } else {
-          const newUserMessage = {
-            id: Date.now(),
-            chatId: req.chatId,
-            role: "user",
-            content: userDisplayContent,
-            modelContent:
-              userPrompt !== userDisplayContent ? userPrompt : null,
-            pasteAttachments:
-              pasteAttachmentsForMessage && pasteAttachmentsForMessage.length > 0
-                ? pasteAttachmentsForMessage
-                : null,
-            createdAt: new Date(),
-            sourceCommitHash: null,
-            commitHash: null,
-            attachments:
-              attachmentInfosForMessage.length > 0 ? attachmentInfosForMessage : null,
-            fileAttachments:
-              storedFileAttachments.length > 0 ? storedFileAttachments : null,
-          };
-          updatedChat.messages = [
-            ...existingMessages,
-            newUserMessage,
-            placeholderMessage,
-          ];
-        }
-        placeholderAssistantMessage = placeholderMessage;
-        if (ephemeralChat) {
-          ephemeralChat.messages = updatedChat.messages;
-        }
+        updatedChat.messages = [
+          ...existingMessages,
+          newUserMessage,
+          placeholderMessage,
+        ];
+      }
+      placeholderAssistantMessage = placeholderMessage;
+      if (ephemeralChat) {
+        ephemeralChat.messages = updatedChat.messages;
       }
 
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
@@ -2238,7 +1926,6 @@ ${componentSnippet}
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
         );
 
-        let deepThinkCounselPromptBlock: string | null = null;
         const suppressNativeThinkingForDeepCounsel =
           req.forceThinkingTier === true && !forceThinkingNativeSupported;
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
@@ -2302,26 +1989,8 @@ ${componentSnippet}
 
         let codebaseInfo = "";
         let files: any[] = [];
-        let chatContext: any = { contextPaths: [], smartContextAutoIncludes: [] };
 
         if (hasWorkspace) {
-          // When we don't have smart context enabled, we
-          // only include the selected components' files for codebase context.
-          //
-          // If we have selected components and smart context is enabled,
-          // we handle this specially below.
-          chatContext =
-            req.selectedComponents &&
-              req.selectedComponents.length > 0 &&
-              !isSmartContextEnabled
-              ? {
-                contextPaths: req.selectedComponents.map((component) => ({
-                  globPath: component.relativePath,
-                })),
-                smartContextAutoIncludes: [],
-              }
-              : validateChatContext(effectiveApp!.chatContext);
-
           // PASS1: Blueprint/Diagram context is now tool-driven only.
           // The model calls get_blueprint / query_blueprint (and other tools) to fetch this on demand.
           // Do not re-enable proactive injection.
@@ -2543,6 +2212,7 @@ ${componentSnippet}
               effectiveWorkMode: modeBlockKey,
               userPrompt: userPrompt,
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
+              hasWorkspace: true,
               ...promptIdentityOpts,
             });
           } else {
@@ -2553,6 +2223,7 @@ ${componentSnippet}
               userPrompt,
               enableTurboEditsV2: isTurboEditsV2Enabled(settings),
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
+              hasWorkspace,
               ...promptIdentityOpts,
             });
           }
@@ -2613,6 +2284,29 @@ ${componentSnippet}
             logger.warn("[skills] Failed to load mode skill:", skillErr);
           }
 
+          if (hasWorkspace && appPath && effectiveAppId != null) {
+            try {
+              const {
+                loadWorkspaceCapabilitiesSummary,
+                formatWorkspaceCapabilitiesForPrompt,
+              } = await import("@/lib/workspace/workspace-capabilities");
+              const caps = await loadWorkspaceCapabilitiesSummary({
+                workspaceId: effectiveAppId,
+                workspacePath: appPath,
+              });
+              const capsBlock = formatWorkspaceCapabilitiesForPrompt(caps);
+              if (capsBlock.trim()) {
+                contextSections.push({
+                  name: "workspaceCapabilities",
+                  priority: -3,
+                  content: capsBlock,
+                });
+              }
+            } catch (capsErr) {
+              logger.warn("[workspace-capabilities] Failed to load:", capsErr);
+            }
+          }
+
           // Pass 7: Installed skills are accessed on-demand via the
           // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
           // The legacy pre-injection block has been removed.
@@ -2636,7 +2330,7 @@ ${componentSnippet}
                 contextSections.push({
                   name: "activePlan",
                   priority: 0.05,
-                  content: `Active session plan (${activePlan.planStatus}):\n\n${snippet}`,
+                  content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with update_plan_status("${activePlan.id}", "building" | "built"):\n\n${snippet}`,
                 });
               }
             } catch (planCtxErr) {
@@ -2675,7 +2369,7 @@ ${componentSnippet}
                 }
               } else {
                 try {
-                  const { tryReadPlanDetailed, parsePlanToSteps, extractPlanTitle } = await import(
+                  const { tryReadPlanDetailed, extractPlanTitle } = await import(
                     "@/lib/tasks/atlarix-plan-steps"
                   );
                   const planResult = await tryReadPlanDetailed(appPath);
@@ -2833,21 +2527,6 @@ ${componentSnippet}
             } catch (fsErr) {
               logger.warn("Failed to build filesystem truth block:", fsErr);
             }
-          }
-
-          try {
-            const im = settings.intentMode ?? chatMode;
-            if (im !== "auto" && settings.workModePreference) {
-              const { workModeSystemHint } = await import("@/lib/agents/work-mode-agents");
-              const hint = workModeSystemHint(settings.workModePreference);
-              contextSections.push({
-                name: "workModeHint",
-                priority: 1,
-                content: `## Work mode\n${hint}`,
-              });
-            }
-          } catch {
-            /* non-fatal */
           }
 
           // Pass 7: Workforce workspace context block deleted along with the
@@ -3114,8 +2793,6 @@ This conversation includes one or more image attachments. When the user uploads 
           let {
             systemPrompt,
             contextAssemblerBlob,
-            assembledContext,
-            hasInjectedArchitectureContext,
             codebasePrefix,
             otherCodebasePrefix,
           } = promptBundle;
@@ -3188,8 +2865,6 @@ This conversation includes one or more image attachments. When the user uploads 
             ({
               systemPrompt,
               contextAssemblerBlob,
-              assembledContext,
-              hasInjectedArchitectureContext,
               codebasePrefix,
               otherCodebasePrefix,
             } = promptBundle);
@@ -3265,7 +2940,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 getEffectiveModelForOptions(settings)?.provider ??
                 (settings.selectedModel?.provider ?? undefined);
               const { executeCompressContext } = await import("@/lib/tools/workspace");
-              const { getEphemeralChat } = await import("./chat_only_handlers");
+              const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
               const msgListR = updatedChat.messages as {
                 id: number;
                 role: string;
@@ -3303,32 +2978,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   status: outcomeR.status,
                 };
               }
-              if (canDbR) {
-                const fetchedChatR = await db.query.chats.findFirst({
-                  where: eq(chats.id, req.chatId),
-                  with: {
-                    messages: {
-                      orderBy: (messages, { asc: ascOrd }) => [ascOrd(messages.createdAt)],
-                    },
-                    app: true,
-                  },
-                });
-                if (fetchedChatR) updatedChat = fetchedChatR;
-                const summaryRowR = await getContextSummary(req.chatId);
-                if (summaryRowR) {
-                  contextSummaryForSystem = summaryRowR.summaryText;
-                  const freshR = updatedChat.messages as {
-                    id: number;
-                    role: string;
-                    content: string;
-                  }[];
-                  const afterSummaryR = freshR.filter((m) => m.id > summaryRowR.lastMessageId);
-                  limitedMessageHistory = afterSummaryR.map((m) => ({
-                    role: m.role as "user" | "assistant" | "system",
-                    content: m.content || "",
-                  }));
-                }
-              } else if (canEphemeralR) {
+              if (canEphemeralR) {
                 type EphemeralMsgR = {
                   role: string;
                   content?: string;
@@ -3386,8 +3036,6 @@ This conversation includes one or more image attachments. When the user uploads 
               ({
                 systemPrompt,
                 contextAssemblerBlob,
-                assembledContext,
-                hasInjectedArchitectureContext,
                 codebasePrefix,
                 otherCodebasePrefix,
               } = promptBundle);
@@ -3425,7 +3073,6 @@ This conversation includes one or more image attachments. When the user uploads 
             };
 
             const fillRatioBefore = dispatchEstimate / contextWindowTokens;
-            let proactiveCompactionSucceeded = false;
             if (
               fillRatioBefore >= 0.75 &&
               settings.enableContextAutoSummarize !== false
@@ -3451,7 +3098,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 });
                 try {
                   const cr = await runCompressAndRebuild(reason, canDb, canEphemeral);
-                  if (cr.ok) proactiveCompactionSucceeded = true;
                   safeSend(event.sender, "chat:activity", {
                     id: `${activityBase}-done`,
                     type: "compaction",
@@ -3620,20 +3266,16 @@ This conversation includes one or more image attachments. When the user uploads 
           }
 
           if (isSummarizeIntent) {
-            const previousChat = await db.query.chats.findFirst({
-              where: eq(chats.id, parseInt(req.prompt.split("=")[1])),
-              with: {
-                messages: {
-                  orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-                },
-              },
-            });
+            const priorTransportId = parseInt(req.prompt.split("=")[1], 10);
+            const priorEphemeral = Number.isFinite(priorTransportId)
+              ? getEphemeralChat(priorTransportId)
+              : undefined;
             chatMessages = [
               {
                 role: "user",
                 content:
                   "Summarize the following chat: " +
-                  formatMessagesForSummary(previousChat?.messages ?? []),
+                  formatMessagesForSummary(priorEphemeral?.messages ?? []),
               } satisfies ModelMessage,
             ];
           }
@@ -3813,21 +3455,6 @@ This conversation includes one or more image attachments. When the user uploads 
                         logger.warn("[compass] Monthly limit hit while recording usage");
                       }
                     });
-                  }
-
-                  // Persist the aggregated token usage on the placeholder assistant message
-                  // Only for non-ephemeral chats
-                  if (!isEphemeralWorkspace) {
-                    void db
-                      .update(messages)
-                      .set({ maxTokensUsed: maxTokensUsed })
-                      .where(eq(messages.id, placeholderAssistantMessage.id))
-                      .catch((error) => {
-                        logger.error(
-                          "Failed to save total tokens for assistant message",
-                          error,
-                        );
-                      });
                   }
 
                   logger.log(
@@ -4065,7 +3692,6 @@ This conversation includes one or more image attachments. When the user uploads 
             throw new Error("runStreamRoundWithEmptyOutputRetry: unreachable");
           }
 
-          let lastDbSaveAt = 0;
 
           const processResponseChunkUpdate = async ({
             fullResponse,
@@ -4086,23 +3712,6 @@ This conversation includes one or more image attachments. When the user uploads 
             }
             // Store the current partial response
             partialResponses.set(req.chatId, fullResponse);
-            // Save to DB (in case user is switching chats during the stream)
-            // Only for non-ephemeral chats
-            const now = Date.now();
-            if (now - lastDbSaveAt >= 150 && !isEphemeralWorkspace) {
-              await db
-                .update(messages)
-                // Strip <think> blocks before persisting. The renderer stream
-                // (chat:response:chunk) still carries the live <think>...
-                // tags for ThinkingCard; the DB row stays lean so token
-                // counts don't include reasoning that the model should never
-                // see again on the next turn.
-                .set({ content: stripAssistantDisplayContent(fullResponse) })
-                .where(eq(messages.id, placeholderAssistantMessage.id));
-
-              lastDbSaveAt = now;
-            }
-
             // Update the placeholder assistant message content in the messages array
             const currentMessages = [...updatedChat.messages];
             if (
@@ -4118,7 +3727,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   updatedChat.messages[lastIdx]?.role === "assistant"
                 ) {
                   updatedChat.messages[lastIdx].content = stripped;
-                  const { getEphemeralChat } = await import("./chat_only_handlers");
+                  const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
                   const ec = getEphemeralChat(req.chatId);
                   if (ec) {
                     ec.messages = updatedChat.messages;
@@ -4161,48 +3770,10 @@ This conversation includes one or more image attachments. When the user uploads 
               msgs.push(newPh);
               placeholderAssistantMessage = newPh;
               askUserContinuationAssistantIdByChatId.set(req.chatId, newPh.id);
-              const { getEphemeralChat } = await import("./chat_only_handlers");
+              const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
               const ec = getEphemeralChat(req.chatId);
               if (ec) {
                 ec.messages = msgs;
-              }
-            } else {
-              await db
-                .update(messages)
-                .set({ content: stripThinkBlocks(segmentA) })
-                .where(eq(messages.id, placeholderAssistantMessage.id));
-              const exchangeIndex = updatedChat.messages.filter((m: any) => m.role === "assistant").length;
-              const appPathForHash = chat.app?.path ?? appData?.path;
-              const commitHash =
-                appPathForHash != null
-                  ? await getCurrentCommitHash({
-                      path: resolveAppPath(appPathForHash),
-                    })
-                  : null;
-              const [newPh] = await db
-                .insert(messages)
-                .values({
-                  chatId: req.chatId,
-                  role: "assistant",
-                  content: "",
-                  requestId: engineRequestId,
-                  sourceCommitHash: commitHash,
-                  exchangeIndex,
-                })
-                .returning();
-              placeholderAssistantMessage = newPh;
-              askUserContinuationAssistantIdByChatId.set(req.chatId, newPh.id);
-              const fetchedChat = await db.query.chats.findFirst({
-                where: eq(chats.id, req.chatId),
-                with: {
-                  messages: {
-                    orderBy: (messages, { asc: ascOrd }) => [ascOrd(messages.createdAt)],
-                  },
-                  app: true,
-                },
-              });
-              if (fetchedChat) {
-                updatedChat = fetchedChat;
               }
             }
             fullResponse = "";
@@ -4356,6 +3927,7 @@ This conversation includes one or more image attachments. When the user uploads 
               const agentParts = constructSystemPromptParts({
                 chatMode: "build",
                 effectiveWorkMode: "build",
+                hasWorkspace,
                 ...promptIdentityOpts,
                 contextSize: await getContextWindow(effectiveModel, req.chatId),
                 enableTurboEditsV2: false,
@@ -4542,149 +4114,27 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const askModeTools = ToolRegistry.getToolsForAskMode();
             const askLoader = getOrCreateToolSessionLoader(req.chatId);
-            const askLoadedNames = askLoader.getLoadedToolNames();
-            let askToolsToInclude = askModeTools.filter(
-              (t) => askLoadedNames.has(t.name) || isCoreTool(t),
-            );
-            // PASS6: unified `search` tool (auto | text | semantic | structural); `get_blueprint` for graph slices.
-            const modeAllowlist: Record<WorkMode, Set<string>> = {
-              ask: new Set([
-                "ask_user",
-                "compress_context",
-                "deep_research",
-                "delegate_to_agent",
-                "spawn_sub_agent",
-                "task",
-                "explore_folder",
-                "find_file",
-                "get_active_skills",
-                "get_blueprint",
-                "get_file_outline",
-                "get_project_history",
-                "get_project_structure",
-                "get_repo_overview",
-                "list_attachments",
-                "list_available_mcps",
-                "list_files",
-                "list_installed_skills",
-                "memory",
-                "read_attachment",
-                "read_file",
-                "read_url",
-                "run_command",
-                "search",
-                "web_search",
-              ]),
-              plan: new Set([
-                "ask_user",
-                "compress_context",
-                "edit_file",
-                "explore_folder",
-                "find_file",
-                "get_active_skills",
-                "get_blueprint",
-                "get_file_outline",
-                "get_plan_scope",
-                "get_project_history",
-                "get_project_structure",
-                "get_repo_overview",
-                "list_available_mcps",
-                "list_files",
-                "list_installed_skills",
-                "memory",
-                "read_file",
-                "read_implementation_plan",
-                "run_command",
-                "search",
-                "update_plan_status",
-                "write_file",
-                "write_implementation_plan",
-              ]),
-              build: new Set(),
-              debug: new Set([
-                "ask_user",
-                "diagnose_issue",
-                "edit_file",
-                "explore_folder",
-                "find_file",
-                "get_active_skills",
-                "get_blueprint",
-                "get_file_outline",
-                "get_project_structure",
-                "get_repo_overview",
-                "list_available_mcps",
-                "list_files",
-                "lsp_definitions",
-                "lsp_diagnostics",
-                "lsp_hover",
-                "lsp_references",
-                "mcp_call",
-                "memory",
-                "read_file",
-                "run_command",
-                "search",
-                "stream_terminal_output",
-                "write_file",
-              ]),
-              review: new Set([
-                "ask_user",
-                "delegate_to_agent",
-                "spawn_sub_agent",
-                "task",
-                "diagnose_issue",
-                "explore_folder",
-                "find_file",
-                "get_active_skills",
-                "get_blueprint",
-                "get_file_outline",
-                "get_project_history",
-                "get_project_structure",
-                "get_repo_overview",
-                "list_available_mcps",
-                "list_files",
-                "list_installed_skills",
-                "lsp_definitions",
-                "lsp_diagnostics",
-                "lsp_hover",
-                "lsp_references",
-                "memory",
-                "read_file",
-                "run_command",
-                "search",
-              ]),
-            };
-            // Register tools for any work mode the model can switch to mid-stream; gate at execute time.
-            const reachableModeTools = new Set([
-              ...modeAllowlist.ask,
-              ...modeAllowlist.plan,
-              ...modeAllowlist.debug,
-              ...modeAllowlist.review,
-              ...modeAllowlist.build,
+            const modeAllowlist = getModeToolAllowSets();
+            const modeAllowNames = getModeToolAllowlist(effectiveWorkMode);
+            askLoader.ensureLoaded([
+              ...modeAllowNames.filter((n) => n !== "*"),
+              ...(hasWorkspace && effectiveAppId != null
+                ? WORKSPACE_INTEGRATION_TOOL_NAMES
+                : []),
             ]);
-            askToolsToInclude = askToolsToInclude.filter((t) =>
-              reachableModeTools.has(t.name),
+            const askLoadedNames = askLoader.getLoadedToolNames();
+            const askToolsToInclude = askModeTools.filter((t) =>
+              includeToolForSession(t, {
+                loaded: askLoadedNames,
+                hasWorkspace,
+                mode: effectiveWorkMode,
+                isCore: isCoreTool,
+              }),
             );
-            const planWriteMeta = ToolRegistry.get("write_implementation_plan");
-            if (
-              planWriteMeta &&
-              !askToolsToInclude.some((t) => t.name === "write_implementation_plan")
-            ) {
-              askToolsToInclude = [...askToolsToInclude, planWriteMeta];
-            }
-            for (const name of [
-              "compress_context",
-              "write_file",
-              "get_plan_scope",
-              "read_implementation_plan",
-              "run_command",
-            ] as const) {
-              if (!reachableModeTools.has(name)) continue;
-              const meta = ToolRegistry.get(name);
-              if (meta && !askToolsToInclude.some((t) => t.name === name)) {
-                askToolsToInclude = [...askToolsToInclude, meta];
-              }
-            }
-            const askManifest = generateManifest(askToolsToInclude, effectiveWorkMode !== "plan");
+            const askProgressiveNote = generateProgressiveRevealNote(
+              askToolsToInclude.map((t) => t.name),
+              effectiveWorkMode,
+            );
 
             const askTools: ToolSet = {};
             for (const tool of askToolsToInclude) {
@@ -4741,6 +4191,13 @@ This conversation includes one or more image attachments. When the user uploads 
                       };
                       return JSON.stringify(toolResultForActivity);
                     }
+                    const debugGate = debugWriteGateResult(
+                      req.chatId,
+                      tool.name,
+                      liveWorkMode,
+                      args,
+                    );
+                    if (debugGate) return debugGate;
                     if (tool.name === "compress_context") {
                       const reason =
                         args && typeof args.reason === "string" && args.reason.trim()
@@ -4761,7 +4218,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           getEffectiveModelForOptions(settings)?.provider ??
                           (settings.selectedModel?.provider ?? undefined);
                         const { executeCompressContext } = await import("@/lib/tools/workspace");
-                        const { getEphemeralChat } = await import("./chat_only_handlers");
+                        const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
                         const msgList = updatedChat.messages as {
                           id: number;
                           role: string;
@@ -4830,12 +4287,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       workspace: appPath,
                       workspaceId: effectiveAppId ?? undefined,
                       agentMode: settings.agentMode ?? "direct",
-                      chatMode:
-                        liveWorkMode === "plan"
-                          ? "plan"
-                          : liveWorkMode === "build"
-                            ? "build"
-                            : "ask",
+                      chatMode: toolExecutionChatMode(liveWorkMode),
                       _chatSessionId: req.chatId,
                       workspaceSessionId: req.workspaceSessionId ?? undefined,
                     };
@@ -5167,35 +4619,6 @@ This conversation includes one or more image attachments. When the user uploads 
               `Ask tier: ${Object.keys(askTools).length} tools (read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""}; MCP via list_available_mcps + mcp_call)`,
             );
 
-            const planModePrompt =
-              effectiveWorkMode === "plan"
-                ? `
-
-## Plan mode (required)
-You are in **Plan** mode (not Build). Persist the implementation roadmap as a **session plan artifact** using **write_implementation_plan** (not a file on disk). Update **.atlarix/atlarix.md** with **write_file** when the user needs durable project instructions. Read the current plan with **read_implementation_plan** before revising. After saving, include the returned **marker** comment in your reply so the UI shows a plan card. Keep prose short; avoid duplicating the full plan in the visible answer. Suggest switching to **Build** only after the plan is done and the user wants implementation.
-`
-                : "";
-
-            const askModePrompt =
-              effectiveWorkMode === "ask"
-                ? `
-
-IMPORTANT: **Explore** work mode — **read-only exploration**. Answer questions and inspect the codebase with read-only tools. Do **not** create session plan artifacts here (write_implementation_plan). For roadmaps, ask the user to switch to **Plan** mode. Do **not** suggest **Build** for ordinary Q&A.
-
-**Git and shell:** Use the **run_command** tool for git and read-only shell (git status, git log -1, git diff, ls, cat). Do not read .git/objects manually when run_command can answer. Mutating commands (npm install, git commit, rm, etc.) are blocked in Explore.
-
-Available tools (Explore — read-only):
-- read_file, explore_folder, list_files, search, get_blueprint, find_file, get_file_outline
-- spawn_sub_agent / delegate_to_agent: for multi-repo work use **one** spawn with **scopes: [repo paths]** or **default_focus_path** per repo (preset map_repo); up to **5** concurrent sub-agents per turn — batch scopes when possible
-- task (background sub-agent runs; use task_id to resume)
-- **run_command** (read-only git/shell only)
-- web_search, deep_research, read_url
-- memory, get_active_skills, list_installed_skills, list_available_mcps, get_project_history
-- read_attachment, list_attachments, ask_user
-
-NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_file, rename_file, run_tests, or mutating run_command (npm install, git commit, etc.).`
-                : "";
-
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             const askTierStreamLoopStartMs = Date.now();
             askAgenticRepetition.setEnabled(true);
@@ -5235,14 +4658,12 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 effectiveWorkMode: modeBlockKey,
                 contextSize: await getContextWindow(effectiveModel, req.chatId),
                 enableTurboEditsV2: false,
+                hasWorkspace,
+                registeredToolNames: [...askLoadedNames],
                 ...promptIdentityOpts,
               });
               const askStableHeader =
-                askParts.stableHeader +
-                askModePrompt +
-                planModePrompt +
-                "\n\n" +
-                askManifest;
+                askParts.stableHeader + "\n\n" + askProgressiveNote;
               const {
                 bundle: askBundle,
                 fullResponse: askRoundFull,
@@ -5416,7 +4837,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                   effectiveAppId,
                   "pre-exchange",
                   appPath,
-                  effectiveAppId,
                   updatedChat.messages.map((m: any) => ({ role: m.role, content: m.content ?? "" }))
                 );
                 preExchangeSnapshotId = snap.id;
@@ -5430,12 +4850,23 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             let workspaceOverride: { path: string; id: number } | null = null;
             const buildModeToolsMetadata = ToolRegistry.getToolsForContext(hasWorkspace);
             const buildLoader = getOrCreateToolSessionLoader(req.chatId);
+            if (hasWorkspace && effectiveAppId != null) {
+              buildLoader.ensureLoaded(WORKSPACE_INTEGRATION_TOOL_NAMES);
+            }
             const buildLoadedNames = buildLoader.getLoadedToolNames();
             const buildToolsToInclude = buildModeToolsMetadata.filter(
-              (t) => buildLoadedNames.has(t.name) || isCoreTool(t)
+              (t) =>
+                buildLoadedNames.has(t.name) ||
+                isCoreTool(t) ||
+                (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
             );
-            const buildManifest = generateManifest(buildModeToolsMetadata, false);
-            const buildSystemPromptWithManifest = systemPrompt + "\n\n" + buildManifest;
+            let buildSystemPromptWithManifest =
+              systemPrompt +
+              "\n\n" +
+              generateProgressiveRevealNote(
+                buildToolsToInclude.map((t) => t.name),
+                effectiveWorkMode,
+              );
 
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(
@@ -5466,7 +4897,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
               logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
             });
 
-            let autonomousBuildToolStepCount = 0;
             const recentCompletedBuildToolNames: string[] = [];
 
             const agenticRepetition = createAgenticRepetitionState();
@@ -5546,6 +4976,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     toolArgs: args,
                   });
                   try {
+                    const buildLiveWorkMode: WorkMode =
+                      readSettings().workModePreference ?? effectiveWorkMode;
+                    const debugGateBuild = debugWriteGateResult(
+                      req.chatId,
+                      toolName,
+                      buildLiveWorkMode,
+                      args,
+                    );
+                    if (debugGateBuild) return debugGateBuild;
                     if (toolName === "compress_context") {
                       // PASS2: Compaction is model-triggered via compress_context.
                       // Emit activity + run compaction here (tool handler has no stream scope).
@@ -5615,7 +5054,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       workspace: effectivePath || undefined,
                       workspaceId: effectiveId,
                       agentMode: settings.agentMode ?? "direct",
-                      chatMode: "build",
+                      chatMode: toolExecutionChatMode(buildLiveWorkMode),
                       _chatSessionId: req.chatId,
                       workspaceSessionId: req.workspaceSessionId ?? undefined,
                     };
@@ -5724,6 +5163,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                       permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
 
                       const pushWrittenPaths = () => {
+                        if (!permRequest) return;
                         const preview = permRequest.preview as { path?: string; paths?: string[] };
                         if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
                           filesWrittenInThisExchange.push(...preview.paths);
@@ -5738,6 +5178,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                         exitCode?: number;
                         error?: string;
                       }) => {
+                        if (!permRequest) return "";
                         pushWrittenPaths();
                         if (
                           agenticRepetition.isEnabled() &&
@@ -5907,7 +5348,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
 
                     // Not a permission request - return result directly
                     if (!isStreamTool) {
-                      autonomousBuildToolStepCount++;
                     }
                     if (agenticRepetition.isEnabled()) {
                       handleAgenticRepetitionOutcome(agenticRepetition.record(toolName, args));
@@ -6093,6 +5533,14 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 });
 
                 logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1} (unbounded)`);
+
+                buildSystemPromptWithManifest =
+                  systemPrompt +
+                  "\n\n" +
+                  generateProgressiveRevealNote(
+                    [...buildLoader.getLoadedToolNames()],
+                    effectiveWorkMode,
+                  );
 
                 let buildIterMessages: ModelMessage[] = agenticMessages;
                 let streamRoundDone = false;
@@ -6496,6 +5944,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                           permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
                         permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
                         const pushAgenticWrittenPaths = () => {
+                          if (!permRequest) return;
                           const preview = permRequest.preview as { path?: string; paths?: string[] };
                           if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
                             filesWrittenInThisExchange.push(...preview.paths);
@@ -6816,22 +6265,12 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                     const cancelledContent = `${partialResponse}
 
 [Response cancelled by user]`;
-                    if (!isEphemeralWorkspace) {
-                      await db
-                        .update(messages)
-                        .set({
-                          content: stripThinkBlocks(cancelledContent),
-                        })
-                        .where(eq(messages.id, placeholderAssistantMessage.id));
-
-                      logger.log(
-                        `Updated cancelled response for placeholder message ${placeholderAssistantMessage.id} in chat ${chatId}`,
-                      );
-                    } else {
-                      const { addEphemeralMessage } = await import("./chat_only_handlers");
-                      addEphemeralMessage(req.chatId, { role: "assistant", content: stripThinkBlocks(cancelledContent) });
-                      logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
-                    }
+                    const { addEphemeralMessage } = await import("@/lib/ephemeral-chat");
+                    addEphemeralMessage(req.chatId, {
+                      role: "assistant",
+                      content: stripThinkBlocks(cancelledContent),
+                    });
+                    logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
                     partialResponses.delete(req.chatId);
                   } catch (error) {
                     logger.error(
@@ -7020,32 +6459,7 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
             "@/lib/plans/plan-artifacts"
           );
           responseToStore = ensurePlanMarkersInAssistantContent(responseToStore);
-          // Scrape from: <atlarix-chat-summary>Renaming profile file</atlarix-chat-title>
-          const chatTitle = responseToStore.match(
-            /<atlarix-chat-summary>(.*?)<\/atlarix-chat-summary>/,
-          );
-          if (chatTitle) {
-            await db
-              .update(chats)
-              .set({ title: chatTitle[1] })
-              .where(and(eq(chats.id, req.chatId), isNull(chats.title)));
-          }
-          const chatSummary = chatTitle?.[1];
-
-          // Update the placeholder assistant message with the full response (legacy <questions> stripped if present)
-          // v3.9: Also set snapshotId and filesWritten when from Build mode
-          if (!isEphemeralWorkspace) {
-            await db
-              .update(messages)
-              .set({
-                content: stripAssistantDisplayContent(responseToStore),
-                ...(preExchangeSnapshotId != null && { snapshotId: preExchangeSnapshotId }),
-                ...(filesWrittenInThisExchange.length > 0 && { filesWritten: filesWrittenInThisExchange }),
-              })
-              .where(eq(messages.id, placeholderAssistantMessage.id));
-          } else {
-            // For ephemeral workspace chats, update the placeholder assistant in place
-            const { getEphemeralChat } = await import("./chat_only_handlers");
+          {
             const ec = getEphemeralChat(req.chatId);
             const finalContent = stripThinkBlocks(responseToStore);
             const lastInUpdated =
@@ -7143,6 +6557,37 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
                 appPath,
                 userPrompt?.slice(0, 500),
               );
+            }
+            // Plan-lifecycle safety net: a Build turn that wrote files and finished
+            // cleanly marks the session's "building" plan as built if the model
+            // didn't call update_plan_status itself.
+            if (
+              isBuildModeTurn &&
+              req.workspaceSessionId &&
+              filesWrittenInThisExchange.length > 0 &&
+              (!abortController.signal.aborted || streamStopWasTaskComplete)
+            ) {
+              try {
+                const { getLatestPlanArtifact, setPlanArtifactStatus } = await import(
+                  "@/lib/plans/plan-artifacts"
+                );
+                const buildingPlan = await getLatestPlanArtifact(req.workspaceSessionId, "building");
+                if (buildingPlan) {
+                  const updated = await setPlanArtifactStatus(buildingPlan.id, "built");
+                  if (updated) {
+                    const { emitPlanArtifactUpdated } = await import("../utils/emit_plan_artifact");
+                    emitPlanArtifactUpdated(event.sender, {
+                      planId: updated.id,
+                      sessionId: updated.sessionId,
+                      content: updated.content,
+                      planStatus: updated.planStatus,
+                    });
+                    logger.info(`[plan-artifact] safety net marked plan ${buildingPlan.id} built`);
+                  }
+                }
+              } catch (planEndErr) {
+                logger.warn("[plan-artifact] build-complete status update failed:", planEndErr);
+              }
             }
             if (
               isBuildModeTurn &&
@@ -7445,34 +6890,34 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
       payload: { chatId: number; userMessageId: number; newContent: string }
     ) => {
       const { chatId, userMessageId, newContent } = payload;
-      // Ephemeral chats (chatId < 0) live only in-memory inside chat_only_handlers.
-      if (chatId < 0) {
-        const { editEphemeralUserMessage } = await import("./chat_only_handlers");
-        const ok = editEphemeralUserMessage(chatId, userMessageId, newContent);
-        if (!ok) {
-          throw new Error("Ephemeral user message not found");
-        }
-        return { success: true };
+      // Ephemeral chats (chatId < 0) live only in-memory (ephemeral-chat transport).
+      const { editEphemeralUserMessage, getEphemeralChat } = await import(
+        "@/lib/ephemeral-chat"
+      );
+      // Capture the message's ordinal BEFORE the edit truncates the tail, so the
+      // persisted session row can be located (ids don't correlate across stores).
+      const chat = getEphemeralChat(chatId);
+      const ephCount = chat?.messages.length ?? 0;
+      const ephIdx =
+        chat?.messages.findIndex(
+          (m) => m.id === userMessageId && m.role === "user",
+        ) ?? -1;
+
+      const ok = editEphemeralUserMessage(chatId, userMessageId, newContent);
+      if (!ok) {
+        throw new Error("Ephemeral user message not found");
       }
-      const msg = await db.query.messages.findFirst({
-        where: and(eq(messages.id, userMessageId), eq(messages.chatId, chatId)),
-      });
-      if (!msg || msg.role !== "user") {
-        throw new Error("User message not found");
+
+      // Persist the edit + tail truncation to the saved session (was previously
+      // only in-memory, so edits vanished on session switch).
+      try {
+        const { persistEditedSessionMessage } = await import(
+          "./workspace_session_handlers"
+        );
+        await persistEditedSessionMessage(chatId, ephIdx, ephCount, newContent);
+      } catch (e) {
+        logger.warn("Failed to persist edited session message:", e);
       }
-      const chatMessages = await db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(eq(messages.chatId, chatId))
-        .orderBy(messages.createdAt);
-      const idx = chatMessages.findIndex((m) => m.id === userMessageId);
-      if (idx < 0) throw new Error("Message not in chat");
-      const idsToDelete = chatMessages.slice(idx + 1).map((m) => m.id);
-      if (idsToDelete.length > 0) {
-        await db.delete(messages).where(inArray(messages.id, idsToDelete));
-      }
-      await db.update(messages).set({ content: newContent }).where(eq(messages.id, userMessageId));
-      await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
       return { success: true };
     }
   );
@@ -7512,17 +6957,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
       payload: { chatId: number; assistantMessageId: number }
     ) => {
       const { chatId, assistantMessageId } = payload;
-      const msg = await db.query.messages.findFirst({
-        where: and(eq(messages.id, assistantMessageId), eq(messages.chatId, chatId)),
-      });
+      const ec = getEphemeralChat(chatId);
+      const msg = ec?.messages.find((m) => m.id === assistantMessageId);
       if (!msg || msg.role !== "assistant") {
         throw new Error("Assistant message not found");
       }
-      const [chatRow] = await db.select().from(chats).where(eq(chats.id, chatId));
-      const appId = chatRow?.appId ?? null;
+      const appId = getEphemeralChatAppId(chatId) ?? null;
       const turnId = String(assistantMessageId);
       if (appId != null) {
-        const [app] = await db.select().from(apps).where(eq(apps.id, appId));
+        const app = await db.query.apps.findFirst({ where: eq(apps.id, appId) });
         if (app) {
           const appPath = resolveAppPath(app.path);
           const result = await performFullRevert({
@@ -7538,19 +6981,6 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
           return { success: true };
         }
       }
-      const chatMessages = await db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(eq(messages.chatId, chatId))
-        .orderBy(asc(messages.createdAt));
-      const idx = chatMessages.findIndex((m) => m.id === assistantMessageId);
-      if (idx < 0) throw new Error("Message not in chat");
-      const idsToMark = chatMessages.slice(idx).map((m) => m.id);
-      await db.update(messages).set({ isReverted: false }).where(eq(messages.chatId, chatId));
-      if (idsToMark.length > 0) {
-        await db.update(messages).set({ isReverted: true }).where(inArray(messages.id, idsToMark));
-      }
-      await db.update(chats).set({ hasAnsweredQuestions: false }).where(eq(chats.id, chatId));
       return { success: true };
     }
   );
@@ -7566,15 +6996,15 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
       if (!op?.path) {
         return { success: false, error: "No file path for this operation" };
       }
-      const chatRow = await db.query.chats.findFirst({
-        where: eq(chats.id, payload.chatId),
-        with: { app: true },
-      });
-      if (!chatRow?.app?.path) {
+      const workspaceId = getEphemeralChatAppId(payload.chatId);
+      if (workspaceId == null) {
         return { success: false, error: "Chat has no workspace" };
       }
-      const workspacePath = resolveAppPath(chatRow.app.path);
-      const workspaceId = chatRow.app.id;
+      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      if (!app?.path) {
+        return { success: false, error: "Chat has no workspace" };
+      }
+      const workspacePath = resolveAppPath(app.path);
       const rel = op.path.split(path.sep).join("/");
       const assistantMessageId = Number(payload.turnId);
       if (!Number.isFinite(assistantMessageId)) {
@@ -7615,27 +7045,23 @@ NOT in Explore mode: write_file, edit_file, write_implementation_plan, delete_fi
       if (!Number.isFinite(assistantMessageId)) {
         return { success: false, error: "Invalid turnId" };
       }
-      const msg = await db.query.messages.findFirst({
-        where: and(
-          eq(messages.id, assistantMessageId),
-          eq(messages.chatId, chatId),
-        ),
-      });
+      const ec = getEphemeralChat(chatId);
+      const msg = ec?.messages.find((m) => m.id === assistantMessageId);
       if (!msg || msg.role !== "assistant") {
         return {
           success: false,
           error: "Assistant message not found for this chat and turnId",
         };
       }
-      const chatRow = await db.query.chats.findFirst({
-        where: eq(chats.id, chatId),
-        with: { app: true },
-      });
-      if (!chatRow?.app?.path) {
+      const workspaceId = getEphemeralChatAppId(chatId);
+      if (workspaceId == null) {
         return { success: false, error: "No workspace attached" };
       }
-      const workspacePath = resolveAppPath(chatRow.app.path);
-      const workspaceId = chatRow.app.id;
+      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      if (!app?.path) {
+        return { success: false, error: "No workspace attached" };
+      }
+      const workspacePath = resolveAppPath(app.path);
       return performFullRevert({
         chatId,
         turnId,
@@ -7676,40 +7102,6 @@ export function formatMessagesForSummary(
     .join("\n");
 }
 
-// Helper function to replace text attachment placeholders with full content
-async function replaceTextAttachmentWithContent(
-  text: string,
-  filePath: string,
-  fileName: string,
-): Promise<string> {
-  try {
-    if (await isTextFile(filePath)) {
-      // Read the full content
-      const fullContent = await readFile(filePath, "utf-8");
-
-      // Replace the placeholder tag with the full content
-      const escapedPath = filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const tagPattern = new RegExp(
-        `<atlarix-text-attachment filename="[^"]*" type="[^"]*" path="${escapedPath}">\\s*<\\/atlarix-text-attachment>`,
-        "g",
-      );
-
-      const replacedText = text.replace(
-        tagPattern,
-        `Full content of ${fileName}:\n\`\`\`\n${fullContent}\n\`\`\``,
-      );
-
-      logger.log(
-        `Replaced text attachment content for: ${fileName} - length before: ${text.length} - length after: ${replacedText.length}`,
-      );
-      return replacedText;
-    }
-    return text;
-  } catch (error) {
-    logger.error(`Error processing text file: ${error}`);
-    return text;
-  }
-}
 
 // Helper function to convert traditional message with attachments
 // v8.0: Images and files are now accessed via read_attachment tool, not content blocks
@@ -7783,12 +7175,6 @@ export function hasUnclosedAtlarixWrite(text: string): boolean {
   return !hasClosingTag;
 }
 
-const CODEBASE_PROMPT_PREFIX = "This is my codebase.";
-/** @deprecated Use createDiagramFirstPrompt instead - this dumps full codebase */
-function createCodebasePrompt(codebaseInfo: string): string {
-  return `${CODEBASE_PROMPT_PREFIX} ${codebaseInfo}`;
-}
-
 /**
  * Diagram-First Context Prompt
  * Instead of dumping 168K tokens of codebase, instruct AI to use tools
@@ -7838,78 +7224,3 @@ ${otherAppsCodebaseInfo}
 // to `@/lib/ai/normalize-tool-schema` so that delegation sub-agents
 // (`src/lib/tools/agent.ts`) can reuse the exact same wiring.
 
-/** Workspace-scoped MCP tools only (max 10 per workspace). */
-async function getMcpTools(
-  event: IpcMainInvokeEvent,
-  appId?: number | null,
-  /** Fix: Finding 4 — when set, emit chat:tool:start/end around MCP execution */
-  chatIdForToolIndicator?: number | null
-): Promise<ToolSet> {
-  const mcpToolSet: ToolSet = {};
-  if (appId == null) {
-    return mcpToolSet;
-  }
-  try {
-    const enabled = eq(mcpServers.enabled, true as any);
-    const servers = await db
-      .select()
-      .from(mcpServers)
-      .where(
-        and(
-          enabled,
-          eq(mcpServers.scope, "workspace"),
-          eq(mcpServers.appId, appId),
-        ),
-      );
-    for (const s of servers) {
-      const client = await mcpManager.getClient(s.id);
-      const toolSet = await client.tools();
-      for (const [name, tool] of Object.entries(toolSet)) {
-        const key = `${String(s.name || "").replace(/[^a-zA-Z0-9_-]/g, "-")}__${String(name).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-        const original = tool as { description?: string; inputSchema?: unknown; execute?: (args: unknown, ctx?: unknown) => Promise<unknown> };
-        mcpToolSet[key] = {
-          description: original?.description,
-          inputSchema: normalizeToolInputSchemaForAiSdk(original?.inputSchema) as never,
-          execute: async (args: any, execCtx: any) => {
-            const cid = chatIdForToolIndicator;
-            if (cid != null) {
-              safeSend(event.sender, "chat:tool:start", {
-                chatId: cid,
-                toolId: key,
-                toolName: getToolActivityLabel(key),
-                toolArgs: args,
-              });
-            }
-            try {
-              const inputPreview =
-                typeof args === "string"
-                  ? args
-                  : Array.isArray(args)
-                    ? args.join(" ")
-                    : JSON.stringify(args).slice(0, 500);
-              const ok = await requireMcpToolConsent(event, {
-                serverId: s.id,
-                serverName: s.name,
-                toolName: name,
-                toolDescription: original?.description,
-                inputPreview,
-              });
-
-              if (!ok) throw new Error(`User declined running tool ${key}`);
-              const res = await (original as { execute?: (a: unknown, c?: unknown) => Promise<unknown> }).execute?.(args, execCtx);
-
-              return typeof res === "string" ? res : JSON.stringify(res);
-            } finally {
-              if (cid != null) {
-                safeSend(event.sender, "chat:tool:end", { chatId: cid });
-              }
-            }
-          },
-        };
-      }
-    }
-  } catch (e) {
-    logMcpError("Failed building MCP toolset", e);
-  }
-  return mcpToolSet;
-}

@@ -9,7 +9,7 @@ import {
 
 export function resolveContextBudgetTier(
   effectiveModel: LargeLanguageModel,
-  settings: UserSettings,
+  _settings: UserSettings,
 ): ModelTier {
   if (effectiveModel.provider === "compass") {
     if (effectiveModel.name === COMPASS_TIER_THINKING) return "thinking";
@@ -22,7 +22,7 @@ export function resolveContextBudgetTier(
 }
 
 export function resolveTierLimitModelIds(
-  settings: UserSettings,
+  _settings: UserSettings,
   options?: {
     effectiveModel?: LargeLanguageModel;
     resolvedTier?: ModelTier;

@@ -16,16 +16,6 @@ export type InlineTimelineItem =
       timestamp: number;
     };
 
-function isCounselItem(t: ActivityStreamItem["type"]): boolean {
-  return (
-    t === "counsel_start" ||
-    t === "counsel_participant_complete" ||
-    t === "counsel_synthesising" ||
-    t === "counsel_complete" ||
-    t === "counsel_thinking" ||
-    t === "counsel_timeout"
-  );
-}
 
 export function summarizeToolActivityItem(item: ActivityStreamItem): string {
   const name = (item.toolName ?? item.label ?? "tool").trim();

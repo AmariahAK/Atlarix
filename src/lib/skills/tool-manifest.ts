@@ -144,6 +144,7 @@ const manifests: Record<string, ToolManifest> = {
   "modes/debug-mode": {
     allowed: [
       "ask_user",
+      "delete_file",
       "diagnose_issue",
       "edit_file",
       "explore_folder",
@@ -162,6 +163,8 @@ const manifests: Record<string, ToolManifest> = {
       "mcp_call",
       "memory",
       "read_file",
+      "record_debug_hypothesis",
+      "rename_file",
       "run_command",
       "search",
       "stream_terminal_output",
@@ -170,6 +173,7 @@ const manifests: Record<string, ToolManifest> = {
       "open_terminal_instance",
       "close_terminal_instance",
       "write_file",
+      "write_multiple_files",
     ],
     readOnly: false,
   },

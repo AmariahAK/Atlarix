@@ -13,7 +13,7 @@ import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker"
 loader.config({ monaco });
 
 if (typeof globalThis !== "undefined") {
-  globalThis.MonacoEnvironment = {
+  (globalThis as typeof globalThis & { MonacoEnvironment?: unknown }).MonacoEnvironment = {
     getWorker(_workerId: string, label: string) {
       if (label === "json") return new jsonWorker();
       if (label === "css" || label === "scss" || label === "less") {
@@ -32,7 +32,7 @@ if (typeof globalThis !== "undefined") {
 
 export const customLight: monaco.editor.IStandaloneThemeData = {
   base: "vs",
-  inherit: false,
+  inherit: true,
   rules: [
     { token: "", foreground: "000000", background: "fffffe" },
     { token: "invalid", foreground: "cd3131" },
@@ -102,7 +102,7 @@ export const customLight: monaco.editor.IStandaloneThemeData = {
 
 export const customDark: monaco.editor.IStandaloneThemeData = {
   base: "vs-dark",
-  inherit: false,
+  inherit: true,
   rules: [
     { token: "", foreground: "D4D4D4", background: "1E1E1E" },
     { token: "invalid", foreground: "f44747" },
@@ -212,6 +212,22 @@ monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
 
 registerManifestLanguages();
+
+monaco.languages.setMonarchTokensProvider("atlarix-text", {
+  defaultToken: "",
+  tokenizer: {
+    root: [
+      [/^#.*$/, "comment"],
+      [/^\/\/.*$/, "comment"],
+      [/^;.*$/, "comment"],
+      [/"([^"\\]|\\.)*"/, "string"],
+      [/'([^'\\]|\\.)*'/, "string"],
+      [/\b(ERROR|FATAL|WARN|WARNING|INFO|DEBUG|TRACE)\b/, "keyword"],
+      [/\b\d+\b/, "number"],
+    ],
+  },
+});
+
 void initTextMateGrammars();
 
 if (typeof window !== "undefined") {

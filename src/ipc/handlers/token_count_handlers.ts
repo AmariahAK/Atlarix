@@ -1,9 +1,11 @@
 import { db } from "../../db";
-import { apps, chats, chatContextSummaries } from "../../db/schema";
+import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import {
   constructSystemPrompt,
+  type ModeSystemKey,
 } from "../../prompts/system_prompt";
+import type { WorkMode } from "@/lib/schemas";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
   SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
@@ -64,6 +66,7 @@ const SYSTEM_PROMPT_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function systemPromptCacheKey(args: {
   chatMode: "build" | "ask";
+  effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
   turboEditsV2: boolean;
   appSupabaseConfigured: boolean;
@@ -71,6 +74,7 @@ function systemPromptCacheKey(args: {
 }): SystemPromptCacheKey {
   return [
     args.chatMode,
+    args.effectiveWorkMode ?? "legacy",
     args.contextSize,
     args.turboEditsV2 ? "turbo" : "noturbo",
     args.appSupabaseConfigured ? "sup" : "nosup",
@@ -80,6 +84,7 @@ function systemPromptCacheKey(args: {
 
 function getOrComputeSystemPromptTokens(args: {
   chatMode: "build" | "ask";
+  effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
   turboEditsV2: boolean;
   appSupabaseConfigured: boolean;
@@ -93,8 +98,10 @@ function getOrComputeSystemPromptTokens(args: {
   }
   let systemPrompt = constructSystemPrompt({
     chatMode: args.chatMode,
+    effectiveWorkMode: args.effectiveWorkMode,
     contextSize: args.contextSize,
     enableTurboEditsV2: args.turboEditsV2,
+    hasWorkspace: true,
   });
   if (args.appSupabaseConfigured) {
     systemPrompt += "\n\n" + SUPABASE_AVAILABLE_SYSTEM_PROMPT;
@@ -179,45 +186,10 @@ async function computeTokenCountResult(
     return ta - tb;
   });
 
-  // PASS8 G1: Use chat_context_summaries when present so the UI reflects what
-  // the stream path actually sends to the model after a DB-backed compaction.
-  // Ephemeral / chat-only chats never carry summaries.
-  let messageHistoryTokens: number;
-  if (!isEphemeralChatId(req.chatId)) {
-    const summaryRow = await db.query.chatContextSummaries.findFirst({
-      where: eq(chatContextSummaries.chatId, req.chatId),
-    });
-    if (summaryRow) {
-      const tail = ordered.filter(
-        (m) => (m.id ?? 0) > summaryRow.lastMessageId,
-      );
-      const summaryTokens = estimateTokens(summaryRow.summaryText);
-      const tailTokens = tail.reduce(
-        (acc, m) => acc + estimateTokens(m.content),
-        0,
-      );
-      messageHistoryTokens = summaryTokens + tailTokens;
-      // FIX 4 / PASS8 G1 verification log: tells us, from a user's debug
-      // dump, exactly which branch produced the figure shown in the UI.
-      // Mirrors chat_stream_handlers.ts (summary + tail-only model dispatch).
-      logger.log(
-        `[token_count] summary+tail mode: summaryTokens=${summaryTokens} tailTokens=${tailTokens} total=${messageHistoryTokens} (chatId=${req.chatId}, tailMessages=${tail.length}, lastMessageId=${summaryRow.lastMessageId})`,
-      );
-    } else {
-      messageHistoryTokens = computeDeltaTailTokens(req.chatId, ordered);
-      // FIX 4: distinguish "G1 bypassed because no summary row" from the
-      // ephemeral case below. A 252K reading on a non-ephemeral chat with
-      // this log means compaction has not written a summary yet.
-      logger.log(
-        `[token_count] full-history mode (no summary row): tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length})`,
-      );
-    }
-  } else {
-    messageHistoryTokens = computeDeltaTailTokens(req.chatId, ordered);
-    logger.log(
-      `[token_count] full-history mode (ephemeral chat): tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length})`,
-    );
-  }
+  const messageHistoryTokens = computeDeltaTailTokens(req.chatId, ordered);
+  logger.log(
+    `[token_count] workspace stream: tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length})`,
+  );
 
   const inputTokens = estimateTokens(req.input);
 
@@ -240,8 +212,14 @@ async function computeTokenCountResult(
       : rawChatMode === "build" || rawChatMode === "agent" || rawChatMode === undefined
         ? "build"
         : "ask";
+  const pref = settings.workModePreference as WorkMode | undefined;
+  const tokenWorkMode: ModeSystemKey | undefined =
+    (settings.intentMode ?? cacheChatMode) !== "auto" && pref
+      ? pref
+      : undefined;
   const systemPromptTokens = getOrComputeSystemPromptTokens({
     chatMode: cacheChatMode,
+    effectiveWorkMode: tokenWorkMode,
     contextSize,
     turboEditsV2: isTurboEditsV2Enabled(settings),
     appSupabaseConfigured: Boolean(app?.supabaseProjectId),
@@ -342,29 +320,9 @@ export function registerTokenCountHandlers() {
         return computeTokenCountResult(req, rows, app);
       }
 
-      const chat = await db.query.chats.findFirst({
-        where: eq(chats.id, req.chatId),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-          },
-          app: true,
-        },
-      });
-
-      if (!chat) {
-        throw new Error(`Chat not found: ${req.chatId}`);
-      }
-
-      const rows: TokenCountMessageRow[] = chat.messages.map((m) => ({
-        id: m.id,
-        content: m.content,
-        role: m.role,
-        maxTokensUsed: m.maxTokensUsed,
-        createdAt: m.createdAt,
-      }));
-
-      return computeTokenCountResult(req, rows, chat.app ?? null);
+      throw new Error(
+        `Chat not found or legacy chat removed: ${req.chatId}. Open a workspace session.`,
+      );
     },
   );
 }

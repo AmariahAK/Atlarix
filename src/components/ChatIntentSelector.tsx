@@ -112,7 +112,7 @@ export function ChatIntentSelector() {
     setShowFirstTime(false);
     try {
       window.localStorage.setItem(HAS_SEEN_INTENT_KEY, "1");
-    } catch (_) {}
+    } catch {}
   };
 
   return (

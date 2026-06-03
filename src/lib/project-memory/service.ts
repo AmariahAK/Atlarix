@@ -2,20 +2,19 @@
  * SQLite project memory (snapshots + key/value).
  *
  * Pass 7: Blueprint subsystem removed — snapshots no longer carry
- * blueprintJson. Plan markdown + Mermaid diagram + git commit hash + session
- * summary remain.
+ * blueprintJson. Plan markdown + git commit hash + session summary remain.
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
 import { db } from "@/db";
-import { apps, projectMemory, projectSnapshots, workspaceDiagrams } from "@/db/schema";
+import { apps, projectMemory, projectSnapshots } from "@/db/schema";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 const PLAN_FILE = ".atlarix/ATLARIX_PLAN.md";
 import log from "electron-log";
-import { estimateTokens } from "@/ipc/utils/token_utils";
+import { truncateToTokens } from "@/lib/truncate";
 
 const logger = log.scope("project-memory");
 
@@ -46,33 +45,18 @@ async function readPlanMd(workspacePath: string): Promise<string | null> {
   }
 }
 
-async function latestDiagramMermaid(workspaceId: number): Promise<string | null> {
-  const [row] = await db
-    .select({ architecture: workspaceDiagrams.architecture })
-    .from(workspaceDiagrams)
-    .where(eq(workspaceDiagrams.appId, workspaceId))
-    .orderBy(desc(workspaceDiagrams.createdAt))
-    .limit(1);
-  return row?.architecture ?? null;
-}
-
-async function gatherPayload(
-  workspaceId: number,
-  workspacePath: string,
-): Promise<{
+async function gatherPayload(workspacePath: string): Promise<{
   planMd: string | null;
-  diagramMermaid: string | null;
   gitCommitHash: string | null;
 }> {
   const planMd = await readPlanMd(workspacePath);
-  const diagramMermaid = await latestDiagramMermaid(workspaceId);
   let gitCommitHash: string | null = null;
   try {
     gitCommitHash = (await getCurrentCommitHash({ path: workspacePath })) ?? null;
   } catch {
     gitCommitHash = null;
   }
-  return { planMd, diagramMermaid, gitCommitHash };
+  return { planMd, gitCommitHash };
 }
 
 async function pruneSnapshots(workspaceId: number): Promise<void> {
@@ -97,7 +81,7 @@ export async function insertProjectSnapshot(params: {
   const { workspaceId, workspacePath, trigger, sessionSummary, blueprintJson } = params;
   markTouched(workspaceId);
   try {
-    const payload = await gatherPayload(workspaceId, workspacePath);
+    const payload = await gatherPayload(workspacePath);
     await db.insert(projectSnapshots).values({
       workspaceId,
       // PASS6: Blueprint subsystem restored; column is required. Use the
@@ -105,7 +89,6 @@ export async function insertProjectSnapshot(params: {
       // placeholder for other triggers when no Blueprint exists yet.
       blueprintJson: blueprintJson ?? "{}",
       planMd: payload.planMd,
-      diagramMermaid: payload.diagramMermaid,
       gitCommitHash: payload.gitCommitHash,
       sessionSummary: sessionSummary ?? null,
       trigger,
@@ -276,18 +259,6 @@ export async function upsertProjectMemoryKey(
   });
 }
 
-function truncateToTokensLocal(text: string, maxTokens: number): string {
-  if (estimateTokens(text) <= maxTokens) return text;
-  let lo = 0;
-  let hi = text.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1) / 2);
-    if (estimateTokens(text.slice(0, mid)) <= maxTokens) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${text.slice(0, Math.max(0, lo))}\n…`;
-}
-
 /** Token-bounded block for system prompt (latest snapshots + memory keys). */
 export async function buildProjectMemoryPromptBlock(
   workspaceId: number,
@@ -322,5 +293,5 @@ export async function buildProjectMemoryPromptBlock(
     }
   }
   const body = parts.join("\n");
-  return truncateToTokensLocal(body, maxTokens);
+  return truncateToTokens(body, maxTokens, "\n…");
 }

@@ -82,7 +82,6 @@ function NestedThreadItems({
   items,
   isStreaming,
   agentStatus,
-  isHistorical,
   autoScroll = false,
 }: {
   items: StreamThreadItem[];

@@ -40,7 +40,7 @@ describe("processStreamChunks", () => {
 
     const abortController = new AbortController();
     const { fullResponse } = await processStreamChunks({
-      fullStream: fullStream() as Parameters<
+      fullStream: fullStream() as unknown as Parameters<
         typeof processStreamChunks
       >[0]["fullStream"],
       fullResponse: "",
@@ -75,7 +75,7 @@ describe("processStreamChunks", () => {
     }
 
     const { fullResponse } = await processStreamChunks({
-      fullStream: fullStream() as Parameters<
+      fullStream: fullStream() as unknown as Parameters<
         typeof processStreamChunks
       >[0]["fullStream"],
       fullResponse: "",

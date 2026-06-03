@@ -11,20 +11,28 @@ import {
     getSearxngConfig,
     setSearxngConfig,
     deleteSearxngConfig,
-    invalidateSearchConfigCache,
 } from "../shared/search_config";
+import {
+    normalizeSearxngBaseUrl,
+    safeFetch,
+} from "../../lib/security/url-policy";
 
 /**
  * Validate a SearxNG URL by attempting a test search
  */
+function searxngTrustedOrigins(baseUrl: string): string[] {
+    const origin = normalizeSearxngBaseUrl(baseUrl);
+    return origin ? [origin] : [];
+}
+
 async function validateSearxngUrl(url: string): Promise<{ valid: boolean; error?: string; resultsCount?: number }> {
     try {
+        const trustedOrigins = searxngTrustedOrigins(url);
         // Try /config endpoint first (lighter)
         try {
-            const configResponse = await fetch(`${url}/config`, {
-                signal: AbortSignal.timeout(5000),
+            const configResponse = await safeFetch(`${url}/config`, {
                 headers: { 'Accept': 'application/json' },
-            });
+            }, { trustedOrigins, timeoutMs: 5000 });
 
             if (configResponse.ok) {
                 return { valid: true, resultsCount: 0 };
@@ -34,10 +42,9 @@ async function validateSearxngUrl(url: string): Promise<{ valid: boolean; error?
         }
 
         // Try search endpoint
-        const response = await fetch(`${url}/search?q=test&format=json`, {
-            signal: AbortSignal.timeout(8000),
+        const response = await safeFetch(`${url}/search?q=test&format=json`, {
             headers: { 'Accept': 'application/json' },
-        });
+        }, { trustedOrigins, timeoutMs: 8000 });
 
         if (response.status === 403) {
             return {
@@ -88,10 +95,12 @@ async function searchWithRetry(
                 if (options.pageno) searchUrl.searchParams.append('pageno', String(options.pageno));
             }
 
-            const response = await fetch(searchUrl.toString(), {
-                signal: AbortSignal.timeout(15000),
+            const response = await safeFetch(searchUrl.toString(), {
                 headers: { 'Accept': 'application/json' },
                 // No User-Agent to avoid bot detection
+            }, {
+                trustedOrigins: searxngTrustedOrigins(url),
+                timeoutMs: 15_000,
             });
 
             if (response.status === 403) {
@@ -172,7 +181,7 @@ export function registerSearxngHandlers() {
             // Also sync to in-memory config module for tools
             setMainProcessConfig(result);
             return result;
-        } catch (error) {
+        } catch {
             console.log("[SearxNG] DB read failed, returning default");
             return { url: null, enabled: false };
         }
@@ -212,7 +221,7 @@ export function registerSearxngHandlers() {
         // Then try database
         try {
             await deleteSearxngConfig();
-        } catch (error) {
+        } catch {
             console.log("[SearxNG] DB delete skipped (migration pending)");
         }
 

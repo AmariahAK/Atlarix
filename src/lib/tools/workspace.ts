@@ -16,13 +16,10 @@ import {
 } from "./registry";
 import { generateCuteAppName } from "../utils";
 import { db } from "../../db";
-import { apps, chats } from "../../db/schema";
-import { eq } from "drizzle-orm";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { apps } from "../../db/schema";
+import { getEphemeralChat } from "@/lib/ephemeral-chat";
 import path from "path";
 import os from "node:os";
-import { existsSync } from "node:fs";
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
 import fs from "fs/promises";
 import { SubscriptionManager } from "../SubscriptionManager";
@@ -33,7 +30,6 @@ import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { normalizeAskUserPayload } from "./ask_user_options";
-const execAsync = promisify(exec);
 const logger = log.scope("workspace-tools");
 
 const DEFAULT_WORKSPACE_BASE = path.join(os.homedir(), "Documents", "Atlarix");
@@ -89,7 +85,6 @@ ToolRegistry.register({
                     upgrade_message: `Free tier includes 1 workspace with all features.
 
 Your current workspace: "${currentWorkspace?.name || 'Unknown'}"
-• ${currentWorkspace?.diagramCount || 0} diagrams saved
 
 To create a new workspace, you can:
 1. Delete your current workspace (loses data)
@@ -126,11 +121,11 @@ Would you like to upgrade or delete the existing workspace?`,
                 "utf-8"
             );
 
-            if (params.chatId) {
-                await db
-                    .update(chats)
-                    .set({ appId: app.id })
-                    .where(eq(chats.id, params.chatId));
+            if (params.chatId != null) {
+                const transport = getEphemeralChat(params.chatId);
+                if (transport) {
+                    transport.appId = app.id;
+                }
             }
 
             return {
@@ -239,10 +234,10 @@ ToolRegistry.register({
                 };
             }
 
-            await db
-                .update(chats)
-                .set({ appId: params.workspace_id })
-                .where(eq(chats.id, params.chatId));
+            const transport = getEphemeralChat(params.chatId);
+            if (transport) {
+                transport.appId = params.workspace_id;
+            }
 
             return {
                 success: true,

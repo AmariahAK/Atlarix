@@ -6,8 +6,7 @@
  */
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { LanguageModelV2 } from "@ai-sdk/provider";
-import { BaseProvider, type Tool, type ToolResult } from "./base-provider";
+import { BaseProvider, type Tool } from "./base-provider";
 
 // ═══════════════════════════════════════════════════════════
 // OLLAMA PROVIDER

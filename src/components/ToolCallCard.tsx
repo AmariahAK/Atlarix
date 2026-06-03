@@ -20,7 +20,6 @@ import {
     Globe,
     FolderOpen,
     Terminal,
-    GitBranch,
     Database,
     Wrench,
     MessageSquare,

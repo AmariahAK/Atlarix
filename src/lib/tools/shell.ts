@@ -42,7 +42,7 @@ ToolRegistry.register({
     name: "run_command",
     description:
         "Execute a shell command in the workspace. Commands run at the workspace (project) root; do not use paths under atlarix-apps. " +
-        "Available in Explore, Plan, Fix, and Review for read-only commands (git status, git log, git diff, ls, cat); mutating commands require Build mode. " +
+        "Allowed per current work mode allowlist; read-only git/shell in read-only modes; mutating commands only when the active mode permits. " +
         "Shows permission dialog before running. Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
         "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
@@ -430,7 +430,7 @@ ToolRegistry.register({
                 } else if (packageJson.scripts?.dev) {
                     devCommand = "npm run dev";
                 }
-            } catch (error) {
+            } catch {
                 // Use defaults
             }
 
@@ -609,13 +609,6 @@ function detectLanguage(filepath: string): string {
         ".c": "c",
     };
     return langMap[ext] || "unknown";
-}
-
-function calculateImpactLevel(dependencyCount: number): string {
-    if (dependencyCount === 0) return "none";
-    if (dependencyCount < 3) return "low";
-    if (dependencyCount < 10) return "medium";
-    return "high";
 }
 
 async function analyzeContextForFile(filepath: string, workspaceRoot: string) {

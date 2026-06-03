@@ -3,7 +3,11 @@ import * as fs from "node:fs/promises";
 
 import { db } from "@/db";
 import { installedSkills } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import {
+  normalizeSkillWorkspacePath,
+  resolveAppPath,
+} from "@/paths/paths";
 
 const logger = log.scope("installed-skills");
 
@@ -29,6 +33,17 @@ function cap(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n…`;
 }
 
+function skillWorkspacePathsMatch(
+  storedPath: string | null | undefined,
+  lookupPath: string,
+): boolean {
+  if (!storedPath?.trim()) return false;
+  return (
+    normalizeSkillWorkspacePath(storedPath) ===
+    normalizeSkillWorkspacePath(lookupPath)
+  );
+}
+
 /**
  * Load installed SKILL.md contents for prompt injection.
  * Order: workspace installed → global installed.
@@ -49,12 +64,16 @@ export async function loadInstalledSkillsForSession(opts: {
       ? db
           .select()
           .from(installedSkills)
-          .where(and(eq(installedSkills.scope, "workspace"), eq(installedSkills.workspacePath, wsPath)))
+          .where(eq(installedSkills.scope, "workspace"))
       : Promise.resolve([]),
     db.select().from(installedSkills).where(eq(installedSkills.scope, "global")),
   ]);
 
-  const merged = [...workspaceRows, ...globalRows].slice(0, maxTotalSkills);
+  const filteredWorkspaceRows = wsPath
+    ? workspaceRows.filter((row) => skillWorkspacePathsMatch(row.workspacePath, wsPath))
+    : [];
+
+  const merged = [...filteredWorkspaceRows, ...globalRows].slice(0, maxTotalSkills);
   const out: InstalledSkillContent[] = [];
   let used = 0;
 
@@ -84,3 +103,4 @@ export async function loadInstalledSkillsForSession(opts: {
   return out;
 }
 
+export { normalizeSkillWorkspacePath, resolveAppPath };

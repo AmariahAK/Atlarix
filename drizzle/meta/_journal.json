@@ -409,10 +409,17 @@
       "breakpoints": true
     },
     {
-      "idx": 56,
+      "idx": 58,
       "version": "6",
-      "when": 1779550000000,
-      "tag": "0056_workspace_command_permissions",
+      "when": 1779750000000,
+      "tag": "0058_session_stream_and_drop_legacy_chats",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1779850000000,
+      "tag": "0059_mcp_oauth_columns",
       "breakpoints": true
     }
   ]

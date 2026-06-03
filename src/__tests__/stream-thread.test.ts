@@ -81,6 +81,34 @@ describe("stream-thread", () => {
     expect(next[0]?.kind === "tool" && next[0].summary).toBe("Read files");
   });
 
+  it("handleStreamToolEnd builds an expandable card from resultText (not 'Done' detail)", () => {
+    const items = [
+      {
+        kind: "tool" as const,
+        id: "list_available_mcps",
+        toolName: "list_available_mcps",
+        summary: "Listing MCP servers…",
+        status: "running" as const,
+        ts: 1,
+      },
+    ];
+    const resultText = JSON.stringify({
+      success: true,
+      result: {
+        servers: [{ name: "github", tools: [{ name: "search_issues" }] }],
+        usage: "Call mcp_call(...)",
+      },
+    });
+    const next = handleStreamToolEnd(items, {
+      toolId: "list_available_mcps",
+      detail: "Done",
+      resultText,
+    });
+    const tool = next[0];
+    expect(tool?.kind === "tool" && tool.status).toBe("done");
+    expect(tool?.kind === "tool" && tool.expand?.kind).toBe("mcp_servers");
+  });
+
   it("completeStreamToolOnEnd matches by toolId before last running", () => {
     const items = [
       {
@@ -202,6 +230,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-read_file-100",
       type: "tool_use",
       toolName: "read_file",
+      label: "read_file",
       status: "running",
       parentDelegationId: "delegation-1",
       timestamp: 1,
@@ -211,6 +240,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-read_file-200",
       type: "tool_use",
       toolName: "read_file",
+      label: "read_file",
       status: "done",
       parentDelegationId: "delegation-1",
       timestamp: 2,
@@ -244,6 +274,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-read_file-100",
       type: "tool_use",
       toolName: "read_file",
+      label: "read_file",
       status: "running",
       parentDelegationId: "delegation-1",
       timestamp: 2,
@@ -253,6 +284,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-read_file-200",
       type: "tool_use",
       toolName: "read_file",
+      label: "read_file",
       status: "done",
       parentDelegationId: "delegation-1",
       timestamp: 3,
@@ -334,6 +366,8 @@ describe("stream-thread", () => {
       id: "delegation-1",
       type: "subagent_progress",
       preview: "Reading package.json",
+      label: "explore",
+      status: "running",
       timestamp: 2,
       agent: "explore",
       agentType: "explore",
@@ -344,6 +378,8 @@ describe("stream-thread", () => {
       id: "delegation-1",
       type: "subagent_progress",
       preview: "Listed files",
+      label: "explore",
+      status: "running",
       timestamp: 3,
       agent: "explore",
       agentType: "explore",
@@ -509,6 +545,8 @@ describe("stream-thread", () => {
           id: "delegation-1",
           type: "subagent_progress",
           preview: "Reading files… (api/README.md)…",
+          label: "explore",
+          status: "running",
           timestamp: 2,
           chatId: 1,
           roundId: "turn-1",
@@ -609,6 +647,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-explore_folder-100",
       type: "tool_use",
       toolName: "explore_folder",
+      label: "explore_folder",
       status: "running",
       parentDelegationId: "delegation-1",
       roundId: "turn-1",
@@ -717,6 +756,7 @@ describe("stream-thread", () => {
           id: "delegation-1",
           type: "subagent_complete",
           agent: "explore",
+          label: "explore",
           status: "done",
           timestamp: 3,
           chatId: 1,
@@ -741,6 +781,7 @@ describe("stream-thread", () => {
       id: "sub-tool-del-1-explore_folder-99",
       type: "tool_use",
       toolName: "explore_folder",
+      label: "explore_folder",
       status: "done",
       detail,
       parentDelegationId: "delegation-1",

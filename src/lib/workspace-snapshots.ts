@@ -1,14 +1,14 @@
 /**
  * Workspace Snapshots (Pro)
  * =========================
- * One-click save/restore of workspace state: files, prompt, diagram, chat.
+ * One-click save/restore of workspace state: files, prompt, chat.
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
 import { db } from "../db";
-import { workspaceSnapshots, diagrams } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { workspaceSnapshots } from "../db/schema";
+import { eq, desc } from "drizzle-orm";
 import { resolveAppPath } from "../paths/paths";
 import { glob } from "glob";
 import log from "electron-log";
@@ -32,7 +32,6 @@ const MAX_FILE_SIZE = 500_000; // 500KB per file
 export interface SnapshotData {
   files: Record<string, string>;
   promptContent: string | null;
-  diagramContent: string | null;
   chatMessages: Array<{ role: string; content: string }> | null;
 }
 
@@ -40,7 +39,6 @@ export async function createSnapshot(
   appId: number,
   name: string,
   appPath: string,
-  workspaceId: number,
   chatMessages?: Array<{ role: string; content: string }>
 ): Promise<{ id: number }> {
   const fullPath = path.isAbsolute(appPath) ? appPath : resolveAppPath(appPath);
@@ -67,14 +65,6 @@ export async function createSnapshot(
     }
   }
 
-  const [latestDiagram] = await db
-    .select()
-    .from(diagrams)
-    .where(eq(diagrams.workspaceId, workspaceId))
-    .orderBy(desc(diagrams.updatedAt))
-    .limit(1);
-  const diagramContent = latestDiagram?.content ?? null;
-
   const [snapshot] = await db
     .insert(workspaceSnapshots)
     .values({
@@ -82,7 +72,6 @@ export async function createSnapshot(
       name,
       filesJson: files,
       promptContent: null,
-      diagramContent,
       chatMessagesJson: chatMessages ?? null,
     })
     .returning({ id: workspaceSnapshots.id });
@@ -148,7 +137,6 @@ export async function restoreSnapshot(
 
 export async function getSnapshotForRestore(snapshotId: number): Promise<{
   promptContent: string | null;
-  diagramContent: string | null;
   chatMessages: Array<{ role: string; content: string }> | null;
 } | null> {
   const [snapshot] = await db
@@ -159,7 +147,6 @@ export async function getSnapshotForRestore(snapshotId: number): Promise<{
   if (!snapshot) return null;
   return {
     promptContent: snapshot.promptContent,
-    diagramContent: snapshot.diagramContent,
     chatMessages: snapshot.chatMessagesJson as Array<{ role: string; content: string }> | null,
   };
 }

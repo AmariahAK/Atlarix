@@ -4,6 +4,10 @@ import { ToolFileListExpand } from "./ToolFileListExpand";
 import { ToolMatchListExpand } from "./ToolMatchListExpand";
 import { ToolReadSnippetExpand } from "./ToolReadSnippetExpand";
 import { ToolSearchResultsExpand } from "./ToolSearchResultsExpand";
+import { ToolMcpServersExpand } from "./ToolMcpServersExpand";
+import { ToolMcpResultExpand } from "./ToolMcpResultExpand";
+import { ToolMcpAuthExpand } from "./ToolMcpAuthExpand";
+import { ToolScrollableBody } from "./ToolScrollableBody";
 import { cn } from "@/lib/utils";
 
 export function ToolExpandPanel({
@@ -24,17 +28,15 @@ export function ToolExpandPanel({
       {view.kind === "search_results" ? (
         <ToolSearchResultsExpand view={view} />
       ) : null}
+      {view.kind === "mcp_servers" ? <ToolMcpServersExpand view={view} /> : null}
+      {view.kind === "mcp_result" ? <ToolMcpResultExpand view={view} /> : null}
+      {view.kind === "mcp_auth" ? <ToolMcpAuthExpand view={view} /> : null}
       {view.kind === "text" ? (
-        <pre
-          className={cn(
-            "text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans",
-            view.isError
-              ? "text-destructive"
-              : "text-foreground/85 dark:text-muted-foreground",
-          )}
-        >
-          {view.body}
-        </pre>
+        <ToolScrollableBody
+          text={view.body}
+          mono={false}
+          isError={view.isError}
+        />
       ) : null}
     </div>
   );

@@ -35,9 +35,6 @@ export const apps = sqliteTable("apps", {
   isFavorite: integer("is_favorite", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
-  preferredDiagramType: text("preferred_diagram_type", {
-    enum: ["architecture", "dependencies", "flows"],
-  }).default("architecture"),
   lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
   workspaceKind: text("workspace_kind", {
     enum: ["local", "remote-ssh"],
@@ -101,80 +98,6 @@ export const workspaceFilePermissions = sqliteTable(
   ],
 );
 
-export const chats = sqliteTable("chats", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  appId: integer("app_id")
-    .references(() => apps.id, { onDelete: "cascade" }), // Nullable for chat-only sessions
-  title: text("title"),
-  initialCommitHash: text("initial_commit_hash"),
-  /** v3.9: When true, the AI has already received answers to clarifying questions in this chat; omit <questions> instruction. */
-  hasAnsweredQuestions: integer("has_answered_questions", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
-export const messages = sqliteTable("messages", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  chatId: integer("chat_id")
-    .notNull()
-    .references(() => chats.id, { onDelete: "cascade" }),
-  role: text("role", { enum: ["user", "assistant"] }).notNull(),
-  content: text("content").notNull(),
-  /** Model-facing user message (paste/terminal bodies); `content` is display-only when set. */
-  modelContent: text("model_content"),
-  /** Pasted text / terminal metadata for chip preview (JSON). */
-  pasteAttachments: text("paste_attachments", { mode: "json" }).$type<
-    import("../ipc/ipc_types").PasteAttachmentMeta[] | null
-  >(),
-  /** Uploaded file payloads for read_attachment after restart (JSON). */
-  fileAttachments: text("file_attachments", { mode: "json" }).$type<
-    import("../ipc/ipc_types").StoredFileAttachment[] | null
-  >(),
-  approvalState: text("approval_state", {
-    enum: ["approved", "rejected"],
-  }),
-  // The commit hash of the codebase at the time the message was created
-  sourceCommitHash: text("source_commit_hash"),
-  // The commit hash of the codebase at the time the message was sent
-  commitHash: text("commit_hash"),
-  requestId: text("request_id"),
-  // Max tokens used for this message (only for assistant messages)
-  maxTokensUsed: integer("max_tokens_used"),
-  /** v3.9: 0-based exchange index (user+assistant pair). */
-  exchangeIndex: integer("exchange_index"),
-  /** v3.9: Snapshot id taken before this assistant message (for revert). */
-  snapshotId: integer("snapshot_id"),
-  /** v3.9: Paths written in this exchange (Build mode). */
-  filesWritten: text("files_written", { mode: "json" }).$type<string[]>(),
-  /** Non-destructive revert: message stays visible, styled as reverted in UI. */
-  isReverted: integer("is_reverted", { mode: "boolean" })
-    .notNull()
-    .default(sql`0`),
-  /** When the turn used Auto model routing, the resolved tier (fast / balanced / thinking). */
-  autoRoutedTier: text("auto_routed_tier", {
-    enum: ["fast", "balanced", "thinking"],
-  }),
-  /** Compaction continuation: system-inserted user line (hide or style softly in UI). */
-  isSynthetic: integer("is_synthetic", { mode: "boolean" })
-    .notNull()
-    .default(sql`0`),
-  /** Work mode active when the user sent this message (explore/plan/build/fix/review). */
-  workMode: text("work_mode", {
-    enum: ["ask", "plan", "build", "debug", "review"],
-  }),
-  /** Frozen sub-agent / tool UI for chat resume (JSON DisplaySnapshotV1). */
-  displaySnapshot: text("display_snapshot"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
 /** Workspace-scoped chat sessions (local persistence). */
 export const chatSessions = sqliteTable("chat_sessions", {
   id: text("id").primaryKey(),
@@ -182,6 +105,8 @@ export const chatSessions = sqliteTable("chat_sessions", {
     .notNull()
     .references(() => apps.id, { onDelete: "cascade" }),
   title: text("title").notNull().default("Untitled"),
+  /** In-memory stream transport id (negative); survives app restart mapping. */
+  streamChatId: integer("stream_chat_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -290,12 +215,9 @@ export const versions = sqliteTable(
   ],
 );
 
-// Define relations
 export const appsRelations = relations(apps, ({ many }) => ({
-  chats: many(chats),
   chatSessions: many(chatSessions),
   versions: many(versions),
-  workspaceDiagrams: many(workspaceDiagrams),
   // Pass 7: Blueprint + PIVOT relations removed (tables dropped in migration 0043).
   projectSnapshots: many(projectSnapshots),
   projectMemoryRows: many(projectMemory),
@@ -335,22 +257,6 @@ export const sessionMessagesRelations = relations(sessionMessages, ({ one }) => 
   session: one(chatSessions, {
     fields: [sessionMessages.sessionId],
     references: [chatSessions.id],
-  }),
-}));
-
-export const chatsRelations = relations(chats, ({ many, one }) => ({
-  messages: many(messages),
-  app: one(apps, {
-    fields: [chats.appId],
-    references: [apps.id],
-  }),
-  toolSessionLoads: many(toolSessionLoads),
-}));
-
-export const messagesRelations = relations(messages, ({ one }) => ({
-  chat: one(chats, {
-    fields: [messages.chatId],
-    references: [chats.id],
   }),
 }));
 
@@ -402,29 +308,6 @@ export const providerApiKeys = sqliteTable("provider_api_keys", {
     .notNull()
     .default(sql`(unixepoch())`),
 });
-
-// Chat Context Summaries - Phase 6 context bar + auto-summarize
-// One row per chat; newer compactions prepend `<summary id="N">` and nest prior text.
-export const chatContextSummaries = sqliteTable("chat_context_summaries", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  chatId: integer("chat_id")
-    .notNull()
-    .unique()
-    .references(() => chats.id, { onDelete: "cascade" }),
-  summaryText: text("summary_text").notNull(),
-  lastMessageId: integer("last_message_id").notNull(),
-  compactionGeneration: integer("compaction_generation").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
-export const chatContextSummariesRelations = relations(chatContextSummaries, ({ one }) => ({
-  chat: one(chats, {
-    fields: [chatContextSummaries.chatId],
-    references: [chats.id],
-  }),
-}));
 
 // OpenRouter Favorite Models - Store user's favorite models (max 3: Fast/Balanced/Deep)
 export const openrouterFavorites = sqliteTable("openrouter_favorites", {
@@ -513,6 +396,14 @@ export const mcpServers = sqliteTable("mcp_servers", {
   fromRegistry: integer("from_registry", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
+  /** How this server authenticates: none | env | api_key | oauth */
+  authType: text("auth_type").notNull().default("none"),
+  /** Encrypted OAuth token blob (access_token, refresh_token, expires_in). */
+  oauthTokensJson: text("oauth_tokens_json"),
+  /** Encrypted dynamic OAuth client registration payload. */
+  oauthClientJson: text("oauth_client_json"),
+  /** Cached OAuth discovery metadata (RFC 9728 / auth server). */
+  oauthDiscoveryJson: text("oauth_discovery_json"),
   /** Pass 7: corresponds to `McpRegistryEntry.id` when installed via marketplace. */
   registryId: text("registry_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
@@ -557,56 +448,10 @@ export const searchProviders = sqliteTable("search_providers", {
     .default(sql`(unixepoch())`),
 });
 
-// --- Diagrams tables ---
+// Diagram tables removed with the diagram subsystem (legacy `diagrams` /
+// `workspace_diagrams` SQLite tables remain in old DBs; nothing reads or writes them).
 
-// Diagrams - Store AI-generated architecture/class/sequence diagrams
-export const diagrams = sqliteTable("diagrams", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  workspaceId: integer("workspace_id").references(() => apps.id, { onDelete: "cascade" }),
-  chatId: integer("chat_id").references(() => chats.id, { onDelete: "set null" }),
-  diagramType: text("diagram_type", {
-    enum: ["mermaid", "architecture", "sequence", "class", "flowchart"],
-  }).notNull(),
-  title: text("title").notNull(),
-  content: text("content").notNull(), // Mermaid diagram code
-  /** MD5 map path → hash at last diagram generation (staleness; replaces metadata.diagramGitCommit). */
-  lastSnapshotHashes: text("last_snapshot_hashes", { mode: "json" }).$type<
-    Record<string, string> | null
-  >(),
-  metadata: text("metadata", { mode: "json" }).$type<{
-    files?: string[];
-    entities?: string[];
-    focus?: string;
-    summary?: string;
-    /** @deprecated Legacy internal-git commit; use lastSnapshotHashes + .atlarix/snapshot_hashes.json */
-    diagramGitCommit?: string;
-    /** Git commit when diagram was saved (for update vs regenerate decision) */
-    gitCommit?: string;
-    /** 'regenerate' | 'update' */
-    updateType?: string;
-    workflow?: { nodes?: unknown[]; connections?: unknown };
-    nodeMessages?: Array<{ nodeId: string; message: string; createdAt: number; updatedAt: number }>;
-  } | null>(),
-  // Fingerprint fields for staleness detection
-  fingerprintHash: text("fingerprint_hash"), // Quick comparison hash
-  fingerprintData: text("fingerprint_data", { mode: "json" }).$type<{
-    fileCount: number;
-    directoryCount: number;
-    fileTypes: Record<string, number>;
-    totalSize: number;
-    lastModified: number;
-    hash: string;
-  } | null>(),
-  createdFromFileCount: integer("created_from_file_count"), // For fast checks
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
-// --- Daily Logs (Diagram-First Context System) ---
+// --- Daily Logs ---
 // AI-generated micro-changelog for workspace activity
 // Replaces chat history as context source
 
@@ -640,83 +485,9 @@ export const dailyLogs = sqliteTable("daily_logs", {
     .default(sql`(unixepoch())`),
 });
 
-// Diagram relations
-export const diagramsRelations = relations(diagrams, ({ one }) => ({
-  workspace: one(apps, {
-    fields: [diagrams.workspaceId],
-    references: [apps.id],
-  }),
-  chat: one(chats, {
-    fields: [diagrams.chatId],
-    references: [chats.id],
-  }),
-}));
-
 export const dailyLogsRelations = relations(dailyLogs, ({ one }) => ({
   workspace: one(apps, {
     fields: [dailyLogs.workspaceId],
-    references: [apps.id],
-  }),
-}));
-
-// --- Workspace Diagrams (Diagram Timeline System) ---
-// Save timestamped diagram snapshots to show project evolution
-// Like financial charts, but for code architecture
-
-export const workspaceDiagrams = sqliteTable(
-  "workspace_diagrams",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    appId: integer("app_id")
-      .notNull()
-      .references(() => apps.id, { onDelete: "cascade" }),
-
-    // Diagram content (multiple types per snapshot)
-    architecture: text("architecture").notNull(), // Always present
-    dependencies: text("dependencies"), // Optional - captured on package.json change
-    flows: text("flows", { mode: "json" }).$type<Record<string, string> | null>(), // User-created
-
-    // Capture trigger
-    trigger: text("trigger", {
-      enum: ["auto", "ai_change", "user_request", "structural"],
-    }).notNull(),
-
-    // Metadata
-    summary: text("summary"), // AI-generated: "Added AuthModule, refactored DB"
-    annotation: text("annotation"), // User-provided: "Before v2.0 refactor"
-    filesChanged: text("files_changed", { mode: "json" }).$type<string[] | null>(),
-
-    // Deduplication
-    hash: text("hash").notNull(), // For duplicate detection
-
-    // Protection (annotated snapshots never auto-deleted)
-    protected: integer("protected", { mode: "boolean" })
-      .notNull()
-      .default(sql`0`),
-
-    // Compression flag (old snapshots marked as compressed)
-    compressed: integer("compressed", { mode: "boolean" })
-      .notNull()
-      .default(sql`0`),
-
-    // Timestamps
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
-  },
-  (table) => [
-    // Index for fast timeline queries
-    index("workspace_diagrams_app_id_created_at_idx").on(
-      table.appId,
-      table.createdAt
-    ),
-  ]
-);
-
-// Workspace Diagrams relations
-export const workspaceDiagramsRelations = relations(workspaceDiagrams, ({ one }) => ({
-  app: one(apps, {
-    fields: [workspaceDiagrams.appId],
     references: [apps.id],
   }),
 }));
@@ -733,7 +504,6 @@ export const workspaceSnapshots = sqliteTable(
     name: text("name").notNull(),
     filesJson: text("files_json", { mode: "json" }).$type<Record<string, string>>().notNull(),
     promptContent: text("prompt_content"),
-    diagramContent: text("diagram_content"),
     chatMessagesJson: text("chat_messages_json", { mode: "json" }).$type<Array<{ role: string; content: string }>>(),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -741,31 +511,8 @@ export const workspaceSnapshots = sqliteTable(
   },
   (table) => [
     index("workspace_snapshots_app_id_idx").on(table.appId),
-  ]
+  ],
 );
-
-// --- v4.0: Tool session loads (analytics - which tools first called per chat) ---
-export const toolSessionLoads = sqliteTable(
-  "tool_session_loads",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    chatId: integer("chat_id")
-      .notNull()
-      .references(() => chats.id, { onDelete: "cascade" }),
-    toolName: text("tool_name").notNull(),
-    firstCalledAt: integer("first_called_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
-  },
-  (table) => [index("tool_session_loads_chat_id_idx").on(table.chatId)],
-);
-
-export const toolSessionLoadsRelations = relations(toolSessionLoads, ({ one }) => ({
-  chat: one(chats, {
-    fields: [toolSessionLoads.chatId],
-    references: [chats.id],
-  }),
-}));
 
 // --- Workflow Templates (Atlaflow template library) ---
 // Save/load named workflow templates (e.g. "API + DB", "Webhook → Slack")

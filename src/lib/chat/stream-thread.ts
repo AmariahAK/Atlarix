@@ -58,6 +58,7 @@ export type StreamThreadItem =
       kind: "background";
       id: string;
       label: string;
+      detail?: string;
       status: "running" | "done" | "error";
       ts: number;
     }
@@ -248,14 +249,23 @@ export function streamThreadItemFromToolStart(payload: {
 function finalizeToolItem(
   item: Extract<StreamThreadItem, { kind: "tool" }>,
   status: StreamThreadToolStatus,
-  opts?: { summary?: string; detail?: string; expand?: ToolExpandView },
+  opts?: {
+    summary?: string;
+    detail?: string;
+    resultText?: string;
+    expand?: ToolExpandView;
+  },
 ): StreamThreadItem {
   const registryName = item.toolName;
   const rawDetail = opts?.detail ?? item.detail;
+  const resultText = opts?.resultText ?? item.resultText;
+  // Prefer the structured result text (full tool JSON) over the human "Done"
+  // detail when building the expand view, so cards keep their real content.
+  const expandSource = resultText ?? rawDetail;
   const expand =
     opts?.expand ??
-    (rawDetail
-      ? buildToolExpandView(registryName, item.toolArgs, rawDetail, status)
+    (expandSource
+      ? buildToolExpandView(registryName, item.toolArgs, expandSource, status)
       : item.expand);
   return {
     ...item,
@@ -266,6 +276,7 @@ function finalizeToolItem(
         ? getToolRunningSummary(registryName)
         : getToolCompletedSummary(registryName)),
     detail: rawDetail,
+    resultText,
     expand,
     toolArgs: item.toolArgs,
   };
@@ -301,6 +312,10 @@ export type StreamToolEndPayload = {
   status?: StreamThreadToolStatus;
   /** Raw result or activity detail — formatted for expand preview. */
   detail?: string;
+  /** Full structured tool output (JSON) — preferred source for the expand view. */
+  resultText?: string;
+  /** Pre-built expand view (e.g. from streamThreadItemFromActivity). */
+  expand?: ToolExpandView;
 };
 
 /**
@@ -318,6 +333,8 @@ export function handleStreamToolEnd(
     toolName: registryName,
     status,
     detail: payload.detail,
+    resultText: payload.resultText,
+    expand: payload.expand,
     summary: getToolCompletedSummary(registryName),
   });
 }
@@ -342,7 +359,12 @@ export function completeStreamToolOnEnd(
     next[idx] = finalizeToolItem(
       items[idx] as Extract<StreamThreadItem, { kind: "tool" }>,
       status,
-      { summary: opts?.summary, detail: opts?.detail },
+      {
+        summary: opts?.summary,
+        detail: opts?.detail,
+        resultText: opts?.resultText,
+        expand: opts?.expand,
+      },
     );
     return next;
   }
@@ -354,7 +376,12 @@ export function completeStreamToolOnEnd(
 export function completeLastRunningStreamTool(
   items: StreamThreadItem[],
   status: StreamThreadToolStatus = "done",
-  opts?: { summary?: string; detail?: string },
+  opts?: {
+    summary?: string;
+    detail?: string;
+    resultText?: string;
+    expand?: ToolExpandView;
+  },
 ): StreamThreadItem[] {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
@@ -429,7 +456,7 @@ export function streamThreadItemFromActivity(
   const ts = item.timestamp ?? Date.now();
   const id = item.id || `act-${ts}`;
 
-  if (item.type === "tool_use" || item.type === "tool") {
+  if (item.type === "tool_use") {
     const registryName = (item.toolName ?? "").trim() || "tool";
     const activityId = (item.id ?? "").trim();
     const stableId =
@@ -955,7 +982,7 @@ function buildSubagentAgentsFromActivity(
     }
 
     if (
-      (item.type === "tool_use" || item.type === "tool") &&
+      (item.type === "tool_use") &&
       item.parentDelegationId?.trim()
     ) {
       const parentId = item.parentDelegationId.trim();
@@ -1073,14 +1100,106 @@ export function mergeNestedToolActivityIntoSubagentRound(
   );
 }
 
+function isExpandableToolItem(
+  item: Extract<StreamThreadItem, { kind: "tool" }>,
+): boolean {
+  return Boolean(item.expand && item.expand.kind !== "none");
+}
+
+/** Merge IPC-frozen tools with tag-parsed content so expand/detail survive persist. */
+export function enrichStreamThreadFromAssistantContent(
+  items: StreamThreadItem[],
+  assistantContent: string,
+): StreamThreadItem[] {
+  if (!assistantContent.trim()) return items;
+
+  const fromContent = buildCompletedStreamThreadFromAssistantContent(
+    assistantContent,
+  );
+  const contentToolsByName = new Map<
+    string,
+    Extract<StreamThreadItem, { kind: "tool" }>[]
+  >();
+  for (const item of fromContent) {
+    if (item.kind !== "tool") continue;
+    const list = contentToolsByName.get(item.toolName) ?? [];
+    list.push(item);
+    contentToolsByName.set(item.toolName, list);
+  }
+
+  const usedByName = new Map<string, number>();
+  const enrichTool = (
+    tool: Extract<StreamThreadItem, { kind: "tool" }>,
+  ): Extract<StreamThreadItem, { kind: "tool" }> => {
+    const idx = usedByName.get(tool.toolName) ?? 0;
+    usedByName.set(tool.toolName, idx + 1);
+    const contentTool = contentToolsByName.get(tool.toolName)?.[idx];
+    if (!contentTool) return tool;
+    if (isExpandableToolItem(tool)) return tool;
+    if (!isExpandableToolItem(contentTool)) return tool;
+    return {
+      ...tool,
+      expand: contentTool.expand,
+      detail: contentTool.detail ?? tool.detail,
+      resultText: contentTool.resultText ?? tool.resultText,
+      summary: contentTool.summary || tool.summary,
+    };
+  };
+
+  let next = items.map((item) => {
+    if (item.kind === "tool") return enrichTool(item);
+    if (item.kind === "subagent_round") {
+      return {
+        ...item,
+        agents: item.agents.map((agent) => ({
+          ...agent,
+          nestedItems: enrichStreamThreadFromAssistantContent(
+            agent.nestedItems,
+            assistantContent,
+          ),
+        })),
+      };
+    }
+    if (item.kind === "subagent" && item.nestedItems) {
+      return {
+        ...item,
+        nestedItems: enrichStreamThreadFromAssistantContent(
+          item.nestedItems,
+          assistantContent,
+        ),
+      };
+    }
+    return item;
+  });
+
+  if (!next.some((i) => i.kind === "thought")) {
+    const thoughts = fromContent.filter(
+      (i): i is Extract<StreamThreadItem, { kind: "thought" }> =>
+        i.kind === "thought",
+    );
+    if (thoughts.length > 0) {
+      next = [...thoughts, ...next];
+    }
+  }
+
+  return next;
+}
+
 /** Pin live stream-thread cards to an assistant message before clearing the chat map. */
 export function freezeStreamThreadForAssistantMessage(
   items: StreamThreadItem[],
   thoughtContent?: string | null,
+  assistantContent?: string | null,
 ): StreamThreadItem[] {
   let finalized = finalizeAllRunningStreamTools(items);
   finalized = finalizeRunningBackgroundItems(finalized);
   finalized = flattenToolGroupsInThread(finalized);
+  if (assistantContent?.trim()) {
+    finalized = enrichStreamThreadFromAssistantContent(
+      finalized,
+      assistantContent,
+    );
+  }
   const thought = thoughtContent?.trim();
   if (thought && !finalized.some((i) => i.kind === "thought")) {
     finalized = [

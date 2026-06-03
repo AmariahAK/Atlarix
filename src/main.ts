@@ -618,6 +618,16 @@ const createWindow = () => {
     // backgroundColor: "#00000001",
     // frame: false,
   });
+
+  // Open external links (target="_blank", window.open, in-chat result links) in
+  // the user's system browser instead of spawning a blank Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -876,6 +886,52 @@ function handleDeepLinkReturn(url: string) {
   // provisioned per MCP via the marketplace install flow (env vars stored
   // directly in `mcp_servers.env_json`), so the `atlarix://auth0/callback`
   // protocol path is no longer used.
+
+  // MCP OAuth deep-link fallback (active path is loopback in mcp-oauth-service):
+  // atlarix://mcp/oauth/callback?code=...&state=...
+  if (
+    parsed.hostname === "mcp" &&
+    parsed.pathname.startsWith("/oauth/callback")
+  ) {
+    import("./ipc/handlers/mcp_oauth_handlers").then(
+      async ({ handleMcpOAuthDeepLink }) => {
+        await handleMcpOAuthDeepLink(url);
+      },
+    ).catch((err) => {
+      log.error("Failed to handle MCP OAuth callback:", err);
+    });
+    return;
+  }
+
+  // MCP OAuth callback: atlarix://mcp/oauth/callback?code=...&state=...
+  if (
+    parsed.hostname === "mcp" &&
+    parsed.pathname.startsWith("/oauth/callback")
+  ) {
+    import("./ipc/handlers/mcp_oauth_handlers").then(
+      async ({ handleMcpOAuthDeepLink }) => {
+        await handleMcpOAuthDeepLink(url);
+      },
+    ).catch((err) => {
+      log.error("Failed to handle MCP OAuth callback:", err);
+    });
+    return;
+  }
+
+  // MCP OAuth callback: atlarix://mcp/oauth/callback?code=...&state=...
+  if (
+    parsed.hostname === "mcp" &&
+    parsed.pathname.startsWith("/oauth/callback")
+  ) {
+    import("./ipc/handlers/mcp_oauth_handlers").then(
+      async ({ handleMcpOAuthDeepLink }) => {
+        await handleMcpOAuthDeepLink(url);
+      },
+    ).catch((err) => {
+      log.error("Failed to handle MCP OAuth callback:", err);
+    });
+    return;
+  }
 
   // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
   // Supabase OAuth returns tokens in hash fragment, not query params

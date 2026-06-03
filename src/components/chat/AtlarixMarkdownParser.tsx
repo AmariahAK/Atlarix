@@ -23,17 +23,12 @@ import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
 import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
 import { IpcClient } from "@/ipc/ipc_client";
-import { AtlarixMcpToolCall } from "./AtlarixMcpToolCall";
-import { AtlarixMcpToolResult } from "./AtlarixMcpToolResult";
 import { AtlarixWebSearchResult } from "./AtlarixWebSearchResult";
 import { AtlarixWebSearch } from "./AtlarixWebSearch";
 import { AtlarixWebCrawl } from "./AtlarixWebCrawl";
 import { AtlarixCodeSearchResult } from "./AtlarixCodeSearchResult";
 import { AtlarixCodeSearch } from "./AtlarixCodeSearch";
 import { AtlarixRead } from "./AtlarixRead";
-import { AtlarixToolCall } from "./AtlarixToolCall";
-import { AtlarixToolResult } from "./AtlarixToolResult";
-import { ToolSummary, ToolCall as ToolSummaryCall } from "../ToolSummary";
 import { mapActionToButton } from "./ChatInput";
 import { SuggestedAction } from "@/lib/schemas";
 import { FixAllErrorsButton } from "./FixAllErrorsButton";
@@ -117,7 +112,6 @@ function partitionContentPieces(
   const thoughts: string[] = [];
   const reasoningTagParts: string[] = [];
   const modelReasoningParts: string[] = [];
-  const toolCalls: PartitionedContent["toolCalls"] = [];
   const answer: Array<{ piece: ContentPiece; index: number }> = [];
   const toolMap = new Map<
     string,
@@ -1035,32 +1029,10 @@ function renderCustomTag(
       );
 
     case "atlarix-mcp-tool-call":
-      return (
-        <AtlarixMcpToolCall
-          node={{
-            properties: {
-              serverName: attributes.server || "",
-              toolName: attributes.tool || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixMcpToolCall>
-      );
-
     case "atlarix-mcp-tool-result":
-      return (
-        <AtlarixMcpToolResult
-          node={{
-            properties: {
-              serverName: attributes.server || "",
-              toolName: attributes.tool || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixMcpToolResult>
-      );
+      // Legacy MCP tool tags are consumed into structured tool parts before
+      // markdown rendering; render nothing if one ever reaches here.
+      return null;
 
     case "atlarix-output":
       return (
@@ -1093,33 +1065,10 @@ function renderCustomTag(
       return null;
 
     case "atlarix-tool-call":
-      return (
-        <AtlarixToolCall
-          node={{
-            properties: {
-              tool: attributes.tool || attributes.name || "",
-              status: attributes.status || "success",
-            },
-          }}
-        >
-          {content}
-        </AtlarixToolCall>
-      );
-
     case "atlarix-tool-result":
-      return (
-        <AtlarixToolResult
-          node={{
-            properties: {
-              tool: attributes.tool || attributes.name || "",
-              status: attributes.status || "success",
-              error: attributes.error || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixToolResult>
-      );
+      // Legacy tool tags are consumed into structured tool parts before markdown
+      // rendering; render nothing if one ever reaches here.
+      return null;
 
     case "atlarix-citation": {
       const idx = Number(attributes.index ?? attributes.n ?? "0");

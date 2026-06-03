@@ -3,11 +3,12 @@
  */
 
 import fs from "fs/promises";
-import { apps, chats } from "@/db/schema";
+import { apps } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
 import { PlanLimitError } from "@/lib/plan-limit-error";
+import { startWorkspaceSession } from "./workspace_session_handlers";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -19,7 +20,7 @@ export async function importWorkspaceFromPath({
   appName: string;
   installCommand?: string | null;
   startCommand?: string | null;
-}): Promise<{ appId: number; chatId: number }> {
+}): Promise<{ appId: number; chatId: number; sessionId: string }> {
   const remote = parseRemoteUri(sourcePath);
   const workspaceKind = remote ? "remote-ssh" : "local";
   if (!remote) {
@@ -42,14 +43,8 @@ export async function importWorkspaceFromPath({
       .update(apps)
       .set({ lastOpenedAt: new Date(), updatedAt: new Date() })
       .where(eq(apps.id, existingByPath.id));
-    const existingChat = await db.query.chats.findFirst({
-      where: eq(chats.appId, existingByPath.id),
-    });
-    if (existingChat) {
-      return { appId: existingByPath.id, chatId: existingChat.id };
-    }
-    const [newChat] = await db.insert(chats).values({ appId: existingByPath.id }).returning();
-    return { appId: existingByPath.id, chatId: newChat.id };
+    const { sessionId, chatId } = await startWorkspaceSession(existingByPath.id);
+    return { appId: existingByPath.id, chatId, sessionId };
   }
 
   const existingByName = await db.query.apps.findFirst({
@@ -78,14 +73,7 @@ export async function importWorkspaceFromPath({
     })
     .returning();
 
-  const [chat] = await db.insert(chats).values({ appId: app.id }).returning();
+  const { sessionId, chatId } = await startWorkspaceSession(app.id);
 
-  try {
-    const { captureInitialSnapshot } = await import("../../lib/diagram-timeline/capture");
-    await captureInitialSnapshot(app.id);
-  } catch {
-    /* non-fatal */
-  }
-
-  return { appId: app.id, chatId: chat.id };
+  return { appId: app.id, chatId, sessionId };
 }

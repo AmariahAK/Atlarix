@@ -5,7 +5,7 @@
  * Supports model switcher and file attachments like the home input.
  */
 
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect } from "react";
 import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, Upload } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtom, useAtomValue } from "jotai";
@@ -37,6 +37,7 @@ interface SimpleChatInputProps {
     chatId: number;
     onSubmit: (prompt: string, attachments?: FileAttachment[]) => void;
     placeholder?: string;
+    disabled?: boolean;
 }
 
 export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the conversation..." }: SimpleChatInputProps) {

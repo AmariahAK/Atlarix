@@ -4,7 +4,6 @@ import { writeSettings, readSettings } from "../../main/settings";
 import { gitSetRemoteUrl, gitPush, gitClone } from "../utils/git_utils";
 import * as schema from "../../db/schema";
 import fs from "node:fs";
-import os from "node:os";
 import { promises as fsPromises } from "node:fs";
 import { getAtlarixAppPath } from "../../paths/paths";
 import { db } from "../../db";
@@ -24,6 +23,7 @@ import {
   isLegacyDyadGithubDeviceClient,
   looksLikeInvalidGithubOAuthClientId,
 } from "@/config/github-oauth";
+import { startWorkspaceSession } from "./workspace_session_handlers";
 
 const logger = log.scope("github_handlers");
 
@@ -421,7 +421,7 @@ async function handleListGithubRepos(): Promise<
 
 // --- GitHub Get Repo Branches Handler ---
 async function handleGetRepoBranches(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { owner, repo }: { owner: string; repo: string },
 ): Promise<{ name: string; commit: { sha: string } }[]> {
   try {
@@ -463,7 +463,7 @@ async function handleGetRepoBranches(
 
 // --- GitHub Repo Availability Handler ---
 async function handleIsRepoAvailable(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { org, repo }: { org: string; repo: string },
 ): Promise<{ available: boolean; error?: string }> {
   try {
@@ -501,7 +501,7 @@ async function handleIsRepoAvailable(
 
 // --- GitHub Create Repo Handler ---
 async function handleCreateRepo(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   {
     org,
     repo,
@@ -586,7 +586,7 @@ async function handleCreateRepo(
 
 // --- GitHub Connect to Existing Repo Handler ---
 async function handleConnectToExistingRepo(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   {
     owner,
     repo,
@@ -630,7 +630,7 @@ async function handleConnectToExistingRepo(
 
 // --- GitHub Push Handler ---
 async function handlePushToGithub(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { appId, force }: { appId: number; force?: boolean },
 ) {
   try {
@@ -675,7 +675,7 @@ async function handlePushToGithub(
 }
 
 async function handleDisconnectGithubRepo(
-  event: IpcMainInvokeEvent,
+  _event: IpcMainInvokeEvent,
   { appId }: { appId: number },
 ): Promise<void> {
   logger.log(`Disconnecting GitHub repo for appId: ${appId}`);
@@ -846,22 +846,22 @@ async function handleCloneRepoFromUrl(
         startCommand: startCommand || null,
       })
       .returning();
-    const [newChat] = await db
-      .insert(schema.chats)
-      .values({ appId: newApp.id })
-      .returning();
+    const { chatId } = await startWorkspaceSession(newApp.id);
 
     sendProgress({ step: "complete", message: "Complete!", progress: 100 });
     logger.log(`Successfully cloned repo ${owner}/${repoName} to ${fullAppPath}`);
     return {
       app: {
         ...newApp,
+        remoteConnection: (newApp.remoteConnection ?? null) as
+          | Record<string, unknown>
+          | null,
         path: fullAppPath,
         files: [],
         supabaseProjectName: null,
         vercelTeamSlug: null,
       },
-      chatId: newChat.id,
+      chatId,
     };
   } catch (err: unknown) {
     logger.error("[GitHub Handler] Unexpected error in clone flow:", err);

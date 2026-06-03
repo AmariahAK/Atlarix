@@ -2,7 +2,10 @@
  * Map file extension → @ast-grep/napi language id (built-in or dynamic).
  */
 
-import { Lang, type NapiLang } from "@ast-grep/napi";
+import { Lang } from "@ast-grep/napi";
+
+/** `@ast-grep/napi` dropped its `NapiLang` export; dynamic langs are cast to `Lang`. */
+export type NapiLang = Lang;
 
 export const LANG_PYTHON = "python" as NapiLang;
 export const LANG_GO = "go" as NapiLang;

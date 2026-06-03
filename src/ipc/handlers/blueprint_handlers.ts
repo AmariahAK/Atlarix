@@ -1,30 +1,22 @@
 /**
  * Blueprint IPC Handlers (Phase 7 Additive Blueprint)
  * ===================================================
- * Blueprints are not persisted (only Live diagrams are saved). In-memory cache per workspace
+ * Blueprints are not persisted. In-memory cache per workspace
  * so AI tools and UI share current state; blueprint:updated notifies the renderer.
  */
 
 import { ipcMain, BrowserWindow } from "electron";
-import * as path from "path";
 import { db } from "@/db";
-import { apps, diagrams } from "@/db/schema";
+import { apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Blueprint, BlueprintRoom, CombinedBlueprint } from "@/shared/blueprint-types";
 import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { registerBlueprintFileWatcher } from "@/lib/blueprint/blueprint-file-watcher";
-import {
-  buildRichDiagramMarkdown,
-  captureSnapshot,
-  ensureInitialDiagramSnapshot,
-  extractMermaidFromMarkdown,
-} from "@/lib/snapshot/snapshot-manager";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
 import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint, getUserBlueprintMtime } from "@/lib/cache/blueprint-cache";
 import {
-  ATLARIX_IGNORE_FILENAME,
   ATLARIX_IGNORE_REL,
   createIgnorerFromSource,
   ensureDefaultAtlarixIgnore,
@@ -47,8 +39,7 @@ import {
 } from "@/lib/blueprint/blueprint-merge";
 import { countVisibleRooms } from "@/lib/blueprint/blueprint-slice";
 import { validateBlueprintFocusPath } from "@/lib/blueprint/section-path";
-import { getReferencePaths, setReferencePaths, buildCombinedBlueprint, saveCombinedBlueprint } from "@/lib/blueprint/reference-manager";
-import { enrichAll } from "@/lib/blueprint/enricher";
+import { getReferencePaths, setReferencePaths } from "@/lib/blueprint/reference-manager";
 import { ensurePlansDir } from "@/lib/plans/plan-manager";
 import * as fs from "node:fs/promises";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
@@ -142,17 +133,6 @@ export function getBlueprintSectionMeta(
   const fp = normalizeBlueprintFocusPath(focusPath) || ".";
   const mem = getCachedBlueprint(workspaceId, fp);
   return { engine: mem?.engine };
-}
-
-/** Legacy: first cached section for workspace (IPC paths without focus). */
-function getAnyCachedBlueprintForWorkspace(
-  workspaceId: number,
-): BlueprintCacheEntry | undefined {
-  const prefix = `${workspaceId}:`;
-  for (const [key, entry] of blueprintCache) {
-    if (key.startsWith(prefix)) return entry;
-  }
-  return undefined;
 }
 
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
@@ -559,25 +539,11 @@ export function registerBlueprintHandlers() {
         const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
         if (app) {
           const workspacePath = getAtlarixAppPath(app.path);
-          // PASS8: Diagram generation is model-driven only. Auto-generation removed.
-          // The file-system watcher used to call `runDiagramRegenerateBackground`
-          // on every debounced workspace change, which kicked off a full LLM
-          // regenerate + snapshot capture without any user / model intent.
-          // We keep the watcher itself (so the Blueprint UI can refresh when
-          // files change), but the callback is now a no-op as far as diagram
-          // generation goes — callers must invoke `get_diagram` / the diagram
-          // tool explicitly to refresh diagrams.
+          // Watcher lets the Blueprint UI refresh when files change; the callback
+          // is intentionally a no-op (auto diagram regeneration was removed).
           registerBlueprintFileWatcher(workspacePath, workspaceId, async () => {
-            // intentionally empty — see PASS8 note above
+            // intentionally empty
           });
-          const [drow] = await db
-            .select({ content: diagrams.content })
-            .from(diagrams)
-            .where(eq(diagrams.workspaceId, workspaceId))
-            .limit(1);
-          if (drow?.content?.trim()) {
-            void ensureInitialDiagramSnapshot(workspacePath, drow.content);
-          }
         }
         return { success: true, blueprint };
       } catch (error) {

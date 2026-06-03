@@ -16,7 +16,6 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as path from "path";
-import * as fs from "fs";
 import log from "electron-log";
 import { getFilesRecursively } from "./file_utils";
 import {
@@ -29,6 +28,43 @@ import { structureFromSymbols } from "@/lib/index/structure-from-symbols";
 
 const execAsync = promisify(exec);
 const logger = log.scope("project-files");
+
+/** Cached CLI probes — avoid spawning fd/rg when not installed (log noise on every scan). */
+let fdCliAvailable: boolean | undefined;
+let rgCliAvailable: boolean | undefined;
+
+async function probeCli(command: string): Promise<boolean> {
+  try {
+    await execAsync(command, { timeout: 3_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isFdAvailable(): Promise<boolean> {
+  if (fdCliAvailable === undefined) {
+    fdCliAvailable = await probeCli("fd --version");
+    if (!fdCliAvailable) {
+      logger.debug(
+        "[project-files] fd not installed — using ripgrep for discovery (optional: brew install fd)",
+      );
+    }
+  }
+  return fdCliAvailable;
+}
+
+async function isRipgrepAvailable(): Promise<boolean> {
+  if (rgCliAvailable === undefined) {
+    rgCliAvailable = await probeCli("rg --version");
+    if (!rgCliAvailable) {
+      logger.debug(
+        "[project-files] ripgrep not installed — will use legacy directory walk if needed",
+      );
+    }
+  }
+  return rgCliAvailable;
+}
 
 const CDK_ASSET_HEX_SEGMENT = /^[0-9a-f]{64}$/;
 
@@ -114,66 +150,6 @@ interface StructureScanCacheEntry {
 
 const structureScanCache = new Map<string, StructureScanCacheEntry>();
 const STRUCTURE_SCAN_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-function findGitRoot(start: string): string | null {
-    let dir = path.resolve(start);
-    const root = path.parse(dir).root;
-    while (true) {
-        try {
-            if (fs.existsSync(path.join(dir, ".git"))) return dir;
-        } catch {
-            /* ignore */
-        }
-        const parent = path.dirname(dir);
-        if (parent === dir || dir === root) break;
-        dir = parent;
-    }
-    return null;
-}
-
-type GitListContext = {
-    gitCwd: string;
-    /** Pathspec for `git ls-files -- <pathspec>` when listing a subtree from repo root. */
-    pathspec?: string;
-    /** Strip this prefix from paths so results are relative to the requested scan root. */
-    stripPrefix?: string;
-};
-
-function resolveGitListContext(workspacePath: string, scopePath?: string): GitListContext {
-    const resolved = path.resolve(workspacePath);
-    const scope = normalizeProjectFilesScopePath(scopePath);
-
-    if (scope) {
-        const scopedDir = path.join(resolved, scope);
-        if (fs.existsSync(path.join(scopedDir, ".git"))) {
-            return { gitCwd: scopedDir };
-        }
-        return { gitCwd: resolved, pathspec: `${scope}/`, stripPrefix: `${scope}/` };
-    }
-
-    const gitRoot = findGitRoot(resolved);
-    if (gitRoot && path.normalize(gitRoot) !== path.normalize(resolved)) {
-        const rel = path.relative(gitRoot, resolved).replace(/\\/g, "/");
-        if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
-            const prefix = rel.endsWith("/") ? rel : `${rel}/`;
-            return { gitCwd: gitRoot, pathspec: prefix, stripPrefix: prefix };
-        }
-    }
-
-    return { gitCwd: resolved };
-}
-
-function pathsRelativeToScanRoot(files: string[], ctx: GitListContext): string[] {
-    if (!ctx.stripPrefix) return files;
-    const p = ctx.stripPrefix;
-    return files
-        .map((f) => {
-            const n = f.replace(/\\/g, "/");
-            if (n.startsWith(p)) return n.slice(p.length);
-            return n;
-        })
-        .filter(Boolean);
-}
 
 const ALWAYS_EXCLUDE = [
     "node_modules",
@@ -262,8 +238,9 @@ async function discoverProjectFiles(
     };
 
     // -----------------------------------------------
-    // STRATEGY 1: fd (primary)
+    // STRATEGY 1: fd (primary, when installed)
     // -----------------------------------------------
+    if (await isFdAvailable()) {
     try {
         const args = [
             "--type", "f",
@@ -311,16 +288,18 @@ async function discoverProjectFiles(
         }
     } catch (err) {
         logger.info(
-            "[project-files] fd not available or failed, trying ripgrep",
+            "[project-files] fd failed, trying ripgrep",
             {
                 error: err instanceof Error ? err.message : String(err),
             }
         );
     }
+    }
 
     // -----------------------------------------------
     // STRATEGY 2: ripgrep --files (fallback)
     // -----------------------------------------------
+    if (await isRipgrepAvailable()) {
     try {
         const args = ["--files", "--hidden"];
 
@@ -359,11 +338,12 @@ async function discoverProjectFiles(
         }
     } catch (err) {
         logger.info(
-            "[project-files] ripgrep not available or failed, falling back to legacy scan",
+            "[project-files] ripgrep failed, falling back to legacy scan",
             {
                 error: err instanceof Error ? err.message : String(err),
             }
         );
+    }
     }
 
     // -----------------------------------------------

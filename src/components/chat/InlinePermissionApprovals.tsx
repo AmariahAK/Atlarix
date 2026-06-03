@@ -219,8 +219,8 @@ function CommandPermissionCard({
 }: {
   operation: QueuedOperation;
   appId: number | null;
-  onOnce: (id: string) => void;
-  onAlways: (id: string) => void;
+  onOnce: (id: string, dangerAcknowledged?: boolean) => void;
+  onAlways: (id: string, dangerAcknowledged?: boolean) => void;
   onDeny: (id: string) => void;
 }) {
   const [dangerAcknowledged, setDangerAcknowledged] = useState(false);
@@ -269,7 +269,9 @@ function CommandPermissionCard({
           size="sm"
           className="h-7 text-xs"
           disabled={!canApprove}
-          onClick={() => onOnce(operation.id)}
+          onClick={() =>
+            onOnce(operation.id, isDangerous ? dangerAcknowledged : undefined)
+          }
         >
           Allow once
         </Button>
@@ -281,7 +283,9 @@ function CommandPermissionCard({
             className="h-7 text-xs"
             disabled={!canApprove || appId == null}
             title={appId == null ? "Select a workspace to save rules" : undefined}
-            onClick={() => onAlways(operation.id)}
+            onClick={() =>
+              onAlways(operation.id, isDangerous ? dangerAcknowledged : undefined)
+            }
           >
             Always allow {category}
           </Button>
@@ -417,25 +421,27 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   );
 
   const handleCommandOnce = useCallback(
-    async (id: string) => {
+    async (id: string, dangerAcknowledged?: boolean) => {
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
         chatId,
         operationId: id,
         approvalMode: "once",
+        dangerAcknowledged,
       });
     },
     [chatId, setQueue],
   );
 
   const handleCommandAlways = useCallback(
-    async (id: string) => {
+    async (id: string, dangerAcknowledged?: boolean) => {
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
         chatId,
         operationId: id,
         approvalMode: "always_allow",
         appId: appId ?? undefined,
+        dangerAcknowledged,
       });
     },
     [chatId, setQueue, appId],

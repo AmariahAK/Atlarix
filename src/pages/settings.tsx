@@ -49,7 +49,7 @@ export default function SettingsPage() {
   const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
   const onboardingStep = useAtomValue(onboardingStepAtom);
   const setOnboardingStep = useSetAtom(onboardingStepAtom);
-  const { status, isAuthenticated } = useAuth();
+  const { status } = useAuth();
 
   useEffect(() => {
     setActiveSettingsSection("general");
@@ -770,7 +770,7 @@ export function AISettings() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { settings, updateSettings } = useSettings();
-  const { data: providers } = useLanguageModelProviders();
+  useLanguageModelProviders();
 
   const handleRefreshModels = async () => {
     setIsRefreshing(true);

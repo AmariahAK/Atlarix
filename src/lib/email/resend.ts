@@ -87,8 +87,7 @@ function buildHtml(params: TeamEmailParams): string {
 }
 
 function getSubject(params: TeamEmailParams): string {
-  const { type, teamName, inviterName, inviterEmail, memberNameOrEmail } = params;
-  const inviter = inviterName || inviterEmail || "A team owner";
+  const { type, teamName, memberNameOrEmail } = params;
   switch (type) {
     case "invite":
       return `You're invited to ${teamName} on Atlarix`;

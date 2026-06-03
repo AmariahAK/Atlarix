@@ -41,10 +41,12 @@ const validInvokeChannels = [
   "github-actions:start-stream",
   "github-actions:stop-stream",
   "chat:count-tokens",
-  "create-chat",
   "chat:clear-ephemeral-messages",
   "chat:hydrate-ephemeral-messages",
   "sessions:list",
+  "sessions:start",
+  "sessions:allocate-transport",
+  "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",
   "sessions:delete",
@@ -57,8 +59,6 @@ const validInvokeChannels = [
   "create-app",
   "copy-app",
   "get-chat",
-  "get-chats",
-  "search-chats",
   "get-chat-logs",
   "list-apps",
   "get-app",
@@ -143,9 +143,6 @@ const validInvokeChannels = [
   "ollama:pull-model",
   "ollama:remove-model",
   "upload-to-signed-url",
-  "delete-chat",
-  "update-chat",
-  "delete-messages",
   "start-chat-stream",
   "does-release-note-exist",
   "import-app",
@@ -176,7 +173,13 @@ const validInvokeChannels = [
   "mcp:delete-server",
   "mcp:list-tools",
   "mcp:test-connection",
+  "mcp:sandbox-diagnostics",
+  "mcp:sandbox-diagnostics",
   "mcp:get-tool-consents",
+  "mcp:start-oauth",
+  "mcp:cancel-oauth",
+  "mcp:oauth-status",
+  "mcp:revoke-oauth",
   "mcp:set-tool-consent",
   "mcps:fetch-registry",
   "mcps:install-from-registry",
@@ -273,35 +276,12 @@ const validInvokeChannels = [
   "cli:install",
   "cli:uninstall",
   "cli:check-installed",
-  // Diagram system
-  "diagram:list",
-  "diagram:get",
-  "diagram:generate",
-  "diagram:generate-ai",
-  "diagram:update",
-  "diagram:delete",
-  "diagram:check-staleness",
-  "diagram:mark-stale",
   // Dev Server (Live Preview)
   "dev-server:is-frontend",
   "dev-server:start",
   "dev-server:stop",
   "dev-server:status",
   "dev-server:list-running",
-  // Diagram Timeline (Project Evolution)
-  "diagram:capture-snapshot",
-  "diagram:get-timeline",
-  "diagram:get-detailed-timeline",
-  "diagram:get-snapshot",
-  "diagram:annotate-snapshot",
-  "diagram:delete-snapshot",
-  "diagram:compress-old",
-  "diagram:compress-all",
-  "diagram:queue-capture",
-  "diagram:flush-pending",
-  "diagram:capture-initial",
-  "snapshots:diagram-timeline",
-  "snapshots:revert-diagram",
   // PASS6: Blueprint (Phase 7 Additive Blueprint) — restored.
   "blueprint:get",
   "blueprint:set",
@@ -407,6 +387,13 @@ const validReceiveChannels = [
   // MCP consent request from main to renderer
   "command-permission-blocked",
   "file-permission-blocked",
+  "mcp:oauth-redirect",
+  "mcp:oauth-success",
+  "mcp:oauth-error",
+  "mcp:oauth-required",
+  "mcp:auth-required",
+  "mcp:auth-updated",
+  "mcp:tool-consent-request",
   "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
@@ -419,7 +406,6 @@ const validReceiveChannels = [
   "workspace:opened-from-cli",
   "operation-status",         // Permission queue status updates
   "auto-recovery-needed",     // AI self-healing on failures
-  "chat:workspace-diagram",
   // AI-controlled right panel (Hybrid Intent System)
   "right-panel:set-intent",  // New: semantic intent-based
   "right-panel:set-view",    // Legacy: kept for backwards compatibility
@@ -428,9 +414,6 @@ const validReceiveChannels = [
   // Browser console error capture (CDP debugger)
   "browser-console-error",   // Console errors from Electron debugger
   "browser-console-cleared", // Console buffer cleared after success (Fix 2: errors not clearing)
-  // Diagram staleness notification
-  "diagram:staleness-detected", // Diagram outdated due to code changes
-  "diagram:initial-ready",      // Cold start: initial diagram generated
   // Smart Agentic Loop (iteration progress)
   "chat:iteration:progress",    // Progress updates (iteration count, tools)
   "chat:iteration:warning",     // Warning: task running long, continue?

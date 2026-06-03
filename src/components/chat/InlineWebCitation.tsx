@@ -5,7 +5,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { SourceItem } from "@/atoms/sourceAtoms";
 import { useCitationSources } from "./CitationSourcesContext";
 import { citationLabelForSource } from "@/lib/chat/citation-sources";
 import { useSetAtom } from "jotai";

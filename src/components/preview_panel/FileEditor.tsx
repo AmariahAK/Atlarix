@@ -14,18 +14,28 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSettings } from "@/hooks/useSettings";
 import { getLanguage } from "@/utils/get_language";
+import {
+  ensureTextMateReady,
+  isTextMateGrammarsReady,
+  languageUsesTextMate,
+} from "@/lib/monaco/init-textmate";
+import { isLspLanguageSupported } from "@/lib/lsp/lsp-supported-languages";
+import * as monaco from "monaco-editor";
 import {
   applyLspMarkersToModel,
   type LspDiagnosticPayload,
 } from "@/lib/lsp/lsp-monaco-markers";
+import { applyPreviewMarkersToModel } from "@/lib/monaco/preview-error-markers";
+import type { ParsedError } from "@/lib/devServerErrorParser";
 
 interface FileEditorProps {
   appId: number | null;
   filePath: string;
   /** When set (e.g. from Errors "View code"), scroll to this line after load */
   initialLine?: number;
+  /** Preview / runtime errors for this workspace — shown as squiggles on matching lines */
+  previewErrors?: ParsedError[];
 }
 
 interface BreadcrumbProps {
@@ -92,15 +102,22 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({
   );
 };
 
-export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) => {
+export const FileEditor = ({
+  appId,
+  filePath,
+  initialLine,
+  previewErrors = [],
+}: FileEditorProps) => {
   const { content, loading, error } = useLoadAppFile(appId, filePath);
   const { theme } = useTheme();
   const [value, setValue] = useState<string | undefined>(undefined);
   const [displayUnsavedChanges, setDisplayUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [plainTextMode, setPlainTextMode] = useState(false);
   const [editorLanguage, setEditorLanguage] = useState(() => getLanguage(filePath));
-  const { settings } = useSettings();
+  const needsTextMate = languageUsesTextMate(editorLanguage);
+  const [textMateReady, setTextMateReady] = useState(
+    () => !needsTextMate || isTextMateGrammarsReady(),
+  );
   // Use refs for values that need to be current in event handlers
   const originalValueRef = useRef<string | undefined>(undefined);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -121,6 +138,7 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
 
   useEffect(() => {
     if (!appId || content === null) return;
+    if (!isLspLanguageSupported(editorLanguage)) return;
 
     const ipc = IpcClient.getInstance();
     let cancelled = false;
@@ -160,9 +178,10 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
       const model = editorRef.current?.getModel();
       if (model) {
         applyLspMarkersToModel(model, []);
+        applyPreviewMarkersToModel(model, [], filePath);
       }
     };
-  }, [appId, filePath, content, applyDiagnostics]);
+  }, [appId, filePath, content, applyDiagnostics, editorLanguage]);
 
   // Update state when content loads
   useEffect(() => {
@@ -178,25 +197,48 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
 
   useEffect(() => {
     setEditorLanguage(getLanguage(filePath));
-    setPlainTextMode(false);
   }, [filePath]);
 
   useEffect(() => {
-    const onTokenizerError = (event: ErrorEvent) => {
-      const msg = event.message ?? "";
-      if (
-        msg.includes("look-behind") ||
-        msg.includes("OnigScanner") ||
-        msg.includes("invalid pattern")
-      ) {
-        event.preventDefault();
-        setPlainTextMode(true);
-        setEditorLanguage("plaintext");
-      }
-    };
-    window.addEventListener("error", onTokenizerError);
-    return () => window.removeEventListener("error", onTokenizerError);
+    const lang = getLanguage(filePath);
+    const needsTm = languageUsesTextMate(lang);
+    if (!needsTm) {
+      setTextMateReady(true);
+      return;
+    }
+    if (isTextMateGrammarsReady()) {
+      setTextMateReady(true);
+      return;
+    }
+    setTextMateReady(false);
+    void ensureTextMateReady().then(() => setTextMateReady(true));
   }, [filePath]);
+
+  const refreshModelLanguage = useCallback(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!model) return;
+    const id = model.getLanguageId();
+    if (id) {
+      monaco.editor.setModelLanguage(model, id);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (textMateReady) {
+      refreshModelLanguage();
+    }
+  }, [textMateReady, editorLanguage, refreshModelLanguage]);
+
+  const applyPreviewDiagnostics = useCallback(() => {
+    const model = editorRef.current?.getModel();
+    if (!model) return;
+    applyPreviewMarkersToModel(model, previewErrors, filePath);
+  }, [previewErrors, filePath]);
+
+  useEffect(() => {
+    applyPreviewDiagnostics();
+  }, [applyPreviewDiagnostics, value]);
 
   // Sync the UI with the needsSave ref
   useEffect(() => {
@@ -213,6 +255,10 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
   // Handle editor mount
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
+    if (textMateReady) {
+      refreshModelLanguage();
+    }
+    applyPreviewDiagnostics();
     if (typeof initialLine === "number" && initialLine >= 1) {
       editor.revealLineInCenter(initialLine, 1);
     }
@@ -235,7 +281,8 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
     needsSaveRef.current = hasChanged;
     setDisplayUnsavedChanges(hasChanged);
 
-    if (!appId || newValue === undefined) return;
+    if (!appId || newValue === undefined || !isLspLanguageSupported(editorLanguage))
+      return;
     if (lspChangeTimerRef.current) {
       clearTimeout(lspChangeTimerRef.current);
     }
@@ -300,6 +347,22 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
     return <div className="p-4 text-gray-500">No content available</div>;
   }
 
+  if (needsTextMate && !textMateReady) {
+    return (
+      <div className="flex flex-col h-full">
+        <Breadcrumb
+          path={filePath}
+          hasUnsavedChanges={displayUnsavedChanges}
+          onSave={saveFile}
+          isSaving={isSaving}
+        />
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          Loading syntax highlighting…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <Breadcrumb
@@ -308,15 +371,11 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
         onSave={saveFile}
         isSaving={isSaving}
       />
-      <div className="flex-1 overflow-hidden">
-        {plainTextMode ? (
-          <div className="px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400 border-b border-border/40 bg-muted/20">
-            Syntax highlighting unavailable — showing plain text.
-          </div>
-        ) : null}
+      <div className="flex-1 min-h-0 overflow-hidden">
         <Editor
+          key={`${filePath}:${editorLanguage}`}
           height="100%"
-          language={plainTextMode ? "plaintext" : editorLanguage}
+          language={editorLanguage}
           value={value}
           theme={editorTheme}
           onChange={handleEditorChange}
@@ -330,7 +389,7 @@ export const FileEditor = ({ appId, filePath, initialLine }: FileEditorProps) =>
             fontSize: 13,
             lineNumbers: "on",
             lineNumbersMinChars: 3,
-            glyphMargin: false,
+            glyphMargin: true,
             padding: { top: 8, bottom: 8 },
           }}
         />

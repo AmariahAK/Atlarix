@@ -15,6 +15,7 @@
  */
 
 import fs from "fs/promises";
+import { truncateUtf8ByBytes } from "@/lib/truncate";
 import * as path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -176,16 +177,6 @@ function parseGrepOutput(output: string): GrepGroup[] {
   return groups;
 }
 
-function truncateUtf8ByBytes(text: string, maxBytes: number): string {
-  const buf = Buffer.from(text, "utf8");
-  if (buf.length <= maxBytes) return text;
-  const cut = buf.subarray(0, Math.max(0, maxBytes - 100));
-  return (
-    cut.toString("utf8") +
-    "\n\n… [search output truncated by max_bytes; narrow path or lower max_results]"
-  );
-}
-
 async function runRipgrepSearch(args: {
   pattern: string;
   workspace: string;
@@ -264,7 +255,7 @@ function formatGrepGroupsForDisplay(
       out += `  ... and ${g.matches.length - perFile} more in this file\n`;
     out += "\n";
   }
-  return truncateUtf8ByBytes(out, maxBytes);
+  return truncateUtf8ByBytes(out, maxBytes, { suffix: "\n\n… [search output truncated by max_bytes; narrow path or lower max_results]" });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -537,7 +528,7 @@ Parameters:
           resolved_mode: resolvedMode,
           engine,
           mode: resolvedMode,
-          result: truncateUtf8ByBytes(text, maxBytes),
+          result: truncateUtf8ByBytes(text, maxBytes, { suffix: "\n\n… [search output truncated by max_bytes; narrow path or lower max_results]" }),
         };
       }
 
@@ -554,7 +545,7 @@ Parameters:
           resolved_mode: resolvedMode,
           engine,
           mode: resolvedMode,
-          result: truncateUtf8ByBytes(text, maxBytes),
+          result: truncateUtf8ByBytes(text, maxBytes, { suffix: "\n\n… [search output truncated by max_bytes; narrow path or lower max_results]" }),
         };
       }
 

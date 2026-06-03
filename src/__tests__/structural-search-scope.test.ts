@@ -19,7 +19,7 @@ const ensureSymbolIndexForWorkspaceId = vi.fn(async () => ({
 
 vi.mock("@/lib/index/ctags-index", () => ({
   ensureSymbolIndexForWorkspaceId: (...args: unknown[]) =>
-    ensureSymbolIndexForWorkspaceId(...args),
+    (ensureSymbolIndexForWorkspaceId as (...a: unknown[]) => unknown)(...args),
   findSymbolsByName: vi.fn(() => []),
 }));
 

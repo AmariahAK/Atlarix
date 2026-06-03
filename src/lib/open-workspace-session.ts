@@ -63,8 +63,8 @@ export async function startNewWorkspaceConversation(
     const name = options.workspaceName ?? app.name ?? "Workspace";
     const workspacePath = options.workspacePath ?? app.path ?? "";
 
-    const session = await ipc.createWorkspaceSession(workspaceId);
-    const chatId = await ipc.createChat(workspaceId);
+    const { sessionId, chatId } =
+      await ipc.startWorkspaceConversation(workspaceId);
     resetTerminalInstancesForNewChat();
     const store = getDefaultStore();
 
@@ -79,17 +79,17 @@ export async function startNewWorkspaceConversation(
       name,
       path: workspacePath,
     });
-    store.set(activeWorkspaceSessionIdAtom, session.id);
+    store.set(activeWorkspaceSessionIdAtom, sessionId);
     store.set(loadedSessionResumeAtom, false);
     store.set(loadedSessionTruncatedAtom, false);
     store.set(sessionIdToChatIdAtom, (prev) => {
       const next = new Map(prev);
-      next.set(session.id, chatId);
+      next.set(sessionId, chatId);
       return next;
     });
     store.set(chatIdToSessionIdAtom, (prev) => {
       const next = new Map(prev);
-      next.set(chatId, session.id);
+      next.set(chatId, sessionId);
       return next;
     });
     store.set(chatMessagesByIdAtom, (prev) => {
@@ -142,7 +142,7 @@ async function resolveSessionAndChat(
     if (existingChatId != null) {
       return { sessionId, chatId: existingChatId };
     }
-    const chatId = await ipc.createChat(workspaceAppId);
+    const { chatId } = await ipc.allocateSessionTransport(sessionId);
     store.set(sessionIdToChatIdAtom, (prev) => {
       const next = new Map(prev);
       next.set(sessionId, chatId);
@@ -156,19 +156,19 @@ async function resolveSessionAndChat(
     return { sessionId, chatId };
   }
 
-  const session = await ipc.createWorkspaceSession(workspaceAppId);
-  const chatId = await ipc.createChat(workspaceAppId);
+  const { sessionId, chatId } =
+    await ipc.startWorkspaceConversation(workspaceAppId);
   store.set(sessionIdToChatIdAtom, (prev) => {
     const next = new Map(prev);
-    next.set(session.id, chatId);
+    next.set(sessionId, chatId);
     return next;
   });
   store.set(chatIdToSessionIdAtom, (prev) => {
     const next = new Map(prev);
-    next.set(chatId, session.id);
+    next.set(chatId, sessionId);
     return next;
   });
-  return { sessionId: session.id, chatId };
+  return { sessionId, chatId };
 }
 
 export type OpenWorkspaceByAppIdOptions = {
@@ -257,8 +257,8 @@ export async function openWorkspaceFolder(
     const imported = await IpcClient.getInstance().importApp({
       path: folderPath,
       appName,
-      installCommand: options.installCommand,
-      startCommand: options.startCommand,
+      installCommand: options.installCommand ?? undefined,
+      startCommand: options.startCommand ?? undefined,
     });
 
     await options.refreshApps?.();

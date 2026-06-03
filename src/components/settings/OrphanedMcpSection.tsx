@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { McpServer } from "@/ipc/ipc_types";

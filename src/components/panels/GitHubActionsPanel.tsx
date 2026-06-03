@@ -36,7 +36,7 @@ type Job = {
   htmlUrl?: string;
 };
 
-export function GitHubActionsPanel({ workspacePath, appId }: GitHubActionsPanelProps) {
+export function GitHubActionsPanel({ workspacePath, appId: _appId }: GitHubActionsPanelProps) {
   const [repo, setRepo] = useState<{ owner: string; repo: string } | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);

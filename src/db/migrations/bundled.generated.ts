@@ -61,6 +61,8 @@ import raw_54_0054_message_file_attachments from "../../../drizzle/0054_message_
 import raw_55_0055_session_message_attachments from "../../../drizzle/0055_session_message_attachments.sql?raw";
 import raw_56_0056_workspace_command_permissions from "../../../drizzle/0056_workspace_command_permissions.sql?raw";
 import raw_57_0057_workspace_file_permissions from "../../../drizzle/0057_workspace_file_permissions.sql?raw";
+import raw_58_0058_session_stream_and_drop_legacy_chats from "../../../drizzle/0058_session_stream_and_drop_legacy_chats.sql?raw";
+import raw_59_0059_mcp_oauth_columns from "../../../drizzle/0059_mcp_oauth_columns.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -129,6 +131,8 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0055_session_message_attachments", sql: raw_55_0055_session_message_attachments as string, drizzleHash: "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799", when: 1779450000000 },
   { name: "0056_workspace_command_permissions", sql: raw_56_0056_workspace_command_permissions as string, drizzleHash: "ce5d3f0a5d5467aaf40d8616998eac91725d545c352d40a3a0b9f6392fd24e06", when: 1779550000000 },
   { name: "0057_workspace_file_permissions", sql: raw_57_0057_workspace_file_permissions as string, drizzleHash: "788ddfa1f251375f0efc54f59fc94d4988eeb57ce1de50267b2dafb956543415", when: 1779650000000 },
+  { name: "0058_session_stream_and_drop_legacy_chats", sql: raw_58_0058_session_stream_and_drop_legacy_chats as string, drizzleHash: "a0cb6ae056328ce764590f04674699982511735af5ab08ae076594e9fd1bb076", when: 1779750000000 },
+  { name: "0059_mcp_oauth_columns", sql: raw_59_0059_mcp_oauth_columns as string, drizzleHash: "df51a6f67dc47dc70b6b37ef36652c9e0539ffe86703aa46c715cc2ee9b67cf2", when: 1779850000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -191,4 +195,6 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "4b32c0614e1e774845fc1d24f34cca895cd982c8a3b9cfdbb3001b0e65d86799": "0055_session_message_attachments",
   "ce5d3f0a5d5467aaf40d8616998eac91725d545c352d40a3a0b9f6392fd24e06": "0056_workspace_command_permissions",
   "788ddfa1f251375f0efc54f59fc94d4988eeb57ce1de50267b2dafb956543415": "0057_workspace_file_permissions",
+  "a0cb6ae056328ce764590f04674699982511735af5ab08ae076594e9fd1bb076": "0058_session_stream_and_drop_legacy_chats",
+  "df51a6f67dc47dc70b6b37ef36652c9e0539ffe86703aa46c715cc2ee9b67cf2": "0059_mcp_oauth_columns",
 };

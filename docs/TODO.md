@@ -1,7 +1,106 @@
 # Atlarix TODO
 
-**Current Version:** v9.1.0
-**Last Updated:** 2026-05-28
+**Current Version:** v9.1.1
+**Last Updated:** 2026-06-03
+
+---
+
+## Shipped (this batch — see CHANGELOG `[Unreleased]`)
+
+Tool results visible in chat (live + reload), MCP auth-and-retry, chat-edit persistence,
+dead-code sweep (~100 files + the entire diagram subsystem), all 169 tsc + 351 lint errors
+cleared, duplicate-utility consolidation, plan-artifact status lifecycle, Cmd/Ctrl+B +
+Shift+Tab shortcuts, and the quality gate (`npm run check` + CI). Details in
+[CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+
+---
+
+## v10.0 updates (roadmap)
+
+Detailed forward-looking work, in priority order. Each item lists what / why / approach / key files.
+
+### 1. Live plan step progress
+
+- **What:** While the agent builds a plan, its checklist items flip `[ ]` → `[~]` (in
+  progress) → `[x]` live in the plan artifact card and the right-panel Plan tab.
+- **Why:** Plans advance only at the artifact level (plan → building → built, shipped this
+  batch). Step-level progress is the missing feedback loop during long builds — users can't
+  tell which step the agent is on or how much is left.
+- **Approach:** Reuse `parsePlanToSteps` (`src/lib/tasks/atlarix-plan-steps.ts`) to index
+  checklist items; add an `update_plan_step` tool (args: planId, step index/text, state) that
+  rewrites the checkbox in the stored plan content and emits the existing
+  `plan-artifact:updated` event so `PlanArtifactCard` re-renders. Prompt Build mode to call it
+  as it starts/finishes each step; safety-net: mark remaining steps `[x]` when the artifact
+  flips to `built`.
+- **Key files:** `lib/tasks/atlarix-plan-steps.ts`, `lib/plans/plan-artifacts.ts`,
+  `lib/tools/plan.ts`, `ipc/utils/emit_plan_artifact.ts`, `components/chat/PlanArtifactCard`.
+
+### 2. Renderer / integration test coverage
+
+- **What:** Component- and flow-level tests for the chat surface: send → stream → tool card
+  render, edit → persist → reload, session switch, mode switch, plan Build button, MCP auth
+  retry prompt.
+- **Why:** The chat-edit persistence bug shipped because nothing exercised the renderer path
+  end-to-end; the existing 861 tests are main-process/unit. The riskiest regressions live in
+  renderer ↔ IPC wiring.
+- **Approach:** Add `@testing-library/react` + a jsdom vitest project; mock `IpcClient` at the
+  module boundary (it's already a singleton) with a scriptable fake stream. Start with the five
+  flows above; gate in CI alongside existing tests.
+- **Key files:** new `src/__tests__/renderer/`, `vitest.config` (multi-project),
+  `src/ipc/ipc_client.ts` (test seam).
+
+### 3. Context & cost visibility
+
+- **What:** A context meter (tokens used / budget, what was pruned), per-tool elapsed time on
+  cards, and one-click retry for failed tools.
+- **Why:** Users can't see why the model "forgot" something (compaction/pruning is invisible)
+  or which tool burned the time in a slow turn.
+- **Approach:** The data largely exists — `ContextAssembler` knows section sizes,
+  `token_count_handlers` counts budgets, tool cards already track start/end timestamps.
+  Surface: a compact meter in the chat header (popover with per-section breakdown), `(3.2s)`
+  suffix on finished tool cards, and a Retry affordance on errored cards that re-invokes the
+  same tool call via the existing permission path.
+- **Key files:** `lib/context/ContextAssembler.ts`, `hooks/useCountTokens.ts`,
+  `components/chat/StreamToolCallCard`, `ipc/handlers/chat_stream_handlers.ts`.
+
+### 4. Startup & large-repo performance
+
+- **What:** Profile and trim cold start and first-prompt latency on big repos (10k+ files).
+- **Why:** The app is ~13k LOC lighter after the sweeps; remaining hotspots are workspace
+  analysis (`analyzeWorkspace`), ctags/Blueprint indexing, and the initial file-tree scan —
+  all triggered near open.
+- **Approach:** Add timing marks around open-workspace → first-prompt; make analysis fully
+  lazy (only on the first tool/prompt that needs it — `prewarmWorkspaceCache` already
+  debounces), cache ctags output keyed by content hash, and virtualize the file tree. Measure
+  before/after on a large fixture repo.
+- **Key files:** `lib/analysis/*`, `lib/blueprint/*`,
+  `ipc/handlers/chat_stream/workspace-context.ts`, `components/workspace/WorkspaceFileTree`.
+
+### 5. Per-hunk diff accept/reject + multi-file review polish
+
+- **What:** In the diff/approval view, accept or reject individual hunks (not just whole
+  files), with a running summary across a multi-file change set.
+- **Why:** A mostly-right proposal currently forces all-or-nothing approval; hunk-level
+  control is the single biggest review-quality lever.
+- **Approach:** The diff renderer already splits hunks; add per-hunk checkboxes that compose a
+  partial file content before the permission `approve` resolves (apply selected hunks via the
+  same patch utility used for `edit_file`). Persist the choice in the operation preview so
+  per-turn revert still works.
+- **Key files:** `components/preview_panel/FileDiffPanel.tsx`,
+  `ipc/handlers/permissions/interceptor.ts`, `lib/tools/permissions/schema.ts`.
+
+### 6. MCP marketplace discovery + first-run setup wizard
+
+- **What:** A browsable MCP catalog (install + auth in two clicks) and a first-run wizard that
+  walks new users through provider keys, default model, and an optional first workspace.
+- **Why:** MCP setup and provider configuration are the two highest-friction onboarding steps;
+  auth-and-retry (shipped) fixes mid-chat failures but not discovery.
+- **Approach:** Marketplace: curated JSON feed (atlarix.dev) rendered in Settings → Tools &
+  MCP, reusing the existing add-server + OAuth/test-connection flow. Wizard: a 3-step modal on
+  first launch (detect existing keys → pick default model → open/import workspace), skippable,
+  state in settings.
+- **Key files:** `components/settings/ToolsMcpSettings.tsx`, `lib/mcp/*`,
+  `components/welcome/*`, `lib/schemas` (settings flag).
 
 ---
 
@@ -250,27 +349,6 @@ See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) `[8.0.1]`.
 
 ---
 
-## Open / follow-ups (codebase markers)
-
-| Area | Status | Notes |
-|------|--------|--------|
-| Env secret paths in more readers | **Open** | Extend `isEnvSecretPath` to `view_symbol`, `get_file_outline`, `find_files`, `search_code`, renderer `file:read-content` IPC (see v7.0.4 table below) |
-| `main.ts` | **Open** | `TODO: Phase 4.5` — Neon/Supabase OAuth integrations removed; follow-up cleanup |
-| `cleanup_jobs.ts` | **Open** | `TODO:` integrate real summarization model for cleanup jobs |
-| `github_handlers.ts` | **Open** | `TODO:` fetch config securely (env / secrets) |
-| `SliceExtractorAgent.ts` | **Open** | `TODO:` TensorFlow semantic scoring |
-| `UpgradePrompt.tsx` | **Open** | `TODO:` checkout with pre-filled email |
-| `home.tsx` | **Open** | `TODO:` template browser |
-| `ModelSelector.tsx` | **Open** | `TODO:` live lists from OpenRouter / Ollama / LM Studio APIs |
-| `TelemetryBanner.tsx` | **Open** | `TODO:` banner state + Accept / Reject / Later |
-| `MainLayout.tsx` | **Open** | `TODO:` AI backend wiring |
-| `CapacitorControls.tsx` | **Open** | `TODO:` help link |
-| `supabase_context.ts` | **Open** | `TODO:` edge functions + secrets in context |
-
-**Note:** `PASS2` / `PASS5` comments in [`chat_stream_handlers.ts`](../src/ipc/handlers/chat_stream_handlers.ts) document intentional gating from the v8.0.1 context pass — not pending tasks.
-
----
-
 ## Shipped in v7.1.2
 
 | Area | Status | Notes |
@@ -392,23 +470,9 @@ See [CHANGELOG_PREVIOUS.md](CHANGELOG_PREVIOUS.md) v7.0.0.
 
 ---
 
-## Next / follow-ups
-
-- [ ] **Python LSP support** (v7.2.0)
-- [ ] **PTY default on** (v7.2.0, after stability testing)
-- [ ] **Windows code signing** (when revenue covers it) — EV/OV Authenticode for SmartScreen-friendly builds
-- [ ] **AgentSonar:** Pure JS or WASM SDK when upstream ships it — until then HTTP sidecar remains optional/dev
-- [ ] **Counsel:** Richer **partial-timeout UI** (surface incomplete roster inline beyond activity payload)
-- [x] Blast radius analysis using Blueprint edges before agent acts
-- [ ] Skills marketplace — community skill files from atlarix.dev
-- [x] ~~Additional tree-sitter languages~~ **Superseded by Universal Ctags** (Go, Rust, Java, C#, etc. via ctags kinds)
-- [ ] Mobile companion (iOS/Android) for reviewing and approving agent changes remotely
-
----
-
 ## Ongoing
 
-- Telemetry and Sentry hygiene for diagram / stream edge cases.
+- Telemetry and Sentry hygiene for stream edge cases.
 - Documentation alignment with each tagged release (README + launchpad + in-app copy).
 - Provider catalog and African-provider integration roadmap (see public messaging on [atlarix.dev](https://atlarix.dev)).
 
@@ -701,9 +765,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 ## Later
 
 - [x] **Windows CI builds** — `build-windows` runs in release workflow (unsigned installers; SmartScreen-friendly signing still pending).
-- [ ] **Windows code signing** (EV/OV Authenticode) when revenue covers cert — builds ship unsigned until then.
 - [x] Optional: stream terminal output into tool indicator for long-running commands.
-- [ ] Optional: brief "done" phase of Atlarix animation when response completes.
 
 ---
 

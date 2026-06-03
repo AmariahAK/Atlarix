@@ -14,31 +14,24 @@ import log from "electron-log";
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
 import {
-    decideDiagramAction,
-    type ApprovedOperation,
-    type DiagramDecision,
-} from "../../../lib/diagram-refresh-engine";
-import {
     PermissionRequest,
     PermissionResult,
     FileOperationPreview,
     CommandOperationPreview,
-    DiagramUpdatePreview,
     BatchPlanPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import {
-    runShellCommand,
     runShellCommandStreaming,
     killShellProcess,
     CommandResult,
 } from "../../utils/runShellCommand";
+import {
+    isDangerousCommand,
+    getDangerExplanation,
+} from "@/lib/dangerous-commands";
 import type { ChildProcess } from "child_process";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
-import { queueCapture } from "../../../lib/diagram-timeline";
-import { db } from "@/db";
-import { diagrams } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -52,12 +45,7 @@ import {
   openTerminalInstance,
   resolveScopeKey,
 } from "../../../lib/terminal-instance-store";
-import {
-    isGitInitCommand,
-    runCommandGitInitGateResult,
-} from "../../../lib/git-init-command-guard";
-import { runDiagramRegenerateBackground } from "../diagram_regenerate_background";
-import { SessionTracker, SESSION_THRESHOLDS } from "../../../lib/SessionTracker";
+import { runCommandGitInitGateResult } from "../../../lib/git-init-command-guard";
 import {
     runHooksForTrigger,
     type HookTrigger,
@@ -87,16 +75,8 @@ interface BufferedOperation {
     request: PermissionRequest;
     status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
     createdAt: number;
-}
-
-/** Result of command execution with full details for AI context */
-interface CommandExecutionResult {
-    success: boolean;
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-    duration: number;
-    timestamp: number;
+    /** User confirmed dangerous-command checkbox before approve. */
+    dangerAcknowledged?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -119,13 +99,10 @@ export class PermissionInterceptor extends EventEmitter {
     /** Skip redundant full re-seeds when the model writes the same plan twice in quick succession. */
     private static planLedgerRefreshGuard = new Map<string, { hash: string; at: number }>();
 
-    /** Track executed operations for diagram refresh analysis */
-    private executedOperations: ApprovedOperation[] = [];
-
     /** Workspace path for resolving file paths */
     private workspacePath: string;
 
-    /** Workspace ID for diagram refresh */
+    /** Workspace ID (session tracking, snapshots, blast radius) */
     private workspaceId: number | null = null;
 
     /**
@@ -139,9 +116,6 @@ export class PermissionInterceptor extends EventEmitter {
 
     /** Active chat id for plan-ledger attribution (Build / Ask stream). */
     private activeChatId: number;
-
-    /** Cached diagram mermaid for first snapshot in this turn */
-    private diagramContentCache: string | undefined | null = null;
 
     /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
     private allowedRoots: Set<string> = new Set();
@@ -321,29 +295,6 @@ export class PermissionInterceptor extends EventEmitter {
             win.webContents.send('operation-status', payload);
         }
         logger.log(`[emitStatus] ${operationId} -> ${status}${error ? ` (${error})` : ''}`);
-    }
-
-    /**
-     * Emit diagram staleness event based on SessionTracker thresholds
-     * v0.9.16: Part of AI's mini-git system
-     */
-    private emitDiagramStaleness(
-        severity: 'minor' | 'major',
-        changedFileCount: number
-    ): void {
-        const payload = {
-            diagramId: this.workspaceId,
-            isStale: true,
-            severity: severity === 'major' ? 'major' : 'moderate',
-            reason: `${changedFileCount} file(s) changed this session`,
-            recommendation: severity === 'major' ? 'force-refresh' : 'suggest-refresh',
-            source: 'session-tracker',
-        };
-
-        for (const win of BrowserWindow.getAllWindows()) {
-            win.webContents.send('diagram:staleness-detected', payload);
-        }
-        logger.log(`[SessionTracker] Diagram staleness: ${severity} (${changedFileCount} files)`);
     }
 
     /**
@@ -565,7 +516,7 @@ export class PermissionInterceptor extends EventEmitter {
      */
     clearPendingOperations(): void {
         // Clear any waiting approvals
-        for (const [id, approval] of this.pendingApprovals) {
+        for (const [, approval] of this.pendingApprovals) {
             clearTimeout(approval.timeout);
             approval.resolve(false); // Auto-reject on clear
         }
@@ -634,7 +585,10 @@ export class PermissionInterceptor extends EventEmitter {
      * Execute a single approved operation.
      * Called when user clicks Approve button.
      */
-    async executeOperation(operationId: string): Promise<PermissionResult> {
+    async executeOperation(
+        operationId: string,
+        options?: { dangerAcknowledged?: boolean },
+    ): Promise<PermissionResult> {
         const operation = this.pendingOperations.get(operationId);
         if (!operation) {
             return {
@@ -642,6 +596,10 @@ export class PermissionInterceptor extends EventEmitter {
                 approved: false,
                 error: `Operation ${operationId} not found`,
             };
+        }
+
+        if (options?.dangerAcknowledged) {
+            operation.dangerAcknowledged = true;
         }
 
         const request = operation.request;
@@ -678,10 +636,6 @@ export class PermissionInterceptor extends EventEmitter {
                 case "delete_lines":
                     await this.executeWriteFile(request);
                     break;
-                // AI-controlled diagram update
-                case "update_diagram":
-                    await this.executeUpdateDiagram(request);
-                    break;
                 // Parent-aggregated: execute each sub-operation in order (v2.2)
                 case "batch_plan":
                     await this.executeBatchPlan(operationId, request);
@@ -701,33 +655,7 @@ export class PermissionInterceptor extends EventEmitter {
 
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);
 
-            // Track operation for diagram refresh analysis
             const preview = request.preview as FileOperationPreview;
-            const cmdPreview = request.preview as CommandOperationPreview;
-            this.executedOperations.push({
-                type: request.operation as ApprovedOperation['type'],
-                path: preview?.path,
-                command: cmdPreview?.command,
-                isNewFile: preview?.type === 'create',
-            });
-
-            // ═══════════════════════════════════════════════════════════════
-            // SESSION TRACKER: Record file changes for AI awareness (v0.9.16)
-            // Session tracker feeds git_status session summary when workspaceId is passed
-            // NOTE: Staleness emission happens in executeAllOperations (batch-aware)
-            // ═══════════════════════════════════════════════════════════════
-            if (this.workspaceId && preview?.path) {
-                const tracker = SessionTracker.getInstance(this.workspaceId);
-                if (!tracker.isInitialized) {
-                    tracker.initialize(this.workspacePath).catch(() => { });
-                }
-
-                const changeType = preview.type === 'create' ? 'added'
-                    : request.operation === 'delete_file' ? 'deleted'
-                        : 'modified';
-                tracker.recordChange(preview.path, changeType);
-                // Per-file emission removed - staleness checked after batch completes
-            }
 
             if (this.workspaceId && (request.operation === "write_file" || request.operation === "write_multiple_files")) {
                 const previews = Array.isArray(request.preview)
@@ -766,18 +694,6 @@ export class PermissionInterceptor extends EventEmitter {
             }
 
             // Queue timeline capture for file operations
-            if (request.operation === 'write_file' || request.operation === 'write_multiple_files' ||
-                request.operation === 'delete_file' || request.operation === 'rename_file') {
-                const reqData = (request as { data?: { files?: { path: string }[]; path?: string; appId?: number } }).data;
-                const filesChanged = request.operation === 'write_multiple_files'
-                    ? (reqData?.files || []).map((f: { path: string }) => f.path)
-                    : reqData?.path ? [reqData.path] : [];
-                if (filesChanged.length > 0 && reqData?.appId) {
-                    // Queue with 5 minute debounce - multiple rapid edits get one snapshot
-                    queueCapture(reqData.appId, filesChanged);
-                }
-            }
-
             // Resolve approval AFTER execution completes
             // This is the key fix - AI now waits for command to finish
             this.resolveApproval(operationId, true);
@@ -847,6 +763,9 @@ export class PermissionInterceptor extends EventEmitter {
         duration?: number;
         blueprintSuggestion?: boolean;
         blueprintSuggestionMessage?: string;
+        operation?: string;
+        oldContent?: string;
+        newContent?: string;
     } {
         const operation = this.pendingOperations.get(operationId);
 
@@ -1082,98 +1001,12 @@ export class PermissionInterceptor extends EventEmitter {
         logger.log(`[executeAllOperations] Completed all ${operationsToExecute.length} operations`);
 
         // ════════════════════════════════════════════════════════════════════
-        // POST-SEQUENCE DIAGRAM REFRESH
-        // Evaluate operations and refresh diagram if structural changes detected
-        // ════════════════════════════════════════════════════════════════════
-        if (this.workspaceId && this.executedOperations.length > 0) {
-            await this.evaluateDiagramRefresh();
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // SESSION TRACKER: Batch-complete staleness check (v0.9.16)
-        // Emit staleness ONCE after all operations complete, not per-file
-        // ═══════════════════════════════════════════════════════════════
-        if (this.workspaceId && this.getEffectiveChatMode() !== "ask") {
-            const tracker = SessionTracker.getInstance(this.workspaceId);
-            const status = tracker.getDiagramStatus();
-            if (status !== 'current') {
-                this.emitDiagramStaleness(
-                    status === 'major_drift' ? 'major' : 'minor',
-                    tracker.changeCount
-                );
-                logger.log(`[SessionTracker] Batch complete: ${status} (${tracker.changeCount} files, ${(tracker.getChangePercentage() * 100).toFixed(1)}%)`);
-            }
-        }
-
-        // Clear executed operations for next sequence
-        this.executedOperations = [];
-
-        // ════════════════════════════════════════════════════════════════════
         // FIX 2 (v0.9.15): Clear CDP console buffers to prevent stale errors
         // This sends Console.clearMessages via CDP and notifies renderer
         // ════════════════════════════════════════════════════════════════════
         clearAllConsoleBuffers();
 
         return results;
-    }
-
-    /**
-     * Evaluate whether diagram needs refresh after operation sequence.
-     * Called automatically after executeAllOperations completes.
-     */
-    private async evaluateDiagramRefresh(): Promise<void> {
-        if (!this.workspaceId) return;
-        if (this.getEffectiveChatMode() === "ask") {
-            logger.log("[Diagram Refresh] Skipped: Ask mode (no auto regen or staleness IPC)");
-            return;
-        }
-
-        try {
-            const decision = await decideDiagramAction(this.workspaceId, this.executedOperations);
-
-            logger.log(`[Diagram Refresh] Decision: ${decision.action} - ${decision.reason} (confidence: ${decision.confidence.toFixed(2)})`);
-
-            if (decision.action === 'generate' || decision.action === 'refresh') {
-                // Emit event for frontend notification (EventEmitter for internal use)
-                this.emit('diagram:refresh-needed', {
-                    workspaceId: this.workspaceId,
-                    action: decision.action,
-                    reason: decision.reason,
-                    confidence: decision.confidence,
-                });
-
-                // ═══════════════════════════════════════════════════════════════
-                // CRITICAL: Send IPC to renderer for staleness banner display
-                // This updates diagramStalenessAtom in the frontend
-                // ═══════════════════════════════════════════════════════════════
-                const stalenessPayload = {
-                    diagramId: this.workspaceId, // Use workspace ID as diagram reference
-                    isStale: true,
-                    severity: decision.confidence > 0.7 ? 'major' : decision.confidence > 0.4 ? 'moderate' : 'minor' as const,
-                    reason: decision.reason,
-                    recommendation: decision.action === 'generate' ? 'force-refresh' : 'suggest-refresh' as const,
-                };
-
-                for (const win of BrowserWindow.getAllWindows()) {
-                    win.webContents.send('diagram:staleness-detected', stalenessPayload);
-                }
-                logger.log(`[Diagram Staleness] Sent to renderer: ${stalenessPayload.severity} - ${stalenessPayload.reason}`);
-
-                // Trigger background diagram regeneration
-                // Uses setImmediate to not block the permission response
-                const workspaceId = this.workspaceId;
-                setImmediate(async () => {
-                    try {
-                        logger.log(`[Diagram Refresh] Triggering background regeneration for workspace ${workspaceId}`);
-                        await runDiagramRegenerateBackground(workspaceId);
-                    } catch (err) {
-                        logger.error('[Diagram Refresh] Background regeneration failed:', err);
-                    }
-                });
-            }
-        } catch (error) {
-            logger.error('[Diagram Refresh] Error evaluating:', error);
-        }
     }
 
     /**
@@ -1251,23 +1084,6 @@ export class PermissionInterceptor extends EventEmitter {
         return rel.split(path.sep).join("/");
     }
 
-    private async getDiagramContentForSnapshot(): Promise<string | undefined> {
-        if (this.diagramContentCache !== null) {
-            return this.diagramContentCache ?? undefined;
-        }
-        if (this.workspaceId == null) {
-            this.diagramContentCache = undefined;
-            return undefined;
-        }
-        const [row] = await db
-            .select({ content: diagrams.content })
-            .from(diagrams)
-            .where(eq(diagrams.workspaceId, this.workspaceId))
-            .limit(1);
-        this.diagramContentCache = row?.content ?? undefined;
-        return this.diagramContentCache;
-    }
-
     /**
      * Capture pre-write file state under `.atlarix/snapshots/<turnId>/`.
      * Requires `snapshotTurnId` (see field doc). `captureSnapshot` itself does not read chatId;
@@ -1278,12 +1094,10 @@ export class PermissionInterceptor extends EventEmitter {
         const paths = relativePaths.map((p) => p.split(path.sep).join("/")).filter(Boolean);
         if (paths.length === 0) return;
         try {
-            const diagramBefore = await this.getDiagramContentForSnapshot();
             await captureSnapshot({
                 workspacePath: this.workspacePath,
                 turnId: this.snapshotTurnId,
                 relativePaths: paths,
-                diagramBefore,
             });
         } catch (e) {
             logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
@@ -1430,31 +1244,6 @@ export class PermissionInterceptor extends EventEmitter {
         }
     }
 
-    private async executeUpdateDiagram(request: PermissionRequest): Promise<void> {
-        const preview = request.preview as DiagramUpdatePreview;
-
-        if (!this.workspaceId) {
-            throw new Error("Cannot update diagram: workspace ID not set");
-        }
-
-        logger.log(`[executeUpdateDiagram] Regenerating diagram for workspace ${this.workspaceId}`, {
-            type: preview.type,
-            components: preview.components,
-            description: preview.description,
-        });
-
-        // Import DiagramManager dynamically to avoid circular dependencies
-        const { DiagramManager } = await import("../../../lib/DiagramManager");
-
-        // Regenerate diagram with focus on affected components
-        await DiagramManager.regenerateForWorkspace(this.workspaceId, {
-            focusComponents: preview.components,
-            context: preview.description,
-        });
-
-        logger.log(`[executeUpdateDiagram] Diagram regenerated successfully`);
-    }
-
     /**
      * Detect if a command is a dev server that runs indefinitely.
      * These commands should be treated as "started successfully" after a short time.
@@ -1547,6 +1336,20 @@ export class PermissionInterceptor extends EventEmitter {
             const err = JSON.parse(gitInitBlock).error as string;
             logger.warn(`[executeRunCommand] Blocked git init: ${commandToRun}`);
             throw new Error(err);
+        }
+
+        const operation = this.pendingOperations.get(operationId);
+        const isDangerous =
+            Boolean(preview.isDangerous) || isDangerousCommand(commandToRun);
+        if (isDangerous && !operation?.dangerAcknowledged) {
+            const explanation =
+                preview.dangerExplanation?.trim() ||
+                getDangerExplanation(commandToRun) ||
+                "This command may have unintended side effects.";
+            const msg =
+                `Dangerous command blocked: user must confirm risks before execution.\n\n${explanation}\n\nCommand: ${commandToRun}`;
+            logger.warn(`[executeRunCommand] ${msg}`);
+            throw new Error(msg);
         }
 
         // Dev servers get 10 seconds to start; other commands use timeout_ms from preview (default 2 min).

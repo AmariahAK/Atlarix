@@ -1,14 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useQuery, QueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { currentAppAtom } from "@/atoms/appAtoms";
-import { diagramStateAtom, diagramStalenessAtom } from "@/atoms/sourceAtoms";
 
 export function useLoadApp(appId: number | null) {
   const [, setApp] = useAtom(currentAppAtom);
-  const setDiagramState = useSetAtom(diagramStateAtom);
-  const setDiagramStaleness = useSetAtom(diagramStalenessAtom);
   const loadedAppIdRef = useRef<number | null>(null);
 
   const isAppNotFoundError = (err: unknown): boolean => {
@@ -41,14 +38,10 @@ export function useLoadApp(appId: number | null) {
   useEffect(() => {
     if (appId === null) {
       setApp(null);
-      setDiagramState(null);
-      setDiagramStaleness(null);
       loadedAppIdRef.current = null;
     } else if (appData !== undefined) {
       if (!appData) {
         setApp(null);
-        setDiagramState(null);
-        setDiagramStaleness(null);
         loadedAppIdRef.current = null;
         return;
       }
@@ -57,9 +50,8 @@ export function useLoadApp(appId: number | null) {
       loadedAppIdRef.current = appId;
 
       setApp({ ...appData, files: appData.files ?? [] });
-      setDiagramStaleness(null);
     }
-  }, [appId, appData, setApp, setDiagramState, setDiagramStaleness]);
+  }, [appId, appData, setApp]);
 
   return { app: appData, loading, error, refreshApp };
 }

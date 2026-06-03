@@ -12,12 +12,15 @@ import { ipcMain, dialog, BrowserWindow } from "electron";
 export function registerFolderDialogHandler() {
     // Workspace/folder selection
     ipcMain.handle("dialog:openDirectory", async (event) => {
-        const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-        const result = await dialog.showOpenDialog(parent, {
+        const parent = BrowserWindow.fromWebContents(event.sender);
+        const options: Electron.OpenDialogOptions = {
             properties: ["openDirectory"],
             title: "Select Workspace Folder",
             buttonLabel: "Select Workspace",
-        });
+        };
+        const result = parent
+            ? await dialog.showOpenDialog(parent, options)
+            : await dialog.showOpenDialog(options);
 
         return result;
     });

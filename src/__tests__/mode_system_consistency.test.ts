@@ -1,128 +1,36 @@
 /**
- * PASS6: Keep `<mode_system>` tool lists in sync with `modeAllowlist` in
- * `src/ipc/handlers/chat_stream_handlers.ts` (see MODE_SYSTEM_TOOL_LISTS).
+ * Keep active-mode prompts and tools_registry aligned with mode-tool-registry.
  */
 import { describe, expect, it } from "vitest";
 import {
   MODE_SYSTEM_TOOL_LISTS,
   constructSystemPromptParts,
 } from "../prompts/system_prompt";
+import {
+  getModeToolAllowlist,
+  getModeRegistryDisplayLabel,
+} from "../lib/tools/mode-tool-registry";
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
 
-/**
- * Mirror of `modeAllowlist` in chat_stream_handlers.ts (non-build modes).
- * PASS8 B2: `get_workspace_overview` removed — it was advertised here and in
- * MODE_SYSTEM_TOOL_LISTS but never registered in src/lib/tools/.
- */
-const STREAM_HANDLER_ALLOWLIST: Record<"ask" | "plan" | "debug" | "review", string[]> = {
-  ask: [
-    "ask_user",
-    "compress_context",
-    "deep_research",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_attachments",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "memory",
-    "read_attachment",
-    "read_file",
-    "read_url",
-    "run_command",
-    "search",
-    "web_search",
-  ],
-  plan: [
-    "ask_user",
-    "compress_context",
-    "edit_file",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_plan_scope",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "memory",
-    "read_file",
-    "read_implementation_plan",
-    "run_command",
-    "search",
-    "update_plan_status",
-    "write_file",
-    "write_implementation_plan",
-  ],
-  debug: [
-    "ask_user",
-    "diagnose_issue",
-    "edit_file",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "lsp_definitions",
-    "lsp_diagnostics",
-    "lsp_hover",
-    "lsp_references",
-    "mcp_call",
-    "memory",
-    "read_file",
-    "run_command",
-    "search",
-    "stream_terminal_output",
-    "write_file",
-  ],
-  review: [
-    "ask_user",
-    "diagnose_issue",
-    "explore_folder",
-    "find_file",
-    "get_active_skills",
-    "get_blueprint",
-    "get_file_outline",
-    "get_project_history",
-    "get_project_structure",
-    "get_repo_overview",
-    "list_available_mcps",
-    "list_files",
-    "list_installed_skills",
-    "lsp_definitions",
-    "lsp_diagnostics",
-    "lsp_hover",
-    "lsp_references",
-    "memory",
-    "read_file",
-    "run_command",
-    "search",
-  ],
-};
+const ALL_MODE_LABELS = ["Explore", "Plan", "Build", "Debug", "Review"] as const;
 
 function sortNames(names: readonly string[]): string[] {
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
+function otherModeHeaders(activeLabel: string): string[] {
+  return ALL_MODE_LABELS.filter((l) => l !== activeLabel).map(
+    (l) => `## Current mode: ${l}`,
+  );
+}
+
 describe("mode system consistency", () => {
   for (const mode of ["ask", "plan", "debug", "review"] as const) {
-    it(`MODE_SYSTEM_TOOL_LISTS.${mode} matches stream handler allowlist`, () => {
-      expect(sortNames(MODE_SYSTEM_TOOL_LISTS[mode])).toEqual(sortNames(STREAM_HANDLER_ALLOWLIST[mode]));
+    it(`MODE_SYSTEM_TOOL_LISTS.${mode} matches registry allowlist`, () => {
+      expect(sortNames(MODE_SYSTEM_TOOL_LISTS[mode])).toEqual(
+        sortNames(getModeToolAllowlist(mode)),
+      );
     });
 
     it(`MODE_SYSTEM_TOOL_LISTS.${mode} is alphabetically sorted`, () => {
@@ -131,26 +39,57 @@ describe("mode system consistency", () => {
     });
   }
 
+  for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
+    it(`each mode gets its own tools_registry (${mode})`, () => {
+      const label = getModeRegistryDisplayLabel(mode);
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: mode === "build" ? "build" : "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      expect(stableHeader).toContain(`<tools_registry mode="${mode}" label="${label}">`);
+      expect(stableHeader).toContain("Progressive reveal");
+      expect(stableHeader).toContain("Workspace chat:");
+      expect(stableHeader).not.toContain("Explore, Plan, Build");
+    });
+  }
+
+  it("ask header shows Explore only, not other mode headers", () => {
+    const { stableHeader } = constructSystemPromptParts({
+      chatMode: "ask",
+      effectiveWorkMode: "ask",
+      hasWorkspace: true,
+    });
+    expect(stableHeader).toContain("## Current mode: Explore");
+    for (const h of otherModeHeaders("Explore")) {
+      expect(stableHeader).not.toContain(h);
+    }
+    expect(stableHeader).toContain("<work_mode>");
+    expect(stableHeader).not.toMatch(/switch to \*\*Plan\*\*/i);
+    expect(stableHeader).not.toMatch(/switch to \*\*Build\*\*/i);
+  });
+
+  it("registeredToolNames appear in tools_registry when provided", () => {
+    const { stableHeader } = constructSystemPromptParts({
+      chatMode: "ask",
+      effectiveWorkMode: "ask",
+      hasWorkspace: true,
+      registeredToolNames: ["read_file", "search"],
+    });
+    expect(stableHeader).toContain("Native schemas bound now: read_file, search");
+  });
+
   it("run_command is offered in Ask-mode tool discovery (allowInAskMode)", () => {
     const askNames = ToolRegistry.getToolsForAskMode().map((t) => t.name);
     expect(askNames).toContain("run_command");
   });
 
   it("debug mode allowlist includes write_file", () => {
-    expect(STREAM_HANDLER_ALLOWLIST.debug).toContain("write_file");
     expect(MODE_SYSTEM_TOOL_LISTS.debug).toContain("write_file");
+    expect(getModeToolAllowlist("debug")).toContain("write_file");
   });
 
-  it("constructSystemPromptParts(plan) omits other mode headers", () => {
-    const { stableHeader } = constructSystemPromptParts({
-      chatMode: "ask",
-      effectiveWorkMode: "plan",
-    });
-    expect(stableHeader).toContain("## Current mode: Plan");
-    expect(stableHeader).not.toContain("## Current mode: Explore");
-    expect(stableHeader).not.toContain("## Current mode: Build");
-    expect(stableHeader).not.toContain("## Current mode: Fix");
-    expect(stableHeader).not.toContain("## Current mode: Review");
-    expect(stableHeader).not.toContain("- **Modes:** Ask, Plan, Build");
+  it("ask allowlist does not include get_mode_tool_registry", () => {
+    expect(MODE_SYSTEM_TOOL_LISTS.ask).not.toContain("get_mode_tool_registry");
   });
 });

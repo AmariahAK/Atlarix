@@ -230,7 +230,7 @@ export function useBrowserErrorListener() {
         // When main process clears CDP buffer, reset our dedup tracking
         // This ensures errors don't re-appear from stale buffer entries
         // ================================================
-        const handleBufferCleared = (payload: any) => {
+        const handleBufferCleared = () => {
             console.log('[useBrowserErrorListener] ✅ CDP buffer cleared - resetting error state and dedup tracking');
             seenErrorHashes.clear(); // Reset deduplication set
             setErrors([]); // Clear React state

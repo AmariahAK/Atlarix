@@ -176,7 +176,8 @@ export function WorkspaceSessionList({
         });
       let chatId = sessionIdToChatId.get(sessionId);
       if (chatId == null) {
-        chatId = await IpcClient.getInstance().createChat(workspaceId);
+        ({ chatId } =
+          await IpcClient.getInstance().allocateSessionTransport(sessionId));
         setSessionIdToChatId((prev) => {
           const next = new Map(prev);
           next.set(sessionId, chatId!);

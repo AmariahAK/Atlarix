@@ -131,7 +131,7 @@ export function TerminalPanel() {
       if (!activeIdForDraft) return;
       setDraftByScope((prev) => ({
         ...prev,
-        [scopeKey]: { ...(prev[scopeKey] ?? {}), [activeIdForDraft]: value },
+        [scopeKey]: { ...prev[scopeKey], [activeIdForDraft]: value },
       }));
     },
     [activeIdForDraft, scopeKey, setDraftByScope],
@@ -334,14 +334,14 @@ export function TerminalPanel() {
         }));
       }
       setAgentOpMapByScope((prev) => {
-        const map = { ...(prev[scopeKey] ?? {}) };
+        const map = { ...prev[scopeKey] };
         for (const [op, inst] of Object.entries(map)) {
           if (inst === instanceId) delete map[op];
         }
         return { ...prev, [scopeKey]: map };
       });
       setDraftByScope((prev) => {
-        const scopeDrafts = { ...(prev[scopeKey] ?? {}) };
+        const scopeDrafts = { ...prev[scopeKey] };
         delete scopeDrafts[instanceId];
         return { ...prev, [scopeKey]: scopeDrafts };
       });
@@ -390,7 +390,7 @@ export function TerminalPanel() {
         );
         setAgentOpMapByScope((prev) => ({
           ...prev,
-          [scopeKey]: { ...(prev[scopeKey] ?? {}), [operationId]: instanceId! },
+          [scopeKey]: { ...prev[scopeKey], [operationId]: instanceId! },
         }));
         void IpcClient.getInstance()
           .openTerminalInstance({

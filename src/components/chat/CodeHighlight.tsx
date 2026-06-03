@@ -105,7 +105,7 @@ export const CodeHighlight = memo(
     if (!isInline && (language === "chart" || language === "json-chart")) {
       return (
         <div className="not-prose my-2 w-full">
-          <ChartArtifactCard code={code} />
+          <ChartArtifactCard code={code} isStreaming={isStreaming} />
         </div>
       );
     }
@@ -139,7 +139,12 @@ export const CodeHighlight = memo(
       return (
         <div className="not-prose my-2 w-full">
           <VisualArtifactCard title={title} layout="canvas">
-            <MarkmapRenderer content={code} embedded className="h-full min-h-0" />
+            <MarkmapRenderer
+              content={code}
+              embedded
+              className="h-full min-h-0"
+              isStreaming={isStreaming}
+            />
           </VisualArtifactCard>
         </div>
       );

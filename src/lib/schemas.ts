@@ -457,6 +457,14 @@ export const UserSettingsSchema = z.object({
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */
   allowGitInit: z.boolean().optional(),
+  /** Linux: wrap stdio MCP servers in firejail when available. Default false. */
+  sandboxMcpStdio: z.boolean().optional(),
+  mcpStdioFirejail: z
+    .object({
+      allowNetwork: z.boolean().optional(),
+      customBinaryPath: z.string().optional(),
+    })
+    .optional(),
   enableAutoUpdate: z.boolean(),
   releaseChannel: ReleaseChannelSchema,
   runtimeMode2: RuntimeMode2Schema.optional(),

@@ -6,7 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { Blueprint, BlueprintRoom, BlueprintFunction } from "../../shared/blueprint-types";
+import type { Blueprint, BlueprintRoom } from "../../shared/blueprint-types";
 import { parseEnvFile, serializeEnvFile } from "../../ipc/utils/app_env_var_utils";
 
 const ENV_FILE_NAME = ".env.local";
@@ -95,7 +95,6 @@ export async function generateFromBlueprintDelta(
   }
 
   const srcDir = path.join(workspacePath, "src");
-  const routesDir = path.join(srcDir, "routes");
   const safeId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_");
 
   for (const room of delta.rooms) {

@@ -46,29 +46,6 @@ const LANGUAGE_MAP: Record<string, string> = {
 };
 
 // Files/dirs to exclude from scanning (flat name match)
-const EXCLUDE_DIR_NAMES = new Set([
-    'node_modules', '.git', '.next', 'dist', 'build', '__pycache__',
-    // Python virtual environments (all variants)
-    '.venv', '.venv-ci', '.venv-dev', '.venv-test', 'venv', 'env', '.env',
-    // Python package internals — never analyze
-    'site-packages', 'dist-packages',
-    // Timezone data — thousands of tiny files, zero value
-    'tzdata', 'zoneinfo',
-    // AWS CDK/SAM build artifacts
-    'cdk.out', '.aws-sam', '.aws-cdk',
-    // Other build artifacts
-    'target', 'vendor', '.idea', '.vscode', 'coverage',
-    // Monorepo / package manager
-    '.pnpm', '.pnpm-store', '.yarn', '.yarn-cache', '.turbo', '.parcel-cache',
-    // Build outputs
-    'out', '.nuxt', '.output', 'storybook-static', '.svelte-kit',
-    // Language-specific caches
-    '.gradle', 'DerivedData', 'Pods', '.dart_tool', '.flutter_tools',
-    '.mypy_cache', '.ruff_cache', '.pytest_cache',
-    // General
-    '.nyc_output',
-]);
-
 export interface AnalyzedFile {
     path: string;
     relativePath: string;
@@ -523,7 +500,7 @@ function classifyFileType(filePath: string, content: string): AnalyzedFile['type
 /**
  * Build dependency graph from imports
  */
-function buildDependencyGraph(files: AnalyzedFile[], workspacePath: string): Dependency[] {
+function buildDependencyGraph(files: AnalyzedFile[], _workspacePath: string): Dependency[] {
     const dependencies: Dependency[] = [];
     const fileMap = new Map<string, string>();
 
@@ -612,7 +589,7 @@ function inferClusterPurpose(name: string, files: string[]): string {
 /**
  * Find likely entry points
  */
-function findEntryPoints(files: AnalyzedFile[], language: string): string[] {
+function findEntryPoints(files: AnalyzedFile[], _language: string): string[] {
     const entryNames = new Set([
         'main', 'index', 'app', 'server', 'cli', '__main__', 'manage',
     ]);

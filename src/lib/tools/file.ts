@@ -9,6 +9,7 @@
  */
 
 import * as fs from "fs";
+import { truncateUtf8ByBytes } from "@/lib/truncate";
 import * as path from "path";
 import fsp from "fs/promises";
 import { glob } from "glob";
@@ -22,6 +23,7 @@ import {
 } from "./registry";
 import { type FileOperationPreview } from "./permissions/schema";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
+import { debugWriteHandlerDenied } from "../debug/debug-write-handler-gate";
 import {
     resolvePathUnderWorkspace,
     safeRelativePathUnderWorkspace,
@@ -50,16 +52,6 @@ const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
 const READ_FILE_DEFAULT_MAX_BYTES = 80_000;
 const READ_FILE_MAX_BYTES_CAP = 200_000;
-
-function truncateUtf8ByBytes(text: string, maxBytes: number): string {
-    const buf = Buffer.from(text, "utf8");
-    if (buf.length <= maxBytes) return text;
-    const cut = buf.subarray(0, Math.max(0, maxBytes - 120));
-    return (
-        cut.toString("utf8") +
-        "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]"
-    );
-}
 
 // ═══════════════════════════════════════════════════════════
 // SMART FILE SLICING HELPERS
@@ -219,6 +211,8 @@ ToolRegistry.register({
         end_line,
         workspace,
     }) => {
+        // Hoisted so the catch block can reference it for error reporting.
+        let displayPath = "";
         try {
             let filePath = pathArg || file_path;
 
@@ -240,7 +234,6 @@ ToolRegistry.register({
                 normalizedAbsolute != null &&
                 isAllowedToolOutputPath(normalizedAbsolute);
 
-            let displayPath: string;
             if (toolOutputSpill) {
                 displayPath = normalizedAbsolute!;
             } else {
@@ -315,7 +308,7 @@ ToolRegistry.register({
                     .join("\n");
 
                 const block = `File: ${displayPath}\nLines: ${startIdx + 1}-${endIdx} of ${lines.length}\n\n${numberedLines}`;
-                return truncateUtf8ByBytes(block, capBytes);
+                return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
             }
 
             if (lines.length <= capLines && context === "full") {
@@ -323,7 +316,7 @@ ToolRegistry.register({
                     .map((line, idx) => `${idx + 1}: ${line}`)
                     .join("\n");
                 const block = `File: ${displayPath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
-                return truncateUtf8ByBytes(block, capBytes);
+                return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
             }
 
             const sliced = smartSliceFile(lines, capLines, context as SliceContext);
@@ -334,7 +327,7 @@ ToolRegistry.register({
                 "💡 Tip: Use start_line/end_line for specific sections, or get_file_outline for structure.\n\n";
             result += sliced.text;
 
-            return truncateUtf8ByBytes(result, capBytes);
+            return truncateUtf8ByBytes(result, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
         } catch (error) {
             const structured = readFileStructuredError(error, displayPath);
             if (structured) {
@@ -517,7 +510,7 @@ ToolRegistry.register({
         },
         ["path", "content", "description"]
     ),
-    handler: async ({ path: filePath, content, description, workspace, chatMode, agentMode, _chatSessionId, workspaceId }) => {
+    handler: async ({ path: filePath, content, description, workspace, chatMode, agentMode, _chatSessionId, workspaceId, hypothesis }) => {
         if (!chatMode) {
             console.error('[write_file] chatMode is undefined - using default "build"');
         }
@@ -528,6 +521,13 @@ ToolRegistry.register({
                 operation: "write_file",
                 denied: true,
             };
+        }
+
+        const debugDenied = debugWriteHandlerDenied(chatMode, _chatSessionId, {
+            hypothesis,
+        });
+        if (debugDenied) {
+            return { ...debugDenied, operation: "write_file" };
         }
 
         const normalizedPath = safeRelativePathUnderWorkspace(filePath);
@@ -615,13 +615,20 @@ ToolRegistry.register({
         },
         ["files"]
     ),
-    handler: async ({ files, workspace, chatMode }) => {
+    handler: async ({ files, chatMode, _chatSessionId, hypothesis }) => {
         if (chatMode === "ask") {
             return {
                 error: "Write operations not allowed in Ask mode. Switch to Build mode.",
                 operation: "write_multiple_files",
                 denied: true,
             };
+        }
+
+        const debugDenied = debugWriteHandlerDenied(chatMode, _chatSessionId, {
+            hypothesis,
+        });
+        if (debugDenied) {
+            return { ...debugDenied, operation: "write_multiple_files" };
         }
 
         const previews: FileOperationPreview[] = files.map((f: any) => {
@@ -898,7 +905,6 @@ ToolRegistry.register({
                     const isKind = (s: { kind: string }, ...letters: string[]) =>
                         letters.some((l) => s.kind.toLowerCase() === l.toLowerCase());
 
-                    const imports = syms.filter((s) => isKind(s, "i", "I", "p", "import"));
                     const classes = syms.filter((s) => isKind(s, "c", "class"));
                     const interfaces = syms.filter((s) => isKind(s, "i", "interface"));
                     const types = syms.filter((s) => isKind(s, "t", "type", "T"));
@@ -1320,7 +1326,21 @@ ToolRegistry.register({
     cost: 3,
     requiresWorkspace: true,
     isCore: true,
-    handler: async (params: { old_path: string; new_path: string }) => {
+    handler: async (params: {
+        old_path: string;
+        new_path: string;
+        chatMode?: string;
+        _chatSessionId?: number;
+        hypothesis?: string;
+    }) => {
+        const debugDenied = debugWriteHandlerDenied(
+            params.chatMode,
+            params._chatSessionId,
+            params,
+        );
+        if (debugDenied) {
+            return { ...debugDenied, operation: "rename_file" };
+        }
         try {
             const newDir = path.dirname(params.new_path);
             await fsp.mkdir(newDir, { recursive: true });
@@ -1364,7 +1384,21 @@ ToolRegistry.register({
         },
     },
     cost: 5,
-    handler: async (params: { filepath: string; recursive?: boolean }) => {
+    handler: async (params: {
+        filepath: string;
+        recursive?: boolean;
+        chatMode?: string;
+        _chatSessionId?: number;
+        hypothesis?: string;
+    }) => {
+        const debugDenied = debugWriteHandlerDenied(
+            params.chatMode,
+            params._chatSessionId,
+            params,
+        );
+        if (debugDenied) {
+            return { ...debugDenied, operation: "delete_file" };
+        }
         try {
             const stats = await fsp.stat(params.filepath);
 

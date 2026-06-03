@@ -1,6 +1,4 @@
 import type { IpcMainInvokeEvent } from "electron";
-import fs from "node:fs";
-import path from "node:path";
 import { createLoggedHandler } from "../../ipc/handlers/safe_handle";
 import log from "electron-log";
 import { listSshConfigHosts } from "./ssh_config";

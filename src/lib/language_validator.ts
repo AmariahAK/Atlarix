@@ -7,8 +7,8 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { LANGUAGE_REGISTRY, getLanguage, getAllLanguageNames, type LanguageRequirement } from './language_registry';
-import { detectProjectLanguages, type DetectedLanguage } from './project_language_detector';
+import { getLanguage, getAllLanguageNames } from './language_registry';
+import { detectProjectLanguages } from './project_language_detector';
 import log from 'electron-log';
 
 const execAsync = promisify(exec);

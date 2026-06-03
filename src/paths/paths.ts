@@ -58,6 +58,11 @@ export function resolveAppPath(storedPath: string): string {
   return getAtlarixAppPath(storedPath);
 }
 
+/** Canonical workspace path for installed-skills DB rows and lookups. */
+export function normalizeSkillWorkspacePath(workspacePath: string): string {
+  return resolveAppPath(workspacePath.trim());
+}
+
 export function getTypeScriptCachePath(): string {
   const electron = getElectron();
   return path.join(electron!.app.getPath("sessionData"), "typescript-cache");

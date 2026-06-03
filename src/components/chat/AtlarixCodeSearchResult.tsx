@@ -8,6 +8,7 @@ interface AtlarixCodeSearchResultProps {
 
 export const AtlarixCodeSearchResult: React.FC<AtlarixCodeSearchResultProps> = ({
   children,
+  node: _node,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 

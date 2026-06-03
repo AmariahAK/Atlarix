@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Brain, Sparkles, CheckCircle2, XCircle, Loader2, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentBusExchange } from '@/atoms/sourceAtoms';

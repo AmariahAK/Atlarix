@@ -1,6 +1,5 @@
 import { toast } from "sonner";
-import { PostHog } from "posthog-js";
-import React from "react";
+import type { PostHog } from "posthog-js";
 import { CustomErrorToast } from "../components/CustomErrorToast";
 import { InputRequestToast } from "../components/InputRequestToast";
 import { McpConsentToast } from "../components/McpConsentToast";

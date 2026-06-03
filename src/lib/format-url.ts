@@ -1,6 +1,17 @@
 /**
- * Display-only URL shortening for settings UI (does not mutate stored values).
+ * Display-only URL helpers (do not mutate stored values).
  */
+
+/** Hostname without leading `www.`; returns the input unchanged when it isn't a valid URL. */
+export function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** Display-only URL shortening for settings UI. */
 export function truncateUrl(url: string, max = 48): string {
   const trimmed = url.trim();
   if (!trimmed) return "";

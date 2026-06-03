@@ -359,6 +359,31 @@ html[data-fullscreen="true"] #layout-main-content-container {
   animation: marquee 2s linear infinite;
 }
 
+/* Shimmering text for in-progress tool labels (gradient sweep clipped to text). */
+.tool-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-shimmer-text {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    color: inherit;
+  }
+}
+
 /* Gradient animation for Atlarix branding */
 @keyframes gradient-shift {
   0% {

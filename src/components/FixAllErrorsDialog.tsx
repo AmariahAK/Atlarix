@@ -69,7 +69,7 @@ export function FixAllErrorsDialog({ isOpen, onClose, errors, onSubmit }: FixAll
 
         // Return only non-empty groups, sorted by priority
         return Object.entries(groups)
-            .filter(([_, errs]) => errs.length > 0)
+            .filter(([_type, errs]) => errs.length > 0)
             .sort(([a], [b]) =>
                 ERROR_TYPE_PRIORITY[a as ParsedError['type']] - ERROR_TYPE_PRIORITY[b as ParsedError['type']]
             ) as [ParsedError['type'], ParsedError[]][];

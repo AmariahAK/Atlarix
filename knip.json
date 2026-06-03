@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/router.ts",
+    "src/routes/**/*.{ts,tsx}",
+    "src/ipc/ipc_host.ts",
+    "src/lib/tools/index.ts",
+    "forge.config.ts",
+    "vite.*.config.mts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}"
+  ],
+  "ignore": [
+    "e2e-tests/**",
+    "**/*.d.ts",
+    "src/**/*.test.{ts,tsx}",
+    "src/shims/**"
+  ],
+  "ignoreExportsUsedInFile": true
+}

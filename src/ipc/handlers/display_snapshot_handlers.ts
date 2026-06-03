@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../db";
-import { messages, sessionMessages } from "../../db/schema";
+import { sessionMessages } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
 import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
@@ -24,47 +24,29 @@ export function registerDisplaySnapshotHandlers(): void {
       },
     ) => {
       const { chatId, messageId, displaySnapshot } = payload;
-      if (!parseDisplaySnapshot(displaySnapshot)) {
+      const parsed = parseDisplaySnapshot(displaySnapshot);
+      if (!parsed) {
         throw new Error("Invalid display snapshot payload");
       }
-      if (isEphemeralChatId(chatId)) {
-        const ok = setEphemeralMessageDisplaySnapshot(
-          chatId,
-          messageId,
-          parseDisplaySnapshot(displaySnapshot)!,
-        );
-        if (!ok) throw new Error("Ephemeral message not found");
-        return { ok: true as const };
+      if (!isEphemeralChatId(chatId)) {
+        throw new Error("Display snapshots require an active workspace stream");
       }
-      if (!Number.isFinite(messageId) || messageId <= 0) {
-        throw new Error("Invalid message id for display snapshot");
-      }
-      await db
-        .update(messages)
-        .set({ displaySnapshot })
-        .where(eq(messages.id, messageId));
+      const ok = setEphemeralMessageDisplaySnapshot(
+        chatId,
+        messageId,
+        parsed,
+      );
+      if (!ok) throw new Error("Ephemeral message not found");
       return { ok: true as const };
     },
   );
 
   handle(
     "messages:save-display-snapshot",
-    async (
-      _event,
-      payload: { messageId: number; displaySnapshot: string },
-    ) => {
-      const { messageId, displaySnapshot } = payload;
-      if (!Number.isFinite(messageId) || messageId <= 0) {
-        throw new Error("Invalid message id for display snapshot");
-      }
-      if (!parseDisplaySnapshot(displaySnapshot)) {
-        throw new Error("Invalid display snapshot payload");
-      }
-      await db
-        .update(messages)
-        .set({ displaySnapshot })
-        .where(eq(messages.id, messageId));
-      return { ok: true as const };
+    async () => {
+      throw new Error(
+        "Legacy message display snapshots were removed; use session-messages:save-display-snapshot",
+      );
     },
   );
 

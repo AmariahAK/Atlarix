@@ -70,7 +70,6 @@ function loadFromSettings(): void {
 }
 
 function persistConnections(): void {
-  const settings = readSettings();
   const list: DBConnectionStored[] = Array.from(connections.values()).map((c) => ({
     id: c.id,
     name: c.name,

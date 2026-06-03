@@ -422,20 +422,17 @@ export function numberParam(
     max?: number,
 ): any {
     let name: string;
-    let required: boolean;
     let defaultValue: number | undefined;
     let min: number | undefined;
     let maxVal: number | undefined;
 
     if (typeof requiredOrDefault === "boolean") {
         name = nameOrDescription;
-        required = requiredOrDefault;
         defaultValue = defaultOrMin;
         min = minOrMax;
         maxVal = max;
     } else {
         name = nameOrDescription;
-        required = false;
         defaultValue = requiredOrDefault;
         min = defaultOrMin;
         maxVal = minOrMax;
@@ -455,23 +452,19 @@ export function enumParam(
     options?: string[],
 ): any {
     let name: string;
-    let required: boolean;
     let defaultValue: string | undefined;
     let opts: string[] | undefined;
 
     if (typeof requiredOrDefault === "boolean") {
         name = nameOrDescription;
-        required = requiredOrDefault;
         defaultValue = defaultOrOptions as string | undefined;
         opts = options;
     } else if (typeof requiredOrDefault === "string") {
         name = nameOrDescription;
-        required = false;
         defaultValue = requiredOrDefault;
         opts = defaultOrOptions as string[] | undefined;
     } else {
         name = nameOrDescription;
-        required = false;
         defaultValue = undefined;
         opts = requiredOrDefault as string[] | undefined;
     }

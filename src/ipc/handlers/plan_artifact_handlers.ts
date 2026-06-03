@@ -12,7 +12,6 @@ import {
 import type { PlanArtifactStatus } from "@/db/schema";
 import {
   emitPlanArtifactActivated,
-  emitPlanArtifactUpdated,
   type PlanArtifactPayload,
 } from "../utils/emit_plan_artifact";
 
