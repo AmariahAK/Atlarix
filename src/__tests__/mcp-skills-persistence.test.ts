@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import path from "node:path";
 import {
   hasOAuthCredentials,
   isOAuthTokenValid,
@@ -64,6 +65,7 @@ describe("normalizeSkillWorkspacePath", () => {
   it("resolves relative workspace paths to absolute", () => {
     const normalized = normalizeSkillWorkspacePath("my-app");
     expect(normalized).toMatch(/my-app$/);
-    expect(normalized.startsWith("/")).toBe(true);
+    // Windows absolute paths start with a drive letter, not "/".
+    expect(path.isAbsolute(normalized)).toBe(true);
   });
 });
