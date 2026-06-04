@@ -1,106 +1,106 @@
 # Atlarix TODO
 
-**Current Version:** v9.1.1
-**Last Updated:** 2026-06-03
+**Current Version:** v10.0.0
+**Last Updated:** 2026-06-04
 
 ---
 
-## Shipped (this batch — see CHANGELOG `[Unreleased]`)
+## Shipped in v10.0.0
 
-Tool results visible in chat (live + reload), MCP auth-and-retry, chat-edit persistence,
-dead-code sweep (~100 files + the entire diagram subsystem), all 169 tsc + 351 lint errors
-cleared, duplicate-utility consolidation, plan-artifact status lifecycle, Cmd/Ctrl+B +
-Shift+Tab shortcuts, and the quality gate (`npm run check` + CI). Details in
-[CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+| Area | Notes |
+|------|--------|
+| **Interactive PTY terminal** | xterm.js + node-pty for user tabs (Tab completion, vim/top); agent tabs unchanged; `enablePtyTerminal` kill-switch; fallback to single-command input |
+| **Live plan step progress** | `update_plan_step` tool; checklist `[ ]→[~]→[x]` live on plan card + Plan panel; built safety-net closes steps |
+| **Per-hunk diff approvals** | Real LCS hunks (`diff` pkg) in `SmartDiffView`; per-hunk checkboxes; `overrideContent` through `executePermission`; multi-file hunk summary |
+| **`.atlarix/memory.md`** | Agent-maintained project knowledge file; hint-only prompt injection (never force-read); Plan/Build writable; auto-memory repointed (fixes ATLARIX.md archive bug) |
+| **First-run wizard** | 4-step skippable setup; legacy 5-step overlay deleted; tour copy refreshed |
+| **Token accuracy** | Sub-agent + compaction usage recorded per turn (Compass metering + `auxTokens`); context meter shows pruned sections + sub-agent tokens; `(3.2s)` tool elapsed |
+| **Commit attribution** | `"<Model> agent" <agent@atlarix.dev>` via prompt + `git -c` injection; internal commits stay `atlarix-agent` |
+| **Shadow-git snapshots** | Per-turn revert via hidden git repo in app data (dedup, 14-day prune, legacy `.bak` fallback); created files deleted on revert |
+| **Mode isolation** | Every-mode tools in all allowlists; no legacy all-modes block on streams; leakage tests |
+| **Actionable tool errors** | `TOOL_RECOVERY_HINTS` envelope in ToolRegistry + worst-offender rewrites (replaces the planned tool-retry button) |
+| **Right-panel Diff tab removed** | Plus vestigial `file-diff` PanelType; diffs/approvals are inline in chat |
+
+Plus the previously-unreleased quality batch (tool results in chat, MCP auth-and-retry,
+chat-edit persistence, dead-code sweeps, 0 tsc/0 lint, quality gate). See
+[CHANGELOG.md](CHANGELOG.md) `[10.0.0]`.
 
 ---
 
-## v10.0 updates (roadmap)
+## v10.1 updates (roadmap)
 
-Detailed forward-looking work, in priority order. Each item lists what / why / approach / key files.
-
-### 1. Live plan step progress
-
-- **What:** While the agent builds a plan, its checklist items flip `[ ]` → `[~]` (in
-  progress) → `[x]` live in the plan artifact card and the right-panel Plan tab.
-- **Why:** Plans advance only at the artifact level (plan → building → built, shipped this
-  batch). Step-level progress is the missing feedback loop during long builds — users can't
-  tell which step the agent is on or how much is left.
-- **Approach:** Reuse `parsePlanToSteps` (`src/lib/tasks/atlarix-plan-steps.ts`) to index
-  checklist items; add an `update_plan_step` tool (args: planId, step index/text, state) that
-  rewrites the checkbox in the stored plan content and emits the existing
-  `plan-artifact:updated` event so `PlanArtifactCard` re-renders. Prompt Build mode to call it
-  as it starts/finishes each step; safety-net: mark remaining steps `[x]` when the artifact
-  flips to `built`.
-- **Key files:** `lib/tasks/atlarix-plan-steps.ts`, `lib/plans/plan-artifacts.ts`,
-  `lib/tools/plan.ts`, `ipc/utils/emit_plan_artifact.ts`, `components/chat/PlanArtifactCard`.
-
-### 2. Renderer / integration test coverage
+### 1. Renderer / integration test coverage
 
 - **What:** Component- and flow-level tests for the chat surface: send → stream → tool card
   render, edit → persist → reload, session switch, mode switch, plan Build button, MCP auth
-  retry prompt.
-- **Why:** The chat-edit persistence bug shipped because nothing exercised the renderer path
-  end-to-end; the existing 861 tests are main-process/unit. The riskiest regressions live in
-  renderer ↔ IPC wiring.
-- **Approach:** Add `@testing-library/react` + a jsdom vitest project; mock `IpcClient` at the
-  module boundary (it's already a singleton) with a scriptable fake stream. Start with the five
-  flows above; gate in CI alongside existing tests.
-- **Key files:** new `src/__tests__/renderer/`, `vitest.config` (multi-project),
+  retry prompt, first-run wizard, per-hunk approval flow.
+- **Approach:** Add a jsdom vitest project (multi-project config; `@testing-library/react` is
+  already installed); mock `IpcClient` at the module boundary (singleton seam) with a
+  scriptable fake stream. Gate in CI alongside existing tests.
+- **Key files:** new `src/__tests__/renderer/`, `vitest.config.ts` (multi-project),
   `src/ipc/ipc_client.ts` (test seam).
 
-### 3. Context & cost visibility
-
-- **What:** A context meter (tokens used / budget, what was pruned), per-tool elapsed time on
-  cards, and one-click retry for failed tools.
-- **Why:** Users can't see why the model "forgot" something (compaction/pruning is invisible)
-  or which tool burned the time in a slow turn.
-- **Approach:** The data largely exists — `ContextAssembler` knows section sizes,
-  `token_count_handlers` counts budgets, tool cards already track start/end timestamps.
-  Surface: a compact meter in the chat header (popover with per-section breakdown), `(3.2s)`
-  suffix on finished tool cards, and a Retry affordance on errored cards that re-invokes the
-  same tool call via the existing permission path.
-- **Key files:** `lib/context/ContextAssembler.ts`, `hooks/useCountTokens.ts`,
-  `components/chat/StreamToolCallCard`, `ipc/handlers/chat_stream_handlers.ts`.
-
-### 4. Startup & large-repo performance
+### 2. Startup & large-repo performance
 
 - **What:** Profile and trim cold start and first-prompt latency on big repos (10k+ files).
-- **Why:** The app is ~13k LOC lighter after the sweeps; remaining hotspots are workspace
-  analysis (`analyzeWorkspace`), ctags/Blueprint indexing, and the initial file-tree scan —
-  all triggered near open.
-- **Approach:** Add timing marks around open-workspace → first-prompt; make analysis fully
-  lazy (only on the first tool/prompt that needs it — `prewarmWorkspaceCache` already
-  debounces), cache ctags output keyed by content hash, and virtualize the file tree. Measure
+- **Approach:** Timing marks around open-workspace → first-prompt; fully lazy analysis
+  (`prewarmWorkspaceCache` already debounces), ctags output cached by content hash, and
+  virtualize `WorkspaceFileTree` (currently renders all nodes recursively). Measure
   before/after on a large fixture repo.
 - **Key files:** `lib/analysis/*`, `lib/blueprint/*`,
-  `ipc/handlers/chat_stream/workspace-context.ts`, `components/workspace/WorkspaceFileTree`.
+  `ipc/handlers/chat_stream/workspace-context.ts`, `components/workspace/WorkspaceFileTree.tsx`.
 
-### 5. Per-hunk diff accept/reject + multi-file review polish
+### 3. Terminal polish (post-PTY)
 
-- **What:** In the diff/approval view, accept or reject individual hunks (not just whole
-  files), with a running summary across a multi-file change set.
-- **Why:** A mostly-right proposal currently forces all-or-nothing approval; hunk-level
-  control is the single biggest review-quality lever.
-- **Approach:** The diff renderer already splits hunks; add per-hunk checkboxes that compose a
-  partial file content before the permission `approve` resolves (apply selected hunks via the
-  same patch utility used for `edit_file`). Persist the choice in the operation preview so
-  per-turn revert still works.
-- **Key files:** `components/preview_panel/FileDiffPanel.tsx`,
-  `ipc/handlers/permissions/interceptor.ts`, `lib/tools/permissions/schema.ts`.
+- **What:** Optional PTY scrollback persistence across restarts (xterm `SerializeAddon`);
+  delete the legacy single-command input path for user tabs once PTY proves out on all
+  platforms; cwd tracking per tab label.
+- **Key files:** `components/panels/XtermView.tsx`, `components/panels/TerminalPanel.tsx`,
+  `lib/pty/pty-session-manager.ts`.
 
-### 6. MCP marketplace discovery + first-run setup wizard
+### 4. MCP marketplace polish
 
-- **What:** A browsable MCP catalog (install + auth in two clicks) and a first-run wizard that
-  walks new users through provider keys, default model, and an optional first workspace.
-- **Why:** MCP setup and provider configuration are the two highest-friction onboarding steps;
-  auth-and-retry (shipped) fixes mid-chat failures but not discovery.
-- **Approach:** Marketplace: curated JSON feed (atlarix.dev) rendered in Settings → Tools &
-  MCP, reusing the existing add-server + OAuth/test-connection flow. Wizard: a 3-step modal on
-  first launch (detect existing keys → pick default model → open/import workspace), skippable,
-  state in settings.
-- **Key files:** `components/settings/ToolsMcpSettings.tsx`, `lib/mcp/*`,
-  `components/welcome/*`, `lib/schemas` (settings flag).
+- **What:** The marketplace tab exists (`McpMarketplaceTab`, fed by
+  [atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps) `index.json`); polish discovery —
+  category filters, one-click OAuth from the card, install counts, and surfacing the
+  marketplace from the first-run wizard.
+- **Key files:** `components/settings/McpMarketplaceTab.tsx`, `shared/mcp-registry.ts`.
+
+### 5. Streaming indicator redesign (Claude/Grok/Gemini-style)
+
+- **What:** Fix the bug where a giant compass-animation section fills the chat while
+  "Thinking". Replace with: a **small inline indicator under the CURRENT assistant response
+  only** (previous responses get nothing) — animated compass looping while streaming/working,
+  settling into a stagnant "A" when the turn completes. Applies to edited/resent turns too.
+- **Plus:** Replace the constant "Thinking" label with a **human-readable one-liner** of what
+  the agent is doing right now — e.g. "waiting on agents", "mapping out structure",
+  "writing src/auth.ts" — that updates as work progresses and disappears when done. Deep
+  detail stays in the existing thinking blocks; this is just the one-sentence status line.
+- **Approach:** Source the one-liner from the existing activity stream (`chat:activity` /
+  `chat:tool:start` already carry tool labels and delegation events); map activity types to
+  short phrases. Size/contain `AtlarixAnimation` (size xs) inside the assistant message
+  footer instead of a full-width section.
+- **Key files:** `components/chat/AssistantMessageBody.tsx`, `components/AtlarixAnimation`,
+  `hooks/useStreamChat.ts` (current-stream state), the streaming placeholder render path.
+
+### 6. Provider-native web search chain
+
+- **What:** When the active model supports provider-native search (Anthropic web_search,
+  OpenAI Responses search, Gemini grounding, OpenRouter `:online`), pass the provider tool at
+  dispatch instead of Atlarix's client-side `web_search`; render native citations in chat.
+  Keep the client-side `web_search` tool as the universal path (Ollama, LM Studio, Groq, and
+  any provider without native search). Chain: provider-native → SearxNG → search MCPs → the
+  existing actionable "enable SearxNG or a search MCP" message. No paid search APIs for now.
+- **Key files:** `ipc/handlers/chat_stream_handlers.ts` (tool dispatch),
+  `lib/tools/web-tools.ts`, provider capability detection, chat citation rendering.
+
+### 7. In-app browser tab (WebContentsView)
+
+- **What:** Optional "Browser" surface backed by Electron `WebContentsView` (not an iframe —
+  immune to X-Frame-Options) with back/forward + URL bar, isolated session partition. Lets
+  web-search results and docs open beside the code instead of the system browser.
+- **Why deferred:** New panel surface + navigation UI + security review; external links
+  already open in the user's browser and localhost opens in Preview.
 
 ---
 

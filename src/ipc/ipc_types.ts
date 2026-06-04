@@ -174,6 +174,21 @@ export interface ChatResponseEnd {
   /** Populated when usedCompass — for analytics (PostHog). */
   compassTokens?: number;
   compassTier?: string;
+  /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
+  auxTokens?: number;
+}
+
+/** v10: per-dispatch context assembly report for the context meter. */
+export interface ChatContextReport {
+  chatId: number;
+  sections: Array<{
+    name: string;
+    tokens: number;
+    included: boolean;
+    truncated: boolean;
+  }>;
+  /** Human-readable trim notes (what was pruned and why). */
+  trimReport: string[];
 }
 
 /**

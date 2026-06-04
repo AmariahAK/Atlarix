@@ -46,6 +46,7 @@ import {
   resolveScopeKey,
 } from "../../../lib/terminal-instance-store";
 import { runCommandGitInitGateResult } from "../../../lib/git-init-command-guard";
+import { injectAgentGitIdentity } from "../../utils/git_author";
 import {
     runHooksForTrigger,
     type HookTrigger,
@@ -587,7 +588,7 @@ export class PermissionInterceptor extends EventEmitter {
      */
     async executeOperation(
         operationId: string,
-        options?: { dangerAcknowledged?: boolean },
+        options?: { dangerAcknowledged?: boolean; overrideContent?: string },
     ): Promise<PermissionResult> {
         const operation = this.pendingOperations.get(operationId);
         if (!operation) {
@@ -603,6 +604,30 @@ export class PermissionInterceptor extends EventEmitter {
         }
 
         const request = operation.request;
+
+        // v10 per-hunk approval: the user accepted only some hunks — write the
+        // composed partial content instead of the full proposal. Persisted on
+        // the preview so result reporting + per-turn revert reflect what was
+        // actually written.
+        const CONTENT_WRITE_OPS = new Set([
+            "write_file",
+            "edit_file",
+            "replace_code",
+            "insert_code",
+            "delete_lines",
+        ]);
+        if (
+            typeof options?.overrideContent === "string" &&
+            CONTENT_WRITE_OPS.has(request.operation)
+        ) {
+            const preview = request.preview as FileOperationPreview;
+            if (preview && typeof preview === "object") {
+                preview.content = options.overrideContent;
+                logger.log(
+                    `[executeOperation] per-hunk override applied for ${operationId} (${request.operation})`,
+                );
+            }
+        }
 
         // NOTE: Do NOT resolve approval here! We wait until execution completes.
         // This ensures the AI doesn't continue until the command is done.
@@ -854,7 +879,11 @@ export class PermissionInterceptor extends EventEmitter {
         }
 
         if (operation.status === 'rejected') {
-            return { success: false, error: 'Permission denied by user' };
+            return {
+                success: false,
+                error:
+                    'Permission denied by user. Do not retry the same operation — adjust the approach, or use ask_user to clarify what the user wants instead.',
+            };
         }
 
         if (operation.status === 'failed') {
@@ -1338,6 +1367,14 @@ export class PermissionInterceptor extends EventEmitter {
             throw new Error(err);
         }
 
+        // Attribute bare `git commit` to the agent identity ("<Model> agent")
+        // without touching the user's git config.
+        const withAgentIdentity = injectAgentGitIdentity(commandToRun);
+        if (withAgentIdentity !== commandToRun) {
+            logger.log(`[executeRunCommand] Injected agent git identity into commit command`);
+            commandToRun = withAgentIdentity;
+        }
+
         const operation = this.pendingOperations.get(operationId);
         const isDangerous =
             Boolean(preview.isDangerous) || isDangerousCommand(commandToRun);
@@ -1399,7 +1436,7 @@ export class PermissionInterceptor extends EventEmitter {
                         killShellProcess(commandProc);
                         reject(
                             new Error(
-                                `Command timed out after ${Math.round(timeoutMs / 1000)} seconds`,
+                                `Command timed out after ${Math.round(timeoutMs / 1000)} seconds (timeout_ms=${timeoutMs}). For long-running commands pass a larger timeout_ms (max 1800000) or split the work; dev servers are detected automatically and left running.`,
                             ),
                         );
                     }, timeoutMs);

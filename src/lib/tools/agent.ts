@@ -11,6 +11,7 @@ import {
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
+import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
   createLedger,
   getLedger,
@@ -440,6 +441,8 @@ See guides/blueprint-section-first.md.
       stopWhen: [() => false],
     } as Parameters<typeof generateText>[0]);
     totalDelegSteps += result.steps?.length ?? 0;
+    // v10 token accuracy: sub-agent usage counts toward the parent turn.
+    recordAuxUsage(args.chatId, result.usage, `delegation:${resolvedAgentId}`);
 
     while (
       shouldContinue(result.finishReason, {
@@ -494,6 +497,7 @@ See guides/blueprint-section-first.md.
         stopWhen: [() => false],
       } as Parameters<typeof generateText>[0]);
       totalDelegSteps += result.steps?.length ?? 0;
+      recordAuxUsage(args.chatId, result.usage, `delegation:${resolvedAgentId}`);
     }
 
     const stepsUsed = totalDelegSteps;
@@ -581,6 +585,7 @@ See guides/blueprint-section-first.md.
           system: `${delegationSystem}\n\nReturn only valid JSON for structured handoff output.`,
           messages: [{ role: "user" as const, content: retryPrompt }],
         } as Parameters<typeof generateText>[0]);
+        recordAuxUsage(args.chatId, retryResult.usage, `delegation:${resolvedAgentId}:retry`);
         return retryResult.text?.trim() || "";
       },
     });

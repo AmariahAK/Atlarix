@@ -55,6 +55,7 @@ import {
 } from "./main/open_workspace_from_cli";
 import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
 import { registerIpcHandlers } from "./ipc/ipc_host";
+import { killAllPtys } from "./lib/pty/pty-session-manager";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -1113,6 +1114,8 @@ app.on("will-quit", () => {
   logger.info("App is quitting, setting isRunning to false", {
     memory: process.memoryUsage(),
   });
+  // v10: tear down interactive terminal shells.
+  killAllPtys();
   analyticsShutdown();
 
   // Stop performance monitoring and capture final metrics

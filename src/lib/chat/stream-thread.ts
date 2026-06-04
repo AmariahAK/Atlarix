@@ -52,6 +52,8 @@ export type StreamThreadItem =
       resultText?: string;
       status: StreamThreadToolStatus;
       ts: number;
+      /** Set when the tool finishes — used for the elapsed-time suffix. */
+      endTs?: number;
     }
   | { kind: "plan"; planId: string; ts: number }
   | {
@@ -279,6 +281,7 @@ function finalizeToolItem(
     resultText,
     expand,
     toolArgs: item.toolArgs,
+    endTs: status === "running" ? item.endTs : (item.endTs ?? Date.now()),
   };
 }
 

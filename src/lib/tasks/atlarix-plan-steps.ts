@@ -80,6 +80,17 @@ export function parsePlanToSteps(content: string): string[] {
   return steps;
 }
 
+// v10 live plan step progress helpers live in `plan-checklist.ts` (pure,
+// renderer-safe). Re-exported here for main-side convenience.
+export {
+  parsePlanChecklist,
+  setStepStateInPlanMarkdown,
+  markAllChecklistStepsDone,
+  type PlanStepState,
+  type PlanChecklistStep,
+  type SetStepStateResult,
+} from "./plan-checklist";
+
 /** Prefer first markdown `#` heading, else `**Task:**`, else first non-empty non-heading line. */
 export function extractPlanTitle(content: string, fallback: string): string {
   const lines = content.split(/\r?\n/);

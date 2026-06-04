@@ -6,7 +6,7 @@ import { isLikelyNetworkFailure } from "./network-failure";
 
 const logger = log.scope("compass_usage");
 
-type LooseAiUsage = {
+export type LooseAiUsage = {
   totalTokens?: number;
   promptTokens?: number;
   completionTokens?: number;

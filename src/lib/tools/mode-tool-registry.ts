@@ -14,6 +14,28 @@ export type ModeRegistryKey = WorkMode;
 /** Documented in registry text when mode is build (all tools via progressive reveal). */
 export const BUILD_ALLOWLIST_MARKER = "*" as const;
 
+/**
+ * Tools available in EVERY work mode — must stay in sync with the
+ * `<tool_contract>` block in system_prompt.ts. Unioned into each mode's
+ * allowlist so the prompt-rendered registry and the execute-time gate agree.
+ */
+export const EVERY_MODE_TOOLS = [
+  "ask_user",
+  "compress_context",
+  "deep_research",
+  "list_attachments",
+  "read_attachment",
+  "web_search",
+] as const;
+
+function withEveryModeTools(list: readonly string[]): readonly string[] {
+  return Object.freeze(
+    [...new Set([...list, ...EVERY_MODE_TOOLS])].sort((a, b) =>
+      a.localeCompare(b),
+    ),
+  );
+}
+
 const ASK_TOOLS = [
   "ask_user",
   "compress_context",
@@ -66,6 +88,7 @@ const PLAN_TOOLS = [
   "run_command",
   "search",
   "update_plan_status",
+  "update_plan_step",
   "write_file",
   "write_implementation_plan",
 ] as const;
@@ -128,13 +151,19 @@ const REVIEW_TOOLS = [
   "task",
 ] as const;
 
+/** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
+const ASK_ALLOWLIST = withEveryModeTools(ASK_TOOLS);
+const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS);
+const DEBUG_ALLOWLIST = withEveryModeTools(DEBUG_TOOLS);
+const REVIEW_ALLOWLIST = withEveryModeTools(REVIEW_TOOLS);
+
 /** Backward-compatible export for system_prompt and tests. */
 export const MODE_SYSTEM_TOOL_LISTS = {
-  ask: ASK_TOOLS,
-  plan: PLAN_TOOLS,
+  ask: ASK_ALLOWLIST,
+  plan: PLAN_ALLOWLIST,
   build: [BUILD_ALLOWLIST_MARKER] as const,
-  debug: DEBUG_TOOLS,
-  review: REVIEW_TOOLS,
+  debug: DEBUG_ALLOWLIST,
+  review: REVIEW_ALLOWLIST,
 } as const;
 
 const MODE_LABELS: Record<ModeRegistryKey, string> = {
@@ -149,11 +178,11 @@ const ALLOWLIST_BY_MODE: Record<
   ModeRegistryKey,
   readonly string[] | typeof BUILD_ALLOWLIST_MARKER
 > = {
-  ask: ASK_TOOLS,
-  plan: PLAN_TOOLS,
+  ask: ASK_ALLOWLIST,
+  plan: PLAN_ALLOWLIST,
   build: BUILD_ALLOWLIST_MARKER,
-  debug: DEBUG_TOOLS,
-  review: REVIEW_TOOLS,
+  debug: DEBUG_ALLOWLIST,
+  review: REVIEW_ALLOWLIST,
 };
 
 let allowSetsCache: Record<ModeRegistryKey, Set<string>> | null = null;
@@ -161,11 +190,11 @@ let allowSetsCache: Record<ModeRegistryKey, Set<string>> | null = null;
 function getAllowSets(): Record<ModeRegistryKey, Set<string>> {
   if (!allowSetsCache) {
     allowSetsCache = {
-      ask: new Set(ASK_TOOLS),
-      plan: new Set(PLAN_TOOLS),
+      ask: new Set(ASK_ALLOWLIST),
+      plan: new Set(PLAN_ALLOWLIST),
       build: new Set(),
-      debug: new Set(DEBUG_TOOLS),
-      review: new Set(REVIEW_TOOLS),
+      debug: new Set(DEBUG_ALLOWLIST),
+      review: new Set(REVIEW_ALLOWLIST),
     };
   }
   return allowSetsCache;
@@ -280,10 +309,10 @@ export function getAllModeToolAllowlists(): Record<
   readonly string[]
 > & { build: readonly [typeof BUILD_ALLOWLIST_MARKER] } {
   return {
-    ask: ASK_TOOLS,
-    plan: PLAN_TOOLS,
+    ask: ASK_ALLOWLIST,
+    plan: PLAN_ALLOWLIST,
     build: [BUILD_ALLOWLIST_MARKER],
-    debug: DEBUG_TOOLS,
-    review: REVIEW_TOOLS,
+    debug: DEBUG_ALLOWLIST,
+    review: REVIEW_ALLOWLIST,
   };
 }

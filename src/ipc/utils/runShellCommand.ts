@@ -1,38 +1,10 @@
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import path from "path";
 import fs from "fs";
 import log from "electron-log";
+import { getAcceptableShell } from "@/lib/shell/resolve-shell";
 
 const logger = log.scope("runShellCommand");
-
-/** Shells that may behave differently with -c (e.g. fish/nu); use fallback for consistency. */
-const SHELL_BLACKLIST = new Set(["fish", "nu"]);
-
-/**
- * Resolve shell executable (opencode-style): prefer process.env.SHELL, else platform default.
- * Ensures same shell as user's terminal where possible (e.g. /bin/zsh on darwin).
- */
-function getAcceptableShell(): string {
-  const envShell = process.env.SHELL;
-  if (envShell) {
-    const base = process.platform === "win32" ? path.win32.basename(envShell) : path.basename(envShell);
-    if (!SHELL_BLACKLIST.has(base)) return envShell;
-  }
-  if (process.platform === "darwin") return "/bin/zsh";
-  if (process.platform === "win32") {
-    const git = process.env["ProgramFiles"] ? path.join(process.env["ProgramFiles"], "Git", "bin", "bash.exe") : null;
-    if (git && fs.existsSync(git)) return git;
-    return process.env.COMSPEC || "cmd.exe";
-  }
-  // Linux: prefer bash, else sh
-  try {
-    const bash = execSync("which bash 2>/dev/null", { encoding: "utf8" }).trim();
-    if (bash) return bash;
-  } catch {
-    // ignore
-  }
-  return "/bin/sh";
-}
 
 let cachedShell: string | null = null;
 function getShell(): string {

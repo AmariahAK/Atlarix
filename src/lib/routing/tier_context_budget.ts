@@ -325,6 +325,8 @@ export interface MidLoopCompactionParams {
   protectExchanges?: number;
   /** Optional session stats forwarded to the compaction model. */
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
+  /** v10: when set, summarization tokens count toward this chat's turn usage. */
+  chatId?: number;
 }
 
 export interface MidLoopCompactionResult {
@@ -404,6 +406,7 @@ export async function compactAgenticMessagesIfNeeded(
       content: modelMessageText(m.content),
     })),
     sessionStats: params.sessionStats,
+    chatId: params.chatId,
   });
   if (!summary) {
     return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };

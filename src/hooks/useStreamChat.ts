@@ -18,6 +18,7 @@ import {
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
+  lastAuxTokensByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
@@ -1103,6 +1104,14 @@ export function useStreamChat({
               getDefaultStore().set(lastReasoningTokensByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.reasoningTokens!,
+              }));
+            }
+
+            // v10: sub-agent/compaction tokens from this turn (context meter).
+            if (typeof response.auxTokens === "number" && response.auxTokens > 0) {
+              getDefaultStore().set(lastAuxTokensByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]: response.auxTokens!,
               }));
             }
 

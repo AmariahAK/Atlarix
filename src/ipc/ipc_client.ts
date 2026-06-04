@@ -297,6 +297,9 @@ export class IpcClient {
   private planFileUpdatedHandlers = new Set<
     (payload: { workspacePath: string; mtime: number | null }) => void
   >();
+  private contextReportHandlers = new Set<
+    (payload: import("./ipc_types").ChatContextReport) => void
+  >();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as PreloadIpcRenderer;
     this.chatStreams = new Map();
@@ -601,6 +604,17 @@ export class IpcClient {
       });
     });
 
+    // v10: per-dispatch context assembly report (context meter).
+    this.ipcRenderer.on("chat:context-report", (payload: unknown) => {
+      this.contextReportHandlers.forEach((h) => {
+        try {
+          h(payload as import("./ipc_types").ChatContextReport);
+        } catch {
+          /* noop */
+        }
+      });
+    });
+
     this.ipcRenderer.on("plan:file-updated", (_e, payload: unknown) => {
       if (!payload || typeof payload !== "object" || !("workspacePath" in payload)) return;
       const p = payload as { workspacePath: string; mtime: number | null };
@@ -830,6 +844,56 @@ export class IpcClient {
   ): () => void {
     this.planArtifactUpdatedHandlers.add(handler);
     return () => this.planArtifactUpdatedHandlers.delete(handler);
+  }
+
+  /** v10: latest context assembly report for the context meter. */
+  public onContextReport(
+    handler: (payload: import("./ipc_types").ChatContextReport) => void,
+  ): () => void {
+    this.contextReportHandlers.add(handler);
+    return () => this.contextReportHandlers.delete(handler);
+  }
+
+  // ── v10 interactive PTY terminal ────────────────────────────────────────
+
+  public async spawnPty(params: {
+    instanceId: string;
+    cwd: string;
+    cols?: number;
+    rows?: number;
+    scopeKey?: string;
+  }): Promise<{ ok: true; pid: number } | { ok: false; error: string }> {
+    return this.ipcRenderer.invoke("pty:spawn", params);
+  }
+
+  public sendPtyInput(instanceId: string, data: string): void {
+    this.ipcRenderer.send("pty:input", { instanceId, data });
+  }
+
+  public sendPtyResize(instanceId: string, cols: number, rows: number): void {
+    this.ipcRenderer.send("pty:resize", { instanceId, cols, rows });
+  }
+
+  public async killPty(instanceId: string): Promise<void> {
+    await this.ipcRenderer.invoke("pty:kill", { instanceId });
+  }
+
+  public onPtyData(
+    handler: (payload: { instanceId: string; data: string }) => void,
+  ): () => void {
+    const listener = (payload: unknown) =>
+      handler(payload as { instanceId: string; data: string });
+    this.ipcRenderer.on("pty:data", listener);
+    return () => this.ipcRenderer.removeListener("pty:data", listener);
+  }
+
+  public onPtyExit(
+    handler: (payload: { instanceId: string; exitCode: number }) => void,
+  ): () => void {
+    const listener = (payload: unknown) =>
+      handler(payload as { instanceId: string; exitCode: number });
+    this.ipcRenderer.on("pty:exit", listener);
+    return () => this.ipcRenderer.removeListener("pty:exit", listener);
   }
 
   public activatePlanArtifact(
@@ -2280,6 +2344,7 @@ export class IpcClient {
     approvalMode = "once",
     appId,
     dangerAcknowledged,
+    overrideContent,
   }: {
     chatId: number;
     operationId: string;
@@ -2292,6 +2357,8 @@ export class IpcClient {
       | "always_allow_extension";
     appId?: number | null;
     dangerAcknowledged?: boolean;
+    /** v10 per-hunk approval: write this composed content instead of the full proposal. */
+    overrideContent?: string;
   }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
     return this.ipcRenderer.invoke("execute-permission", {
       chatId,
@@ -2299,6 +2366,7 @@ export class IpcClient {
       approvalMode,
       appId,
       dangerAcknowledged,
+      overrideContent,
     });
   }
 

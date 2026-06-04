@@ -29,16 +29,14 @@ import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePer
 import { GitHubIntegration } from "@/components/GitHubIntegration";
 import { useSetAtom, useAtomValue } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { activeSettingsSectionAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
+import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
-import { persistOnboardingStep } from "@/lib/onboarding";
 import { UpgradeChoiceDialog } from "@/components/UpgradeChoiceDialog";
 import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 
-const ONBOARDING_SKIPPED_AI_KEY = "atlarix.onboarding_skipped_ai_setup";
 
 export default function SettingsPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -47,21 +45,12 @@ export default function SettingsPage() {
   const { settings, updateSettings } = useSettings();
   const navigate = useNavigate();
   const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
-  const onboardingStep = useAtomValue(onboardingStepAtom);
-  const setOnboardingStep = useSetAtom(onboardingStepAtom);
   const { status } = useAuth();
 
   useEffect(() => {
     setActiveSettingsSection("general");
     posthog.capture("settings_opened", { section: "general" });
   }, [setActiveSettingsSection]);
-
-  // Onboarding step 3: scroll to AI section when we land on settings
-  useEffect(() => {
-    if (onboardingStep !== 3) return;
-    const el = document.getElementById("ai");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [onboardingStep]);
 
   const handleResetEverything = async () => {
     setIsResetting(true);
@@ -93,45 +82,6 @@ export default function SettingsPage() {
         <div className="space-y-6">
           <GeneralSettings appVersion={appVersion} />
           <WorkflowSettings />
-          {onboardingStep === 3 && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground space-y-3">
-              <p>
-                Compass is already on. To use other cloud or local models, add your own API keys under{" "}
-                <strong>AI Settings</strong> below.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    // Fix: Finding 2 — finish BYOK, then home steps 4–5 before marking onboarding complete
-                    setOnboardingStep(4);
-                    persistOnboardingStep(4);
-                    navigate({ to: "/" });
-                  }}
-                >
-                  Done
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      localStorage.setItem(ONBOARDING_SKIPPED_AI_KEY, "1");
-                      const ipc = window.electron?.ipcRenderer;
-                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", true);
-                    } catch {
-                      // ignore
-                    }
-                    persistOnboardingStep(null);
-                    setOnboardingStep(null);
-                    navigate({ to: "/" });
-                  }}
-                >
-                  Remind me later
-                </Button>
-              </div>
-            </div>
-          )}
           <AISettings />
 
           {/* Search Settings */}
@@ -319,20 +269,20 @@ function SkillsCard() {
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const { settings, updateSettings } = useSettings();
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
-  const setOnboardingStep = useSetAtom(onboardingStepAtom);
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
 
+  // v10: restart re-opens the first-run wizard (legacy overlay removed).
   const handleRestartOnboarding = async () => {
     try {
       localStorage.removeItem("atlarix.onboarding_skipped");
+      localStorage.removeItem("atlarix_onboarding_done");
       const ipc = window.electron?.ipcRenderer;
       if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
     } catch {
       // ignore
     }
-    setOnboardingStep(2);
-    persistOnboardingStep(2);
+    await updateSettings({ firstRunWizardCompleted: false });
     navigate({ to: "/" });
   };
 

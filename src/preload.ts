@@ -266,6 +266,8 @@ const validInvokeChannels = [
   "command-permissions:upsert",
   "command-permissions:revoke",
   "terminal:run",
+  "pty:spawn", // v10 interactive terminal
+  "pty:kill",
   "terminal-instances:list",
   "terminal-instances:read",
   "terminal-instances:open",
@@ -421,6 +423,12 @@ const validReceiveChannels = [
   "chat:iteration:timeout",     // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
+  "chat:context-report", // v10: context meter (per-section sizes + trims)
+  // v10 PTY terminal (pty:data/exit received; pty:input/resize sent via send())
+  "pty:data",
+  "pty:exit",
+  "pty:input",
+  "pty:resize",
   "plan:artifact-activated",
   "plan:artifact-updated",
   "plan:file-updated",
@@ -491,7 +499,12 @@ contextBridge.exposeInMainWorld("electron", {
       }
     },
     send: (channel: ValidReceiveChannel, ...args: unknown[]) => {
-      if (channel === "plan:artifact-activated") {
+      if (
+        channel === "plan:artifact-activated" ||
+        // v10 PTY terminal: high-frequency keystrokes/resizes use send (no reply).
+        channel === "pty:input" ||
+        channel === "pty:resize"
+      ) {
         ipcRenderer.send(channel, ...args);
         return;
       }

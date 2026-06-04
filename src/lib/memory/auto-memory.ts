@@ -1,10 +1,16 @@
 /**
- * Auto Memory: append structured notes to `.atlarix/ATLARIX.md` after substantive turns.
+ * Auto Memory: append structured notes to `.atlarix/memory.md` after
+ * substantive turns. memory.md is the agent-maintained project knowledge file
+ * (v10) — auto-memory bullets live in a dedicated section at the end so they
+ * never clobber the agent-authored stack/architecture notes above.
+ *
+ * (Previously wrote `.atlarix/ATLARIX.md`, which the legacy-file migration
+ * archived on every prompt build — those notes were silently destroyed.)
  */
 
 import * as fs from "fs/promises";
-import * as path from "path";
 import log from "electron-log";
+import { getMemoryMdPath, getAtlarixDirPath } from "../project-memory";
 
 const logger = log.scope("auto-memory");
 
@@ -20,7 +26,7 @@ export type AutoMemoryTurnContext = {
   /** 0–1 heuristic confidence; below minConfidence skips write. */
   confidence: number;
   minConfidence: number;
-  /** When false, do not write ATLARIX.md. Default true. */
+  /** When false, do not write memory.md. Default true. */
   writeToFile?: boolean;
 };
 
@@ -35,14 +41,13 @@ export async function appendAutoMemoryIfEligible(ctx: AutoMemoryTurnContext): Pr
   if (ctx.confidence < ctx.minConfidence) return false;
   if (!ctx.summary.trim()) return false;
   try {
-    const dir = path.join(ctx.workspacePath, ".atlarix");
-    await fs.mkdir(dir, { recursive: true });
-    const filePath = path.join(dir, "ATLARIX.md");
+    await fs.mkdir(getAtlarixDirPath(ctx.workspacePath), { recursive: true });
+    const filePath = getMemoryMdPath(ctx.workspacePath);
     let body = "";
     try {
       body = await fs.readFile(filePath, "utf8");
     } catch {
-      body = "# ATLARIX workspace notes\n";
+      body = "# Project memory\n";
     }
     const line = formatBullet(ctx);
     if (!body.includes(SECTION)) {

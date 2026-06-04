@@ -26,13 +26,18 @@ import {
 } from "../../prompts/supabase_prompt";
 import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
-import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
+import type { ChatContextReport, ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import type { CodebaseFile } from "../../utils/codebase";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
 import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, ModelClient, type GetModelClientOptions } from "../utils/get_model_client";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
+import {
+  setActiveModelDisplayName,
+  clearActiveModelDisplayName,
+} from "@/ipc/utils/active-model-identity";
+import { resetAuxUsage, takeAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
   getCompassUsageFromSupabase,
   recordCompassUsageTokens,
@@ -55,7 +60,7 @@ import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import { readFile, writeFile, unlink, access } from "fs/promises";
+import { readFile, writeFile, unlink } from "fs/promises";
 import {
   getMaxTokensWithFloor,
   getTemperature,
@@ -132,8 +137,7 @@ import {
 import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
 import { createSnapshot } from "../../lib/workspace-snapshots";
-import { revertSnapshot, revertSnapshotFiles } from "../../lib/snapshot/snapshot-manager";
-import { atlasDir } from "../../lib/snapshot/workspace-hash";
+import { revertSnapshot, revertSnapshotFiles, snapshotExists } from "../../lib/snapshot/snapshot-manager";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -2181,20 +2185,26 @@ ${componentSnippet}
             workModePreference: settings.workModePreference,
             selectedChatMode: settings.selectedChatMode ?? "ask",
           });
-          const modeBlockKey: ModeSystemKey | undefined =
+          // Streams must always carry the active mode — never fall through to
+          // the legacy all-modes block (the model should only see its own mode).
+          const modeBlockKey: ModeSystemKey =
             (effectiveWorkMode === "ask" ||
               effectiveWorkMode === "plan" ||
               effectiveWorkMode === "build" ||
               effectiveWorkMode === "debug" ||
               effectiveWorkMode === "review")
               ? (effectiveWorkMode as ModeSystemKey)
-              : undefined;
+              : "ask";
 
           const modelIdentity = resolveActiveModelIdentity(
             effectiveModel,
             settings,
             buildAtlarixCoreTierCatalog(),
           );
+          // Commit authorship reflects the model doing the work for this stream.
+          setActiveModelDisplayName(modelIdentity.modelDisplayName);
+          // v10 token accuracy: collect sub-agent/compaction usage for this turn.
+          resetAuxUsage(req.chatId);
           const promptIdentityOpts = {
             activeModel: effectiveModel,
             modelDisplayName: modelIdentity.modelDisplayName,
@@ -2644,6 +2654,17 @@ ${componentSnippet}
             if (assembledContext.trimReport.length > 0) {
               logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
             }
+            // v10 context meter: surface per-section sizes + trims to the renderer.
+            safeSend(event.sender, "chat:context-report", {
+              chatId: req.chatId,
+              sections: assembledContext.assembledPromptSections.map((s) => ({
+                name: s.name,
+                tokens: s.tokens,
+                included: s.included,
+                truncated: s.truncated,
+              })),
+              trimReport: assembledContext.trimReport,
+            } satisfies ChatContextReport);
             const hasInjectedArchitectureContext =
               assembledContext.assembledPromptSections.some(
                 (s) =>
@@ -6568,11 +6589,21 @@ This conversation includes one or more image attachments. When the user uploads 
               (!abortController.signal.aborted || streamStopWasTaskComplete)
             ) {
               try {
-                const { getLatestPlanArtifact, setPlanArtifactStatus } = await import(
-                  "@/lib/plans/plan-artifacts"
-                );
+                const {
+                  getLatestPlanArtifact,
+                  setPlanArtifactStatus,
+                  updatePlanArtifactContent,
+                } = await import("@/lib/plans/plan-artifacts");
                 const buildingPlan = await getLatestPlanArtifact(req.workspaceSessionId, "building");
                 if (buildingPlan) {
+                  // v10: close out any checklist steps the model left open.
+                  const { markAllChecklistStepsDone } = await import(
+                    "@/lib/tasks/plan-checklist"
+                  );
+                  const closed = markAllChecklistStepsDone(buildingPlan.content);
+                  if (closed.changed) {
+                    await updatePlanArtifactContent(buildingPlan.id, closed.content);
+                  }
                   const updated = await setPlanArtifactStatus(buildingPlan.id, "built");
                   if (updated) {
                     const { emitPlanArtifactUpdated } = await import("../utils/emit_plan_artifact");
@@ -6629,6 +6660,26 @@ This conversation includes one or more image attachments. When the user uploads 
               sender: event.sender,
             });
             notifyCompactionLedgerSettled(req.chatId, streamTurnIdForLedger);
+            // v10 token accuracy: fold sub-agent + compaction usage into this
+            // turn's totals so Compass metering and the meter are exact.
+            const auxUsage = takeAuxUsage(req.chatId);
+            if (auxUsage) {
+              logger.log(
+                `[usage] auxiliary LLM tokens this turn: ${auxUsage.totalTokens} across ${auxUsage.calls} call(s) — ${Object.entries(
+                  auxUsage.byLabel,
+                )
+                  .map(([k, v]) => `${k}=${v}`)
+                  .join(", ")}`,
+              );
+              if (usedCompassThisStream) {
+                compassStreamTokens = (compassStreamTokens ?? 0) + auxUsage.totalTokens;
+                void recordCompassUsageTokens(auxUsage.totalTokens).then((r) => {
+                  if (!r.ok && r.error === "limit_exceeded") {
+                    logger.warn("[compass] Monthly limit hit while recording aux usage");
+                  }
+                });
+              }
+            }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
               updatedFiles: false,
@@ -6636,6 +6687,7 @@ This conversation includes one or more image attachments. When the user uploads 
               usedCompass: usedCompassThisStream,
               compassTier: compassStreamTier,
               compassTokens: compassStreamTokens,
+              ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
               ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
                 ? { reasoningTokens: maxReasoningTokensUsed }
                 : {}),
@@ -6795,6 +6847,7 @@ This conversation includes one or more image attachments. When the user uploads 
         toolTurnDedupState.callCountByTool.clear();
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
+        clearActiveModelDisplayName();
         ensureTerminal();
       }
     };
@@ -6934,18 +6987,8 @@ This conversation includes one or more image attachments. When the user uploads 
       });
       if (!app) return false;
       const workspacePath = getAtlarixAppPath(app.path);
-      const manifestPath = path.join(
-        atlasDir(workspacePath),
-        "snapshots",
-        String(turnId),
-        "manifest.json",
-      );
-      try {
-        await access(manifestPath);
-        return true;
-      } catch {
-        return false;
-      }
+      // v10: shadow-git store first, legacy .bak dirs second.
+      return snapshotExists(workspacePath, String(turnId));
     },
   );
 

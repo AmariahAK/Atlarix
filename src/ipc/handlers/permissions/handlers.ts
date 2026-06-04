@@ -141,12 +141,15 @@ ipcMain.handle(
             approvalMode = "once",
             appId,
             dangerAcknowledged,
+            overrideContent,
         }: {
             chatId: number;
             operationId: string;
             approvalMode?: PermissionApprovalMode;
             appId?: number | null;
             dangerAcknowledged?: boolean;
+            /** v10 per-hunk approval: composed partial content to write instead of the full proposal. */
+            overrideContent?: string;
         },
     ): Promise<PermissionResult> => {
         logger.log(
@@ -207,6 +210,7 @@ ipcMain.handle(
 
         return interceptor.executeOperation(operationId, {
             dangerAcknowledged: dangerAcknowledged === true,
+            overrideContent,
         });
     },
 );

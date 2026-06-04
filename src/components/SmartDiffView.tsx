@@ -2,45 +2,51 @@
  * SmartDiffView
  * =============
  * Compact diff display with:
- * - Hunks with ±3 lines of context
+ * - Real LCS hunks (diff package) with ±3 lines of context — multiple change
+ *   regions render as separate hunks (v10)
+ * - Optional per-hunk accept/reject checkboxes (v10 — inline approvals)
  * - Expand All button for full view
  * - AI-generated summary at top
- * - Syntax-aware display (file extension for future highlighting)
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { FileEdit, ChevronDown, ChevronUp } from "lucide-react";
+import { computeDiffHunks, type DiffHunk } from "@/lib/diff/compose-hunks";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const CONTEXT_LINES = 3;
-const HUNK_THRESHOLD = 50;
+const EXPAND_ALL_CONTEXT = 100000;
 
-type DiffLineType = { type: "context" | "add" | "remove" | "header"; content: string; oldLineNum?: number; newLineNum?: number };
+type DiffLineType = {
+    type: "context" | "add" | "remove";
+    content: string;
+    oldLineNum?: number;
+    newLineNum?: number;
+};
 
-function DiffLineRow({ line }: { line: DiffLineType }) {
+function DiffLineRow({ line, dimmed }: { line: DiffLineType; dimmed?: boolean }) {
     return (
         <div
-            className={cn("flex", line.type === "header" && "bg-muted/50 border-b border-border")}
+            className={cn("flex", dimmed && "opacity-40")}
             style={{
                 backgroundColor: line.type === "add" ? "var(--diff-add-bg)" : line.type === "remove" ? "var(--diff-remove-bg)" : undefined,
             }}
         >
-            {line.type !== "header" && (
-                <div className="flex shrink-0 select-none">
-                    <span
-                        className="w-10 text-right px-1 border-r border-border/30"
-                        style={{ color: line.type === "add" ? "var(--diff-add-line)" : line.type === "remove" ? "var(--diff-remove-line)" : "var(--diff-context-text)" }}
-                    >
-                        {line.type !== "add" ? line.oldLineNum : ""}
-                    </span>
-                    <span
-                        className="w-10 text-right px-1 border-r border-border/30"
-                        style={{ color: line.type === "add" ? "var(--diff-add-line)" : line.type === "remove" ? "var(--diff-remove-line)" : "var(--diff-context-text)" }}
-                    >
-                        {line.type !== "remove" ? line.newLineNum : ""}
-                    </span>
-                </div>
-            )}
+            <div className="flex shrink-0 select-none">
+                <span
+                    className="w-10 text-right px-1 border-r border-border/30"
+                    style={{ color: line.type === "add" ? "var(--diff-add-line)" : line.type === "remove" ? "var(--diff-remove-line)" : "var(--diff-context-text)" }}
+                >
+                    {line.type !== "add" ? line.oldLineNum : ""}
+                </span>
+                <span
+                    className="w-10 text-right px-1 border-r border-border/30"
+                    style={{ color: line.type === "add" ? "var(--diff-add-line)" : line.type === "remove" ? "var(--diff-remove-line)" : "var(--diff-context-text)" }}
+                >
+                    {line.type !== "remove" ? line.newLineNum : ""}
+                </span>
+            </div>
             <div className="flex-1 flex min-w-0">
                 <span
                     className="w-5 text-center select-none shrink-0 font-bold"
@@ -58,85 +64,23 @@ function DiffLineRow({ line }: { line: DiffLineType }) {
     );
 }
 
-function generateDiffLines(oldContent: string, newContent: string, path: string, operation: "create" | "update" | "delete"): DiffLineType[] {
-    const oldLines = oldContent.split("\n");
-    const newLines = newContent.split("\n");
-    const lines: DiffLineType[] = [];
-
-    if (operation === "create") {
-        lines.push({ type: "header", content: `+++ ${path} (new file)` });
-        newLines.forEach((line, i) => lines.push({ type: "add", content: line, newLineNum: i + 1 }));
-        return lines;
-    }
-
-    if (operation === "delete") {
-        lines.push({ type: "header", content: `--- ${path} (deleted)` });
-        oldLines.forEach((line, i) => lines.push({ type: "remove", content: line, oldLineNum: i + 1 }));
-        return lines;
-    }
-
-    // Modify: prefix/suffix diff
-    lines.push({ type: "header", content: `--- ${path}` });
-    lines.push({ type: "header", content: `+++ ${path}` });
-
-    let prefixLen = 0;
-    while (prefixLen < oldLines.length && prefixLen < newLines.length && oldLines[prefixLen] === newLines[prefixLen]) {
-        prefixLen++;
-    }
-    let suffixLen = 0;
-    while (
-        suffixLen < oldLines.length - prefixLen &&
-        suffixLen < newLines.length - prefixLen &&
-        oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]
-    ) {
-        suffixLen++;
-    }
-
-    const contextBefore = Math.max(0, prefixLen - CONTEXT_LINES);
-    for (let i = contextBefore; i < prefixLen; i++) {
-        lines.push({ type: "context", content: oldLines[i], oldLineNum: i + 1, newLineNum: i + 1 });
-    }
-    for (let i = prefixLen; i < oldLines.length - suffixLen; i++) {
-        lines.push({ type: "remove", content: oldLines[i], oldLineNum: i + 1 });
-    }
-    for (let i = prefixLen; i < newLines.length - suffixLen; i++) {
-        lines.push({ type: "add", content: newLines[i], newLineNum: i + 1 });
-    }
-    const contextAfterStart = Math.max(oldLines.length - suffixLen, 0);
-    const contextAfterEnd = Math.min(contextAfterStart + CONTEXT_LINES, oldLines.length);
-    for (let i = contextAfterStart; i < contextAfterEnd; i++) {
-        const newI = newLines.length - (oldLines.length - i);
-        lines.push({ type: "context", content: oldLines[i], oldLineNum: i + 1, newLineNum: newI + 1 });
-    }
-    return lines;
-}
-
-function splitIntoHunks(nonHeaderLines: DiffLineType[], contextLines: number): DiffLineType[][] {
-    const hunks: DiffLineType[][] = [];
-    let i = 0;
-    while (i < nonHeaderLines.length) {
-        const hunk: DiffLineType[] = [];
-        let contextCount = 0;
-        while (i < nonHeaderLines.length && nonHeaderLines[i].type === "context" && contextCount < contextLines) {
-            hunk.push(nonHeaderLines[i]);
-            i++;
-            contextCount++;
-        }
-        while (i < nonHeaderLines.length && nonHeaderLines[i].type === "context") i++;
-        while (i < nonHeaderLines.length && (nonHeaderLines[i].type === "add" || nonHeaderLines[i].type === "remove")) {
-            hunk.push(nonHeaderLines[i]);
-            i++;
-        }
-        let trail = 0;
-        while (i < nonHeaderLines.length && nonHeaderLines[i].type === "context" && trail < contextLines) {
-            hunk.push(nonHeaderLines[i]);
-            i++;
-            trail++;
-        }
-        while (i < nonHeaderLines.length && nonHeaderLines[i].type === "context") i++;
-        if (hunk.length > 0) hunks.push(hunk);
-    }
-    return hunks;
+/** create/delete render as one synthetic full-file hunk (no per-hunk selection). */
+function wholeFileHunk(content: string, type: "add" | "remove"): DiffHunk {
+    const lines = content.split("\n");
+    return {
+        index: 0,
+        oldStart: 1,
+        oldLines: type === "remove" ? lines.length : 0,
+        newStart: 1,
+        newLines: type === "add" ? lines.length : 0,
+        addedCount: type === "add" ? lines.length : 0,
+        removedCount: type === "remove" ? lines.length : 0,
+        lines: lines.map((l, i) => ({
+            type,
+            content: l,
+            ...(type === "add" ? { newLineNum: i + 1 } : { oldLineNum: i + 1 }),
+        })),
+    };
 }
 
 export interface SmartDiffViewProps {
@@ -146,6 +90,13 @@ export interface SmartDiffViewProps {
     description?: string;
     operation?: "create" | "update" | "delete";
     maxHeight?: string;
+    /**
+     * v10: per-hunk accept/reject. When true, each hunk gets a checkbox
+     * (default checked). `onHunkSelectionChange` fires with the selected hunk
+     * indices + total so the approval flow can compose partial content.
+     */
+    selectable?: boolean;
+    onHunkSelectionChange?: (selected: number[], totalHunks: number) => void;
 }
 
 export function SmartDiffView({
@@ -155,21 +106,62 @@ export function SmartDiffView({
     description,
     operation = "update",
     maxHeight = "max-h-64",
+    selectable = false,
+    onHunkSelectionChange,
 }: SmartDiffViewProps) {
     const [expandAll, setExpandAll] = useState(false);
+    const [deselected, setDeselected] = useState<Set<number>>(new Set());
 
-    const diffLines = useMemo(
-        () => generateDiffLines(oldContent, newContent, path, operation),
-        [oldContent, newContent, path, operation]
-    );
+    // Hunk geometry depends on context size — reset selection when it changes.
+    useEffect(() => {
+        setDeselected(new Set());
+    }, [expandAll]);
 
-    const headerLines = diffLines.filter((l) => l.type === "header");
-    const nonHeaderLines = diffLines.filter((l): l is DiffLineType => l.type !== "header");
-    const hunks = splitIntoHunks(nonHeaderLines, CONTEXT_LINES);
-    const useHunks = !expandAll && diffLines.length > HUNK_THRESHOLD && hunks.length > 0;
+    const hunks: DiffHunk[] = useMemo(() => {
+        if (operation === "create") return [wholeFileHunk(newContent, "add")];
+        if (operation === "delete") return [wholeFileHunk(oldContent, "remove")];
+        return computeDiffHunks(
+            oldContent,
+            newContent,
+            expandAll ? EXPAND_ALL_CONTEXT : CONTEXT_LINES,
+        );
+    }, [oldContent, newContent, operation, expandAll]);
 
-    const addedCount = diffLines.filter((l) => l.type === "add").length;
-    const removedCount = diffLines.filter((l) => l.type === "remove").length;
+    // Selection applies only to update diffs with at least 2 hunks.
+    const hunkSelectable = selectable && operation === "update" && hunks.length > 1;
+
+    useEffect(() => {
+        if (!onHunkSelectionChange) return;
+        if (!hunkSelectable) {
+            // Selection UI off (single hunk / expand-all) → everything applies.
+            onHunkSelectionChange(hunks.map((h) => h.index), hunks.length);
+            return;
+        }
+        const selected = hunks
+            .map((h) => h.index)
+            .filter((i) => !deselected.has(i));
+        onHunkSelectionChange(selected, hunks.length);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [deselected, hunks.length, hunkSelectable]);
+
+    const toggleHunk = (index: number) => {
+        setDeselected((prev) => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index);
+            else next.add(index);
+            return next;
+        });
+    };
+
+    const addedCount = hunks.reduce((acc, h) => acc + h.addedCount, 0);
+    const removedCount = hunks.reduce((acc, h) => acc + h.removedCount, 0);
+    const totalLines = hunks.reduce((acc, h) => acc + h.lines.length, 0);
+    const headerLabel =
+        operation === "create"
+            ? `+++ ${path} (new file)`
+            : operation === "delete"
+              ? `--- ${path} (deleted)`
+              : `--- ${path}  →  +++ ${path}`;
 
     return (
         <div className={cn("flex flex-col rounded-lg border border-border overflow-hidden", maxHeight)}>
@@ -193,11 +185,16 @@ export function SmartDiffView({
                     >
                         {operation}
                     </span>
+                    {hunkSelectable ? (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                            {hunks.length - deselected.size}/{hunks.length} hunks selected
+                        </span>
+                    ) : null}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 text-[10px]">
                     {addedCount > 0 && <span style={{ color: "var(--diff-add-text)" }}>+{addedCount}</span>}
                     {removedCount > 0 && <span style={{ color: "var(--diff-remove-text)" }}>-{removedCount}</span>}
-                    {diffLines.length > HUNK_THRESHOLD && (
+                    {operation === "update" && totalLines > 20 && (
                         <button
                             type="button"
                             onClick={() => setExpandAll((e) => !e)}
@@ -210,23 +207,59 @@ export function SmartDiffView({
                 </div>
             </div>
             <div className="flex-1 overflow-auto font-mono text-xs">
-                {headerLines.map((line, idx) => (
-                    <div key={`h-${idx}`} className="flex bg-muted/50 border-b border-border">
-                        <span className="w-5 shrink-0" />
-                        <pre className="flex-1 whitespace-pre-wrap px-2 py-0.5 text-muted-foreground italic text-[10px]">
-                            {line.content}
-                        </pre>
-                    </div>
-                ))}
-                {useHunks
-                    ? hunks.map((hunk, hi) => (
-                        <div key={hi} className="border-b border-border/50">
-                            {hunk.map((line, idx) => (
-                                <DiffLineRow key={`${hi}-${idx}`} line={line} />
+                <div className="flex bg-muted/50 border-b border-border">
+                    <span className="w-5 shrink-0" />
+                    <pre className="flex-1 whitespace-pre-wrap px-2 py-0.5 text-muted-foreground italic text-[10px]">
+                        {headerLabel}
+                    </pre>
+                </div>
+                {hunks.map((hunk) => {
+                    const isDeselected = hunkSelectable && deselected.has(hunk.index);
+                    return (
+                        <div key={hunk.index} className="border-b border-border/50">
+                            {(hunkSelectable || hunks.length > 1) && !expandAll ? (
+                                <div
+                                    className={cn(
+                                        "flex items-center gap-2 px-2 py-1 bg-muted/40 border-b border-border/40",
+                                        hunkSelectable && "cursor-pointer hover:bg-muted/60",
+                                    )}
+                                    onClick={hunkSelectable ? () => toggleHunk(hunk.index) : undefined}
+                                    role={hunkSelectable ? "button" : undefined}
+                                >
+                                    {hunkSelectable ? (
+                                        <Checkbox
+                                            checked={!isDeselected}
+                                            onCheckedChange={() => toggleHunk(hunk.index)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="h-3.5 w-3.5"
+                                            aria-label={`Include hunk ${hunk.index + 1}`}
+                                        />
+                                    ) : null}
+                                    <span className="text-[10px] text-muted-foreground italic select-none">
+                                        @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+                                    </span>
+                                    <span className="text-[10px] tabular-nums select-none">
+                                        {hunk.addedCount > 0 && <span style={{ color: "var(--diff-add-text)" }}>+{hunk.addedCount}</span>}{" "}
+                                        {hunk.removedCount > 0 && <span style={{ color: "var(--diff-remove-text)" }}>-{hunk.removedCount}</span>}
+                                    </span>
+                                    {isDeselected ? (
+                                        <span className="text-[10px] text-muted-foreground/80 select-none ml-auto">
+                                            skipped — file keeps the original lines
+                                        </span>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {hunk.lines.map((line, idx) => (
+                                <DiffLineRow key={`${hunk.index}-${idx}`} line={line} dimmed={isDeselected} />
                             ))}
                         </div>
-                    ))
-                    : nonHeaderLines.map((line, idx) => <DiffLineRow key={idx} line={line} />)}
+                    );
+                })}
+                {hunks.length === 0 ? (
+                    <div className="px-3 py-2 text-[11px] text-muted-foreground italic">
+                        No line changes detected.
+                    </div>
+                ) : null}
             </div>
         </div>
     );

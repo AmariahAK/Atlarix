@@ -16,6 +16,7 @@ import {
 import log from "electron-log";
 import { getLedger } from "./tasks/task-ledger";
 import { getCachedOpenRouterModelRow } from "./routing/tier-context-limits";
+import { recordAuxUsage } from "./usage/turn-usage-aggregator";
 
 const logger = log.scope("context-compaction");
 
@@ -465,6 +466,8 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     summaryText: string;
     compactionGeneration: number;
   } | null;
+  /** v10: when set, summarization tokens count toward this chat's turn usage. */
+  chatId?: number;
 }): Promise<string | null> {
   const { messages, priorSummary } = params;
   if (messages.length === 0) return null;
@@ -493,6 +496,7 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
       messages: [{ role: "user" as const, content: userPrompt }],
       maxTokens: 1500,
     } as Parameters<typeof generateText>[0]);
+    recordAuxUsage(params.chatId, result.usage, "compaction");
 
     const summaryText = result.text.trim();
     return summaryText || null;
@@ -562,6 +566,7 @@ export async function runCompaction(params: {
     messages: toSummarize.map((m) => ({ role: m.role, content: m.content || "" })),
     sessionStats,
     priorSummary: existing,
+    chatId,
   });
   if (!summaryText) {
     return { status: "noop", reason: "summarize_failed" };

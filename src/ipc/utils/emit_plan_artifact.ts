@@ -1,4 +1,4 @@
-import type { WebContents } from "electron";
+import { BrowserWindow, type WebContents } from "electron";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { safeSend } from "./safe_sender";
 
@@ -21,4 +21,13 @@ export function emitPlanArtifactUpdated(
   payload: PlanArtifactPayload,
 ): void {
   safeSend(sender, "plan:artifact-updated", payload);
+}
+
+/** Sender-free variant for tool handlers (no WebContents in scope). */
+export function broadcastPlanArtifactUpdated(payload: PlanArtifactPayload): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      safeSend(win.webContents, "plan:artifact-updated", payload);
+    }
+  }
 }

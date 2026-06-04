@@ -42,6 +42,8 @@ import {
   writeTerminalClipboard,
 } from "@/lib/chat/terminal-line-buffer";
 import { toast } from "sonner";
+import { XtermView, disposeXtermInstance } from "./XtermView";
+import { useSettings } from "@/hooks/useSettings";
 
 function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
   return capTerminalLines([...prev, ...add]);
@@ -124,6 +126,10 @@ export function TerminalPanel() {
     instances.find((i) => i.id === activeId) ?? instances[0];
 
   const [running, setRunning] = useState(false);
+  const { settings } = useSettings();
+  // v10 interactive PTY shells for user tabs (per-instance fallback on spawn failure).
+  const [ptyFailedIds, setPtyFailedIds] = useState<Set<string>>(new Set());
+  const ptyEnabled = settings?.enablePtyTerminal !== false;
   const activeIdForDraft = activeByScope[scopeKey] ?? activeInstance?.id ?? "";
   const input = draftByScope[scopeKey]?.[activeIdForDraft] ?? "";
   const setInput = useCallback(
@@ -345,6 +351,8 @@ export function TerminalPanel() {
         delete scopeDrafts[instanceId];
         return { ...prev, [scopeKey]: scopeDrafts };
       });
+      // v10: closing a user tab tears down its interactive shell (main kills the PTY).
+      disposeXtermInstance(instanceId);
       void IpcClient.getInstance()
         .closeTerminalInstance({ chatId, appId, instanceId })
         .catch(() => {});
@@ -552,6 +560,26 @@ export function TerminalPanel() {
   const noWorkspace = !workspacePath;
   const logLines = activeInstance?.lines ?? [];
 
+  // v10: user tabs get a real interactive shell (xterm + node-pty); agent tabs
+  // stay on the read-only line list (their output is captured via run_command).
+  const activeIsPtyShell =
+    ptyEnabled &&
+    !noWorkspace &&
+    activeInstance?.owner === "user" &&
+    !ptyFailedIds.has(activeInstance.id);
+
+  const handlePtySpawnFailed = useCallback(
+    (instanceId: string) => {
+      setPtyFailedIds((prev) => {
+        if (prev.has(instanceId)) return prev;
+        const next = new Set(prev);
+        next.add(instanceId);
+        return next;
+      });
+    },
+    [],
+  );
+
   const addCommandBlockToChat = useCallback(
     (promptIndex: number) => {
       if (!activeInstance) return;
@@ -661,6 +689,18 @@ export function TerminalPanel() {
         </Button>
       </div>
 
+      {activeIsPtyShell && activeInstance && workspacePath ? (
+        <div className="flex-1 min-h-0">
+          <XtermView
+            key={activeInstance.id}
+            instanceId={activeInstance.id}
+            cwd={workspacePath}
+            scopeKey={scopeKey}
+            active
+            onSpawnFailed={() => handlePtySpawnFailed(activeInstance.id)}
+          />
+        </div>
+      ) : (
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-0 select-text"
@@ -668,8 +708,9 @@ export function TerminalPanel() {
       >
         {logLines.length === 0 ? (
           <p className="text-zinc-500 select-none">
-            Command output from you and the agent appears here. Output persists
-            when you switch tabs until you start a new chat.
+            {activeInstance?.owner === "agent"
+              ? "Output from the agent's commands appears here."
+              : "Command output appears here."}
           </p>
         ) : (
           logLines.map((line, lineIndex) => {
@@ -723,7 +764,9 @@ export function TerminalPanel() {
           })
         )}
       </div>
+      )}
 
+      {activeIsPtyShell ? null : (
       <div className="shrink-0 border-t border-zinc-700 bg-zinc-900 p-2 space-y-2">
         <div className="text-[10px] text-zinc-500 font-mono truncate px-1">
           {cwdLabel}
@@ -767,6 +810,7 @@ export function TerminalPanel() {
           </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }

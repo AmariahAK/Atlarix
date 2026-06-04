@@ -60,6 +60,9 @@ export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({}
 /** Per-chat: last reported reasoning / thinking token count from stream end (thinking-tier turns). */
 export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 
+/** v10: per-chat auxiliary LLM tokens (sub-agents, compaction) from the last completed turn. */
+export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
+
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 

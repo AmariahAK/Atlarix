@@ -17,11 +17,11 @@ You have control.
 
 **Execute** — The agent plans, reads, writes, runs commands, searches the web. You approve every destructive action.
 
-**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads.
+**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads. The agent maintains `.atlarix/memory.md` (stack, architecture, layout) so new sessions skip full re-scans.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v9.1.0**
+**Current release:** **v10.0.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -41,7 +41,8 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 9.0+). Older
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
 - **Sub-agents:** Explore & Review helpers run scoped, read-only passes (up to five per turn) with grouped tool summaries in the Sub-agents panel.
 - **Self-correction:** After substantive build turns, optional LSP-based follow-ups can address diagnostics in touched files (no separate TypeScript compiler worker or Problems tab).
-- **Approval queue:** File writes and shell commands wait for explicit approval with diff preview.
+- **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files.
+- **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Agent commands run separately with captured output and approvals.
 
 **Providers:** **Atlarix Core** (managed Model Bridge tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more).
 
@@ -69,7 +70,7 @@ On-demand graph via `get_blueprint` and structural `search`—not whole-repo inj
 
 - **Monaco** in the Code tab with syntax highlighting in packaged builds.
 - **LSP:** Bundled TypeScript and JSON language servers; editor markers and self-correction use LSP diagnostics (not `tsc --watch`).
-- **Right panel:** Code, Terminal, Activity, Preview, Errors (browser/runtime), Search—no Vault tab.
+- **Right panel:** Preview, Code, Terminal (interactive PTY), Activity, and Errors (browser/runtime). Diffs and approvals render inline in chat.
 
 ### Context & Session Management
 

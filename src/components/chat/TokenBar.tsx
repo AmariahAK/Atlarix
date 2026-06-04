@@ -12,8 +12,10 @@ import {
   AlignLeft,
   ExternalLink,
 } from "lucide-react";
-import { chatInputValueAtom } from "@/atoms/chatAtoms";
-import { useAtom } from "jotai";
+import { chatInputValueAtom, lastAuxTokensByChatIdAtom } from "@/atoms/chatAtoms";
+import { useAtom, useAtomValue } from "jotai";
+import { useContextReport } from "@/hooks/useContextReport";
+import { Scissors, Bot as BotIcon } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { TokenCircle } from "./TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
@@ -40,6 +42,10 @@ export function TokenBar({
   const { result, error } = useCountTokens(chatId ?? null, inputValue);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const compassUsage = useCompassUsage();
+  // v10 context meter: what was assembled/trimmed at last dispatch + aux usage.
+  const contextReport = useContextReport(chatId ?? null);
+  const auxTokensByChat = useAtomValue(lastAuxTokensByChatIdAtom);
+  const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
 
   if (chatId == null || !result) {
     return null;
@@ -160,6 +166,40 @@ export function TokenBar({
                     <span>{totalTokens.toLocaleString()}</span>
                   </div>
                 </div>
+                {lastAuxTokens != null && lastAuxTokens > 0 ? (
+                  <div className="pt-1 border-t border-border grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                    <BotIcon size={12} className="text-cyan-500" />
+                    <span>Sub-agents (last turn)</span>
+                    <span>{lastAuxTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {contextReport && contextReport.trimReport.length > 0 ? (
+                  <div className="pt-1 border-t border-border space-y-0.5">
+                    <div className="flex items-center gap-1 font-medium">
+                      <Scissors size={12} className="text-muted-foreground" />
+                      <span>Pruned at last dispatch</span>
+                    </div>
+                    {contextReport.trimReport.slice(0, 4).map((line, i) => (
+                      <div key={i} className="text-[10px] text-muted-foreground break-words">
+                        {line}
+                      </div>
+                    ))}
+                    {contextReport.trimReport.length > 4 ? (
+                      <div className="text-[10px] text-muted-foreground/70">
+                        +{contextReport.trimReport.length - 4} more
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {contextReport &&
+                contextReport.sections.some((s) => !s.included || s.truncated) ? (
+                  <div className="text-[10px] text-muted-foreground/80">
+                    {contextReport.sections
+                      .filter((s) => !s.included || s.truncated)
+                      .map((s) => `${s.name}${s.truncated ? " (truncated)" : " (dropped)"}`)
+                      .join(", ")}
+                  </div>
+                ) : null}
               </div>
             </TooltipContent>
           </Tooltip>

@@ -1,6 +1,32 @@
 # Atlarix Changelog
 
-## [Unreleased]
+## [10.0.0] (2026-06-04) — Interactive terminal, live plan progress, per-hunk approvals, memory.md
+
+### Added (v10.0)
+
+- **Interactive PTY terminal:** User terminal tabs are now real shells (xterm.js + node-pty) — native **Tab completion**, arrow keys, colors, and interactive apps (vim, top) all work. Login shell loads your rc files; scrollback survives tab switches and panel toggles (session-only); closing a tab or quitting the app kills its shell. Agent command tabs stay on the read-only captured-output view (permissions/timeouts unchanged). Per-instance fallback to the single-command input if PTY spawn fails; `enablePtyTerminal` settings kill-switch.
+- **Clickable terminal links:** URLs in the terminal are clickable — `localhost`/dev-server links open in the **Preview tab**, everything else opens in your **browser** (Cmd/Ctrl+click forces the browser for both).
+- **Live plan step progress:** While building a plan, checklist steps flip `[ ]` → `[~]` (in progress) → `[x]` live on the plan card and in the Plan panel — new `update_plan_step` tool (by step index or text), Build-mode prompt guidance, and a safety net that closes remaining steps when the plan flips to built. Steps render with per-step icons and an `n/m done` counter.
+- **Per-hunk diff accept/reject:** Inline file approvals now use real LCS hunks (multiple change regions render separately, via the `diff` package) with a checkbox per hunk — approve only the hunks you want; Atlarix composes and writes the partial file. The bulk bar shows a running "X of Y hunks selected" summary across multi-file change sets. `delete_file`/`rename_file` stay file-level.
+- **`.atlarix/memory.md` (project knowledge file):** The agent can create and maintain a durable project-facts file (tech stack, architecture, layout) so future sessions skip full re-scans. Never auto-injected — the prompt carries a one-line hint (size + updated date) and the model reads it with `read_file` only when useful, updating it when durable facts change (e.g. payments PayPal → Stripe). Plan mode may write `.atlarix/atlarix.md` and `.atlarix/memory.md`. Auto-memory turn notes now append here too (previous `.atlarix/ATLARIX.md` notes were silently archived by the legacy migration — fixed).
+- **First-run setup wizard:** New skippable 4-step wizard (welcome → providers/keys detection + Atlarix Core sign-in state → default model → open first workspace) replaces the legacy 5-step onboarding overlay. State lives in settings (`firstRunWizardCompleted`); existing users are migrated silently and never see it. The in-app Shepherd tour copy was refreshed (Explore naming, Shift+Tab, inline approvals, Cmd/Ctrl+B).
+- **Context meter details:** The token bar tooltip now shows what was **pruned/trimmed at last dispatch** (per-section context assembly report) and **sub-agent/background tokens** from the last turn. Finished tool cards show an elapsed-time suffix (e.g. `(3.2s)`).
+- **Commits attributed to the model:** Agent git commits are authored as `"<Model> agent" <agent@atlarix.dev>` (e.g. `DeepSeek V4 agent`) — prompt guidance plus automatic `-c user.name/user.email` injection on bare `git commit`, never touching your git config. Internal app commits stay `atlarix-agent`; the co-author trailer is unchanged.
+
+### Changed (v10.0)
+
+- **Token accounting is turn-accurate:** Sub-agent delegations and mid-loop compaction now record their `generateText` usage into the turn's totals — Atlarix Core (Compass) metering includes them, and `chat:response:end` carries `auxTokens` for the UI. Previously sub-agent tokens were invisible everywhere.
+- **Snapshots → shadow git:** Per-turn revert snapshots moved from full file copies under `.atlarix/snapshots/` (no dedup, no pruning) to a hidden git repository per workspace under app data — content-addressed (deduped), auto-pruned after 14 days, 5 MB/file cap, and never touching your repo's `.git`. Files created during a turn are now **deleted** on revert (previously restored as empty). Old-style snapshot turns still revert via a legacy fallback.
+- **Modes are fully isolated:** Every-mode tools (`ask_user`, `compress_context`, `read_attachment`, `list_attachments`, `web_search`, `deep_research`) are now in every mode's allowlist + execute gate (Plan/Debug/Review were missing several). Streams can never render the legacy all-modes block; consistency tests assert no cross-mode leakage and exact registry/prompt parity.
+- **Actionable tool errors:** Every tool failure the model sees now answers "what happened + what to try next" — per-tool recovery hints merged at the registry layer (`suggestion` field), plus rewritten worst offenders (run_command timeout explains `timeout_ms`, permission denial says don't-retry/ask_user, find_file suggests broader globs/search).
+- **Diff quality:** `SmartDiffView` switched from a prefix/suffix diff (one giant change region) to real LCS hunks — long files with changes at top and bottom no longer show the whole middle as changed.
+
+### Removed (v10.0)
+
+- **Right-panel Diff tab** (and the vestigial `file-diff` panel type): it only showed a placeholder — all diffs and approvals render inline in chat.
+- **Legacy 5-step onboarding overlay** (`OnboardingProgressBar`, `OnboardingTrigger`, `lib/onboarding.ts`, `onboardingStepAtom`) — replaced by the first-run wizard + refreshed tour.
+
+### Also shipping in 10.0.0 — quality batch (previously tracked as Unreleased)
 
 ### Added
 

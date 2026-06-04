@@ -16,13 +16,12 @@ export type PanelType =
     | 'web-search'      // Source cards + iframe preview
     | 'code-preview'    // Live preview iframe (frontend)
     | 'terminal'        // Command output
-    | 'file-diff'       // File changes + approval
     | 'files'           // File explorer (default)
     | 'tools'           // Tool execution activity
     | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'diff' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
 
 export interface PanelContext {
     type: PanelType;
@@ -35,14 +34,14 @@ export interface PanelContext {
 // AI PANEL INTENT SYSTEM (Hybrid Approach)
 // ═══════════════════════════════════════════════════════════
 // Two-layer system:
-// Layer 1: AI specifies semantic intent (e.g., 'show-permissions')
-// Layer 2: Frontend maps intent to correct UI component (e.g., 'file-diff')
+// Layer 1: AI specifies semantic intent (e.g., 'show-preview')
+// Layer 2: Frontend maps intent to correct UI component (e.g., 'code-preview')
 // This preserves AI control while ensuring correct UI rendering.
 
 /** Valid AI panel intents - semantic descriptions of what to show */
 export type AIPanelIntent =
-    | 'show-permissions'    // Show file/command approval UI → maps to 'file-diff'
-    | 'show-file-changes'   // Show file diff viewer → maps to 'file-diff'
+    | 'show-permissions'    // Approvals are inline in chat → maps to 'code-preview'
+    | 'show-file-changes'   // Diffs are inline in chat → maps to 'code-preview'
     | 'show-web-search'     // Show web search results → maps to 'web-search'
     | 'show-terminal'       // Show command output → maps to 'terminal'
     | 'show-plan'           // Show ATLARIX plan execution panel → maps to 'plan'
@@ -54,7 +53,7 @@ export type AIPanelIntent =
 export interface AIPanelIntentState {
     intent: AIPanelIntent;
     context?: {
-        operationId?: string;    // For file-diff or permission
+        operationId?: string;    // For a file operation or permission
         searchId?: string;       // For web-search
         commandId?: string;      // For terminal
         chatId?: number;         // For permission queue panel
@@ -77,8 +76,8 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
     switch (intent) {
         case 'show-permissions':
         case 'show-file-changes':
-            // Both map to FileDiffPanel (approve tab shows permission queue)
-            return 'file-diff';
+            // Approvals and diffs render inline in chat; show the workspace panel
+            return 'code-preview';
 
         case 'show-web-search':
             return 'web-search';

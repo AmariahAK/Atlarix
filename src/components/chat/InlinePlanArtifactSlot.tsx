@@ -29,8 +29,13 @@ export function InlinePlanArtifactSlot({
       const row = await IpcClient.getInstance().getPlanArtifact(planId);
       if (!cancelled) setPlan(row ?? null);
     })();
+    // v10: live step/status updates while the agent builds the plan.
+    const unsubscribe = IpcClient.getInstance().onPlanArtifactUpdated((payload) => {
+      if (!cancelled && payload?.planId === planId) setPlan(payload);
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [planId]);
 

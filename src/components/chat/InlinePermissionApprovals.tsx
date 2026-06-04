@@ -12,9 +12,13 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { SmartDiffView } from "@/components/SmartDiffView";
+import { composeContentFromHunks } from "@/lib/diff/compose-hunks";
 import { Shield, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+/** v10 per-hunk approval: latest hunk selection per pending operation. */
+type HunkSelection = { selected: number[]; total: number };
 
 const FILE_OPERATIONS = new Set([
   "write_file",
@@ -93,6 +97,8 @@ function FilePermissionCard({
   onAlwaysDirectory,
   onAlwaysExtension,
   onDeny,
+  onHunkSelectionChange,
+  hunkSelection,
 }: {
   operation: QueuedOperation;
   appId: number | null;
@@ -101,6 +107,8 @@ function FilePermissionCard({
   onAlwaysDirectory: (id: string) => void;
   onAlwaysExtension: (id: string) => void;
   onDeny: (id: string) => void;
+  onHunkSelectionChange?: (id: string, selected: number[], total: number) => void;
+  hunkSelection?: HunkSelection;
 }) {
   const title =
     operation.description?.trim() ||
@@ -148,6 +156,12 @@ function FilePermissionCard({
             description={operation.description}
             operation="update"
             maxHeight="max-h-56"
+            selectable
+            onHunkSelectionChange={
+              onHunkSelectionChange
+                ? (selected, total) => onHunkSelectionChange(operation.id, selected, total)
+                : undefined
+            }
           />
         ) : operation.content ? (
           <pre className="text-[11px] bg-[var(--diff-add-bg,theme(colors.emerald.500/10))] text-foreground/80 p-2 rounded overflow-x-auto max-h-40">
@@ -161,7 +175,9 @@ function FilePermissionCard({
       </div>
       <div className="flex flex-wrap gap-2 px-3 pb-2">
         <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onOnce(operation.id)}>
-          Allow once
+          {hunkSelection && hunkSelection.selected.length < hunkSelection.total
+            ? `Apply ${hunkSelection.selected.length}/${hunkSelection.total} hunks`
+            : "Allow once"}
         </Button>
         {showScopedAlways && operation.canAlwaysAllowFile !== false && operation.path ? (
           <Button
@@ -310,6 +326,26 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   const setQueue = useSetAtom(permissionQueueAtom);
   const appId = useAtomValue(selectedAppIdAtom);
   const loadedForChatRef = useRef<number | null>(null);
+  // v10 per-hunk approval: latest hunk selection per operation id.
+  const [hunkSelections, setHunkSelections] = useState<Record<string, HunkSelection>>({});
+
+  const handleHunkSelectionChange = useCallback(
+    (id: string, selected: number[], total: number) => {
+      setHunkSelections((prev) => {
+        const existing = prev[id];
+        if (
+          existing &&
+          existing.total === total &&
+          existing.selected.length === selected.length &&
+          existing.selected.every((v, i) => v === selected[i])
+        ) {
+          return prev;
+        }
+        return { ...prev, [id]: { selected, total } };
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (loadedForChatRef.current === chatId) return;
@@ -377,15 +413,34 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
         | "always_allow_extension"
         | "deny",
     ) => {
+      // v10 per-hunk approval: compose partial content when hunks were deselected.
+      let overrideContent: string | undefined;
+      const selection = hunkSelections[id];
+      if (
+        approvalMode !== "deny" &&
+        selection &&
+        selection.total > 1 &&
+        selection.selected.length < selection.total
+      ) {
+        const op = queue.get(id);
+        if (op?.content != null && op.oldContent !== undefined) {
+          overrideContent = composeContentFromHunks(
+            op.oldContent,
+            op.content,
+            selection.selected,
+          );
+        }
+      }
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
         chatId,
         operationId: id,
         approvalMode,
         appId: approvalMode === "once" || approvalMode === "deny" ? undefined : (appId ?? undefined),
+        overrideContent,
       });
     },
-    [chatId, setQueue, appId],
+    [chatId, setQueue, appId, hunkSelections, queue],
   );
 
   const handleFileOnce = useCallback(
@@ -479,6 +534,18 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
         <div className="my-2 flex flex-wrap gap-2 rounded-lg border border-border/50 bg-muted/15 px-3 py-2">
           <span className="text-xs text-muted-foreground w-full">
             {filePending.length} file changes awaiting approval
+            {(() => {
+              // v10: running hunk summary across the pending change set.
+              const tracked = filePending
+                .map((op) => hunkSelections[op.id])
+                .filter((s): s is HunkSelection => s != null && s.total > 1);
+              if (tracked.length === 0) return null;
+              const selected = tracked.reduce((acc, s) => acc + s.selected.length, 0);
+              const total = tracked.reduce((acc, s) => acc + s.total, 0);
+              return selected < total
+                ? ` — ${selected} of ${total} hunks selected`
+                : null;
+            })()}
           </span>
           <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void handleApproveAllFiles()}>
             Approve all files
@@ -504,6 +571,8 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
           onAlwaysDirectory={handleFileAlwaysDirectory}
           onAlwaysExtension={handleFileAlwaysExtension}
           onDeny={handleFileDeny}
+          onHunkSelectionChange={handleHunkSelectionChange}
+          hunkSelection={hunkSelections[op.id]}
         />
       ))}
       {commandPending.map((op) => (

@@ -576,6 +576,7 @@ function StreamThreadItemView({
           detail={item.detail}
           status={item.status}
           toolName={item.toolName}
+          elapsedMs={item.endTs != null ? item.endTs - item.ts : undefined}
         />
       );
     case "plan":
@@ -622,6 +623,7 @@ function StreamThreadItemView({
               detail={tool.detail}
               status={tool.status}
               toolName={tool.toolName}
+              elapsedMs={tool.endTs != null ? tool.endTs - tool.ts : undefined}
             />
           ))}
         </>

@@ -1,9 +1,14 @@
-import { Hammer, Loader2 } from "lucide-react";
+import { useMemo } from "react";
+import { AlertTriangle, CheckCircle2, Circle, Hammer, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { VisualArtifactCard } from "./VisualArtifactCard";
 import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
+import {
+  parsePlanChecklist,
+  type PlanChecklistStep,
+} from "@/lib/tasks/plan-checklist";
 
 const LIFECYCLE_STEPS: { key: PlanArtifactStatus; label: string }[] = [
   { key: "plan", label: "TBD" },
@@ -58,6 +63,69 @@ function PlanStatusStrip({ planStatus }: { planStatus: PlanArtifactStatus }) {
   );
 }
 
+function StepIcon({ state }: { state: PlanChecklistStep["state"] }) {
+  switch (state) {
+    case "done":
+      return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-500" aria-hidden />;
+    case "in_progress":
+      return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />;
+    case "blocked":
+      return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />;
+    default:
+      return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden />;
+  }
+}
+
+/** v10: live per-step progress while the agent builds the plan. */
+export function PlanChecklistProgress({
+  content,
+  planStatus,
+}: {
+  content: string;
+  planStatus: PlanArtifactStatus;
+}) {
+  const steps = useMemo(() => parsePlanChecklist(content), [content]);
+  if (steps.length === 0) return null;
+  const done = steps.filter((s) => s.state === "done").length;
+  const started = steps.some((s) => s.state !== "todo") || planStatus !== "plan";
+  if (!started) return null;
+
+  return (
+    <div
+      className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2"
+      role="status"
+      aria-label={`Plan steps: ${done} of ${steps.length} done`}
+    >
+      <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+        <span>Steps</span>
+        <span>
+          {done}/{steps.length} done
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {steps.map((step) => (
+          <li key={`${step.index}-${step.line}`} className="flex items-start gap-1.5 text-xs">
+            <span className="mt-0.5">
+              <StepIcon state={step.state} />
+            </span>
+            <span
+              className={cn(
+                "min-w-0 break-words",
+                step.state === "done" && "text-muted-foreground line-through decoration-muted-foreground/40",
+                step.state === "in_progress" && "text-foreground font-medium",
+                step.state === "blocked" && "text-amber-700 dark:text-amber-400",
+                step.state === "todo" && "text-muted-foreground",
+              )}
+            >
+              {step.text}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function planArtifactTitleFromContent(content: string): string {
   const first = content.split("\n").find((l) => l.trim().length > 0) ?? "";
   return first.replace(/^#+\s*/, "").trim() || "Implementation plan";
@@ -92,6 +160,7 @@ export function PlanArtifactCard({
     >
       <div className="space-y-3">
         <PlanStatusStrip planStatus={planStatus} />
+        <PlanChecklistProgress content={content} planStatus={planStatus} />
         {content.trim() ? (
           <AtlarixMarkdownSegment content={content} isStreaming={false} />
         ) : null}

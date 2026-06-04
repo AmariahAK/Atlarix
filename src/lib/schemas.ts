@@ -453,6 +453,12 @@ export const UserSettingsSchema = z.object({
   /** When true (default), commits made via Atlarix include Co-authored-by: atlarix-agent <agent@atlarix.dev> */
   includeAtlarixCoAuthor: z.boolean().optional(),
 
+  /** v10: first-run setup wizard (providers → model → workspace) completed or skipped. */
+  firstRunWizardCompleted: z.boolean().optional(),
+
+  /** v10: interactive PTY terminal for user shell tabs (default true). Kill-switch per platform. */
+  enablePtyTerminal: z.boolean().optional(),
+
   enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */

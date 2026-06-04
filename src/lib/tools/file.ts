@@ -534,11 +534,11 @@ ToolRegistry.register({
 
         if (chatMode === "plan") {
             const norm = normalizedPath.replace(/\\/g, "/").replace(/^\/+/, "");
-            const { isWorkspaceAtlarixMdPath } = await import("../project-memory");
-            if (!isWorkspaceAtlarixMdPath(norm)) {
+            const { isAtlarixDocWritePath } = await import("../project-memory");
+            if (!isAtlarixDocWritePath(norm)) {
                 return {
                     error:
-                        "Plan mode may only write .atlarix/atlarix.md (use write_implementation_plan for session plans). Switch to Build for application code.",
+                        "Plan mode may only write .atlarix/atlarix.md or .atlarix/memory.md (use write_implementation_plan for session plans). Switch to Build for application code.",
                     operation: "write_file",
                     denied: true,
                 };
@@ -807,7 +807,7 @@ ToolRegistry.register({
             });
 
             if (files.length === 0) {
-                return `No files found matching pattern: ${pattern}`;
+                return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use search to find the file by its content.`;
             }
 
             return `Found ${files.length} file(s):\n${files.join("\n")}`;

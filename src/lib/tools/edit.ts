@@ -17,7 +17,7 @@ import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
-import { isWorkspaceAtlarixMdPath } from "../project-memory";
+import { isAtlarixDocWritePath } from "../project-memory";
 import { debugWriteHandlerDenied } from "../debug/debug-write-handler-gate";
 
 const logger = log.scope("edit-tools");
@@ -146,7 +146,7 @@ function normalizeRelativePath(input: string): string {
 }
 
 function isAtlarixPlanFile(relPath: string): boolean {
-  return isWorkspaceAtlarixMdPath(relPath.replace(/\\/g, "/"));
+  return isAtlarixDocWritePath(relPath.replace(/\\/g, "/"));
 }
 
 async function readFileSafe(
@@ -507,7 +507,7 @@ Prefer "replace" for code changes — it requires matching the existing content 
 
     if (chatMode === "plan" && !isAtlarixPlanFile(normalizedPath)) {
       return {
-        error: "Plan mode may only edit .atlarix/atlarix.md. Use write_implementation_plan for session plans. Switch to Build for application code.",
+        error: "Plan mode may only edit .atlarix/atlarix.md or .atlarix/memory.md. Use write_implementation_plan for session plans. Switch to Build for application code.",
         operation: "edit_file",
         denied: true,
       };

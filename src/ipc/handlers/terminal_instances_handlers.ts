@@ -15,6 +15,7 @@ import {
   resolveScopeKey,
   setTerminalScopeState,
 } from "@/lib/terminal-instance-store";
+import { killPty, killAllPtys } from "@/lib/pty/pty-session-manager";
 
 const logger = log.scope("terminal-instances-handlers");
 const handle = createLoggedHandler(logger);
@@ -74,6 +75,7 @@ export function registerTerminalInstancesHandlers(): void {
     "terminal-instances:close",
     async (_event, params: ScopeParams & { instanceId: string }) => {
       const scopeKey = scopeFromParams(params);
+      killPty(params.instanceId); // v10: closing a tab kills its interactive shell
       return closeTerminalInstance(scopeKey, params.instanceId);
     },
   );
@@ -99,6 +101,7 @@ export function registerTerminalInstancesHandlers(): void {
   );
 
   handle("terminal-instances:clear-all", async () => {
+    killAllPtys(); // v10: reset also tears down interactive shells
     clearAllTerminalScopes();
     return { ok: true as const };
   });

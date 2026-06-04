@@ -33,6 +33,13 @@ import {
     modeAllowlistIncludesVisualTools,
 } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
+import { gitAuthorNameForModel } from "../ipc/utils/git_author";
+import { buildProjectDocsPromptHint } from "../lib/project-memory";
+
+/** Modes whose write tools may create/update the .atlarix doc files. */
+function canWriteProjectDocs(mode?: ModeSystemKey): boolean {
+    return mode === "plan" || mode === "build" || mode === "debug";
+}
 
 const logger = log.scope("system_prompt");
 
@@ -139,10 +146,16 @@ export function getModeSystemBlock(mode: ModeSystemKey): string {
 
 /**
  * Legacy all-modes block — avoid for live streams; pass effectiveWorkMode instead.
+ * Only non-model-facing callers (e.g. token estimation) may omit the mode.
  */
 export function renderModeSystemBlock(activeMode?: ModeSystemKey): string {
   if (activeMode) {
     return renderModePromptBundle(activeMode);
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(
+      "[system_prompt] renderModeSystemBlock(undefined) renders ALL modes — never use for live streams",
+    );
   }
   const lines: string[] = [];
   lines.push("<mode_system>");
@@ -387,18 +400,23 @@ You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_sk
 ${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`
         : "";
 
+    const identity =
+        activeModel != null
+            ? resolveActiveModelIdentity(activeModel)
+            : null;
+    const effectiveModelDisplayName =
+        modelDisplayName ?? identity?.modelDisplayName;
     const modeBundle =
         effectiveWorkMode != null
             ? renderModePromptBundle(effectiveWorkMode, {
                   workspace: hasWorkspace,
                   registeredNames: registeredToolNames,
+                  gitAuthorName: effectiveModelDisplayName
+                      ? gitAuthorNameForModel(effectiveModelDisplayName)
+                      : undefined,
               })
             : renderModeSystemBlock(undefined);
     const appVersion = getAppVersion();
-    const identity =
-        activeModel != null
-            ? resolveActiveModelIdentity(activeModel)
-            : null;
     const runtimeIdentity =
         activeModel != null || modelDisplayName
             ? buildWorkstationIdentityBlock({
@@ -489,7 +507,13 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         workspacePromptContent,
         bundleAgentsContent: bundleContent,
     });
-    const optionalProjectInstructions = buildInstructionsFromLayers(layers);
+    const projectDocsHint = await buildProjectDocsPromptHint(workspacePath, {
+        canWrite: canWriteProjectDocs(effectiveWorkMode),
+    });
+    const optionalProjectInstructions = [
+        buildInstructionsFromLayers(layers),
+        projectDocsHint,
+    ].filter((s) => s.trim().length > 0).join("\n\n");
     return constructSystemPrompt({
         contextSize,
         chatMode,
@@ -532,7 +556,13 @@ export async function buildSystemPromptPartsWithProjectInstructions(params: {
         workspacePromptContent,
         bundleAgentsContent: bundleContent,
     });
-    const optionalProjectInstructions = buildInstructionsFromLayers(layers);
+    const projectDocsHint = await buildProjectDocsPromptHint(workspacePath, {
+        canWrite: canWriteProjectDocs(effectiveWorkMode),
+    });
+    const optionalProjectInstructions = [
+        buildInstructionsFromLayers(layers),
+        projectDocsHint,
+    ].filter((s) => s.trim().length > 0).join("\n\n");
     return constructSystemPromptParts({
         contextSize,
         chatMode,

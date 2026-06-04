@@ -16,12 +16,22 @@ import {
   streamToolCardSummary,
 } from "./stream-item-styles";
 
+/** "(3.2s)" elapsed suffix — hidden for sub-100ms blips. */
+function formatElapsed(ms: number | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms < 100) return null;
+  if (ms < 60_000) return `(${(ms / 1000).toFixed(1)}s)`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.round((ms % 60_000) / 1000);
+  return `(${mins}m ${secs}s)`;
+}
+
 export function StreamToolCallCard({
   summary,
   expand,
   detail,
   status,
   toolName: _toolName,
+  elapsedMs,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
@@ -30,6 +40,8 @@ export function StreamToolCallCard({
   detail?: string;
   toolName?: string;
   defaultCollapsed?: boolean;
+  /** Wall-clock duration once the tool finished (v10 cost visibility). */
+  elapsedMs?: number;
 }) {
   const isRunning = status === "running";
   const isError = status === "error";
@@ -67,6 +79,11 @@ export function StreamToolCallCard({
         <span className={streamToolCardSummary}>
           {isRunning ? <TextShimmer>{summary}</TextShimmer> : summary}
         </span>
+        {!isRunning && formatElapsed(elapsedMs) ? (
+          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+            {formatElapsed(elapsedMs)}
+          </span>
+        ) : null}
         {resolvedExpand.kind === "diff" ? (
           <span className="shrink-0 flex items-center gap-1 text-[10px] font-medium tabular-nums">
             {resolvedExpand.addedCount != null && resolvedExpand.addedCount > 0 ? (

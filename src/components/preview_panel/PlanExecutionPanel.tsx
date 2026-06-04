@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { PlanChecklistProgress } from "@/components/chat/PlanArtifactCard";
 
 function statusLabel(status: PlanArtifactStatus | null): string {
   if (status === "building") return "Building";
@@ -111,6 +112,10 @@ export function PlanExecutionPanel() {
             <div className="px-3 py-3 space-y-3">
               {panel.planId ? (
                 <>
+                  <PlanChecklistProgress
+                    content={panel.content ?? ""}
+                    planStatus={panel.planStatus ?? "plan"}
+                  />
                   <textarea
                     className="w-full min-h-[200px] text-sm font-mono bg-muted/30 rounded-md border border-border p-2 resize-y"
                     value={draft}

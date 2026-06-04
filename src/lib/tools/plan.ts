@@ -11,6 +11,12 @@ import {
   setPlanArtifactStatus,
   planArtifactMarker,
 } from "@/lib/plans/plan-artifacts";
+import {
+  parsePlanChecklist,
+  setStepStateInPlanMarkdown,
+  type PlanStepState,
+} from "@/lib/tasks/plan-checklist";
+import { broadcastPlanArtifactUpdated } from "@/ipc/utils/emit_plan_artifact";
 import type { PlanArtifactStatus } from "@/db/schema";
 
 ToolRegistry.register({
@@ -182,11 +188,114 @@ ToolRegistry.register({
     }
     const row = await setPlanArtifactStatus(planId, planStatus as PlanArtifactStatus);
     if (!row) return { success: false, error: "Plan not found." };
+    broadcastPlanArtifactUpdated({
+      planId: row.id,
+      sessionId: row.sessionId,
+      content: row.content,
+      planStatus: row.planStatus,
+    });
     return {
       success: true,
       planId: row.id,
       planStatus: row.planStatus,
       marker: planArtifactMarker(row.id),
+    };
+  },
+});
+
+ToolRegistry.register({
+  name: "update_plan_step",
+  description:
+    "Mark one checklist step of a session plan as in_progress, done, todo, or blocked. Call as you start and finish each step while building so the plan card shows live progress. Target by step_index (1-based) or step_text.",
+  category: ToolCategory.TASK,
+  cost: 1,
+  requiresWorkspace: true,
+  isCore: false,
+  isReadOnly: false,
+  allowInAskMode: false,
+  parameters: createParameters(
+    {
+      planId: stringParam("Plan artifact id (from the active session plan in context)"),
+      state: stringParam("One of: in_progress, done, todo, blocked"),
+      step_index: {
+        type: "number",
+        description: "1-based checklist step number",
+        required: false,
+      },
+      step_text: {
+        type: "string",
+        description: "Step text (or unique substring) when index is unknown",
+        required: false,
+      },
+    },
+    ["planId", "state"],
+  ),
+  handler: async ({
+    planId,
+    state,
+    step_index,
+    step_text,
+  }: {
+    planId: string;
+    state: string;
+    step_index?: number;
+    step_text?: string;
+  }) => {
+    const allowed: PlanStepState[] = ["todo", "in_progress", "done", "blocked"];
+    if (!allowed.includes(state as PlanStepState)) {
+      return {
+        success: false,
+        error: "state must be one of: in_progress, done, todo, blocked.",
+      };
+    }
+    if (step_index == null && !step_text?.trim()) {
+      return {
+        success: false,
+        error: "Provide step_index (1-based) or step_text to identify the step.",
+      };
+    }
+    const row = await getPlanArtifact(planId);
+    if (!row) {
+      return {
+        success: false,
+        error: "Plan not found. Use the planId from the active session plan in context, or read_implementation_plan to list it.",
+      };
+    }
+    const result = setStepStateInPlanMarkdown(
+      row.content,
+      { stepIndex: step_index ?? undefined, stepText: step_text ?? undefined },
+      state as PlanStepState,
+    );
+    if (!result.step) {
+      const steps = parsePlanChecklist(row.content);
+      return {
+        success: false,
+        error: `Step not found in plan checklist (${steps.length} steps). Use read_implementation_plan to see the numbered steps, then retry with a valid step_index.`,
+      };
+    }
+    if (!result.changed) {
+      return {
+        success: true,
+        planId: row.id,
+        step: result.step,
+        message: "Step already in that state.",
+      };
+    }
+    const updated = await updatePlanArtifactContent(planId, result.content);
+    if (!updated) return { success: false, error: "Plan not found." };
+    broadcastPlanArtifactUpdated({
+      planId: updated.id,
+      sessionId: updated.sessionId,
+      content: updated.content,
+      planStatus: updated.planStatus,
+    });
+    const steps = parsePlanChecklist(updated.content);
+    const done = steps.filter((s) => s.state === "done").length;
+    return {
+      success: true,
+      planId: updated.id,
+      step: result.step,
+      progress: `${done}/${steps.length} steps done`,
     };
   },
 });

@@ -7,6 +7,7 @@
 import type { Tool } from "../providers/base-provider";
 import { isMainProcessNode } from "../runtime/is-main-node";
 import { guardToolCall } from "./guard";
+import { resolveRecoverySuggestion } from "./tool-error-patterns";
 
 // NOTE: this module is imported by both the Electron main process AND the renderer
 // (e.g. `ToolIndicator.tsx` reads `ToolRegistry` for UI metadata). Anything that
@@ -313,6 +314,7 @@ export class ToolRegistry {
                         message: `Tool execution failed: ${message}`,
                         partial: null,
                         suggestion:
+                            resolveRecoverySuggestion({ toolName: name, message }) ??
                             "Check parameters and workspace path. Use explore_folder or list_files to locate files.",
                     };
                 }
@@ -335,15 +337,23 @@ export class ToolRegistry {
                         suggestion?: string;
                         partial?: unknown;
                     };
+                    const failMessage =
+                        fail.message ?? fail.error ?? "Tool returned an error";
                     return {
                         success: false,
                         cost: tool.cost,
                         tool: name,
                         error: fail.error ?? "TOOL_ERROR",
-                        message: fail.message ?? fail.error ?? "Tool returned an error",
-                        suggestion: fail.suggestion,
+                        message: failMessage,
                         partial: fail.partial ?? null,
                         ...fail,
+                        // After the spread so a bare structured error still gains
+                        // the per-tool recovery hint (model knows what to try next).
+                        suggestion: resolveRecoverySuggestion({
+                            toolName: name,
+                            message: failMessage,
+                            existingSuggestion: fail.suggestion,
+                        }),
                     };
                 }
 

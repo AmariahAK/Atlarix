@@ -130,6 +130,7 @@ export async function runMidLoopCompaction(
       tierLimit,
       contextWindowTokens,
       threshold,
+      chatId,
     });
 
     if (result.compacted) {

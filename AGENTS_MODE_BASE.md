@@ -39,7 +39,7 @@ Blueprint is **lazy** and **section-scoped** for `get_blueprint` only — parse 
 
 ## Context layers
 
-System instructions → `<mode_system>` (only the active mode) → Diagram (on demand) → Project memory `.atlarix/atlarix.md` + SQLite (persistent) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
+System instructions → `<mode_system>` (only the active mode) → Diagram (on demand) → Project memory `.atlarix/atlarix.md` (rules; follow when non-empty) + `.atlarix/memory.md` (project knowledge file — read on demand to skip re-scans, update when durable facts change) + SQLite (persistent) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
 
 ## What Atlarix CANNOT do
 

@@ -6,8 +6,8 @@
  * set what the right panel should display using semantic intents.
  * 
  * Part of the Hybrid Approach:
- * - AI sends semantic intent (e.g., 'show-permissions')
- * - Frontend maps to correct UI component (e.g., 'file-diff')
+ * - AI sends semantic intent (e.g., 'show-preview')
+ * - Frontend maps to correct UI component (e.g., 'code-preview')
  */
 
 import { useEffect, useRef } from 'react';

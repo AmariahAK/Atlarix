@@ -23,7 +23,6 @@ import {
     type AIPanelIntent,
     type AIPanelIntentState,
     sourceListAtom,
-    pendingProposalsAtom,
     toolTimelineAtom,
     terminalOutputsAtom,
     pinnedPanelAtom,
@@ -45,7 +44,6 @@ const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
     'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors'],
     'terminal': ['terminal', 'activity'],
-    'file-diff': ['preview', 'code', 'terminal', 'activity', 'errors', 'diff'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
     'plan': ['plan'],
@@ -67,7 +65,6 @@ export interface RightPanelContextResult {
 export function useRightPanelContext(): RightPanelContextResult {
     // Read all potential context sources
     const sources = useAtomValue(sourceListAtom);
-    const proposals = useAtomValue(pendingProposalsAtom);
     const toolTimeline = useAtomValue(toolTimelineAtom);
     const terminalOutputs = useAtomValue(terminalOutputsAtom);
 
@@ -124,11 +121,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     // Used when AI doesn't explicitly set intent
     // ═══════════════════════════════════════════════════════════
     const heuristicType = useMemo((): PanelType => {
-        // Priority 1: Legacy file diff / proposals (permissions are inline in chat)
-        const pendingApproval = proposals.filter(p => !p.approved);
-        if (pendingApproval.length > 0) {
-            return 'file-diff';  // FileDiffPanel handles both files AND permissions
-        }
+        // Note: file/command approvals render inline in chat — no dedicated panel type.
 
         // Priority 2: Web search results
         if (sources.length > 0 && lastToolCall?.name === 'web_search') {
@@ -156,7 +149,7 @@ export function useRightPanelContext(): RightPanelContextResult {
         }
 
         return 'empty';
-    }, [sources, proposals, lastToolCall, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
+    }, [sources, lastToolCall, terminalOutput, devServerUrl, hasPendingPermissions, currentApp, selectedAppId]);
 
     // ═══════════════════════════════════════════════════════════
     // LAYER 1: AI Intent Mapping
@@ -196,7 +189,6 @@ export function useRightPanelContext(): RightPanelContextResult {
             activeTab: validTab,
             data: getDataForType(effectiveType, {
                 sources,
-                proposals,
                 terminalOutput,
                 terminalOutputs,
                 toolTimeline,
@@ -208,7 +200,7 @@ export function useRightPanelContext(): RightPanelContextResult {
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, proposals, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
+    }, [effectiveType, activeTab, sources, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {
@@ -248,7 +240,6 @@ function getDataForType(
     type: PanelType,
     state: {
         sources: any[];
-        proposals: any[];
         terminalOutput: any;
         terminalOutputs: Map<string, any>;
         toolTimeline: any[];
@@ -277,22 +268,6 @@ function getDataForType(
     switch (type) {
         case 'web-search':
             return { sources: state.sources, timeline: state.toolTimeline, ...state.aiContext };
-        case 'file-diff':
-            // Include ALL data so tabs work when switching
-            return {
-                proposals: state.proposals,
-                chatId: state.aiContext?.chatId,
-                url: state.devServerUrl,
-                terminal: prepareTerminalOutput(),
-                terminalOutputs: state.terminalOutputs,
-                output: state.terminalOutput?.output,
-                status: state.terminalOutput?.status,
-                errors: state.browserErrors,
-                sources: state.sources,
-                workspacePath: state.workspacePath,
-                appId: state.appId,
-                ...state.aiContext
-            };
         case 'terminal':
             return { ...state.terminalOutput, ...state.aiContext };
         case 'tools':

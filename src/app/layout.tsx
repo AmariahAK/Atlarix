@@ -38,7 +38,7 @@ import {
   pinnedPanelAtom,
   previewTabAtom,
 } from "@/atoms/sourceAtoms";
-import { activeExtensionIdsAtom, onboardingStepAtom } from "@/atoms/viewAtoms";
+import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -49,8 +49,7 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds } from "@/lib/sounds";
-import { OnboardingProgressBar } from "@/components/OnboardingProgressBar";
-import { OnboardingTrigger } from "@/components/OnboardingTrigger";
+import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
@@ -260,7 +259,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
-  const onboardingStep = useAtomValue(onboardingStepAtom);
 
   /** Home chat UI covers the outlet only on `/` or `/chat`; other routes (e.g. `/account`, `/settings`) must always render. */
   const suppressOutletForHomeChat =
@@ -406,32 +404,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsub();
   }, []);
 
-  const showOnboardingHighlight =
-    onboardingStep != null && onboardingStep >= 2 && onboardingStep <= 5;
-
   return (
     <>
       <AnalyticsConsentModal />
       <ThemeProvider>
         <DeepLinkProvider>
-          <OnboardingTrigger />
+          {/* v10: first-run setup wizard replaces the legacy 5-step overlay. */}
+          <FirstRunWizard />
           <TourManager />
           <CommunityDialog />
-          <OnboardingProgressBar />
-          {showOnboardingHighlight && (
-            <style>{`
-              [data-onboarding-step="2"] [data-onboarding="welcome-open-folder"],
-              [data-onboarding-step="3"] [data-onboarding="settings-link"],
-              [data-onboarding-step="4"] [data-onboarding="workspace-sessions"],
-              [data-onboarding-step="5"] [data-onboarding="panel-resize-grip"] {
-                outline: 2px solid hsl(var(--primary));
-                outline-offset: 2px;
-                border-radius: 0.5rem;
-                box-shadow: 0 0 0 4px hsl(var(--primary) / 0.25);
-              }
-            `}</style>
-          )}
-          <div {...(showOnboardingHighlight ? { "data-onboarding-step": String(onboardingStep) } : {})}>
+          <div>
           <SidebarProvider>
             <TitleBar />
             {showWorkspaceChrome ? <AppSidebar /> : null}

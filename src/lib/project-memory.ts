@@ -1,8 +1,12 @@
 /**
- * Project memory — `.atlarix/atlarix.md`
- * ==========================================
- * Canonical: {workspace}/.atlarix/atlarix.md
- * Legacy: root atlarix.md, .atlarix/ATLARIX.md, memory.md, spec.md
+ * Project memory — `.atlarix/atlarix.md` + `.atlarix/memory.md`
+ * =============================================================
+ * Instructions (canonical): {workspace}/.atlarix/atlarix.md — followed when
+ * non-empty, ignored when absent/empty.
+ * Knowledge file: {workspace}/.atlarix/memory.md — agent-maintained project
+ * facts (stack, architecture, layout). Never auto-injected; the prompt only
+ * carries a one-line hint that it exists so the model can read it on demand.
+ * Legacy: root atlarix.md, .atlarix/ATLARIX.md, spec.md
  */
 
 import fs from "node:fs/promises";
@@ -13,8 +17,8 @@ const logger = log.scope("project-memory");
 
 export const ATLARIX_DIR = ".atlarix";
 const CANONICAL_MD = "atlarix.md";
+export const MEMORY_MD = "memory.md";
 const LEGACY_DOT_ATLARIX_MD = "ATLARIX.md";
-const LEGACY_MEMORY_FILE = "memory.md";
 const LEGACY_SPEC_FILE = "spec.md";
 const ROOT_LEGACY_ATLARIX_MD = "atlarix.md";
 
@@ -29,6 +33,10 @@ export function getAtlarixMdPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR, CANONICAL_MD);
 }
 
+export function getMemoryMdPath(workspacePath: string): string {
+  return path.join(workspacePath, ATLARIX_DIR, MEMORY_MD);
+}
+
 function legacyDotAtlarixMdPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR, LEGACY_DOT_ATLARIX_MD);
 }
@@ -39,10 +47,6 @@ function rootLegacyAtlarixMdPath(workspacePath: string): string {
 
 async function ensureAtlarixDir(workspacePath: string): Promise<void> {
   await fs.mkdir(getAtlarixDirPath(workspacePath), { recursive: true });
-}
-
-function normalizeForCompare(content: string): string {
-  return content.replace(/\r\n/g, "\n").trim();
 }
 
 async function safeRead(filePath: string): Promise<string | null> {
@@ -78,37 +82,21 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
   const canonicalPath = getAtlarixMdPath(workspacePath);
   const legacyDotPath = legacyDotAtlarixMdPath(workspacePath);
   const rootAtlarixPath = rootLegacyAtlarixMdPath(workspacePath);
-  const legacyMemoryPath = path.join(workspacePath, ATLARIX_DIR, LEGACY_MEMORY_FILE);
   const legacySpecPath = path.join(workspacePath, ATLARIX_DIR, LEGACY_SPEC_FILE);
-  const rootMemoryPath = path.join(workspacePath, "MEMORY.md");
+  // NOTE: `.atlarix/memory.md` is a live, first-class knowledge file (v10) —
+  // it is intentionally NOT part of this legacy migration.
 
-  const [canonical, legacyDot, rootAtlarix, memoryMd, specMd, rootMemoryMd] = await Promise.all([
+  const [canonical, legacyDot, rootAtlarix, specMd] = await Promise.all([
     safeRead(canonicalPath),
     safeRead(legacyDotPath),
     safeRead(rootAtlarixPath),
-    safeRead(legacyMemoryPath),
     safeRead(legacySpecPath),
-    safeRead(rootMemoryPath),
   ]);
 
   let finalContent =
     canonical?.trim() || legacyDot?.trim() || rootAtlarix?.trim() || "";
-  if (!finalContent) {
-    const memoryContent = memoryMd || rootMemoryMd;
-    const specContent = specMd;
-    if (memoryContent || specContent) {
-      const parts: string[] = [];
-      if (memoryContent) {
-        parts.push(`# Project memory\n\n${memoryContent.trim()}`);
-      }
-      if (
-        specContent &&
-        (!memoryContent || normalizeForCompare(specContent) !== normalizeForCompare(memoryContent))
-      ) {
-        parts.push(`## Legacy spec notes\n\n${specContent.trim()}`);
-      }
-      finalContent = parts.join("\n\n");
-    }
+  if (!finalContent && specMd) {
+    finalContent = `## Legacy spec notes\n\n${specMd.trim()}`;
   }
 
   if (finalContent && !canonical) {
@@ -117,11 +105,7 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
     if (rootAtlarix) await safeRenameToOld(rootAtlarixPath);
   }
 
-  await Promise.all([
-    safeRenameToOld(legacyMemoryPath),
-    safeRenameToOld(legacySpecPath),
-    safeRenameToOld(rootMemoryPath),
-  ]);
+  await safeRenameToOld(legacySpecPath);
 }
 
 export async function readAtlarixMd(workspacePath: string): Promise<string | null> {
@@ -151,16 +135,56 @@ export async function writeAtlarixMd(workspacePath: string, summaryText: string)
   }
 }
 
-export async function readMemoryMd(workspacePath: string): Promise<string | null> {
-  return readAtlarixMd(workspacePath);
+export type MemoryMdStat = {
+  exists: boolean;
+  sizeKb: number;
+  /** ISO date (YYYY-MM-DD) of last modification. */
+  modified: string;
+};
+
+/** Lightweight stat for the prompt hint — never reads the file body. */
+export async function statMemoryMd(workspacePath: string): Promise<MemoryMdStat | null> {
+  if (!workspacePath) return null;
+  try {
+    const st = await fs.stat(getMemoryMdPath(workspacePath));
+    if (!st.isFile() || st.size === 0) return null;
+    return {
+      exists: true,
+      sizeKb: Math.max(1, Math.round(st.size / 1024)),
+      modified: st.mtime.toISOString().slice(0, 10),
+    };
+  } catch {
+    return null;
+  }
 }
 
-export async function readSpecMd(_workspacePath: string): Promise<string | null> {
-  return null;
-}
-
-export async function writeMemoryMd(workspacePath: string, summaryText: string): Promise<void> {
-  return writeAtlarixMd(workspacePath, summaryText);
+/**
+ * One-line(ish) project-docs hint for the system prompt. Informs the model that
+ * `.atlarix/memory.md` can be read on demand (never injects its body) and
+ * states the atlarix.md follow-when-non-empty rule.
+ */
+export async function buildProjectDocsPromptHint(
+  workspacePath: string,
+  opts?: { canWrite?: boolean },
+): Promise<string> {
+  if (!workspacePath) return "";
+  const canWrite = opts?.canWrite ?? false;
+  const stat = await statMemoryMd(workspacePath);
+  const lines: string[] = ["<project_docs>"];
+  lines.push(
+    "Rules in `.atlarix/atlarix.md` apply when the file is non-empty; if absent or empty, proceed without it.",
+  );
+  if (stat) {
+    lines.push(
+      `A project knowledge file exists at \`.atlarix/memory.md\` (${stat.sizeKb} KB, updated ${stat.modified}). Reading it with read_file is optional but usually saves a full project re-scan — it records the tech stack, architecture, and layout.${canWrite ? " Keep it current: when durable facts change (e.g. payments PayPal → Stripe, auth Supabase → Clerk), update it with edit_file." : ""}`,
+    );
+  } else if (canWrite) {
+    lines.push(
+      "No `.atlarix/memory.md` yet. After substantial exploration, you may create it (write_file) with the project's tech stack, architecture, and layout so future sessions can skip a full re-scan. Optional — do not interrupt the user's task for it.",
+    );
+  }
+  lines.push("</project_docs>");
+  return lines.join("\n");
 }
 
 /** Workspace-relative path for plan-mode write checks. */
@@ -172,4 +196,15 @@ export function isWorkspaceAtlarixMdPath(relPath: string): boolean {
     norm === `${ATLARIX_DIR}/${LEGACY_DOT_ATLARIX_MD}` ||
     norm === LEGACY_DOT_ATLARIX_MD
   );
+}
+
+/** Workspace-relative path check for the agent knowledge file. */
+export function isWorkspaceMemoryMdPath(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  return norm === `${ATLARIX_DIR}/${MEMORY_MD}` || norm === MEMORY_MD;
+}
+
+/** Plan mode may write either .atlarix doc (instructions or knowledge file). */
+export function isAtlarixDocWritePath(relPath: string): boolean {
+  return isWorkspaceAtlarixMdPath(relPath) || isWorkspaceMemoryMdPath(relPath);
 }

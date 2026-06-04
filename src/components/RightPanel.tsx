@@ -6,9 +6,7 @@
  * Panel Types:
  * - web-search: Source cards + iframe preview
  * - code-preview: Live preview iframe (frontend)
- * - diagram: Architecture diagram (backend)
  * - terminal: Command output
- * - file-diff: File changes + approval
  * - empty: No content
  */
 
@@ -20,7 +18,6 @@ import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanel
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
-import { InlinePermissionsHint } from './chat/InlinePermissionsHint';
 import { EmbeddedChatTab } from './panels/EmbeddedChatTab';
 import { cn } from '@/lib/utils';
 import {
@@ -55,7 +52,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     sources: { icon: Globe, label: 'Sources' },
     logs: { icon: FileText, label: 'Logs' },
     files: { icon: FileText, label: 'Files' },
-    diff: { icon: Code2, label: 'Diff' },
     approve: { icon: Shield, label: 'Approve' },
     permission: { icon: Shield, label: 'Permission' },
     plan: { icon: ListTree, label: 'Plan' },
@@ -73,7 +69,6 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'web-search': 'search',
     'code-preview': 'preview',
     'terminal': 'code',
-    'file-diff': 'code',
     'files': 'code',
     'tools': 'tools',
     'plan': 'code',
@@ -352,39 +347,6 @@ function PanelContent({
     // Chat tab (when chat area is hidden)
     if (context.activeTab === 'chat') {
         return <EmbeddedChatTab />;
-    }
-
-    // For file-diff types, route based on activeTab
-    if (context.type === 'file-diff') {
-        switch (context.activeTab) {
-            case 'permissions':
-            case 'permission':
-            case 'approve':
-            case 'diff':
-                return <InlinePermissionsHint />;
-            case 'preview':
-            case 'code':
-            case 'errors':
-                return (
-                    <CodePreviewPanel
-                        data={context.data}
-                        activeTab={context.activeTab}
-                        onSolveWithAI={onSolveWithAI}
-                        onSolveAllWithAI={onSolveAllWithAI}
-                        onSwitchToCode={onSwitchToCode}
-                    />
-                );
-            case 'activity':
-                return <ActivityPanel />;
-            case 'terminal':
-                return <TerminalPanel />;
-            case 'search':
-            case 'sources':
-                return <SourcePreviewPanel data={context.data} activeTab="sources" />;
-            default:
-                // Default to permission queue
-                return <InlinePermissionsHint />;
-        }
     }
 
     switch (context.type) {

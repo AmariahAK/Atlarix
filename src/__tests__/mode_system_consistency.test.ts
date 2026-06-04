@@ -9,6 +9,8 @@ import {
 import {
   getModeToolAllowlist,
   getModeRegistryDisplayLabel,
+  isToolAllowedInMode,
+  EVERY_MODE_TOOLS,
 } from "../lib/tools/mode-tool-registry";
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
@@ -92,4 +94,62 @@ describe("mode system consistency", () => {
   it("ask allowlist does not include get_mode_tool_registry", () => {
     expect(MODE_SYSTEM_TOOL_LISTS.ask).not.toContain("get_mode_tool_registry");
   });
+
+  // ── v10: mode isolation + every-mode tool guarantees ─────────────────────
+
+  for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
+    it(`${mode} prompt shows ONLY its own mode header (no leakage)`, () => {
+      const label = getModeRegistryDisplayLabel(mode);
+      const headerLabel =
+        mode === "ask" ? "Explore" : mode === "debug" ? "Debug" : label;
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: mode === "build" ? "build" : "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      for (const other of ALL_MODE_LABELS) {
+        if (other === headerLabel) continue;
+        expect(stableHeader).not.toContain(`## Current mode: ${other}`);
+      }
+      // The legacy all-modes block must never reach a mode-scoped prompt.
+      expect(stableHeader).not.toContain("Tools registered in EVERY mode:");
+    });
+  }
+
+  for (const mode of ["ask", "plan", "debug", "review"] as const) {
+    it(`${mode} allowlist includes every-mode tools (tool_contract parity)`, () => {
+      for (const tool of EVERY_MODE_TOOLS) {
+        expect(getModeToolAllowlist(mode)).toContain(tool);
+        expect(isToolAllowedInMode(tool, mode)).toBe(true);
+      }
+    });
+  }
+
+  it("read-only modes do not allow mutating tools", () => {
+    for (const tool of ["write_file", "edit_file", "delete_file", "rename_file", "write_multiple_files"]) {
+      expect(isToolAllowedInMode(tool, "ask")).toBe(false);
+      expect(isToolAllowedInMode(tool, "review")).toBe(false);
+    }
+    // Plan may write (gated to .atlarix docs by prompt), Build allows all.
+    expect(isToolAllowedInMode("write_file", "plan")).toBe(true);
+    expect(isToolAllowedInMode("write_file", "build")).toBe(true);
+  });
+
+  for (const mode of ["ask", "plan", "debug", "review"] as const) {
+    it(`${mode} rendered tools_registry lists exactly its allowlist`, () => {
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      const registryMatch = stableHeader.match(
+        new RegExp(`<tools_registry mode="${mode}"[\\s\\S]*?</tools_registry>`),
+      );
+      expect(registryMatch).not.toBeNull();
+      const registry = registryMatch![0];
+      for (const tool of getModeToolAllowlist(mode)) {
+        expect(registry).toContain(tool);
+      }
+    });
+  }
 });

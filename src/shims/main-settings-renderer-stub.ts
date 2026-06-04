@@ -21,3 +21,16 @@ export function readSettings(): UserSettings {
 }
 
 export async function writeSettings(_settings: UserSettings): Promise<void> {}
+
+/**
+ * Crypto stubs — `lib/security/db-secrets.ts` imports these and sits in a
+ * main-only chain that the renderer dep scan still walks. Renderer code never
+ * calls them; throw loudly if it ever does.
+ */
+export function encrypt(_value: string): string {
+  throw new Error("encrypt() is main-process only (settings stub)");
+}
+
+export function decrypt(_value: string): string {
+  throw new Error("decrypt() is main-process only (settings stub)");
+}
