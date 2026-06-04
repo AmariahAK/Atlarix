@@ -91,7 +91,7 @@ Cloud providers with native model fetch and tool calling: **OpenAI**, **Anthropi
 
 ## Deployment & CI/CD
 
-Releases are built from **this repository** via GitHub Actions. Pushing a **version tag** (`v9.1.0`, etc.) runs the full pipeline and publishes to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
+Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`v9.1.0`, etc.) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
 
 1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (9.0+). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long.
 2. Commit, tag, and push:
@@ -123,6 +123,8 @@ npm start
 ```
 
 After `npm install`, **`postinstall`** runs Electron install, **`fetch-ctags`**, and **`build:astgrep-worker`**. Blueprint details: [docs/architecture.md](docs/architecture.md).
+
+**npm registry:** The repo includes [`.npmrc`](.npmrc) so installs use the public npm registry, not a machine-wide private registry (e.g. AWS CodeArtifact from another project). CI runs [`scripts/verify-npm-lock-registry.mjs`](scripts/verify-npm-lock-registry.mjs) before `npm ci` — run `npm run verify:lockfile` locally before committing lockfile changes. If `npm install` / `npm ci` fails with **401** and CodeArtifact URLs in the log, check your user `~/.npmrc` and remove work-registry settings (optional helper at [`../scripts/strip_work_codeartifact.py`](../scripts/strip_work_codeartifact.py) in the parent workspace). Then `rm -rf node_modules && npm ci` from this directory.
 
 **Schema changes:** Drizzle migration under [`drizzle/`](drizzle/), then `npm run db:generate` (bundles SQL). Add matching checks in [`src/db/migration_seed_verification.ts`](src/db/migration_seed_verification.ts).
 

@@ -26,6 +26,7 @@
     "make:ci-simulate": "node scripts/simulate-ci-make.mjs --profile=fixed --arch=arm64",
     "make:ci-verify": "node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64",
     "publish": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge publish",
+    "verify:lockfile": "node scripts/verify-npm-lock-registry.mjs",
     "verify-release": "node scripts/verify-release-assets.js",
     "measure-package-size": "node scripts/measure-package-size.mjs",
     "verify-renderer-bundle": "node scripts/verify-renderer-bundle.mjs",

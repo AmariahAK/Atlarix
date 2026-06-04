@@ -1,5 +1,17 @@
 # Atlarix Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **CI npm 401 (CodeArtifact lockfile):** Added project [`.npmrc`](../.npmrc) (public registry), [`scripts/verify-npm-lock-registry.mjs`](../scripts/verify-npm-lock-registry.mjs) (`npm run verify:lockfile`), and pre-`npm ci` lockfile checks so `package-lock.json` cannot ship private-registry `resolved` URLs again.
+
+### Changed
+
+- **Single CI workflow:** Merged the former Quality and Release workflows into one [**Atlarix CI**](../.github/workflows/release.yml) — typecheck, lint, and tests on `main`/PR; tag pushes run quality first, then macOS/Linux/Windows release builds.
+
+---
+
 ## [10.1.0] (2026-06-04) — Inline streaming indicator, native web search, prompt caching, interactive questions, lighter app
 
 ### Added (v10.1)
