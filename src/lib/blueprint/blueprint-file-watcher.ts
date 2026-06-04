@@ -73,15 +73,6 @@ export async function refreshBlueprintCacheFromFileTree(
   return refreshInFlight;
 }
 
-/** Incrementally update blueprint cache for a single file. */
-export async function updateBlueprintCacheForFile(
-  projectPath: string,
-  relativeFilePath: string,
-): Promise<boolean> {
-  const { updateBlueprintCacheForFile: updateOne } = await import("@/lib/blueprint/incremental-update");
-  return updateOne(projectPath, relativeFilePath);
-}
-
 /**
  * Register a file watcher for projectPath. On change, refreshes blueprint cache and calls onUpdated.
  */

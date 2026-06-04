@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { getDefaultStore } from "jotai";
@@ -59,12 +60,34 @@ function handleTerminalLink(event: MouseEvent, uri: string): void {
 type CachedTerm = {
   term: Terminal;
   fit: FitAddon;
+  serialize: SerializeAddon;
   unsubData: () => void;
   unsubExit: () => void;
   exited: boolean;
+  /** Resolves once saved scrollback (if any) is written; spawn waits on it. */
+  restorePromise: Promise<void>;
 };
 
 const cache = new Map<string, CachedTerm>();
+
+/** Persist the current buffer so scrollback survives app restarts. */
+function saveScrollback(entry: CachedTerm, instanceId: string): void {
+  try {
+    const data = entry.serialize.serialize({ scrollback: 2000 });
+    if (data) void IpcClient.getInstance().savePtyScrollback(instanceId, data);
+  } catch {
+    // serialization is best-effort
+  }
+}
+
+// App quit / reload: flush every live terminal's scrollback (best-effort).
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    for (const [instanceId, entry] of cache) {
+      saveScrollback(entry, instanceId);
+    }
+  });
+}
 
 /** Tear down the renderer-side terminal for a closed tab. */
 export function disposeXtermInstance(instanceId: string): void {
@@ -99,6 +122,8 @@ function getOrCreateTerm(instanceId: string): CachedTerm {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  const serialize = new SerializeAddon();
+  term.loadAddon(serialize);
   // Clickable links: localhost → Preview tab, external → browser (Cmd/Ctrl+click forces browser).
   term.loadAddon(new WebLinksAddon(handleTerminalLink));
 
@@ -116,7 +141,25 @@ function getOrCreateTerm(instanceId: string): CachedTerm {
     term.write(`\r\n\x1b[90m[shell exited (${payload.exitCode})]\x1b[0m\r\n`);
   });
 
-  const entry: CachedTerm = { term, fit, unsubData, unsubExit, exited: false };
+  // Restore last session's scrollback (best-effort) before the new shell's prompt.
+  const restorePromise = ipc
+    .loadPtyScrollback(instanceId)
+    .then((saved) => {
+      if (!saved) return;
+      term.write(saved);
+      term.write("\r\n\x1b[90m[restored scrollback — new shell below]\x1b[0m\r\n");
+    })
+    .catch(() => {});
+
+  const entry: CachedTerm = {
+    term,
+    fit,
+    serialize,
+    unsubData,
+    unsubExit,
+    exited: false,
+    restorePromise,
+  };
   cache.set(instanceId, entry);
   return entry;
 }
@@ -126,15 +169,12 @@ export function XtermView({
   cwd,
   scopeKey,
   active,
-  onSpawnFailed,
 }: {
   instanceId: string;
   cwd: string;
   scopeKey: string;
   /** Only the visible tab fits + focuses. */
   active: boolean;
-  /** PTY unavailable (native module failure) → caller falls back to the legacy input. */
-  onSpawnFailed?: (error: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [spawnError, setSpawnError] = useState<string | null>(null);
@@ -160,24 +200,26 @@ export function XtermView({
       } catch {
         /* container not laid out yet */
       }
-      void IpcClient.getInstance()
-        .spawnPty({
-          instanceId,
-          cwd,
-          cols: entry.term.cols,
-          rows: entry.term.rows,
-          scopeKey,
-        })
-        .then((result) => {
-          if (cancelled) return;
-          if (!result.ok) {
-            setSpawnError(result.error);
-            onSpawnFailed?.(result.error);
-          } else {
-            entry.exited = false;
-            setSpawnError(null);
-          }
-        });
+      // Wait for restored scrollback so the new shell's prompt lands below it.
+      void entry.restorePromise.then(() =>
+        IpcClient.getInstance()
+          .spawnPty({
+            instanceId,
+            cwd,
+            cols: entry.term.cols,
+            rows: entry.term.rows,
+            scopeKey,
+          })
+          .then((result) => {
+            if (cancelled) return;
+            if (!result.ok) {
+              setSpawnError(result.error);
+            } else {
+              entry.exited = false;
+              setSpawnError(null);
+            }
+          }),
+      );
     };
     doSpawn();
 
@@ -188,6 +230,8 @@ export function XtermView({
     return () => {
       cancelled = true;
       unsubExitLocal();
+      // Persist scrollback so it survives app restarts.
+      saveScrollback(entry, instanceId);
       // Detach (keep buffer); the PTY + cached term survive for re-attach.
       if (entry.term.element && entry.term.element.parentElement === container) {
         container.removeChild(entry.term.element);
@@ -237,11 +281,11 @@ export function XtermView({
       .then((result) => {
         if (result.ok && cached) {
           cached.exited = false;
+          setSpawnError(null);
           setExitedTick((t) => t + 1);
           cached.term.focus();
         } else if (!result.ok) {
           setSpawnError(result.error);
-          onSpawnFailed?.(result.error);
         }
       });
   };
@@ -252,9 +296,14 @@ export function XtermView({
         <p className="text-xs text-zinc-400">
           Interactive shell unavailable: {spawnError}
         </p>
-        <p className="text-[11px] text-zinc-500">
-          Falling back to single-command mode below.
-        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-6 text-[11px]"
+          onClick={handleRestart}
+        >
+          Retry
+        </Button>
       </div>
     );
   }

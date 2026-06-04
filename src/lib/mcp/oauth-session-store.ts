@@ -47,11 +47,3 @@ export function clearPendingMcpOAuthSession(serverId: number): void {
   pendingByServerId.delete(serverId);
 }
 
-export function clearAllPendingMcpOAuthSessions(): void {
-  for (const session of pendingByServerId.values()) {
-    if (session.timeoutId) clearTimeout(session.timeoutId);
-    session.loopback?.close();
-  }
-  pendingByServerId.clear();
-  pendingByState.clear();
-}

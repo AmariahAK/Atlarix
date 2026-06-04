@@ -2,7 +2,6 @@ import { getDefaultStore } from "jotai";
 import {
   activeTerminalInstanceByScopeAtom,
   terminalAgentOpMapByScopeAtom,
-  terminalDraftByScopeAtom,
   terminalInstancesByScopeAtom,
 } from "@/atoms/terminalInstancesAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -13,7 +12,6 @@ export function resetTerminalInstancesForNewChat(): void {
   store.set(terminalInstancesByScopeAtom, {});
   store.set(activeTerminalInstanceByScopeAtom, {});
   store.set(terminalAgentOpMapByScopeAtom, {});
-  store.set(terminalDraftByScopeAtom, {});
   void IpcClient.getInstance().clearAllTerminalInstances().catch(() => {
     /* main may be unavailable in tests */
   });

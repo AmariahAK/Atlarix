@@ -3,16 +3,6 @@ import { isContextToolName } from "@/lib/chat/context-tools";
 
 export type StreamToolItem = Extract<StreamThreadItem, { kind: "tool" }>;
 
-export type StreamToolGroupItem = {
-  kind: "tool_group";
-  id: string;
-  category: string;
-  tools: StreamToolItem[];
-  summary: string;
-  status: StreamThreadToolStatus;
-  ts: number;
-};
-
 const TERMINAL = new Set(["run_command", "stream_terminal_output"]);
 const SEARCH = new Set(["search", "grep", "structural_search", "search_code"]);
 const WEB = new Set(["web_search", "read_url"]);

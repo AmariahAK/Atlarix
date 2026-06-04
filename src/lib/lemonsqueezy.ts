@@ -41,11 +41,6 @@ export function resolveWorkforceVariantId(): string | null {
   return trimEnv("LEMONSQUEEZY_WORKFORCE_VARIANT_ID") || null;
 }
 
-/** @deprecated Prefer resolveProVariantId / resolveWorkforceVariantId for explicit tier. */
-export function resolveCheckoutVariantId(): string | null {
-  return resolveWorkforceVariantId() || resolveProVariantId();
-}
-
 /**
  * Create a LemonSqueezy checkout for a specific variant.
  */
@@ -181,30 +176,6 @@ export async function openUpgradeCheckout(): Promise<{
   const { shell } = await import("electron");
   await shell.openExternal(checkoutUrl);
   return { success: true };
-}
-
-/**
- * Check if user can access upgrade flow (Pro or Workforce)
- */
-export function canUpgrade(): { canUpgrade: boolean; reason?: string } {
-  const currentUser = SubscriptionManager.getCurrentUser();
-
-  if (!currentUser) {
-    return {
-      canUpgrade: false,
-      reason: "Sign in to upgrade your Atlarix plan",
-    };
-  }
-
-  const tier = SubscriptionManager.getEffectiveTier();
-  if (tier === "workforce") {
-    return { canUpgrade: false, reason: "You already have Atlarix Workforce!" };
-  }
-  if (tier === "pro") {
-    return { canUpgrade: true };
-  }
-
-  return { canUpgrade: true };
 }
 
 /**

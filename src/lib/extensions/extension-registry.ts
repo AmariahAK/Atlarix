@@ -29,12 +29,7 @@ export interface Extension<P = { workspaceId: number | null }> {
   contextInjector?: (workspaceId: number | null) => Promise<string>;
 }
 
-const TIER_ORDER: ExtensionTier[] = ["free", "pro", "workforce", "vanguard"];
 
-function tierLevel(tier: ExtensionTier): number {
-  const i = TIER_ORDER.indexOf(tier);
-  return i >= 0 ? i : 0;
-}
 
 /** Placeholder panel for extensions not yet implemented. */
 function PlaceholderPanel() {
@@ -109,19 +104,6 @@ export const BUILTIN_EXTENSIONS: Extension[] = [
     tools: [],
   },
 ];
-
-/** User tier: free | pro (from auth status). */
-export function getAvailableExtensions(userTier: "free" | "pro"): Extension[] {
-  const level = tierLevel(userTier);
-  return BUILTIN_EXTENSIONS.filter((ext) => tierLevel(ext.tier) <= level);
-}
-
-/** Whether the user can activate this extension. */
-export function isExtensionAvailable(extensionId: string, userTier: "free" | "pro"): boolean {
-  const ext = BUILTIN_EXTENSIONS.find((e) => e.id === extensionId);
-  if (!ext) return false;
-  return tierLevel(ext.tier) <= tierLevel(userTier);
-}
 
 export function getExtensionById(id: string): Extension | undefined {
   return BUILTIN_EXTENSIONS.find((e) => e.id === id);

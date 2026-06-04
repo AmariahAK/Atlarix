@@ -18,16 +18,12 @@ export const ArchitectPlanPayloadSchema = z.object({
   risks: z.array(z.string()).optional(),
 });
 
-export type ArchitectPlanPayload = z.infer<typeof ArchitectPlanPayloadSchema>;
-
 export const BuilderExecutionSummarySchema = z.object({
   version: z.literal(1),
   filesTouched: z.array(z.string()),
   summary: z.string(),
   testsRun: z.string().optional(),
 });
-
-export type BuilderExecutionSummary = z.infer<typeof BuilderExecutionSummarySchema>;
 
 export const ReviewerFindingsSchema = z.object({
   version: z.literal(1),
@@ -41,8 +37,6 @@ export const ReviewerFindingsSchema = z.object({
   ),
 });
 
-export type ReviewerFindings = z.infer<typeof ReviewerFindingsSchema>;
-
 export const DebuggerRootCauseSchema = z.object({
   version: z.literal(1),
   hypothesis: z.string(),
@@ -50,4 +44,3 @@ export const DebuggerRootCauseSchema = z.object({
   nextSteps: z.array(z.string()),
 });
 
-export type DebuggerRootCause = z.infer<typeof DebuggerRootCauseSchema>;

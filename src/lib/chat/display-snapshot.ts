@@ -9,12 +9,6 @@ export type DisplaySnapshotV1 = {
   thinking?: CompletedTurnThinkingSnapshot;
 };
 
-export function serializeDisplaySnapshot(
-  snapshot: DisplaySnapshotV1,
-): string {
-  return JSON.stringify(snapshot);
-}
-
 function isDisplaySnapshotV1(value: unknown): value is DisplaySnapshotV1 {
   return (
     typeof value === "object" &&

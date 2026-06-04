@@ -23,8 +23,6 @@ import {
     normalizeProjectFilesScopePath,
     clearWorkspaceDiscoverySessionCache,
 } from "./workspace-discovery";
-import { ensureSymbolIndex, getSymbolsForFile } from "@/lib/index/ctags-index";
-import { structureFromSymbols } from "@/lib/index/structure-from-symbols";
 
 const execAsync = promisify(exec);
 const logger = log.scope("project-files");
@@ -143,13 +141,7 @@ export interface StructureResult {
     constants?: string[];
 }
 
-interface StructureScanCacheEntry {
-    result: Record<string, StructureResult>;
-    timestamp: number;
-}
 
-const structureScanCache = new Map<string, StructureScanCacheEntry>();
-const STRUCTURE_SCAN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const ALWAYS_EXCLUDE = [
     "node_modules",
@@ -388,64 +380,3 @@ export function clearFileListCache(workspacePath?: string): void {
     }
 }
 
-/**
- * Get structure scan for top entry point files.
- * Results are cached for 5 minutes per workspace.
- *
- * @param workspacePath - Absolute path to workspace root
- * @param entryPointFiles - Paths of entry point files to scan (relative or absolute)
- */
-export async function getStructureScan(
-    workspacePath: string,
-    entryPointFiles: string[]
-): Promise<Record<string, StructureResult>> {
-    const cacheKey = workspacePath;
-    const cached = structureScanCache.get(cacheKey);
-
-    if (cached && Date.now() - cached.timestamp < STRUCTURE_SCAN_TTL_MS) {
-        logger.info(`[structure-scan] cache hit — ${Object.keys(cached.result).length} files`);
-        return cached.result;
-    }
-
-    const results: Record<string, StructureResult> = {};
-
-    let symbolIndex: Awaited<ReturnType<typeof ensureSymbolIndex>> | null = null;
-    try {
-        symbolIndex = await ensureSymbolIndex(workspacePath);
-    } catch (err) {
-        logger.warn("[structure-scan] ctags index unavailable:", err);
-    }
-
-    for (const filePath of entryPointFiles.slice(0, 20)) {
-        const absPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.join(workspacePath, filePath);
-        const relPath = path.relative(workspacePath, absPath).replace(/\\/g, "/");
-        if (symbolIndex) {
-            const symbols = getSymbolsForFile(symbolIndex, relPath);
-            if (symbols.length > 0) {
-                results[relPath] = structureFromSymbols(symbols);
-                continue;
-            }
-        }
-    }
-
-    structureScanCache.set(cacheKey, {
-        result: results,
-        timestamp: Date.now(),
-    });
-    logger.info(`[structure-scan] scanned ${Object.keys(results).length} files`);
-
-    return results;
-}
-
-/**
- * Clear the structure scan cache for a workspace.
- */
-export function clearStructureScanCache(workspacePath?: string): void {
-    if (workspacePath) {
-        structureScanCache.delete(workspacePath);
-    } else {
-        structureScanCache.clear();
-    }
-}

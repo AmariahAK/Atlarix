@@ -112,6 +112,16 @@ serve(async (req: Request) => {
         // Infer tier from variant_id (Workforce = monthly variant only; no annual)
         const variantId = data?.variant_id?.toString() ?? '';
         const workforceVariantId = Deno.env.get('LEMONSQUEEZY_WORKFORCE_VARIANT_ID') ?? '';
+        // v10.1 guard: an unset variant env would silently classify every
+        // Workforce subscriber as Pro (and '' === '' would do the inverse).
+        // Fail loudly so Lemon retries after the env is fixed.
+        if (!workforceVariantId) {
+            console.error('[Webhook] LEMONSQUEEZY_WORKFORCE_VARIANT_ID is not configured');
+            return new Response(
+                JSON.stringify({ error: 'LEMONSQUEEZY_WORKFORCE_VARIANT_ID not configured' }),
+                { status: 500, headers: { 'Content-Type': 'application/json' } },
+            );
+        }
         const isWorkforce = variantId === workforceVariantId;
 
         switch (eventName) {

@@ -105,22 +105,6 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
     }
 }
 
-// Legacy: Keep for backwards compatibility during transition
-export interface AIPanelState {
-    view: PanelType;
-    context?: {
-        operationId?: string;
-        searchId?: string;
-        diagramId?: string;
-        commandId?: string;
-        message?: string;
-    };
-    timestamp: number;
-    source: 'ai' | 'user' | 'system';
-}
-
-/** @deprecated Use aiPanelIntentAtom instead */
-export const aiControlledPanelAtom = atom<AIPanelState | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // SOURCE ATOMS (Web Search)
@@ -276,23 +260,7 @@ export interface AgentBusExchange {
 
 export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);
 
-export const agentBusRingByChatIdAtom = atom<Record<number, AgentBusExchange[]>>({});
 
-/** v2.5: Current agent phase from activity stream for canvas animations (architect → containers, builder → beacons, reviewer → edges). */
-export type AgentPhase = "architect" | "builder" | "reviewer" | null;
-export const agentPhaseFromActivityAtom = atom<{ phase: AgentPhase; active: boolean }>((get) => {
-  const items = get(activityStreamItemsAtom);
-  const delegation = [...items].reverse().find(
-    (i) =>
-      (i.type === "delegation_start" || i.type === "delegation_complete" || i.type === "delegation_error") &&
-      typeof i.agent === "string" &&
-      ["architect", "builder", "reviewer"].includes(i.agent)
-  );
-  if (!delegation) return { phase: null, active: false };
-  const phase = delegation.agent as AgentPhase;
-  const active = delegation.type === "delegation_start" || delegation.status === "running";
-  return { phase, active };
-});
 
 // ═══════════════════════════════════════════════════════════
 // PANEL STATE ATOMS
@@ -304,13 +272,6 @@ export const previewTabAtom = atom<PanelTab>('sources');
 /** Pinned panel type (prevents auto-switching) */
 export const pinnedPanelAtom = atom<PanelType | null>(null);
 
-/** Current panel context - computed from various signals */
-export const panelContextAtom = atom<PanelContext>({
-    type: 'empty',
-    tabs: [],
-    activeTab: 'sources',
-    data: null
-});
 
 // ═══════════════════════════════════════════════════════════
 // FILE DIFF ATOMS (Code Changes)
@@ -332,14 +293,7 @@ export interface FileProposal {
 /** Pending file proposals awaiting approval */
 export const pendingProposalsAtom = atom<FileProposal[]>([]);
 
-/** Currently selected proposal for diff view */
-export const selectedProposalAtom = atom<FileProposal | null>(null);
 
-/** Overall approval state */
-export const approvalStateAtom = atom<{
-    approved: string[];
-    rejected: string[];
-}>({ approved: [], rejected: [] });
 
 // Diagram atoms removed with the diagram subsystem — architecture viz is inline markmap/graph in chat.
 
@@ -359,9 +313,6 @@ export interface TerminalOutput {
 
 /** Map of operationId → TerminalOutput for multiple concurrent commands */
 export const terminalOutputsAtom = atom<Map<string, TerminalOutput>>(new Map());
-
-/** Current terminal output (legacy - for single command view) */
-export const terminalOutputAtom = atom<TerminalOutput | null>(null);
 
 // ═══════════════════════════════════════════════════════════
 // PANEL VISIBILITY
@@ -390,15 +341,11 @@ export const workspacePlanPanelAtom = atom<{
   changes: null,
 });
 
-export const activePlanArtifactIdAtom = atom<string | null>(null);
 
 export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
 
 /** Whether left panel is visible (extension panel). Toggled by Cmd+I / Ctrl+I when Pro. */
 export const leftPanelVisibleAtom = atom<boolean>(false);
-
-/** Whether panel content is loading (e.g., during search) */
-export const rightPanelLoadingAtom = atom<boolean>(false);
 
 /** Panel width in pixels (for resize). Persisted in localStorage (atlarix-right-panel-width) by RightPanel. */
 export const rightPanelWidthAtom = atom<number>(400);
@@ -411,7 +358,6 @@ export const devServerUrlAtom = atom<string | null>(null);
 
 /** Project type detected by DevServerProvider - used for backend diagram fallback */
 export type ProjectType = 'frontend' | 'backend' | 'unknown';
-export const projectTypeAtom = atom<ProjectType>('unknown');
 
 // ═══════════════════════════════════════════════════════════
 // BROWSER ERRORS (Live Preview Console Errors)
@@ -459,8 +405,3 @@ export interface PanelHistoryEntry {
     title: string;
 }
 
-/** Panel navigation history */
-export const panelHistoryAtom = atom<PanelHistoryEntry[]>([]);
-
-/** Current position in history (for back/forward) */
-export const panelHistoryIndexAtom = atom<number>(-1);

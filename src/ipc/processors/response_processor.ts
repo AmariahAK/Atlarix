@@ -50,47 +50,6 @@ interface Output {
   error: unknown;
 }
 
-export async function dryRunSearchReplace({
-  fullResponse,
-  appPath,
-}: {
-  fullResponse: string;
-  appPath: string;
-}) {
-  const issues: { filePath: string; error: string }[] = [];
-  const atlarixSearchReplaceTags = getAtlarixSearchReplaceTags(fullResponse);
-  for (const tag of atlarixSearchReplaceTags) {
-    const filePath = tag.path;
-    const fullFilePath = safeJoin(appPath, filePath);
-    try {
-      if (!fs.existsSync(fullFilePath)) {
-        issues.push({
-          filePath,
-          error: `Search-replace target file does not exist: ${filePath}`,
-        });
-        continue;
-      }
-
-      const original = await readFile(fullFilePath, "utf8");
-      const result = applySearchReplace(original, tag.content);
-      if (!result.success || typeof result.content !== "string") {
-        issues.push({
-          filePath,
-          error:
-            "Unable to apply search-replace to file because: " + result.error,
-        });
-        continue;
-      }
-    } catch (error) {
-      issues.push({
-        filePath,
-        error: error?.toString() ?? "Unknown error",
-      });
-    }
-  }
-  return issues;
-}
-
 export async function processFullResponseActions(
   fullResponse: string,
   chatId: number,

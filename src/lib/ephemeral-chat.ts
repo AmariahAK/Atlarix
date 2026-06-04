@@ -13,14 +13,6 @@ const logger = log.scope("ephemeral-chat");
 /** Latest streaming assistant tail; used when flushing ask_user submit chunks. */
 export const chatOnlyStreamingAssistantDraftByChatId = new Map<number, string>();
 
-export function syncChatOnlyStreamingDraft(chatId: number, tail: string): void {
-  chatOnlyStreamingAssistantDraftByChatId.set(chatId, tail);
-}
-
-export function clearChatOnlyStreamingDraft(chatId: number): void {
-  chatOnlyStreamingAssistantDraftByChatId.delete(chatId);
-}
-
 export function buildContinueAfterQuestionsPrompt(
   msgs: { role: string; content?: string | null }[],
 ): string {
@@ -91,19 +83,6 @@ export function createEphemeralWorkspaceChat(appId: number): number {
     appId,
   });
   logger.log(`Created ephemeral workspace chat: ${id} for app: ${appId}`);
-  return id;
-}
-
-/** @deprecated Workspace-only product — use createEphemeralWorkspaceChat */
-export function createEphemeralChat(): number {
-  const id = ephemeralChatCounter--;
-  ephemeralChats.set(id, {
-    id,
-    title: "New chat",
-    messages: [],
-    createdAt: new Date(),
-  });
-  logger.log(`Created ephemeral chat (no workspace): ${id}`);
   return id;
 }
 
@@ -186,11 +165,6 @@ export function hydrateEphemeralChatMessages(
   }
 }
 
-export function clearEphemeralChats(): void {
-  ephemeralChats.clear();
-  ephemeralChatCounter = -1;
-}
-
 export function addEphemeralMessage(
   chatId: number,
   message: {
@@ -210,6 +184,3 @@ export function addEphemeralMessage(
   }
 }
 
-export function isChatOnly(chatId: number): boolean {
-  return isEphemeralChatId(chatId) || ephemeralChats.has(chatId);
-}

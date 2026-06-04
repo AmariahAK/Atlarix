@@ -24,6 +24,12 @@ export type SymbolIndexManifest = {
   commitHash?: string | null;
   ctagsVersion?: string;
   engine: "ctags";
+  /**
+   * v10.1: mtimeMs per indexed (ctags-eligible) file. On staleness, only
+   * changed/added/deleted files are re-tagged instead of the whole repo.
+   * Absent on pre-v10.1 caches — those rebuild fully once.
+   */
+  fileMtimes?: Record<string, number>;
 };
 
 export type SymbolIndexCache = {

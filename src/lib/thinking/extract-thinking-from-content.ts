@@ -1,5 +1,13 @@
-import type { ToolCallInfo } from "@/components/chat/ThinkingSection";
 import type { AgentBusExchange } from "@/atoms/sourceAtoms";
+
+/** v10.1: moved here from the deleted dead ThinkingSection component. */
+export interface ToolCallInfo {
+  id: string;
+  toolName: string;
+  status: "success" | "error" | "running";
+  args?: unknown;
+  error?: string;
+}
 
 export type CompletedTurnThinkingSnapshot = {
   thoughts: string[];

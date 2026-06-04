@@ -32,11 +32,6 @@ const MODEL_CONTEXT_SAFETY = 0.8;
 
 const DEFAULT_MODEL_CONTEXT_FALLBACK = 128_000;
 
-/**
- * OpenCode-style compaction buffer (reserved tokens for output).
- * Matches OpenCode's COMPACTION_BUFFER = 20_000
- */
-const COMPACTION_BUFFER = 20_000;
 
 /**
  * Tool-output token budget kept verbatim at the tail of the transcript before compaction summarization.
@@ -49,7 +44,6 @@ const OUTPUT_RESERVE_RATIO = 0.2;
 
 // OpenCode-style pruning constants
 export const PRUNE_MINIMUM = 20_000;
-export const PRUNE_PROTECT = 40_000;
 const TOOL_OUTPUT_MAX_CHARS_COMPACTION = 2_000;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
 
@@ -61,20 +55,6 @@ const MAX_PRESERVE_RECENT_TOKENS = 8_000;
 // ═══════════════════════════════════════════════════════════════
 // OPENCODE-STYLE USABLE FUNCTION
 // ═══════════════════════════════════════════════════════════════
-
-/**
- * Calculate usable context tokens (OpenCode-style).
- * Matches overflow.ts usable() function.
- */
-export function getUsableTokens(modelContextLength: number, modelInputLimit?: number, maxOutputTokens: number = 4000): number {
-  const context = modelContextLength;
-  if (context === 0) return 0;
-
-  const reserved = Math.min(COMPACTION_BUFFER, maxOutputTokens);
-  return modelInputLimit
-    ? Math.max(0, modelInputLimit - reserved)
-    : Math.max(0, context - maxOutputTokens);
-}
 
 /**
  * Get usable budget from provider/budget or model context length.
@@ -203,64 +183,6 @@ export function estimateContextTokens(params: {
   return systemPromptTokens + messageHistoryTokens + inputTokens;
 }
 
-/** v3.6: Per-agent compaction thresholds (token ratio). */
-const AGENT_COMPACTION_THRESHOLDS: Record<string, number> = {
-  main: 0.6,
-  architect: 0.65,
-  builder: 0.7,
-  reviewer: 0.7,
-  researcher: 0.75,
-};
-
-/**
- * Token-only compaction gate (exchange / tool-burst triggers removed).
- */
-export function evaluateCompactionTriggers(params: {
-  tokenRatio: number;
-  agentId?: string;
-}): boolean {
-  const { tokenRatio, agentId } = params;
-  const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
-  return tokenRatio > threshold;
-}
-
-/**
- * Check if we should run compaction (over threshold).
- * Token ratio only — uses provider usable budget from settings.
- */
-export async function shouldCompact(params: {
-  chatId: number;
-  messageHistoryTokens: number;
-  systemPromptTokens: number;
-  inputTokens?: number;
-  providerId?: string;
-  agentId?: string;
-  hasWorkspace?: boolean;
-}): Promise<boolean> {
-  const {
-    chatId,
-    messageHistoryTokens,
-    systemPromptTokens,
-    inputTokens = 0,
-    providerId,
-    agentId,
-  } = params;
-
-  if (chatId < 0) return false;
-
-  const total = estimateContextTokens({
-    systemPromptTokens,
-    messageHistoryTokens,
-    inputTokens,
-  });
-
-  const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
-  const { budget } = await getEffectiveBudget(pid);
-  const usableBudget = Math.floor(budget * (1 - OUTPUT_RESERVE_RATIO));
-
-  const threshold = agentId ? (AGENT_COMPACTION_THRESHOLDS[agentId] ?? COMPACTION_THRESHOLD) : COMPACTION_THRESHOLD;
-  return total > usableBudget * threshold;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // OPENCODE-STYLE TURN-BASED SELECTION

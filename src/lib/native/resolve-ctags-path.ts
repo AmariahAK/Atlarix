@@ -103,6 +103,3 @@ export function resolveCtagsPath(): string | null {
   return null;
 }
 
-export function getBundledCtagsResourceDir(): string {
-  return path.join(atlarixProjectRoot(), "assets", "ctags", getCtagsPlatformKey());
-}

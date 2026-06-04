@@ -65,6 +65,3 @@ export const DELEGATION_TOOL_NAMES = [
   "task",
 ] as const;
 
-export function isDelegationToolName(name: string): boolean {
-  return (DELEGATION_TOOL_NAMES as readonly string[]).includes(name);
-}

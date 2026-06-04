@@ -220,16 +220,3 @@ export class LMStudioProvider extends BaseProvider {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-export async function checkLMStudioRunning(host?: string): Promise<boolean> {
-    const provider = new LMStudioProvider(null, null, false, host);
-    return provider.isAvailable();
-}
-
-export async function listLMStudioModels(host?: string): Promise<string[]> {
-    try {
-        const provider = new LMStudioProvider(null, null, false, host);
-        return await provider.listModels();
-    } catch {
-        return [];
-    }
-}

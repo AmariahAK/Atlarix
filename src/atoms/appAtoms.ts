@@ -18,7 +18,6 @@ export const versionsListAtom = atom<Version[]>([]);
 export const previewModeAtom = atom<
   "preview" | "code" | "configure" | "publish" | "security"
 >("preview");
-export const selectedVersionIdAtom = atom<string | null>(null);
 export const appOutputAtom = atom<AppOutput[]>([]);
 export const appUrlAtom = atom<
   | { appUrl: string; appId: number; originalUrl: string }

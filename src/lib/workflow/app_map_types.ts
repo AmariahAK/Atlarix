@@ -65,15 +65,3 @@ export interface AppMapScreen {
   nodeId?: string;
 }
 
-/** Full app map: backend + optional frontend */
-export interface AppMap {
-  runtime: Runtime;
-  entryPoints: AppMapEntryPoint[];
-  dataSources: AppMapDataSource[];
-  flows?: AppMapFlow[];
-  screens?: AppMapScreen[];
-  /** Optional: conditionals/branching for round-trip */
-  conditionals?: AppMapConditional[];
-  /** Optional: global prompt / instructions for codegen */
-  globalPrompt?: string;
-}

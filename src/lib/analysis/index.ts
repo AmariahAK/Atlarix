@@ -22,7 +22,4 @@ export {
     getCachedAnalysis,
     setCachedAnalysis,
     getWorkspaceHash,
-    invalidateCache,
-    clearAllCaches,
-    getCacheStats,
 } from './workspace-cache';

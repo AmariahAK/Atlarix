@@ -17,7 +17,21 @@
     "e2e-tests/**",
     "**/*.d.ts",
     "src/**/*.test.{ts,tsx}",
+    "src/__tests__/renderer/stubs/**",
     "src/shims/**"
+  ],
+  "ignoreDependencies": [
+    "@ast-grep/lang-go",
+    "@ast-grep/lang-python",
+    "geist",
+    "keytar",
+    "shiki",
+    "tw-animate-css",
+    "typescript-language-server",
+    "vscode-langservers-extracted",
+    "@electron-forge/publisher-github",
+    "@tailwindcss/typography",
+    "lint-staged"
   ],
   "ignoreExportsUsedInFile": true
 }

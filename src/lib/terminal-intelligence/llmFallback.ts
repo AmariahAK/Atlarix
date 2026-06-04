@@ -181,10 +181,3 @@ JSON response:`;
     }
 }
 
-/**
- * Clear the cache (useful for testing)
- */
-export function clearLLMCache(): void {
-    outputCache.clear();
-    callTimestamps = [];
-}

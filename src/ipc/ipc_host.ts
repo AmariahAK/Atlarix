@@ -51,7 +51,6 @@ import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handl
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
 // PASS6: Blueprint subsystem restored.
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
-import { registerPivotAnalysisHandlers } from "./handlers/pivot_analysis_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
 import { registerHooksHandlers } from "./handlers/hooks_handlers";
 import { registerCommandsHandlers } from "./handlers/commands_handlers";
@@ -126,7 +125,6 @@ export function registerIpcHandlers() {
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
   // PASS6: Blueprint subsystem restored.
   registerBlueprintHandlers();
-  registerPivotAnalysisHandlers();
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
   registerHooksHandlers();
   registerCommandsHandlers(); // v3.6 Auto routing preview

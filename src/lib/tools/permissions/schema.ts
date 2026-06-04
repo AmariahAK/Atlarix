@@ -62,14 +62,11 @@ export const WorkforceActionPreviewSchema = z.object({
     payload: z.record(z.string(), z.unknown()).describe("Action payload arguments"),
 });
 
-export type WorkforceActionPreview = z.infer<typeof WorkforceActionPreviewSchema>;
-
 export const ProjectRevertPreviewSchema = z.object({
     snapshotId: z.coerce.number().int().positive(),
     label: z.string(),
     planExcerpt: z.string().max(800).optional(),
 });
-export type ProjectRevertPreview = z.infer<typeof ProjectRevertPreviewSchema>;
 
 // ════════════════════════════════════════════════════════════════════════════
 // PERMISSION METADATA
@@ -110,7 +107,6 @@ export const BatchPlanItemSchema = z.union([
     FileOperationPreviewSchema,
     CommandOperationPreviewSchema,
 ]);
-export type BatchPlanItem = z.infer<typeof BatchPlanItemSchema>;
 
 /** Preview for batch_plan: title + list of operations */
 export const BatchPlanPreviewSchema = z.object({
@@ -156,18 +152,6 @@ export type PermissionResult = z.infer<typeof PermissionResultSchema>;
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Check if a value is a permission request
- */
-export function isPermissionRequest(value: unknown): value is PermissionRequest {
-    try {
-        PermissionRequestSchema.parse(value);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-/**
  * Parse JSON string to permission request
  */
 export function parsePermissionRequest(json: string): PermissionRequest | null {
@@ -179,48 +163,3 @@ export function parsePermissionRequest(json: string): PermissionRequest | null {
     }
 }
 
-/**
- * Create a file permission request
- */
-export function createFilePermissionRequest(
-    operation: "write_file" | "delete_file" | "rename_file",
-    preview: FileOperationPreview,
-    metadata?: PermissionMetadata
-): PermissionRequest {
-    return {
-        __permission_required: true,
-        operation,
-        preview,
-        metadata,
-    };
-}
-
-/**
- * Create a batch permission request
- */
-export function createBatchPermissionRequest(
-    previews: FileOperationPreview[],
-    metadata?: PermissionMetadata
-): PermissionRequest {
-    return {
-        __permission_required: true,
-        operation: "write_multiple_files",
-        preview: previews,
-        metadata,
-    };
-}
-
-/**
- * Create a command permission request
- */
-export function createCommandPermissionRequest(
-    preview: CommandOperationPreview,
-    metadata?: PermissionMetadata
-): PermissionRequest {
-    return {
-        __permission_required: true,
-        operation: "run_command",
-        preview,
-        metadata,
-    };
-}

@@ -1,9 +1,14 @@
 /**
- * WorkspaceFileTree - IDE-style file tree for sidebar
- * Single-click to expand folders, click file → opens in Code tab
+ * WorkspaceFileTree - IDE-style file tree (Code tab + full-screen code page)
+ * Single-click to expand folders, click file → opens in Code tab.
+ *
+ * v10.1: virtualized — the tree used to mount a DOM node per file, which made
+ * 10k+ file repos crawl. Expanded nodes flatten into rows rendered through
+ * @tanstack/react-virtual (fixed ~26px rows).
  */
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Folder, FolderOpen, FileCode2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +46,14 @@ function sortNodes(nodes: TreeNode[]): TreeNode[] {
   });
 }
 
+const ROW_HEIGHT = 26;
+
+interface FlatRow {
+  node: TreeNode;
+  depth: number;
+  expanded: boolean;
+}
+
 interface WorkspaceFileTreeProps {
   files: string[];
   onFileClick: (path: string) => void;
@@ -53,98 +66,103 @@ export function WorkspaceFileTree({
   onFileClick,
   maxHeight,
 }: WorkspaceFileTreeProps) {
-  const tree = buildTree(files);
-  if (tree.length === 0) return null;
+  const tree = useMemo(() => buildTree(files), [files]);
+  // Folders default-expand two levels deep; user toggles override.
+  const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(
+    new Map(),
+  );
+
+  const rows = useMemo(() => {
+    const out: FlatRow[] = [];
+    const walk = (nodes: TreeNode[], depth: number) => {
+      for (const node of sortNodes(nodes)) {
+        const expanded =
+          node.isDirectory && (expandOverrides.get(node.path) ?? depth < 2);
+        out.push({ node, depth, expanded });
+        if (expanded) walk(node.children, depth + 1);
+      }
+    };
+    walk(tree, 0);
+    return out;
+  }, [tree, expandOverrides]);
+
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
+
+  if (rows.length === 0) return null;
+
+  const toggleDir = (path: string, currentlyExpanded: boolean) => {
+    setExpandOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(path, !currentlyExpanded);
+      return next;
+    });
+  };
 
   return (
     <div
-      className={cn(
-        "border-b border-border/50",
-        maxHeight != null ? "overflow-y-auto" : "",
-      )}
-      style={maxHeight != null ? { maxHeight } : undefined}
+      ref={parentRef}
+      className="border-b border-border/50 overflow-y-auto"
+      style={{
+        maxHeight: maxHeight ?? undefined,
+        height: maxHeight != null ? "100%" : undefined,
+      }}
     >
-      <TreeLevel nodes={tree} level={0} onFileClick={onFileClick} />
-    </div>
-  );
-}
-
-function TreeLevel({
-  nodes,
-  level,
-  onFileClick,
-}: {
-  nodes: TreeNode[];
-  level: number;
-  onFileClick: (path: string) => void;
-}) {
-  return (
-    <ul className={cn("pl-2", level > 0 && "ml-3 border-l border-border/30")}>
-      {sortNodes(nodes).map((node) => (
-        <TreeNodeComp
-          key={node.path}
-          node={node}
-          level={level}
-          onFileClick={onFileClick}
-        />
-      ))}
-    </ul>
-  );
-}
-
-function TreeNodeComp({
-  node,
-  level,
-  onFileClick,
-}: {
-  node: TreeNode;
-  level: number;
-  onFileClick: (path: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(level < 2);
-
-  if (node.isDirectory) {
-    return (
-      <li className="py-0.5">
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className={cn(
-            "flex items-center gap-1.5 w-full text-left px-1.5 py-1 rounded text-xs",
-            "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {expanded ? (
-            <FolderOpen className="h-3 w-3 flex-shrink-0 text-amber-500" />
-          ) : (
-            <Folder className="h-3 w-3 flex-shrink-0 text-amber-500" />
-          )}
-          <span className="truncate">{node.name}</span>
-        </button>
-        {expanded && node.children.length > 0 && (
-          <TreeLevel
-            nodes={node.children}
-            level={level + 1}
-            onFileClick={onFileClick}
-          />
-        )}
-      </li>
-    );
-  }
-
-  return (
-    <li className="py-0.5">
-      <button
-        type="button"
-        onClick={() => onFileClick(node.path)}
-        className={cn(
-          "flex items-center gap-1.5 w-full text-left px-1.5 py-1 rounded text-xs",
-          "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-        )}
+      <div
+        style={{
+          height: virtualizer.getTotalSize(),
+          position: "relative",
+          width: "100%",
+        }}
       >
-        <FileCode2 className="h-3 w-3 flex-shrink-0 text-blue-500" />
-        <span className="truncate">{node.name}</span>
-      </button>
-    </li>
+        {virtualizer.getVirtualItems().map((vi) => {
+          const { node, depth, expanded } = rows[vi.index];
+          return (
+            <div
+              key={node.path}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: vi.size,
+                transform: `translateY(${vi.start}px)`,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  node.isDirectory
+                    ? toggleDir(node.path, expanded)
+                    : onFileClick(node.path)
+                }
+                className={cn(
+                  "flex items-center gap-1.5 w-full h-full text-left pr-1.5 rounded text-xs",
+                  "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+                )}
+                style={{ paddingLeft: 6 + depth * 12 }}
+                title={node.path}
+              >
+                {node.isDirectory ? (
+                  expanded ? (
+                    <FolderOpen className="h-3 w-3 flex-shrink-0 text-amber-500" />
+                  ) : (
+                    <Folder className="h-3 w-3 flex-shrink-0 text-amber-500" />
+                  )
+                ) : (
+                  <FileCode2 className="h-3 w-3 flex-shrink-0 text-blue-500" />
+                )}
+                <span className="truncate">{node.name}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

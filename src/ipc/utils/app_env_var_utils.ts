@@ -83,22 +83,6 @@ export async function updateDbPushEnvVar({
   }
 }
 
-export async function readPostgresUrlFromEnvFile({
-  appPath,
-}: {
-  appPath: string;
-}): Promise<string> {
-  const contents = await readEnvFile({ appPath });
-  const envVars = parseEnvFile(contents);
-  const postgresUrl = envVars.find(
-    (envVar) => envVar.key === "POSTGRES_URL",
-  )?.value;
-  if (!postgresUrl) {
-    throw new Error("POSTGRES_URL not found in .env.local");
-  }
-  return postgresUrl;
-}
-
 export async function readEnvFile({
   appPath,
 }: {

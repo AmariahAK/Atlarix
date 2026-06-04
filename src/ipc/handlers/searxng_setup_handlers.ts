@@ -283,31 +283,6 @@ export function registerSearxngSetupHandlers() {
 }
 
 /**
- * Auto-start SearxNG on app launch (optional, call from main.ts)
- */
-export async function autoStartSearxng(): Promise<void> {
-    const dockerStatus = await checkDockerInstalled();
-    if (!dockerStatus.running) {
-        console.log("[SearxNG] Docker not available, skipping auto-start");
-        return;
-    }
-
-    const status = await checkSearxngRunning();
-    if (status.running) {
-        console.log("[SearxNG] Already running");
-        return;
-    }
-
-    console.log("[SearxNG] Auto-starting...");
-    const result = await setupSearxng();
-    if (result.success) {
-        console.log(`[SearxNG] ✅ Ready at ${result.url}`);
-    } else {
-        console.log(`[SearxNG] ⚠️ Auto-start failed: ${result.message}`);
-    }
-}
-
-/**
  * Auto-stop SearxNG when app quits
  * This prevents the Docker container from running after Atlarix closes
  */

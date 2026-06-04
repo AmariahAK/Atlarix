@@ -22,12 +22,10 @@ import {
 } from "./oauth-session-store";
 import {
   deserializeOAuthJsonFromDb,
-  isOAuthTokenValid,
   oauthConnectedFromRow,
   shouldClearStaleOAuthClient,
   type StoredOAuthClient,
 } from "./oauth-token-utils";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 const logger = log.scope("mcp-oauth");
 
@@ -374,23 +372,3 @@ export function isMcpOAuthDeepLink(url: string): boolean {
   }
 }
 
-export function isMcpOAuthUnauthorized(error: unknown): boolean {
-  return (
-    error instanceof UnauthorizedError ||
-    error instanceof McpOAuthError ||
-    (error instanceof Error &&
-      /unauthorized|401|oauth|sign-?in required/i.test(error.message))
-  );
-}
-
-export async function serverNeedsMcpOAuth(serverId: number): Promise<boolean> {
-  const row = await db.query.mcpServers.findFirst({
-    where: eq(mcpServers.id, serverId),
-    columns: { authType: true, oauthTokensJson: true },
-  });
-  if (!row || row.authType !== "oauth") return false;
-  const tokens = deserializeOAuthJsonFromDb<OAuthTokens>(row.oauthTokensJson);
-  if (isOAuthTokenValid(tokens)) return false;
-  broadcastMcpOAuthEvent("mcp:oauth-required", { serverId });
-  return true;
-}

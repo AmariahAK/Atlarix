@@ -343,7 +343,6 @@ export interface App {
   id: number;
   name: string;
   path: string;
-  files: string[];
   createdAt: Date;
   updatedAt: Date;
   githubOrg: string | null;

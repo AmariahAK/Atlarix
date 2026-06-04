@@ -268,6 +268,8 @@ const validInvokeChannels = [
   "terminal:run",
   "pty:spawn", // v10 interactive terminal
   "pty:kill",
+  "pty:scrollback:save", // v10.1 scrollback persists across restarts
+  "pty:scrollback:load",
   "terminal-instances:list",
   "terminal-instances:read",
   "terminal-instances:open",
@@ -300,7 +302,6 @@ const validInvokeChannels = [
   "blueprint:simplify-architecture",
   "blueprint:commit-snapshot",
   "blueprint:snapshot-exists",
-  "pivot:run-analysis",
   // File operations (Live Code Editor)
   "file:read-content",
   "lsp:subscribe",
@@ -424,9 +425,10 @@ const validReceiveChannels = [
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
   "chat:context-report", // v10: context meter (per-section sizes + trims)
-  // v10 PTY terminal (pty:data/exit received; pty:input/resize sent via send())
+  // v10 PTY terminal (pty:data/exit/cwd received; pty:input/resize sent via send())
   "pty:data",
   "pty:exit",
+  "pty:cwd",
   "pty:input",
   "pty:resize",
   "plan:artifact-activated",

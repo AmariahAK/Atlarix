@@ -72,13 +72,6 @@ export function getCachedWorkspaceDiscovery(workspacePath: string): WorkspaceDis
   return hit;
 }
 
-/**
- * @deprecated Prefer {@link getCachedWorkspaceDiscovery} for file discovery; kept for call sites that need fresh reads in tests.
- */
-export function analyzeWorkspaceDiscovery(workspacePath: string): WorkspaceDiscoveryHints {
-  return getCachedWorkspaceDiscovery(workspacePath);
-}
-
 function normalizeScopePathForCache(scopePath?: string): string {
   if (!scopePath?.trim()) return "";
   return scopePath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");

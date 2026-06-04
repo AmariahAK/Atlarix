@@ -29,12 +29,6 @@ const IGNORE_PATTERNS = [
 const MAX_FILES = 500;
 const MAX_FILE_SIZE = 500_000; // 500KB per file
 
-export interface SnapshotData {
-  files: Record<string, string>;
-  promptContent: string | null;
-  chatMessages: Array<{ role: string; content: string }> | null;
-}
-
 export async function createSnapshot(
   appId: number,
   name: string,

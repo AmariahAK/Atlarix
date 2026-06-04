@@ -1,7 +1,6 @@
 import { db } from "../../db";
 import { mcpToolConsents } from "../../db/schema";
 import { and, eq } from "drizzle-orm";
-import { IpcMainInvokeEvent } from "electron";
 
 export type Consent = "ask" | "always" | "denied";
 
@@ -75,34 +74,3 @@ export async function setStoredConsent(
   }
 }
 
-export async function requireMcpToolConsent(
-  event: IpcMainInvokeEvent,
-  params: {
-    serverId: number;
-    serverName: string;
-    toolName: string;
-    toolDescription?: string | null;
-    inputPreview?: string | null;
-  },
-): Promise<boolean> {
-  const current = await getStoredConsent(params.serverId, params.toolName);
-  if (current === "always") return true;
-  if (current === "denied") return false;
-
-  // Ask renderer for a decision via event bridge
-  const requestId = `${params.serverId}:${params.toolName}:${Date.now()}`;
-  (event.sender as any).send("mcp:tool-consent-request", {
-    requestId,
-    ...params,
-  });
-  const response = await waitForConsent(requestId);
-
-  if (response === "accept-always") {
-    await setStoredConsent(params.serverId, params.toolName, "always");
-    return true;
-  }
-  if (response === "decline") {
-    return false;
-  }
-  return response === "accept-once";
-}

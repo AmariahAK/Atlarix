@@ -21,7 +21,7 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v10.0.0**
+**Current release:** **v10.1.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -36,13 +36,16 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 9.0+). Older
 - **Live Code Map:** Your repo is parsed into a live graph (rooms, beacons, edges). The agent queries structure first—not just open files. Technical details: [docs/architecture.md](docs/architecture.md).
 - **Workspace-first:** Open a folder from the welcome screen. Chat, sessions, MCP, and Skills belong to that workspace—no global chat without a project.
 - **Work modes:** **Explore** (read-only), **Plan**, **Build**, **Debug**, **Review**.
-- **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab and sidebar load the file tree when you need it; the agent uses `list_files`, `search`, `get_blueprint`, and related tools.
+- **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab loads the file tree when you need it (plus a **Cmd/Ctrl+P** fuzzy file opener); the sidebar stays focused on sessions; the agent uses `list_files`, `search`, `get_blueprint`, and related tools.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
 - **Sub-agents:** Explore & Review helpers run scoped, read-only passes (up to five per turn) with grouped tool summaries in the Sub-agents panel.
 - **Self-correction:** After substantive build turns, optional LSP-based follow-ups can address diagnostics in touched files (no separate TypeScript compiler worker or Problems tab).
 - **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files.
-- **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Agent commands run separately with captured output and approvals.
+- **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
+- **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter BYOK) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else the client chain (SearxNG → public SearxNG → DuckDuckGo) is the universal fallback.
+- **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic BYOK turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
+- **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
 **Providers:** **Atlarix Core** (managed Model Bridge tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more).
 
@@ -63,14 +66,15 @@ On-demand graph via `get_blueprint` and structural `search`—not whole-repo inj
 ### Workspace Tools & Extensions
 
 - **Core tools:** File read/write, unified **`search`**, `get_blueprint`, terminal (including `git` CLI), web search, **`get_diagram`**, and more. Explore uses a read-only allowlist.
-- **MCP:** Up to **5** MCP servers per workspace (Studio / Team marketplace + manual). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **MCP:** Up to **10** MCP servers per workspace (Studio / Team marketplace + manual; one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
 ### Editor & diagnostics
 
 - **Monaco** in the Code tab with syntax highlighting in packaged builds.
 - **LSP:** Bundled TypeScript and JSON language servers; editor markers and self-correction use LSP diagnostics (not `tsc --watch`).
-- **Right panel:** Preview, Code, Terminal (interactive PTY), Activity, and Errors (browser/runtime). Diffs and approvals render inline in chat.
+- **Right panel:** Preview, Code, Terminal (interactive PTY), Activity, and Errors (browser/runtime). Diffs and approvals render inline in chat; **Cmd/Ctrl+P** fuzzy-opens any workspace file in the Code tab.
+- **Streaming status:** A small inline compass under the **current** response shows a human-readable one-liner of what the agent is doing ("Writing src/auth.ts…"), settling into the Atlarix "A" when the turn completes.
 
 ### Context & Session Management
 
@@ -129,7 +133,7 @@ After `npm install`, **`postinstall`** runs Electron install, **`fetch-ctags`**,
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
 | **Solo**  | $0      | 1          | Model Bridge **Speed** only; BYOK / local; core tools; **1** global MCP (manual) |
-| **Studio**   | $19/mo  | Unlimited  | **Speed / Standard / Deep**; Agent Behaviors + MCP marketplace; **5** per-workspace MCPs |
+| **Studio**   | $19/mo  | Unlimited  | **Speed / Standard / Deep**; Agent Behaviors + MCP marketplace; **10** per-workspace MCPs |
 | **Team** | $79/mo | Unlimited | Studio + seats, team MCP integrations, repo behavior priority, Blueprint commit to git |
 
 Default Model Bridge allowances: [docs/compass-limits.md](docs/compass-limits.md).

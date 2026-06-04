@@ -81,42 +81,6 @@ export function getBalancedModelForCurrentProvider(
   return null;
 }
 
-/**
- * Returns the thinking (third-tier) model when Auto slots or Compass / favorites provide it.
- */
-export function getThinkingModelForCurrentProvider(
-  settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel | null {
-  const effective = settings.selectedModel;
-  if (!effective?.provider) return null;
-  if (effective.provider === "compass") {
-    return { provider: "compass", name: COMPASS_TIER_THINKING };
-  }
-  if (effective.provider === "openrouter" && effective.name?.trim()) {
-    return { provider: "openrouter", name: effective.name.trim() };
-  }
-  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 3) {
-    return { provider: "ollama", name: ollamaFavs[2] };
-  }
-  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "lmstudio" && lmStudioFavs && lmStudioFavs.length >= 3) {
-    return { provider: "lmstudio", name: lmStudioFavs[2] };
-  }
-  return null;
-}
-
-/**
- * Resolves the model used for diagram generation. When Auto is ON, uses Auto chain.
- */
-export function getDiagramModelConfig(
-  settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel {
-  return getEffectiveModel(settings);
-}
-
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
@@ -126,7 +90,6 @@ import { createAtlarixEngine } from "./llm_engine_provider";
 import {
   COMPASS_TIER_BALANCED,
   COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
   getCompassMasterApiKey,
   getOpenRouterModelIdForCompassTier,
 } from "../shared/compass_constants";

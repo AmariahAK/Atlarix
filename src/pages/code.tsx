@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, currentAppAtom } from "@/atoms/appAtoms";
@@ -58,8 +59,18 @@ export default function CodePage() {
     }
   }, [fileFromRoute, tabFromRoute]);
 
-  const files = currentApp?.files ?? [];
   const appId = currentApp?.id ?? selectedAppId;
+  const { data: appFilesData } = useQuery({
+    queryKey: ["app-files", appId],
+    queryFn: async () => {
+      if (appId == null) return null;
+      return IpcClient.getInstance().getAppFiles(appId);
+    },
+    enabled: appId != null,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
+  });
+  const files = appFilesData?.files ?? [];
 
   const browserErrors = useAtomValue(browserErrorsAtom);
   const terminalOutputs = useAtomValue(terminalOutputsAtom);

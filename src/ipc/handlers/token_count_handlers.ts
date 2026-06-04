@@ -170,11 +170,6 @@ function computeDeltaTailTokens(
   return next.runningTokens;
 }
 
-/** External hook so the stream handler can invalidate this cache after a write. */
-export function invalidateMessageDeltaCache(chatId: number): void {
-  MESSAGE_DELTA_CACHE.delete(chatId);
-}
-
 async function computeTokenCountResult(
   req: TokenCountParams,
   messages: TokenCountMessageRow[],

@@ -16,6 +16,7 @@ import {
   setTerminalScopeState,
 } from "@/lib/terminal-instance-store";
 import { killPty, killAllPtys } from "@/lib/pty/pty-session-manager";
+import { deletePtyScrollback } from "./pty_handlers";
 
 const logger = log.scope("terminal-instances-handlers");
 const handle = createLoggedHandler(logger);
@@ -76,6 +77,7 @@ export function registerTerminalInstancesHandlers(): void {
     async (_event, params: ScopeParams & { instanceId: string }) => {
       const scopeKey = scopeFromParams(params);
       killPty(params.instanceId); // v10: closing a tab kills its interactive shell
+      void deletePtyScrollback(params.instanceId); // drop persisted scrollback too
       return closeTerminalInstance(scopeKey, params.instanceId);
     },
   );

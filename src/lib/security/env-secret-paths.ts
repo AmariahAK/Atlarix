@@ -63,11 +63,6 @@ export function isBlockedSecretPath(p: string): boolean {
   return isBlockedSecretBasename(basename);
 }
 
-/** Backward-compatible alias. */
-export function isEnvSecretPath(p: string): boolean {
-  return isBlockedSecretPath(p);
-}
-
 /**
  * Resolve `p` under `workspaceRoot`, reject escape, then block secret basenames.
  */

@@ -116,25 +116,3 @@ export async function deleteSearxngConfig(): Promise<void> {
     console.log("[SearchConfig] SearxNG config deleted");
 }
 
-/**
- * Get all enabled search providers ordered by priority
- */
-export async function getEnabledSearchProviders(): Promise<SearchProvider[]> {
-    try {
-        const results = await db
-            .select()
-            .from(searchProviders)
-            .where(eq(searchProviders.enabled, true))
-            .orderBy(searchProviders.priority);
-
-        return results.map((r) => ({
-            provider: r.provider,
-            enabled: r.enabled ?? false,
-            config: r.config as SearchProviderConfig | null,
-            priority: r.priority ?? 0,
-        }));
-    } catch (error) {
-        console.error("[SearchConfig] Error fetching providers:", error);
-        return [];
-    }
-}

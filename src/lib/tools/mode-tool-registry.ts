@@ -304,15 +304,3 @@ export function renderActiveModeToolsRegistry(
   return lines.join("\n");
 }
 
-export function getAllModeToolAllowlists(): Record<
-  Exclude<ModeRegistryKey, "build">,
-  readonly string[]
-> & { build: readonly [typeof BUILD_ALLOWLIST_MARKER] } {
-  return {
-    ask: ASK_ALLOWLIST,
-    plan: PLAN_ALLOWLIST,
-    build: [BUILD_ALLOWLIST_MARKER],
-    debug: DEBUG_ALLOWLIST,
-    review: REVIEW_ALLOWLIST,
-  };
-}

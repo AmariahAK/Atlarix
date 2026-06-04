@@ -5,8 +5,6 @@ import type {
   PlanUpdatePayload,
 } from "@/ipc/ipc_types";
 import { atom } from "jotai";
-import type { ChatSummary } from "@/lib/schemas";
-import type { ActivityStreamItem, AgentBusExchange } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
 import type { SourceItem } from "@/atoms/sourceAtoms";
@@ -26,9 +24,6 @@ export interface StreamReconnectState {
   partialResponse: string;
   reason: "network" | "timeout" | "provider_error";
 }
-export const streamReconnectByChatIdAtom = atom<
-  Map<number, StreamReconnectState>
->(new Map());
 
 // Atom to hold the currently selected chat ID
 export const selectedChatIdAtom = atom<number | null>(null);
@@ -39,11 +34,7 @@ export const activeChatIdAtom = atom<number | null>(null);
 
 export const isStreamingByIdAtom = atom<Map<number, boolean>>(new Map());
 export const chatInputValueAtom = atom<string>("");
-export const homeChatInputValueAtom = atom<string>("");
 
-// Atoms for chat list management
-export const chatsAtom = atom<ChatSummary[]>([]);
-export const chatsLoadingAtom = atom<boolean>(false);
 
 // Used for scrolling to the bottom of the chat messages (per chat)
 export const chatStreamCountByIdAtom = atom<Map<number, number>>(new Map());
@@ -66,8 +57,6 @@ export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 
-/** Counsel session activity rows pinned to an assistant message (survives activity stream clear). */
-export const counselPreviewByMessageIdAtom = atom<Record<number, ActivityStreamItem[]>>({});
 
 /** Latest live plan IPC payload per assistant message (cleared for that chat when a new stream starts). */
 export const livePlanUpdateByAssistantMessageIdAtom = atom<Map<number, PlanUpdatePayload>>(new Map());
@@ -80,6 +69,8 @@ export type PendingUserQuestion = {
   questionId: string;
   question: string;
   options?: string[];
+  /** v10.1: ask_user can batch several questions; all must be answered before the stream resumes. */
+  questions?: Array<{ question: string; options?: string[] }>;
 };
 export const pendingUserQuestionByChatIdAtom = atom<Record<number, PendingUserQuestion | undefined>>({});
 
@@ -95,6 +86,8 @@ export interface ToolIndicatorState {
   toolName: string | null;
   /** Registry tool id or MCP composite key — used for provider-agnostic strip labels. */
   toolId: string | null;
+  /** Args of the last started tool — lets the status line name the subject ("Writing src/auth.ts…"). */
+  toolArgs: Record<string, unknown> | null;
   count: number;
   /** Chat id for the active tool run; used to associate terminal-output with this indicator. */
   activeChatId: number | null;
@@ -117,6 +110,7 @@ export function emptyToolIndicatorState(): ToolIndicatorState {
     active: false,
     toolName: null,
     toolId: null,
+    toolArgs: null,
     count: 0,
     activeChatId: null,
     liveOutputLines: [],
@@ -137,14 +131,6 @@ export type CompletedTurnCounselSnapshot = {
   synthesisSnippet: string;
 };
 
-export type CompletedTurnArtifacts = {
-  counsel: CompletedTurnCounselSnapshot | null;
-  agentBus: AgentBusExchange[];
-};
-
-export const completedTurnArtifactsByAssistantMessageIdAtom = atom<
-  Record<number, CompletedTurnArtifacts>
->({});
 
 /** Frozen thinking card per completed assistant message (DB strips think blocks). */
 export const completedTurnThinkingByAssistantMessageIdAtom = atom<
@@ -196,8 +182,3 @@ export const summarizationProgressAtom = atom<{
   label: undefined,
 });
 
-// PASS6: Blueprint per-chat injection override — restored.
-export type BlueprintInjectionChatOverride = "ask" | "plan" | "build" | "debug";
-export const blueprintInjectionChatOverrideAtom = atom<BlueprintInjectionChatOverride | null>(
-  null,
-);

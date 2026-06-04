@@ -212,27 +212,3 @@ export function getAllLanguageNames(): string[] {
     return Object.keys(LANGUAGE_REGISTRY);
 }
 
-/**
- * Check if a file indicator matches any language
- */
-export function detectLanguageFromFile(filename: string): string[] {
-    const matches: string[] = [];
-
-    for (const [langName, lang] of Object.entries(LANGUAGE_REGISTRY)) {
-        for (const indicator of lang.indicators) {
-            // Handle glob patterns like *.csproj
-            if (indicator.startsWith('*')) {
-                const ext = indicator.slice(1);
-                if (filename.endsWith(ext)) {
-                    matches.push(langName);
-                    break;
-                }
-            } else if (filename === indicator || filename.endsWith('/' + indicator)) {
-                matches.push(langName);
-                break;
-            }
-        }
-    }
-
-    return matches;
-}

@@ -34,19 +34,3 @@ export function setMainProcessConfig(config: { url: string | null; enabled: bool
     console.log('[SearxNG Config] Main process config updated:', mainProcessConfig);
 }
 
-/**
- * Check if SearxNG is enabled and configured
- */
-export function isSearxngReady(): boolean {
-    return mainProcessConfig.enabled && !!mainProcessConfig.url;
-}
-
-/**
- * Get the SearxNG URL if enabled
- */
-export function getSearxngUrl(): string | null {
-    if (!mainProcessConfig.enabled) {
-        return null;
-    }
-    return mainProcessConfig.url;
-}

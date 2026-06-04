@@ -9,8 +9,6 @@ import { resolveTierLimitModelIds } from "@/lib/routing/context_budget_routing";
 import { getOpenRouterModelIdForCompassTier } from "@/ipc/shared/compass_constants";
 
 const SAFETY_FACTOR = 0.8;
-/** When catalog + heuristics fail — safer than assuming 1M windows (local models). */
-export const CONSERVATIVE_CONTEXT_LIMIT_TOKENS = 32_000;
 
 function floorSafe(raw: number): number {
   return Math.max(4096, Math.floor(raw * SAFETY_FACTOR));
@@ -101,20 +99,3 @@ export async function resolveModelContextLimit(
   };
 }
 
-/** Synchronous path when cache may already be warm (no network). */
-export function resolveModelContextLimitSync(model: LargeLanguageModel): ResolvedModelContextLimit {
-  const catalogId = openRouterCatalogId(model);
-  if (catalogId) {
-    const row = getCachedOpenRouterModelRow(catalogId);
-    const raw =
-      row?.context_length ??
-      (typeof row?.top_provider?.context_length === "number"
-        ? row.top_provider.context_length
-        : null);
-    if (typeof raw === "number" && raw > 0) {
-      return { tierLimit: floorSafe(raw), rawContextLength: raw };
-    }
-  }
-  const rawHeuristic = heuristicRawContextLength(model);
-  return { tierLimit: floorSafe(rawHeuristic), rawContextLength: rawHeuristic };
-}

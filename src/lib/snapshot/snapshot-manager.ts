@@ -30,7 +30,6 @@ import * as path from "path";
 import { createHash } from "crypto";
 import { exec } from "dugite";
 import log from "electron-log";
-import { atlasDir } from "./workspace-hash";
 import { sanitizeLedgerDirSegment } from "@/lib/tasks/task-ledger";
 import { getUserDataPath } from "@/paths/paths";
 import {
@@ -46,11 +45,6 @@ const REF_PREFIX = "refs/atlarix/turns";
 const SNAPSHOT_RETENTION_DAYS = 14;
 /** Skip files larger than this — snapshots are for source files, not blobs. */
 const MAX_SNAPSHOT_FILE_BYTES = 5 * 1024 * 1024;
-
-// Legacy file-copy store (pre-v10) — read-only fallback for old turns.
-const LEGACY_SNAPSHOTS_SUBDIR = "snapshots";
-const LEGACY_MANIFEST = "manifest.json";
-const LEGACY_FILES_DIR = "files";
 
 export interface SnapshotManifest {
   /** Logical turn id (e.g. `plan:7`, SQLite message id); used for UI and ledger correlation. */
@@ -358,65 +352,8 @@ async function shadowRevert(
   return { success: true, restoredFiles: restored };
 }
 
-// ── Legacy file-copy fallback (turns captured before the shadow-git store) ──
-
-function legacyDecodeBakToRel(bakName: string): string {
-  const base = bakName.replace(/\.bak$/i, "");
-  return base.split("__").join("/");
-}
-
-function legacyEncodeRelToBak(rel: string): string {
-  return rel.split(/[/\\]/).filter(Boolean).join("__") + ".bak";
-}
-
-function legacyTurnRoot(workspacePath: string, turnId: string): string {
-  return path.join(
-    atlasDir(workspacePath),
-    LEGACY_SNAPSHOTS_SUBDIR,
-    sanitizeLedgerDirSegment(turnId),
-  );
-}
-
-async function legacyRevert(
-  workspacePath: string,
-  turnId: string,
-  filterPaths: string[] | null,
-): Promise<RevertSnapshotResult> {
-  const filesDir = path.join(legacyTurnRoot(workspacePath, turnId), LEGACY_FILES_DIR);
-  let restored = 0;
-  if (filterPaths == null) {
-    const names = await fs.readdir(filesDir).catch(() => [] as string[]);
-    for (const name of names) {
-      if (!name.endsWith(".bak")) continue;
-      const rel = legacyDecodeBakToRel(name);
-      try {
-        const buf = await fs.readFile(path.join(filesDir, name));
-        const abs = path.join(workspacePath, rel);
-        await fs.mkdir(path.dirname(abs), { recursive: true });
-        await fs.writeFile(abs, buf);
-        restored++;
-      } catch {
-        // skip
-      }
-    }
-  } else {
-    for (const relRaw of filterPaths) {
-      const rel = relRaw.split(path.sep).join("/");
-      try {
-        const buf = await fs.readFile(
-          path.join(filesDir, legacyEncodeRelToBak(rel)),
-        );
-        const abs = path.join(workspacePath, rel);
-        await fs.mkdir(path.dirname(abs), { recursive: true });
-        await fs.writeFile(abs, buf);
-        restored++;
-      } catch {
-        // no .bak for this path in this turn
-      }
-    }
-  }
-  return { success: true, restoredFiles: restored };
-}
+// v10.1: legacy pre-v10 `.bak` file-copy revert fallback removed — turns
+// captured before the shadow-git store can no longer be reverted.
 
 /** Restore all files captured for a turn. */
 export async function revertSnapshot(params: {
@@ -425,13 +362,9 @@ export async function revertSnapshot(params: {
 }): Promise<RevertSnapshotResult> {
   const { workspacePath, turnId } = params;
   return withWorkspaceLock(workspacePath, async () => {
-    try {
-      const shadow = await shadowRevert(workspacePath, turnId, null);
-      if (shadow) return shadow;
-    } catch (err) {
-      logger.warn(`shadow revert failed for ${turnId}, trying legacy:`, err);
-    }
-    return legacyRevert(workspacePath, turnId, null);
+    const shadow = await shadowRevert(workspacePath, turnId, null);
+    if (shadow) return shadow;
+    return { success: false, restoredFiles: 0 };
   });
 }
 
@@ -446,17 +379,13 @@ export async function revertSnapshotFiles(params: {
     return { success: true, restoredFiles: 0 };
   }
   return withWorkspaceLock(workspacePath, async () => {
-    try {
-      const shadow = await shadowRevert(workspacePath, turnId, relativePaths);
-      if (shadow) return shadow;
-    } catch (err) {
-      logger.warn(`shadow revert failed for ${turnId}, trying legacy:`, err);
-    }
-    return legacyRevert(workspacePath, turnId, relativePaths);
+    const shadow = await shadowRevert(workspacePath, turnId, relativePaths);
+    if (shadow) return shadow;
+    return { success: false, restoredFiles: 0 };
   });
 }
 
-/** True when a snapshot exists for this turn (shadow store or legacy dir). */
+/** True when a snapshot exists for this turn (shadow-git store). */
 export async function snapshotExists(
   workspacePath: string,
   turnId: string,
@@ -464,13 +393,7 @@ export async function snapshotExists(
   if (!workspacePath || !turnId) return false;
   const seg = sanitizeLedgerDirSegment(turnId);
   const manifest = await readManifest(shadowGitDir(workspacePath), seg);
-  if (manifest) return true;
-  try {
-    await fs.access(path.join(legacyTurnRoot(workspacePath, turnId), LEGACY_MANIFEST));
-    return true;
-  } catch {
-    return false;
-  }
+  return manifest != null;
 }
 
 // ── Retention ───────────────────────────────────────────────────────────────

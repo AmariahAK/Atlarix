@@ -167,35 +167,6 @@ export function attachConsoleDebugger(win: BrowserWindow): void {
 }
 
 /**
- * Detach debugger from a BrowserWindow
- */
-export function detachConsoleDebugger(win: BrowserWindow): void {
-    const webContents = win.webContents;
-
-    if (!attachedWebContents.has(webContents.id)) {
-        return;
-    }
-
-    try {
-        webContents.debugger.detach();
-        attachedWebContents.delete(webContents.id);
-        logger.log(`Debugger detached from webContents ${webContents.id}`);
-    } catch (err) {
-        logger.warn(`Failed to detach debugger: ${err}`);
-    }
-}
-
-/**
- * Attach debugger to all existing BrowserWindows
- */
-export function attachToAllWindows(): void {
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
-        attachConsoleDebugger(win);
-    }
-}
-
-/**
  * Clear browser console buffer via CDP
  * Call this after successful file operations to prevent stale errors from reappearing.
  * 

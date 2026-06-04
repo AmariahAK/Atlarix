@@ -149,13 +149,6 @@ export function getMonacoLanguageForPath(filePath: string): string {
   return getManifestEntryForPath(filePath)?.monacoId ?? "plaintext";
 }
 
-/** TextMate grammar bundle id (filename without .json) */
-export function getGrammarIdForPath(filePath: string): string | undefined {
-  const entry = getManifestEntryForPath(filePath);
-  if (!entry) return undefined;
-  return entry.grammarId ?? entry.monacoId;
-}
-
 /** @deprecated Use getMonacoLanguageForPath — kept for existing imports */
 export function getLanguage(filePath: string): string {
   return getMonacoLanguageForPath(filePath);

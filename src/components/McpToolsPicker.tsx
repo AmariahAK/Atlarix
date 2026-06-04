@@ -1,19 +1,5 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { Wrench } from "lucide-react";
 import { useMcp } from "@/hooks/useMcp";
 import {
   Select,
@@ -105,34 +91,3 @@ export function McpToolsPickerContent({ appId }: { appId?: number | null } = {})
   );
 }
 
-export function McpToolsPicker() {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className="has-[>svg]:px-2"
-                size="sm"
-                data-testid="mcp-tools-button"
-              >
-                <Wrench className="size-4" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Tools</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <PopoverContent
-        className="w-120 max-h-[80vh] overflow-y-auto p-0"
-        align="start"
-      >
-        <McpToolsPickerContent />
-      </PopoverContent>
-    </Popover>
-  );
-}

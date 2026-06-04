@@ -34,13 +34,6 @@ export function capTerminalLines<T extends { id: string }>(
   return lines.slice(-max);
 }
 
-/** @deprecated Use linesToModelText or linesToVisibleText */
-export function linesToTerminalPasteText(
-  lines: Pick<TerminalLine, "prefix" | "text" | "kind">[],
-): string {
-  return linesToModelText(lines);
-}
-
 export function commandBlockRangeAt(
   lines: TerminalLine[],
   promptIndex: number,

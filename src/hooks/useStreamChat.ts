@@ -143,10 +143,6 @@ function pushRing(buf: string[], lines: string[], max: number): string[] {
 }
 import { playNotify, playRemaining } from "@/lib/sounds";
 
-export function getRandomNumberId() {
-  return Math.floor(Math.random() * 1_000_000_000_000_000);
-}
-
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
 const MAX_RENDERER_MESSAGES = 100;
 function trimRendererMessages(msgs: Message[]): Message[] {
@@ -439,12 +435,20 @@ export function useStreamChat({
                   questionId: payload.questionId,
                   question: payload.question,
                   options: payload.options,
+                  questions: payload.questions,
                 },
               }));
+              // v10.1 fix: SET the freeze baseline to the current assistant
+              // content (it was deleted here, so the onUpdate freeze guard
+              // never engaged and speculative streaming leaked through while
+              // the question was pending). UserQuestionBar clears it on submit.
               setAskUserStreamFreezeBaselineByChatId((prev) => {
-                const next = { ...prev };
-                delete next[chatId];
-                return next;
+                const msgs =
+                  getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];
+                const lastAssistant = [...msgs]
+                  .reverse()
+                  .find((m) => m.role === "assistant");
+                return { ...prev, [chatId]: lastAssistant?.content ?? "" };
               });
             });
           },
@@ -790,6 +794,7 @@ export function useStreamChat({
               active: true,
               toolName: start.toolName,
               toolId: start.toolId ?? null,
+              toolArgs: start.toolArgs ?? null,
               phaseLabel: null,
               count: prev.count + 1,
               activeChatId: chatId,
@@ -858,6 +863,7 @@ export function useStreamChat({
                 active: newCount > 0,
                 count: newCount,
                 phaseLabel: newCount === 0 ? null : prev.phaseLabel,
+                toolArgs: newCount === 0 ? null : prev.toolArgs,
               };
             });
           },

@@ -99,6 +99,8 @@ export async function processStreamChunks({
   let stalled = false;
   let finishReason: string | undefined;
   let lastChunkAt = Date.now();
+  /** Tools currently executing locally (tool-call seen, tool-result pending). */
+  let toolExecutionInFlight = 0;
   let lastHeartbeatLogAt = Date.now();
   let loggedHallucinatedTag = false;
   const partCounts: Record<string, number> = {};
@@ -136,6 +138,14 @@ export async function processStreamChunks({
 
   const stallTimer = setInterval(() => {
     if (abortController.signal.aborted) return;
+    // v10.1: a locally-executing tool (sub-agent delegation, long run_command,
+    // ask_user waiting for the user) produces NO stream chunks by design — the
+    // model resumes only after the tool returns. Don't treat that as a stall;
+    // tools enforce their own timeouts.
+    if (toolExecutionInFlight > 0) {
+      lastChunkAt = Date.now();
+      return;
+    }
     const now = Date.now();
     const sinceChunk = now - lastChunkAt;
     if (sinceChunk >= stallTimeoutMs) {
@@ -156,12 +166,52 @@ export async function processStreamChunks({
         `[stream heartbeat] chat ${chatId} active — ${sinceChunk}ms since last chunk (parts: ${JSON.stringify(partCounts)})`,
       );
     }
-  }, HEARTBEAT_LOG_INTERVAL_MS);
+    // Tick at most every 15s, but never coarser than the stall timeout itself
+    // (tests inject small timeouts; production stays 45s checked every 15s).
+  }, Math.max(10, Math.min(stallTimeoutMs, HEARTBEAT_LOG_INTERVAL_MS)));
+
+  // v10.1: provider-executed search citations. Anthropic/Gemini native search
+  // emit `source` parts; Gemini grounding also surfaces via finish-step
+  // providerMetadata. Collected sources flush as one <atlarix-sources> tag at
+  // stream end — persisted in message content, so citations survive reload.
+  const collectedSources = new Map<string, { url: string; title: string }>();
+  const collectSource = (url: unknown, title: unknown) => {
+    if (typeof url !== "string" || !url.trim()) return;
+    if (!collectedSources.has(url)) {
+      collectedSources.set(url, {
+        url,
+        title: typeof title === "string" && title.trim() ? title : url,
+      });
+    }
+  };
 
   try {
     for await (const part of fullStream) {
       lastChunkAt = Date.now();
       partCounts[part.type] = (partCounts[part.type] ?? 0) + 1;
+
+      if (part.type === "source") {
+        const src = part as { sourceType?: string; url?: string; title?: string };
+        if (src.sourceType === "url") collectSource(src.url, src.title);
+      }
+
+      if (part.type === "tool-error") {
+        toolExecutionInFlight = Math.max(0, toolExecutionInFlight - 1);
+      }
+
+      if (part.type === "finish-step") {
+        // Safety: never let a missed tool-result keep the stall guard off.
+        toolExecutionInFlight = 0;
+        // Gemini grounding backup path: groundingChunks in providerMetadata.
+        const meta = (part as { providerMetadata?: Record<string, unknown> })
+          .providerMetadata;
+        const grounding = (meta?.google as
+          | { groundingMetadata?: { groundingChunks?: Array<{ web?: { uri?: string; title?: string } }> } }
+          | undefined)?.groundingMetadata;
+        for (const chunk of grounding?.groundingChunks ?? []) {
+          collectSource(chunk?.web?.uri, chunk?.web?.title);
+        }
+      }
 
       if (part.type === "finish") {
         finishReason =
@@ -242,6 +292,7 @@ export async function processStreamChunks({
       } else if (part.type === "tool-call") {
         pendingInputToolName = undefined;
         toolInputDeltaCount = 0;
+        toolExecutionInFlight += 1;
         markFirstModelActivity();
         const toolKey =
           typeof part.toolName === "string" ? part.toolName : "tool";
@@ -253,6 +304,7 @@ export async function processStreamChunks({
           chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
         }
       } else if (part.type === "tool-result") {
+        toolExecutionInFlight = Math.max(0, toolExecutionInFlight - 1);
         markFirstModelActivity();
         const toolKey =
           typeof part.toolName === "string" ? part.toolName : "tool";
@@ -311,6 +363,18 @@ export async function processStreamChunks({
     fullResponse += flushChunk;
     incrementalResponse += flushChunk;
     inThinkingBlock = false;
+    fullResponse = cleanFullResponse(fullResponse);
+    fullResponse = await processResponseChunkUpdate({ fullResponse });
+  }
+
+  // Flush provider-native search citations into message content (reload-stable).
+  if (!abortController.signal.aborted && collectedSources.size > 0) {
+    const payload = escapeAtlarixTags(
+      JSON.stringify(Array.from(collectedSources.values())),
+    );
+    const sourcesChunk = `\n<atlarix-sources>${payload}</atlarix-sources>\n`;
+    fullResponse += sourcesChunk;
+    incrementalResponse += sourcesChunk;
     fullResponse = cleanFullResponse(fullResponse);
     fullResponse = await processResponseChunkUpdate({ fullResponse });
   }

@@ -35,6 +35,28 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 
+/**
+ * Extract the latest cwd from shell escape sequences in a data chunk:
+ * OSC 7 (`\x1b]7;file://host/path\x07`, emitted by zsh/bash shell
+ * integration) and iTerm-style OSC 1337 `CurrentDir=`.
+ */
+function parseCwdFromChunk(data: string): string | null {
+  let cwd: string | null = null;
+  const osc7 = data.matchAll(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
+  for (const m of osc7) {
+    try {
+      cwd = decodeURIComponent(m[1]) || cwd;
+    } catch {
+      cwd = m[1] || cwd;
+    }
+  }
+  const osc1337 = data.matchAll(/\x1b\]1337;CurrentDir=([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
+  for (const m of osc1337) {
+    cwd = m[1] || cwd;
+  }
+  return cwd;
+}
+
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -78,6 +100,16 @@ export async function spawnPty(params: {
 
     pty.onData((data) => {
       broadcast("pty:data", { instanceId, data });
+      // Live cwd for the tab label (falls back to spawn cwd when the shell
+      // doesn't emit OSC 7 / 1337 sequences).
+      const nextCwd = parseCwdFromChunk(data);
+      if (nextCwd) {
+        const session = sessions.get(instanceId);
+        if (session && session.cwd !== nextCwd) {
+          session.cwd = nextCwd;
+          broadcast("pty:cwd", { instanceId, cwd: nextCwd });
+        }
+      }
     });
     pty.onExit(({ exitCode }) => {
       sessions.delete(instanceId);
@@ -126,17 +158,6 @@ export function killPty(instanceId: string): void {
     logger.log(`killed pty ${instanceId}`);
   } catch {
     // already dead
-  }
-}
-
-export function hasPty(instanceId: string): boolean {
-  return sessions.has(instanceId);
-}
-
-/** Kill every PTY for a terminal scope (workspace/chat close). */
-export function killPtysForScope(scopeKey: string): void {
-  for (const [id, session] of sessions) {
-    if (session.scopeKey === scopeKey) killPty(id);
   }
 }
 

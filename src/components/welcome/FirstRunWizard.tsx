@@ -34,6 +34,7 @@ import {
   KeyRound,
   Rocket,
   Settings as SettingsIcon,
+  Sparkles,
 } from "lucide-react";
 
 const TOTAL_STEPS = 4;
@@ -137,7 +138,7 @@ export function FirstRunWizard() {
   const selectedModel = settings?.selectedModel;
 
   const finish = useCallback(
-    async (navigateTo?: string) => {
+    async (navigateTo?: string, navigateSearch?: Record<string, string>) => {
       setOpen(false);
       try {
         await updateSettings({ firstRunWizardCompleted: true });
@@ -147,7 +148,9 @@ export function FirstRunWizard() {
       } catch {
         /* ignore */
       }
-      if (navigateTo) navigate({ to: navigateTo });
+      if (navigateTo) {
+        navigate({ to: navigateTo, ...(navigateSearch ? { search: navigateSearch } : {}) });
+      }
     },
     [updateSettings, navigate],
   );
@@ -261,6 +264,25 @@ export function FirstRunWizard() {
                 <SettingsIcon className="h-3.5 w-3.5" />
                 Open Settings → AI
               </Button>
+              <div className="rounded-md border border-border/60 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1">MCP marketplace</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => void finish("/settings/mcp", { tab: "marketplace" })}
+                  >
+                    Browse
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  One-click integrations (GitHub, Slack, search, …) per workspace.
+                  Marketplace installs are a Studio/Team feature — browsing is free.
+                </p>
+              </div>
             </div>
           </>
         ) : null}

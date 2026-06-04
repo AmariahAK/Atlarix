@@ -36,13 +36,6 @@ export interface AgentStats {
     totalTime: number;
 }
 
-export interface Message {
-    role: "system" | "user" | "assistant" | "tool";
-    content: string;
-    toolCalls?: any[];
-    toolCallId?: string;
-}
-
 // ═══════════════════════════════════════════════════════════
 // BASE PROVIDER CLASS
 // ═══════════════════════════════════════════════════════════

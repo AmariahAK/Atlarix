@@ -8,17 +8,12 @@
  * Tier 3: DDG Instant API - Default, always works
  */
 
-export { searchDDGInstant, clearDDGCache } from './duckduckgo';
+export { searchDDGInstant } from './duckduckgo';
 export {
     searchSearxng,
     searchPublicSearxng,
     getSearxngURL,
-    setSearxngURL,
     isSearxngEnabled,
-    setSearxngEnabled,
-    getRandomPublicInstance,
-    checkSearxngHealth,
-    clearSearxngCache,
     PUBLIC_SEARXNG_INSTANCES,
     stripSiteOperators,
 } from './searxng';

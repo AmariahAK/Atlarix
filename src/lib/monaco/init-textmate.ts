@@ -171,4 +171,4 @@ export async function initTextMateGrammars(): Promise<boolean> {
   }
 }
 
-export { getMonacoLanguageForPath, getGrammarIdForPath } from "./language-manifest";
+export { getMonacoLanguageForPath } from "./language-manifest";

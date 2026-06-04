@@ -11,10 +11,6 @@ export type SshConnectionState = {
 
 const sessions = new Map<string, SshConnectionState>();
 
-export function getSshSession(hostAlias: string): SshConnectionState | undefined {
-  return sessions.get(hostAlias);
-}
-
 export async function connectSshHost(hostAlias: string): Promise<SshConnectionState> {
   logger.log(`Connecting SSH host: ${hostAlias}`);
   const state: SshConnectionState = {

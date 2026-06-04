@@ -20,7 +20,7 @@ interface SourcePreviewPanelProps {
     activeTab: string;
 }
 
-export function SourcePreviewPanel({ data, activeTab }: SourcePreviewPanelProps) {
+function SourcePreviewPanel({ data, activeTab }: SourcePreviewPanelProps) {
     const [selectedSource, setSelectedSource] = useAtom(selectedSourceAtom);
     const sources = data?.sources || [];
     const timeline = data?.timeline || [];

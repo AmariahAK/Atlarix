@@ -50,13 +50,6 @@ export function recordAuxUsage(
   return tokens;
 }
 
-/** Read without clearing (for live meters). */
-export function readAuxUsage(chatId: number | null | undefined): AuxUsageTotals | null {
-  if (chatId == null) return null;
-  const bucket = buckets.get(chatId);
-  return bucket && bucket.totalTokens > 0 ? { ...bucket, byLabel: { ...bucket.byLabel } } : null;
-}
-
 /** Drain the bucket at stream end (returns null when nothing was recorded). */
 export function takeAuxUsage(chatId: number | null | undefined): AuxUsageTotals | null {
   if (chatId == null) return null;

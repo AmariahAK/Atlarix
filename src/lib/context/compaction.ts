@@ -9,7 +9,6 @@ import { generateText } from "ai";
 import { readSettings } from "../../main/settings";
 import { getModelClient } from "../../ipc/utils/get_model_client";
 import { getCompactionSummarizationModel } from "../summarization_model";
-import { getEffectiveBudget } from "../../ipc/utils/token_utils";
 import {
   CONTEXT_COMPACTION_SYSTEM,
   buildCompactionUserPromptPrefix,
@@ -24,7 +23,6 @@ const logger = log.scope("compaction");
 // OPENCODE-STYLE CONSTANTS
 // ═══════════════════════════════════════════════════════════════
 
-export const PRUNE_PROTECT_TOKENS = 40_000;
 export const PRUNE_MINIMUM_TOKENS = 20_000;
 const DEFAULT_TAIL_TURNS = 2;
 const COMPACTION_THRESHOLD = 0.75;
@@ -51,18 +49,6 @@ interface MessageForCompaction {
 // ═══════════════════════════════════════════════════════════════
 
 const DEFAULT_MODEL_CONTEXT_FALLBACK = 128_000;
-
-export function getUsableTokens(modelContextLength: number, maxOutputTokens: number = 4000): number {
-  const context = modelContextLength;
-  if (context === 0) return 0;
-  return Math.max(0, context - maxOutputTokens);
-}
-
-export async function getTierContextLimit(providerId?: string): Promise<number> {
-  const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
-  const { budget } = await getEffectiveBudget(pid);
-  return Math.floor(budget * MODEL_CONTEXT_SAFETY);
-}
 
 export function getTierContextLimitSync(providerId?: string): number {
   const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
@@ -331,14 +317,6 @@ async function summarizeMessages(
 
 export type CompactionStrategy = "none" | "pruned" | "stripped_media" | "summarized";
 
-export interface CompactionResult {
-  messages: MessageForCompaction[];
-  strategy: CompactionStrategy;
-  tokensFreed: number;
-  summaryText?: string;
-  hasCompactionMarker: boolean;
-}
-
 export interface RunSteppedCompactionResult {
   modelContext: MessageForCompaction[];
   strategy: CompactionStrategy;
@@ -475,70 +453,7 @@ export interface CompressContextParams {
   reason?: string;
 }
 
-export async function compressContext(
-  messages: MessageForCompaction[],
-  params: CompressContextParams,
-  _tierLimit: number,
-  _providerId?: string,
-): Promise<{ compressed: number; tokensSaved: number; summary: string }> {
-  let toCompress: MessageForCompaction[] = [];
-
-  if (params.scope === "completed_tasks") {
-    const allTurns = turns(messages);
-    if (allTurns.length > 2) {
-      const completedTurns = allTurns.slice(0, -2);
-      const completedIds = new Set<number>();
-      for (const turn of completedTurns) {
-        for (let i = turn.start; i < turn.end; i++) {
-          completedIds.add(messages[i]!.id);
-        }
-      }
-      toCompress = messages.filter((m) => completedIds.has(m.id));
-    }
-  } else if (params.scope === "old_tool_outputs") {
-    toCompress = messages.filter((m) => {
-      if (m.role !== "assistant") return false;
-      return contentLooksLikeToolResult(m.content);
-    });
-  } else {
-    const allTurns = turns(messages);
-    if (allTurns.length > 3) {
-      const oldTurns = allTurns.slice(0, -3);
-      const oldIds = new Set<number>();
-      for (const turn of oldTurns) {
-        for (let i = turn.start; i < turn.end; i++) {
-          oldIds.add(messages[i]!.id);
-        }
-      }
-      toCompress = messages.filter((m) => oldIds.has(m.id));
-    }
-  }
-
-  if (toCompress.length === 0) {
-    return { compressed: 0, tokensSaved: 0, summary: "No messages matched scope" };
-  }
-
-  const originalTokens = exactTokenCount(toCompress.map(m => ({ role: m.role, content: m.content })));
-  const summary = await summarizeMessages(toCompress);
-
-  if (!summary) {
-    return { compressed: 0, tokensSaved: 0, summary: "Summarization failed" };
-  }
-
-  return {
-    compressed: toCompress.length,
-    tokensSaved: originalTokens,
-    summary,
-  };
-}
-
 // ═══════════════════════════════════════════════════════════════
 // UI SEPARATOR
 // ═══════════════════════════════════════════════════════════════
 
-export function getCompactionSeparator(tokensFreed: number, strategy: CompactionStrategy): string {
-  const strategyText = strategy === "summarized" ? "compacted" :
-                        strategy === "stripped_media" ? "media removed" :
-                        strategy === "pruned" ? "tool output pruned" : "trimmed";
-  return `── Context ${strategyText} · ${tokensFreed.toLocaleString()} tokens freed ──`;
-}

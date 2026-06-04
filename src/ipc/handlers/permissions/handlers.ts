@@ -112,21 +112,6 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
     );
 }
 
-/**
- * Get the interceptor for a chat session
- */
-export function getInterceptor(chatId: number): PermissionInterceptor | undefined {
-    return activeInterceptors.get(chatId);
-}
-
-/**
- * Clear the interceptor for a chat session
- */
-export function clearInterceptor(chatId: number): void {
-    activeInterceptors.delete(chatId);
-    logger.log(`Cleared permission interceptor for chat ${chatId}`);
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // IPC HANDLERS
 // ════════════════════════════════════════════════════════════════════════════

@@ -134,23 +134,34 @@ export function McpMarketplaceTab({
     return ["all", ...Array.from(set).sort()];
   }, [registry]);
 
+  // Curated categories from the registry (optional field) — UI degrades to tags only.
+  const allCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of registry?.mcps ?? []) {
+      if (m.category?.trim()) set.add(m.category.trim());
+    }
+    return Array.from(set).sort();
+  }, [registry]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
   const filtered = useMemo(() => {
     if (!registry) return [];
     const q = search.trim().toLowerCase();
     return registry.mcps.filter((m) => {
       if (m.tier === "workforce" && tier !== "workforce") return false;
       if (tagFilter !== "all" && !(m.tags ?? []).includes(tagFilter)) return false;
+      if (categoryFilter !== "all" && m.category?.trim() !== categoryFilter) return false;
       if (!q) return true;
-      const haystack = [m.name, m.description, m.id, ...(m.tags ?? [])]
+      const haystack = [m.name, m.description, m.id, m.category ?? "", ...(m.tags ?? [])]
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [registry, search, tagFilter, tier]);
+  }, [registry, search, tagFilter, categoryFilter, tier]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, tagFilter]);
+  }, [search, tagFilter, categoryFilter]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -162,53 +173,64 @@ export function McpMarketplaceTab({
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page, totalPages]);
 
-  const onConnect = useCallback((entry: McpRegistryEntry) => {
-    if (entry.authType === "oauth") {
-      setInstallDialog({ entry, env: {} });
-      return;
-    }
-    const initialEnv: Record<string, string> = {};
-    for (const v of entry.envVars ?? []) initialEnv[v.key] = "";
-    setInstallDialog({ entry, env: initialEnv });
-  }, []);
+  const installEntry = useCallback(
+    async (entry: McpRegistryEntry, env: Record<string, string>) => {
+      setInstalling(true);
+      try {
+        const res = await ipc.installMcpFromRegistry({
+          entry,
+          env,
+          scope: "workspace",
+          appId: workspaceId,
+        });
+        if (!res.success) {
+          setFetchError(res.error ?? "Install failed");
+          return;
+        }
+        setInstallDialog(null);
+        await refreshInstalled();
+        onChanged?.();
+        if (res.needsOAuth && res.serverId != null) {
+          try {
+            await ipc.startMcpOAuth({
+              serverId: res.serverId,
+              scopes: entry.oauthScopes,
+            });
+            showSuccess(`Opening browser to sign in to ${entry.name}…`);
+          } catch (e) {
+            setFetchError(
+              e instanceof Error ? e.message : "Failed to start OAuth sign-in",
+            );
+          }
+        } else {
+          showSuccess(`Connected ${entry.name}`);
+        }
+      } finally {
+        setInstalling(false);
+      }
+    },
+    [ipc, refreshInstalled, onChanged, workspaceId],
+  );
+
+  const onConnect = useCallback(
+    (entry: McpRegistryEntry) => {
+      // True one-click for OAuth servers: no env vars to collect, so skip the
+      // dialog and go straight to install + browser sign-in.
+      if (entry.authType === "oauth") {
+        void installEntry(entry, {});
+        return;
+      }
+      const initialEnv: Record<string, string> = {};
+      for (const v of entry.envVars ?? []) initialEnv[v.key] = "";
+      setInstallDialog({ entry, env: initialEnv });
+    },
+    [installEntry],
+  );
 
   const onSubmitInstall = useCallback(async () => {
     if (!installDialog) return;
-    setInstalling(true);
-    try {
-      const { entry, env } = installDialog;
-      const res = await ipc.installMcpFromRegistry({
-        entry,
-        env,
-        scope: "workspace",
-        appId: workspaceId,
-      });
-      if (!res.success) {
-        setFetchError(res.error ?? "Install failed");
-        return;
-      }
-      setInstallDialog(null);
-      await refreshInstalled();
-      onChanged?.();
-      if (res.needsOAuth && res.serverId != null) {
-        try {
-          await ipc.startMcpOAuth({
-            serverId: res.serverId,
-            scopes: entry.oauthScopes,
-          });
-          showSuccess(`Opening browser to sign in to ${entry.name}…`);
-        } catch (e) {
-          setFetchError(
-            e instanceof Error ? e.message : "Failed to start OAuth sign-in",
-          );
-        }
-      } else {
-        showSuccess(`Connected ${entry.name}`);
-      }
-    } finally {
-      setInstalling(false);
-    }
-  }, [installDialog, ipc, refreshInstalled, onChanged, workspaceId]);
+    await installEntry(installDialog.entry, installDialog.env);
+  }, [installDialog, installEntry]);
 
   const onDisconnect = useCallback(
     async (entryId: string, installList: InstalledIndexEntry[]) => {
@@ -253,6 +275,21 @@ export function McpMarketplaceTab({
             className="pl-8"
           />
         </div>
+        {allCategories.length > 0 && (
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {allCategories.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={tagFilter} onValueChange={setTagFilter}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter by tag" />
@@ -350,11 +387,21 @@ export function McpMarketplaceTab({
                   </a>
                 </div>
                 <div className="flex items-center flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  {entry.category?.trim() && (
+                    <span className="rounded bg-primary/10 text-primary px-1.5 py-0.5">
+                      {entry.category}
+                    </span>
+                  )}
                   {(entry.tags ?? []).map((t) => (
                     <span key={t} className="rounded bg-muted/60 px-1.5 py-0.5">
                       {t}
                     </span>
                   ))}
+                  {typeof entry.installs === "number" && entry.installs > 0 && (
+                    <span className="ml-auto">
+                      {entry.installs.toLocaleString()} installs
+                    </span>
+                  )}
                 </div>
                 <div className="mt-1">
                   {isInstalled ? (
@@ -374,9 +421,15 @@ export function McpMarketplaceTab({
                       size="sm"
                       className="w-full"
                       onClick={() => onConnect(entry)}
-                      disabled={workspaceCount >= MAX_WORKSPACE_MCP}
+                      disabled={workspaceCount >= MAX_WORKSPACE_MCP || installing}
                     >
-                      {workspaceCount >= MAX_WORKSPACE_MCP ? "Capacity reached" : "Connect"}
+                      {workspaceCount >= MAX_WORKSPACE_MCP
+                        ? "Capacity reached"
+                        : installing
+                          ? "Connecting…"
+                          : entry.authType === "oauth"
+                            ? "Connect & sign in"
+                            : "Connect"}
                     </Button>
                   )}
                 </div>

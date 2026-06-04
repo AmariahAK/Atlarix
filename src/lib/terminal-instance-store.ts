@@ -3,6 +3,8 @@
  */
 
 import { randomUUID } from "crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { BrowserWindow } from "electron";
 import type { TerminalInstance, TerminalLine } from "@/atoms/terminalInstancesAtoms";
 import { terminalScopeKey } from "@/atoms/terminalInstancesAtoms";
@@ -12,6 +14,7 @@ import {
 } from "@/lib/terminal-instances";
 import { capTerminalLines } from "@/lib/chat/terminal-line-buffer";
 import { linesToModelText } from "@/lib/chat/terminal-line-format";
+import { getUserDataPath } from "@/paths/paths";
 
 export const MAX_AGENT_TERMINALS_PER_SCOPE = 3;
 
@@ -22,6 +25,54 @@ export type TerminalScopeState = {
 };
 
 const scopes = new Map<string, TerminalScopeState>();
+
+// ── Disk persistence (v10.1) ─────────────────────────────────────────────
+// Tabs + line buffers survive app restarts; PTY scrollback is persisted
+// separately per instance (see pty_handlers scrollback channels).
+
+function persistFile(): string {
+  return path.join(getUserDataPath(), "terminal-scopes.json");
+}
+
+let loadedFromDisk = false;
+let persistTimer: NodeJS.Timeout | null = null;
+
+function ensureLoadedFromDisk(): void {
+  if (loadedFromDisk) return;
+  loadedFromDisk = true;
+  try {
+    const raw = fs.readFileSync(persistFile(), "utf8");
+    const data = JSON.parse(raw) as Record<string, TerminalScopeState>;
+    for (const [key, state] of Object.entries(data)) {
+      if (scopes.has(key)) continue; // never clobber live state
+      if (!state || !Array.isArray(state.instances)) continue;
+      scopes.set(key, {
+        instances: state.instances.map((i) => ({
+          ...i,
+          lines: capTerminalLines(Array.isArray(i.lines) ? i.lines : []),
+        })),
+        activeInstanceId: state.activeInstanceId ?? null,
+        agentOpMap: state.agentOpMap ?? {},
+      });
+    }
+  } catch {
+    // first run / corrupt file — start fresh
+  }
+}
+
+function schedulePersist(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const file = persistFile();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(Object.fromEntries(scopes)));
+    } catch {
+      // best-effort persistence
+    }
+  }, 800);
+}
 
 function emptyScope(): TerminalScopeState {
   return { instances: [], activeInstanceId: null, agentOpMap: {} };
@@ -39,6 +90,7 @@ function cloneScope(state: TerminalScopeState): TerminalScopeState {
 }
 
 function getScope(scopeKey: string): TerminalScopeState {
+  ensureLoadedFromDisk();
   let state = scopes.get(scopeKey);
   if (!state) {
     state = emptyScope();
@@ -61,6 +113,7 @@ export function resolveScopeKey(
 }
 
 export function getTerminalScopeState(scopeKey: string): TerminalScopeState {
+  ensureLoadedFromDisk();
   const state = scopes.get(scopeKey);
   return state ? cloneScope(state) : emptyScope();
 }
@@ -69,6 +122,7 @@ export function setTerminalScopeState(
   scopeKey: string,
   state: TerminalScopeState,
 ): void {
+  ensureLoadedFromDisk();
   const capped: TerminalScopeState = {
     ...state,
     instances: state.instances.map((i) => ({
@@ -77,10 +131,13 @@ export function setTerminalScopeState(
     })),
   };
   scopes.set(scopeKey, cloneScope(capped));
+  schedulePersist();
 }
 
 export function clearAllTerminalScopes(): void {
+  ensureLoadedFromDisk();
   scopes.clear();
+  schedulePersist();
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send("terminal-instances:cleared", {});
   }
@@ -167,6 +224,7 @@ export function openTerminalInstance(
     scope.agentOpMap[opts.operationId] = id;
   }
   scope.activeInstanceId = id;
+  schedulePersist();
   broadcastScope(scopeKey);
   return { success: true as const, instanceId: id, created: true, label };
 }
@@ -192,6 +250,7 @@ export function closeTerminalInstance(scopeKey: string, instanceId: string) {
   if (scope.activeInstanceId === instanceId) {
     scope.activeInstanceId = scope.instances[0]?.id ?? null;
   }
+  schedulePersist();
   broadcastScope(scopeKey);
   return { success: true as const, instanceId };
 }
@@ -209,5 +268,6 @@ export function appendTerminalInstanceLines(
     ...inst,
     lines: capTerminalLines([...inst.lines, ...lines]),
   };
+  schedulePersist();
   broadcastScope(scopeKey);
 }

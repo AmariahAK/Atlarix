@@ -42,10 +42,6 @@ export function invalidateSymbolIndex(projectPath: string): void {
   inflightByPath.delete(projectPath);
 }
 
-export function markSymbolIndexDirty(projectPath: string): void {
-  dirtyPaths.add(projectPath);
-}
-
 function normalizeRelPath(relFile: string): string {
   return relFile.replace(/\\/g, "/").replace(/^\//, "");
 }
@@ -145,9 +141,36 @@ async function runCtags(
   return { symbols, ctagsVersion };
 }
 
+/** Stat mtimeMs for every ctags-eligible file (bounded concurrency). */
+async function collectFileMtimes(
+  projectPath: string,
+  relFiles: string[],
+): Promise<Record<string, number>> {
+  const eligible = relFiles.filter((f) =>
+    CTAGS_EXTENSIONS.has(path.extname(f).toLowerCase()),
+  );
+  const out: Record<string, number> = {};
+  const CONCURRENCY = 64;
+  for (let i = 0; i < eligible.length; i += CONCURRENCY) {
+    const batch = eligible.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(async (f) => {
+        try {
+          const st = await fs.stat(path.join(projectPath, f));
+          out[normalizeRelPath(f)] = st.mtimeMs;
+        } catch {
+          /* unreadable — treat as absent */
+        }
+      }),
+    );
+  }
+  return out;
+}
+
 export async function ensureSymbolIndex(projectPath: string): Promise<SymbolIndexCache> {
   const normPath = path.resolve(projectPath);
 
+  let staleDisk: SymbolIndexCache | null = null;
   if (!dirtyPaths.has(normPath)) {
     const mem = memoryByPath.get(normPath);
     if (mem) return mem;
@@ -156,6 +179,9 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
       memoryByPath.set(normPath, disk);
       return disk;
     }
+    staleDisk = disk;
+  } else {
+    staleDisk = await loadDiskCache(normPath);
   }
 
   const existing = inflightByPath.get(normPath);
@@ -179,7 +205,52 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     if (!allResolvable) {
       files = getFilesRecursively(normPath, normPath).map((f) => f.replace(/\\/g, "/"));
     }
-    const { symbols, ctagsVersion } = await runCtags(normPath, files);
+
+    // v10.1: content-change diffing — when a prior cache carries per-file
+    // mtimes, only re-tag changed/added files and drop deleted ones instead
+    // of re-running ctags across the whole repo on every commit change.
+    const fileMtimes = await collectFileMtimes(normPath, files);
+    const prior = staleDisk?.manifest.fileMtimes ? staleDisk : null;
+    let symbols: SymbolRecord[];
+    let ctagsVersion: string | undefined;
+    if (prior) {
+      const priorMtimes = prior.manifest.fileMtimes!;
+      const changed = Object.keys(fileMtimes).filter(
+        (f) => priorMtimes[f] !== fileMtimes[f],
+      );
+      const removed = new Set(
+        Object.keys(priorMtimes).filter((f) => !(f in fileMtimes)),
+      );
+      const incrementalWorthIt =
+        changed.length <= Math.max(50, Object.keys(fileMtimes).length * 0.5);
+      if (incrementalWorthIt) {
+        const result = changed.length > 0
+          ? await runCtags(normPath, changed)
+          : { symbols: [] as SymbolRecord[], ctagsVersion: prior.manifest.ctagsVersion };
+        ctagsVersion = result.ctagsVersion ?? prior.manifest.ctagsVersion;
+        const changedSet = new Set(changed.map(normalizeRelPath));
+        symbols = [
+          ...prior.symbols.filter((s) => {
+            const p = normalizeRelPath(s.path);
+            return !changedSet.has(p) && !removed.has(p);
+          }),
+          ...result.symbols,
+        ];
+        logger.info("ensureSymbolIndex: incremental refresh", {
+          projectPath: normPath,
+          changed: changed.length,
+          removed: removed.size,
+        });
+      } else {
+        const result = await runCtags(normPath, files);
+        symbols = result.symbols;
+        ctagsVersion = result.ctagsVersion;
+      }
+    } else {
+      const result = await runCtags(normPath, files);
+      symbols = result.symbols;
+      ctagsVersion = result.ctagsVersion;
+    }
 
     let commitHash: string | null = null;
     try {
@@ -197,6 +268,7 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
         commitHash,
         ctagsVersion,
         engine: "ctags",
+        fileMtimes,
       },
       symbols,
     };
@@ -273,10 +345,12 @@ export async function updateSymbolIndexForFile(
     } satisfies SymbolIndexCache);
 
   let newFileSymbols: SymbolRecord[] = [];
+  let touchedMtime: number | null = null;
   const ext = path.extname(normRel).toLowerCase();
   if (CTAGS_EXTENSIONS.has(ext)) {
     try {
-      await fs.access(path.join(normPath, normRel));
+      const st = await fs.stat(path.join(normPath, normRel));
+      touchedMtime = st.mtimeMs;
       const { symbols, ctagsVersion } = await runCtags(normPath, [normRel]);
       newFileSymbols = symbols;
       if (ctagsVersion) cache.manifest.ctagsVersion = ctagsVersion;
@@ -300,6 +374,14 @@ export async function updateSymbolIndexForFile(
   };
   cache.manifest.symbolCount = cache.symbols.length;
   cache.manifest.fileCount = new Set(cache.symbols.map((s) => normalizeRelPath(s.path))).size;
+  // Keep the mtime ledger coherent for the next incremental refresh.
+  if (cache.manifest.fileMtimes) {
+    if (touchedMtime != null) {
+      cache.manifest.fileMtimes[normRel] = touchedMtime;
+    } else {
+      delete cache.manifest.fileMtimes[normRel];
+    }
+  }
 
   try {
     cache.manifest.commitHash = await getCurrentCommitHash({ path: normPath });

@@ -9,7 +9,10 @@ import {
   sourcesByAssistantMessageIdAtom,
   streamThreadByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { extractSourcesFromMessageParts } from "@/lib/chat/citation-sources";
+import {
+  extractInlineSourcesFromContent,
+  extractSourcesFromMessageParts,
+} from "@/lib/chat/citation-sources";
 import {
   activityStreamItemsAtom,
   type SourceItem,
@@ -249,8 +252,14 @@ export function AssistantMessageBody({
       const stored = sourcesByMessage[assistantMessageId];
       if (stored?.length) return stored;
     }
-    return extractSourcesFromMessageParts(parts);
-  }, [assistantMessageId, sourcesByMessage, parts]);
+    // Tool-result sources (client web_search) + provider-native search sources
+    // persisted in content as <atlarix-sources> (v10.1), deduped by URL.
+    const fromParts = extractSourcesFromMessageParts(parts);
+    const inline = extractInlineSourcesFromContent(content);
+    if (inline.length === 0) return fromParts;
+    const seen = new Set(fromParts.map((s) => s.url));
+    return [...fromParts, ...inline.filter((s) => !seen.has(s.url))];
+  }, [assistantMessageId, sourcesByMessage, parts, content]);
 
   const interleavedParts = useMemo(
     () => filterDelegateToolParts(parts, suppressDelegateTools),

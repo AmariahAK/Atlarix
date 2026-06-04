@@ -19,7 +19,7 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
-import { UserQuestionBar } from "@/components/chat/UserQuestionBar";
+import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
-import { ToolIndicator } from "@/components/chat/ToolIndicator";
+import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { SlowStreamWarningBar } from "@/components/chat/SlowStreamWarningBar";
 
 interface SimpleInlineChatProps {
@@ -208,6 +208,10 @@ export function SimpleInlineChat({
                                 chatId={chatId}
                                 workspaceAppId={chatAppId}
                                 isStreaming={isStreaming && index === visibleMessages.length - 1}
+                                isLatestAssistant={
+                                    message.role === "assistant" &&
+                                    index === visibleMessages.length - 1
+                                }
                                 onEditUserMessage={handleEditUserMessage}
                             />
                         </div>
@@ -217,27 +221,24 @@ export function SimpleInlineChat({
                 {isStreaming && visibleMessages.length > 0 &&
                     visibleMessages[visibleMessages.length - 1].role === "user" && (
                         <div className="flex justify-start">
-                            <div className="bg-muted rounded-lg p-4">
-                                <div className="flex space-x-2">
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                                </div>
+                            <div className="bg-muted rounded-lg px-4 py-2">
+                                <InlineStreamStatus chatId={chatId} active />
                             </div>
                         </div>
                     )}
+
+                {/* ask_user: inline question card under the current response (stream stays paused). */}
+                <InlineUserQuestions chatId={chatId} />
 
                 <div ref={messagesEndRef} />
             </div>
 
             <div className="flex-shrink-0 px-4 pb-2 space-y-2">
-                <ToolIndicator forChatId={chatId} />
                 <SlowStreamWarningBar
                     chatId={chatId}
                     isStreaming={isStreaming}
                     requireBuildMode={false}
                 />
-                <UserQuestionBar chatId={chatId} />
             </div>
 
             <SimpleChatInput

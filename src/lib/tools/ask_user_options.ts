@@ -85,6 +85,44 @@ function capAskUserOptions(options: string[]): string[] {
   return options.slice(0, ASK_USER_MAX_OPTIONS);
 }
 
+export type AskUserQuestion = { question: string; options?: string[] };
+
+/** Hard cap on questions per ask_user call. */
+export const ASK_USER_MAX_QUESTIONS = 5;
+
+/**
+ * v10.1: normalize ask_user args into one or more questions. Supports the
+ * multi-question form (`questions: [{question, options?}, …]`) alongside the
+ * legacy single `question` + `options`. Streaming pauses until the user
+ * answers ALL of them.
+ */
+export function normalizeAskUserQuestions(
+  args: Record<string, unknown>,
+): AskUserQuestion[] {
+  const rawQuestions = args.questions;
+  if (Array.isArray(rawQuestions) && rawQuestions.length > 0) {
+    const out: AskUserQuestion[] = [];
+    for (const item of rawQuestions) {
+      if (typeof item === "string") {
+        const norm = normalizeAskUserPayload({ question: item });
+        if (norm.question.trim()) out.push(norm);
+        continue;
+      }
+      if (item && typeof item === "object") {
+        const rec = item as Record<string, unknown>;
+        const norm = normalizeAskUserPayload({
+          question: rec.question ?? rec.text ?? "",
+          options: rec.options ?? rec.choices,
+        });
+        if (norm.question.trim()) out.push(norm);
+      }
+    }
+    if (out.length > 0) return out.slice(0, ASK_USER_MAX_QUESTIONS);
+  }
+  const single = normalizeAskUserPayload(args);
+  return single.question.trim() ? [single] : [];
+}
+
 export function normalizeAskUserPayload(args: Record<string, unknown>): {
   question: string;
   options?: string[];

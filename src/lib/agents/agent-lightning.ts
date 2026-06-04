@@ -43,17 +43,3 @@ export async function recordTrace(
   }
 }
 
-/**
- * Entry point for manual or scheduled training run.
- * v2.1: Minimal - no optimization yet; just a placeholder.
- */
-export async function runAgentLightningTraining(_workspacePath: string): Promise<{
-  success: boolean;
-  message: string;
-}> {
-  logger.info("Agent Lightning training run (placeholder)");
-  return {
-    success: true,
-    message: "Agent Lightning training not yet implemented. Trace collection is active when enabled in settings.",
-  };
-}

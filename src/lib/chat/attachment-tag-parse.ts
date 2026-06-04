@@ -110,6 +110,3 @@ export function findAttachmentTagsInContent(content: string): ParsedAttachmentTa
   return results;
 }
 
-export function isAttachmentTagName(tag: string): tag is ParsedAttachmentTag["tag"] {
-  return (ATTACHMENT_TAG_NAMES as readonly string[]).includes(tag);
-}

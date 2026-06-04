@@ -72,13 +72,6 @@ export function findCatalogEntryByInternalTierId(
   return catalog.find((e) => e.internalTierId === internalTierId);
 }
 
-export function findCatalogEntryBySlot(
-  catalog: AtlarixCoreTierPresentation[],
-  slot: AtlarixCoreTierSlot,
-): AtlarixCoreTierPresentation | undefined {
-  return catalog.find((e) => e.slot === slot);
-}
-
 /** Identity + prompts: resolve compass tier id to display line. */
 export function resolveAtlarixCoreIdentity(
   internalTierId: string,

@@ -1,4 +1,3 @@
-import { LanguageModel } from "../ipc_types";
 
 /** Providers that support extended thinking/reasoning modes */
 export const PROVIDERS_THAT_SUPPORT_THINKING: string[] = [
@@ -11,32 +10,6 @@ export const PROVIDERS_THAT_SUPPORT_THINKING: string[] = [
  * Model lists are now fetched dynamically from models.dev (OpenCode-style).
  * See lib/models_dev.ts and language_model_helpers.ts
  */
-
-export const TURBO_MODELS: LanguageModel[] = [
-  {
-    apiName: "glm-4.6:turbo",
-    displayName: "GLM 4.6",
-    description: "Strong coding model (very fast)",
-    maxOutputTokens: 32_000,
-    contextWindow: 131_000,
-    temperature: 0,
-    dollarSigns: 3,
-    type: "cloud",
-  },
-  {
-    apiName: "kimi-k2:turbo",
-    displayName: "Kimi K2",
-    description: "Kimi 0905 update (fast)",
-    maxOutputTokens: 16_000,
-    contextWindow: 256_000,
-    temperature: 0,
-    dollarSigns: 2,
-    type: "cloud",
-  },
-];
-
-// No longer needed since models are fetched dynamically
-export const FREE_OPENROUTER_MODEL_NAMES: string[] = [];
 
 export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   openai: "OPENAI_API_KEY",

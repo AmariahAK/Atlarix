@@ -39,10 +39,6 @@ export interface GitLogParams extends GitBaseParams {
   depth?: number;
 }
 
-export interface GitResult {
-  success: boolean;
-  error?: string;
-}
 export interface GitPushParams extends GitBaseParams {
   branch: string;
   accessToken: string;

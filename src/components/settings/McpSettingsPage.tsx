@@ -7,7 +7,7 @@ import { useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Folder, Sparkles } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
+import { useRouter, useSearch } from "@tanstack/react-router";
 import {
   Tabs,
   TabsList,
@@ -35,7 +35,11 @@ export function McpSettingsPage() {
   const queryClient = useQueryClient();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
-  const [activeTab, setActiveTab] = useState<"active" | "marketplace">("active");
+  // Deep link: /settings/mcp?tab=marketplace (first-run wizard CTA).
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
+    search?.tab === "marketplace" ? "marketplace" : "active",
+  );
 
   const workspaceName = workspaceInfo?.name ?? "Workspace";
   const workspacePath = workspaceInfo?.path ?? "";

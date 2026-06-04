@@ -254,4 +254,3 @@ export function formatPrioritySkillsForPrompt(
   return parts.join("\n").trim();
 }
 
-export const PRIORITY_SKILLS_DIR_REL = SKILLS_DIR_REL;

@@ -42,10 +42,6 @@ async function resolveFirejailPath(customPath?: string): Promise<string | null> 
   return cachedFirejailPath;
 }
 
-export function invalidateFirejailPathCache(): void {
-  cachedFirejailPath = undefined;
-}
-
 export function buildFirejailArgs(settings: UserSettings): string[] {
   const opts = settings.mcpStdioFirejail;
   const args = [

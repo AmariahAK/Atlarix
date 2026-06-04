@@ -184,62 +184,6 @@ export function isSearxngEnabled(): boolean {
 }
 
 /**
- * Set SearxNG URL in localStorage
- */
-export function setSearxngURL(url: string): void {
-    if (typeof window !== 'undefined') {
-        localStorage.setItem(SEARXNG_URL_KEY, url);
-    }
-}
-
-/**
- * Set SearxNG enabled state
- */
-export function setSearxngEnabled(enabled: boolean): void {
-    if (typeof window !== 'undefined') {
-        localStorage.setItem(SEARXNG_ENABLED_KEY, String(enabled));
-    }
-}
-
-/**
- * Get a random public instance
- */
-export function getRandomPublicInstance(): string {
-    const index = Math.floor(Math.random() * PUBLIC_SEARXNG_INSTANCES.length);
-    return PUBLIC_SEARXNG_INSTANCES[index];
-}
-
-/**
- * Check if a SearxNG instance is healthy
- * Uses a simple search request instead of /config (which may have CORS issues)
- */
-export async function checkSearxngHealth(url: string): Promise<boolean> {
-    try {
-        // Use search endpoint with a simple test query
-        const response = await fetch(`${url}/search?q=test&format=json`, {
-            signal: AbortSignal.timeout(8000),
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            console.log('[SearxNG] Health check failed:', response.status);
-            return false;
-        }
-
-        // Verify we got valid JSON with results array
-        const data = await response.json();
-        const isValid = data && Array.isArray(data.results);
-        console.log('[SearxNG] Health check:', isValid ? 'OK' : 'Invalid response');
-        return isValid;
-    } catch (e) {
-        console.error('[SearxNG] Health check error:', e);
-        return false;
-    }
-}
-
-/**
  * Search using SearxNG
  * @param query Search query
  * @param url SearxNG instance URL (or uses env var / public instance)
@@ -377,10 +321,3 @@ export async function searchPublicSearxng(
     return [];
 }
 
-/**
- * Clear the SearxNG cache
- */
-export function clearSearxngCache(): void {
-    cache.clear();
-    console.log('[SearxNG] Cache cleared');
-}

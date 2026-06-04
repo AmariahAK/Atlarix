@@ -30,8 +30,6 @@ export function isAstGrepSupportedPath(filePath: string): boolean {
   return ext in EXT_TO_LANG;
 }
 
-export const AST_GREP_EXTENSIONS = Object.keys(EXT_TO_LANG);
-
 export function isDynamicAstGrepLang(lang: NapiLang): boolean {
   return lang === LANG_PYTHON || lang === LANG_GO;
 }

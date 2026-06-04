@@ -896,6 +896,28 @@ export class IpcClient {
     return () => this.ipcRenderer.removeListener("pty:exit", listener);
   }
 
+  /** Live cwd updates from shell OSC 7 / 1337 sequences (tab labels). */
+  public onPtyCwd(
+    handler: (payload: { instanceId: string; cwd: string }) => void,
+  ): () => void {
+    const listener = (payload: unknown) =>
+      handler(payload as { instanceId: string; cwd: string });
+    this.ipcRenderer.on("pty:cwd", listener);
+    return () => this.ipcRenderer.removeListener("pty:cwd", listener);
+  }
+
+  /** Persist serialized xterm scrollback so it survives app restarts. */
+  public async savePtyScrollback(instanceId: string, data: string): Promise<void> {
+    await this.ipcRenderer.invoke("pty:scrollback:save", { instanceId, data });
+  }
+
+  public async loadPtyScrollback(instanceId: string): Promise<string | null> {
+    const result = (await this.ipcRenderer.invoke("pty:scrollback:load", {
+      instanceId,
+    })) as { data: string | null };
+    return result?.data ?? null;
+  }
+
   public activatePlanArtifact(
     payload: import("./utils/emit_plan_artifact").PlanArtifactPayload,
   ): void {
@@ -2546,6 +2568,8 @@ export class IpcClient {
       questionId: string;
       question: string;
       options?: string[];
+      /** v10.1: batched questions — all answered before the stream resumes. */
+      questions?: Array<{ question: string; options?: string[] }>;
     }) => void,
   ): () => void {
     this.userQuestionHandlers.set(chatId, handler);
@@ -3378,23 +3402,6 @@ export class IpcClient {
     table: string
   ): Promise<{ rows?: unknown[]; error?: string }> {
     return this.ipcRenderer.invoke("db:get-table-data", { workspaceId, table });
-  }
-
-  // PASS6: PIVOT analysis + Blueprint snapshot/codegen/listener methods restored.
-  /** Run PIVOT analysis (SonarQube, Semgrep, SCIP) for workspace. */
-  public async runPivotAnalysis(params: {
-    workspaceId: number;
-    projectKey?: string;
-  }): Promise<{
-    success: boolean;
-    result?: {
-      sonar: { success: boolean; issues?: Array<{ file: string; line?: number; message: string; severity: string; rule: string }>; error?: string };
-      semgrep: { success: boolean; findings?: Array<{ path: string; start: { line: number }; message: string; severity: string; ruleId: string }>; error?: string };
-      scip: { success: boolean; symbols?: unknown[]; error?: string };
-    };
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("pivot:run-analysis", params);
   }
 
   /** Workforce Feature 2: commit Blueprint snapshot to `.atlarix/blueprint.json`. */

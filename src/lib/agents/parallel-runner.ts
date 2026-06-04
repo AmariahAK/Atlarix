@@ -101,24 +101,3 @@ export type OrchestrationPattern =
   | "research_then_build"
   | "build_then_verify";
 
-export function classifyOrchestration(task: string, hasExistingPlan: boolean): OrchestrationPattern {
-  if (hasExistingPlan) {
-    return "build_then_verify";
-  }
-
-  const lower = task.toLowerCase();
-  const needsResearch =
-    lower.includes("how") ||
-    lower.includes("research") ||
-    lower.includes("find") ||
-    lower.includes("look up") ||
-    lower.includes("what is") ||
-    lower.includes("integrate") ||
-    lower.includes("using");
-
-  if (needsResearch) {
-    return "research_then_build";
-  }
-
-  return "sequential";
-}

@@ -86,10 +86,6 @@ export function playNotify(): Promise<void> {
   return playSound("notify");
 }
 
-export function playSuggest(): Promise<void> {
-  return playSound("suggest");
-}
-
 export function playRemaining(): Promise<void> {
   return playSound("remaining");
 }

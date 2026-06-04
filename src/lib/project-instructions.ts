@@ -9,11 +9,8 @@ import { getUserDataPath } from "../paths/paths";
 import {
   getAtlarixMdPath,
   readAtlarixMd,
-  migrateLegacyAtlarixFiles,
-} from "./project-memory";
-import log from "electron-log";
+  } from "./project-memory";
 
-const logger = log.scope("project-instructions");
 
 const ATLARIX_DIR = ".atlarix";
 const ATLARIX_MD = "ATLARIX.md";
@@ -41,39 +38,6 @@ export async function readProjectAtlarixMd(workspacePath: string): Promise<strin
   if (!workspacePath) return "";
   const content = await readAtlarixMd(workspacePath);
   return content ?? "";
-}
-
-export async function writeGlobalAtlarixMd(content: string): Promise<void> {
-  const dir = path.dirname(getGlobalAtlarixMdPath());
-  await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(getGlobalAtlarixMdPath(), content, "utf8");
-  logger.info("Wrote global ATLARIX.md");
-}
-
-export async function writeProjectAtlarixMd(workspacePath: string, content: string): Promise<void> {
-  if (!workspacePath) return;
-  await migrateLegacyAtlarixFiles(workspacePath);
-  await fs.promises.writeFile(getAtlarixMdPath(workspacePath), content, "utf8");
-  logger.info("Wrote project .atlarix/atlarix.md at", workspacePath);
-}
-
-export async function existsGlobalAtlarixMd(): Promise<boolean> {
-  try {
-    await fs.promises.access(getGlobalAtlarixMdPath());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function existsProjectAtlarixMd(workspacePath: string): Promise<boolean> {
-  if (!workspacePath) return false;
-  try {
-    await fs.promises.access(getProjectAtlarixMdPath(workspacePath));
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export interface InstructionLayer {

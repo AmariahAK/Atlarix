@@ -1,4 +1,5 @@
 import { ipcMain, app } from "electron";
+import { perfMark } from "@/lib/perf-marks";
 import { db, getDatabasePath } from "../../db";
 import {
   apps,
@@ -796,13 +797,13 @@ export function registerAppHandlers() {
     }
 
     analyticsCapture("workspace_opened", { appId });
+    perfMark(`workspace-open:${appId}`);
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
       ...app,
       remoteConnection: (app.remoteConnection ?? null) as
         | Record<string, unknown>
         | null,
-      files: [],
       supabaseProjectName,
       vercelTeamSlug,
       pathExists,

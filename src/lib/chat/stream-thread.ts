@@ -437,22 +437,6 @@ export function finalizeRunningBackgroundItems(
   return changed ? next : items;
 }
 
-export function streamThreadItemFromToolEnd(payload: {
-  toolId?: string;
-  toolName: string;
-  status?: "success" | "error";
-}): StreamThreadItem {
-  const registryName = resolveRegistryToolName(payload.toolId, payload.toolName);
-  return {
-    kind: "tool",
-    id: registryName,
-    toolName: registryName,
-    summary: getToolCompletedSummary(registryName),
-    status: payload.status === "error" ? "error" : "done",
-    ts: Date.now(),
-  };
-}
-
 export function streamThreadItemFromActivity(
   item: ActivityStreamItem,
 ): StreamThreadItem | null {
@@ -536,107 +520,6 @@ export function streamThreadItemFromActivity(
   return null;
 }
 
-function counselParticipantRoleLabel(item: ActivityStreamItem): string {
-  if (item.counselRole === "fast") return "Fast";
-  if (item.counselRole === "balanced") return "Balanced";
-  if (item.counselRole === "thinking") return "Thinking";
-  if (item.counselRole === "synthesis") return "Synthesis";
-  return item.label?.trim() || "Participant";
-}
-
-/** Merge counsel activity events into one collapsible thread card per chat. */
-export function mergeCounselActivityIntoThread(
-  items: StreamThreadItem[],
-  chatId: number,
-  item: ActivityStreamItem,
-): StreamThreadItem[] {
-  if (!COUNSEL_TYPES.has(item.type)) return items;
-
-  const counselId = `counsel-${chatId}`;
-  const ts = item.timestamp ?? Date.now();
-  const idx = items.findIndex((i) => i.kind === "counsel" && i.id === counselId);
-
-  const upsertCounsel = (
-    next: Extract<StreamThreadItem, { kind: "counsel" }>,
-  ): StreamThreadItem[] => {
-    if (idx >= 0) {
-      const copy = [...items];
-      copy[idx] = next;
-      return copy;
-    }
-    return [...items, next];
-  };
-
-  if (item.type === "counsel_thinking") {
-    return items;
-  }
-
-  if (item.type === "counsel_start") {
-    return upsertCounsel({
-      kind: "counsel",
-      id: counselId,
-      label: "Consulting multiple models…",
-      detail: "",
-      status: "running",
-      ts,
-    });
-  }
-
-  const prev: Extract<StreamThreadItem, { kind: "counsel" }> =
-    idx >= 0
-      ? (items[idx] as Extract<StreamThreadItem, { kind: "counsel" }>)
-      : {
-          kind: "counsel",
-          id: counselId,
-          label: "Consulting multiple models…",
-          detail: "",
-          status: "running",
-          ts,
-        };
-
-  if (item.type === "counsel_participant_complete") {
-    const role = counselParticipantRoleLabel(item);
-    const preview = item.preview?.trim() ?? item.detail?.trim() ?? "";
-    const section = preview ? `\n\n**[${role}]:** ${preview}` : "";
-    const detail = `${prev.detail ?? ""}${section}`.trim();
-    return upsertCounsel({
-      ...prev,
-      detail,
-      status: "running",
-      ts,
-    });
-  }
-
-  if (item.type === "counsel_synthesising") {
-    return upsertCounsel({
-      ...prev,
-      label: "Synthesising perspectives",
-      status: "running",
-      ts,
-    });
-  }
-
-  if (item.type === "counsel_complete" || item.type === "counsel_timeout") {
-    const snippet =
-      item.detail?.trim() ||
-      (item.type === "counsel_timeout"
-        ? "Maximum wait time reached; partial results may be incomplete."
-        : typeof item.synthesisLength === "number"
-          ? `Synthesis: ${item.synthesisLength} characters`
-          : "");
-    const detail = [prev.detail, snippet].filter(Boolean).join("\n\n").trim();
-    return upsertCounsel({
-      ...prev,
-      label:
-        item.type === "counsel_timeout" ? "Counsel timed out" : "Counsel complete",
-      detail,
-      status: "done",
-      ts,
-    });
-  }
-
-  return items;
-}
 
 function roundStatus(agents: SubAgentRunEntry[]): StreamThreadToolStatus {
   if (agents.some((a) => a.status === "running")) return "running";

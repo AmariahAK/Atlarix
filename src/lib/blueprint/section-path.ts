@@ -3,7 +3,6 @@
  */
 
 import * as fs from "node:fs/promises";
-import path from "node:path";
 import { distance } from "fastest-levenshtein";
 import {
   isWorkspaceRootFocusPath,
@@ -107,18 +106,3 @@ export async function validateBlueprintFocusPath(
   };
 }
 
-/** True when every segment of focus_path exists (for nested sections). */
-export async function validateNestedFocusPath(
-  workspacePath: string,
-  focusPath: string,
-): Promise<boolean> {
-  const fp = normalizeBlueprintFocusPath(focusPath);
-  if (!fp || fp === ".") return isDirectory(workspacePath);
-  const parts = fp.split("/").filter(Boolean);
-  let cur = workspacePath;
-  for (const seg of parts) {
-    cur = path.join(cur, seg);
-    if (!(await isDirectory(cur))) return false;
-  }
-  return true;
-}

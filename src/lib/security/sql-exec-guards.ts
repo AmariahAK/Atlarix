@@ -135,13 +135,3 @@ export function assertSafeReadOnlySql(sql: string): string {
   return normalized;
 }
 
-/**
- * Stricter than read-only but allows DML; still blocks multi-statement stacking and obvious exfil patterns.
- */
-export function assertSafeMutatingSql(sql: string): string {
-  const normalized = assertSqlSafeForRemoteExecution(sql);
-  if (/\bDROP\s+DATABASE\b/i.test(normalized)) {
-    throw new Error("DROP DATABASE is not allowed.");
-  }
-  return normalized;
-}

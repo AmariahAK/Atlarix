@@ -142,10 +142,11 @@ describe("shadow-git snapshots", () => {
   });
 });
 
-describe("legacy .bak fallback", () => {
-  it("reverts turns captured by the pre-v10 file-copy store", async () => {
+describe("legacy .bak store (removed in v10.1)", () => {
+  it("no longer reverts pre-v10 file-copy turns", async () => {
     await write("legacy.txt", "current");
-    // Simulate an old-style snapshot dir.
+    // Simulate an old-style snapshot dir — the fallback was deleted, so this
+    // turn is invisible to snapshotExists and revert is a clean no-op failure.
     const legacyDir = path.join(workspace, ".atlarix", "snapshots", "turn_8");
     await fs.mkdir(path.join(legacyDir, "files"), { recursive: true });
     await fs.writeFile(
@@ -155,10 +156,9 @@ describe("legacy .bak fallback", () => {
     );
     await fs.writeFile(path.join(legacyDir, "files", "legacy.txt.bak"), "old bytes", "utf8");
 
-    expect(await snapshotExists(workspace, "turn:8")).toBe(true);
+    expect(await snapshotExists(workspace, "turn:8")).toBe(false);
     const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:8" });
-    expect(result.success).toBe(true);
-    expect(result.restoredFiles).toBe(1);
-    expect(await read("legacy.txt")).toBe("old bytes");
+    expect(result.success).toBe(false);
+    expect(await read("legacy.txt")).toBe("current");
   });
 });

@@ -10,9 +10,7 @@ import {
 } from "./registry";
 import {
   parseGraphSpec,
-  formatGraphFence,
-  type GraphSpec,
-} from "@/lib/visual-artifacts/graph-spec";
+  formatGraphFence } from "@/lib/visual-artifacts/graph-spec";
 
 ToolRegistry.register({
   name: "visualize_graph",
@@ -76,9 +74,3 @@ ToolRegistry.register({
   },
 });
 
-export type VisualizeGraphResult = {
-  success: boolean;
-  fence?: string;
-  spec?: GraphSpec;
-  error?: string;
-};

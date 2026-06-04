@@ -30,14 +30,6 @@ import type {
 
 const logger = log.scope("git_utils");
 
-/** Thrown when git operations are requested outside any repository. */
-export class NoGitRepositoryError extends Error {
-  constructor(workspacePath: string) {
-    super(`No git repository at or above: ${workspacePath}`);
-    this.name = "NoGitRepositoryError";
-  }
-}
-
 /** Walk parents for a `.git` directory (workspace may be a subfolder of the repo). */
 export function findGitRepositoryRoot(workspacePath: string): string | null {
   let dir = pathModule.resolve(workspacePath);
@@ -334,27 +326,6 @@ export async function gitAdd({ path, filepath }: GitFileParams): Promise<void> {
       fs,
       dir: gitDir,
       filepath,
-    });
-  }
-}
-
-/** @deprecated Product code must not initialize git; kept for tests and manual tooling. */
-export async function gitInit({
-  path,
-  ref = "main",
-}: GitInitParams): Promise<void> {
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    await execOrThrow(
-      ["init", "-b", ref],
-      path,
-      `Failed to initialize git repository with branch '${ref}'`,
-    );
-  } else {
-    await git.init({
-      fs,
-      dir: path,
-      defaultBranch: ref,
     });
   }
 }

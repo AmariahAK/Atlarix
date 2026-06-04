@@ -28,7 +28,6 @@ import {
 import {
     renderModePromptBundle,
     GIT_VIA_TERMINAL_NOTE,
-    getActiveModeHeaderBlock,
     modeAllowlistIncludesWebResearch,
     modeAllowlistIncludesVisualTools,
 } from "../lib/tools/mode-prompt-bundle";
@@ -139,11 +138,6 @@ const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
 
 export { GIT_VIA_TERMINAL_NOTE };
 
-/** Active-mode header only (legacy callers). */
-export function getModeSystemBlock(mode: ModeSystemKey): string {
-  return getActiveModeHeaderBlock(mode);
-}
-
 /**
  * Legacy all-modes block — avoid for live streams; pass effectiveWorkMode instead.
  * Only non-model-facing callers (e.g. token estimation) may omit the mode.
@@ -221,6 +215,10 @@ export interface SystemPromptParts {
     dynamicTail: string;
 }
 
+/** Discovery steps shared by Ask + Build (kept in one place — they ship on every dispatch). */
+const DISCOVERY_DEEP_DIVE = `**Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.`;
+const DISCOVERY_ARCHITECTURE = `**Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`graph\`\`\` JSON diagram (nodes + edges) or \`visualize_graph\`.`;
+
 /** Per work-mode instruction block (replaces ask/build-only `buildModeSpecificInstruction`). */
 export const buildWorkModeInstruction = (workMode: ModeSystemKey): string => {
     if (workMode === "ask") {
@@ -241,9 +239,9 @@ whether a workspace is open.
 
 **Deterministic discovery flow:**
 1. **Explore target folders:** Call \`explore_folder\` (and \`list_files\` if needed) on the **specific** paths tied to the question. For a repo “map at a glance”, use \`get_repo_overview\` with \`focus_path\` set to the subfolder you care about (monorepos / huge trees). Avoid \`get_repo_overview\` at the workspace root when only a package or app matters.
-2. **Multi-repo / monorepo (Explore & Review only):** Use at most **5** \`spawn_sub_agent\` calls per turn. Batch paths via \`scopes\` when one agent can cover several repos. Prefer **explore** + preset **map_repo** (or **reviewer** in Review) instead of many bare parallel explore tools. No sub-agents in Plan, Build, or Debug.
-3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`, then \`read_file\` only for the exact ranges you need.
-4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`graph\`\`\` JSON diagram (nodes + edges) or \`visualize_graph\`.
+2. **Multi-repo / monorepo:** Use at most **5** \`spawn_sub_agent\` calls per turn. Batch paths via \`scopes\` when one agent can cover several repos. Prefer **explore** + preset **map_repo** (or **reviewer** in Review) instead of many bare parallel explore tools.
+3. ${DISCOVERY_DEEP_DIVE}
+4. ${DISCOVERY_ARCHITECTURE}
 
 **CRITICAL RULES:**
 - Do NOT use \`write_file\`, \`write_implementation_plan\`, \`replace_code\`, \`run_command\`, or other mutating tools.
@@ -303,9 +301,8 @@ Use function-calling tools for ALL operations. Never describe what you would do.
 
 **Deterministic discovery flow (Build):**
 1. **Explore target folders:** Call \`explore_folder\` / \`list_files\` to verify exact paths before edits.
-2. **Multi-repo / monorepo (Explore & Review):** At most **5** sub-agents per turn; use \`scopes\` to batch paths. Prefer one \`spawn_sub_agent\` per focus area with grouped findings, not per-tool replay in the parent reply.
-3. **Deep-dive precisely:** Use \`search\` (mode: auto | text | semantic | structural) and \`get_file_outline\`; read only the necessary files/snippets via \`read_file\`.
-4. **Architecture:** Call \`get_blueprint\` when you need a structural map. **\`get_blueprint\` always requires \`focus_path\`** (one folder section). When a visual clearly helps, **include the fence in the same reply**—do not wait for the user to ask for a diagram. After \`explore_folder\` / \`get_repo_overview\` summarizing structure, prefer **one** \`\`\`markmap\`\`\` unless they asked for a flow. After tracing a bug or API call chain, prefer **one** \`\`\`graph\`\`\` JSON diagram (nodes + edges) or \`visualize_graph\`.
+2. ${DISCOVERY_DEEP_DIVE}
+3. ${DISCOVERY_ARCHITECTURE}
 
 If architecture context is missing, obtain it before changing code.
 
@@ -316,22 +313,9 @@ After **edit_file** or **write_file**, call **lsp_diagnostics** on touched paths
 **Large files:** Prefer \`write_file\` payloads under ~500 lines per call. For large specs or task docs, split across multiple files or use \`write_multiple_files\`. Do not stream multi-thousand-line documents in a single tool call.
 
 ## Task Completion Signal
-When you have FULLY completed a task and ALL features work:
-1. Test that everything actually works
-2. Output EXACTLY: <task_complete>Task finished successfully</task_complete>
-
-Use <task_complete> when:
-- Created all requested files and they compile/run without errors
-- All tests pass
-- All features work as described
-
-Do NOT use <task_complete> if:
-- Waiting for user approval of file changes
-- Encountered an error that blocks progress
-- Need more information from the user
-- Tests are failing or code has syntax errors
-
-If unsure, do NOT output <task_complete>. It's better to continue than stop prematurely.
+Only after verifying everything works (files compile/run, tests pass), output EXACTLY:
+<task_complete>Task finished successfully</task_complete>
+Do NOT emit it while waiting on approvals, blocked on errors/failing tests, or needing user input. If unsure, keep working instead of stopping prematurely.
 `;
 };
 
@@ -373,17 +357,13 @@ Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tun
 In user-visible text, tool summaries, and markdown replies, prefer short ASCII markers or labels (e.g. [ok], [file], (check)) over emoji. The UI renders icons separately—do not rely on emoji for structure or status.
 </output_style>`;
 
-    const webResearchRules = `**Web research tools — pick exactly one per topic per turn**
+    const webResearchRules = `**Web research — pick exactly one tool per topic per turn**
 
-You have \`web_search\` and \`deep_research\`. **RULE:** For any single research topic or question in one assistant turn, use **one** of these two only. **Never** call both for the same subject or overlapping topic in the same turn.
+- **web_search**: simple facts, version checks, error strings, single-query lookups.
+- **deep_research**: complex multi-angle topics, comparisons, analysis needing several sources. It runs its own internal searches — after calling it, answer from its output; never add \`web_search\` for the same or a paraphrased topic.
+- **read_url**: when the user gives a specific URL.
 
-- **web_search** (quick mode): simple facts, version checks, error strings, narrow single-query lookups, "what is X".
-- **deep_research**: complex topics needing multiple angles, comparisons, market-style research, or analysis that clearly needs several sources. It runs internal searches—**do not** add \`web_search\` afterward for the same or a paraphrased topic; synthesize from \`deep_research\` results only.
-- **read_url**: when the user gives a specific URL to open—use \`read_url\`, not a blanket web_search on top of deep_research.
-
-If you already called \`deep_research\`, your next step is to answer from its structured output, not to supplement with \`web_search\`.
-
-When \`web_search\` returns no results or errors, tell the user they can enable **SearxNG** (Settings → Search, Docker) or configure a **search MCP** for better coverage — Atlarix cannot enable these automatically.`;
+Never call both \`web_search\` and \`deep_research\` for overlapping topics in one turn. If \`web_search\` returns nothing or errors, tell the user they can enable **SearxNG** (Settings → Search, Docker) or a **search MCP** — Atlarix cannot enable these automatically.`;
 
     const includeWeb =
         effectiveWorkMode == null || modeAllowlistIncludesWebResearch(effectiveWorkMode);
@@ -445,24 +425,23 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         runtimeIdentity,
     ].filter((s) => s.length > 0).join("\n\n");
 
-    // Dynamic tail: contents that vary per turn.
-    const currentDateTime = new Date().toLocaleString("en-US", {
+    // Dynamic tail: contents that vary across turns. Date only (no clock time)
+    // so the tail — and everything after it in the prompt-cache prefix — stays
+    // stable for a whole day instead of changing every minute.
+    const currentDate = new Date().toLocaleDateString("en-US", {
         weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZoneName: "short",
     });
-    let tail = `# Current date and time
-Today is ${currentDateTime}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.`;
+    let tail = `# Current date
+Today is ${currentDate}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.`;
 
     if (userPrompt && userPrompt.trim().length > 0) {
         tail += `\n\n<user_context>\n${userPrompt.trim()}\n</user_context>`;
     }
     tail += `\n\n# User input
-When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool. Do not emit \`<questions>\` XML blocks or inline multiple-choice JSON in prose. After they answer via ask_user, proceed without asking again for the same decision.`;
+When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool — your turn pauses until they answer. Batch related questions into ONE call via the \`questions\` array (max 5, each with up to 4 \`options\`) instead of asking one at a time. Do not emit \`<questions>\` XML blocks or inline multiple-choice JSON in prose. After they answer, proceed without asking again for the same decision.`;
 
     return { stableHeader, dynamicTail: tail };
 };
@@ -530,52 +509,4 @@ export async function buildSystemPromptWithProjectInstructions(params: {
     });
 }
 
-/**
- * PASS8 A2 + A5: Same as `buildSystemPromptWithProjectInstructions` but returns the
- * stable header / dynamic tail split for stream handlers that want prompt-cache friendliness.
- */
-export async function buildSystemPromptPartsWithProjectInstructions(params: {
-    workspacePath: string;
-    workspacePromptContent: string | null;
-    contextSize: number;
-    chatMode: "build" | "ask";
-    effectiveWorkMode?: ModeSystemKey;
-    userPrompt?: string | null;
-    hasAnsweredQuestions?: boolean;
-    activeModel?: LargeLanguageModel;
-    modelDisplayName?: string;
-    providerBrand?: string;
-    labelWithProvider?: string;
-    hasWorkspace?: boolean;
-    registeredToolNames?: readonly string[];
-}): Promise<SystemPromptParts> {
-    const { workspacePath, workspacePromptContent, contextSize, chatMode, effectiveWorkMode, userPrompt, hasAnsweredQuestions, activeModel, modelDisplayName, providerBrand, labelWithProvider, hasWorkspace, registeredToolNames } = params;
-    const bundleContent = getAgentsMdForContextSize(contextSize);
-    const layers = await loadInstructionLayers({
-        workspacePath,
-        workspacePromptContent,
-        bundleAgentsContent: bundleContent,
-    });
-    const projectDocsHint = await buildProjectDocsPromptHint(workspacePath, {
-        canWrite: canWriteProjectDocs(effectiveWorkMode),
-    });
-    const optionalProjectInstructions = [
-        buildInstructionsFromLayers(layers),
-        projectDocsHint,
-    ].filter((s) => s.trim().length > 0).join("\n\n");
-    return constructSystemPromptParts({
-        contextSize,
-        chatMode,
-        effectiveWorkMode,
-        userPrompt,
-        optionalProjectInstructions,
-        hasAnsweredQuestions,
-        activeModel,
-        modelDisplayName,
-        providerBrand,
-        labelWithProvider,
-        hasWorkspace: hasWorkspace ?? true,
-        registeredToolNames,
-    });
-}
 

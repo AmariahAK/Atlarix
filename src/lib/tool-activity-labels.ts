@@ -22,6 +22,8 @@ const LABELS: Record<string, string> = {
   execute_command: "Running command…",
   stream_terminal_output: "Streaming terminal…",
   web_search: "Searching the web…",
+  web_search_preview: "Searching the web…",
+  google_search: "Searching the web…",
   deep_research: "Deep research…",
   read_url: "Reading URL…",
   diagnose_issue: "Diagnosing issue…",
@@ -66,6 +68,65 @@ export function getToolActivityLabel(toolName: string): string {
   return LABELS[toolName] ?? `Running ${toolName.replace(/_/g, " ")}…`;
 }
 
+/** Arg-aware verbs for the one-line stream status ("Writing src/auth.ts…"). */
+const ARG_VERBS: Record<string, string> = {
+  read_file: "Reading",
+  write_file: "Writing",
+  edit_file: "Editing",
+  delete_file: "Deleting",
+  rename_file: "Renaming",
+  explore_folder: "Exploring",
+  get_file_outline: "Outlining",
+};
+
+/** Pull a human-readable subject (file path, query, command) out of tool args. */
+function subjectFromArgs(toolName: string, args: Record<string, unknown>): string | null {
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+  const path =
+    str(args.path) ?? str(args.file_path) ?? str(args.filePath) ?? str(args.folder_path);
+  if (path) {
+    // Keep status line short: trailing 2 segments are enough to orient.
+    const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length > 2 ? parts.slice(-2).join("/") : parts.join("/");
+  }
+  if (toolName === "web_search" || toolName === "search" || toolName === "search_code") {
+    const q = str(args.query) ?? str(args.q);
+    if (q) return q.length > 40 ? `${q.slice(0, 40)}…` : q;
+  }
+  if (toolName === "run_command" || toolName === "execute_command") {
+    const cmd = str(args.command);
+    if (cmd) {
+      const first = cmd.split(/\s+/).slice(0, 3).join(" ");
+      return first.length > 40 ? `${first.slice(0, 40)}…` : first;
+    }
+  }
+  return null;
+}
+
+/**
+ * Like getToolActivityLabel but folds in the tool's arguments when they
+ * identify a concrete subject — e.g. "Writing src/auth.ts…".
+ */
+export function getToolActivityLabelWithArgs(
+  toolName: string,
+  args?: Record<string, unknown> | null,
+): string {
+  if (toolName && args) {
+    const subject = subjectFromArgs(toolName, args);
+    if (subject) {
+      const verb = ARG_VERBS[toolName];
+      if (verb) return `${verb} ${subject}…`;
+      if (toolName === "web_search") return `Searching: ${subject}…`;
+      if (toolName === "search" || toolName === "search_code")
+        return `Searching for ${subject}…`;
+      if (toolName === "run_command" || toolName === "execute_command")
+        return `Running ${subject}…`;
+    }
+  }
+  return getToolActivityLabel(toolName);
+}
+
 const DONE_LABELS: Record<string, string> = {
   read_file: "Read files",
   write_file: "Wrote file",
@@ -85,6 +146,8 @@ const DONE_LABELS: Record<string, string> = {
   execute_command: "Ran command",
   stream_terminal_output: "Streamed terminal output",
   web_search: "Searched the web",
+  web_search_preview: "Searched the web",
+  google_search: "Searched the web",
   deep_research: "Completed deep research",
   read_url: "Read URL",
   diagnose_issue: "Diagnosed issue",

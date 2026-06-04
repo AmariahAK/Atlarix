@@ -67,15 +67,6 @@ export interface RTEParseResult {
   supplemented?: boolean;
 }
 
-/**
- * Language parser interface for RTE.
- * Each language implements parse + detectFramework.
- */
-export interface LanguageParser {
-  parse(files: string[]): Promise<BlueprintNode[]>;
-  detectFramework(files: string[]): Promise<FrameworkInfo>;
-}
-
 export type SupportedLanguage =
   | "typescript"
   | "javascript"

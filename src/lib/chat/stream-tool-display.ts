@@ -241,14 +241,32 @@ function formatSearchMatchPreview(
   return undefined;
 }
 
+/**
+ * v10.1: read results summarize to ONE status line ("Read src/auth.ts — lines
+ * 1-272 (complete)") instead of leaking file content into sub-agent progress
+ * lines and tool labels. Parses the standard read_file header.
+ */
 function formatReadFilePreview(content: string): string {
-  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  let out = lines.slice(0, 4).join("\n");
-  if (!out.trim()) return capPreview(content.replace(/\s+/g, " ").trim(), READ_FILE_PREVIEW_MAX);
-  if (out.length > READ_FILE_PREVIEW_MAX) {
-    out = `${out.slice(0, READ_FILE_PREVIEW_MAX - 1)}…`;
+  const pathMatch = content.match(/^File:\s*(.+)$/m);
+  if (pathMatch) {
+    const path = pathMatch[1].trim();
+    const short = path.length > 64 ? `…${path.slice(-61)}` : path;
+    const linesMatch = content.match(/^Lines:\s*(.+)$/m);
+    if (linesMatch) {
+      return `Read ${short} — lines ${linesMatch[1].trim()}`;
+    }
+    const totalMatch = content.match(/^Total lines:\s*(\d+)\s*\|\s*Showing:\s*(\d+)/m);
+    if (totalMatch) {
+      return `Read ${short} — ${totalMatch[1]} lines (showing ${totalMatch[2]})`;
+    }
+    return `Read ${short}`;
   }
-  return out;
+  // Non-file reads (URLs etc.): first non-empty line only, capped.
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  return capPreview(firstLine ?? content.replace(/\s+/g, " ").trim(), READ_FILE_PREVIEW_MAX);
 }
 
 function formatWritePreview(
@@ -355,7 +373,11 @@ export function formatToolResultPreview(
 
   if (status === "error" || envelope.error) {
     const msg = envelope.error ?? extractShortField(envelope.payload) ?? "Tool failed";
-    return capPreview(msg);
+    const path =
+      typeof envelope.payload.path === "string" && envelope.payload.path.trim()
+        ? envelope.payload.path.trim()
+        : undefined;
+    return capPreview(path ? `${msg} (${path})` : msg);
   }
 
   const payload = envelope.payload;

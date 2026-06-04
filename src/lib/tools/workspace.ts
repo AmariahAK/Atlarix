@@ -29,7 +29,7 @@ import { runCompaction, type CompactionRunOutcome, getUsableBudget } from "../co
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
-import { normalizeAskUserPayload } from "./ask_user_options";
+import { normalizeAskUserQuestions } from "./ask_user_options";
 const logger = log.scope("workspace-tools");
 
 const DEFAULT_WORKSPACE_BASE = path.join(os.homedir(), "Documents", "Atlarix");
@@ -261,7 +261,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "ask_user",
     description:
-        "Ask the user a question and wait for their response. For multiple choice, pass `options` (or `choices`) as up to 4 strings; the UI shows those as numbered choices plus a free-text field for a custom answer.",
+        "Ask the user one or more questions and PAUSE until they answer all of them — the stream stops and resumes with their answers. Prefer batching related questions into one call via `questions` (max 5, each with up to 4 `options`); a single `question` + `options` also works. The UI shows option buttons plus a free-text field per question.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: false,
@@ -269,26 +269,48 @@ ToolRegistry.register({
     isReadOnly: true,
     parameters: createParameters(
         {
-            question: stringParam("Question to ask the user"),
+            question: stringParam("Single question to ask the user (use `questions` to batch several)"),
             options: {
                 type: "array",
                 items: { type: "string" },
-                description: "Optional: list of choices (preferred for multiple choice)",
+                description: "Optional: list of choices for the single question (preferred for multiple choice)",
             },
             choices: {
                 type: "array",
                 items: { type: "string" },
                 description: "Optional: same as options (alias if the model uses this name)",
             },
+            questions: {
+                type: "array",
+                items: {
+                    type: "object",
+                    properties: {
+                        question: { type: "string", description: "The question text" },
+                        options: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "Optional choices (up to 4)",
+                        },
+                    },
+                    required: ["question"],
+                },
+                description:
+                    "Batch of questions (max 5) to ask together — the user answers all before you continue. Preferred over multiple ask_user calls.",
+            },
         },
-        ["question"]
+        []
     ),
     handler: async (args) => {
-        const { question, options } = normalizeAskUserPayload(args as Record<string, unknown>);
+        const questions = normalizeAskUserQuestions(args as Record<string, unknown>);
+        if (questions.length === 0) {
+            return { success: false, error: "ask_user requires `question` or a non-empty `questions` array." };
+        }
         return {
             __ask_user: true as const,
-            question,
-            ...(options != null && options.length > 0 ? { options } : {}),
+            // Legacy single fields kept for compatibility with older paths.
+            question: questions[0].question,
+            ...(questions[0].options?.length ? { options: questions[0].options } : {}),
+            questions,
         };
     },
 });

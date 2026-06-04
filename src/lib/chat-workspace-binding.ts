@@ -80,12 +80,3 @@ export function resolveStreamAppId(chatId: number): number | undefined {
   return selected;
 }
 
-/** True when this chat already has user content without a workspace binding. */
-export function shouldDeferWorkspaceToNextChat(
-  chatId: number | null | undefined,
-  hasUserMessageInThread: boolean,
-): boolean {
-  if (chatId == null || !hasUserMessageInThread) return false;
-  const bound = getChatBoundAppId(chatId);
-  return bound === null || bound === undefined;
-}

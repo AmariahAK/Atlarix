@@ -13,6 +13,3 @@ export function isAllowedToolOutputPath(fullPath: string): boolean {
   return normalized.endsWith(".txt");
 }
 
-export function toolOutputDir(): string {
-  return TOOL_OUTPUT_DIR;
-}

@@ -7,7 +7,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getUserDataPath } from "@/paths/paths";
 import { getWorkspaceHash } from "@/lib/analysis/workspace-cache";
-import type { BlueprintCacheContent, BlueprintStaleness } from "@/shared/blueprint-cache-types";
+import type { BlueprintCacheContent } from "@/shared/blueprint-cache-types";
 import type { Blueprint } from "@/shared/blueprint-types";
 
 const BLUEPRINTS_DIR = "blueprints";
@@ -70,38 +70,6 @@ export async function loadBlueprintCache(projectPath: string): Promise<Blueprint
     // not found or invalid
   }
   return null;
-}
-
-/**
- * Get staleness of cached blueprint vs current project state.
- */
-export async function getStaleness(projectPath: string): Promise<BlueprintStaleness | null> {
-  const currentHash = await getWorkspaceHash(projectPath);
-  const cached = await loadBlueprintCache(projectPath);
-  if (!cached) {
-    return null;
-  }
-  const cachedHash = cached.manifest.projectHash;
-  const isStale = currentHash !== cachedHash;
-  return {
-    isStale,
-    currentHash,
-    cachedHash,
-    recommendation: isStale ? "refresh" : "use_cache",
-  };
-}
-
-/**
- * Invalidate (delete) blueprint cache for a project.
- */
-export async function invalidateBlueprintCacheForProject(projectPath: string): Promise<void> {
-  const projectHash = await getWorkspaceHash(projectPath);
-  const dir = getProjectCacheDir(projectHash);
-  try {
-    await fs.rm(dir, { recursive: true });
-  } catch {
-    // ignore
-  }
 }
 
 /**

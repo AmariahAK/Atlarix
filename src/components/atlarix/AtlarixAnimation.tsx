@@ -30,19 +30,22 @@ const INTRO_PLAY_SECONDS = 5.5;
 
 export interface AtlarixAnimationProps {
   /** Size of the animation container (not full screen by default). */
-  size?: "xs" | "sm" | "md" | "lg" | "full";
+  size?: "inline" | "xs" | "sm" | "md" | "lg" | "full";
   /** When "thinking", show compass/needle phase; when "done", show formed A. */
   phase?: "thinking" | "done";
   /** Run the intro once and hold on the formed A (ignores looping). */
   playOnce?: boolean;
   /** Hide corner version labels (welcome / sign-in). */
   minimalChrome?: boolean;
+  /** Bare in-chat indicator: transparent bg, compass ring + needle + A only (no grid/labels/nodes). */
+  bare?: boolean;
   /** Match system light/dark or force a palette. */
   theme?: AnimationThemeMode;
   className?: string;
 }
 
 const SIZE_MAP = {
+  inline: { width: 24, height: 24 },
   xs: { width: 56, height: 56 },
   sm: { width: 120, height: 120 },
   md: { width: 200, height: 200 },
@@ -55,6 +58,7 @@ export default function AtlarixAnimation({
   phase,
   playOnce = false,
   minimalChrome = false,
+  bare = false,
   theme = "auto",
   className,
 }: AtlarixAnimationProps) {
@@ -64,10 +68,12 @@ export default function AtlarixAnimation({
   const sRef      = useRef<{ ready: boolean; W?: number; H?: number; cx?: number; cy?: number; R?: number; aR?: number }>({ ready: false });
   const phaseRef  = useRef(phase);
   const playOnceRef = useRef(playOnce);
+  const bareRef   = useRef(bare);
   const playOnceStartRef = useRef<number | null>(null);
   const frozenLtRef = useRef<number | null>(null);
   phaseRef.current = phase;
   playOnceRef.current = playOnce;
+  bareRef.current = bare;
 
   useEffect(() => {
     const syncPalette = () => setPalette(resolveAnimationPalette(theme));
@@ -113,8 +119,9 @@ export default function AtlarixAnimation({
     function init(W: number, H: number) {
       s.W=W; s.H=H; s.cx=W/2; s.cy=H/2;
       const base = Math.min(W,H);
-      s.R  = base * 0.28;
-      s.aR = base * 0.20;
+      // Bare in-chat indicator: ring fills the tiny canvas (no surrounding chrome).
+      s.R  = base * (bareRef.current ? 0.42 : 0.28);
+      s.aR = base * (bareRef.current ? 0.34 : 0.20);
       s.ready = true;
     }
 
@@ -485,6 +492,20 @@ export default function AtlarixAnimation({
       const phaseLabel = lt<0.32?0:lt<0.52?1:lt<0.72?2:3;
 
       ctx!.clearRect(0,0,W!,H!);
+      if (bareRef.current) {
+        // Bare in-chat indicator: compass ring + needle while thinking, formed A when done.
+        if (p === "done") {
+          // Stagnant A — draw once (t=0 freezes the slash pulse) and stop animating.
+          drawLogoA(ctx!,cx!,cy!,aR!,1,1,0);
+          rafRef.current = null;
+          return;
+        }
+        drawCompassRing(ctx!,cx!,cy!,R!,ringAlpha);
+        if(needleAlpha>0) drawNeedle(ctx!,cx!,cy!,R!,needleAngle,needleAlpha);
+        if(aAlpha>0) drawLogoA(ctx!,cx!,cy!,aR!,aAlpha,morphP,t);
+        rafRef.current=requestAnimationFrame(frame);
+        return;
+      }
       drawBg(ctx!,W!,H!);
       drawGrid(ctx!,W!,H!,0.8);
 
@@ -522,7 +543,7 @@ export default function AtlarixAnimation({
   const containerStyle: React.CSSProperties = {
     width: typeof dims.width === "number" ? dims.width : dims.width,
     height: typeof dims.height === "number" ? dims.height : dims.height,
-    background: palette.bg,
+    background: bare ? "transparent" : palette.bg,
     overflow: "hidden",
     position: "relative",
     borderRadius: isFull ? 0 : 8,
@@ -530,7 +551,7 @@ export default function AtlarixAnimation({
 
   return (
     <div style={containerStyle} className={className}>
-      {!isFull && !minimalChrome && (
+      {!isFull && !minimalChrome && !bare && (
         <>
           <div style={{position:"absolute",top:8,left:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>Workspace Intelligence</div>
           <div style={{position:"absolute",top:8,right:10,fontSize:9,color:"#2db87a40",fontFamily:"'Courier New',monospace",letterSpacing:"2px"}}>v2.9.0 · AXIS</div>

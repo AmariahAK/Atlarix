@@ -224,16 +224,6 @@ export function contentHasPlanArtifactMarker(content: string): boolean {
   return new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "i").test(content);
 }
 
-export function extractPlanIdsFromContent(content: string): string[] {
-  const ids: string[] = [];
-  const re = new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "gi");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(content)) !== null) {
-    ids.push(m[1]);
-  }
-  return [...new Set(ids)];
-}
-
 export function extractPlanFromContent(content: string): PlanCardData | null {
   if (!content || typeof content !== "string") return null;
   if (contentHasPlanArtifactMarker(content)) return null;

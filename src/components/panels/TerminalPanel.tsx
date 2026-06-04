@@ -14,7 +14,6 @@ import {
 import {
   activeTerminalInstanceByScopeAtom,
   terminalAgentOpMapByScopeAtom,
-  terminalDraftByScopeAtom,
   terminalInstancesByScopeAtom,
   terminalScopeKey,
   type TerminalInstance,
@@ -24,13 +23,11 @@ import {
   agentTabStripLabel,
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
-  shortenTerminalPath,
   userTabLabelFromInstance,
 } from "@/lib/terminal-instances";
 import { IpcClient } from "@/ipc/ipc_client";
-import { Terminal, Loader2, MessageSquarePlus, Plus, X } from "lucide-react";
+import { Terminal, MessageSquarePlus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   buildTerminalPasteAttachment,
@@ -117,7 +114,6 @@ export function TerminalPanel() {
   const [agentOpMapByScope, setAgentOpMapByScope] = useAtom(
     terminalAgentOpMapByScopeAtom,
   );
-  const [draftByScope, setDraftByScope] = useAtom(terminalDraftByScopeAtom);
   const setAttachments = useSetAtom(attachmentsAtom);
 
   const instances = instancesByScope[scopeKey] ?? [];
@@ -125,23 +121,12 @@ export function TerminalPanel() {
   const activeInstance =
     instances.find((i) => i.id === activeId) ?? instances[0];
 
-  const [running, setRunning] = useState(false);
   const { settings } = useSettings();
-  // v10 interactive PTY shells for user tabs (per-instance fallback on spawn failure).
-  const [ptyFailedIds, setPtyFailedIds] = useState<Set<string>>(new Set());
+  // v10 interactive PTY shells for user tabs; v10.1: the legacy single-command
+  // input is gone — the kill-switch hard-disables user shells instead.
   const ptyEnabled = settings?.enablePtyTerminal !== false;
-  const activeIdForDraft = activeByScope[scopeKey] ?? activeInstance?.id ?? "";
-  const input = draftByScope[scopeKey]?.[activeIdForDraft] ?? "";
-  const setInput = useCallback(
-    (value: string) => {
-      if (!activeIdForDraft) return;
-      setDraftByScope((prev) => ({
-        ...prev,
-        [scopeKey]: { ...prev[scopeKey], [activeIdForDraft]: value },
-      }));
-    },
-    [activeIdForDraft, scopeKey, setDraftByScope],
-  );
+  // Live cwd per instance from shell OSC sequences (tab labels).
+  const [cwdByInstance, setCwdByInstance] = useState<Record<string, string>>({});
   const seenOps = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipSyncRef = useRef(false);
@@ -157,10 +142,15 @@ export function TerminalPanel() {
     return undefined;
   }, [workspace?.path, currentApp?.path, currentApp?.id, selectedAppId]);
 
-  const cwdLabel = useMemo(() => {
-    if (!workspacePath) return "~ $";
-    return `${shortenTerminalPath(workspacePath)} $`;
-  }, [workspacePath]);
+  // v10.1: live cwd from OSC 7 / 1337 → tab labels.
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onPtyCwd(({ instanceId, cwd }) => {
+      setCwdByInstance((prev) =>
+        prev[instanceId] === cwd ? prev : { ...prev, [instanceId]: cwd },
+      );
+    });
+    return unsub;
+  }, []);
 
   const agentInstances = useMemo(
     () => instances.filter((i) => i.owner === "agent"),
@@ -346,11 +336,6 @@ export function TerminalPanel() {
         }
         return { ...prev, [scopeKey]: map };
       });
-      setDraftByScope((prev) => {
-        const scopeDrafts = { ...prev[scopeKey] };
-        delete scopeDrafts[instanceId];
-        return { ...prev, [scopeKey]: scopeDrafts };
-      });
       // v10: closing a user tab tears down its interactive shell (main kills the PTY).
       disposeXtermInstance(instanceId);
       void IpcClient.getInstance()
@@ -366,21 +351,7 @@ export function TerminalPanel() {
       setInstancesByScope,
       setActiveByScope,
       setAgentOpMapByScope,
-      setDraftByScope,
     ],
-  );
-
-  const appendToInstance = useCallback(
-    (instanceId: string, lines: TerminalLine[]) => {
-      setInstances((prev) =>
-        prev.map((inst) =>
-          inst.id === instanceId
-            ? { ...inst, lines: mergeLines(inst.lines, lines) }
-            : inst,
-        ),
-      );
-    },
-    [setInstances],
   );
 
   const getOrCreateAgentInstance = useCallback(
@@ -475,87 +446,18 @@ export function TerminalPanel() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeInstance?.lines]);
 
-  const runUserCommand = useCallback(async () => {
-    const command = input.trim();
-    if (!command || running || !workspacePath || !activeInstance) return;
-    if (activeInstance.owner !== "user") return;
-
-    setInput("");
-    setRunning(true);
-    appendToInstance(activeInstance.id, [
-      {
-        id: `you-cmd-${Date.now()}`,
-        prefix: "[You]",
-        text: `$ ${command}`,
-        kind: "prompt",
-      },
-    ]);
-
-    try {
-      const result = await IpcClient.getInstance().runTerminalCommand({
-        command,
-        cwd: workspacePath,
-        chatId: chatId ?? 0,
-        source: "user",
-      });
-      if (result.output?.trim()) {
-        appendToInstance(activeInstance.id, [
-          {
-            id: `you-out-${Date.now()}`,
-            prefix: "[You]",
-            text: result.output,
-            kind: "output",
-          },
-        ]);
-      }
-      appendToInstance(activeInstance.id, [
-        {
-          id: `you-st-${Date.now()}`,
-          prefix: "[You]",
-          text: result.timedOut
-            ? `timed out (exit ${result.exitCode})`
-            : `exit ${result.exitCode}`,
-          kind: "status",
-        },
-      ]);
-    } catch (err) {
-      appendToInstance(activeInstance.id, [
-        {
-          id: `you-err-${Date.now()}`,
-          prefix: "[You]",
-          text: err instanceof Error ? err.message : String(err),
-          kind: "status",
-        },
-      ]);
-    } finally {
-      setRunning(false);
-    }
-  }, [
-    input,
-    running,
-    workspacePath,
-    activeInstance,
-    chatId,
-    appendToInstance,
-    setInput,
-  ]);
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void runUserCommand();
-    }
-  };
-
   const tabLabel = (inst: TerminalInstance) => {
     if (inst.owner === "agent") {
       return agentTabStripLabel(inst, agentInstances);
     }
-    return userTabLabelFromInstance(inst, workspacePath);
+    // v10.1: live cwd from the shell wins; falls back to workspace path.
+    return userTabLabelFromInstance(inst, cwdByInstance[inst.id] ?? workspacePath);
   };
 
   const tabTitle = (inst: TerminalInstance) =>
-    inst.owner === "agent" ? inst.label : userTabLabelFromInstance(inst, workspacePath);
+    inst.owner === "agent"
+      ? inst.label
+      : userTabLabelFromInstance(inst, cwdByInstance[inst.id] ?? workspacePath);
 
   const noWorkspace = !workspacePath;
   const logLines = activeInstance?.lines ?? [];
@@ -563,22 +465,7 @@ export function TerminalPanel() {
   // v10: user tabs get a real interactive shell (xterm + node-pty); agent tabs
   // stay on the read-only line list (their output is captured via run_command).
   const activeIsPtyShell =
-    ptyEnabled &&
-    !noWorkspace &&
-    activeInstance?.owner === "user" &&
-    !ptyFailedIds.has(activeInstance.id);
-
-  const handlePtySpawnFailed = useCallback(
-    (instanceId: string) => {
-      setPtyFailedIds((prev) => {
-        if (prev.has(instanceId)) return prev;
-        const next = new Set(prev);
-        next.add(instanceId);
-        return next;
-      });
-    },
-    [],
-  );
+    ptyEnabled && !noWorkspace && activeInstance?.owner === "user";
 
   const addCommandBlockToChat = useCallback(
     (promptIndex: number) => {
@@ -638,12 +525,6 @@ export function TerminalPanel() {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-700 bg-zinc-900 shrink-0">
         <Terminal className="w-4 h-4 text-zinc-400" />
         <span className="text-sm text-zinc-300">Terminal</span>
-        {running && (
-          <span className="ml-auto flex items-center gap-1 text-xs text-green-400">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Running
-          </span>
-        )}
       </div>
 
       <div className="shrink-0 border-b border-zinc-700 bg-zinc-900/80 px-2 py-1.5 flex items-center gap-1 flex-wrap max-h-[88px] overflow-y-auto">
@@ -689,7 +570,15 @@ export function TerminalPanel() {
         </Button>
       </div>
 
-      {activeIsPtyShell && activeInstance && workspacePath ? (
+      {activeInstance?.owner === "user" && !activeIsPtyShell ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6 text-center">
+          <p className="text-xs text-zinc-500 max-w-sm">
+            {noWorkspace
+              ? "Open a workspace to use the terminal."
+              : "The interactive terminal is disabled in Settings (enablePtyTerminal)."}
+          </p>
+        </div>
+      ) : activeIsPtyShell && activeInstance && workspacePath ? (
         <div className="flex-1 min-h-0">
           <XtermView
             key={activeInstance.id}
@@ -697,7 +586,6 @@ export function TerminalPanel() {
             cwd={workspacePath}
             scopeKey={scopeKey}
             active
-            onSpawnFailed={() => handlePtySpawnFailed(activeInstance.id)}
           />
         </div>
       ) : (
@@ -766,51 +654,13 @@ export function TerminalPanel() {
       </div>
       )}
 
-      {activeIsPtyShell ? null : (
-      <div className="shrink-0 border-t border-zinc-700 bg-zinc-900 p-2 space-y-2">
-        <div className="text-[10px] text-zinc-500 font-mono truncate px-1">
-          {cwdLabel}
-          {activeInstance?.owner === "agent" ? (
-            <span className="text-blue-400/80 ml-2">(viewing agent — read-only)</span>
-          ) : null}
+      {activeInstance?.owner === "agent" ? (
+        <div className="shrink-0 border-t border-zinc-700 bg-zinc-900 px-3 py-1.5">
+          <span className="text-[10px] text-blue-400/80 font-mono">
+            Viewing agent output — read-only
+          </span>
         </div>
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={
-              running ||
-              noWorkspace ||
-              !activeInstance ||
-              activeInstance.owner !== "user"
-            }
-            placeholder={
-              noWorkspace
-                ? "Open a workspace to run commands"
-                : activeInstance?.owner === "agent"
-                  ? "Select a shell tab to run commands"
-                  : "Enter command..."
-            }
-            className="font-mono text-xs h-8 bg-zinc-800 border-zinc-600 text-zinc-100"
-          />
-          <Button
-            size="sm"
-            onClick={() => void runUserCommand()}
-            disabled={
-              running ||
-              !input.trim() ||
-              noWorkspace ||
-              !activeInstance ||
-              activeInstance.owner !== "user"
-            }
-            className="h-8 shrink-0"
-          >
-            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : "Run"}
-          </Button>
-        </div>
-      </div>
-      )}
+      ) : null}
     </div>
   );
 }

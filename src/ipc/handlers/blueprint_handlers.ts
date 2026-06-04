@@ -9,7 +9,7 @@ import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import type { Blueprint, BlueprintRoom, CombinedBlueprint } from "@/shared/blueprint-types";
+import type { Blueprint, CombinedBlueprint } from "@/shared/blueprint-types";
 import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { registerBlueprintFileWatcher } from "@/lib/blueprint/blueprint-file-watcher";
@@ -160,13 +160,6 @@ function sendToAllWindows(channel: string, payload: unknown) {
   });
 }
 
-/**
- * Notify renderer that AI is editing the blueprint (for visual indicator)
- */
-export function emitBlueprintAiEditing(workspaceId: number, action: string) {
-  sendToAllWindows("blueprint:ai-editing", { workspaceId, action });
-}
-
 function cacheBlueprintIfNonEmpty(
   workspaceId: number,
   focusPath: string,
@@ -302,34 +295,6 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
   return createEmptyBlueprint();
 }
 
-function normalizeFocusPrefix(p: string): string {
-  return String(p || "")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .toLowerCase();
-}
-
-/**
- * Narrow a full-workspace blueprint to rooms/functions under `focusPrefix`
- * (workspace-relative path prefix). Used for scoped tools without re-parsing.
- */
-export function filterBlueprintByPathPrefix(blueprint: Blueprint, focusPrefix: string): Blueprint {
-  const fp = normalizeFocusPrefix(focusPrefix);
-  if (!fp) return blueprint;
-  const roomOk = (r: BlueprintRoom) => {
-    const rp = normalizeFocusPrefix(r.path ?? "");
-    if (rp === fp || rp.startsWith(`${fp}/`)) return true;
-    return (r.functions ?? []).some((fn) => {
-      const f = normalizeFocusPrefix(fn.file ?? "");
-      return f === fp || f.startsWith(`${fp}/`) || f.endsWith(`/${fp}`);
-    });
-  };
-  const rooms = blueprint.rooms.filter(roomOk);
-  const keep = new Set(rooms.map((r) => r.id));
-  const edges = (blueprint.edges ?? []).filter((e) => keep.has(e.from) && keep.has(e.to));
-  return { ...blueprint, rooms, edges, envRefs: blueprint.envRefs ?? [] };
-}
 
 /** Get blueprint for workspace section (memory → persisted → infer). Used by IPC and AI tools. */
 export async function getBlueprintForWorkspace(
@@ -511,20 +476,6 @@ export function invalidateBlueprintCache(workspaceId: number, focusPath?: string
       /* ignore */
     }
   })();
-}
-
-/** After diagram/code revert: drop cache, re-infer blueprint, push to all renderer windows (`blueprint:updated`). */
-export async function broadcastBlueprintReload(workspaceId: number): Promise<void> {
-  invalidateBlueprintCache(workspaceId);
-  try {
-    const blueprint = await getBlueprintForWorkspace(workspaceId, {
-      focusPath: ".",
-      allowWorkspaceRoot: true,
-    });
-    sendToAllWindows("blueprint:updated", { workspaceId, blueprint });
-  } catch (e) {
-    logger.warn("broadcastBlueprintReload failed:", e);
-  }
 }
 
 export function registerBlueprintHandlers() {

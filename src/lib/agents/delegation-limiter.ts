@@ -65,12 +65,3 @@ export async function acquireDelegationSlot(
   });
 }
 
-export function clearDelegationSlotsForTurn(chatId: number, turnId: string): void {
-  const key = slotKey(chatId, turnId);
-  const slot = slotsByKey.get(key);
-  if (!slot) return;
-  for (const waiter of slot.queue) {
-    waiter.reject(new Error("Delegation turn ended"));
-  }
-  slotsByKey.delete(key);
-}

@@ -39,10 +39,6 @@ export function setDebugHypothesis(
   return entry;
 }
 
-export function getDebugHypothesis(chatId: number): DebugHypothesisRecord | null {
-  return sessions.get(chatId) ?? null;
-}
-
 export function clearDebugHypothesis(chatId: number): void {
   sessions.delete(chatId);
 }

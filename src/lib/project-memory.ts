@@ -120,21 +120,6 @@ export async function readAtlarixMd(workspacePath: string): Promise<string | nul
   return content;
 }
 
-export async function writeAtlarixMd(workspacePath: string, summaryText: string): Promise<void> {
-  if (!workspacePath || !summaryText?.trim()) return;
-  try {
-    await migrateLegacyAtlarixFiles(workspacePath);
-    const filePath = getAtlarixMdPath(workspacePath);
-    const existing = await safeRead(filePath);
-    const header = existing?.startsWith("#") ? "" : `# Project memory\n\n`;
-    const merged = `${header}Last updated: ${new Date().toISOString()}\n\n${summaryText.trim()}\n`;
-    await fs.writeFile(filePath, merged, "utf8");
-    logger.info(`Wrote .atlarix/atlarix.md for ${workspacePath}`);
-  } catch (err: unknown) {
-    logger.warn("Failed to write .atlarix/atlarix.md:", err);
-  }
-}
-
 export type MemoryMdStat = {
   exists: boolean;
   sizeKb: number;

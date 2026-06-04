@@ -38,8 +38,3 @@ export const activeTerminalInstanceByScopeAtom = atom<Record<string, string>>({}
 export const terminalAgentOpMapByScopeAtom = atom<Record<string, Record<string, string>>>(
   {},
 );
-
-/** Draft command input per scope + instance (persists across tab switches) */
-export const terminalDraftByScopeAtom = atom<
-  Record<string, Record<string, string>>
->({});

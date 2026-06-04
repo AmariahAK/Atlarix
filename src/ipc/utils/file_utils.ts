@@ -208,9 +208,3 @@ export async function writeMigrationFile(
   return normalizePath(path.relative(appPath, migrationFilePath));
 }
 
-export async function fileExists(filePath: string) {
-  return fsPromises
-    .access(filePath)
-    .then(() => true)
-    .catch(() => false);
-}

@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, IpcMainInvokeEvent } from "electron";
-import fetch from "node-fetch"; // Use node-fetch for making HTTP requests in main process
+// Native global fetch (Node 18+/Electron) — node-fetch removed in v10.1
 import { writeSettings, readSettings } from "../../main/settings";
 import { gitSetRemoteUrl, gitPush, gitClone } from "../utils/git_utils";
 import * as schema from "../../db/schema";
@@ -14,7 +14,6 @@ import type {
   GithubCloneProgress,
 } from "@/ipc/ipc_types";
 import { eq } from "drizzle-orm";
-import { GithubUser } from "../../lib/schemas";
 import log from "electron-log";
 import { IS_TEST_BUILD } from "../utils/test_utils";
 import path from "node:path"; // ← ADD THIS
@@ -72,37 +71,6 @@ interface DeviceFlowState {
 let currentFlowState: DeviceFlowState | null = null;
 
 // --- Helper Functions ---
-
-/**
- * Fetches the GitHub username of the currently authenticated user (using the stored access token).
- * @returns {Promise<string|null>} The GitHub username, or null if not authenticated or on error.
- */
-export async function getGithubUser(): Promise<GithubUser | null> {
-  const settings = readSettings();
-  const email = settings.githubUser?.email;
-  if (email) return { email };
-  try {
-    const accessToken = settings.githubAccessToken?.value;
-    if (!accessToken) return null;
-    const res = await fetch(`${GITHUB_API_BASE}/user/emails`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return null;
-    const emails = await res.json();
-    const email = emails.find((e: any) => e.primary)?.email;
-    if (!email) return null;
-
-    writeSettings({
-      githubUser: {
-        email,
-      },
-    });
-    return { email };
-  } catch (err) {
-    logger.error("[GitHub Handler] Failed to get GitHub username:", err);
-    return null;
-  }
-}
 
 type GithubFlowChannel =
   | "github:flow-update"
@@ -857,7 +825,6 @@ async function handleCloneRepoFromUrl(
           | Record<string, unknown>
           | null,
         path: fullAppPath,
-        files: [],
         supabaseProjectName: null,
         vercelTeamSlug: null,
       },

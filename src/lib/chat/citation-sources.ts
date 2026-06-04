@@ -7,6 +7,9 @@ const WEB_SOURCE_TOOLS = new Set([
   "deep_research",
   "deep_search",
   "read_url",
+  // v10.1: provider-native web search tool keys (Anthropic reuses "web_search").
+  "web_search_preview",
+  "google_search",
 ]);
 
 function tryParseJson(str: string): unknown {
@@ -117,6 +120,28 @@ export function extractSourcesFromMessageParts(
     }
   }
 
+  return out;
+}
+
+/**
+ * v10.1: provider-native search citations persisted in message content as
+ * `<atlarix-sources>[{url,title},…]</atlarix-sources>` (emitted at stream end
+ * by stream_chunk_tags). Extract + normalize them for the citation chips.
+ */
+export function extractInlineSourcesFromContent(content: string): SourceItem[] {
+  if (!content || !content.includes("<atlarix-sources>")) return [];
+  const out: SourceItem[] = [];
+  const seen = new Set<string>();
+  const re = /<atlarix-sources>([\s\S]*?)<\/atlarix-sources>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const parsed = tryParseJson(m[1].trim());
+    for (const s of sourcesFromUnknown(parsed)) {
+      if (seen.has(s.url)) continue;
+      seen.add(s.url);
+      out.push(s);
+    }
+  }
   return out;
 }
 

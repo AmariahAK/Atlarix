@@ -174,10 +174,3 @@ function extractTitleFromText(text: string): string {
     return text.substring(0, 60) + (text.length > 60 ? '...' : '');
 }
 
-/**
- * Clear the DDG cache
- */
-export function clearDDGCache(): void {
-    cache.clear();
-    console.log('[DDG] Cache cleared');
-}

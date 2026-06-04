@@ -67,17 +67,6 @@ async function loadCache(): Promise<Record<string, ModelCapabilities>> {
   }
 }
 
-async function saveCache(): Promise<void> {
-  if (!cache) return;
-  try {
-    const filePath = getCapabilitiesPath();
-    const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(cache, null, 2), "utf-8");
-  } catch (err) {
-    console.warn("[capability-registry] Failed to save:", err);
-  }
-}
 
 /**
  * Get capabilities for a provider+model. Returns undefined if not cached.
@@ -90,35 +79,3 @@ export async function getCapabilities(
   return c[cacheKey(provider, modelId)];
 }
 
-/**
- * Set capabilities for a provider+model (e.g. after fetching from API or inferring).
- */
-export async function setCapabilities(
-  provider: string,
-  modelId: string,
-  caps: Partial<Omit<ModelCapabilities, "provider" | "modelId">> & { provider: string; modelId: string }
-): Promise<void> {
-  const c = await loadCache();
-  const key = cacheKey(provider, modelId);
-  const existing = c[key];
-  const tier =
-    caps.tier ?? existing?.tier ?? inferTierFromModelName(modelId);
-  c[key] = {
-    contextWindow: caps.contextWindow ?? existing?.contextWindow ?? 128_000,
-    supportsToolCalling: caps.supportsToolCalling ?? existing?.supportsToolCalling ?? true,
-    supportsVision: caps.supportsVision ?? existing?.supportsVision ?? false,
-    tier,
-    provider: caps.provider ?? provider,
-    modelId: caps.modelId ?? modelId,
-  };
-  cache = c;
-  await saveCache();
-}
-
-/**
- * Get tier for a provider+model (from cache or infer from name).
- */
-export async function getTier(provider: string, modelId: string): Promise<ModelTier> {
-  const caps = await getCapabilities(provider, modelId);
-  return caps?.tier ?? inferTierFromModelName(modelId);
-}

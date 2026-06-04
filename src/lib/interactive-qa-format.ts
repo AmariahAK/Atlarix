@@ -8,8 +8,3 @@ export function formatInteractiveQaLine(question: string, answer: string): strin
   return `***Q:*** ${q} → ***A:*** ${a}`;
 }
 
-export function formatInteractiveQaBlock(pairs: { question: string; answer: string }[]): string {
-  return pairs
-    .map(({ question, answer }) => formatInteractiveQaLine(question, answer))
-    .join("\n\n");
-}

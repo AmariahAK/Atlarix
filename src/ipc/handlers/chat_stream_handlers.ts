@@ -19,6 +19,8 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { getNativeWebSearchSupport } from "../utils/native_web_search";
+import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import {
   SUPABASE_AVAILABLE_SYSTEM_PROMPT,
@@ -444,32 +446,6 @@ const pendingModeChangeResolvers = new Map<
   number,
   { finish: (approved: boolean) => void }
 >();
-const MODE_CHANGE_USER_WAIT_MS = 120_000;
-
-export function waitForModeChangeResponse(chatId: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const superseded = pendingModeChangeResolvers.get(chatId);
-    if (superseded) {
-      superseded.finish(false);
-    }
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (approved: boolean) => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      pendingModeChangeResolvers.delete(chatId);
-      resolve(approved);
-    };
-    timer = setTimeout(() => {
-      logger.warn(
-        `[mode-change] User approval wait timed out after ${MODE_CHANGE_USER_WAIT_MS}ms (chat ${chatId}); treating as declined.`,
-      );
-      finish(false);
-    }, MODE_CHANGE_USER_WAIT_MS);
-    pendingModeChangeResolvers.set(chatId, { finish });
-  });
-}
 
 export function resolveModeChange(chatId: number, approve: boolean): void {
   const r = pendingModeChangeResolvers.get(chatId);
@@ -875,22 +851,61 @@ async function resolveAskUserToolResult(
   hooks?: { finalizeAskUserBreakpoint?: () => void | Promise<void> },
 ): Promise<string | null> {
   if (toolName !== "ask_user") return null;
-  if (!result || typeof result !== "object" || (result as { __ask_user?: boolean }).__ask_user !== true) {
+  // Accept the marker both raw and nested inside a registry success envelope
+  // (`{ success, result: { __ask_user } }`) — defensive against wrappers.
+  let marker = result;
+  if (
+    marker &&
+    typeof marker === "object" &&
+    (marker as { __ask_user?: boolean }).__ask_user !== true &&
+    (marker as { result?: unknown }).result &&
+    typeof (marker as { result?: unknown }).result === "object" &&
+    ((marker as { result: { __ask_user?: boolean } }).result.__ask_user === true)
+  ) {
+    marker = (marker as { result: unknown }).result;
+  }
+  if (!marker || typeof marker !== "object" || (marker as { __ask_user?: boolean }).__ask_user !== true) {
     return null;
   }
-  const q = result as { question: string; options?: string[] };
+  const q = marker as {
+    question: string;
+    options?: string[];
+    questions?: Array<{ question: string; options?: string[] }>;
+  };
+  // v10.1: one ask_user call can carry several questions; the stream pauses
+  // until the user answers ALL of them in the inline card.
+  const questions =
+    Array.isArray(q.questions) && q.questions.length > 0
+      ? q.questions
+      : [
+          {
+            question: q.question ?? "",
+            ...(Array.isArray(q.options) && q.options.length > 0
+              ? { options: q.options }
+              : {}),
+          },
+        ];
   const { waitForUserQuestionAnswer } = await import("./user_question_wait");
   await hooks?.finalizeAskUserBreakpoint?.();
   const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   safeSend(event.sender, "user-question-request", {
     chatId,
     questionId,
-    question: q.question ?? "",
-    options: Array.isArray(q.options) && q.options.length > 0 ? q.options : undefined,
+    question: questions[0].question,
+    options: questions[0].options,
+    questions,
   });
-  logger.log(`[ask_user] Waiting for UI answer (${questionId})`);
+  logger.log(
+    `[ask_user] Waiting for UI answer (${questionId}, ${questions.length} question(s))`,
+  );
   const answer = await waitForUserQuestionAnswer(chatId, questionId, 30 * 60 * 1000);
-  return JSON.stringify({ success: true, answer });
+  // The UI submits a readable combined "Q → A" string (single answers come
+  // back as plain text). Include the questions so the tool card shows Q + A.
+  return JSON.stringify({
+    success: true,
+    questions: questions.map((it) => it.question),
+    answer,
+  });
 }
 
 /** Agentic loop completion: explicit model tag only (no inferred prose). */
@@ -3410,19 +3425,90 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const isAnthropic = modelClient.builtinProviderId === "anthropic";
 
+            // v10.1: provider-native web search — when the provider ships a
+            // built-in search tool, swap out the client-side `web_search` for
+            // it (results + citations come back inline in the same stream).
+            // Client `web_search` stays the universal fallback elsewhere.
+            let effectiveTools = tools;
+            if (tools && tools["web_search"]) {
+              const nativeWeb = getNativeWebSearchSupport(
+                modelClient.builtinProviderId,
+                effectiveModel?.name,
+              );
+              if (nativeWeb?.kind === "tool") {
+                const { web_search: _clientWebSearch, ...rest } = tools;
+                effectiveTools = { ...rest, [nativeWeb.key]: nativeWeb.tool };
+                logger.log(
+                  `[native-web-search] using provider tool ${nativeWeb.key} (${modelClient.builtinProviderId})`,
+                );
+              } else if (nativeWeb?.kind === "openrouter-plugin") {
+                providerOptions.openrouter = {
+                  ...providerOptions.openrouter,
+                  plugins: [
+                    ...(providerOptions.openrouter?.plugins ?? []),
+                    { id: "web" },
+                  ],
+                };
+                logger.log("[native-web-search] enabled OpenRouter web plugin");
+              }
+            }
+
             const maxOutputTokens = await getMaxTokensWithFloor(optionsModel);
             const temperature = await getTemperature(optionsModel);
 
             ttftStartRef.ms = Date.now();
+            // v10.1 perf: time from workspace open to the first prompt dispatch.
+            if (effectiveAppId != null) {
+              perfReportOnce(
+                `workspace-open:${effectiveAppId}`,
+                `workspace ${effectiveAppId} open → first prompt dispatch`,
+              );
+            }
 
-            const streamMessages: ModelMessage[] = chatMessages.filter((m) => m.content);
+            const history: ModelMessage[] = chatMessages.filter((m) => m.content);
             const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
               (s): s is string => typeof s === "string" && s.trim().length > 0,
             );
-            const combinedSystem = mergeSystemPromptParts(
-              systemPromptOverride,
-              ...tailParts,
-            );
+
+            // v10.1 prompt caching: the per-turn tail no longer merges into the
+            // `system` string (that invalidated the provider prompt cache every
+            // turn). Leading system messages instead: stable header first —
+            // with an Anthropic cache breakpoint covering tools + system —
+            // then the dynamic tail as its own (mostly day-stable) block.
+            const anthropicCacheControl = {
+              anthropic: { cacheControl: { type: "ephemeral" as const } },
+            };
+            const streamMessages: ModelMessage[] = [
+              {
+                role: "system",
+                content: systemPromptOverride,
+                ...(isAnthropic ? { providerOptions: anthropicCacheControl } : {}),
+              },
+              ...(tailParts.length > 0
+                ? [
+                    {
+                      role: "system" as const,
+                      content: mergeSystemPromptParts(tailParts[0], ...tailParts.slice(1)),
+                    },
+                  ]
+                : []),
+              // Anthropic: second breakpoint on the previous exchange's last
+              // message so the growing history caches incrementally.
+              ...(isAnthropic && history.length >= 2
+                ? history.map((m, i) =>
+                    i === history.length - 2
+                      ? {
+                          ...m,
+                          providerOptions: {
+                            ...(m as { providerOptions?: Record<string, unknown> })
+                              .providerOptions,
+                            ...anthropicCacheControl,
+                          },
+                        }
+                      : m,
+                  )
+                : history),
+            ];
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -3436,13 +3522,29 @@ This conversation includes one or more image attachments. When the user uploads 
               model: modelClient.model,
               stopWhen: [() => false],
               providerOptions,
-              system: combinedSystem,
-              tools,
+              tools: effectiveTools,
               messages: streamMessages,
               onFinish: (response) => {
                 const rt = reasoningTokensFromAiUsage(response.usage);
                 if (typeof rt === "number") {
                   maxReasoningTokensUsed = Math.max(maxReasoningTokensUsed ?? 0, rt);
+                }
+                // v10.1 prompt caching: surface cache reads/writes per round.
+                {
+                  const u = response.usage as { cachedInputTokens?: number } | undefined;
+                  const cacheRead = u?.cachedInputTokens;
+                  const anthroMeta = response.providerMetadata?.anthropic as
+                    | { cacheCreationInputTokens?: number | null }
+                    | undefined;
+                  const cacheWrite = anthroMeta?.cacheCreationInputTokens;
+                  if (
+                    (typeof cacheRead === "number" && cacheRead > 0) ||
+                    (typeof cacheWrite === "number" && cacheWrite > 0)
+                  ) {
+                    logger.log(
+                      `[prompt-cache] chat ${req.chatId}: read=${cacheRead ?? 0} write=${cacheWrite ?? 0} input=${(response.usage as { inputTokens?: number })?.inputTokens ?? "?"}`,
+                    );
+                  }
                 }
                 let totalTokens: number | null = totalTokensFromAiUsage(response.usage);
                 if (totalTokens == null && response.usage && typeof response.usage === "object") {
@@ -3908,6 +4010,19 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       buildToolStreamOpts(),
                     );
+                    // v10.1 fix: this path returned the raw `__ask_user` marker
+                    // to the model (no UI question, no pause). Intercept like the
+                    // Build/agentic paths do.
+                    const askUserResolvedAgentTab = await resolveAskUserToolResult(
+                      event,
+                      req.chatId,
+                      regName,
+                      result,
+                      { finalizeAskUserBreakpoint },
+                    );
+                    if (askUserResolvedAgentTab !== null) {
+                      return askUserResolvedAgentTab;
+                    }
                     return JSON.stringify(result);
                   } finally {
                     safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });

@@ -12,7 +12,7 @@ import {
     UserMessageMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
-import { motion } from "framer-motion";
+import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { Copy, Check, Bot, Edit2 } from "lucide-react";
 import { useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -49,6 +49,8 @@ interface SimpleMessageProps {
     /** Workspace bound to this chat (from getChat.appId). */
     workspaceAppId?: number | null;
     isStreaming?: boolean;
+    /** Last assistant message in the thread — keeps the settled "A" indicator after the turn completes. */
+    isLatestAssistant?: boolean;
     onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
 }
 
@@ -57,6 +59,7 @@ export function SimpleMessage({
     chatId: chatIdProp,
     workspaceAppId,
     isStreaming = false,
+    isLatestAssistant = false,
     onEditUserMessage,
 }: SimpleMessageProps) {
     const [copied, setCopied] = useState(false);
@@ -132,39 +135,9 @@ export function SimpleMessage({
                         : "bg-muted"
                         }`}
                 >
-                    {/* Typing indicator for empty assistant message while streaming */}
+                    {/* Working indicator for empty assistant message while streaming */}
                     {isAssistant && !message.content && isStreaming ? (
-                        <div className="flex h-6 items-center space-x-2">
-                            <motion.div
-                                className="h-2 w-2 rounded-full bg-current opacity-60"
-                                animate={{ y: [0, -8, 0] }}
-                                transition={{
-                                    repeat: Infinity,
-                                    duration: 0.6,
-                                    ease: "easeInOut",
-                                }}
-                            />
-                            <motion.div
-                                className="h-2 w-2 rounded-full bg-current opacity-60"
-                                animate={{ y: [0, -8, 0] }}
-                                transition={{
-                                    repeat: Infinity,
-                                    duration: 0.6,
-                                    ease: "easeInOut",
-                                    delay: 0.15,
-                                }}
-                            />
-                            <motion.div
-                                className="h-2 w-2 rounded-full bg-current opacity-60"
-                                animate={{ y: [0, -8, 0] }}
-                                transition={{
-                                    repeat: Infinity,
-                                    duration: 0.6,
-                                    ease: "easeInOut",
-                                    delay: 0.3,
-                                }}
-                            />
-                        </div>
+                        <InlineStreamStatus chatId={chatId ?? message.chatId} active />
                     ) : (
                         <div className={CHAT_MESSAGE_MARKDOWN_PROSE} style={{ whiteSpace: 'pre-wrap' }}>
                             {isUser &&
@@ -210,9 +183,12 @@ export function SimpleMessage({
                             )}
 
 
-                            {/* Streaming indicator */}
-                            {isAssistant && isStreaming && message.content && (
-                                <span className="inline-block w-2 h-4 ml-1 bg-primary animate-pulse" />
+                            {/* Inline compass: loops while this turn streams, settles into "A" when done */}
+                            {isAssistant && message.content && (isStreaming || isLatestAssistant) && (
+                                <InlineStreamStatus
+                                    chatId={chatId ?? message.chatId}
+                                    active={isStreaming}
+                                />
                             )}
                         </div>
                     )}

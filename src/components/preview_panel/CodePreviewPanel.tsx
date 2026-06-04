@@ -73,7 +73,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
     full: { width: '100%', label: 'Full' },
 };
 
-export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
+function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
     const navigate = useNavigate();
     const currentApp = useAtomValue(currentAppAtom);
     const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
@@ -120,12 +120,6 @@ export function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI
                             errors={errorsData}
                             workspacePath={workspacePath}
                             appId={currentAppId}
-                            files={
-                                currentAppId &&
-                                currentApp?.id === currentAppId
-                                    ? (currentApp?.files ?? [])
-                                    : undefined
-                            }
                             selectedErrorForCode={selectedErrorForCode}
                             onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
                             onSwitchToCode={onSwitchToCode}
@@ -417,7 +411,6 @@ function CodeTab({
     errors = [],
     workspacePath = '',
     appId = null,
-    files,
     selectedErrorForCode = null,
     onSelectedErrorForCodeConsumed = () => {},
     onSwitchToCode,
@@ -426,7 +419,6 @@ function CodeTab({
     errors?: ParsedError[];
     workspacePath?: string;
     appId?: number | null;
-    files?: string[];
     selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
     onSelectedErrorForCodeConsumed?: () => void;
     onSwitchToCode?: () => void;
@@ -441,7 +433,7 @@ function CodeTab({
         staleTime: 5_000,
         refetchOnWindowFocus: true,
     });
-    const workspaceFiles = files ?? appFilesData?.files ?? [];
+    const workspaceFiles = appFilesData?.files ?? [];
     const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
     const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
     const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
@@ -543,7 +535,7 @@ function CodeTab({
                         Files
                     </div>
                     <div className="flex-1 overflow-auto min-h-0">
-                        {appFilesLoading && files == null ? (
+                        {appFilesLoading ? (
                             <div className="flex items-center justify-center p-3 text-muted-foreground">
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
                             </div>

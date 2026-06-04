@@ -6,7 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { Blueprint, BlueprintRoom } from "../../shared/blueprint-types";
+import type { BlueprintRoom } from "../../shared/blueprint-types";
 import { parseEnvFile, serializeEnvFile } from "../../ipc/utils/app_env_var_utils";
 
 const ENV_FILE_NAME = ".env.local";
@@ -125,16 +125,3 @@ export async function generateFromBlueprintDelta(
   return result;
 }
 
-/**
- * Full Blueprint codegen (e.g. for new project): all rooms + edges + envRefs.
- */
-export async function generateFromBlueprint(
-  workspacePath: string,
-  blueprint: Blueprint
-): Promise<CodegenResult> {
-  return generateFromBlueprintDelta(workspacePath, {
-    rooms: blueprint.rooms ?? [],
-    edges: blueprint.edges ?? [],
-    envRefs: blueprint.envRefs ?? [],
-  });
-}

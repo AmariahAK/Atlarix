@@ -24,20 +24,6 @@ export function appendAutonomousOp(chatId: number, turnId: string, op: Autonomou
   sessionLogs.set(k, list);
 }
 
-export function appendAgentActivitySnapshot(
-  chatId: number,
-  turnId: string,
-  msg: Record<string, unknown>,
-): void {
-  const tid = msg.turnId;
-  if (typeof tid !== "string" || tid !== turnId) return;
-  if (msg.chatId != null && msg.chatId !== chatId) return;
-  const k = sessionKey(chatId, turnId);
-  const list = agentActivityByTurn.get(k) ?? [];
-  list.push(msg);
-  agentActivityByTurn.set(k, list);
-}
-
 export function getAutonomousSessionLog(chatId: number, turnId: string): AutonomousOp[] {
   return [...(sessionLogs.get(sessionKey(chatId, turnId)) ?? [])];
 }

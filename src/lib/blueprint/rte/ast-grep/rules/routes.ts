@@ -47,11 +47,6 @@ export function routePatternSpecs(lang: Lang): RoutePatternSpec[] {
   ];
 }
 
-/** @deprecated Use routePatternSpecs — kept for tests expecting NapiConfig[]. */
-export function routePatterns(lang: Lang): NapiConfig[] {
-  return routePatternSpecs(lang).map((s) => s.matcher);
-}
-
 const NEXT_HTTP_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]);
 
 export function normalizeRouteHttpMethod(raw: string | undefined): string | null {

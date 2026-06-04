@@ -8,12 +8,6 @@ import { useEffect, useState } from "react";
 import { AtlarixProSuccessDialog } from "@/components/AtlarixProSuccessDialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IpcClient } from "@/ipc/ipc_client";
-import { UserBudgetInfo } from "@/ipc/ipc_types";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 
 export const TitleBar = () => {
@@ -205,20 +199,3 @@ export function AtlarixProButton({
   );
 }
 
-export function AICreditStatus({ userBudget }: { userBudget: UserBudgetInfo }) {
-  const remaining = Math.round(
-    userBudget.totalCredits - userBudget.usedCredits,
-  );
-  return (
-    <Tooltip>
-      <TooltipTrigger>
-        <div className="text-xs pl-1 mt-0.5">{remaining} credits</div>
-      </TooltipTrigger>
-      <TooltipContent>
-        <div>
-          <p>Note: there is a slight delay in updating the credit status.</p>
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
-}

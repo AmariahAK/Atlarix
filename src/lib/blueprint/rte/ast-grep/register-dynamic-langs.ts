@@ -148,8 +148,3 @@ export function ensureAstGrepDynamicLangs(): void {
   logger.info("ast-grep dynamic languages registered", { langs: [...registeredLangKeys] });
 }
 
-/** @internal Test hook */
-export function resetAstGrepDynamicLangsForTests(): void {
-  registered = false;
-  registeredLangKeys.clear();
-}

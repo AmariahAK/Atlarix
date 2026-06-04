@@ -6,7 +6,6 @@ import {
   isOnlyToolDebris,
   sanitizeMarkdownForDisplay,
   isToolJsonLine,
-  stripOrphanToolTagFragments,
   splitByToolResultEnvelopes,
   parseToolResultEnvelope,
 } from "@/lib/chat/answer-display";
@@ -476,7 +475,3 @@ function mergeAdjacentMarkdown(
   return merged;
 }
 
-/** Strip orphan fragments from full content before storage display. */
-export function sanitizeAssistantContentForDisplay(content: string): string {
-  return stripOrphanToolTagFragments(content);
-}

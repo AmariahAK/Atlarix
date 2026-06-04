@@ -25,10 +25,6 @@ export function getDomainPlanPath(workspacePath: string, domain: PlanDomain): st
   return path.join(workspacePath, PLANS_DIR, `${domain}.md`);
 }
 
-export function getAtlarixPath(workspacePath: string): string {
-  return path.join(workspacePath, ATLARIX_FILE);
-}
-
 const INDEX_TEMPLATE = `# Atlarix Plans Index
 
 - [Backend](backend.md)
@@ -73,43 +69,3 @@ export async function ensurePlansDir(
   }
 }
 
-/**
- * List domain plan file paths that exist.
- */
-export async function listDomainPlans(workspacePath: string): Promise<PlanDomain[]> {
-  const existing: PlanDomain[] = [];
-  for (const domain of DOMAIN_PLANS) {
-    try {
-      await fs.access(getDomainPlanPath(workspacePath, domain));
-      existing.push(domain);
-    } catch {
-      // skip
-    }
-  }
-  return existing;
-}
-
-/**
- * Read _index.md content.
- */
-export async function readPlansIndex(workspacePath: string): Promise<string | null> {
-  try {
-    return await fs.readFile(getIndexPath(workspacePath), "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read a domain plan file.
- */
-export async function readDomainPlan(
-  workspacePath: string,
-  domain: PlanDomain
-): Promise<string | null> {
-  try {
-    return await fs.readFile(getDomainPlanPath(workspacePath, domain), "utf-8");
-  } catch {
-    return null;
-  }
-}

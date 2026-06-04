@@ -1,7 +1,41 @@
 # Atlarix TODO
 
-**Current Version:** v10.0.0
+**Current Version:** v10.1.0
 **Last Updated:** 2026-06-04
+
+---
+
+## Shipped in v10.1.0
+
+| Area | Notes |
+|------|--------|
+| **Code tab FILES fix** | `get-app` hardcoded `files: []` and `files ?? query` never fell back on `[]`; Code tab + full-screen code page now use the `getAppFiles` query directly; vestigial `App.files` removed |
+| **Sidebar simplified** | Files tab removed under the workspace name — Sessions only; files live in the right-panel Code tab (+ Cmd/Ctrl+P) |
+| **Streaming indicator redesign** | Global full-width `ToolIndicator` strip deleted; small inline compass (`AtlarixAnimation` bare mode) + human-readable one-liner under the CURRENT response only; settles into a stagnant "A"; arg-aware labels ("Writing src/auth.ts…") |
+| **Provider-native web search** | Anthropic `web_search`, OpenAI `webSearchPreview`, Gemini grounding, OpenRouter `web` plugin swapped in at dispatch (`native_web_search.ts`); client `web_search` (SearxNG → DDG) stays the universal fallback; native keys feed citations |
+| **Prompt caching** | Stable system header carries an Anthropic `cacheControl` breakpoint (covers tools+system); second breakpoint on the previous exchange for incremental history caching; per-turn tail moved out of `system` (was invalidating the cache every turn — date is now day-stable); cache read/write logged per round (`[prompt-cache]`) |
+| **System-prompt slimming** | Deleted unused exports (`getModeSystemBlock`, parts-variant builder), deduped Ask/Build discovery flow, tightened web-research + `task_complete` blocks |
+| **Terminal polish** | Scrollback persists across restarts (xterm `SerializeAddon` + `pty:scrollback:*`); terminal tabs persist to disk (`terminal-scopes.json`); legacy single-command input path for user tabs DELETED (kill-switch now hard-disables); live cwd per tab label via OSC 7/1337 (`pty:cwd`) |
+| **MCP marketplace polish** | True one-click OAuth (no dialog when no env vars), curated `category` + `installs` registry fields (graceful when absent), first-run wizard CTA deep-linking to `/settings/mcp?tab=marketplace` |
+| **Cmd/Ctrl+P quick open** | Fuzzy file opener (`QuickFileOpen`) over the shared `app-files` query; opens in the right-panel Code tab |
+| **Startup & large-repo perf** | `WorkspaceFileTree` virtualized (`@tanstack/react-virtual`); ctags index refreshes incrementally via per-file mtimes (`fileMtimes` manifest) instead of full re-tag on commit change; `[perf]` open→first-prompt timing marks |
+| **Supabase hardening** | Migration `20260604120000`: team_members self-service DELETE (leave/decline), invite policies via JWT email claim, `users.team_id` WITH CHECK, `record_compass_usage` sanity cap + 60/min rate limit; Lemon webhook fails loudly when `LEMONSQUEEZY_WORKFORCE_VARIANT_ID` unset |
+| **Dead-code & size sweep** | ~28 dependencies removed (konva, framer-motion, lexical×3, openai, pdf-parse, opentelemetry×3, …); `bad-words` → in-house wordlist; node-fetch → global fetch; pivot-analysis subsystem, legacy `.bak` snapshot fallback, dead ChatInput/Lexical chain (+9 orphans), 16 dead atoms, dead token utils deleted; debounce consolidated |
+| **Renderer tests** | Multi-project vitest (node + jsdom); fake `IpcClient` harness (`src/__tests__/renderer/helpers.tsx`); 14 component tests (inline indicator, stream tool cards, Cmd+P, first-run wizard) |
+
+| **Security deployed** | Hardening migration + webhook live on production Supabase (`supabase db push` + `functions deploy`; 401 on bad signatures verified) |
+| **Tool-output token budgets** | >6k-token results spill to disk with a head+tail preview (1.5k+0.5k tokens, omitted-range marker) instead of head-only 2k chars; `headTailTruncateToTokens` in `lib/truncate.ts` |
+| **Reload-stable native citations** | `source` stream parts + Gemini `groundingMetadata` → hidden `<atlarix-sources>` content tag → citation chips live + after reload (`extractInlineSourcesFromContent`) |
+| **Dead-export sweep** | ≈220 zero-usage exported symbols deleted (incl. legacy `AtlarixMarkdownParser` main component, ThinkingSection, PlanCard/PlanSection); remaining knip flags live only in contract files (schemas, ipc_types, ui kit) |
+| **Legacy /chat indicator** | Old purple pulse dot → inline compass (same visual as the main surface) |
+| **ask_user actually pauses** | Root cause: the `__ask_user` marker was nested inside ToolRegistry's `{success, result}` envelope — every interceptor missed it; marker now escapes the envelope (same contract as `__permission_required`) + agent-path interceptor added + freeze baseline set (was deleted) |
+| **ask_user inline multi-question card** | `InlineUserQuestions` in the chat thread (replaces `UserQuestionBar`); `questions[]` (max 5 × 4 options + free text); single-question option click = instant submit; combined readable `Q → A` transcript returns to the model |
+| **Session reuse on reopen** | `startWorkspaceSession` reuses the newest empty default-titled session + prunes the stale empty backlog (`pickSessionReuse`); no more "Untitled" stacking from app reopens / repeated New chat |
+| **Stall watchdog vs tools** | Stream stall abort suspends while a tool call is in flight (sub-agents, long commands, pending ask_user); still fires when the model itself goes silent |
+| **Sub-agent display honesty** | Read results → one-line summaries; JSON envelopes never pasted into labels; progress lines titled **Activity** (not "Thoughts") |
+
+**Follow-ups:** extend renderer tests to edit→persist→reload, mode switch, MCP auth retry, per-hunk
+approvals; consider trimming the remaining ~120 contract-file export flags case-by-case.
 
 ---
 
@@ -27,74 +61,9 @@ chat-edit persistence, dead-code sweeps, 0 tsc/0 lint, quality gate). See
 
 ---
 
-## v10.1 updates (roadmap)
+## Roadmap
 
-### 1. Renderer / integration test coverage
-
-- **What:** Component- and flow-level tests for the chat surface: send → stream → tool card
-  render, edit → persist → reload, session switch, mode switch, plan Build button, MCP auth
-  retry prompt, first-run wizard, per-hunk approval flow.
-- **Approach:** Add a jsdom vitest project (multi-project config; `@testing-library/react` is
-  already installed); mock `IpcClient` at the module boundary (singleton seam) with a
-  scriptable fake stream. Gate in CI alongside existing tests.
-- **Key files:** new `src/__tests__/renderer/`, `vitest.config.ts` (multi-project),
-  `src/ipc/ipc_client.ts` (test seam).
-
-### 2. Startup & large-repo performance
-
-- **What:** Profile and trim cold start and first-prompt latency on big repos (10k+ files).
-- **Approach:** Timing marks around open-workspace → first-prompt; fully lazy analysis
-  (`prewarmWorkspaceCache` already debounces), ctags output cached by content hash, and
-  virtualize `WorkspaceFileTree` (currently renders all nodes recursively). Measure
-  before/after on a large fixture repo.
-- **Key files:** `lib/analysis/*`, `lib/blueprint/*`,
-  `ipc/handlers/chat_stream/workspace-context.ts`, `components/workspace/WorkspaceFileTree.tsx`.
-
-### 3. Terminal polish (post-PTY)
-
-- **What:** Optional PTY scrollback persistence across restarts (xterm `SerializeAddon`);
-  delete the legacy single-command input path for user tabs once PTY proves out on all
-  platforms; cwd tracking per tab label.
-- **Key files:** `components/panels/XtermView.tsx`, `components/panels/TerminalPanel.tsx`,
-  `lib/pty/pty-session-manager.ts`.
-
-### 4. MCP marketplace polish
-
-- **What:** The marketplace tab exists (`McpMarketplaceTab`, fed by
-  [atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps) `index.json`); polish discovery —
-  category filters, one-click OAuth from the card, install counts, and surfacing the
-  marketplace from the first-run wizard.
-- **Key files:** `components/settings/McpMarketplaceTab.tsx`, `shared/mcp-registry.ts`.
-
-### 5. Streaming indicator redesign (Claude/Grok/Gemini-style)
-
-- **What:** Fix the bug where a giant compass-animation section fills the chat while
-  "Thinking". Replace with: a **small inline indicator under the CURRENT assistant response
-  only** (previous responses get nothing) — animated compass looping while streaming/working,
-  settling into a stagnant "A" when the turn completes. Applies to edited/resent turns too.
-- **Plus:** Replace the constant "Thinking" label with a **human-readable one-liner** of what
-  the agent is doing right now — e.g. "waiting on agents", "mapping out structure",
-  "writing src/auth.ts" — that updates as work progresses and disappears when done. Deep
-  detail stays in the existing thinking blocks; this is just the one-sentence status line.
-- **Approach:** Source the one-liner from the existing activity stream (`chat:activity` /
-  `chat:tool:start` already carry tool labels and delegation events); map activity types to
-  short phrases. Size/contain `AtlarixAnimation` (size xs) inside the assistant message
-  footer instead of a full-width section.
-- **Key files:** `components/chat/AssistantMessageBody.tsx`, `components/AtlarixAnimation`,
-  `hooks/useStreamChat.ts` (current-stream state), the streaming placeholder render path.
-
-### 6. Provider-native web search chain
-
-- **What:** When the active model supports provider-native search (Anthropic web_search,
-  OpenAI Responses search, Gemini grounding, OpenRouter `:online`), pass the provider tool at
-  dispatch instead of Atlarix's client-side `web_search`; render native citations in chat.
-  Keep the client-side `web_search` tool as the universal path (Ollama, LM Studio, Groq, and
-  any provider without native search). Chain: provider-native → SearxNG → search MCPs → the
-  existing actionable "enable SearxNG or a search MCP" message. No paid search APIs for now.
-- **Key files:** `ipc/handlers/chat_stream_handlers.ts` (tool dispatch),
-  `lib/tools/web-tools.ts`, provider capability detection, chat citation rendering.
-
-### 7. In-app browser tab (WebContentsView)
+### In-app browser tab (WebContentsView)
 
 - **What:** Optional "Browser" surface backed by Electron `WebContentsView` (not an iframe —
   immune to X-Frame-Options) with back/forward + URL bar, isolated session partition. Lets

@@ -257,12 +257,81 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
 }
 
 /** Create session row + ephemeral transport (shared by IPC and import). */
+/**
+ * Pure reuse/prune decision for workspace open / New chat (v10.1):
+ * given the workspace's sessions (most-recent first) with message counts,
+ * pick the newest default-titled EMPTY session to reuse and mark the other
+ * empties for deletion. Sessions with messages or custom titles are never
+ * touched. Extracted for unit testing.
+ */
+export function pickSessionReuse(
+  rows: { id: string; title: string; messageCount: number }[],
+): { reuseId: string | null; pruneIds: string[] } {
+  const empties = rows.filter(
+    (r) => Number(r.messageCount) === 0 && DEFAULT_SESSION_TITLES.has(r.title),
+  );
+  if (empties.length === 0) return { reuseId: null, pruneIds: [] };
+  return {
+    reuseId: empties[0].id,
+    pruneIds: empties.slice(1).map((r) => r.id),
+  };
+}
+
+/** Sessions for this workspace (most recent first) with their message counts. */
+async function listSessionsWithMessageCounts(
+  workspaceId: number,
+): Promise<{ id: string; title: string; messageCount: number }[]> {
+  return db
+    .select({
+      id: chatSessions.id,
+      title: chatSessions.title,
+      messageCount: sql<number>`(
+        select count(*) from ${sessionMessages}
+        where ${sessionMessages.sessionId} = ${chatSessions.id}
+      )`,
+    })
+    .from(chatSessions)
+    .where(eq(chatSessions.workspaceId, workspaceId))
+    .orderBy(desc(chatSessions.updatedAt));
+}
+
 export async function startWorkspaceSession(workspaceId: number): Promise<{
   sessionId: string;
   chatId: number;
   session: ChatSessionRow;
 }> {
-  const session = await insertWorkspaceSession(workspaceId);
+  // v10.1 fix: every app reopen created a fresh "Untitled" session, cluttering
+  // the sidebar with empties. Reuse the most recent session when it's still
+  // default-titled with zero messages, and prune any other stale empties.
+  let session: ChatSessionRow | null = null;
+  try {
+    const rows = await listSessionsWithMessageCounts(workspaceId);
+    const { reuseId, pruneIds } = pickSessionReuse(rows);
+    if (reuseId) {
+      const [reuse] = await db
+        .select()
+        .from(chatSessions)
+        .where(eq(chatSessions.id, reuseId));
+      if (reuse) {
+        session = mapSession(reuse);
+        logger.log(
+          `Reusing empty session ${session.id} for workspace ${workspaceId}`,
+        );
+      }
+    }
+    if (pruneIds.length > 0) {
+      await db.delete(chatSessions).where(inArray(chatSessions.id, pruneIds));
+      logger.log(
+        `Pruned ${pruneIds.length} stale empty session(s) for workspace ${workspaceId}`,
+      );
+    }
+  } catch (e) {
+    logger.warn("Empty-session reuse check failed; creating a new session:", e);
+  }
+
+  if (!session) {
+    session = await insertWorkspaceSession(workspaceId);
+  }
   const chatId = createEphemeralWorkspaceChat(workspaceId);
   await persistSessionStreamChatId(session.id, chatId);
   return { sessionId: session.id, chatId, session };

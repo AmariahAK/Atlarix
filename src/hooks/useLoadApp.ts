@@ -49,7 +49,7 @@ export function useLoadApp(appId: number | null) {
       if (loadedAppIdRef.current === appId) return;
       loadedAppIdRef.current = appId;
 
-      setApp({ ...appData, files: appData.files ?? [] });
+      setApp(appData);
     }
   }, [appId, appData, setApp]);
 

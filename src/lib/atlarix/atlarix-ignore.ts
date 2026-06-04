@@ -5,7 +5,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import ignore from "ignore";
-import type { Blueprint, BlueprintFunction, BlueprintRoom } from "@/shared/blueprint-types";
 import { ATLARIX_DIR, getAtlarixDirPath } from "@/lib/project-memory";
 
 export const ATLARIX_IGNORE_FILENAME = ".atlarixignore";
@@ -188,51 +187,6 @@ export async function loadIgnorerForProject(projectRoot: string): Promise<Atlari
   return createIgnorerFromSource(DEFAULT_ATLARIXIGNORE);
 }
 
-function relForFunction(f: BlueprintFunction, projectRoot: string): string {
-  return normalizeRelPath(projectRoot, f.file ?? f.description ?? "");
-}
-
-/**
- * Drop functions whose file path matches .atlarixignore; prune rooms and edges.
- */
-export async function filterBlueprintByAtlarixIgnore(
-  blueprint: Blueprint,
-  projectRoot: string,
-): Promise<Blueprint> {
-  const ig = await loadIgnorerForProject(projectRoot);
-  const roomsIn = blueprint.rooms ?? [];
-
-  const rooms: BlueprintRoom[] = [];
-  for (const room of roomsIn) {
-    const hadFns = (room.functions?.length ?? 0) > 0;
-    const functions = (room.functions ?? []).filter((fn) => {
-      const rel = relForFunction(fn, projectRoot);
-      if (!rel) return true;
-      if (isRelPathIgnored(ig, rel)) return false;
-      return true;
-    });
-    const fnIds = new Set(functions.map((f) => f.id));
-    const flowEdges = (room.flowEdges ?? []).filter((e) => fnIds.has(e.from) && fnIds.has(e.to));
-    if (functions.length === 0 && hadFns) {
-      continue;
-    }
-    const next: BlueprintRoom = { ...room, functions };
-    if (room.flowEdges?.length) {
-      next.flowEdges = flowEdges;
-    }
-    rooms.push(next);
-  }
-
-  const roomIds = new Set(rooms.map((r) => r.id));
-  const edges = (blueprint.edges ?? []).filter((e) => roomIds.has(e.from) && roomIds.has(e.to));
-
-  return {
-    ...blueprint,
-    rooms,
-    edges,
-    envRefs: blueprint.envRefs ?? [],
-  };
-}
 
 export interface BlueprintNodeLike {
   id: string;

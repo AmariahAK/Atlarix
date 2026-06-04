@@ -118,27 +118,3 @@ export async function ensureBlueprintParsed(
   return promise;
 }
 
-/** Clear single-flight cache for a workspace (all sections) or one section. */
-export function clearBlueprintParseInflight(
-  workspaceId?: number,
-  focusPath?: string,
-): void {
-  if (workspaceId == null) {
-    inflight.clear();
-    for (const key of progressTimers.keys()) clearProgressTimer(key);
-    return;
-  }
-  if (focusPath != null) {
-    const key = blueprintCacheKey(workspaceId, focusPath);
-    inflight.delete(key);
-    clearProgressTimer(key);
-    return;
-  }
-  const prefix = `${workspaceId}:`;
-  for (const key of [...inflight.keys()]) {
-    if (key.startsWith(prefix)) {
-      inflight.delete(key);
-      clearProgressTimer(key);
-    }
-  }
-}

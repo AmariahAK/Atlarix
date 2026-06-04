@@ -1,9 +1,5 @@
 import { atom } from "jotai";
 
-export type WorkspaceSidebarTab = "files" | "sessions";
-
-export const workspaceSidebarTabAtom = atom<WorkspaceSidebarTab>("files");
-
 export const activeWorkspaceSessionIdAtom = atom<string | null>(null);
 
 /** True when UI shows history from a loaded session but model context is empty. */

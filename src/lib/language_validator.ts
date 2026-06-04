@@ -7,7 +7,7 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getLanguage, getAllLanguageNames } from './language_registry';
+import { getLanguage } from './language_registry';
 import { detectProjectLanguages } from './project_language_detector';
 import log from 'electron-log';
 
@@ -107,43 +107,3 @@ export async function validateProjectLanguages(projectPath: string): Promise<Pro
     };
 }
 
-/**
- * Check all registered languages (for settings page)
- */
-export async function checkAllLanguages(): Promise<LanguageValidationResult[]> {
-    const results: LanguageValidationResult[] = [];
-
-    for (const langName of getAllLanguageNames()) {
-        const result = await validateLanguageInstalled(langName);
-        results.push(result);
-    }
-
-    return results;
-}
-
-/**
- * Quick check if primary languages are ready for a project type
- */
-export async function isProjectReady(projectPath: string): Promise<{
-    ready: boolean;
-    missing: string[];
-    message: string;
-}> {
-    const validation = await validateProjectLanguages(projectPath);
-
-    if (validation.allInstalled) {
-        return {
-            ready: true,
-            missing: [],
-            message: 'All required languages are installed.',
-        };
-    }
-
-    const missingNames = validation.missingLanguages.map(l => l.displayName);
-
-    return {
-        ready: false,
-        missing: missingNames,
-        message: `Missing: ${missingNames.join(', ')}. Install before running.`,
-    };
-}

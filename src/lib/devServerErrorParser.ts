@@ -51,24 +51,3 @@ export function deduplicateErrors(
     });
 }
 
-/**
- * Generate actionable suggestion based on error message
- */
-export function generateSuggestion(message: string): string | undefined {
-    if (/cannot find module/i.test(message)) {
-        return 'Install the missing module with npm/yarn';
-    }
-    if (/is not defined/i.test(message)) {
-        return 'Import or define the missing variable/function';
-    }
-    if (/does not provide.*export/i.test(message)) {
-        return 'Check export name or add the export to the module';
-    }
-    if (/is not assignable/i.test(message)) {
-        return 'Fix type mismatch or update type definition';
-    }
-    if (/syntaxerror/i.test(message)) {
-        return 'Fix syntax error (missing bracket, semicolon, etc.)';
-    }
-    return undefined;
-}

@@ -1,5 +1,4 @@
 import log from "electron-log";
-import fetch from "node-fetch";
 import { createLoggedHandler } from "./safe_handle";
 
 const logger = log.scope("upload_handlers");

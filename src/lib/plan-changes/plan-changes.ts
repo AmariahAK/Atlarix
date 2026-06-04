@@ -68,10 +68,6 @@ export function deriveFilesFromPlanMarkdown(planMd: string): PlanChangesPayload[
   return out;
 }
 
-export function stripPlanChangesComment(content: string): string {
-  return content.replace(CHANGES_COMMENT_RE, "").trim();
-}
-
 export function groupChangesByAction(
   files: PlanChangesPayload["files"],
 ): Record<PlanFileAction, string[]> {

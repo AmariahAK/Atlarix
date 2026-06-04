@@ -1,6 +1,7 @@
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
+import { formatToolResultPreview } from "@/lib/chat/stream-tool-display";
 
 export type InlineTimelineToolStatus = "running" | "done" | "error";
 
@@ -19,7 +20,34 @@ export type InlineTimelineItem =
 
 export function summarizeToolActivityItem(item: ActivityStreamItem): string {
   const name = (item.toolName ?? item.label ?? "tool").trim();
-  const detail = item.detail?.trim() ?? "";
+  let detail = item.detail?.trim() ?? "";
+  // v10.1: sub-agent tool activity carries the raw result envelope as detail —
+  // summarize it through the result formatter instead of pasting JSON.
+  if (detail.startsWith("{") || detail.startsWith("[")) {
+    let failed = item.status === "error";
+    try {
+      const parsed = JSON.parse(detail) as { success?: boolean; error?: unknown };
+      failed = failed || parsed?.success === false || Boolean(parsed?.error);
+    } catch {
+      /* not strict JSON — let the formatter decide */
+    }
+    const preview = formatToolResultPreview(
+      name,
+      detail,
+      failed ? "error" : "done",
+    );
+    if (preview) {
+      if (failed) {
+        const base = getToolActivityLabel(name).replace(/…$/u, "");
+        return `${base}: ${preview.split(/\r?\n/)[0]?.trim()}`;
+      }
+      // Read previews are already a full "Read …" sentence.
+      if (/^Read /.test(preview)) return preview;
+      detail = preview.split(/\r?\n/)[0]?.trim() ?? "";
+    } else {
+      detail = "";
+    }
+  }
   const lower = `${name} ${detail}`.toLowerCase();
 
   if (name === "read_file" && detail) {

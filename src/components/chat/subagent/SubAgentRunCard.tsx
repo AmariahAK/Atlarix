@@ -114,10 +114,11 @@ function NestedThreadItems({
     >
       {flat.map((item) => {
         if (item.kind === "thought") {
+          const isProgress = item.id.startsWith("sub-progress-");
           const isLiveProgress =
             isStreaming &&
             agentStatus === "running" &&
-            item.id.startsWith("sub-progress-") &&
+            isProgress &&
             item === flat[flat.length - 1];
           return (
             <InlineThoughtBlock
@@ -125,6 +126,8 @@ function NestedThreadItems({
               content={item.content}
               isStreaming={isLiveProgress}
               keepOpenAfterStream
+              // Progress lines are tool status, not model reasoning.
+              title={isProgress ? "Activity" : "Thoughts"}
             />
           );
         }

@@ -35,41 +35,6 @@ function isCoreTool(tool: ToolMetadata): boolean {
   return CORE_TOOL_NAMES.has(tool.name) || tool.isCore === true;
 }
 
-/**
- * Generate a short one-line description for the manifest (no full schema).
- */
-function oneLineDescription(tool: ToolMetadata): string {
-  const d = tool.description;
-  const first = d.split(/[.!]/)[0].trim();
-  return first.length > 80 ? first.slice(0, 77) + "..." : first;
-}
-
-/**
- * Generate manifest string for system prompt.
- * @param availableTools - Tools available to this user/mode (e.g. Ask vs Build filtered)
- * @param askMode - If true, only include read-only tools in the manifest
- */
-export function generateManifest(
-  availableTools: ToolMetadata[],
-  askMode: boolean
-): string {
-  const core: ToolMetadata[] = [];
-
-  for (const tool of availableTools) {
-    if (askMode && !(tool.isReadOnly || tool.allowInAskMode)) continue;
-    if (isCoreTool(tool)) core.push(tool);
-  }
-
-  let out = "## Core tools (registered for native function calling):\n";
-  for (const t of core) {
-    out += `- ${t.name}: ${oneLineDescription(t)}\n`;
-  }
-  out +=
-    "\nUse the registered function tools above. Additional tools load automatically when first invoked — do not emit XML tool syntax in visible text.";
-  out +=
-    "\n\nGit operations: use **run_command** with git CLI (git status, git log, git diff). Do not read .git/objects manually.";
-  return out;
-}
 
 /**
  * Compact note when the full tools_registry block is already in the system header.

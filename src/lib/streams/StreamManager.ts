@@ -175,25 +175,6 @@ export function feedTerminalOutput(chatId: number, output: string): void {
   }
 }
 
-/** Feed pipeline log lines (e.g. from GitHub Actions poll). Used by stream_pipeline_logs. */
-export function feedPipelineLines(
-  streamId: string,
-  lines: string[],
-  filter?: RegExp | null
-): void {
-  const stream = streams.get(streamId);
-  if (!stream || stream.source !== "pipeline") return;
-
-  for (const line of lines) {
-    if (filter && !filter.test(line)) continue;
-    if (stream.collectedLines.length >= stream.maxLines) {
-      stream.active = false;
-      break;
-    }
-    stream.collectedLines.push(line);
-  }
-}
-
 export function setStreamInactive(streamId: string): void {
   const stream = streams.get(streamId);
   if (stream) {

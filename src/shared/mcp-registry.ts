@@ -56,6 +56,10 @@ export interface McpRegistryEntry {
   authType: McpRegistryAuthType;
   envVars: McpRegistryEnvVar[];
   tags?: string[];
+  /** Curated marketplace category (e.g. "Developer tools", "Search"). Optional — UI degrades to tags. */
+  category?: string;
+  /** Approximate install count from the registry publisher. Optional badge. */
+  installs?: number;
   /** Visibility — `"workforce"` entries are hidden for free/pro users. */
   tier?: McpRegistryTier;
 }

@@ -2,14 +2,6 @@
  * Workspace (and global) slash commands: `/name` expands before the main chat stream.
  */
 
-export interface CustomCommandRow {
-  id: number;
-  name: string;
-  promptTemplate: string;
-  modeOverride: string | null;
-  workspaceId: number | null;
-}
-
 export function parseCommandFromMessage(
   text: string,
   commands: { name: string }[],

@@ -226,16 +226,3 @@ export class OllamaProvider extends BaseProvider {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-export async function checkOllamaRunning(host?: string): Promise<boolean> {
-    const provider = new OllamaProvider(null, null, false, host);
-    return provider.isAvailable();
-}
-
-export async function listOllamaModels(host?: string): Promise<string[]> {
-    try {
-        const provider = new OllamaProvider(null, null, false, host);
-        return await provider.listModels();
-    } catch {
-        return [];
-    }
-}

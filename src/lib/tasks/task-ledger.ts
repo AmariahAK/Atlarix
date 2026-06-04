@@ -146,10 +146,6 @@ function scheduleLivingPlanSync(turnId: string): void {
   });
 }
 
-export function clearInMemoryTaskLedgers(): void {
-  memoryLedgers.clear();
-}
-
 function ledgerRootDir(workspacePath: string, turnId: string): string {
   return path.join(atlasDir(workspacePath), TASK_STATE_SUBDIR, sanitizeLedgerDirSegment(turnId));
 }

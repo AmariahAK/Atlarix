@@ -16,9 +16,17 @@ import { resolveRecoverySuggestion } from "./tool-error-patterns";
 // since Electron's renderer exposes that too). Otherwise Vite's browser bundle blows
 // up with "Module 'node:crypto' has been externalized for browser compatibility".
 
-const TOOL_OUTPUT_TRUNCATION_THRESHOLD = 50_000;
-const TOOL_OUTPUT_PREVIEW_CHARS = 2000;
-// PASS8 B3: All tools go through the standard 50 KB disk-truncation envelope.
+// v10.1 token budgets: outputs whose ESTIMATED tokens exceed the budget (or
+// whose raw size exceeds the byte ceiling) spill to disk; the model receives
+// a head+tail preview instead of head-only — tails carry exit codes, error
+// summaries, and final test results.
+const TOOL_OUTPUT_BYTE_CEILING = 50_000;
+/** Below this char count, never truncate (≈ well under the token budget) — skips tokenizing small outputs. */
+const TOOL_OUTPUT_CHAR_FLOOR = 16_000;
+const TOOL_OUTPUT_TOKEN_BUDGET = 6_000;
+const TOOL_OUTPUT_PREVIEW_HEAD_TOKENS = 1_500;
+const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
+// PASS8 B3: All tools go through the standard disk-truncation envelope.
 // Previously this exempted `read_file`, `get_blueprint`, and `get_active_skills`.
 // Each of those is now bounded (read_file by request range, get_blueprint by the
 // 300-line markdown cap added in B4, get_active_skills by its internal char cap),
@@ -50,14 +58,16 @@ async function ensureToolOutputDir(): Promise<string | null> {
 }
 
 /**
- * If `result` serialises to more than 50 KB and the tool is not in NEVER_TRUNCATE,
- * write the full payload to a tmp file and return a small `{ preview, diskPath,
- * totalChars }` envelope. Otherwise return the original result unchanged.
+ * If `result` exceeds the token budget (or the byte ceiling) and the tool is
+ * not in NEVER_TRUNCATE, write the full payload to a tmp file and return a
+ * `{ preview, diskPath, totalChars }` envelope with a head+tail preview.
+ * Otherwise return the original result unchanged.
  *
  * Renderer-safe: if Node modules are unavailable (browser bundle) the result is
- * returned untouched.
+ * returned untouched. The truncate/tokenizer helpers are imported lazily for
+ * the same reason (they pull main-process settings into the module graph).
  */
-async function maybeTruncateToDisk(
+export async function maybeTruncateToDisk(
     toolName: string,
     result: unknown,
 ): Promise<{ value: unknown; truncated: boolean; totalChars: number }> {
@@ -65,7 +75,7 @@ async function maybeTruncateToDisk(
         return { value: result, truncated: false, totalChars: 0 };
     }
     const resultStr = typeof result === "string" ? result : JSON.stringify(result);
-    if (!resultStr || resultStr.length <= TOOL_OUTPUT_TRUNCATION_THRESHOLD) {
+    if (!resultStr || resultStr.length <= TOOL_OUTPUT_CHAR_FLOOR) {
         return { value: result, truncated: false, totalChars: resultStr?.length ?? 0 };
     }
     if (!isMainProcessNode()) {
@@ -73,6 +83,16 @@ async function maybeTruncateToDisk(
     }
 
     try {
+        const truncateLib = await import("@/lib/truncate");
+        // Tokenize only mid-sized outputs; anything past the byte ceiling is
+        // over budget by definition (≈4 chars/token).
+        if (resultStr.length <= TOOL_OUTPUT_BYTE_CEILING) {
+            const { estimateTokens } = await import("@/ipc/utils/token_utils");
+            if (estimateTokens(resultStr) <= TOOL_OUTPUT_TOKEN_BUDGET) {
+                return { value: result, truncated: false, totalChars: resultStr.length };
+            }
+        }
+
         const dir = await ensureToolOutputDir();
         if (!dir) {
             return { value: result, truncated: false, totalChars: resultStr.length };
@@ -85,16 +105,18 @@ async function maybeTruncateToDisk(
         const id = crypto.randomBytes(4).toString("hex");
         const diskPath = path.join(dir, `${toolName}-${id}.txt`);
         await fs.writeFile(diskPath, resultStr, "utf-8");
-        const preview =
-            resultStr.slice(0, TOOL_OUTPUT_PREVIEW_CHARS) +
-            "\n\n[... output truncated ...]";
+        const { text: preview, omittedChars } = truncateLib.headTailTruncateToTokens(
+            resultStr,
+            TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
+            TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
+        );
         return {
             value: {
                 truncated: true,
                 totalChars: resultStr.length,
                 preview,
                 diskPath,
-                message: `Full output written to ${diskPath}. Use read_file with this exact absolute path to read the spill file.`,
+                message: `Output exceeded the ${TOOL_OUTPUT_TOKEN_BUDGET}-token budget — showing head + tail (${omittedChars.toLocaleString("en-US")} chars omitted). Full output written to ${diskPath}. Use read_file with this exact absolute path (offset/limit supported) to read the spill file.`,
             },
             truncated: true,
             totalChars: resultStr.length,
@@ -322,6 +344,15 @@ export class ToolRegistry {
                 // If this is a permission request, return it directly (unwrapped)
                 // so the interceptor can detect __permission_required flag.
                 if (raw && typeof raw === "object" && (raw as { __permission_required?: boolean }).__permission_required) {
+                    return raw;
+                }
+
+                // ask_user pause marker must also escape the success envelope —
+                // the stream paths detect `__ask_user` at the TOP level to show
+                // the question UI and block until the user answers. (This being
+                // nested inside `{ success, result }` made the model receive the
+                // raw marker and invent answers.)
+                if (raw && typeof raw === "object" && (raw as { __ask_user?: boolean }).__ask_user === true) {
                     return raw;
                 }
 

@@ -6,6 +6,7 @@
 
 import { useRef, useEffect, useMemo } from 'react';
 import { ToolCallCard } from './ToolCallCard';
+import AtlarixAnimation from '@/components/atlarix/AtlarixAnimation';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -218,32 +219,24 @@ function MessageBubble({ message }: { message: Message }) {
     );
 }
 
+/** v10.1: same inline compass as the main chat surface (was a purple pulse dot). */
 function ThinkingIndicator() {
     return (
         <div
+            data-testid="legacy-thinking-indicator"
             style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                padding: '12px 16px',
-                background: 'linear-gradient(90deg, var(--slate-charcoal), var(--graphite-hover), var(--slate-charcoal))',
-                backgroundSize: '200% 100%',
-                animation: 'shimmer 2s infinite',
-                borderRadius: '12px',
-                maxWidth: '200px',
+                gap: '8px',
+                padding: '8px 4px',
             }}
         >
-            <div
-                style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: 'var(--purple-accent)',
-                    animation: 'pulse 1.5s infinite',
-                }}
-            />
-            <span style={{ color: 'var(--purple-accent)', fontSize: '14px', fontWeight: 500 }}>
-                Thinking...
+            <AtlarixAnimation size="inline" phase="thinking" bare />
+            <span
+                className="animate-pulse"
+                style={{ color: 'var(--secondary-text)', fontSize: '13px', fontWeight: 500 }}
+            >
+                Thinking…
             </span>
         </div>
     );

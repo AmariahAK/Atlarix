@@ -67,7 +67,3 @@ export function registerRemoteSshHandlers(): void {
   );
 }
 
-export function buildRemoteWorkspaceUri(hostAlias: string, remotePath: string): string {
-  const normalized = remotePath.replace(/\\/g, "/");
-  return `atlarix-remote://ssh+${encodeURIComponent(hostAlias)}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
-}

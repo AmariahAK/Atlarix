@@ -15,35 +15,6 @@
 
 import type { ModelMessage } from "ai";
 import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
-import { pruneToolOutputsInMessages } from "@/lib/context-compaction";
-
-/**
- * PASS8 D1: ModelMessage-safe wrapper around `pruneToolOutputsInMessages`.
- * The shared pruner expects `{ role: string; content: string }`. AI SDK
- * `ModelMessage` content can be a string OR an array of parts (multimodal,
- * tool calls / results). We only prune string-content messages; everything
- * else passes through untouched, preserving tool-call / tool-result envelopes
- * the SDK expects.
- */
-export function pruneToolOutputsInModelMessages(msgs: ModelMessage[]): ModelMessage[] {
-  if (!Array.isArray(msgs) || msgs.length === 0) return msgs;
-  type Adapter = { role: string; content: string; __origIdx: number };
-  const adapters: Adapter[] = [];
-  msgs.forEach((m, idx) => {
-    if (typeof m.content === "string") {
-      adapters.push({ role: m.role, content: m.content, __origIdx: idx });
-    }
-  });
-  if (adapters.length === 0) return msgs;
-  const pruned = pruneToolOutputsInMessages(adapters);
-  const replacements = new Map<number, string>();
-  pruned.forEach((p) => replacements.set(p.__origIdx, p.content));
-  return msgs.map((m, idx) => {
-    const replaced = replacements.get(idx);
-    if (replaced === undefined || replaced === (m.content as unknown as string)) return m;
-    return { ...m, content: replaced } as ModelMessage;
-  });
-}
 
 export interface MidLoopCompactionActivityPayload {
   id: string;

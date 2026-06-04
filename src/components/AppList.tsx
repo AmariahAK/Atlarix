@@ -4,20 +4,8 @@ import { Trash2 } from "lucide-react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
-import {
-  activeWorkspaceSessionIdAtom,
-  workspaceSidebarTabAtom,
-} from "@/atoms/sessionAtoms";
+import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
-import { cn } from "@/lib/utils";
-import {
-  selectedErrorForCodeAtom,
-  rightPanelVisibleAtom,
-  rightPanelSuppressAutoOpenAtom,
-  aiPanelIntentAtom,
-  previewTabAtom,
-} from "@/atoms/sourceAtoms";
-import { WorkspaceFileTree } from "@/components/workspace/WorkspaceFileTree";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -44,8 +32,6 @@ interface WorkspaceWithChats {
   path: string;
   chats: { id: number; title: string | null; createdAt: Date }[];
   isExpanded: boolean;
-  files?: string[];
-  filesLoading?: boolean;
   /** active = folder on disk; missing = path absent */
   workspaceStatus?: "active" | "missing";
 }
@@ -56,11 +42,6 @@ export function AppList({ show }: { show?: boolean }) {
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [, setSelectedChatId] = useAtom(selectedChatIdAtom);
-  const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
-  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
-  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
-  const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
-  const setPreviewTab = useSetAtom(previewTabAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
   const queryClient = useQueryClient();
   // Auth hook for checking plan/workspace limits
@@ -69,7 +50,6 @@ export function AppList({ show }: { show?: boolean }) {
   // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useAtom(workspaceSidebarTabAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
@@ -108,8 +88,6 @@ export function AppList({ show }: { show?: boolean }) {
               path: app.path || '',
               chats: chats.slice(0, 10),
               isExpanded: app.id === selectedAppId,
-              files: undefined,
-              filesLoading: false,
               workspaceStatus,
             };
           } catch {
@@ -119,8 +97,6 @@ export function AppList({ show }: { show?: boolean }) {
               path: app.path || '',
               chats: [],
               isExpanded: false,
-              files: undefined,
-              filesLoading: false,
               workspaceStatus:
                 app.status ?? (app.pathExists === false ? "missing" : "active"),
             };
@@ -132,38 +108,6 @@ export function AppList({ show }: { show?: boolean }) {
 
     loadChats();
   }, [apps, selectedAppId]);
-
-  // Load files when workspace is expanded
-  useEffect(() => {
-    const expanded = workspaces.find((w) => w.isExpanded && !w.files && !w.filesLoading);
-    if (!expanded) return;
-    const appMeta = apps.find((a) => a.id === expanded.id);
-    if (appMeta?.status === "missing" || appMeta?.pathExists === false) return;
-
-    const loadFiles = async () => {
-      setWorkspaces((prev) =>
-        prev.map((w) =>
-          w.id === expanded.id ? { ...w, filesLoading: true } : w
-        )
-      );
-      try {
-        const fileResult = await IpcClient.getInstance().getAppFiles(expanded.id);
-        const files = fileResult.files ?? [];
-        setWorkspaces((prev) =>
-          prev.map((w) =>
-            w.id === expanded.id ? { ...w, files, filesLoading: false } : w
-          )
-        );
-      } catch {
-        setWorkspaces((prev) =>
-          prev.map((w) =>
-            w.id === expanded.id ? { ...w, files: [], filesLoading: false } : w
-          )
-        );
-      }
-    };
-    loadFiles();
-  }, [workspaces, apps]);
 
   const allApps = useMemo(
     () =>
@@ -221,24 +165,6 @@ export function AppList({ show }: { show?: boolean }) {
   };
 
   const handleNewChatInWorkspace = handleNewConversationInWorkspace;
-
-  const handleFileClick = (workspaceId: number, filePath: string) => {
-    const st = apps.find((a) => a.id === workspaceId);
-    if (st?.status === "missing" || st?.pathExists === false) return;
-    const ws = workspaces.find((w) => w.id === workspaceId);
-    setSelectedAppId(workspaceId);
-    if (ws) setSelectedWorkspaceInfo({ id: ws.id, name: ws.name, path: ws.path });
-    setSelectedErrorForCode({ filePath });
-    // Open right panel and switch to Code tab for IDE-like editing
-    setSuppressRightAutoOpen(false);
-    setRightPanelVisible(true);
-    setPreviewTab("code");
-    setAIPanelIntent({
-      intent: 'show-preview',
-      timestamp: Date.now(),
-      source: 'user',
-    });
-  };
 
   const handleBrowseWorkspace = async () => {
     try {
@@ -537,68 +463,22 @@ export function AppList({ show }: { show?: boolean }) {
                       )}
                     </div>
 
-                    {/* Files / Sessions tabs — when expanded */}
+                    {/* Sessions — when expanded (files live in the right-panel Code tab) */}
                     {ws.isExpanded && !isMissing && (
                       <div className="pl-6 pr-2 pt-1">
-                        <div className="flex gap-1 mb-1 px-1">
-                          <button
-                            type="button"
-                            className={cn(
-                              "flex-1 text-[10px] font-medium py-0.5 rounded",
-                              sidebarTab === "files"
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSidebarTab("files");
-                            }}
-                          >
-                            Files
-                          </button>
-                          <button
-                            type="button"
-                            className={cn(
-                              "flex-1 text-[10px] font-medium py-0.5 rounded",
-                              sidebarTab === "sessions"
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSidebarTab("sessions");
-                            }}
-                          >
-                            Sessions
-                          </button>
+                        <div className="text-[10px] font-medium text-muted-foreground px-1 mb-1">
+                          Sessions
                         </div>
-                        {sidebarTab === "files" ? (
-                          ws.filesLoading ? (
-                            <div className="text-[10px] text-muted-foreground py-1">
-                              Loading files...
-                            </div>
-                          ) : ws.files && ws.files.length > 0 ? (
-                            <WorkspaceFileTree
-                              files={ws.files}
-                              onFileClick={(path) => handleFileClick(ws.id, path)}
-                            />
-                          ) : (
-                            <div className="text-[10px] text-muted-foreground py-1 px-2">
-                              No files indexed.
-                            </div>
-                          )
-                        ) : (
-                          <div data-onboarding="workspace-sessions">
-                            <WorkspaceSessionList
-                              workspaceId={ws.id}
-                              activeSessionId={
-                                selectedAppId === ws.id
-                                  ? activeWorkspaceSessionId
-                                  : null
-                              }
-                            />
-                          </div>
-                        )}
+                        <div data-onboarding="workspace-sessions">
+                          <WorkspaceSessionList
+                            workspaceId={ws.id}
+                            activeSessionId={
+                              selectedAppId === ws.id
+                                ? activeWorkspaceSessionId
+                                : null
+                            }
+                          />
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"

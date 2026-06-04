@@ -18,13 +18,6 @@ export function isTelemetryOptedIn() {
   );
 }
 
-export function getTelemetryUserId(): string | null {
-  return (
-    window.localStorage.getItem(TELEMETRY_USER_ID_KEY) ??
-    window.localStorage.getItem(TELEMETRY_USER_ID_KEY_LEGACY)
-  );
-}
-
 let isInitialLoad = false;
 
 export function useSettings() {

@@ -39,10 +39,6 @@ function taskEnvelope(
   ].join("\n");
 }
 
-export function getTaskRecord(taskId: string): TaskRecord | undefined {
-  return taskStore.get(taskId);
-}
-
 ToolRegistry.register({
   name: "task",
   description:

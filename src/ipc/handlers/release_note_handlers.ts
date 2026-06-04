@@ -1,5 +1,4 @@
 import log from "electron-log";
-import fetch from "node-fetch";
 import { createLoggedHandler } from "./safe_handle";
 import { DoesReleaseNoteExistParams } from "../ipc_types";
 import { IS_TEST_BUILD } from "../utils/test_utils";

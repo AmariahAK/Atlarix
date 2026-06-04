@@ -94,18 +94,3 @@ export async function detectProjectLanguages(projectPath: string): Promise<Detec
     return result;
 }
 
-/**
- * Get the primary language for a project
- */
-export async function getPrimaryLanguage(projectPath: string): Promise<DetectedLanguage | null> {
-    const languages = await detectProjectLanguages(projectPath);
-    return languages.find(l => l.isPrimary) || languages[0] || null;
-}
-
-/**
- * Check if a specific language is used in a project
- */
-export async function projectUsesLanguage(projectPath: string, languageName: string): Promise<boolean> {
-    const languages = await detectProjectLanguages(projectPath);
-    return languages.some(l => l.name === languageName);
-}

@@ -30,10 +30,6 @@ interface LspClient {
 
 export type { LspClient };
 
-export const LspEvent = {
-  Diagnostics: "lsp.client.diagnostics",
-} as const;
-
 const lspClients = new Map<string, LspClient>();
 const spawning = new Map<string, Promise<LspClient | null>>();
 const brokenServers = new Set<string>();
@@ -499,96 +495,3 @@ export async function requestLspReferences(
   }
 }
 
-export async function requestCodeAction(
-  filePath: string,
-  line: number,
-  character: number,
-  workspaceRoot: string
-): Promise<Array<{ title: string; command: string; arguments?: unknown[] }> | null> {
-  const language = getLanguageFromFile(filePath);
-  const client = await getOrCreateClient(filePath, workspaceRoot, language);
-  if (!client || client.broken) return null;
-
-  try {
-    const result = await client.connection.sendRequest("textDocument/codeAction", {
-      textDocument: { uri: `file://${filePath}` },
-      range: {
-        start: { line, character },
-        end: { line, character },
-      },
-      context: { diagnostics: client.pushDiagnostics.get(filePath) || [] },
-    });
-
-    if (!result || !Array.isArray(result)) return null;
-
-    return result.map((item: any) => ({
-      title: item.title,
-      command: item.command,
-      arguments: item.arguments,
-    }));
-  } catch (err) {
-    logger.error(`Failed to request code action for ${filePath}:`, err);
-    return null;
-  }
-}
-
-export async function applyWorkspaceEdit(
-  filePath: string,
-  workspaceRoot: string,
-  edit: { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }
-): Promise<boolean> {
-  const language = getLanguageFromFile(filePath);
-  const client = await getOrCreateClient(filePath, workspaceRoot, language);
-  if (!client || client.broken) return false;
-
-  try {
-    await client.connection.sendRequest("workspace/applyEdit", {
-      edit: {
-        documentChanges: [
-          {
-            textDocument: { uri: `file://${filePath}`, version: 0 },
-            edits: [{ range: edit.range, newText: edit.newText }],
-          },
-        ],
-      },
-    });
-    return true;
-  } catch (err) {
-    logger.error(`Failed to apply workspace edit for ${filePath}:`, err);
-    return false;
-  }
-}
-
-export function getActiveClients(workspaceRoot: string): LspClient[] {
-  const clients: LspClient[] = [];
-  for (const [key, client] of lspClients) {
-    if (key.startsWith(`${workspaceRoot}::`) && !client.broken) {
-      clients.push(client);
-    }
-  }
-  return clients;
-}
-
-export function closeClientsForWorkspace(workspaceRoot: string): void {
-  for (const [key, client] of lspClients) {
-    if (key.startsWith(`${workspaceRoot}::`)) {
-      try {
-        client.connection.sendRequest("shutdown", {}).catch(() => {});
-        client.connection.sendNotification("exit", {});
-        client.process.kill();
-      } catch {
-      }
-      lspClients.delete(key);
-    }
-  }
-
-  for (const key of brokenServers) {
-    if (key.startsWith(`${workspaceRoot}::`)) {
-      brokenServers.delete(key);
-    }
-  }
-}
-
-export function clearBrokenServers(): void {
-  brokenServers.clear();
-}

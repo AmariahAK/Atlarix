@@ -12,11 +12,14 @@ export function InlineThoughtBlock({
   content,
   isStreaming,
   keepOpenAfterStream = false,
+  title = "Thoughts",
 }: {
   content: string;
   isStreaming: boolean;
   /** When true (e.g. inside sub-agent cards), do not auto-collapse after stream ends. */
   keepOpenAfterStream?: boolean;
+  /** Header label — sub-agent progress lines use "Activity" (they're tool status, not reasoning). */
+  title?: string;
 }) {
   const [open, setOpen] = useState(isStreaming || keepOpenAfterStream);
 
@@ -41,7 +44,7 @@ export function InlineThoughtBlock({
           <ChevronRight className={streamToolCardChevron} />
         )}
         <span className="font-medium">
-          Thoughts
+          {title}
           {!open ? (
             <span className={thoughtBlockMeta}>
               {" "}

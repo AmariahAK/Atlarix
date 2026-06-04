@@ -90,10 +90,6 @@ function persistConnections(): void {
   });
 }
 
-export function setClientInstancesForTesting(instances: Map<string, unknown>) {
-  clientInstances = instances;
-}
-
 /** workspaceId null = global (chat without workspace); number = that workspace's active. */
 export function getActiveConnectionId(workspaceId: number | null): string | null {
   loadFromSettings();

@@ -193,11 +193,3 @@ export async function generateAIChatName(
     }
 }
 
-/**
- * Should we trigger AI naming for this chat?
- * Triggers after 2-3 messages (1-2 exchanges)
- */
-export function shouldTriggerAINaming(messageCount: number): boolean {
-    // Trigger after user sends 2nd message (4 total messages: U1, A1, U2, A2)
-    return messageCount === 4;
-}

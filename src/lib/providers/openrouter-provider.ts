@@ -263,20 +263,3 @@ export class OpenRouterProvider extends BaseProvider {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-export async function checkOpenRouterAvailable(apiKey?: string): Promise<boolean> {
-    try {
-        const provider = new OpenRouterProvider(null, null, false, apiKey);
-        return await provider.isAvailable();
-    } catch {
-        return false;
-    }
-}
-
-export async function listOpenRouterModels(apiKey?: string): Promise<string[]> {
-    try {
-        const provider = new OpenRouterProvider(null, null, false, apiKey);
-        return await provider.listModels();
-    } catch {
-        return [];
-    }
-}

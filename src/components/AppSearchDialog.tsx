@@ -7,6 +7,7 @@ import {
   CommandItem,
 } from "./ui/command";
 import { useState, useEffect } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { useSearchApps } from "@/hooks/useSearchApps";
 import type { AppSearchResult } from "@/lib/schemas";
 
@@ -24,16 +25,7 @@ export function AppSearchDialog({
   allApps,
 }: AppSearchDialogProps) {
   const [searchQuery, setSearchQuery] = useState<string>("");
-  function useDebouncedValue<T>(value: T, delay: number): T {
-    const [debounced, setDebounced] = useState<T>(value);
-    useEffect(() => {
-      const handle = setTimeout(() => setDebounced(value), delay);
-      return () => clearTimeout(handle);
-    }, [value, delay]);
-    return debounced;
-  }
-
-  const debouncedQuery = useDebouncedValue(searchQuery, 150);
+  const debouncedQuery = useDebounce(searchQuery, 150);
   const { apps: searchResults } = useSearchApps(debouncedQuery);
 
   // Show all apps if search is empty, otherwise show search results
