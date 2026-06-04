@@ -72,10 +72,21 @@ function isWin64ZipAsset(name) {
   );
 }
 
+/** GitHub API headers — authenticated on CI (shared runner IPs hit unauthenticated rate limits → 403). */
+function githubApiHeaders() {
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "atlarix-fetch-ctags",
+  };
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 /** Resolve ctags-win32 x64 zip (asset names: ctags-{version}-x64.zip, not -win-x64). */
 async function resolveWin32AssetUrl() {
   const res = await fetch(`${CTAGS_WIN32_API}?per_page=20`, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "atlarix-fetch-ctags" },
+    headers: githubApiHeaders(),
   });
   if (!res.ok) throw new Error(`GitHub API ${res.status} for ctags-win32 releases`);
   const releases = await res.json();

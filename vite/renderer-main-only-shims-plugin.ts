@@ -19,6 +19,7 @@ const STUB_FILES = {
   db: "db-renderer-stub.ts",
   readEnv: "read-env-stub.ts",
   mainSettings: "main-settings-renderer-stub.ts",
+  tokenCounter: "token-counter-renderer-stub.ts",
 } as const;
 
 function stubPath(file: string): string {
@@ -64,6 +65,12 @@ function shimForModuleId(id: string): string | null {
   }
   if (/[/\\]main[/\\]settings(\.ts)?$/.test(n)) {
     return stubPath(STUB_FILES.mainSettings);
+  }
+  // v10.1: tool-output budgets dynamically import the token counter from
+  // registry.ts (renderer-shared); the real module pulls tiktoken wasm which
+  // the renderer build cannot bundle.
+  if (/[/\\]context[/\\]token-counter(\.ts)?$/.test(n)) {
+    return stubPath(STUB_FILES.tokenCounter);
   }
 
   if (

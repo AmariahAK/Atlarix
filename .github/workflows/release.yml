@@ -193,6 +193,8 @@ jobs:
 
       - name: Fetch Universal Ctags
         run: npm run fetch-ctags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test and blueprint index benchmarks
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
@@ -377,6 +379,8 @@ jobs:
 
       - name: Fetch Universal Ctags
         run: npm run fetch-ctags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test and blueprint index benchmarks
         run: npm test && npx tsx scripts/bench-blueprint-index.ts
@@ -515,6 +519,8 @@ jobs:
       - name: Fetch Universal Ctags
         shell: pwsh
         run: npm run fetch-ctags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure Electron binary (Windows)
         shell: pwsh
