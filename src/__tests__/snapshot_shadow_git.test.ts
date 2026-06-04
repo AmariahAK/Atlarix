@@ -1,11 +1,15 @@
 /**
  * v10: shadow-git snapshot store — capture pre-write state, full + partial
  * revert, created-file deletion on revert, legacy .bak fallback.
+ *
+ * Skips when dugite's embedded git binary is unavailable (CI installs with
+ * `--ignore-scripts`, which skips the binary download).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { exec as dugiteExec } from "dugite";
 import {
   captureSnapshot,
   revertSnapshot,
@@ -13,6 +17,16 @@ import {
   snapshotExists,
   _setShadowSnapshotsRootForTests,
 } from "@/lib/snapshot/snapshot-manager";
+
+const gitAvailable = await dugiteExec(["--version"], os.tmpdir())
+  .then((r) => r.exitCode === 0)
+  .catch(() => false);
+const describeWithGit = gitAvailable ? describe : describe.skip;
+if (!gitAvailable) {
+  console.warn(
+    "[snapshot_shadow_git.test] dugite git binary unavailable (install ran with --ignore-scripts?) — suite skipped",
+  );
+}
 
 let workspace: string;
 let shadowRoot: string;
@@ -39,7 +53,7 @@ afterEach(async () => {
   await fs.rm(shadowRoot, { recursive: true, force: true });
 });
 
-describe("shadow-git snapshots", () => {
+describeWithGit("shadow-git snapshots", () => {
   it("captures pre-write state and reverts a full turn", async () => {
     await write("src/a.ts", "original A");
     await write("src/b.ts", "original B");
@@ -142,7 +156,7 @@ describe("shadow-git snapshots", () => {
   });
 });
 
-describe("legacy .bak store (removed in v10.1)", () => {
+describeWithGit("legacy .bak store (removed in v10.1)", () => {
   it("no longer reverts pre-v10 file-copy turns", async () => {
     await write("legacy.txt", "current");
     // Simulate an old-style snapshot dir — the fallback was deleted, so this
