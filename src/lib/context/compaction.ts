@@ -16,6 +16,8 @@ import {
 import log from "electron-log";
 import { getCachedOpenRouterModelRow } from "../routing/tier-context-limits";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
+import { getLedger } from "../tasks/task-ledger";
+import { recordAuxUsage } from "../usage/turn-usage-aggregator";
 
 const logger = log.scope("compaction");
 
@@ -502,6 +504,203 @@ async function getContextSummaryForProvider(
   _providerId?: string,
 ): Promise<{ summaryText: string; compactionGeneration: number } | null> {
   return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FOLDED IN FROM src/lib/context-compaction.ts (v12 dedupe — the root file
+// was the older v7.1.2 single-pass implementation; these are its still-used
+// exports, rebased onto THIS file's exact-token internals)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * v11.1: provider "context window exceeded" error classifier — providers word
+ * this differently (OpenAI `context_length_exceeded`, Anthropic "prompt is
+ * too long", generic 400s with "maximum context"/"too many tokens"). Used by
+ * the stream catch to force one compaction round and retry the dispatch.
+ */
+export function isContextOverflowError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!message) return false;
+  return /context[_\s-]?length[_\s-]?exceeded|maximum context|context window|prompt is too long|too many tokens|maximum length|input length and `max_tokens` exceed|reduce the length of the messages|exceeds the maximum number of tokens/i.test(
+    message,
+  );
+}
+
+/**
+ * Usable budget for a provider — alias over getTierContextLimitSync (the two
+ * implementations had converged on the same OpenRouter-row × 0.8 lookup with
+ * a 128k fallback; this file's semantics win per the v12 dedupe).
+ */
+export function getUsableBudget(providerId?: string): number {
+  return getTierContextLimitSync(providerId);
+}
+
+/**
+ * Tool-output token budget kept verbatim at the tail of the transcript before
+ * compaction summarization.
+ */
+const HEAD_TOOL_TOKENS = 40_000;
+
+/**
+ * Same summarization path as runSteppedCompaction's step 4 (CONTEXT_COMPACTION_*
+ * + summarization model), no DB writes. Used for pre-dispatch tier context
+ * budgeting (tier_context_budget.ts) and runCompaction below.
+ */
+export async function summarizeMessagesWithCompactionPrompt(params: {
+  messages: { role: string; content: string }[];
+  sessionStats?: { toolCallCount?: number; delegationCount?: number };
+  priorSummary?: {
+    summaryText: string;
+    compactionGeneration: number;
+  } | null;
+  /** v10: when set, summarization tokens count toward this chat's turn usage. */
+  chatId?: number;
+}): Promise<string | null> {
+  const { messages, priorSummary } = params;
+  if (messages.length === 0) return null;
+
+  // Reuse this file's pruner (needs ids; synthesize ordinals).
+  const { messages: forSummary } = pruneToolOutputs(
+    messages.map((m, i) => ({ id: i, role: m.role, content: m.content || "" })),
+    HEAD_TOOL_TOKENS,
+  );
+
+  const formatted = forSummary
+    .map(
+      (m) =>
+        `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "")
+          .replace(/\n/g, " ")
+          .slice(0, 2000)}`,
+    )
+    .join("\n\n");
+
+  const userPrompt = buildCompactionUserPromptPrefix(priorSummary ?? undefined) + formatted;
+
+  try {
+    const settings = readSettings();
+    const summarizationModel = await getCompactionSummarizationModel(settings);
+    const { modelClient } = await getModelClient(summarizationModel, settings);
+
+    const result = await generateText({
+      model: modelClient.model,
+      system: CONTEXT_COMPACTION_SYSTEM,
+      messages: [{ role: "user" as const, content: userPrompt }],
+      maxTokens: 1500,
+    } as Parameters<typeof generateText>[0]);
+    recordAuxUsage(params.chatId, result.usage, "compaction");
+
+    const summaryText = result.text.trim();
+    return summaryText || null;
+  } catch (error) {
+    logger.error("summarizeMessagesWithCompactionPrompt failed:", error);
+    return null;
+  }
+}
+
+function mergeNestedSummary(
+  prevFull: string | null | undefined,
+  prevGen: number,
+  newSegment: string,
+): { text: string; generation: number } {
+  const body = newSegment.trim();
+  const hasPrior = !!prevFull?.trim();
+  const nextGen = hasPrior ? prevGen + 1 : 1;
+  if (!hasPrior) {
+    return { text: `<summary id="${nextGen}">\n${body}\n</summary>`, generation: nextGen };
+  }
+  return {
+    text: `<summary id="${nextGen}">\n${body}\n</summary>\n\n${prevFull!.trim()}`,
+    generation: nextGen,
+  };
+}
+
+export type CompactionRunOutcome =
+  | {
+      status: "completed";
+      summaryText: string;
+      lastMessageId: number;
+      messagesAfterSummary: MessageForCompaction[];
+    }
+  | { status: "deferred"; reason: "ledger_in_progress" }
+  | { status: "noop"; reason: string };
+
+/**
+ * Run compaction (model-triggered `compress_context` path): summarize the
+ * oldest span, return summary + remaining messages. Selection reuses this
+ * file's exact-token turn-based selector.
+ */
+export async function runCompaction(params: {
+  chatId: number;
+  chatMessages: MessageForCompaction[];
+  systemPromptTokens: number;
+  inputTokens?: number;
+  providerId?: string;
+  sessionStats?: { toolCallCount?: number; delegationCount?: number };
+  /** When set, defer compaction while the task ledger for this turn is still in progress. */
+  turnId?: string | null;
+  /** Post-turn path: insert a synthetic user continuation line after a successful compaction. */
+  insertSyntheticContinuation?: boolean;
+}): Promise<CompactionRunOutcome> {
+  const { chatId, chatMessages, providerId, sessionStats, turnId } = params;
+
+  if (chatId < 0 || chatMessages.length < 4) {
+    return { status: "noop", reason: "chat_too_small_or_ephemeral" };
+  }
+
+  if (turnId) {
+    const L = getLedger(turnId);
+    if (L?.finishReason === "in_progress") {
+      logger.info(
+        `[compaction] deferred for chat ${chatId}: ledger in_progress (turn ${turnId})`,
+      );
+      return { status: "deferred", reason: "ledger_in_progress" };
+    }
+  }
+
+  const settings = readSettings();
+  const pid = providerId ?? settings.selectedModel?.provider ?? "auto";
+
+  const { head: headMessages, tail_start_id: tailStartId } =
+    selectMessagesForCompaction(chatMessages, pid);
+
+  if (headMessages.length === 0 || headMessages.length >= chatMessages.length - 2) {
+    return { status: "noop", reason: "insufficient_span" };
+  }
+
+  const toSummarize = headMessages;
+  const messagesAfterSummary = tailStartId
+    ? chatMessages.filter((m) => m.id >= tailStartId)
+    : chatMessages.slice(headMessages.length);
+  const lastMessageId = toSummarize[toSummarize.length - 1]!.id;
+
+  // Legacy DB summary store was removed — there is never a prior summary.
+  const existing = await getContextSummaryForProvider(pid);
+  const summaryText = await summarizeMessagesWithCompactionPrompt({
+    messages: toSummarize.map((m) => ({ role: m.role, content: m.content || "" })),
+    sessionStats,
+    priorSummary: existing,
+    chatId,
+  });
+  if (!summaryText) {
+    return { status: "noop", reason: "summarize_failed" };
+  }
+
+  const merged = mergeNestedSummary(
+    existing?.summaryText ?? null,
+    existing?.compactionGeneration ?? 0,
+    summaryText,
+  );
+
+  logger.info(
+    `Compaction summarized ${toSummarize.length} messages for transport ${chatId} (in-memory only; legacy DB tables removed)`,
+  );
+  return {
+    status: "completed",
+    summaryText: merged.text,
+    lastMessageId,
+    messagesAfterSummary,
+  };
 }
 
 

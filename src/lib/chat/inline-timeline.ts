@@ -42,7 +42,7 @@ export function summarizeToolActivityItem(item: ActivityStreamItem): string {
         return `${base}: ${preview.split(/\r?\n/)[0]?.trim()}`;
       }
       // Read previews are already a full "Read …" sentence.
-      if (/^Read /.test(preview)) return preview;
+      if (preview.startsWith('Read ')) return preview;
       detail = preview.split(/\r?\n/)[0]?.trim() ?? "";
     } else {
       detail = "";

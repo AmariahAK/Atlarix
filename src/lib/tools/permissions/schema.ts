@@ -19,6 +19,12 @@ export const FileOperationPreviewSchema = z.object({
     type: z.enum(["create", "update", "delete", "rename"]),
     lines: z.number().optional().describe("Number of lines in content"),
     diff: z.string().optional().describe("Unified diff format"),
+    notice: z
+        .string()
+        .optional()
+        .describe(
+            "Audit note surfaced to the model and activity card (e.g. fuzzy-match indent/EOL drift)",
+        ),
     // For rename operations
     fromPath: z.string().optional().describe("Original path (for rename)"),
     toPath: z.string().optional().describe("New path (for rename)"),

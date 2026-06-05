@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
 import type { LargeLanguageModel, UserSettings } from "../schemas";
 import type { ModelTier } from "./capability-registry";
-import { summarizeMessagesWithCompactionPrompt } from "../context-compaction";
+import { summarizeMessagesWithCompactionPrompt } from "../context/compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
 import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
 

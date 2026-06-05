@@ -1,0 +1,8 @@
+{
+  "name": "atlarix-tests-infra",
+  "private": true,
+  "description": "Node-ABI native deps for the agent-evals vitest project. The root better-sqlite3 is rebuilt for Electron's ABI (postinstall electron-rebuild), so plain-Node vitest cannot load it; the agent-evals project aliases better-sqlite3 to this copy (see vitest.config.ts).",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1"
+  }
+}

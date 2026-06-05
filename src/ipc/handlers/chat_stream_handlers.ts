@@ -19,6 +19,7 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { buildStreamMessagesWithCacheBreakpoints } from "@/lib/ai/anthropic-cache-breakpoints";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -234,7 +235,6 @@ import {
 } from "./autonomous-session-state";
 import { getSessionMemory } from "../../lib/session-memory";
 import { readAtlarixMd } from "../../lib/project-memory";
-import { getContextSummary } from "../../lib/context-compaction";
 import {
   estimateTokens,
   getContextWindow,
@@ -456,6 +456,16 @@ const TASK_COMPLETE_STREAM_STOP = "task_complete";
  * and a new stream continues. Not a user cancel; no blocking wait anymore.
  */
 const ASK_USER_STREAM_STOP = "ask_user_pending";
+
+/**
+ * Abort reason when the agentic repetition guard escalates to loop_abort.
+ * Must abort the IN-FLIGHT stream: the AI SDK multi-step loop (stopWhen never
+ * true) only returns to the outer round when the model stops calling tools,
+ * so `consumeLoopBreak()` at the round boundary is unreachable for a model
+ * stuck repeating tool calls — without this abort the turn runs unbounded
+ * (verified by tests/agent-evals/loop-detection.eval.test.ts).
+ */
+const LOOP_REPETITION_STREAM_STOP = "loop_repetition";
 
 /** Questions captured at end-turn time so the persist path can embed them. */
 const pendingAskUserArtifactByChatId = new Map<
@@ -940,6 +950,28 @@ const partialResponses = new Map<number, string>();
 // out. Cleared on chat delete is unnecessary; entries are overwritten on the
 // next normal `chat:stream` invocation for the same chatId.
 const lastStreamRequest = new Map<number, ChatStreamParams>();
+
+/**
+ * v12 (TODO 2.4): main-process memory-leak cleanup on session delete. These
+ * per-chat maps were only ever overwritten, never pruned — each deleted chat
+ * leaked its last request, partial response, loaders and ask_user state for
+ * the lifetime of the process.
+ */
+export function clearChatStreamStateForChat(chatId: number): void {
+  const active = activeStreams.get(chatId);
+  if (active) {
+    try {
+      active.abort();
+    } catch {
+      /* noop */
+    }
+    activeStreams.delete(chatId);
+  }
+  partialResponses.delete(chatId);
+  lastStreamRequest.delete(chatId);
+  pendingAskUserArtifactByChatId.delete(chatId);
+  toolSessionLoaders.delete(chatId);
+}
 
 const RECONNECT_DELAYS_MS = [2000, 5000, 10000];
 
@@ -2179,35 +2211,12 @@ ${componentSnippet}
           //   the SMART AGENTIC TOOL LOOP (see below), so this path only fires when
           //   the user's *new* turn would otherwise blow the per-tier budget.
           // - The `compress_context` tool remains as the model-triggered escape hatch.
-          // - Gated by `useAutoSummarize` so ephemeral / opted-out users skip it.
-          // Honors the TokenBar UI copy that says "auto-summarize will run on next message".
-          if (useAutoSummarize) {
-            const msgList = updatedChat.messages as {
-              id: number;
-              role: string;
-              content: string;
-              modelContent?: string | null;
-            }[];
-
-            // Check for existing summary
-            const existingSummary = (await getContextSummary(req.chatId)) as any;
-            if (existingSummary) {
-              contextSummaryForSystem = existingSummary.summaryText;
-              const afterSummary = msgList.filter((m) => m.id > existingSummary.lastMessageId);
-              limitedMessageHistory = afterSummary.map((m) => ({
-                role: m.role as "user" | "assistant" | "system",
-                content:
-                  m.role === "user"
-                    ? (m.modelContent ?? m.content ?? "")
-                    : (m.content ?? ""),
-              }));
-              logger.log(
-                `Using context summary + ${afterSummary.length} messages (after msg ${existingSummary.lastMessageId})`,
-              );
-            }
-            // Token-percent compaction (55% / 75% / 90%) runs later against
-            // `resolveModelContextLimit` + full dispatch estimate — not here.
-          }
+          // - v12 dedupe: the legacy getContextSummary() pre-load that lived here
+          //   was deleted — it ALWAYS returned null (legacy summary tables removed),
+          //   so the "existing summary" branch was dead. Durable summaries flow
+          //   through [COMPACTION MARKER] message slices instead; token-percent
+          //   compaction (55% / 75% / 90%) runs later against
+          //   `resolveModelContextLimit` + the full dispatch estimate.
 
           logger.log(
             `[stream:${req.chatId}] limitedMessageHistory len=${limitedMessageHistory.length} autoSummarize=${useAutoSummarize} hasSummary=${Boolean(contextSummaryForSystem)}`,
@@ -3470,43 +3479,18 @@ This conversation includes one or more image attachments. When the user uploads 
 
             // v10.1 prompt caching: the per-turn tail no longer merges into the
             // `system` string (that invalidated the provider prompt cache every
-            // turn). Leading system messages instead: stable header first —
-            // with an Anthropic cache breakpoint covering tools + system —
-            // then the dynamic tail as its own (mostly day-stable) block.
-            const anthropicCacheControl = {
-              anthropic: { cacheControl: { type: "ephemeral" as const } },
-            };
-            const streamMessages: ModelMessage[] = [
-              {
-                role: "system",
-                content: systemPromptOverride,
-                ...(isAnthropic ? { providerOptions: anthropicCacheControl } : {}),
-              },
-              ...(tailParts.length > 0
-                ? [
-                    {
-                      role: "system" as const,
-                      content: mergeSystemPromptParts(tailParts[0], ...tailParts.slice(1)),
-                    },
-                  ]
-                : []),
-              // Anthropic: second breakpoint on the previous exchange's last
-              // message so the growing history caches incrementally.
-              ...(isAnthropic && history.length >= 2
-                ? history.map((m, i) =>
-                    i === history.length - 2
-                      ? {
-                          ...m,
-                          providerOptions: {
-                            ...(m as { providerOptions?: Record<string, unknown> })
-                              .providerOptions,
-                            ...anthropicCacheControl,
-                          },
-                        }
-                      : m,
-                  )
-                : history),
-            ];
+            // turn). Layout + Anthropic breakpoints live in
+            // buildStreamMessagesWithCacheBreakpoints (unit-tested).
+            const streamMessages: ModelMessage[] =
+              buildStreamMessagesWithCacheBreakpoints({
+                systemHeader: systemPromptOverride,
+                dynamicTail:
+                  tailParts.length > 0
+                    ? mergeSystemPromptParts(tailParts[0], ...tailParts.slice(1))
+                    : null,
+                history,
+                isAnthropic,
+              });
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -4205,6 +4189,14 @@ This conversation includes one or more image attachments. When the user uploads 
                 loopTarget: o.target,
                 loopCount: o.count,
               });
+              // Stop the in-flight stream — the SDK's multi-step loop never
+              // returns to the round boundary while the model keeps calling
+              // tools, so consumeLoopBreak() alone cannot end the turn.
+              try {
+                abortController.abort(LOOP_REPETITION_STREAM_STOP);
+              } catch {
+                /* noop */
+              }
             };
 
             const askToolStreamOpts = () => ({
@@ -5032,6 +5024,14 @@ This conversation includes one or more image attachments. When the user uploads 
                 loopTarget: o.target,
                 loopCount: o.count,
               });
+              // Stop the in-flight stream — the SDK's multi-step loop never
+              // returns to the round boundary while the model keeps calling
+              // tools, so consumeLoopBreak() alone cannot end the turn.
+              try {
+                abortController.abort(LOOP_REPETITION_STREAM_STOP);
+              } catch {
+                /* noop */
+              }
             };
 
             const tools: ToolSet = {};
@@ -6369,7 +6369,9 @@ This conversation includes one or more image attachments. When the user uploads 
                     const stopNote =
                       abortController.signal.reason === COMPASS_LIMIT_STREAM_STOP
                         ? "[Stopped — monthly Atlarix Core token limit reached]"
-                        : "[Response cancelled by user]";
+                        : abortController.signal.reason === LOOP_REPETITION_STREAM_STOP
+                          ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
+                          : "[Response cancelled by user]";
                     const cancelledContent = `${partialResponse}
 
 ${stopNote}`;
@@ -6964,7 +6966,7 @@ ${stopNote}`;
           return;
         }
         {
-          const { isContextOverflowError } = await import("@/lib/context-compaction");
+          const { isContextOverflowError } = await import("@/lib/context/compaction");
           if (isContextOverflowError(error)) {
             // v11.1: the provider just told us our context estimate was too
             // big. Lower the cached window estimate (feedback loop), force one

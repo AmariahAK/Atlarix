@@ -263,7 +263,16 @@ export function WorkspaceSessionList({
   const handleDelete = async (sessionId: string) => {
     if (!confirm("Delete this session and all its messages?")) return;
     try {
-      await IpcClient.getInstance().deleteWorkspaceSession(sessionId);
+      const { streamChatId } =
+        await IpcClient.getInstance().deleteWorkspaceSession(sessionId);
+      // v12 (TODO 2.4): prune the per-chat jotai atoms for the deleted
+      // session's transport — they were never cleared (renderer leak).
+      if (streamChatId != null) {
+        const { clearChatAtomsForChat } = await import(
+          "@/lib/chat/clear-chat-atoms"
+        );
+        clearChatAtomsForChat(streamChatId);
+      }
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
         setLoadedResume(false);

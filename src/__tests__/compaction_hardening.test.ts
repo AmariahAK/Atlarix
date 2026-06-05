@@ -4,8 +4,8 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { isContextOverflowError } from "@/lib/context-compaction";
 import {
+  isContextOverflowError,
   COMPACTION_SUMMARY_PREFIX,
   isCompactionSummaryMessage,
   sliceFromLastCompactionSummary,

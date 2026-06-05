@@ -95,6 +95,15 @@ export function isEphemeralChatId(chatId: number): boolean {
   return chatId < 0;
 }
 
+/**
+ * v12 (TODO 2.4): drop the in-memory chat entirely when its session is
+ * deleted — entries were never pruned, leaking message arrays per deleted
+ * session for the lifetime of the main process.
+ */
+export function deleteEphemeralChat(chatId: number): boolean {
+  return ephemeralChats.delete(chatId);
+}
+
 export function clearEphemeralChatMessages(chatId: number): void {
   const chat = ephemeralChats.get(chatId);
   if (!chat) return;

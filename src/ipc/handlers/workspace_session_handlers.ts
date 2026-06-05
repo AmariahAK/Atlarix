@@ -25,6 +25,7 @@ import type {
 import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
 import {
   createEphemeralWorkspaceChat,
+  deleteEphemeralChat,
   getEphemeralChat,
   getEphemeralChatAppId,
   isEphemeralChatId,
@@ -439,8 +440,25 @@ export function registerWorkspaceSessionHandlers(): void {
   );
 
   handle("sessions:delete", async (_event, sessionId: string) => {
+    // v12 (TODO 2.4): prune the in-memory transport state too — the DB delete
+    // alone leaked the ephemeral chat, partial responses, last stream request
+    // and ask_user state for every deleted session.
+    const session = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+    });
     await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
-    return { ok: true };
+
+    const streamChatId = session?.streamChatId ?? null;
+    if (streamChatId != null && isEphemeralChatId(streamChatId)) {
+      deleteEphemeralChat(streamChatId);
+      const { clearChatStreamStateForChat } = await import(
+        "./chat_stream_handlers"
+      );
+      clearChatStreamStateForChat(streamChatId);
+    }
+
+    // Returned so the renderer can clear its per-chat atoms for this transport.
+    return { ok: true, streamChatId };
   });
 
   handle(

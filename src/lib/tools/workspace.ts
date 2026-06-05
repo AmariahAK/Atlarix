@@ -30,8 +30,12 @@ import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import fs from "fs/promises";
 import { SubscriptionManager } from "../SubscriptionManager";
 import { estimateTokens } from "@/ipc/utils/token_utils";
-import { runSteppedCompaction } from "../context/compaction";
-import { runCompaction, type CompactionRunOutcome, getUsableBudget } from "../context-compaction";
+import {
+  runSteppedCompaction,
+  runCompaction,
+  type CompactionRunOutcome,
+  getUsableBudget,
+} from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";

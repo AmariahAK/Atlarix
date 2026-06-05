@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
-import { CANNED_MESSAGE, createStreamChunk } from ".";
+import { CANNED_MESSAGE, createStreamChunk } from "./chunks";
+import { findScenarioId, handleScenarioChatCompletion } from "./scenario";
 
 let globalCounter = 0;
 
@@ -9,6 +10,14 @@ export const createChatCompletionHandler =
   (prefix: string) => async (req: Request, res: Response) => {
     const { stream = false, messages = [] } = req.body;
     console.log("* Received messages", messages);
+
+    // Agent-eval scenarios: `sc=<id>` in any message routes the request to a
+    // registered multi-turn script (see scenario.ts). Everything below (tc=,
+    // [429], [dump], …) is untouched for e2e.
+    const scenarioId = findScenarioId(messages);
+    if (scenarioId) {
+      return handleScenarioChatCompletion(scenarioId, req, res);
+    }
 
     // Check if the last message contains "[429]" to simulate rate limiting
     const lastMessage = messages[messages.length - 1];

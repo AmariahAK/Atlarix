@@ -174,9 +174,11 @@ function permissionPayload(args: {
   reasoning: string;
   diff?: any;
   operation: string;
+  /** Audit note (fuzzy-match drift) surfaced to the model + activity card. */
+  notice?: string;
   metadata?: Awaited<ReturnType<typeof enrichPermissionWithBlastRadius>>;
 }) {
-  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, metadata } = args;
+  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, notice, metadata } = args;
   return {
     __permission_required: true,
     operation,
@@ -188,6 +190,7 @@ function permissionPayload(args: {
       type: "update" as const,
       lines: newContent.split("\n").length,
       ...(diff ? { diff } : {}),
+      ...(notice ? { notice } : {}),
     },
     reasoning,
     ...(metadata ? { metadata } : {}),
@@ -241,9 +244,15 @@ async function runReplace(
     };
   }
 
+  // v12 (TODO 1.4): fuzzy drift is no longer silent — surface it to the model
+  // (tool result `output`) and the activity/approval card so indentation-
+  // sensitive files (Python/YAML) get re-verified instead of corrupted.
+  let fuzzyNotice: string | undefined;
   if (match.fuzzy) {
+    const matchLine = r.content.slice(0, match.index).split("\n").length;
+    fuzzyNotice = `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly. Re-read the edited range to verify indentation.`;
     logger.warn(
-      `[edit_file] fuzzy match (indent/EOL tolerated) for ${normalizedPath}`,
+      `[edit_file] fuzzy match (indent/EOL tolerated) for ${normalizedPath} at line ${matchLine}`,
     );
   }
 
@@ -259,7 +268,10 @@ async function runReplace(
       normalizedPath,
       newContent,
       oldContent: r.content,
-      description: description ?? "Surgical replace",
+      description: fuzzyNotice
+        ? `${description ?? "Surgical replace"} (${fuzzyNotice})`
+        : (description ?? "Surgical replace"),
+      ...(fuzzyNotice ? { notice: fuzzyNotice } : {}),
       operation: "edit_file",
       diff: {
         removed: oldLines,

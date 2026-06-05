@@ -128,7 +128,7 @@ export async function packageAppDirect(tag) {
           platform: pPlatform,
           arch: pArch,
           force: true,
-          ...(forgeConfig.rebuildConfig ?? {}),
+          ...forgeConfig.rebuildConfig,
         });
       }
     },
@@ -165,7 +165,7 @@ export async function packageAppDirect(tag) {
     tmpdir: packagerTmpdir,
     ...forgeConfig.packagerConfig,
     download: {
-      ...(forgeConfig.packagerConfig?.download ?? {}),
+      ...forgeConfig.packagerConfig?.download,
       cacheRoot: electronCacheRoot,
     },
     ignore: wrapPackagerIgnore(

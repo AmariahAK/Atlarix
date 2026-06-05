@@ -870,6 +870,9 @@ export class PermissionInterceptor extends EventEmitter {
                     operation: opType,
                     oldContent: preview.oldContent ?? "",
                     newContent: preview.content ?? "",
+                    // Audit note (e.g. edit_file fuzzy-match drift) — flows to
+                    // the model via jsonAfterSuccessfulExec's `output`.
+                    ...(preview.notice ? { output: preview.notice } : {}),
                 };
             }
             if (path) {

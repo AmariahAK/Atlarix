@@ -37,7 +37,8 @@ export default defineConfig({
           name: "node",
           environment: "node",
           setupFiles: ["./vitest.setup.ts"],
-          exclude: [...sharedExclude, "src/__tests__/renderer/**"],
+          // tests/** belongs to the agent-evals project (real DB + fake LLM).
+          exclude: [...sharedExclude, "src/__tests__/renderer/**", "tests/**"],
         },
       },
       {
@@ -58,6 +59,37 @@ export default defineConfig({
           setupFiles: ["./vitest.renderer.setup.ts"],
           include: ["src/__tests__/renderer/**/*.test.{ts,tsx}"],
           exclude: sharedExclude,
+        },
+      },
+      {
+        resolve: {
+          alias: {
+            "@": path.join(root, "src"),
+            // Root better-sqlite3 is rebuilt for Electron's ABI (postinstall
+            // electron-rebuild); plain-Node vitest needs the Node-ABI copy
+            // installed under tests/infra (see tests/infra/package.json).
+            "better-sqlite3": path.join(
+              root,
+              "tests/infra/node_modules/better-sqlite3",
+            ),
+          },
+        },
+        test: {
+          name: "agent-evals",
+          environment: "node",
+          setupFiles: [
+            "./vitest.setup.ts",
+            "./tests/infra/setup-agent-evals.ts",
+          ],
+          include: ["tests/agent-evals/**/*.test.ts"],
+          exclude: sharedExclude,
+          // Real sqlite migrations + streamed fake-LLM turns are slower than
+          // pure unit tests; evals drive full agent turns end-to-end.
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+          // Each eval file owns a real DB singleton + temp dirs; keep files
+          // isolated from each other.
+          fileParallelism: false,
         },
       },
     ],

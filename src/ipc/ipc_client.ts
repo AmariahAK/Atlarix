@@ -1345,7 +1345,9 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:rename", sessionId, title);
   }
 
-  public async deleteWorkspaceSession(sessionId: string) {
+  public async deleteWorkspaceSession(
+    sessionId: string,
+  ): Promise<{ ok: boolean; streamChatId: number | null }> {
     return this.ipcRenderer.invoke("sessions:delete", sessionId);
   }
 
